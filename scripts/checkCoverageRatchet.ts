@@ -126,7 +126,9 @@ async function collectCoverageSourceFiles(projectRoot: string) {
             }
             const isCoverageSource = relativePath.startsWith('scripts/')
                 ? /\.(?:cjs|mjs|ts)$/u.test(entry.name)
-                : entry.name.endsWith('.ts');
+                : entry.name.endsWith('.ts') || (
+                    relativePath.startsWith('app/') && entry.name.endsWith('.vue')
+                );
             return entry.isFile()
                 && isCoverageSource
                 && !entry.name.endsWith('.d.ts')

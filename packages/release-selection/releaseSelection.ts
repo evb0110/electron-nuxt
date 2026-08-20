@@ -314,22 +314,7 @@ function isCompatibleArchitecture(assetArch: TReleaseArch, profileArch: TRelease
 }
 
 export function normalizeInstallers(assets: IReleaseInstaller[]): IReleaseInstaller[] {
-    const platformNormalizedAssets = assets.map((asset) => {
-        if (
-            asset.platform !== 'unknown'
-            || asset.extension !== 'zip'
-            || /(win|windows|linux|appimage|deb|rpm|msi|setup)/iu.test(asset.name)
-        ) {
-            return asset;
-        }
-
-        return {
-            ...asset,
-            platform: 'macos' as const,
-        };
-    });
-
-    const normalizedAssets = platformNormalizedAssets.map((asset) => {
+    const normalizedAssets = assets.map((asset) => {
         if (asset.platform === 'linux' && asset.extension === 'appimage' && asset.arch === 'unknown') {
             return {
                 ...asset,

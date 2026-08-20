@@ -108,10 +108,10 @@ function killTaskkillHelper(child: ReturnType<typeof spawn>) {
 }
 
 async function runTaskkill(pid: number, force: boolean, timeoutMs: number) {
-    await new Promise<void>((resolve) => {
+    return new Promise<boolean>((resolve) => {
         let settled = false;
         let timeoutHandle: NodeJS.Timeout | null = null;
-        const settle = () => {
+        const settle = (succeeded: boolean) => {
             if (settled) {
                 return;
             }
@@ -120,7 +120,7 @@ async function runTaskkill(pid: number, force: boolean, timeoutMs: number) {
                 clearTimeout(timeoutHandle);
                 timeoutHandle = null;
             }
-            resolve();
+            resolve(succeeded);
         };
         const args = [
             '/PID',
@@ -139,12 +139,12 @@ async function runTaskkill(pid: number, force: boolean, timeoutMs: number) {
 
         timeoutHandle = setTimeout(() => {
             killTaskkillHelper(child);
-            settle();
+            settle(false);
         }, Math.max(0, timeoutMs));
         timeoutHandle.unref?.();
 
-        child.once('error', settle);
-        child.once('close', settle);
+        child.once('error', () => settle(false));
+        child.once('close', exitCode => settle(exitCode === 0));
     });
 }
 
@@ -158,19 +158,24 @@ export async function terminateProcessTree(
     const preferProcessGroup = options.preferProcessGroup ?? false;
     const taskkillTimeoutMs = options.taskkillTimeoutMs ?? DEFAULT_TASKKILL_TIMEOUT_MS;
 
-    if (!isTargetAlive() || !isPidAlive(pid)) {
-        return;
+    const targetAlive = preferProcessGroup ? isProcessGroupAlive(pid) : isPidAlive(pid);
+    if (!targetAlive || (!preferProcessGroup && !isTargetAlive())) {
+        return true;
     }
 
     if (platform === 'win32') {
         await runTaskkill(pid, false, taskkillTimeoutMs);
         const exitedGracefully = await waitForExit(pid, graceMs);
-        if (!exitedGracefully && isTargetAlive() && isPidAlive(pid)) {
+        if (exitedGracefully) {
+            return true;
+        }
+        if (isTargetAlive() && isPidAlive(pid)) {
             await runTaskkill(pid, true, taskkillTimeoutMs);
             const forceKillWaitMs = clamp(Math.floor(graceMs / 2), 250, 2_000);
-            await waitForExit(pid, forceKillWaitMs);
+            const exitedAfterForce = await waitForExit(pid, forceKillWaitMs);
+            return exitedAfterForce;
         }
-        return;
+        return !isTargetAlive() || !isPidAlive(pid);
     }
 
     sendPosixSignal(pid, 'SIGTERM', preferProcessGroup);
@@ -180,15 +185,14 @@ export async function terminateProcessTree(
     const stillAlive = preferProcessGroup
         ? isProcessGroupAlive(pid)
         : isPidAlive(pid);
-    if (exitedGracefully || !stillAlive || !isTargetAlive()) {
-        return;
+    if (exitedGracefully || !stillAlive || (!preferProcessGroup && !isTargetAlive())) {
+        return true;
     }
 
     sendPosixSignal(pid, 'SIGKILL', preferProcessGroup);
     const forceKillWaitMs = clamp(Math.floor(graceMs / 2), 250, 2_000);
     if (preferProcessGroup) {
-        await waitForProcessGroupExit(pid, forceKillWaitMs);
-    } else {
-        await waitForExit(pid, forceKillWaitMs);
+        return waitForProcessGroupExit(pid, forceKillWaitMs);
     }
+    return waitForExit(pid, forceKillWaitMs);
 }

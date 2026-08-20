@@ -205,6 +205,10 @@ describe('coverage ratchet', () => {
                 'export const runtime = true;',
             ],
             [
+                'app/Viewer.vue',
+                '<template><main /></template>',
+            ],
+            [
                 'app/types.d.ts',
                 'export declare const ignored: true;',
             ],
@@ -262,7 +266,7 @@ describe('coverage ratchet', () => {
 
         expect(result.passed).toBe(false);
         expect(result.message).toContain(
-            'app-core coverage file count shrank from 6 to 5 while 1 source files remain on disk',
+            'app-core coverage file count shrank from 6 to 5 while 2 source files remain on disk',
         );
     });
 

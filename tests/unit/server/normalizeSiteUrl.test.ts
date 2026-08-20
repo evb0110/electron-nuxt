@@ -25,6 +25,18 @@ describe('resolveSiteUrl', () => {
         expect(resolveSiteUrl({} as H3Event)).toBe('https://canonical.example/');
     });
 
+    it('rejects malformed, non-web, and credential-bearing configured URLs', async () => {
+        const { resolveSiteUrl } = await import('@server/utils/normalizeSiteUrl');
+        for (const siteUrl of [
+            'not a URL',
+            'javascript:alert(1)',
+            'https://user:secret@example.test',
+        ]) {
+            vi.stubGlobal('process', {env: {NUXT_PUBLIC_SITE_URL: siteUrl}});
+            expect(() => resolveSiteUrl({} as H3Event)).toThrow(/Configured site URL/u);
+        }
+    });
+
     it('rejects request hosts outside the explicit sitemap allowlist', async () => {
         vi.stubGlobal('process', { env: {
             NODE_ENV: 'production',

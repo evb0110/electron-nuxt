@@ -8,6 +8,7 @@ import {
 import { PDFDocument } from 'pdf-lib';
 import { limitAsync } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
+import { dirname } from 'node:path';
 import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
 import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -19,7 +20,11 @@ import {
 } from '@electron/native-tools/runNativeCommand';
 import type { IRunCommandOptions } from '@electron/native-tools/runNativeCommand';
 import { abortErrorFromSignal } from '@electron/utils/abort';
-import { openDjvuArtifactJob } from '@electron/features/djvu/main/djvuArtifactManifest';
+import {
+    createDjvuDiskQuotaMonitor,
+    DJVU_ARTIFACT_MAX_TOTAL_BYTES,
+    openDjvuArtifactJob,
+} from '@electron/features/djvu/main/djvuArtifactManifest';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
@@ -38,6 +43,7 @@ export interface IRegisteredDjvuProcessOptions {
     onStdout?: (chunk: string) => void;
     timeoutMs?: number;
     maxStderrBytes?: number;
+    signal?: AbortSignal;
 }
 
 interface IDjvuConversionResult {
@@ -150,10 +156,31 @@ async function _convertDjvuToPdfWithRanges(
     const chunkPaths = chunks.map(chunk => chunk.outputPath);
     let completedPageCount = 0;
     let firstError: string | null = null;
+    const quotaMonitor = await createDjvuDiskQuotaMonitor({
+        paths: [
+            artifactJob.directory,
+            outputPath,
+        ],
+        fileSystemPath: artifactJob.directory,
+        maxTotalBytes: artifactJob.maxTotalBytes,
+        ...(options.signal ? {signal: options.signal} : {}),
+    }).catch(async (error: unknown) => {
+        await artifactJob.close();
+        return error instanceof Error ? error : new Error(String(error));
+    });
+    if (quotaMonitor instanceof Error) {
+        return {
+            success: false,
+            outputPath,
+            fileSize: 0,
+            error: quotaMonitor.message,
+        };
+    }
+    const conversionSignal = quotaMonitor.signal;
 
     try {
         const convertChunkWithLimit = limitAsync(async (chunk: IDjvuPageRangeChunk) => {
-            throwIfAborted(options.signal);
+            throwIfAborted(conversionSignal);
             if (firstError) {
                 return firstError;
             }
@@ -180,7 +207,7 @@ async function _convertDjvuToPdfWithRanges(
                     nativeProcesses: 1,
                     ioWeight: 2,
                 },
-                ...(options.signal ? {signal: options.signal} : {}),
+                signal: conversionSignal,
             });
             if (firstError) {
                 brokerLease.release();
@@ -193,11 +220,14 @@ async function _convertDjvuToPdfWithRanges(
                 chunk.startPage,
                 chunk.endPage,
                 options.subsample,
-                options.signal,
+                conversionSignal,
             ).finally(() => brokerLease.release());
 
             if (!pageResult.success) {
-                const pageError = pageResult.error ?? `Failed to convert pages ${chunk.startPage}-${chunk.endPage}`;
+                const pageError = quotaMonitor.failure?.message
+                    ?? pageResult.error
+                    ?? `Failed to convert pages ${chunk.startPage}-${chunk.endPage}`;
+                await cleanupPartialOutput(chunk.outputPath);
                 await artifactJob.updateRange(chunk.index, {
                     status: 'failed',
                     error: pageError,
@@ -225,10 +255,18 @@ async function _convertDjvuToPdfWithRanges(
                 firstError = `Converted pages ${chunk.startPage}-${chunk.endPage} produced an empty artifact`;
                 return firstError;
             }
-            await artifactJob.updateRange(chunk.index, {
-                status: 'verified',
-                size: artifact.size,
-            });
+            try {
+                await quotaMonitor.checkNow();
+                await artifactJob.updateRange(chunk.index, {
+                    status: 'verified',
+                    size: artifact.size,
+                });
+            } catch (error) {
+                const verificationError = getErrorMessage(error);
+                firstError = firstError ?? verificationError;
+                await cancelConversion(jobId);
+                return firstError;
+            }
 
             completedPageCount += chunk.endPage - chunk.startPage + 1;
             if (options.onProgress) {
@@ -259,13 +297,13 @@ async function _convertDjvuToPdfWithRanges(
             };
         }
 
-        throwIfAborted(options.signal);
+        throwIfAborted(conversionSignal);
         const mergeResult = await mergePdfChunks(
             chunkPaths,
             outputPath,
             `${jobId}-merge`,
             totalPages,
-            options.signal,
+            conversionSignal,
         );
         if (!mergeResult.success) {
             await cleanupPartialOutput(outputPath);
@@ -273,11 +311,14 @@ async function _convertDjvuToPdfWithRanges(
                 success: false,
                 outputPath,
                 fileSize: 0,
-                error: mergeResult.error ?? 'Failed to merge converted DjVu PDF chunks',
+                error: quotaMonitor.failure?.message
+                    ?? mergeResult.error
+                    ?? 'Failed to merge converted DjVu PDF chunks',
             };
         }
 
         try {
+            await quotaMonitor.checkNow();
             const s = await stat(outputPath);
             if (options.onProgress) {
                 options.onProgress(PROGRESS_CAP + 5);
@@ -295,11 +336,14 @@ async function _convertDjvuToPdfWithRanges(
                 success: false,
                 outputPath,
                 fileSize: 0,
-                error: `Output file not found after parallel conversion: ${getErrorMessage(err)}`,
+                error: quotaMonitor.failure?.message
+                    ?? `Output file not found after parallel conversion: ${getErrorMessage(err)}`,
             };
         }
     } finally {
+        await quotaMonitor.stop();
         // Verified range artifacts intentionally survive failures and process exits for resume.
+        await artifactJob.close();
     }
 }
 
@@ -310,62 +354,78 @@ async function _convertDjvuToPdfSingleProcess(
     options: IDjvuConversionOptions,
     totalPages: number,
 ): Promise<IDjvuConversionResult> {
-    const brokerLease = await mainJobBroker.acquire({
-        ownerId: jobId,
-        kind: 'djvu-conversion',
-        priority: 'user',
-        resources: {
-            cpuTokens: 1,
-            estimatedResidentBytes: 128 * 1024 * 1024,
-            nativeProcesses: 1,
-            ioWeight: 2,
-        },
+    const quotaMonitor = await createDjvuDiskQuotaMonitor({
+        paths: [outputPath],
+        fileSystemPath: dirname(outputPath),
+        maxTotalBytes: DJVU_ARTIFACT_MAX_TOTAL_BYTES,
         ...(options.signal ? {signal: options.signal} : {}),
-    });
-    const args = buildPdfArgs(inputPath, outputPath, options.subsample, options.pages);
-    const pageProgressSeen = new Set<number>();
-    const result = await runProcess(
-        jobId,
-        getDjvuNativeToolPaths().ddjvu,
-        args,
-        {
-            env: buildDjvuRuntimeEnv(),
-            ...(options.signal ? { signal: options.signal } : {}),
-            onStderr: (chunk) => {
-                if (!options.onProgress || totalPages <= 0) {
-                    return;
-                }
-                const pageMatches = chunk.matchAll(/-------- page (\d+)/g);
-                for (const match of pageMatches) {
-                    const pageNum = parseInt(match[1] ?? '0', 10);
-                    if (!Number.isInteger(pageNum) || pageNum < 1 || pageNum > totalPages) {
-                        continue;
-                    }
-                    if (pageProgressSeen.has(pageNum)) {
-                        continue;
-                    }
-                    pageProgressSeen.add(pageNum);
-                    const percent = Math.min(
-                        PROGRESS_CAP,
-                        Math.round((pageProgressSeen.size / totalPages) * PROGRESS_CAP),
-                    );
-                    options.onProgress(percent);
-                }
-            },
-        },
-    ).finally(() => brokerLease.release());
-
-    if (!result.success) {
-        await cleanupPartialOutput(outputPath);
+    }).catch((error: unknown) => error instanceof Error ? error : new Error(String(error)));
+    if (quotaMonitor instanceof Error) {
         return {
             success: false,
             outputPath,
             fileSize: 0,
-            error: result.error,
+            error: quotaMonitor.message,
         };
     }
 
     try {
+        const brokerLease = await mainJobBroker.acquire({
+            ownerId: jobId,
+            kind: 'djvu-conversion',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 128 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 2,
+            },
+            signal: quotaMonitor.signal,
+        });
+        const args = buildPdfArgs(inputPath, outputPath, options.subsample, options.pages);
+        const pageProgressSeen = new Set<number>();
+        const result = await runProcess(
+            jobId,
+            getDjvuNativeToolPaths().ddjvu,
+            args,
+            {
+                env: buildDjvuRuntimeEnv(),
+                signal: quotaMonitor.signal,
+                onStderr: (chunk) => {
+                    if (!options.onProgress || totalPages <= 0) {
+                        return;
+                    }
+                    const pageMatches = chunk.matchAll(/-------- page (\d+)/g);
+                    for (const match of pageMatches) {
+                        const pageNum = parseInt(match[1] ?? '0', 10);
+                        if (!Number.isInteger(pageNum) || pageNum < 1 || pageNum > totalPages) {
+                            continue;
+                        }
+                        if (pageProgressSeen.has(pageNum)) {
+                            continue;
+                        }
+                        pageProgressSeen.add(pageNum);
+                        const percent = Math.min(
+                            PROGRESS_CAP,
+                            Math.round((pageProgressSeen.size / totalPages) * PROGRESS_CAP),
+                        );
+                        options.onProgress(percent);
+                    }
+                },
+            },
+        ).finally(() => brokerLease.release());
+
+        if (!result.success) {
+            await cleanupPartialOutput(outputPath);
+            return {
+                success: false,
+                outputPath,
+                fileSize: 0,
+                error: quotaMonitor.failure?.message ?? result.error,
+            };
+        }
+
+        await quotaMonitor.checkNow();
         const s = await stat(outputPath);
         return {
             success: true,
@@ -378,8 +438,11 @@ async function _convertDjvuToPdfSingleProcess(
             success: false,
             outputPath,
             fileSize: 0,
-            error: `Output file not found after conversion: ${getErrorMessage(err)}`,
+            error: quotaMonitor.failure?.message
+                ?? `DjVu conversion failed: ${getErrorMessage(err)}`,
         };
+    } finally {
+        await quotaMonitor.stop();
     }
 }
 
@@ -728,7 +791,11 @@ function shouldSkipSingleProcessFallback(error: string | undefined) {
     if (!error) {
         return false;
     }
-    return isDjvuConversionCancellationError(error) || error.includes('timed out after');
+    return isDjvuConversionCancellationError(error)
+        || error.includes('timed out after')
+        || error.includes('disk ceiling')
+        || error.includes('DjVu disk quota exceeded')
+        || error.includes('free temporary disk space');
 }
 
 function isDjvuConversionCancellationError(error: string | undefined) {

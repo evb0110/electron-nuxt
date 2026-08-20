@@ -22,6 +22,7 @@ import {
 } from 'vitest';
 
 let bundlePath = '';
+let recoveryBundlePath = '';
 let temporaryDirectory = '';
 let origin = '';
 let server: Server;
@@ -29,12 +30,23 @@ let server: Server;
 beforeAll(async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), 'evb-idb-migration-'));
     bundlePath = join(temporaryDirectory, 'browser-document-idb.js');
+    recoveryBundlePath = join(temporaryDirectory, 'browser-workspace-recovery.js');
     await build({
         bundle: true,
         entryPoints: [resolve(process.cwd(), 'app/platform/browser/browserDocumentIdb.ts')],
         format: 'iife',
         globalName: 'EvbBrowserDocumentIdb',
         outfile: bundlePath,
+        platform: 'browser',
+        sourcemap: false,
+        tsconfig: resolve(process.cwd(), 'tsconfig.json'),
+    });
+    await build({
+        bundle: true,
+        entryPoints: [resolve(process.cwd(), 'app/platform/browser/browserWorkspaceRecoveryStore.ts')],
+        format: 'iife',
+        globalName: 'EvbBrowserWorkspaceRecovery',
+        outfile: recoveryBundlePath,
         platform: 'browser',
         sourcemap: false,
         tsconfig: resolve(process.cwd(), 'tsconfig.json'),
@@ -110,7 +122,7 @@ describe('browser document IndexedDB migration in Chromium', () => {
                     legacyName: string | null;
                     stores: string[];
                 }>((resolveUpgrade, rejectUpgrade) => {
-                    const request = indexedDB.open('evb-viewer-browser-documents', 2);
+                    const request = indexedDB.open('evb-viewer-browser-documents', 3);
                     request.onupgradeneeded = () => upgradeBrowserDocumentDatabase(request.result);
                     request.onerror = () => rejectUpgrade(request.error);
                     request.onsuccess = () => {
@@ -134,8 +146,148 @@ describe('browser document IndexedDB migration in Chromium', () => {
             expect(result.stores).toEqual([
                 'document-chunks',
                 'documents',
+                'workspace-recovery',
             ]);
             expect(result.legacyName).toBe('legacy.pdf');
+        } finally {
+            await browser.close();
+        }
+    }, 30_000);
+
+    it('isolates simultaneous window journals and enforces per-owner generations', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.evaluate(async () => {
+                await new Promise<void>((resolveDelete) => {
+                    const request = indexedDB.deleteDatabase('evb-viewer-browser-documents');
+                    request.onsuccess = () => resolveDelete();
+                    request.onerror = () => resolveDelete();
+                });
+            });
+            await page.addScriptTag({path: recoveryBundlePath});
+
+            const result = await page.evaluate(async () => {
+                const store = Reflect.get(globalThis, 'EvbBrowserWorkspaceRecovery') as {
+                    claimBrowserWorkspaceRecoveryOwner?: (
+                        sourceOwnerId: string,
+                        targetOwnerId: string,
+                        generation: number,
+                    ) => Promise<unknown>;
+                    loadBrowserWorkspaceRecoveries?: () => Promise<unknown>;
+                    saveBrowserWorkspaceRecovery?: (
+                        ownerId: string,
+                        generation: number,
+                        checkpoint: unknown,
+                        snapshotRefs: string[],
+                    ) => Promise<unknown>;
+                };
+                const buildCheckpoint = (tabId: string, snapshotRef: string, capturedAt: number) => ({
+                    version: 1,
+                    capturedAt,
+                    activePaneId: `pane-${tabId}`,
+                    activeTabId: tabId,
+                    layout: {
+                        type: 'leaf',
+                        paneId: `pane-${tabId}`,
+                    },
+                    panes: [{
+                        paneId: `pane-${tabId}`,
+                        tabIds: [tabId],
+                        activeTabId: tabId,
+                    }],
+                    tabs: [{
+                        tabId,
+                        paneId: `pane-${tabId}`,
+                        fileName: `${tabId}.pdf`,
+                        sourceRef: snapshotRef,
+                        workingCopyRef: snapshotRef,
+                        requiresSaveAsOnFirstSave: true,
+                        isDirty: true,
+                        isDjvu: false,
+                        currentPage: 1,
+                        zoom: 1,
+                        zoomMode: 'custom',
+                    }],
+                });
+                const save = store.saveBrowserWorkspaceRecovery!;
+                const loadAll = store.loadBrowserWorkspaceRecoveries!;
+                const ownerARef = 'browser://documents/window-a-recovery.pdf';
+                const ownerBRef = 'browser://documents/window-b-recovery.pdf';
+                const first = await Promise.all([
+                    save('window:100', 0, buildCheckpoint('tab-a', ownerARef, 1), [ownerARef]),
+                    save('window:200', 0, buildCheckpoint('tab-b', ownerBRef, 2), [ownerBRef]),
+                ]);
+                const stale = await save(
+                    'window:100',
+                    0,
+                    buildCheckpoint('tab-a-stale', ownerARef, 3),
+                    [ownerARef],
+                );
+                const claimed = await store.claimBrowserWorkspaceRecoveryOwner!(
+                    'window:200',
+                    'window:300',
+                    1,
+                );
+                const recordsAfterFirstClaim = await loadAll();
+                const claimedRemaining = await store.claimBrowserWorkspaceRecoveryOwner!(
+                    'window:100',
+                    'window:400',
+                    1,
+                );
+                return {
+                    claimed,
+                    claimedRemaining,
+                    first,
+                    stale,
+                    recordsAfterFirstClaim,
+                    recordsAfterSecondClaim: await loadAll(),
+                };
+            });
+
+            expect(result.first).toEqual([
+                {
+                    saved: true,
+                    generation: 1,
+                },
+                {
+                    saved: true,
+                    generation: 1,
+                },
+            ]);
+            expect(result.stale).toEqual({
+                saved: false,
+                generation: 1,
+            });
+            expect(result.claimed).toEqual({
+                claimed: true,
+                generation: 2,
+            });
+            expect(result.recordsAfterFirstClaim).toEqual(expect.arrayContaining([
+                expect.objectContaining({
+                    ownerId: 'window:100',
+                    generation: 1,
+                }),
+                expect.objectContaining({
+                    ownerId: 'window:300',
+                    generation: 2,
+                }),
+            ]));
+            expect(result.claimedRemaining).toEqual({
+                claimed: true,
+                generation: 2,
+            });
+            expect(result.recordsAfterSecondClaim).toEqual(expect.arrayContaining([
+                expect.objectContaining({
+                    ownerId: 'window:300',
+                    generation: 2,
+                }),
+                expect.objectContaining({
+                    ownerId: 'window:400',
+                    generation: 2,
+                }),
+            ]));
         } finally {
             await browser.close();
         }

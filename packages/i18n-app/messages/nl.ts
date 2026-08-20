@@ -863,6 +863,8 @@ export default {
         'unitByte': 'B',
         'unitKilobyte': 'KB',
         'unitMegabyte': 'MB',
+        'pdfPage': 'PDF-pagina {page}',
+        'pageRenderFailed': 'Deze pagina kan niet worden weergegeven',
     },
     'print': {
         'title': 'Afdrukken',
@@ -1444,6 +1446,7 @@ export default {
             'openNotFound': '"{name}" kon niet worden geopend. Het bestand is mogelijk verplaatst, verwijderd, of de opslag is gewist.',
             'invalid': 'Ongeldig of niet-bestaand bestand',
             'emptyPdf': 'Het PDF-bestand is leeg (0 bytes)',
+            'noPages': 'De PDF bevat geen pagina’s',
             'folderEmpty': 'Er zijn geen ondersteunde documenten gevonden in de geselecteerde map',
             'save': 'Kan bestand niet opslaan',
             'browserStorageTitle': 'Browseropslag is niet beschikbaar',
@@ -1453,7 +1456,10 @@ export default {
             'images': 'Afbeeldingsexport mislukt',
             'multiPageTiff': 'TIFF-export mislukt',
         },
-        'browser': { 'largeSaveHandleHint': 'Gebruik een browser met lokale bestandssysteemtoegang ingeschakeld om grote documenten op te slaan.' },
+        'browser': {
+            'filePickerSetupDenied': 'Browsertoegang tot bestanden is geweigerd. Kies opnieuw Openen om de compatibele bestandskiezer te gebruiken.',
+            'largeSaveHandleHint': 'Gebruik een browser met lokale bestandssysteemtoegang ingeschakeld om grote documenten op te slaan.',
+        },
         'search': {
             'browserTooLarge': 'Zoeken is in de browser niet beschikbaar voor zeer grote documenten.',
             'unavailable': 'Zoeken is momenteel niet beschikbaar voor dit document.',

@@ -63,6 +63,7 @@ const mocks = vi.hoisted(() => {
 
     const spawnCalls: ISpawnCall[] = [];
     let spawnMode: TSpawnMode = 'success';
+    let quotaFailure: Error | null = null;
     let nextPid = 1000;
 
     function isRangeDdjvuCall(command: string, args: string[]) {
@@ -111,6 +112,28 @@ const mocks = vi.hoisted(() => {
 
         return proc;
     });
+    const createDjvuDiskQuotaMonitor = vi.fn(async (options: {signal?: AbortSignal;}) => {
+        const controller = new AbortController();
+        const signal = options.signal
+            ? AbortSignal.any([
+                options.signal,
+                controller.signal,
+            ])
+            : controller.signal;
+        return {
+            signal,
+            async checkNow() {
+                if (quotaFailure) {
+                    controller.abort(quotaFailure);
+                    throw quotaFailure;
+                }
+            },
+            get failure() {
+                return quotaFailure;
+            },
+            stop: vi.fn(async () => undefined),
+        };
+    });
 
     return {
         spawn,
@@ -118,6 +141,10 @@ const mocks = vi.hoisted(() => {
         setSpawnMode: (mode: TSpawnMode) => {
             spawnMode = mode;
         },
+        setQuotaFailure: (error: Error | null) => {
+            quotaFailure = error;
+        },
+        createDjvuDiskQuotaMonitor,
         mkdtemp: vi.fn(async () => '/tmp/djvu-pages-test'),
         readFile: vi.fn(),
         rm: vi.fn(async () => undefined),
@@ -167,24 +194,30 @@ vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: unknown) => options,
     terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
 }));
-vi.mock('@electron/features/djvu/main/djvuArtifactManifest', () => ({openDjvuArtifactJob: vi.fn(async (_sourcePath: string, ranges: Array<{
-    startPage: number;
-    endPage: number;
-}>) => {
-    const manifest = {ranges: ranges.map(range => ({
-        ...range,
-        outputPath: `/tmp/djvu-pages-test/pages-${range.startPage}-${range.endPage}.pdf`,
-        status: 'pending' as const,
-    }))};
-    return {
-        directory: '/tmp/djvu-pages-test',
-        manifestPath: '/tmp/djvu-pages-test/manifest.json',
-        manifest,
-        updateRange: vi.fn(async (index: number, update: object) => {
-            Object.assign(manifest.ranges[index]!, update);
-        }),
-    };
-})}));
+vi.mock('@electron/features/djvu/main/djvuArtifactManifest', () => ({
+    DJVU_ARTIFACT_MAX_TOTAL_BYTES: 4 * 1024 * 1024 * 1024,
+    createDjvuDiskQuotaMonitor: mocks.createDjvuDiskQuotaMonitor,
+    openDjvuArtifactJob: vi.fn(async (_sourcePath: string, ranges: Array<{
+        startPage: number;
+        endPage: number;
+    }>) => {
+        const manifest = {ranges: ranges.map(range => ({
+            ...range,
+            outputPath: `/tmp/djvu-pages-test/pages-${range.startPage}-${range.endPage}.pdf`,
+            status: 'pending' as const,
+        }))};
+        return {
+            directory: '/tmp/djvu-pages-test',
+            manifestPath: '/tmp/djvu-pages-test/manifest.json',
+            manifest,
+            maxTotalBytes: 4 * 1024 * 1024 * 1024,
+            close: vi.fn(async () => {}),
+            updateRange: vi.fn(async (index: number, update: object) => {
+                Object.assign(manifest.ranges[index]!, update);
+            }),
+        };
+    }),
+}));
 
 const {
     cancelConversion,
@@ -226,6 +259,7 @@ describe('convertDjvuToPdfFile', () => {
         vi.clearAllMocks();
         mocks.spawnCalls.length = 0;
         mocks.setSpawnMode('success');
+        mocks.setQuotaFailure(null);
     });
 
     it('splits large full-document conversions into parallel native page ranges', async () => {
@@ -280,6 +314,22 @@ describe('convertDjvuToPdfFile', () => {
         });
     });
 
+    it('fails a small explicit-page conversion when the live output quota is crossed', async () => {
+        mocks.setQuotaFailure(new Error('DjVu disk quota exceeded: simulated ENOSPC'));
+
+        const result = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-small-quota', {
+            pageCount: 24,
+            pages: '2',
+        });
+
+        expect(result).toMatchObject({
+            success: false,
+            error: 'DjVu disk quota exceeded: simulated ENOSPC',
+        });
+        expect(mocks.spawnCalls).toHaveLength(1);
+        expect(mocks.unlink).toHaveBeenCalledWith('/output.pdf');
+    });
+
     it('renders requested DjVu page modes through registered ddjvu processes', async () => {
         const result = await renderDjvuPageToImage('/input.djvu', '/mask.pbm', 7, 'job-mask', {
             format: 'pbm',
@@ -322,6 +372,22 @@ describe('convertDjvuToPdfFile', () => {
                 '/output.pdf',
             ],
         });
+    });
+
+    it('never falls back to an unbounded single process after a parallel quota failure', async () => {
+        mocks.setQuotaFailure(new Error('DjVu disk quota exceeded: simulated range growth'));
+
+        const result = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-range-quota', {pageCount: 24});
+
+        expect(result).toMatchObject({
+            success: false,
+            error: 'DjVu disk quota exceeded: simulated range growth',
+        });
+        expect(mocks.spawnCalls.filter(call => (
+            call.command === '/tools/ddjvu'
+            && !call.args.some(arg => arg.startsWith('-page='))
+        ))).toHaveLength(0);
+        expect(mocks.loggerWarn).not.toHaveBeenCalledWith(expect.stringContaining('falling back to single process'));
     });
 
     it('uses total page count to guard the pdf-lib chunk merge fallback', async () => {

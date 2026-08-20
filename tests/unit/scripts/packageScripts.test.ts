@@ -169,9 +169,9 @@ describe('package scripts', () => {
         ];
 
         expect(required.every(name => Boolean(scripts[name]))).toBe(true);
-        // The canonical-identity release gate adds one explicit operator-visible
-        // entry point for its release-only corpus oracle.
-        expect(Object.keys(scripts).length).toBeLessThanOrEqual(104);
+        // Keep the public surface bounded while retaining explicit operator
+        // entry points for the canonical-identity and OCR-quality release gates.
+        expect(Object.keys(scripts).length).toBeLessThanOrEqual(105);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);

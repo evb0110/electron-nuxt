@@ -14,6 +14,8 @@ import {
 import {
     mkdir,
     readFile,
+    readdir,
+    writeFile,
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -48,14 +50,21 @@ describe('managed scratch temp cleanup', () => {
         });
     });
 
-    it('creates owner-marked scratch dirs and sweeps only stale marked managed prefixes', async () => {
-        const markedPath = await createManagedScratchTempDir('pdfExport-');
-        const marker = JSON.parse(await readFile(join(markedPath, '.evb-managed-scratch.json'), 'utf8')) as {
+    it('preserves live owners and sweeps only stale dead marked managed prefixes', async () => {
+        const liveMarkedPath = await createManagedScratchTempDir('pdfExport-');
+        const marker = JSON.parse(await readFile(join(liveMarkedPath, '.evb-managed-scratch.json'), 'utf8')) as {
             pid?: unknown;
             prefix?: unknown;
         };
         expect(marker.prefix).toBe('pdfExport-');
         expect(marker.pid).toBe(process.pid);
+
+        const deadMarkedPath = await createManagedScratchTempDir('qpdfOutput-');
+        await writeFile(join(deadMarkedPath, '.evb-managed-scratch.json'), `${JSON.stringify({
+            createdAt: 0,
+            pid: 2_147_483_647,
+            prefix: 'qpdfOutput-',
+        })}\n`, 'utf8');
 
         const unmarkedManagedPath = join(mocks.appTempDir, 'qpdfArgs-unmarked');
         const unrelatedPath = join(mocks.appTempDir, 'other-stale');
@@ -64,7 +73,8 @@ describe('managed scratch temp cleanup', () => {
 
         await expect(sweepStaleManagedScratchTempDirs(0)).resolves.toBe(1);
 
-        expect(existsSync(markedPath)).toBe(false);
+        expect(existsSync(liveMarkedPath)).toBe(true);
+        expect(existsSync(deadMarkedPath)).toBe(false);
         expect(existsSync(unmarkedManagedPath)).toBe(true);
         expect(existsSync(unrelatedPath)).toBe(true);
         expect(mocks.logger.info).toHaveBeenCalledWith('Cleaned up 1 stale managed scratch directory');
@@ -77,6 +87,21 @@ describe('managed scratch temp cleanup', () => {
 
         expect(existsSync(markedPath)).toBe(true);
         expect(mocks.logger.info).not.toHaveBeenCalled();
+    });
+
+    it('applies the sweep budget only to managed scratch candidates', async () => {
+        await mkdir(join(mocks.appTempDir, 'aaa-unrelated'));
+        const deadMarkedPath = await createManagedScratchTempDir('qpdfOutput-');
+        await writeFile(join(deadMarkedPath, '.evb-managed-scratch.json'), `${JSON.stringify({
+            createdAt: 0,
+            pid: 2_147_483_647,
+            prefix: 'qpdfOutput-',
+        })}\n`, 'utf8');
+
+        await expect(sweepStaleManagedScratchTempDirs(0, 1)).resolves.toBe(1);
+
+        expect(existsSync(deadMarkedPath)).toBe(false);
+        await expect(readdir(mocks.appTempDir)).resolves.toEqual(['aaa-unrelated']);
     });
 
     it('removes a managed scope after success and failure', async () => {

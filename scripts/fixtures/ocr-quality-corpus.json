@@ -1,0 +1,62 @@
+[
+  {
+    "id": "faded-english-receipt",
+    "language": "eng",
+    "lines": [
+      "INVOICE INV-2048",
+      "Due date 20 August 2026",
+      "TOTAL USD 73.45"
+    ],
+    "criticalTokens": ["INV-2048", "73.45", "2026"],
+    "profile": {
+      "rotationDegrees": -0.55,
+      "foreground": 78,
+      "background": 238,
+      "noiseAmplitude": 13,
+      "speckleEvery": 521,
+      "scanLineEvery": 37
+    },
+    "maxCer": 0.12,
+    "maxWer": 0.2
+  },
+  {
+    "id": "speckled-russian-notice",
+    "language": "rus",
+    "lines": [
+      "СЧЁТ АБ-7315",
+      "Оплата до 20 августа 2026",
+      "ИТОГО 1840 рублей"
+    ],
+    "criticalTokens": ["АБ-7315", "1840", "2026"],
+    "profile": {
+      "rotationDegrees": 0.7,
+      "foreground": 55,
+      "background": 242,
+      "noiseAmplitude": 16,
+      "speckleEvery": 389,
+      "scanLineEvery": 43
+    },
+    "maxCer": 0.16,
+    "maxWer": 0.24
+  },
+  {
+    "id": "mixed-language-archive-label",
+    "language": "eng+rus",
+    "lines": [
+      "ARCHIVE Q7-2026",
+      "ДОГОВОР ЖЮ-42",
+      "Box 19 / коробка 19"
+    ],
+    "criticalTokens": ["Q7-2026", "ЖЮ-42", "19"],
+    "profile": {
+      "rotationDegrees": -0.35,
+      "foreground": 66,
+      "background": 235,
+      "noiseAmplitude": 15,
+      "speckleEvery": 443,
+      "scanLineEvery": 31
+    },
+    "maxCer": 0.18,
+    "maxWer": 0.28
+  }
+]

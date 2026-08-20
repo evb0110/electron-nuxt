@@ -11,6 +11,7 @@ import {
     ref,
 } from 'vue';
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 
 const trackMock = vi.hoisted(() => vi.fn());
 const exportImagesMock = vi.hoisted(() => vi.fn());
@@ -55,14 +56,24 @@ function createComposable(options: {
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
     sourceKind?: 'pdf' | 'djvu';
     sourcePath?: string;
+    runWithDocumentOperationLease?: <T>(
+        kind: TDocumentOperationKind,
+        operation: () => Promise<T>,
+    ) => Promise<T>;
 } = {}) {
     const scope = effectScope();
+    const workingCopyPath = ref('/tmp/work.pdf');
+    const sourceKind = ref<'pdf' | 'djvu'>(options.sourceKind ?? 'pdf');
+    const sourcePath = ref(options.sourcePath ?? '/tmp/work.pdf');
     const state = scope.run(() => useWorkspaceExport({
-        workingCopyPath: ref('/tmp/work.pdf'),
-        ...(options.sourceKind ? {sourceKind: ref(options.sourceKind)} : {}),
-        ...(options.sourcePath ? {sourcePath: ref(options.sourcePath)} : {}),
+        workingCopyPath,
+        sourceKind,
+        sourcePath,
         totalPages: ref(5),
         ...(options.ensureWorkingCopyFreshForRead ? { ensureWorkingCopyFreshForRead: options.ensureWorkingCopyFreshForRead } : {}),
+        ...(options.runWithDocumentOperationLease
+            ? {runWithDocumentOperationLease: options.runWithDocumentOperationLease}
+            : {}),
     }));
 
     if (!state) {
@@ -71,7 +82,10 @@ function createComposable(options: {
 
     return {
         scope,
+        sourceKind,
+        sourcePath,
         state,
+        workingCopyPath,
     };
 }
 
@@ -493,6 +507,114 @@ describe('useWorkspaceExport', () => {
                 expect.any(String),
                 'djvu',
             );
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('holds the document-operation lease for the complete image export', async () => {
+        const exportResult = Promise.withResolvers<{
+            success: boolean;
+            outputPaths: string[];
+        }>();
+        exportImagesMock.mockReturnValue(exportResult.promise);
+        let leaseActive = false;
+        const leaseCall = vi.fn();
+        const runWithDocumentOperationLease = async <T>(
+            kind: TDocumentOperationKind,
+            operation: () => Promise<T>,
+        ) => {
+            leaseCall(kind);
+            expect(kind).toBe('raster-export');
+            leaseActive = true;
+            try {
+                return await operation();
+            } finally {
+                leaseActive = false;
+            }
+        };
+        const {
+            scope,
+            state,
+        } = createComposable({runWithDocumentOperationLease});
+
+        try {
+            const exportPromise = state.handleExportImages([1]);
+            state.handleExportScopeDialogSubmit({pageNumbers: [1]});
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(leaseActive).toBe(true);
+            expect(exportImagesMock).toHaveBeenCalledOnce();
+            exportResult.resolve({
+                success: true,
+                outputPaths: ['/tmp/page-1.png'],
+            });
+            await exportPromise;
+
+            expect(leaseActive).toBe(false);
+            expect(leaseCall).toHaveBeenCalledOnce();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('fences a deferred image export result after document identity changes', async () => {
+        const exportResult = Promise.withResolvers<{
+            success: boolean;
+            outputPaths: string[];
+        }>();
+        exportImagesMock.mockReturnValue(exportResult.promise);
+        const {
+            scope,
+            sourcePath,
+            state,
+        } = createComposable();
+
+        try {
+            const exportPromise = state.handleExportImages([1]);
+            state.handleExportScopeDialogSubmit({pageNumbers: [1]});
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(state.exportOverlay.value?.state).toBe('running');
+
+            sourcePath.value = '/tmp/replacement.pdf';
+            exportResult.resolve({
+                success: true,
+                outputPaths: ['browser://documents/output/stale.png'],
+            });
+            await exportPromise;
+
+            expect(cleanupFileMock).toHaveBeenCalledWith('browser://documents/output/stale.png');
+            expect(state.exportOverlay.value).toBeNull();
+            expect(trackMock).not.toHaveBeenCalledWith('export_completed', expect.anything());
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('does not mix a source kind changed while freshness is deferred', async () => {
+        const freshness = Promise.withResolvers<boolean>();
+        const {
+            scope,
+            sourceKind,
+            sourcePath,
+            state,
+        } = createComposable({ensureWorkingCopyFreshForRead: () => freshness.promise});
+
+        try {
+            const exportPromise = state.handleExportImages([1]);
+            state.handleExportScopeDialogSubmit({pageNumbers: [1]});
+            await Promise.resolve();
+            await Promise.resolve();
+
+            sourceKind.value = 'djvu';
+            sourcePath.value = '/tmp/replacement.djvu';
+            freshness.resolve(true);
+            await exportPromise;
+
+            expect(exportImagesMock).not.toHaveBeenCalled();
+            expect(state.exportOverlay.value).toBeNull();
         } finally {
             scope.stop();
         }

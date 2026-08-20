@@ -13,6 +13,7 @@ import {
 } from 'fs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
+import type * as NodeCrypto from 'crypto';
 
 const mocks = vi.hoisted(() => {
     const browserWindowInstances: MockBrowserWindow[] = [];
@@ -59,7 +60,7 @@ const mocks = vi.hoisted(() => {
         },
         pdfDocumentLoad: vi.fn(),
         readdir: vi.fn<() => Promise<string[]>>(async () => []),
-        mkdtemp: vi.fn(async () => '/tmp/evb-viewer/raster-work'),
+        mkdtemp: vi.fn(async () => '/tmp/evb-viewer-test-profile/raster-work'),
         readFile: vi.fn(async () => Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n')),
         rm: vi.fn(async () => {}),
         runNativeToolCommand: vi.fn(async () => ({})),
@@ -103,7 +104,13 @@ vi.mock('fs/promises', () => ({
     writeFile: mocks.writeFile,
 }));
 
-vi.mock('crypto', () => ({ randomUUID: mocks.randomUUID }));
+vi.mock('crypto', async (importOriginal) => {
+    const actual = await importOriginal<typeof NodeCrypto>();
+    return {
+        ...actual,
+        randomUUID: mocks.randomUUID,
+    };
+});
 vi.mock('pdf-lib', () => ({ PDFDocument: { load: (...args: unknown[]) => mocks.pdfDocumentLoad(...args) } }));
 
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
@@ -135,7 +142,7 @@ const {
 } = await import('@electron/features/documents/main/print');
 const { printManagedTempPdfPath } = await import('@electron/utils/printHandoff');
 
-const tempRoot = '/tmp/evb-viewer';
+const tempRoot = '/tmp/evb-viewer-test-profile';
 const validPdfBytes = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
 const senderId = 72;
 const windowContext = {
@@ -147,6 +154,7 @@ const sourcePdfPath = join(sourcePdfWorkDir, 'source.pdf');
 
 describe('documents print', () => {
     beforeEach(() => {
+        process.env.EVB_APP_TEMP_NAMESPACE = 'test-profile';
         vi.clearAllMocks();
         mocks.browserWindowInstances.length = 0;
         mocks.appGetPath.mockReturnValue('/tmp');
@@ -177,7 +185,7 @@ describe('documents print', () => {
             return true;
         });
         mocks.readdir.mockResolvedValue([]);
-        mocks.mkdtemp.mockResolvedValue('/tmp/evb-viewer/raster-work');
+        mocks.mkdtemp.mockResolvedValue('/tmp/evb-viewer-test-profile/raster-work');
         mocks.readFile.mockResolvedValue(validPdfBytes);
         mocks.rm.mockResolvedValue(undefined);
         mocks.runNativeToolCommand.mockResolvedValue({});
@@ -206,6 +214,7 @@ describe('documents print', () => {
         vi.useRealTimers();
         delete process.env.EVB_PRINT_DIALOG_TEST_MODE;
         delete process.env.EVB_PRINT_DIALOG_TEST_OUTPUT_PATH;
+        delete process.env.EVB_APP_TEMP_NAMESPACE;
         rmSync(sourcePdfWorkDir, {
             force: true,
             recursive: true,
@@ -321,7 +330,7 @@ describe('documents print', () => {
                 '-l',
                 '2',
                 sourcePdfPath,
-                '/tmp/evb-viewer/raster-work/page-00001',
+                '/tmp/evb-viewer-test-profile/raster-work/page-00001',
             ],
             expect.objectContaining({
                 commandLabel: 'pdftoppm(print-raster)',
@@ -329,12 +338,12 @@ describe('documents print', () => {
             }),
         );
         expect(mocks.writeFile).toHaveBeenCalledWith(
-            '/tmp/evb-viewer/raster-work/print.html',
+            '/tmp/evb-viewer-test-profile/raster-work/print.html',
             expect.stringContaining('data-page-number="2"'),
             'utf8',
         );
         expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
-            pathToFileURL('/tmp/evb-viewer/raster-work/print.html').toString(),
+            pathToFileURL('/tmp/evb-viewer-test-profile/raster-work/print.html').toString(),
         );
         expect(mocks.browserWindowInstances[0]?.showInactive).not.toHaveBeenCalled();
         expect(mocks.browserWindowInstances[0]?.webContents.executeJavaScript).toHaveBeenCalledTimes(1);
@@ -346,7 +355,7 @@ describe('documents print', () => {
 
         await vi.runOnlyPendingTimersAsync();
 
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/evb-viewer/raster-work', {
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/evb-viewer-test-profile/raster-work', {
             force: true,
             recursive: true,
         });

@@ -39,6 +39,7 @@ import { resolveStartupWorkProfile } from '@app/utils/startupWorkProfile';
 import {
     invokeWorkspaceExposeCommand,
     isWorkspaceExposeCommandName,
+    isWorkspaceExposeSyncCommandName,
     type TWorkspaceExposeMethod,
 } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import { registerDirectOpenAutomationDelegate } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
@@ -177,6 +178,25 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             return values as TValues;
         }
 
+        const callActiveWorkspaceSyncCommand = <TResult = unknown>(
+            commandName: string,
+            args: unknown[] = [],
+        ): IEvbTestCommandResult<TResult> => {
+            const workspace = getActiveWorkspaceHandle();
+            if (!workspace || !isWorkspaceExposeSyncCommandName(commandName)) {
+                return {
+                    called: false,
+                    value: null,
+                };
+            }
+
+            const value: unknown = invokeWorkspaceExposeCommand(workspace, commandName, args);
+            return {
+                called: true,
+                value: (value ?? null) as TResult | null,
+            };
+        };
+
         const callActiveWorkspaceCommand = async <TResult = unknown>(
             commandName: string,
             args: unknown[] = [],
@@ -211,6 +231,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 await splitEditor(direction);
             },
             callActiveWorkspaceCommand,
+            callActiveWorkspaceSyncCommand,
             collectWorkspaceDebugState: (): IEvbTestWorkspaceDebugState => {
                 const activeWorkspaceHandle = getActiveWorkspaceHandle();
                 return {

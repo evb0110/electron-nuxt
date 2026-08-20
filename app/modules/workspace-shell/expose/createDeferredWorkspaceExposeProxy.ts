@@ -227,6 +227,15 @@ export function createDeferredWorkspaceExposeProxy(
     }
 
     const customHandlers: Partial<TWorkspaceExposeCommandHandlerMap> = {
+        createRecoverySnapshotBytes: async () => {
+            const target = createCommandTarget();
+            return withTargetedLoadedWorkspace(
+                'createRecoverySnapshotBytes',
+                target,
+                workspace => invokeWorkspaceExposeCommand(workspace, 'createRecoverySnapshotBytes'),
+                null,
+            );
+        },
         handleOpenFileFromUi: () => Promise.resolve(false),
         handleOpenFileDirectWithPersist: async (path: TDocumentRef) => openQueued({
             action: 'handleOpenFileDirectWithPersist',

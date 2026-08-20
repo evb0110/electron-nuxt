@@ -863,6 +863,8 @@ export default {
         'unitByte': 'B',
         'unitKilobyte': 'KB',
         'unitMegabyte': 'MB',
+        'pdfPage': 'PDF-Seite {page}',
+        'pageRenderFailed': 'Diese Seite konnte nicht dargestellt werden',
     },
     'print': {
         'title': 'Drucken',
@@ -1444,6 +1446,7 @@ export default {
             'openNotFound': '„{name}“ konnte nicht geöffnet werden. Die Datei wurde möglicherweise verschoben, gelöscht oder ihr Speicher wurde geleert.',
             'invalid': 'Ungültige oder nicht vorhandene Datei',
             'emptyPdf': 'Die PDF-Datei ist leer (0 Byte)',
+            'noPages': 'Die PDF-Datei enthält keine Seiten',
             'folderEmpty': 'Im ausgewählten Ordner wurden keine unterstützten Dokumente gefunden',
             'save': 'Datei konnte nicht gespeichert werden',
             'browserStorageTitle': 'Browserspeicher ist nicht verfügbar',
@@ -1453,7 +1456,10 @@ export default {
             'images': 'Bilderexport fehlgeschlagen',
             'multiPageTiff': 'TIFF-Export fehlgeschlagen',
         },
-        'browser': { 'largeSaveHandleHint': 'Verwenden Sie einen Browser mit aktiviertem lokalem Dateisystemzugriff, um große Dokumente zu speichern.' },
+        'browser': {
+            'filePickerSetupDenied': 'Der Browser-Dateizugriff wurde verweigert. Wählen Sie erneut „Öffnen“, um die kompatible Dateiauswahl zu verwenden.',
+            'largeSaveHandleHint': 'Verwenden Sie einen Browser mit aktiviertem lokalem Dateisystemzugriff, um große Dokumente zu speichern.',
+        },
         'search': {
             'browserTooLarge': 'Die Suche ist im Browser für sehr große Dokumente nicht verfügbar.',
             'unavailable': 'Die Suche ist für dieses Dokument derzeit nicht verfügbar.',

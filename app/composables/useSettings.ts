@@ -63,10 +63,9 @@ export const useSettings = () => {
         lastSavedSettings.value = sanitizeSettings(nextSettings);
     }
 
-    function syncSettingsBootstrapCookies(nextSettings: ISettingsData) {
-        localeCookie.value = nextSettings.locale;
-        themeCookie.value = nextSettings.theme;
-        hasSettingsCookieSnapshot.value = true;
+    function refreshSettingsBootstrapCookieSnapshot() {
+        hasSettingsCookieSnapshot.value = localeCookie.value != null
+            || themeCookie.value != null;
     }
 
     const {
@@ -82,7 +81,7 @@ export const useSettings = () => {
             return sanitizeSettings(loadedSettings);
         },
         onLoaded(nextSettings) {
-            syncSettingsBootstrapCookies(nextSettings);
+            refreshSettingsBootstrapCookieSnapshot();
             rememberSavedSettings(nextSettings);
         },
         onError(loadError) {
@@ -105,7 +104,7 @@ export const useSettings = () => {
             savePatch: patch => getSettingsCapability().save(patch),
             onSaved(nextSettings) {
                 rememberSavedSettings(nextSettings);
-                syncSettingsBootstrapCookies(nextSettings);
+                refreshSettingsBootstrapCookieSnapshot();
             },
             onSaveError(error) {
                 BrowserLogger.error('settings', 'Failed to save settings', error);

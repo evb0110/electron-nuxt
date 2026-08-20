@@ -429,7 +429,7 @@ describe('useEditorPanesManager', () => {
                     fileName: 'b.pdf',
                     sourceRef: '/documents/b.pdf',
                     workingCopyRef: null,
-                    isDirty: false,
+                    isDirty: true,
                     isDjvu: false,
                     currentPage: 2,
                     zoom: 1.25,
@@ -454,6 +454,11 @@ describe('useEditorPanesManager', () => {
             'tab-a',
             'tab-b',
         ]);
+        expect(manager.getTabById('tab-b')).toMatchObject({
+            fileName: 'b.pdf',
+            originalPath: '/documents/b.pdf',
+            isDirty: true,
+        });
         expect(manager.layout.value).toMatchObject({
             type: 'split',
             id: 'split-a',

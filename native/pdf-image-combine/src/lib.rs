@@ -1688,7 +1688,10 @@ mod tests {
         chunk.extend_from_slice(&(data.len() as u32).to_be_bytes());
         chunk.extend_from_slice(kind);
         chunk.extend_from_slice(data);
-        chunk.extend_from_slice(&[0, 0, 0, 0]);
+        let mut crc = crc32fast::Hasher::new();
+        crc.update(kind);
+        crc.update(data);
+        chunk.extend_from_slice(&crc.finalize().to_be_bytes());
         chunk
     }
 

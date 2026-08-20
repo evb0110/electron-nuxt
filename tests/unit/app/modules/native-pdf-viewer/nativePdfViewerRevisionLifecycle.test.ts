@@ -56,6 +56,7 @@ vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: 
 interface IViewerExpose {waitForViewerLoadSettled(): Promise<void>;}
 
 interface ITestSource extends IPagePreviewSource {
+    getPageSizes: ReturnType<typeof vi.fn<IPagePreviewSource['getPageSizes']>>;
     renderPageObjectUrl: ReturnType<typeof vi.fn<IPagePreviewSource['renderPageObjectUrl']>>;
     revokeObjectURL: ReturnType<typeof vi.fn<IPagePreviewSource['revokeObjectURL']>>;
     terminate: ReturnType<typeof vi.fn<IPagePreviewSource['terminate']>>;
@@ -197,6 +198,77 @@ afterEach(() => {
 });
 
 describe('NativePdfViewer revision lifecycle', () => {
+    it('fails and releases a native source whose page-size request never settles', async () => {
+        vi.useFakeTimers();
+        const documentPath = '/managed/wedged.pdf';
+        const source = createSource('wedged', []);
+        source.getPageSizes.mockReturnValue(new Promise(() => {}));
+        nativePdfMocks.createSource.mockReturnValue(source);
+        const host = document.createElement('div');
+        const viewport = document.createElement('div');
+        document.body.append(host, viewport);
+        Object.defineProperties(viewport, {
+            clientHeight: {
+                configurable: true,
+                value: 600,
+            },
+            clientWidth: {
+                configurable: true,
+                value: 800,
+            },
+        });
+        const viewer = ref<IViewerExpose | null>(null);
+        const loadErrors: unknown[] = [];
+        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        authority.bindViewportElement(viewport);
+        authority.openSurface.begin({
+            documentId: documentPath,
+            documentRevision: 'drt1:test:wedged',
+        });
+        const Root = defineComponent({setup() {
+            provide(documentViewerChassisAuthorityKey, authority);
+            return () => h(NativePdfViewer, {
+                ref: viewer,
+                src: documentPath,
+                isActive: true,
+                currentPage: 1,
+                onLoadError: (error: unknown) => loadErrors.push(error),
+            });
+        }});
+        const app = createApp(Root);
+        const ElementStub = defineComponent({setup: () => () => h('span')});
+        app.component('UButton', ElementStub);
+        app.component('UIcon', ElementStub);
+        app.component('USkeleton', ElementStub);
+        app.mount(host);
+        const unmount = () => {
+            app.unmount();
+            host.remove();
+            viewport.remove();
+            activeUnmounts.delete(unmount);
+        };
+        activeUnmounts.add(unmount);
+
+        await settlePendingWork();
+        const settled = requireViewer(viewer.value).waitForViewerLoadSettled();
+        await vi.advanceTimersByTimeAsync(30_000);
+        await settlePendingWork();
+
+        await expect(settled).resolves.toBeUndefined();
+        expect(source.terminate).toHaveBeenCalledOnce();
+        expect(loadErrors).toHaveLength(1);
+        expect(loadErrors[0]).toEqual(expect.objectContaining({
+            message: 'Timed out while reading PDF page sizes. Retry opening the document.',
+            name: 'PagePreviewSourceDeadlineError',
+            retryable: true,
+        }));
+        expect(authority.openSurface.snapshot.value).toMatchObject({
+            phase: 'failed',
+            presentation: 'failed',
+            failure: 'Timed out while reading PDF page sizes. Retry opening the document.',
+        });
+    });
+
     it('fails an empty native PDF immediately instead of waiting for the host timeout', async () => {
         vi.useFakeTimers();
         const documentPath = '/managed/empty.pdf';
@@ -250,15 +322,15 @@ describe('NativePdfViewer revision lifecycle', () => {
         await settlePendingWork();
         await expect(requireViewer(viewer.value).waitForViewerLoadSettled()).resolves.toBeUndefined();
         expect(loadErrors).toHaveLength(1);
-        expect(loadErrors[0]).toEqual(expect.objectContaining({message: 'PDF contains no pages'}));
+        expect(loadErrors[0]).toEqual(expect.objectContaining({message: 'errors.file.noPages'}));
         expect(source.terminate).toHaveBeenCalledOnce();
         expect(authority.openSurface.snapshot.value).toMatchObject({
             phase: 'failed',
             presentation: 'failed',
-            failure: 'PDF contains no pages',
+            failure: 'errors.file.noPages',
         });
         expect(host.querySelector('[data-testid="native-pdf-viewer-error"]')?.textContent)
-            .toContain('PDF contains no pages');
+            .toContain('errors.file.noPages');
     });
 
     it('fully reloads a same-path document when its revision changes', async () => {

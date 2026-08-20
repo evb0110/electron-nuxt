@@ -8,9 +8,7 @@ import {
     join,
     basename,
     dirname,
-    isAbsolute,
-    relative,
-    sep,
+    win32,
 } from 'path';
 import { app } from 'electron';
 import {
@@ -44,7 +42,10 @@ import {
     getWorkingCopyOriginalPathForPersistence,
     normalizePathForLookup,
 } from '@electron/file-access/workingCopyStore';
-import { getAppTempDirPath } from '@electron/utils/appTempDir';
+import {
+    getAppTempDirPath,
+    getLegacyAppTempDirPath,
+} from '@electron/utils/appTempDir';
 
 const logger = createLogger('recentFiles');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -419,11 +420,21 @@ function resolveRecentOriginalPath(filePath: string, senderWebContentsId?: numbe
     // their ownership mapping has already expired, dropping the entry is safer
     // than leaking a volatile temp path into persistent Recent Files state.
     const parentPath = normalizePathForLookup(dirname(filePath));
-    const relativeParentPath = relative(normalizePathForLookup(getAppTempDirPath()), parentPath);
-    const isInsideAppTemp = relativeParentPath !== '..'
-        && !relativeParentPath.startsWith(`..${sep}`)
-        && !isAbsolute(relativeParentPath);
-    if (isInsideAppTemp && isWorkingCopyDirectoryName(basename(parentPath))) {
+    const windowsPath = /^[a-zA-Z]:[\\/]/.test(parentPath) || parentPath.startsWith('\\\\');
+    const pathDirname = windowsPath ? win32.dirname : dirname;
+    const pathBasename = windowsPath ? win32.basename : basename;
+    const appTempParent = pathDirname(parentPath);
+    const normalizedCurrentTemp = normalizePathForLookup(getAppTempDirPath());
+    const normalizedLegacyTemp = normalizePathForLookup(getLegacyAppTempDirPath());
+    const legacyTempParent = pathDirname(normalizedLegacyTemp);
+    const isKnownAppTemp = appTempParent === normalizedCurrentTemp
+        || appTempParent === normalizedLegacyTemp;
+    const isAnotherProfileAppTemp = pathDirname(appTempParent) === legacyTempParent
+        && pathBasename(appTempParent).startsWith(`${pathBasename(normalizedLegacyTemp)}-`);
+    if (
+        (isKnownAppTemp || isAnotherProfileAppTemp)
+        && isWorkingCopyDirectoryName(pathBasename(parentPath))
+    ) {
         logger.warn(`Refusing to persist unmapped managed working-copy path as recent: ${filePath}`);
         return null;
     }

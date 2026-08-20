@@ -2,15 +2,18 @@ import {spawn} from 'node:child_process';
 import {
     mkdtemp,
     readFile,
+    realpath,
     rm,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
+import {fileURLToPath} from 'node:url';
 import {PDFDocument} from 'pdf-lib';
 import puppeteer from 'puppeteer-core';
 import type {Page} from 'puppeteer-core';
+import {assertNoPackagedRendererFailures} from '@scripts/release/assertNoPackagedRendererFailures';
 import {
     findFreePort,
     isProcessAlive,
@@ -176,12 +179,24 @@ async function run() {
         if (!page) {
             throw new Error('Packaged Electron exposed no renderer page');
         }
+        const rendererFailures: string[] = [];
         page.on('console', (message) => {
-            if (message.type() === 'error' || message.type() === 'warn') {
-                console.warn(`[packaged-renderer:${message.type()}] ${message.text()}`);
+            const renderedMessage = `[packaged-renderer:${message.type()}] ${message.text()}`;
+            if (message.type() === 'error') {
+                rendererFailures.push(renderedMessage);
+                console.error(renderedMessage);
+            } else if (message.type() === 'warn') {
+                console.warn(renderedMessage);
             }
         });
-        page.on('pageerror', error => console.warn('[packaged-renderer:pageerror]', error));
+        page.on('pageerror', (error) => {
+            const errorDetails = error instanceof Error
+                ? error.stack ?? error.message
+                : String(error);
+            const renderedError = `[packaged-renderer:pageerror] ${errorDetails}`;
+            rendererFailures.push(renderedError);
+            console.error(renderedError);
+        });
 
         await installPageEvaluationShims(page);
         await openPdfInApp(page, fixturePath, STARTUP_TIMEOUT_MS);
@@ -222,6 +237,11 @@ async function run() {
             throw new Error('Packaged smoke search returned no fixture matches');
         }
 
+        // Give errors queued by the final renderer operation a chance to reach
+        // CDP before deciding that the packaged journey passed.
+        await delay(250);
+        assertNoPackagedRendererFailures(rendererFailures);
+
         console.log('Packaged core-PDF smoke passed: open, annotation save, rotate persistence, and search.');
     } catch (error) {
         await capturePackagedCorePdfFailureArtifacts(browser, error);
@@ -252,4 +272,13 @@ async function run() {
     }
 }
 
-await run();
+const canonicalEntryPath = process.argv[1] === undefined
+    ? null
+    : await realpath(path.resolve(process.argv[1])).catch(() => null);
+const canonicalModulePath = await realpath(fileURLToPath(import.meta.url));
+const isDirectInvocation = canonicalEntryPath !== null
+    && canonicalEntryPath === canonicalModulePath;
+
+if (isDirectInvocation) {
+    await run();
+}

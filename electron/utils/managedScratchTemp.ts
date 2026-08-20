@@ -1,9 +1,9 @@
 import {
     lstat,
     mkdtemp,
+    readFile,
     readdir,
     rm,
-    stat,
     writeFile,
 } from 'fs/promises';
 import { join } from 'path';
@@ -11,6 +11,10 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import {
+    isErrnoException,
+    isRecord,
+} from '@contracts/runtimeGuards';
 
 const logger = createLogger('managed-scratch-temp');
 const MANAGED_SCRATCH_MARKER_FILE = '.evb-managed-scratch.json';
@@ -41,22 +45,79 @@ function isManagedScratchDirectoryName(entryName: string) {
     return MANAGED_SCRATCH_PREFIXES.some(prefix => entryName.startsWith(prefix));
 }
 
-async function hasManagedScratchMarker(directoryPath: string) {
+interface IManagedScratchMarker {
+    createdAt: number
+    pid: number
+    prefix: TManagedScratchPrefix
+}
+
+function parseManagedScratchMarker(value: unknown): IManagedScratchMarker | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const prefix = typeof value.prefix === 'string' && MANAGED_SCRATCH_PREFIXES.includes(
+        value.prefix as TManagedScratchPrefix,
+    )
+        ? value.prefix as TManagedScratchPrefix
+        : null;
+    if (
+        !prefix
+        || typeof value.createdAt !== 'number'
+        || !Number.isFinite(value.createdAt)
+        || value.createdAt < 0
+        || typeof value.pid !== 'number'
+        || !Number.isInteger(value.pid)
+        || value.pid <= 0
+    ) {
+        return null;
+    }
+    return {
+        createdAt: value.createdAt,
+        pid: value.pid,
+        prefix,
+    };
+}
+
+async function readManagedScratchMarker(directoryPath: string) {
     try {
-        const markerStat = await stat(join(directoryPath, MANAGED_SCRATCH_MARKER_FILE));
-        return markerStat.isFile();
+        const markerPath = join(directoryPath, MANAGED_SCRATCH_MARKER_FILE);
+        const markerStat = await lstat(markerPath);
+        if (!markerStat.isFile() || markerStat.isSymbolicLink()) {
+            return null;
+        }
+        return parseManagedScratchMarker(JSON.parse(await readFile(markerPath, 'utf8')));
     } catch {
-        return false;
+        return null;
+    }
+}
+
+function isProcessAlive(pid: number) {
+    if (pid === process.pid) {
+        return true;
+    }
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (error) {
+        return isErrnoException(error) && error.code === 'EPERM';
     }
 }
 
 export async function createManagedScratchTempDir(prefix: TManagedScratchPrefix) {
     const tempDir = await mkdtemp(join(getAppTempDir(), prefix));
-    await writeFile(join(tempDir, MANAGED_SCRATCH_MARKER_FILE), `${JSON.stringify({
-        createdAt: Date.now(),
-        pid: process.pid,
-        prefix,
-    })}\n`, 'utf8');
+    try {
+        await writeFile(join(tempDir, MANAGED_SCRATCH_MARKER_FILE), `${JSON.stringify({
+            createdAt: Date.now(),
+            pid: process.pid,
+            prefix,
+        })}\n`, 'utf8');
+    } catch (error) {
+        await rm(tempDir, {
+            force: true,
+            recursive: true,
+        }).catch(() => undefined);
+        throw error;
+    }
     return tempDir;
 }
 
@@ -90,22 +151,20 @@ export async function sweepStaleManagedScratchTempDirs(
         return 0;
     }
 
-    for (const entry of entries.slice(0, maxEntries)) {
-        if (!isManagedScratchDirectoryName(entry)) {
-            continue;
-        }
-
+    const managedEntries = entries.filter(isManagedScratchDirectoryName);
+    for (const entry of managedEntries.slice(0, maxEntries)) {
         const scratchPath = join(tempDir, entry);
         try {
             const scratchStat = await lstat(scratchPath);
             if (!scratchStat.isDirectory()) {
                 continue;
             }
-            if (!await hasManagedScratchMarker(scratchPath)) {
+            const marker = await readManagedScratchMarker(scratchPath);
+            if (!marker || !entry.startsWith(marker.prefix) || isProcessAlive(marker.pid)) {
                 continue;
             }
 
-            const lastTouchedAt = Math.max(scratchStat.mtimeMs, scratchStat.ctimeMs);
+            const lastTouchedAt = Math.max(marker.createdAt, scratchStat.mtimeMs, scratchStat.ctimeMs);
             if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs) {
                 continue;
             }

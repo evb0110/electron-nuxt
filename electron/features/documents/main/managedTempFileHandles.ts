@@ -28,6 +28,8 @@ interface IMainManagedTempFileLease {
     path: string;
     expiresAt: number;
     cleanupOnRelease: boolean;
+    cleanupPending?: boolean;
+    invalidated?: boolean;
 }
 
 interface IMainStagedArtifactLease extends IMainManagedTempFileLease {
@@ -105,8 +107,38 @@ async function statRegularArtifact(path: string) {
 }
 
 function invalidateStagedArtifactLease(leaseId: string) {
-    leases.delete(leaseId);
+    const lease = leases.get(leaseId);
+    if (lease?.cleanupOnRelease) {
+        lease.invalidated = true;
+        cleanupLeaseFile(leaseId, lease);
+    } else {
+        leases.delete(leaseId);
+    }
     sweepExpiredLeases();
+}
+
+function clearLeaseSweepIfIdle() {
+    if (leases.size === 0 && leaseSweepTimer) {
+        clearInterval(leaseSweepTimer);
+        leaseSweepTimer = null;
+    }
+}
+
+function cleanupLeaseFile(leaseId: string, lease: IMainManagedTempFileLease) {
+    if (lease.cleanupPending) {
+        return;
+    }
+    lease.cleanupPending = true;
+    void rm(lease.path, {force: true}).then(() => {
+        if (leases.get(leaseId) === lease) {
+            leases.delete(leaseId);
+        }
+    }).catch(() => {
+        if (leases.get(leaseId) === lease) {
+            lease.cleanupPending = false;
+            lease.expiresAt = Date.now() + 30_000;
+        }
+    }).finally(clearLeaseSweepIfIdle);
 }
 
 function sweepExpiredLeases() {
@@ -116,14 +148,15 @@ function sweepExpiredLeases() {
         lease,
     ] of leases) {
         if (lease.expiresAt <= now) {
-            leases.delete(leaseId);
-            if (lease.cleanupOnRelease) void rm(lease.path, {force: true});
+            if (lease.cleanupOnRelease) {
+                lease.invalidated = true;
+                cleanupLeaseFile(leaseId, lease);
+            } else {
+                leases.delete(leaseId);
+            }
         }
     }
-    if (leases.size === 0 && leaseSweepTimer) {
-        clearInterval(leaseSweepTimer);
-        leaseSweepTimer = null;
-    }
+    clearLeaseSweepIfIdle();
 }
 
 function ensureLeaseSweep() {
@@ -259,8 +292,12 @@ export function releaseManagedTempFileHandle(
     if (!lease || lease.ownerId !== context.senderId) {
         return false;
     }
-    leases.delete(leaseId);
-    if (lease.cleanupOnRelease) void rm(lease.path, {force: true});
+    if (lease.cleanupOnRelease) {
+        lease.invalidated = true;
+        cleanupLeaseFile(leaseId, lease);
+    } else {
+        leases.delete(leaseId);
+    }
     sweepExpiredLeases();
     return true;
 }
@@ -275,7 +312,7 @@ export async function resolveManagedTempFileHandle(
     }
     sweepExpiredLeases();
     const lease = leases.get(handle.leaseId);
-    if (!lease || 'artifact' in lease || lease.ownerId !== context.senderId || lease.path !== handle.path) {
+    if (!lease || lease.invalidated || 'artifact' in lease || lease.ownerId !== context.senderId || lease.path !== handle.path) {
         throw new Error('Managed binary handle lease is missing, expired, or belongs to another renderer');
     }
     const [
@@ -301,6 +338,7 @@ export async function resolveTypedStagedArtifact(
     const lease = leases.get(artifact.leaseId);
     if (
         !lease
+        || lease.invalidated
         || !('artifact' in lease)
         || lease.ownerId !== context.senderId
         || !isDeepStrictEqual(artifact, lease.artifact)
@@ -349,6 +387,7 @@ export async function rebindTypedStagedArtifactPath(
     const lease = leases.get(artifact.leaseId);
     if (
         !lease
+        || lease.invalidated
         || !('artifact' in lease)
         || lease.ownerId !== context.senderId
         || !isDeepStrictEqual(artifact, lease.artifact)
@@ -399,4 +438,17 @@ export function clearManagedTempFileHandlesForTests() {
         clearInterval(leaseSweepTimer);
         leaseSweepTimer = null;
     }
+}
+
+export function getManagedTempFileCleanupStateForTests(leaseId: string) {
+    const lease = leases.get(leaseId);
+    return lease
+        ? {
+            exists: true,
+            pending: lease.cleanupPending === true,
+        }
+        : {
+            exists: false,
+            pending: false,
+        };
 }

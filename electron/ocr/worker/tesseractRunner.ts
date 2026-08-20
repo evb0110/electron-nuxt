@@ -1,7 +1,6 @@
 import { spawn } from 'child_process';
 import {
     open,
-    readFile,
     stat,
     unlink,
 } from 'fs/promises';
@@ -34,6 +33,33 @@ const PNG_SIGNATURE = Buffer.from([
 const FILE_BASED_OCR_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_FILE_BASED_TIMEOUT_MS', 3 * 60 * 1000, 10_000);
 const FILE_BASED_OCR_KILL_GRACE_MS = parseIntegerEnv('EVB_OCR_FILE_BASED_KILL_GRACE_MS', 2_000, 250);
 const FILE_BASED_OCR_MAX_STDERR_BYTES = parseIntegerEnv('EVB_OCR_FILE_BASED_MAX_STDERR_BYTES', 262_144, 1_024);
+const FILE_BASED_OCR_MAX_TSV_BYTES = parseIntegerEnv('EVB_OCR_FILE_BASED_MAX_TSV_MB', 64, 1, 256) * 1024 * 1024;
+const OCR_TSV_MAX_ROWS = 500_000;
+const OCR_TSV_MAX_WORDS = 250_000;
+const OCR_TSV_MAX_TEXT_CHARACTERS = 16 * 1024 * 1024;
+
+async function readUtf8FileBounded(path: string, maxBytes: number) {
+    const handle = await open(path, 'r');
+    try {
+        const before = await handle.stat();
+        if (!before.isFile() || before.size > maxBytes) {
+            throw new Error(`Tesseract TSV output exceeds the ${maxBytes}-byte limit`);
+        }
+        const bytes = Buffer.allocUnsafe(before.size + 1);
+        let offset = 0;
+        while (offset < bytes.length) {
+            const read = await handle.read(bytes, offset, bytes.length - offset, offset);
+            if (read.bytesRead === 0) break;
+            offset += read.bytesRead;
+        }
+        if (offset !== before.size) {
+            throw new Error('Tesseract TSV output changed while it was being read');
+        }
+        return bytes.subarray(0, offset).toString('utf8');
+    } finally {
+        await handle.close();
+    }
+}
 
 function shouldPreserveDictionaries(options: IOcrSearchablePdfOptions | undefined) {
     return options?.qualityProfile === 'accurate';
@@ -159,7 +185,8 @@ export async function runOcrFileBased(
         let terminationPromise: Promise<void> | null = null;
 
         const requestTermination = () => {
-            terminationPromise ??= terminateDetachedChildProcess(proc, FILE_BASED_OCR_KILL_GRACE_MS);
+            terminationPromise ??= terminateDetachedChildProcess(proc, FILE_BASED_OCR_KILL_GRACE_MS)
+                .then(() => undefined);
             return terminationPromise;
         };
 
@@ -223,7 +250,7 @@ export async function runOcrFileBased(
 
         const handleSuccessfulClose = async () => {
             try {
-                const tsvContent = await readFile(tsvPath, 'utf-8');
+                const tsvContent = await readUtf8FileBounded(tsvPath, FILE_BASED_OCR_MAX_TSV_BYTES);
                 const parsedTsv = parseTsvOcrData(tsvContent.trim());
                 const { words } = parsedTsv;
                 let pageText = parsedTsv.text;
@@ -363,7 +390,12 @@ function parseNonNegativeTsvInt(value: string | undefined) {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-export function parseTsvOcrData(tsvContent: string): {
+export function parseTsvOcrData(tsvContent: string, limits: {
+    maxRows?: number;
+    maxWords?: number;
+    maxTextCharacters?: number;
+    maxInputCharacters?: number;
+} = {}): {
     words: IOcrWord[];
     text: string;
 } {
@@ -373,9 +405,16 @@ export function parseTsvOcrData(tsvContent: string): {
         currentLineKey: null,
         currentWords: [],
         outputLines: [],
+        outputCharacters: 0,
     };
+    const maxRows = limits.maxRows ?? OCR_TSV_MAX_ROWS;
+    const maxWords = limits.maxWords ?? OCR_TSV_MAX_WORDS;
+    const maxTextCharacters = limits.maxTextCharacters ?? OCR_TSV_MAX_TEXT_CHARACTERS;
+    if (tsvContent.length > (limits.maxInputCharacters ?? FILE_BASED_OCR_MAX_TSV_BYTES)) {
+        throw new Error('Tesseract TSV output exceeds the parser input limit');
+    }
 
-    for (const row of iterateTsvRows(tsvContent)) {
+    for (const row of iterateTsvRows(tsvContent, maxRows)) {
         const level = parseInt(row.parts[0]!, 10);
         if (level === 4) {
             const top = parseNonNegativeTsvInt(row.parts[7]);
@@ -396,9 +435,11 @@ export function parseTsvOcrData(tsvContent: string): {
         const height = parsePositiveTsvInt(row.parts[9]);
         const confidence = parseNonNegativeTsvInt(row.parts[10]);
         if (left === null || top === null || width === null || height === null || confidence === null) continue;
+        appendTsvTextRow(textState, row, maxTextCharacters);
         if (confidence < 20) continue;
-
-        appendTsvTextRow(textState, row);
+        if (acceptedWordRows.length >= maxWords) {
+            throw new Error(`Tesseract TSV output exceeds the ${maxWords}-word limit`);
+        }
         acceptedWordRows.push({
             parts: row.parts,
             text: row.text,
@@ -447,6 +488,7 @@ interface ITsvTextState {
     currentLineKey: string | null;
     currentWords: string[];
     outputLines: string[];
+    outputCharacters: number;
 }
 
 function appendTsvTextRow(
@@ -455,38 +497,58 @@ function appendTsvTextRow(
         parts: string[];
         text: string;
     },
+    maxTextCharacters: number,
 ) {
     if (!row.text) {
         return;
     }
 
     const lineKey = getTsvLineKey(row.parts);
-    if (state.currentLineKey !== null && lineKey !== state.currentLineKey) {
+    const startsNewLine = state.currentLineKey !== null && lineKey !== state.currentLineKey;
+    const lineSeparatorCharacters = startsNewLine && state.currentWords.length > 0 ? 1 : 0;
+    const separatorCharacters = !startsNewLine && state.currentWords.length > 0 ? 1 : 0;
+    if (state.outputCharacters + lineSeparatorCharacters + separatorCharacters + row.text.length > maxTextCharacters) {
+        throw new Error(`Tesseract TSV output exceeds the ${maxTextCharacters}-character text limit`);
+    }
+    if (startsNewLine) {
         flushTsvTextLine(state.outputLines, state.currentWords);
         state.currentWords = [];
+        state.outputCharacters += lineSeparatorCharacters;
     }
 
     state.currentLineKey = lineKey;
     state.currentWords.push(row.text);
+    state.outputCharacters += separatorCharacters + row.text.length;
 }
 
-function* iterateTsvRows(tsvContent: string): Generator<{
+function* iterateTsvRows(tsvContent: string, maxRows: number): Generator<{
     parts: string[];
     text: string;
 }> {
-    const lines = tsvContent.trim().split(/\r?\n/);
-    const header = lines[0]?.split('\t') ?? [];
+    const trimmed = tsvContent.trim();
+    const firstLineEnd = trimmed.indexOf('\n');
+    const headerLine = (firstLineEnd < 0 ? trimmed : trimmed.slice(0, firstLineEnd)).replace(/\r$/u, '');
+    const header = headerLine.split('\t');
     const hasValidHeader = TESSERACT_TSV_HEADER.every((column, index) => header[index] === column);
     if (!hasValidHeader) {
         throw new Error('Invalid Tesseract TSV output');
     }
-    if (lines.length < 2) {
+    if (firstLineEnd < 0) {
         return;
     }
 
-    for (let i = 1; i < lines.length; i++) {
-        const line = lines[i];
+    let rowCount = 0;
+    let cursor = firstLineEnd + 1;
+    while (cursor <= trimmed.length) {
+        const nextLineEnd = trimmed.indexOf('\n', cursor);
+        const lineEnd = nextLineEnd < 0 ? trimmed.length : nextLineEnd;
+        const line = trimmed.slice(cursor, lineEnd).replace(/\r$/u, '');
+        cursor = nextLineEnd < 0 ? trimmed.length + 1 : nextLineEnd + 1;
         if (!line?.trim()) continue;
+        rowCount += 1;
+        if (rowCount > maxRows) {
+            throw new Error(`Tesseract TSV output exceeds the ${maxRows}-row limit`);
+        }
 
         const parts = line.split('\t');
         if (parts.length < 12) continue;

@@ -242,6 +242,69 @@
     }
 
     #[test]
+    fn rolls_back_target_bytes_when_incremental_append_fails_mid_write() {
+        struct FaultInjectingTarget {
+            bytes: Vec<u8>,
+            remaining_before_failure: usize,
+            rollback_count: usize,
+            sync_count: usize,
+        }
+
+        impl Write for FaultInjectingTarget {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if self.remaining_before_failure == 0 {
+                    return Err(std::io::Error::other("injected append failure"));
+                }
+                let written = bytes.len().min(self.remaining_before_failure);
+                self.bytes.extend_from_slice(&bytes[..written]);
+                self.remaining_before_failure -= written;
+                Ok(written)
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        impl AppendRollback for FaultInjectingTarget {
+            fn rollback_to(&mut self, len: u64) -> std::io::Result<()> {
+                self.bytes.truncate(usize::try_from(len).unwrap());
+                self.rollback_count += 1;
+                Ok(())
+            }
+
+            fn sync_all(&mut self) -> std::io::Result<()> {
+                self.sync_count += 1;
+                Ok(())
+            }
+        }
+
+        let original = b"%PDF-1.7\noriginal revision\n%%EOF\n";
+        let mut target = FaultInjectingTarget {
+            bytes: original.to_vec(),
+            remaining_before_failure: 7,
+            rollback_count: 0,
+            sync_count: 0,
+        };
+
+        let error = write_incremental_revision_transactionally(
+            &mut target,
+            original.len(),
+            |writer| {
+                writer.write_all(original)?;
+                writer.write_all(b"partial incremental revision that must be rolled back")?;
+                Ok(())
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("injected append failure"));
+        assert_eq!(target.bytes, original);
+        assert_eq!(target.rollback_count, 1);
+        assert_eq!(target.sync_count, 1);
+    }
+
+    #[test]
     fn append_seed_check_detects_same_file_aliases() {
         let input_path = temp_pdf_path("append-same-file-detect");
         write(&input_path, b"%PDF-1.7\n").unwrap();

@@ -1,4 +1,5 @@
 import {isRecord} from '@contracts/runtimeGuards';
+import {execFileSync} from 'node:child_process';
 import {
     readdir,
     readFile,
@@ -8,6 +9,8 @@ import {pathToFileURL} from 'node:url';
 import {LOAD_BEARING_COVERAGE_FILES} from '@scripts/checkCoverageRatchet';
 
 const DEFAULT_SUMMARY_PATH = 'coverage/coverage-summary.json';
+const COVERAGE_BASE_SHA_ENV = 'EVB_COVERAGE_BASE_SHA';
+const COVERAGE_HEAD_SHA_ENV = 'EVB_COVERAGE_HEAD_SHA';
 
 export interface ILineCoverageSummary {
     covered: number;
@@ -15,10 +18,115 @@ export interface ILineCoverageSummary {
 }
 
 export interface IZeroExecutionCoverageResult {
+    changedTargetFileCount: number;
     missingFiles: string[];
     passed: boolean;
     targetFileCount: number;
     zeroExecutionFiles: string[];
+}
+
+const PRODUCTION_COVERAGE_ROOTS = [
+    'app/',
+    'electron/',
+    'packages/',
+    'scan-cleanup-adapters/',
+    'scan-cleanup-core/',
+    'scripts/',
+    'server/',
+] as const;
+
+// These integration entrypoints are exercised by the real browser, Electron,
+// packaged-app, or OCR quality gates rather than by the unit projects that
+// produce coverage/coverage-summary.json. Keep this list exact: a new source
+// file is required to execute in unit coverage unless it is deliberately
+// assigned to a stronger non-unit gate here.
+export const NON_UNIT_COVERAGE_ENTRYPOINTS = [
+    'app/app.vue',
+    'app/modules/pdf-viewer/components/annotations/PdfAnnotationNoteWindow.vue',
+    'app/modules/workspace-shell/components/AppShellRoot.vue',
+    'app/modules/workspace-shell/composables/useAppShellResilience.ts',
+    'app/modules/workspace-shell/useWorkspaceOrchestration.ts',
+    'electron/main.ts',
+    'electron/ocr/worker/runProductionOcrQualityCase.ts',
+    'scripts/release/verifyPackagedCorePdfSmoke.ts',
+    'scripts/test-ocr-quality-corpus.mjs',
+] as const;
+
+export function isProductionCoverageSource(filePath: string) {
+    const normalized = filePath.replaceAll('\\', '/').replace(/^\.\//u, '');
+    if (!PRODUCTION_COVERAGE_ROOTS.some(root => normalized.startsWith(root))) {
+        return false;
+    }
+    if (normalized.endsWith('.d.ts')) {
+        return false;
+    }
+    if (normalized.startsWith('app/')) {
+        return /\.(?:ts|vue)$/u.test(normalized);
+    }
+    if (normalized.startsWith('scripts/')) {
+        return /\.(?:cjs|mjs|ts)$/u.test(normalized);
+    }
+    return normalized.endsWith('.ts');
+}
+
+export function selectChangedProductionCoverageTargets(changedFiles: readonly string[]) {
+    const nonUnitCoverageEntrypoints = new Set<string>(NON_UNIT_COVERAGE_ENTRYPOINTS);
+    return [...new Set(changedFiles
+        .map(filePath => filePath.replaceAll('\\', '/').replace(/^\.\//u, ''))
+        .filter(filePath => (
+            isProductionCoverageSource(filePath)
+            && !nonUnitCoverageEntrypoints.has(filePath)
+        )))]
+        .sort((left, right) => left.localeCompare(right));
+}
+
+function assertCommitSha(value: string, label: string) {
+    if (!/^[a-f\d]{40,64}$/iu.test(value)) {
+        throw new Error(`${label} must be a full Git commit SHA.`);
+    }
+    return value;
+}
+
+export function collectChangedProductionCoverageTargets({
+    baseSha = process.env[COVERAGE_BASE_SHA_ENV],
+    headSha = process.env[COVERAGE_HEAD_SHA_ENV],
+    projectRoot = process.cwd(),
+}: {
+    baseSha?: string;
+    headSha?: string;
+    projectRoot?: string;
+} = {}) {
+    if (baseSha === undefined && headSha === undefined) {
+        return [];
+    }
+    if (baseSha === undefined || headSha === undefined) {
+        throw new Error(`${COVERAGE_BASE_SHA_ENV} and ${COVERAGE_HEAD_SHA_ENV} must be set together.`);
+    }
+
+    const head = assertCommitSha(headSha, COVERAGE_HEAD_SHA_ENV);
+    const requestedBase = assertCommitSha(baseSha, COVERAGE_BASE_SHA_ENV);
+    const base = /^0+$/u.test(requestedBase)
+        ? execFileSync('git', [
+            'rev-parse',
+            '--verify',
+            `${head}^`,
+        ], {
+            cwd: projectRoot,
+            encoding: 'utf8',
+        }).trim()
+        : requestedBase;
+    const changedFiles = execFileSync('git', [
+        'diff',
+        '--no-renames',
+        '--name-only',
+        '--diff-filter=ACMR',
+        '-z',
+        `${base}...${head}`,
+    ], {
+        cwd: projectRoot,
+        encoding: 'utf8',
+    }).split('\0').filter(Boolean);
+    return selectChangedProductionCoverageTargets(changedFiles);
 }
 
 function assertFiniteNumber(value: unknown, label: string) {
@@ -114,6 +222,7 @@ export async function collectZeroExecutionTripwireTargets(projectRoot = process.
 export function checkZeroExecutionCoverage(
     targetFiles: readonly string[],
     coverageFiles: ReadonlyMap<string, ILineCoverageSummary>,
+    changedTargetFileCount = 0,
 ): IZeroExecutionCoverageResult {
     const missingFiles: string[] = [];
     const zeroExecutionFiles: string[] = [];
@@ -128,6 +237,7 @@ export function checkZeroExecutionCoverage(
     }
 
     return {
+        changedTargetFileCount,
         missingFiles,
         passed: missingFiles.length === 0 && zeroExecutionFiles.length === 0,
         targetFileCount: targetFiles.length,
@@ -136,9 +246,12 @@ export function checkZeroExecutionCoverage(
 }
 
 export function formatZeroExecutionCoverageResult(result: IZeroExecutionCoverageResult) {
+    const changedTargetDescription = result.changedTargetFileCount > 0
+        ? `, including ${result.changedTargetFileCount} changed production files`
+        : '';
     const lines = [result.passed
-        ? `Zero-execution coverage tripwire passed for ${result.targetFileCount} production files.`
-        : `Zero-execution coverage tripwire failed for ${result.targetFileCount} production files.`];
+        ? `Zero-execution coverage tripwire passed for ${result.targetFileCount} production files${changedTargetDescription}.`
+        : `Zero-execution coverage tripwire failed for ${result.targetFileCount} production files${changedTargetDescription}.`];
 
     if (result.missingFiles.length > 0) {
         lines.push('Files missing from the coverage report (check coverage.include):');
@@ -152,6 +265,7 @@ export function formatZeroExecutionCoverageResult(result: IZeroExecutionCoverage
 }
 
 export async function runZeroExecutionCoverage(options: {
+    changedFiles?: readonly string[];
     projectRoot?: string;
     summaryPath?: string;
 } = {}) {
@@ -159,14 +273,22 @@ export async function runZeroExecutionCoverage(options: {
     const summaryPath = path.resolve(projectRoot, options.summaryPath ?? DEFAULT_SUMMARY_PATH);
     const [
         summary,
-        targetFiles,
+        baselineTargetFiles,
     ] = await Promise.all([
         readFile(summaryPath, 'utf8'),
         collectZeroExecutionTripwireTargets(projectRoot),
     ]);
+    const changedTargetFiles = options.changedFiles === undefined
+        ? collectChangedProductionCoverageTargets({projectRoot})
+        : selectChangedProductionCoverageTargets(options.changedFiles);
+    const targetFiles = [...new Set([
+        ...baselineTargetFiles,
+        ...changedTargetFiles,
+    ])].sort((left, right) => left.localeCompare(right));
     const result = checkZeroExecutionCoverage(
         targetFiles,
         parseLineCoverageSummary(summary, projectRoot),
+        changedTargetFiles.length,
     );
     console.log(formatZeroExecutionCoverageResult(result));
     if (!result.passed) {

@@ -203,6 +203,7 @@ dependencies = [
 name = "evb-pdf-image-combine"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "evb-native-support",
  "evb-raster-io",
  "fax",

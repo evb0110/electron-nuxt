@@ -1,27 +1,27 @@
 {
   "areas": {
     "app-core": {
-      "fileCount": 1156,
+      "fileCount": 1310,
       "include": [
         "app/"
       ],
       "metrics": {
-        "statements": 70.58,
-        "branches": 62.86,
-        "functions": 71.12,
-        "lines": 70.89
+        "statements": 64.44,
+        "branches": 58.58,
+        "functions": 61.04,
+        "lines": 64.81
       }
     },
     "electron-core": {
-      "fileCount": 387,
+      "fileCount": 391,
       "include": [
         "electron/"
       ],
       "metrics": {
-        "statements": 75.04,
-        "branches": 66.11,
-        "functions": 76.7,
-        "lines": 75.5
+        "statements": 75.38,
+        "branches": 66.35,
+        "functions": 76.99,
+        "lines": 75.87
       }
     },
     "electron-djvu-feature": {
@@ -30,46 +30,46 @@
         "electron/features/djvu/"
       ],
       "metrics": {
-        "statements": 74.39,
-        "branches": 60.7,
-        "functions": 76.4,
-        "lines": 75.04
+        "statements": 75.72,
+        "branches": 62.53,
+        "functions": 76.63,
+        "lines": 76.51
       }
     },
     "electron-ocr": {
-      "fileCount": 46,
+      "fileCount": 49,
       "include": [
         "electron/ocr/"
       ],
       "metrics": {
-        "statements": 72.59,
-        "branches": 65.54,
-        "functions": 80.19,
-        "lines": 72.67
+        "statements": 70.25,
+        "branches": 63.17,
+        "functions": 76.66,
+        "lines": 70.54
       }
     },
     "pdf-viewer": {
-      "fileCount": 540,
+      "fileCount": 579,
       "include": [
         "app/modules/pdf-viewer/"
       ],
       "metrics": {
-        "statements": 70.34,
-        "branches": 62.78,
-        "functions": 72.15,
-        "lines": 70.51
+        "statements": 61.74,
+        "branches": 56.11,
+        "functions": 59.35,
+        "lines": 61.97
       }
     },
     "release-scripts": {
-      "fileCount": 28,
+      "fileCount": 32,
       "include": [
         "scripts/release/"
       ],
       "metrics": {
-        "statements": 46.78,
-        "branches": 50.3,
-        "functions": 52.62,
-        "lines": 46.24
+        "statements": 49.69,
+        "branches": 52.24,
+        "functions": 55.58,
+        "lines": 49.14
       }
     },
     "scan-cleanup-adapters": {
@@ -78,46 +78,46 @@
         "scan-cleanup-adapters/"
       ],
       "metrics": {
-        "statements": 69.35,
-        "branches": 66.52,
+        "statements": 69.58,
+        "branches": 67.8,
         "functions": 80,
-        "lines": 70.47
+        "lines": 70.59
       }
     },
     "scan-cleanup-core": {
-      "fileCount": 28,
+      "fileCount": 31,
       "include": [
         "scan-cleanup-core/"
       ],
       "metrics": {
-        "statements": 90.14,
-        "branches": 84.07,
-        "functions": 94.22,
-        "lines": 91.74
+        "statements": 90.63,
+        "branches": 85.54,
+        "functions": 94.89,
+        "lines": 91.95
       }
     },
     "scripts-core": {
-      "fileCount": 162,
+      "fileCount": 170,
       "include": [
         "scripts/"
       ],
       "metrics": {
-        "statements": 33.06,
-        "branches": 33.53,
-        "functions": 39.14,
-        "lines": 33.39
+        "statements": 35.08,
+        "branches": 35.13,
+        "functions": 41.03,
+        "lines": 35.42
       }
     },
     "workspace-shell": {
-      "fileCount": 211,
+      "fileCount": 240,
       "include": [
         "app/modules/workspace-shell/"
       ],
       "metrics": {
-        "statements": 67.46,
-        "branches": 58.93,
-        "functions": 66.1,
-        "lines": 67.73
+        "statements": 61.51,
+        "branches": 54.99,
+        "functions": 55.3,
+        "lines": 61.91
       }
     }
   },
@@ -126,7 +126,7 @@
       "lines": 88.78
     },
     "app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts": {
-      "lines": 74.88
+      "lines": 76.52
     },
     "app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState.ts": {
       "lines": 76.33
@@ -138,17 +138,17 @@
       "lines": 88.55
     },
     "electron/features/documents/main/nativePdfPreview.ts": {
-      "lines": 89.43
+      "lines": 89.8
     },
     "electron/features/scan-cleanup/createScanCleanupPreviewService.ts": {
-      "lines": 86.79
+      "lines": 88.77
     }
   },
   "metrics": {
-    "statements": 66.83,
-    "branches": 60.67,
-    "functions": 69.28,
-    "lines": 67.28
+    "statements": 64.09,
+    "branches": 58.93,
+    "functions": 63.95,
+    "lines": 64.56
   },
   "tolerancePercentagePoints": 0.5,
   "version": 2

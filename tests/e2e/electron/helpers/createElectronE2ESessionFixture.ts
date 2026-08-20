@@ -13,6 +13,7 @@ type TSessionNameFactory = string | (() => string);
 interface IElectronE2ESessionRestartOptions {
     sessionName?: TSessionNameFactory;
     clean?: boolean;
+    hard?: boolean;
     keepNuxt?: boolean;
     windowMode?: TElectronE2EWindowMode;
 }
@@ -93,13 +94,14 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
 
             try {
                 const clean = restartOptions.clean ?? true;
-                if (clean) {
+                const hard = restartOptions.hard ?? false;
+                if (clean && !hard) {
                     await previousSession.resetForE2E();
                     return previousSession;
                 }
                 const keepNuxt = restartOptions.keepNuxt ?? false;
                 await previousSession.browser.disconnect();
-                if (clean) {
+                if (hard) {
                     await previousSession.stop({
                         keepNuxt,
                         preserveArtifacts: preserveFailureArtifacts,

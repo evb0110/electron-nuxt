@@ -18,6 +18,7 @@ import {
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseSearchWorkerInboundMessage } from '@electron/search/parseSearchWorkerInboundMessage';
+import { resetPersistentNativeSearchServiceCaches } from '@electron/search/tryRunPersistentNativeSearch';
 import {
     buildExcerpt,
     iteratePageMatches,
@@ -660,10 +661,12 @@ parentPort?.on('message', (rawMessage: unknown) => {
             return;
         case 'reset-cache':
             indexCache.clear();
+            resetPersistentNativeSearchServiceCaches();
             pruneCancelledRequests();
             return;
         case 'reset-state':
             indexCache.clear();
+            resetPersistentNativeSearchServiceCaches();
             cancelledRequests.clear();
             progressSentAt.clear();
             return;

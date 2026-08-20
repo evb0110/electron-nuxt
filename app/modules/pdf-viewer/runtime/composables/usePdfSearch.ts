@@ -634,6 +634,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         pageMatches.value = new Map();
         currentResultIndex.value = -1;
         isTruncated.value = false;
+        wasSearchCanceled.value = false;
     }
 
     function getMatchesForPage(pageIndex: number) {

@@ -863,6 +863,8 @@ export default {
         'unitByte': 'B',
         'unitKilobyte': 'KB',
         'unitMegabyte': 'MB',
+        'pdfPage': 'PDF page {page}',
+        'pageRenderFailed': 'Unable to render this page',
     },
     'print': {
         'title': 'Print',
@@ -1444,6 +1446,7 @@ export default {
             'openNotFound': '"{name}" could not be opened. The file may have been moved, deleted, or its storage was cleared.',
             'invalid': 'Invalid or non-existent file',
             'emptyPdf': 'The PDF file is empty (0 bytes)',
+            'noPages': 'The PDF contains no pages',
             'folderEmpty': 'No supported documents were found in the selected folder',
             'save': 'Failed to save file',
             'browserStorageTitle': 'Browser storage is unavailable',
@@ -1453,7 +1456,10 @@ export default {
             'images': 'Failed to export images',
             'multiPageTiff': 'Failed to export TIFF',
         },
-        'browser': { 'largeSaveHandleHint': 'Use a browser with local file system access enabled to save large documents.' },
+        'browser': {
+            'filePickerSetupDenied': 'Browser file access was denied. Choose Open again to use the compatible file picker.',
+            'largeSaveHandleHint': 'Use a browser with local file system access enabled to save large documents.',
+        },
         'search': {
             'browserTooLarge': 'Search is unavailable in the browser for very large documents.',
             'unavailable': 'Search is currently unavailable for this document.',

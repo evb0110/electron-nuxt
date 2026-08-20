@@ -15,6 +15,7 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
+import { abortErrorFromSignal } from '@electron/utils/abort';
 
 const logger = createLogger('nativeTiffCombine');
 const NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV = 'EVB_TIFF_COMBINE_NATIVE_ENABLE';
@@ -56,6 +57,7 @@ export async function tryCombinePagesWithNativeTiffCombiner(pagePaths: string[],
     let replacedOutput = false;
 
     try {
+        if (signal?.aborted) throw abortErrorFromSignal(signal);
         await writeFile(inputsPath, createNativeInputsFileContents(pagePaths), 'utf8');
         const ok = await runNativeTiffCombine(binaryPath, tempOutputPath, inputsPath, signal);
         if (!ok || !existsSync(tempOutputPath)) {
@@ -72,6 +74,7 @@ export async function tryCombinePagesWithNativeTiffCombiner(pagePaths: string[],
             return false;
         }
 
+        if (signal?.aborted) throw abortErrorFromSignal(signal);
         await atomicReplace(tempOutputPath, outputPath);
         replacedOutput = true;
         return true;
@@ -119,6 +122,7 @@ async function runNativeTiffCombine(binaryPath: string, outputPath: string, inpu
         });
         return true;
     } catch (error) {
+        if (signal?.aborted) throw abortErrorFromSignal(signal);
         const testFailure = createNativeFallbackTestError(
             NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV,
             'Native TIFF combine',

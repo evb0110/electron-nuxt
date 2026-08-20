@@ -166,7 +166,10 @@ const {
     handleReplaceWorkingCopyFromPath,
 } = await import('@electron/features/documents/main/documentFileWriteHandlers');
 const { handleCleanupOcrTemp } = await import('@electron/features/documents/main/handleCleanupOcrTemp');
-const { handleAnalyzePdfConformance } = await import('@electron/features/documents/main/documentPdfValidationHandlers');
+const {
+    handleAnalyzePdfConformance,
+    handleValidatePdfPath,
+} = await import('@electron/features/documents/main/documentPdfValidationHandlers');
 const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
 
 describe('fileOps path security', () => {
@@ -1207,6 +1210,34 @@ describe('fileOps path security', () => {
             canIncrementalSave: true,
             saveRestrictions: [],
         });
+    });
+
+    it('validates lazy-original PDFs through their checked source backing', async () => {
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.existsSync.mockReturnValue(false);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(lazyOriginalEntry());
+
+        const result = await handleValidatePdfPath(readContext, '/tmp/electron-test/lazy.pdf');
+
+        expect(mocks.validatePdfFile).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf');
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
+        expect(result).toEqual({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: [],
+        });
+    });
+
+    it('analyzes lazy-original PDFs through their checked source backing', async () => {
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.existsSync.mockReturnValue(false);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(lazyOriginalEntry());
+
+        await handleAnalyzePdfConformance(readContext, '/tmp/electron-test/lazy.pdf');
+
+        expect(mocks.analyzePdfConformanceFile).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf');
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
     });
 
     it('rejects invalid DOCX write payloads before consuming the approved path', async () => {

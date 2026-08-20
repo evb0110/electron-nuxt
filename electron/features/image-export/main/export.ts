@@ -402,44 +402,82 @@ async function moveFile(sourcePath: string, targetPath: string) {
     }
 }
 
-async function promoteStagedFiles(
+export async function promoteStagedFiles(
     stagedFiles: Array<{
         stagedPath: string;
         targetPath: string;
         targetExisted: boolean;
     }>,
+    signal?: AbortSignal,
 ) {
     const promotedFiles: Array<{
         targetPath: string;
         backupPath: string | null;
     }> = [];
     const backupPaths: string[] = [];
+    let pendingBackupPath: string | null = null;
+    let pendingReplacementAttempted = false;
     try {
         for (const stagedFile of stagedFiles) {
-            const backupPath = stagedFile.targetExisted
+            throwIfAborted(signal);
+            const targetExistsAtPromotion = existsSync(stagedFile.targetPath);
+            const backupPath = targetExistsAtPromotion
                 ? makeSiblingTempPath(stagedFile.targetPath)
                 : null;
+            pendingBackupPath = backupPath;
+            pendingReplacementAttempted = false;
             if (backupPath) {
                 await copyFile(stagedFile.targetPath, backupPath);
                 backupPaths.push(backupPath);
             }
+            throwIfAborted(signal);
+            pendingReplacementAttempted = true;
             await atomicReplace(stagedFile.stagedPath, stagedFile.targetPath);
             promotedFiles.push({
                 targetPath: stagedFile.targetPath,
                 backupPath,
             });
+            pendingBackupPath = null;
+            pendingReplacementAttempted = false;
         }
     } catch (error) {
         await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
-        await Promise.all([...promotedFiles].reverse().map(async (promotedFile) => {
+        if (pendingBackupPath && !pendingReplacementAttempted) {
+            await rm(pendingBackupPath, {force: true}).catch(() => undefined);
+            const pendingBackupIndex = backupPaths.indexOf(pendingBackupPath);
+            if (pendingBackupIndex >= 0) backupPaths.splice(pendingBackupIndex, 1);
+        }
+        const rollbackFailures: Error[] = [];
+        const restoredBackups = new Set<string>();
+        for (const promotedFile of [...promotedFiles].reverse()) {
             if (promotedFile.backupPath) {
-                await atomicReplace(promotedFile.backupPath, promotedFile.targetPath).catch(() => undefined);
-                return;
+                try {
+                    await atomicReplace(promotedFile.backupPath, promotedFile.targetPath);
+                    restoredBackups.add(promotedFile.backupPath);
+                } catch (restoreError) {
+                    rollbackFailures.push(new Error(
+                        `Failed to restore ${promotedFile.targetPath} from ${promotedFile.backupPath}`,
+                        {cause: restoreError},
+                    ));
+                }
+                continue;
             }
 
-            await rm(promotedFile.targetPath, { force: true }).catch(() => undefined);
-        }));
-        await Promise.all(backupPaths.map(backupPath => rm(backupPath, { force: true }).catch(() => undefined)));
+            await rm(promotedFile.targetPath, { force: true }).catch((removeError: unknown) => {
+                rollbackFailures.push(new Error(`Failed to remove partially promoted ${promotedFile.targetPath}`, {cause: removeError}));
+            });
+        }
+        const retainedBackups = backupPaths.filter(backupPath => !restoredBackups.has(backupPath));
+        if (rollbackFailures.length > 0 || retainedBackups.length > 0) {
+            const primaryMessage = error instanceof Error ? error.message : String(error);
+            const backupMessage = retainedBackups.length > 0
+                ? ` Recovery backup(s) retained at: ${retainedBackups.join(', ')}`
+                : '';
+            throw new AggregateError([
+                error,
+                ...rollbackFailures,
+            ], `Image export promotion failed: ${primaryMessage}.${backupMessage}`);
+        }
         throw error;
     }
 
@@ -872,7 +910,7 @@ export async function exportPdfPagesAsImages(
                 });
             }
             throwIfAborted(options.signal);
-            await promoteStagedFiles(stagedFiles);
+            await promoteStagedFiles(stagedFiles, options.signal);
         } catch (error) {
             await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
             throw error;
@@ -1130,7 +1168,7 @@ export async function exportPdfAsMultiPageTiff(
                     });
                 }
                 throwIfAborted(options.signal);
-                await promoteStagedFiles(stagedFiles);
+                await promoteStagedFiles(stagedFiles, options.signal);
             } catch (error) {
                 await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
                 throw error;

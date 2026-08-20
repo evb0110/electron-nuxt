@@ -746,9 +746,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
         }
         let mut expected_crc = [0u8; 4];
         reader.read_exact(&mut expected_crc)?;
-        if !matches!(mode, WalkMode::Passthrough(_))
-            && hasher.finalize() != u32::from_be_bytes(expected_crc)
-        {
+        if hasher.finalize() != u32::from_be_bytes(expected_crc) {
             return Err(RasterError::invalid("PNG chunk CRC mismatch"));
         }
         let parsed_header = header;

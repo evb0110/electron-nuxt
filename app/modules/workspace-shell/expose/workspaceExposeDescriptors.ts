@@ -565,6 +565,13 @@ export const workspaceExposeCommandRegistry = defineWorkspaceExposeCommandRegist
         deferred: 'custom',
     },
     {
+        name: 'createRecoverySnapshotBytes',
+        kind: 'async',
+        group: 'automation',
+        real: 'custom',
+        deferred: 'custom',
+    },
+    {
         name: 'commentAtPoint',
         kind: 'async',
         group: 'automation',
@@ -627,6 +634,10 @@ export type IWorkspaceExposeCommandDescriptor = IWorkspaceExposeCommandDescripto
 
 type TWorkspaceExposeCommandDescriptor = typeof workspaceExposeCommandRegistry[number];
 export type TWorkspaceExposeCommandName = TWorkspaceExposeCommandDescriptor['name'];
+export type TWorkspaceExposeSyncCommandName = Extract<
+    TWorkspaceExposeCommandDescriptor,
+    {readonly kind: 'sync'}
+>['name'];
 type TWorkspaceExposeMethodForGroup<TGroup extends TWorkspaceExposeCommandGroup> =
     TWorkspaceExposeCommandDescriptor extends infer TDescriptor
         ? TDescriptor extends {
@@ -644,6 +655,13 @@ type TWorkspaceExposeToolbarCommandDescriptor = TWorkspaceExposeCommandDescripto
 
 const workspaceExposeCommandNameSet: ReadonlySet<string> = new Set<TWorkspaceExposeMethod>(
     workspaceExposeCommandRegistry.map(descriptor => descriptor.name),
+);
+const workspaceExposeSyncCommandNameSet: ReadonlySet<string> = new Set<TWorkspaceExposeSyncCommandName>(
+    workspaceExposeCommandRegistry
+        .filter((descriptor): descriptor is Extract<TWorkspaceExposeCommandDescriptor, {readonly kind: 'sync'}> => (
+            descriptor.kind === 'sync'
+        ))
+        .map(descriptor => descriptor.name),
 );
 
 function isWorkspaceExposeDescriptorForGroup<TGroup extends TWorkspaceExposeCommandGroup>(
@@ -704,6 +722,10 @@ export const workspaceExposeToolbarCommandDescriptors = workspaceExposeCommandRe
 
 export function isWorkspaceExposeCommandName(value: string): value is TWorkspaceExposeMethod {
     return workspaceExposeCommandNameSet.has(value);
+}
+
+export function isWorkspaceExposeSyncCommandName(value: string): value is TWorkspaceExposeSyncCommandName {
+    return workspaceExposeSyncCommandNameSet.has(value);
 }
 
 export function getWorkspaceViewModeCommandName(mode: TPdfViewMode): TWorkspaceExposeMethod {

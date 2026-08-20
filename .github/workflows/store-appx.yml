@@ -12,18 +12,13 @@ on:
         required: false
         default: false
         type: boolean
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: Git ref or commit SHA to package. Defaults to the selected branch.
+    secrets:
+      PARTNER_TENANT_ID:
         required: false
-        type: string
-      submit:
-        description: Submit the built AppX packages to Partner Center when Store API secrets are present.
+      PARTNER_CLIENT_ID:
         required: false
-        default: false
-        type: boolean
-
+      PARTNER_CLIENT_SECRET:
+        required: false
 permissions:
   contents: read
 
@@ -47,15 +42,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -69,7 +65,7 @@ jobs:
       - name: Cache Windows native tool archives
         # Optional accelerator only: the bundling script downloads on cache miss.
         continue-on-error: true
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: ${{ runner.temp }}/win-bundle-cache
           key: store-win-native-tools-${{ matrix.arch }}-${{ hashFiles('scripts/bundle-tools-windows.sh') }}
@@ -101,7 +97,7 @@ jobs:
 
       - name: Upload strict build log on failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: store-build-log-win-${{ matrix.arch }}
           path: .tmp/build.log
@@ -220,7 +216,7 @@ jobs:
             "release/EVB-Viewer-${version}-store-${{ matrix.arch }}-provenance.json"
 
       - name: Upload Microsoft Store AppX
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: store-appx-win-${{ matrix.arch }}
           path: |
@@ -231,16 +227,23 @@ jobs:
   submit:
     name: submit to Microsoft Store
     needs: build
+    if: ${{ inputs.submit }}
     runs-on: windows-2022
+    environment: release
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref || github.ref }}
 
+      - name: Exercise Store submission status contract
+        shell: pwsh
+        run: .\scripts\release\submit-store-appx.ps1 -RunContractTests
+
       - name: Download Microsoft Store AppX artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: store-appx-win-*
           path: store-artifacts
@@ -268,8 +271,8 @@ jobs:
           [ -n "$PARTNER_CLIENT_SECRET" ] || missing+=("PARTNER_CLIENT_SECRET")
 
           if [ "${#missing[@]}" -eq 3 ]; then
-            echo "::notice::Microsoft Store submission secrets are not configured; AppX artifacts were built only."
-            exit 0
+            echo "::error::Microsoft Store submission was requested, but Partner Center credentials are not configured."
+            exit 1
           fi
 
           if [ "${#missing[@]}" -gt 0 ]; then

@@ -10,13 +10,20 @@ import type {
 } from '@contracts/windowTabs';
 import { decodeWindowTabIncomingTransfer } from '@contracts/windowTabsValidation';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import {
+    claimBrowserWorkspaceRecoveryOwner,
+    loadBrowserWorkspaceRecoveries,
+    loadBrowserWorkspaceRecovery,
+} from '@app/platform/browser/browserWorkspaceRecoveryStore';
 
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 const WINDOW_ID_QUERY_PARAM = 'evbWindowId';
+const WINDOW_NAME_PREFIX = 'evb-viewer-window:';
 const WINDOW_TABS_STATE_KEY = '__evbBrowserWindowTabsState';
 const DEFAULT_TRANSFER_TIMEOUT_MS = 12_000;
 const INCOMING_TRANSFER_NONCE_TTL_MS = 60_000;
 const DISCOVERY_SETTLE_DELAY_MS = 60;
+const RECOVERY_OWNER_LEASE_TIMEOUT_MS = 30_000;
 const FALLBACK_WINDOW_TITLE = 'EVB Viewer';
 const CLOSE_CURRENT_WINDOW_TIMEOUT_MS = 150;
 const TRANSFER_MESSAGE_SCHEMA_VERSION = 1;
@@ -34,6 +41,7 @@ interface IKnownBrowserWindow {
 interface IBrowserWindowTabsState {
     cleanupInstance?: () => void;
     instanceId?: symbol;
+    recoveryInstanceNonce?: string;
     windowId?: number;
 }
 
@@ -64,16 +72,19 @@ type TBrowserTransferAckEnvelope = IWindowTabTransferAck & {
 type TBrowserWindowTabsMessage =
     | {
         type: 'discover';
+        instanceNonce: string;
         windowId: number;
     }
     | {
         type: 'announce';
+        instanceNonce: string;
         windowId: number;
         label: string;
         ready: boolean;
     }
     | {
         type: 'unregister';
+        instanceNonce: string;
         windowId: number;
     }
     | {
@@ -97,6 +108,7 @@ const browserWindowTabsInstanceId = Symbol('browserWindowTabsInstance');
 let channel: BroadcastChannel | null = null;
 let initialized = false;
 let currentWindowId = -1;
+let currentRecoveryInstanceNonce = '';
 let isCurrentWindowReady = false;
 let cleanupRegistered = false;
 
@@ -153,6 +165,7 @@ function parseBrowserWindowTabsMessage(data: unknown): TBrowserWindowTabsMessage
                 ? {
                     type: 'discover',
                     windowId: data.windowId,
+                    instanceNonce: typeof data.instanceNonce === 'string' ? data.instanceNonce : '',
                 }
                 : null;
         case 'announce':
@@ -162,6 +175,7 @@ function parseBrowserWindowTabsMessage(data: unknown): TBrowserWindowTabsMessage
                 ? {
                     type: 'announce',
                     windowId: data.windowId,
+                    instanceNonce: typeof data.instanceNonce === 'string' ? data.instanceNonce : '',
                     label: data.label,
                     ready: data.ready,
                 }
@@ -171,6 +185,7 @@ function parseBrowserWindowTabsMessage(data: unknown): TBrowserWindowTabsMessage
                 ? {
                     type: 'unregister',
                     windowId: data.windowId,
+                    instanceNonce: typeof data.instanceNonce === 'string' ? data.instanceNonce : '',
                 }
                 : null;
         case 'transfer': {
@@ -239,12 +254,39 @@ function createWindowId() {
     );
 }
 
+function readNamedWindowId() {
+    const value = typeof window.name === 'string' ? window.name : '';
+    if (!value.startsWith(WINDOW_NAME_PREFIX)) {
+        return null;
+    }
+    const windowId = Number(value.slice(WINDOW_NAME_PREFIX.length));
+    return isPositiveWindowId(windowId) ? windowId : null;
+}
+
+function rememberNamedWindowId(windowId: number) {
+    try {
+        window.name = `${WINDOW_NAME_PREFIX}${String(windowId)}`;
+    } catch (error) {
+        BrowserLogger.warn('browserWindowTabs', 'Failed to retain browser window identity', error);
+    }
+}
+
 function createTransferNonce() {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return crypto.randomUUID();
     }
 
     return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function resolveRecoveryInstanceNonce() {
+    const state = getBrowserWindowTabsState();
+    if (state?.recoveryInstanceNonce) {
+        return state.recoveryInstanceNonce;
+    }
+    const nonce = createTransferNonce();
+    if (state) state.recoveryInstanceNonce = nonce;
+    return nonce;
 }
 
 function resolveCurrentWindowId() {
@@ -268,6 +310,7 @@ function resolveCurrentWindowId() {
             if (state) {
                 state.windowId = fromQuery;
             }
+            rememberNamedWindowId(fromQuery);
             return fromQuery;
         }
     } catch (error) {
@@ -280,14 +323,27 @@ function resolveCurrentWindowId() {
 
     const state = getBrowserWindowTabsState();
     if (isPositiveWindowId(state?.windowId)) {
+        rememberNamedWindowId(state.windowId);
         return state.windowId;
+    }
+
+    const namedWindowId = readNamedWindowId();
+    if (namedWindowId) {
+        if (state) state.windowId = namedWindowId;
+        return namedWindowId;
     }
 
     const windowId = createWindowId();
     if (state) {
         state.windowId = windowId;
     }
+    rememberNamedWindowId(windowId);
     return windowId;
+}
+
+export function getBrowserWindowRecoveryOwnerId() {
+    initializeBrowserWindowTabs();
+    return currentWindowId > 0 ? `window:${String(currentWindowId)}` : null;
 }
 
 function ensureChannel() {
@@ -323,6 +379,7 @@ function cleanupBrowserWindowTabsInstance(unregister: boolean) {
         postMessage({
             type: 'unregister',
             windowId: currentWindowId,
+            instanceNonce: currentRecoveryInstanceNonce,
         });
     }
 
@@ -518,6 +575,7 @@ function announceCurrentWindow() {
     postMessage({
         type: 'announce',
         windowId: currentWindowId,
+        instanceNonce: currentRecoveryInstanceNonce,
         label: getCurrentWindowLabel(),
         ready: isCurrentWindowReady,
     });
@@ -542,10 +600,43 @@ function dispatchTransfer(transferId: string) {
 }
 
 function shouldIgnoreBrowserWindowTabsMessage(message: TBrowserWindowTabsMessage) {
-    return 'windowId' in message && message.windowId === currentWindowId;
+    return 'windowId' in message
+        && 'instanceNonce' in message
+        && message.windowId === currentWindowId
+        && message.instanceNonce === currentRecoveryInstanceNonce;
 }
 
 function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, { type: 'announce' }>) {
+    if (
+        message.windowId === currentWindowId
+        && message.instanceNonce !== currentRecoveryInstanceNonce
+    ) {
+        // A duplicated/restored tab can clone window.name. Resolve the collision
+        // deterministically so exactly one live context retains the old owner.
+        if (currentRecoveryInstanceNonce > message.instanceNonce) {
+            const retainedWindowId = currentWindowId;
+            knownWindows.delete(currentWindowId);
+            currentWindowId = createWindowId();
+            const state = getBrowserWindowTabsState();
+            if (state) state.windowId = currentWindowId;
+            rememberNamedWindowId(currentWindowId);
+            updateKnownCurrentWindow();
+            knownWindows.set(retainedWindowId, {
+                label: message.label,
+                lastSeenAt: Date.now(),
+                ready: message.ready,
+            });
+            announceCurrentWindow();
+            postMessage({
+                type: 'discover',
+                windowId: currentWindowId,
+                instanceNonce: currentRecoveryInstanceNonce,
+            });
+        } else {
+            announceCurrentWindow();
+        }
+        return;
+    }
     knownWindows.set(message.windowId, {
         label: message.label,
         lastSeenAt: Date.now(),
@@ -598,6 +689,9 @@ const browserWindowTabsMessageHandlers: TBrowserWindowTabsMessageHandlers = {
     },
     announce: handleWindowAnnouncement,
     unregister: (message) => {
+        if (message.windowId === currentWindowId) {
+            return;
+        }
         markWindowUnavailable(
             message.windowId,
             'Target browser window closed before transfer completed.',
@@ -651,6 +745,7 @@ function handleWindowPageHide(event: PageTransitionEvent) {
         postMessage({
             type: 'unregister',
             windowId: currentWindowId,
+            instanceNonce: currentRecoveryInstanceNonce,
         });
         return;
     }
@@ -665,6 +760,7 @@ function handleWindowPageShow(event: PageTransitionEvent) {
     postMessage({
         type: 'discover',
         windowId: currentWindowId,
+        instanceNonce: currentRecoveryInstanceNonce,
     });
 }
 
@@ -680,6 +776,7 @@ function initializeBrowserWindowTabs() {
     claimBrowserWindowTabsInstance();
     initialized = true;
     currentWindowId = resolveCurrentWindowId();
+    currentRecoveryInstanceNonce = resolveRecoveryInstanceNonce();
     knownWindows.set(currentWindowId, {
         label: getCurrentWindowLabel(),
         lastSeenAt: Date.now(),
@@ -692,6 +789,7 @@ function initializeBrowserWindowTabs() {
     postMessage({
         type: 'discover',
         windowId: currentWindowId,
+        instanceNonce: currentRecoveryInstanceNonce,
     });
 }
 
@@ -763,7 +861,58 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
     async saveWorkspaceCheckpoint() {},
     discardWorkspaceCheckpoint: () => Promise.resolve('1'),
     async resumeWorkspaceCheckpoint() {},
-    claimWorkspaceCheckpoint: () => Promise.resolve(null),
+    claimWorkspaceCheckpoint: async () => {
+        let ownerId = getBrowserWindowRecoveryOwnerId();
+        if (!ownerId) {
+            return null;
+        }
+        const canDiscoverLivePeers = Boolean(ensureChannel());
+        if (canDiscoverLivePeers) {
+            const discoveryStartedAt = Date.now();
+            postMessage({
+                type: 'discover',
+                windowId: currentWindowId,
+                instanceNonce: currentRecoveryInstanceNonce,
+            });
+            await waitForDiscoverySettling();
+            pruneStaleTargetWindows(discoveryStartedAt);
+        }
+
+        ownerId = getBrowserWindowRecoveryOwnerId();
+        if (!ownerId) {
+            return null;
+        }
+        const exact = await loadBrowserWorkspaceRecovery(ownerId);
+        if (exact && ownerId === getBrowserWindowRecoveryOwnerId()) {
+            return exact.checkpoint;
+        }
+
+        const activeOwnerIds = new Set(Array.from(knownWindows.keys(), id => `window:${String(id)}`));
+        const now = Date.now();
+        const orphaned = (await loadBrowserWorkspaceRecoveries())
+            .filter(record => (
+                record.ownerId !== ownerId
+                && !activeOwnerIds.has(record.ownerId)
+                // A channel response proves liveness, but a missed 60ms
+                // response does not prove death (background tabs are heavily
+                // throttled). Never steal a fresh durable owner heartbeat.
+                && now - record.updatedAt >= RECOVERY_OWNER_LEASE_TIMEOUT_MS
+            ))
+            .sort((first, second) => (
+                second.updatedAt - first.updatedAt
+                || first.ownerId.localeCompare(second.ownerId)
+            ));
+        if (orphaned.length === 0) {
+            return null;
+        }
+        const orphan = orphaned[0]!;
+        const outcome = await claimBrowserWorkspaceRecoveryOwner(
+            orphan.ownerId,
+            ownerId,
+            orphan.generation,
+        );
+        return outcome.claimed ? orphan.checkpoint : null;
+    },
     async transfer(request: IWindowTabTransferRequest) {
         initializeBrowserWindowTabs();
         if (!ensureChannel()) {
@@ -835,6 +984,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             postMessage({
                 type: 'discover',
                 windowId: currentWindowId,
+                instanceNonce: currentRecoveryInstanceNonce,
             });
         });
     },
@@ -863,6 +1013,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         postMessage({
             type: 'discover',
             windowId: currentWindowId,
+            instanceNonce: currentRecoveryInstanceNonce,
         });
         await waitForDiscoverySettling();
         pruneStaleTargetWindows(discoveryStartedAt);

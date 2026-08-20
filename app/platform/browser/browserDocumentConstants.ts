@@ -1,7 +1,8 @@
 export const DB_NAME = 'evb-viewer-browser-documents';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const DOCUMENTS_STORE = 'documents';
 export const DOCUMENT_CHUNKS_STORE = 'document-chunks';
+export const WORKSPACE_RECOVERY_STORE = 'workspace-recovery';
 export const BROWSER_DOCUMENT_CHUNK_SIZE = 4 * 1024 * 1024;
 export const BROWSER_MAX_FULL_READ_BYTES = 64 * 1024 * 1024;
 export const BROWSER_MAX_RECENT_FILES = 30;

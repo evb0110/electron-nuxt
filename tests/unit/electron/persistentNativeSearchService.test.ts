@@ -135,4 +135,39 @@ readline.createInterface({input: process.stdin}).on('line', line => {
         }))
             .resolves.toEqual({results: []});
     });
+
+    it('forwards worker cache resets to every live native daemon', async () => {
+        vi.stubEnv('EVB_PDF_SEARCH_SERVICE_ENABLE', '1');
+        const directory = await mkdtemp(join(tmpdir(), 'evb-search-service-reset-'));
+        temporaryDirectories.push(directory);
+        const markerPath = join(directory, 'reset.txt');
+        const executablePath = await createSearchService(`
+const fs = require('node:fs');
+const readline = require('node:readline');
+process.stdout.write(JSON.stringify({type: 'ready', protocolVersion: 1}) + '\\n');
+readline.createInterface({input: process.stdin}).on('line', line => {
+    const frame = JSON.parse(line);
+    if (frame.type === 'reset-cache') {
+        fs.appendFileSync(${JSON.stringify(markerPath)}, 'reset\\n');
+        return;
+    }
+    if (frame.type === 'search') process.stdout.write(JSON.stringify({
+        type: 'result',
+        requestId: frame.requestId,
+        result: {results: []}
+    }) + '\\n');
+});
+`);
+        const {
+            resetPersistentNativeSearchServiceCaches,
+            tryRunPersistentNativeSearch,
+        } = await import('@electron/search/tryRunPersistentNativeSearch');
+        await tryRunPersistentNativeSearch(executablePath, request, {timeoutMs: 1_000});
+
+        resetPersistentNativeSearchServiceCaches();
+
+        await vi.waitFor(async () => {
+            await expect(readFile(markerPath, 'utf8')).resolves.toBe('reset\n');
+        });
+    });
 });

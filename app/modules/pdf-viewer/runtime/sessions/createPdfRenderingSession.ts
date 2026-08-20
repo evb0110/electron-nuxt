@@ -1,16 +1,9 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
+import type * as Vue from 'vue';
 import { Mutex } from 'es-toolkit/promise';
 import type { RenderTask } from 'pdfjs-dist';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
-import type {
-    IPageRange,
-    IPdfPageMatches,
-    IPdfSearchMatch,
-} from '@app/types/pdfUi';
+import type * as PdfUi from '@app/types/pdfUi';
 import type {
     TFitMode,
     TPdfViewMode,
@@ -65,24 +58,24 @@ export interface ICreatePdfRenderingSessionOptions {
     chassisAuthority: IDocumentViewerChassisAuthority | null;
     openSurfaceRenderOwner: IDocumentOpenSurfaceRenderOwner | undefined;
     performancePolicy: IPdfRenderPerformancePolicy;
-    viewerContainer: Ref<HTMLElement | null>;
-    isActive: ComputedRef<boolean>;
-    isResizing: ComputedRef<boolean>;
-    isAnySaving: ComputedRef<boolean>;
-    zoom: ComputedRef<number>;
-    zoomMode: ComputedRef<TZoomMode>;
-    fitMode: ComputedRef<TFitMode>;
-    viewMode: ComputedRef<TPdfViewMode>;
-    continuousScroll: ComputedRef<boolean>;
-    outputScale: Ref<number>;
-    rasterDisplayProfile: ComputedRef<TPdfRasterDisplayProfile | null>;
-    bufferPages: ComputedRef<number>;
-    showAnnotations: ComputedRef<boolean>;
-    searchPageMatches: ComputedRef<Map<number, IPdfPageMatches>>;
-    currentSearchMatch: ComputedRef<IPdfSearchMatch | null>;
-    currentSearchMatchNavigationId: ComputedRef<number>;
-    workingCopyPath: ComputedRef<string | null>;
-    documentRevisionToken: ComputedRef<TDocumentRevisionToken | null>;
+    viewerContainer: Vue.Ref<HTMLElement | null>;
+    isActive: Vue.ComputedRef<boolean>;
+    isResizing: Vue.ComputedRef<boolean>;
+    isAnySaving: Vue.ComputedRef<boolean>;
+    zoom: Vue.ComputedRef<number>;
+    zoomMode: Vue.ComputedRef<TZoomMode>;
+    fitMode: Vue.ComputedRef<TFitMode>;
+    viewMode: Vue.ComputedRef<TPdfViewMode>;
+    continuousScroll: Vue.ComputedRef<boolean>;
+    outputScale: Vue.Ref<number>;
+    rasterDisplayProfile: Vue.ComputedRef<TPdfRasterDisplayProfile | null>;
+    bufferPages: Vue.ComputedRef<number>;
+    showAnnotations: Vue.ComputedRef<boolean>;
+    searchPageMatches: Vue.ComputedRef<Map<number, PdfUi.IPdfPageMatches>>;
+    currentSearchMatch: Vue.ComputedRef<PdfUi.IPdfSearchMatch | null>;
+    currentSearchMatchNavigationId: Vue.ComputedRef<number>;
+    workingCopyPath: Vue.ComputedRef<string | null>;
+    documentRevisionToken: Vue.ComputedRef<TDocumentRevisionToken | null>;
     maxBufferCanvasPixels: number;
     consumeZoomViewportAnchor: () => IZoomViewportAnchor | null;
     isZoomInteractionLocked: () => boolean;
@@ -384,7 +377,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         },
     };
     function buildViewportRasterJobs(
-        range: IPageRange,
+        range: PdfUi.IPageRange,
         renderOptions: IRenderVisiblePagesOptions,
         scheduler: IPdfPageRasterScheduler,
     ) {
@@ -421,10 +414,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     : {}),
             } : renderOptions;
             const committedRasterState = getPageRasterState(pageNumber);
-            // Raster currency tracks only scale, output scale and document token, so
-            // a page whose content changed under one revision still reports 'current'.
-            // forceRerender states that the committed pixels no longer describe the
-            // page; without demoting the state the request is silently dropped.
+            // A forced rerender invalidates otherwise scale-current pixels after content changes.
             const rasterState = committedRasterState === 'current' && renderOptions.forceRerender === true
                 ? 'stale-scale'
                 : committedRasterState;
@@ -476,7 +466,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         return jobs;
     }
     async function renderVisiblePages(
-        range: IPageRange,
+        range: PdfUi.IPageRange,
         requestedRenderOptions: IRenderVisiblePagesOptions = {},
     ) {
         const renderOptions = bindPdfOpenSurfaceRenderContext(
@@ -508,7 +498,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             return;
         }
         activeRasterScheduler = scheduler;
-        const residentJobs = latestDemand.operational && latestDemand.residentPages.length
+        const residentJobs = renderOptions.suppressResidentRasterDemand !== true && latestDemand.operational && latestDemand.residentPages.length
             ? buildViewportRasterJobs(latestDemand.visibleRange, {
                 bufferMaxCanvasPixels: options.maxBufferCanvasPixels,
                 openSurfaceGeneration: documentSession.openSurfaceGeneration,
@@ -522,7 +512,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         const requestedJobs = buildViewportRasterJobs(range, renderOptions, scheduler);
         const requestedPages = new Set(requestedJobs.map(job => job.demand.pageNumber));
         const jobs = [
-            ...residentJobs.filter(job => !requestedPages.has(job.demand.pageNumber)),
+            ...residentJobs.filter(job => (
+                !requestedPages.has(job.demand.pageNumber)
+                && (!renderOptions.retainOnlyCurrentResidentRaster || job.rasterState === 'current')
+            )),
             ...requestedJobs,
         ];
         const demandKeys = new Set(jobs.map(job => job.demand.renderKey));
@@ -632,13 +625,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         bumpRenderVersion();
         await cancellation;
     }
-    // A native annotation save keeps the loaded PDFDocument and its painted pixels
-    // while advancing the persisted revision, so those canvases are re-authorized
-    // under the new token. A replacement document carries different content, so the
-    // predecessor's pixels must lose authority instead: adopting them would report
-    // the page as current and suppress the re-raster whose commit ends the reopened
-    // surface's opening generation. The load path nulls the document first, so
-    // authority tracks the last document loaded, not the watcher's previous value.
+    // Persist-only revisions reauthorize pixels; replacement documents do not.
+    // The load path nulls the document first, so authority tracks the last loaded
+    // document rather than the watcher's previous value.
     let canvasAuthority = {
         document: documentSession.pdfDocument.value,
         token: getRenderDocumentToken(),
@@ -698,7 +687,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         renderedPageStateVersion.value += 1;
     }
     async function reRenderAllVisiblePages(
-        getVisibleRange: () => IPageRange,
+        getVisibleRange: () => PdfUi.IPageRange,
         rerenderOptions?: {renderBufferOverride?: number | undefined},
     ) {
         if (!options.isActive.value) {
@@ -723,10 +712,14 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             }
             await renderVisiblePages(getVisibleRange(), {
                 forceRerender: true,
+                suppressResidentRasterDemand: rerenderOptions?.renderBufferOverride === 0,
                 ...(rerenderOptions?.renderBufferOverride === undefined
                     ? {}
                     : {bufferOverride: rerenderOptions.renderBufferOverride}),
             });
+            if (rerenderOptions?.renderBufferOverride === 0) {
+                queueFrame();
+            }
         } finally {
             renderMutex.release();
         }
@@ -751,6 +744,16 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     let lastViewportInteractionAtMs = Date.now();
     let activeMandatoryRasterId: number | null = null;
     let disposed = false;
+    let mandatoryDemandTaskId: number | null = null;
+    function queueMandatoryDemandTask() {
+        if (disposed || mandatoryDemandTaskId !== null) {
+            return;
+        }
+        mandatoryDemandTaskId = window.setTimeout(() => {
+            mandatoryDemandTaskId = null;
+            if (!disposed) reconcileDemand();
+        }, 0);
+    }
     function clearQualityRefineIdleTimer() {
         if (qualityRefineIdleTimer !== null) {
             window.clearTimeout(qualityRefineIdleTimer);
@@ -817,6 +820,12 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     activeMandatoryRasterId = null;
                 }
                 viewport.settleMandatoryRaster(mandatory.id);
+                if (
+                    latestDemand.mandatoryRaster
+                    && latestDemand.mandatoryRaster.id !== mandatory.id
+                ) {
+                    queueMandatoryDemandTask();
+                }
             });
             return;
         }
@@ -832,6 +841,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             rasterDemandPages: rasterPages,
             ...(repairPages.length ? {
                 forceRerender: true,
+                retainOnlyCurrentResidentRaster: true,
                 renderWindowOverride: rasterRange,
             } : {}),
         });
@@ -869,6 +879,14 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }
     const stopDemandWatch = watch(viewport.demand, (demand) => {
         latestDemand = demand;
+        if (demand.mandatoryRaster && activeMandatoryRasterId !== demand.mandatoryRaster.id) {
+            if (frameId !== null) {
+                window.cancelAnimationFrame(frameId);
+                frameId = null;
+            }
+            queueMandatoryDemandTask();
+            return;
+        }
         queueFrame();
     }, {
         flush: 'sync',
@@ -962,7 +980,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         transactionController: viewport.transactionController,
     });
     scheduleResizeAwareRerender = zoomRerenderQueue.scheduleResizeAwareRerender;
-    rerenderVisiblePagesAndSyncCurrentPage = usePdfViewerRerenderCoordinator({
+    const rerenderCoordinator = usePdfViewerRerenderCoordinator({
         viewerContainer: options.viewerContainer,
         pdfDocument: documentSession.pdfDocument,
         isLoading: documentSession.isLoading,
@@ -1001,9 +1019,11 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         resetZoomRerenderQueueState: reason => zoomRerenderQueue.resetZoomRerenderQueueState(reason),
         getUserViewportInteractionEpoch: () => viewport.userViewportInteractionEpoch.value,
         consumeZoomViewportAnchor: options.consumeZoomViewportAnchor,
+        submitZoomViewportStateIntent: viewport.submitZoomViewportStateIntent,
         beginResizeTransition,
         transactionController: viewport.transactionController,
-    }).reRenderVisiblePagesAndSyncCurrentPage;
+    });
+    rerenderVisiblePagesAndSyncCurrentPage = rerenderCoordinator.reRenderVisiblePagesAndSyncCurrentPage;
     const {
         resetRenderStallRecoveryState,
         invalidatePages,
@@ -1136,12 +1156,14 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         if (frameId !== null) {
             window.cancelAnimationFrame(frameId);
         }
+        if (mandatoryDemandTaskId !== null) window.clearTimeout(mandatoryDemandTaskId);
         clearQualityRefineIdleTimer();
         if (latestDemand.mandatoryRaster) {
             viewport.settleMandatoryRaster(latestDemand.mandatoryRaster.id);
         }
         resetRenderStallRecoveryState();
         initialVisual.setPendingReadyToken(null);
+        rerenderCoordinator.cleanupZoomOrchestration();
         zoomRerenderQueue.cleanupZoomRerenderQueue();
         cleanupResizeLifecycle();
         await cancelRasterDemand();

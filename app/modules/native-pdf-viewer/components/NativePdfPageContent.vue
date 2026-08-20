@@ -6,7 +6,7 @@
     >
         <img
             :src="pageState.objectUrl"
-            :alt="`PDF page ${pageNumber}`"
+            :alt="t('common.pdfPage', {page: pageNumber})"
             class="native-pdf-page-image"
             decoding="async"
             draggable="false"
@@ -23,7 +23,7 @@
             class="size-5 text-muted"
         />
         <span class="text-sm text-muted">
-            Unable to render this page
+            {{ t('common.pageRenderFailed') }}
         </span>
         <UButton
             size="xs"

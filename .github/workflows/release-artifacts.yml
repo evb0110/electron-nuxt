@@ -131,7 +131,6 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
-    secrets: inherit
 
   build_mac_intel:
     name: Package Release Artifacts / build (macos-15-intel, mac, x64)
@@ -141,7 +140,6 @@ jobs:
     uses: ./.github/workflows/build-mac-intel.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
-    secrets: inherit
 
   build_win7_legacy:
     name: Package Release Artifacts / build (windows-2022, win7 legacy, x64)
@@ -151,7 +149,6 @@ jobs:
     uses: ./.github/workflows/build-win7-legacy.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
-    secrets: inherit
 
   build_store:
     name: Package Microsoft Store AppX
@@ -162,7 +159,6 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
       submit: false
-    secrets: inherit
 
   summarize:
     name: Summarize Artifact Downloads

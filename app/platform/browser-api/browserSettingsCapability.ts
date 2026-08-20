@@ -137,8 +137,8 @@ export const browserSettingsCapability: ISettingsCapability = {
             settingsState = readAndMigrateBrowserSettings()
                 ?? { ...DEFAULT_SETTINGS };
             browserSettingsLoaded = true;
+            writeBrowserSettingsBootstrapCookies(settingsState);
         }
-
         return Promise.resolve(sanitizeSettings(settingsState));
     },
     save(settings) {

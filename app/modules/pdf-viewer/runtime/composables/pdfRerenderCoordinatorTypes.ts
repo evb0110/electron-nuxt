@@ -104,6 +104,7 @@ export interface IUsePdfViewerRerenderCoordinatorOptions {
     resetZoomRerenderQueueState: (reason: string) => void;
     getUserViewportInteractionEpoch?: (() => number) | undefined;
     consumeZoomViewportAnchor?: (() => IZoomViewportAnchor | null) | undefined;
+    submitZoomViewportStateIntent?: ((zoom: number) => void) | undefined;
     beginResizeTransition: (source: string, anchorPage: number | null) => number;
     consumeSuppressedZoomRerender?: ((nextZoom: number) => boolean) | undefined;
     transactionController?: IRerenderCoordinatorTransactionController | undefined;

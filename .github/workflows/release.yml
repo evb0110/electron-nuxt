@@ -2,7 +2,9 @@ name: Release
 run-name: Release ${{ inputs.tag }}
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ inputs.tag || github.run_id }}
+  # Stable-channel publication is global state. Different tags must not race
+  # each other while updating the mirror pointer or GitHub release channel.
+  group: release-${{ github.repository }}
   cancel-in-progress: false
 
 on:
@@ -26,7 +28,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   # Pin exact Node 24 patch level so release orchestration matches build jobs.
@@ -36,17 +38,41 @@ env:
 jobs:
   prepare:
     name: Resolve Target
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
       tag: ${{ steps.target.outputs.tag }}
       target_sha: ${{ steps.validate.outputs.target_sha }}
       version: ${{ steps.target.outputs.version }}
+      workflow_sha: ${{ steps.workflow_trust.outputs.workflow_sha }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify trusted workflow revision
+        id: workflow_trust
+        shell: bash
+        env:
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if [[ ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Release workflow revision is not an exact commit SHA."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$WORKFLOW_SHA" refs/remotes/origin/main; then
+            echo "::error::Release workflow revision $WORKFLOW_SHA is not reachable from protected main."
+            exit 1
+          fi
+          echo "workflow_sha=$WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Resolve requested release
         id: target
@@ -67,8 +93,8 @@ jobs:
             echo "::error::A target commit SHA or ref is required."
             exit 1
           fi
-          if [[ ! "$TAG" =~ ^v[0-9]+[.][0-9]+[.][0-9]+([-.][0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
-            echo "::error::Release tag must look like v1.2.3 and may only contain letters, numbers, dots, and hyphens."
+          if [[ ! "$TAG" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]]; then
+            echo "::error::Stable public release tag must be exactly vMAJOR.MINOR.PATCH."
             exit 1
           fi
 
@@ -90,6 +116,62 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify protected-main ancestry and exact-SHA CI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+
+          # target_ref is operator input. Do not execute that checkout or expose
+          # release secrets until protected main and its aggregate CI gate have
+          # vouched for this exact commit.
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$TARGET_SHA" refs/remotes/origin/main; then
+            echo "::error::Release target $TARGET_SHA is not reachable from protected main."
+            exit 1
+          fi
+
+          run_id=''
+          for attempt in $(seq 1 40); do
+            runs="$(gh api \
+              -H 'Accept: application/vnd.github+json' \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${TARGET_SHA}&event=push&per_page=20")"
+            run_id="$(jq -r --arg sha "$TARGET_SHA" \
+              '[.workflow_runs[] | select(.head_sha == $sha and .event == "push")] | sort_by(.run_number) | last | .id // empty' \
+              <<< "$runs")"
+            status="$(jq -r --argjson id "${run_id:-0}" \
+              '.workflow_runs[] | select(.id == $id) | .status // empty' <<< "$runs")"
+            conclusion="$(jq -r --argjson id "${run_id:-0}" \
+              '.workflow_runs[] | select(.id == $id) | .conclusion // empty' <<< "$runs")"
+
+            if [ "$status" = 'completed' ]; then
+              if [ "$conclusion" != 'success' ]; then
+                echo "::error::Exact-SHA CI run $run_id completed with conclusion '$conclusion'."
+                exit 1
+              fi
+              break
+            fi
+            if [ "$attempt" = 40 ]; then
+              echo "::error::No successful completed push CI run appeared for exact target $TARGET_SHA within 20 minutes."
+              exit 1
+            fi
+            echo "Waiting for exact-SHA push CI for $TARGET_SHA (attempt $attempt/40)."
+            sleep 30
+          done
+
+          gates_conclusion="$(gh api \
+            --paginate \
+            -H 'Accept: application/vnd.github+json' \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" \
+            --jq '.jobs[] | select(.name == "gates_ok") | .conclusion' | tail -n 1)"
+          if [ "$gates_conclusion" != 'success' ]; then
+            echo "::error::Exact-SHA CI run $run_id did not contain a successful gates_ok aggregate."
+            exit 1
+          fi
+          echo "::notice::Release target $TARGET_SHA is on protected main and passed exact-SHA CI run $run_id."
 
       - name: Validate target
         id: validate
@@ -130,15 +212,16 @@ jobs:
 
     steps:
       - name: Checkout target
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           ref: ${{ needs.prepare.outputs.target_sha }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -165,15 +248,60 @@ jobs:
           EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: '1'
         run: pnpm run release:verify:checks
 
+  release_credentials:
+    name: Require Public Release Credentials
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: release
+
+    steps:
+      - name: Require public release credentials
+        shell: bash
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          PARTNER_CLIENT_ID: ${{ secrets.PARTNER_CLIENT_ID }}
+          PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}
+          PARTNER_TENANT_ID: ${{ secrets.PARTNER_TENANT_ID }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$WIN_CSC_LINK" ] || [ -z "$WIN_CSC_KEY_PASSWORD" ]; then
+            echo "::error::Public releases require both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD; unsigned Windows installers cannot be promoted."
+            exit 1
+          fi
+          if [ -z "$CSC_LINK" ] || [ -z "$CSC_KEY_PASSWORD" ] \
+            || [ -z "$APPLE_API_KEY" ] || [ -z "$APPLE_API_KEY_ID" ] || [ -z "$APPLE_API_ISSUER" ]; then
+            echo "::error::Public releases require Developer ID signing and App Store Connect notarization credentials; unsigned or unnotarized macOS artifacts cannot be promoted."
+            exit 1
+          fi
+          if [ -z "$PARTNER_TENANT_ID" ] || [ -z "$PARTNER_CLIENT_ID" ] || [ -z "$PARTNER_CLIENT_SECRET" ]; then
+            echo "::error::Public releases require complete Partner Center credentials so the required Microsoft Store channel cannot be skipped."
+            exit 1
+          fi
+
   build_artifacts:
     name: Package Release Artifacts
     needs:
       - prepare
       - quality
+      - release_credentials
     uses: ./.github/workflows/build.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
-    secrets: inherit
+      release_environment: release
+    secrets:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
   verify_packaged_scan_cleanup:
     name: Verify packaged scan-cleanup (macOS arm64)
@@ -277,45 +405,44 @@ jobs:
           if-no-files-found: ignore
 
   build_mac_intel:
-    # Supplemental macOS Intel ZIP packaging must not delay release creation.
-    # It runs in parallel and, if successful, gets attached to the existing
-    # release in a later job.
+    # Intel is a supported stable channel, so packaging and attachment complete
+    # before a new GitHub draft can be promoted publicly.
     name: Package Release Artifacts / build (macos-15-intel, mac, x64)
     needs:
       - prepare
       - quality
+      - release_credentials
     uses: ./.github/workflows/build-mac-intel.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
-    secrets: inherit
-
-  build_win7_legacy:
-    # Supplemental Windows 7 packaging is best-effort only. It must never sit
-    # on the main release critical path because it depends on a downgraded
-    # Electron line and host-side validation on an unsupported OS.
-    name: Package Release Artifacts / build (windows-2022, win7 legacy, x64)
-    needs:
-      - prepare
-      - quality
-    uses: ./.github/workflows/build-win7-legacy.yml
-    with:
-      ref: ${{ needs.prepare.outputs.target_sha }}
-    secrets: inherit
+      release_environment: release
+    secrets:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
   publish:
-    name: Create GitHub Release
+    name: Stage GitHub Release
     needs:
       - prepare
       - build_artifacts
+      - build_mac_intel
       - verify_packaged_scan_cleanup
     runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
     outputs:
       already_public: ${{ steps.draft_release.outputs.already_public }}
+      finalized_draft: ${{ steps.draft_release.outputs.finalized_draft }}
 
     steps:
       - name: Checkout target
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           ref: ${{ needs.prepare.outputs.target_sha }}
 
       - name: Setup pnpm
@@ -332,12 +459,17 @@ jobs:
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
       - name: Download release artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          # dist-* matches exactly the five main build-matrix artifacts; the
-          # supplemental lanes upload under supplemental-*/legacy-* and attach
-          # in their own follow-up jobs.
+          # dist-* matches exactly the five main build-matrix artifacts.
           pattern: dist-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Download required macOS Intel artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: supplemental-mac-x64
           path: artifacts
           merge-multiple: true
 
@@ -363,6 +495,7 @@ jobs:
           set -euo pipefail
 
           echo "already_public=false" >> "$GITHUB_OUTPUT"
+          echo "finalized_draft=false" >> "$GITHUB_OUTPUT"
 
           # Prefer the GitHub CLI here so the release publish path tracks the
           # runner's current Node/LTS stack instead of a separately versioned
@@ -370,16 +503,66 @@ jobs:
           release_view_error="$RUNNER_TEMP/release-view-error.txt"
           if release_json="$(gh release view "$RELEASE_TAG" --json isDraft,targetCommitish 2> "$release_view_error")"; then
             is_draft="$(jq -r .isDraft <<< "$release_json")"
-            if [ "$is_draft" != "true" ]; then
-              release_target="$(jq -r .targetCommitish <<< "$release_json")"
-              if [ "$release_target" != "$TARGET_SHA" ]; then
-                echo "::error::Public release $RELEASE_TAG targets $release_target instead of $TARGET_SHA; refusing to reuse it."
+            release_target="$(jq -r .targetCommitish <<< "$release_json")"
+            tag_ref_error="$RUNNER_TEMP/release-tag-ref-error.txt"
+            if tag_object="$(gh api \
+              -H 'Accept: application/vnd.github+json' \
+              "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
+              --jq '.object' 2> "$tag_ref_error")"; then
+              tag_type="$(jq -r .type <<< "$tag_object")"
+              resolved_release_sha="$(jq -r .sha <<< "$tag_object")"
+              for _ in $(seq 1 5); do
+                [ "$tag_type" = 'tag' ] || break
+                tag_object="$(gh api \
+                  -H 'Accept: application/vnd.github+json' \
+                  "repos/${GITHUB_REPOSITORY}/git/tags/${resolved_release_sha}" \
+                  --jq '.object')"
+                tag_type="$(jq -r .type <<< "$tag_object")"
+                resolved_release_sha="$(jq -r .sha <<< "$tag_object")"
+              done
+              if [ "$tag_type" != 'commit' ]; then
+                echo "::error::Existing release tag $RELEASE_TAG did not resolve to a commit."
                 exit 1
               fi
+            elif [ "$is_draft" = 'true' ]; then
+              # GitHub may not create refs/tags/<tag> until a draft is
+              # published. Resolve the draft's target commitish through the
+              # commits API in that state; public releases must have the tag.
+              resolved_release_sha="$(gh api \
+                -H 'Accept: application/vnd.github+json' \
+                "repos/${GITHUB_REPOSITORY}/commits/${release_target}" \
+                --jq .sha)"
+            else
+              cat "$tag_ref_error" >&2
+              exit 1
+            fi
+            if [ "$resolved_release_sha" != "$TARGET_SHA" ]; then
+              echo "::error::Existing release $RELEASE_TAG resolves to $resolved_release_sha instead of $TARGET_SHA; refusing to reuse or mutate it."
+              exit 1
+            fi
+            if [ "$is_draft" != "true" ]; then
               echo "already_public=true" >> "$GITHUB_OUTPUT"
               echo "::notice::Release $RELEASE_TAG is already public at the expected commit; verifying its assets without replacing them."
             else
-              gh release upload "$RELEASE_TAG" artifacts/* --clobber
+              existing_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+              if grep -Fqx 'SHA256SUMS' <<< "$existing_assets"; then
+                # A checksum-finalized draft may already have immutable mirror
+                # objects from a failed later channel. Keep that exact byte set
+                # and verify its manifest below so retries remain idempotent.
+                echo "finalized_draft=true" >> "$GITHUB_OUTPUT"
+                echo "::notice::Retaining checksum-finalized draft assets from the same target."
+              else
+                # An unfinished draft has no immutable identity yet. Replace its
+                # whole expected set instead of combining artifacts from builds.
+                while IFS= read -r existing_name; do
+                  if [ -n "$existing_name" ] && [ ! -f "artifacts/$existing_name" ]; then
+                    gh release delete-asset "$RELEASE_TAG" "$existing_name" --yes
+                  fi
+                done <<< "$existing_assets"
+                for source in artifacts/*; do
+                  gh release upload "$RELEASE_TAG" "$source" --clobber
+                done
+              fi
             fi
           elif grep -Fq 'release not found' "$release_view_error"; then
             gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes --target "$TARGET_SHA"
@@ -395,6 +578,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           ALREADY_PUBLIC: ${{ steps.draft_release.outputs.already_public }}
+          FINALIZED_DRAFT: ${{ steps.draft_release.outputs.finalized_draft }}
           EVB_RELEASE_HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
           EVB_RELEASE_HAS_WINDOWS_SIGNING: ${{ secrets.WIN_CSC_LINK != '' && secrets.WIN_CSC_KEY_PASSWORD != '' }}
         shell: bash
@@ -404,6 +588,10 @@ jobs:
           gh release download "$RELEASE_TAG" --dir downloaded-assets
           node scripts/release/assert-publish-metadata-policy.mjs downloaded-assets "${{ needs.prepare.outputs.version }}"
 
+          if [ "$ALREADY_PUBLIC" = "true" ] || [ "$FINALIZED_DRAFT" = "true" ]; then
+            node scripts/release/release-checksums.mjs verify downloaded-assets
+          fi
+
           for source in artifacts/*; do
             name="$(basename "$source")"
             downloaded="downloaded-assets/$name"
@@ -411,25 +599,26 @@ jobs:
               echo "::error::Uploaded release asset is missing after download: $name"
               exit 1
             fi
-            if [ "$ALREADY_PUBLIC" != "true" ] && [ "$(sha256sum "$source" | cut -d' ' -f1)" != "$(sha256sum "$downloaded" | cut -d' ' -f1)" ]; then
+            if [ "$ALREADY_PUBLIC" != "true" ] && [ "$FINALIZED_DRAFT" != "true" ] \
+              && [ "$(sha256sum "$source" | cut -d' ' -f1)" != "$(sha256sum "$downloaded" | cut -d' ' -f1)" ]; then
               echo "::error::Uploaded release asset hash mismatch: $name"
               exit 1
             fi
           done
 
-          if [ "$ALREADY_PUBLIC" = "true" ]; then
-            echo "::notice::Existing public assets passed presence and updater integrity checks; immutable assets were not compared with rebuilt signed artifacts."
+          if [ "$FINALIZED_DRAFT" = "true" ]; then
+            for downloaded in downloaded-assets/*; do
+              name="$(basename "$downloaded")"
+              if [ "$name" != 'SHA256SUMS' ] && [ ! -f "artifacts/$name" ]; then
+                echo "::error::Checksum-finalized draft contains an unexpected asset: $name"
+                exit 1
+              fi
+            done
           fi
 
-      - name: Promote verified draft release
-        id: promote_release
-        if: ${{ steps.draft_release.outputs.already_public != 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-        shell: bash
-        run: gh release edit "$RELEASE_TAG" --draft=false
+          if [ "$ALREADY_PUBLIC" = "true" ]; then
+            echo "::notice::Existing public assets passed presence and updater integrity checks; immutable checksum verification runs at promotion."
+          fi
 
       - name: Report release gate outcomes
         if: ${{ always() }}
@@ -438,7 +627,6 @@ jobs:
           METADATA_POLICY_OUTCOME: ${{ steps.metadata_policy.outcome }}
           DRAFT_RELEASE_OUTCOME: ${{ steps.draft_release.outcome }}
           UPLOADED_ASSETS_OUTCOME: ${{ steps.uploaded_assets.outcome }}
-          PROMOTE_RELEASE_OUTCOME: ${{ steps.promote_release.outcome }}
           ALREADY_PUBLIC: ${{ steps.draft_release.outputs.already_public }}
         run: |
           {
@@ -450,112 +638,29 @@ jobs:
             echo "| Draft release creation/upload | $DRAFT_RELEASE_OUTCOME |"
             echo "| Published asset presence and integrity | $UPLOADED_ASSETS_OUTCOME |"
             echo "| Existing public release reused | ${ALREADY_PUBLIC:-false} |"
-            echo "| Verified draft promotion | $PROMOTE_RELEASE_OUTCOME |"
+            echo '| Public promotion | deferred until required distribution channels complete |'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  publish_mac_intel:
-    name: Attach macOS Intel Release Asset
+  finalize_release_assets:
+    name: Finalize Immutable Release Asset Set
     needs:
       - prepare
       - publish
-      - build_mac_intel
-    if: ${{ needs.publish.result == 'success' && needs.build_mac_intel.result == 'success' }}
     runs-on: ubuntu-latest
-    continue-on-error: true
+    environment: release
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
 
     steps:
-      - name: Download macOS Intel artifacts
-        uses: actions/download-artifact@v8
+      - name: Checkout trusted release helpers
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          pattern: supplemental-mac-x64
-          path: artifacts
-          merge-multiple: true
+          ref: ${{ needs.prepare.outputs.workflow_sha }}
+          persist-credentials: false
 
-      - name: Attach macOS Intel assets to existing release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          existing_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
-          for source in artifacts/*; do
-            name="$(basename "$source")"
-            if grep -Fqx "$name" <<< "$existing_assets"; then
-              echo "::notice::Public release asset already exists and will not be replaced: $name"
-            else
-              gh release upload "$RELEASE_TAG" "$source"
-            fi
-          done
-
-  publish_win7_legacy:
-    name: Attach Windows 7 Legacy Release Asset
-    needs:
-      - prepare
-      - publish
-      - build_win7_legacy
-    if: ${{ needs.publish.result == 'success' && needs.build_win7_legacy.outputs.artifact_ready == 'true' }}
-    runs-on: ubuntu-latest
-    continue-on-error: true
-
-    steps:
-      - name: Download Windows 7 legacy artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: legacy-win7-*
-          path: artifacts
-          merge-multiple: true
-
-      - name: Attach Windows 7 legacy assets to existing release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          existing_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
-          for source in artifacts/*; do
-            name="$(basename "$source")"
-            if grep -Fqx "$name" <<< "$existing_assets"; then
-              echo "::notice::Public release asset already exists and will not be replaced: $name"
-            else
-              gh release upload "$RELEASE_TAG" "$source"
-            fi
-          done
-
-  publish_mirror:
-    name: Publish Regional Release Mirror
-    needs:
-      - prepare
-      - publish
-      - publish_mac_intel
-      - publish_win7_legacy
-    if: ${{ always() && needs.publish.result == 'success' }}
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout target
-        uses: actions/checkout@v6
-        with:
-          # The mirror publisher belongs to the workflow revision, not the
-          # potentially older release commit whose artifacts are mirrored.
-          ref: ${{ github.workflow_sha }}
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-
-      - name: Install mirror publisher dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
-      - name: Download every published GitHub release asset
+      - name: Download every staged GitHub release asset
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -566,7 +671,146 @@ jobs:
           mkdir artifacts
           gh release download "$RELEASE_TAG" --dir artifacts
 
-      - name: Upload, verify, and retain four releases
+      - name: Publish or verify immutable release checksums
+        env:
+          ALREADY_PUBLIC: ${{ needs.publish.outputs.already_public }}
+          FINALIZED_DRAFT: ${{ needs.publish.outputs.finalized_draft }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          checksum_path="artifacts/SHA256SUMS"
+          if [ "$ALREADY_PUBLIC" = 'true' ] || [ "$FINALIZED_DRAFT" = 'true' ]; then
+            node scripts/release/release-checksums.mjs verify artifacts
+          else
+            node scripts/release/release-checksums.mjs generate artifacts
+            node scripts/release/release-checksums.mjs verify artifacts
+            gh release upload "$RELEASE_TAG" "$checksum_path" --clobber
+          fi
+
+      - name: Attest final release assets
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: artifacts/*
+
+  stage_mirror:
+    name: Stage Regional Release Mirror
+    needs:
+      - prepare
+      - finalize_release_assets
+    runs-on: ubuntu-latest
+    environment: release
+
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # The mirror publisher belongs to the workflow revision, not the
+          # potentially older release commit whose artifacts are mirrored.
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.workflow_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install mirror publisher dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download every staged GitHub release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir artifacts
+          gh release download "$RELEASE_TAG" --dir artifacts
+
+      - name: Upload and verify immutable release objects
+        env:
+          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
+          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
+          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+        run: node scripts/release/publish-release-mirror.mjs artifacts "${{ needs.prepare.outputs.tag }}" --stage
+
+  publish_store:
+    name: Package and Reconcile Microsoft Store AppX
+    needs:
+      - prepare
+      - stage_mirror
+    uses: ./.github/workflows/store-appx.yml
+    with:
+      ref: ${{ needs.prepare.outputs.target_sha }}
+      submit: true
+    secrets:
+      PARTNER_TENANT_ID: ${{ secrets.PARTNER_TENANT_ID }}
+      PARTNER_CLIENT_ID: ${{ secrets.PARTNER_CLIENT_ID }}
+      PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}
+
+  promote_release:
+    name: Promote Required Release Channels
+    needs:
+      - prepare
+      - publish
+      - publish_store
+      - stage_mirror
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout trusted release publisher
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.workflow_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install mirror publisher dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download every staged GitHub release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir artifacts
+          gh release download "$RELEASE_TAG" --dir artifacts
+
+      - name: Promote verified GitHub draft
+        id: github_promotion
+        if: ${{ needs.publish.outputs.already_public != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: gh release edit "$RELEASE_TAG" --draft=false
+
+      - name: Activate verified mirror channel
+        id: mirror_activation
         env:
           MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
           MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
@@ -574,14 +818,20 @@ jobs:
           MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
         run: node scripts/release/publish-release-mirror.mjs artifacts "${{ needs.prepare.outputs.tag }}"
 
-  publish_store:
-    name: Package and Submit Microsoft Store AppX
-    needs:
-      - prepare
-      - publish
-    if: ${{ needs.publish.outputs.already_public != 'true' }}
-    uses: ./.github/workflows/store-appx.yml
-    with:
-      ref: ${{ needs.prepare.outputs.target_sha }}
-      submit: true
-    secrets: inherit
+      - name: Report verified promotion outcomes
+        if: ${{ always() }}
+        shell: bash
+        env:
+          GITHUB_PROMOTION_OUTCOME: ${{ steps.github_promotion.outcome }}
+          MIRROR_ACTIVATION_OUTCOME: ${{ steps.mirror_activation.outcome }}
+          STORE_RECONCILIATION_OUTCOME: ${{ needs.publish_store.result }}
+        run: |
+          {
+            echo '## Verified release promotion'
+            echo
+            echo '| Required channel | Outcome |'
+            echo '| --- | --- |'
+            echo "| GitHub release promotion | $GITHUB_PROMOTION_OUTCOME |"
+            echo "| Regional mirror activation | $MIRROR_ACTIVATION_OUTCOME |"
+            echo "| Microsoft Store reconciliation | $STORE_RECONCILIATION_OUTCOME |"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -231,6 +231,23 @@ function transition(
 }
 
 describe('PdfViewportSession behavior', () => {
+    it('does not duplicate an anchored wheel-zoom viewport intent', () => {
+        const fixture = createViewportFixture({zoomMode: 'custom'});
+        try {
+            const submitViewportStateIntent = vi.spyOn(
+                fixture.viewport.singlePageScroll,
+                'submitViewportStateIntent',
+            );
+
+            fixture.viewport.markAnchoredZoomSubmitted(1.5);
+            fixture.viewport.submitZoomViewportStateIntent(1.5);
+
+            expect(submitViewportStateIntent).not.toHaveBeenCalled();
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
     it('publishes visible raster demand synchronously for effective zoom and DPR changes', () => {
         const fixture = createViewportFixture({
             bufferPages: 0,

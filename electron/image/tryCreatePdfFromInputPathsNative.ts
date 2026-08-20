@@ -431,6 +431,7 @@ export async function tryWritePdfFromInputPathsNative(
             throw new Error(`Combined PDF page-count postcondition failed: expected ${expectedPageCount}, got ${outputPageCount}`);
         }
 
+        throwIfAborted(options?.signal);
         await atomicReplace(stagedOutputPath, normalizedOutputPath);
         return true;
     } finally {

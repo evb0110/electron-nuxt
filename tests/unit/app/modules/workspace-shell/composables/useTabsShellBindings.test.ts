@@ -11,6 +11,7 @@ import {
     defineComponent,
     nextTick,
     ref,
+    watch,
 } from 'vue';
 import { renderToString } from '@vue/server-renderer';
 import {
@@ -369,6 +370,46 @@ describe('useTabsShellBindings', () => {
             value: null,
         });
         expect(installedApi?.readActiveWorkspaceStateValues(['workingCopyPath'])).toEqual({ workingCopyPath: '/tmp/page-7.pdf' });
+
+        unmount();
+    });
+
+    it('returns synchronous automation commands before Vue flushes their reactive effects', async () => {
+        window.__allowRendererFileOpenForAutomation = vi.fn(async () => true);
+        const options = createOptions();
+        const zoom = ref(1);
+        const zoomEffect = vi.fn();
+        watch(zoom, zoomEffect);
+        options.activeWorkspace.value.setCustomZoomFromDisplay = vi.fn((value: number) => {
+            zoom.value = value;
+        });
+
+        const unmount = await mountBindingsClient(options);
+        const installedApi = window.__evbTestApi;
+        const syncResult = installedApi?.callActiveWorkspaceSyncCommand(
+            'setCustomZoomFromDisplay',
+            [2],
+        );
+
+        expect(syncResult).toEqual({
+            called: true,
+            value: null,
+        });
+        expect(syncResult).not.toBeInstanceOf(Promise);
+        expect(zoomEffect).not.toHaveBeenCalled();
+
+        await nextTick();
+        expect(zoomEffect).toHaveBeenCalledOnce();
+
+        zoomEffect.mockClear();
+        const normalizedResult = installedApi?.callActiveWorkspaceCommand(
+            'setCustomZoomFromDisplay',
+            [3],
+        );
+        expect(normalizedResult).toBeInstanceOf(Promise);
+        expect(zoomEffect).not.toHaveBeenCalled();
+        await normalizedResult;
+        expect(zoomEffect).toHaveBeenCalledOnce();
 
         unmount();
     });

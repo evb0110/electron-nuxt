@@ -381,31 +381,6 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             previousDjvuPath,
         });
         try {
-            BrowserLogger.info('djvu-open-generation', 'Closing previous PDF state', {
-                reason: 'close-before-native-activation',
-                generation,
-                djvuPath,
-                current: isCurrentDjvuOpen(generation, djvuPath),
-            });
-            const closeResult = options.closeActiveDocument?.();
-            if (isPromiseLike(closeResult)) {
-                await closeResult;
-            }
-            BrowserLogger.info('djvu-open-generation', 'Previous PDF state closed', {
-                generation,
-                djvuPath,
-                current: isCurrentDjvuOpen(generation, djvuPath),
-            });
-            if (!isCurrentDjvuOpen(generation, djvuPath)) {
-                BrowserLogger.warn('djvu-open-generation', 'Open superseded', {
-                    reason: 'stale-after-pdf-close',
-                    generation,
-                    currentGeneration: openDjvuGeneration,
-                    djvuPath,
-                    openingPath: openingPath.value,
-                });
-                return false;
-            }
             const openHandle = await djvu.startOpenForViewing(
                 djvuPath,
                 `open:${generation}:${Date.now()}`,
@@ -457,6 +432,37 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
 
             if (result.jobId) {
                 activeViewingJobId.value = result.jobId;
+            }
+
+            // The native open result is the candidate acceptance boundary.
+            // Do not evict the current PDF until the DjVu source is known to
+            // be readable, and release the accepted candidate if the close or
+            // generation fence fails before activation.
+            BrowserLogger.info('djvu-open-generation', 'Closing previous PDF state', {
+                reason: 'close-after-native-acceptance',
+                generation,
+                djvuPath,
+                current: isCurrentDjvuOpen(generation, djvuPath),
+            });
+            try {
+                const closeResult = options.closeActiveDocument?.();
+                if (isPromiseLike(closeResult)) {
+                    await closeResult;
+                }
+            } catch (closeError) {
+                await releaseStaleViewingPath(generation, djvuPath);
+                throw closeError;
+            }
+            if (!isCurrentDjvuOpen(generation, djvuPath)) {
+                BrowserLogger.warn('djvu-open-generation', 'Open superseded', {
+                    reason: 'stale-after-pdf-close',
+                    generation,
+                    currentGeneration: openDjvuGeneration,
+                    djvuPath,
+                    openingPath: openingPath.value,
+                });
+                await releaseStaleViewingPath(generation, djvuPath);
+                return false;
             }
             loadingProgress.value = {
                 current: result.pageCount ?? loadingProgress.value.current,

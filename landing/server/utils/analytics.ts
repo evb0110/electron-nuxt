@@ -10,6 +10,7 @@ import {
     resolveAnalyticsClientIp,
     resolveStrongAnalyticsSecret,
 } from '@contracts/analyticsPrivacy';
+import { normalizeAnalyticsGeo } from '@contracts/analytics';
 
 export const LANDING_ANALYTICS_ADMISSION_REJECTED_SQLSTATE = 'EVB01';
 export const LANDING_ANALYTICS_BODY_MAX_BYTES = 8 * 1024;
@@ -228,10 +229,15 @@ export function isLandingAnalyticsAdmissionRejected(error: unknown) {
 }
 
 export function extractGeo(event: H3Event): IGeoData {
-    return {
+    const geo = normalizeAnalyticsGeo({
         country: getHeader(event, 'x-vercel-ip-country') ?? null,
         city: getHeader(event, 'x-vercel-ip-city') ?? null,
         region: getHeader(event, 'x-vercel-ip-country-region') ?? null,
+    });
+    return {
+        country: geo.country,
+        city: geo.city,
+        region: geo.region,
     };
 }
 

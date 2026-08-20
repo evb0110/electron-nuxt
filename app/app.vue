@@ -160,10 +160,6 @@ import { useClipboard } from '@vueuse/core';
 import { sumBy } from 'es-toolkit/math';
 import AgentationWidget from '@app/components/AgentationWidget.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    BROWSER_LOCALE_COOKIE_KEY,
-    BROWSER_THEME_COOKIE_KEY,
-} from '@app/utils/browserSettingsPersistence';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
@@ -228,8 +224,6 @@ const localeHead = useLocaleHead({
     lang: true,
     seo: true,
 });
-const localeCookie = useCookie(BROWSER_LOCALE_COOKIE_KEY, { watch: false });
-const themeCookie = useCookie(BROWSER_THEME_COOKIE_KEY, { watch: false });
 const DEV_RELOAD_EVENT_KEY = 'evb-viewer:dev:last-vite-reload-event';
 const fatalRuntimeTitle = computed(() => fatalRuntimeError.value?.kind === 'startup'
     ? t('errors.runtime.startupTitle')
@@ -495,8 +489,6 @@ onMounted(async () => {
         void refreshHostSnapshot();
         await loadSettings();
         setPreferenceFromSettings(settings.value);
-        localeCookie.value = settings.value.locale;
-        themeCookie.value = settings.value.theme;
         if (locale.value !== settings.value.locale) {
             await setLocale(settings.value.locale);
         }

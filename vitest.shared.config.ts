@@ -83,7 +83,10 @@ const electronE2ESmokeTestFiles = [
     'tests/e2e/electron/squigglyMarkup.e2e.test.ts',
 ];
 
-const electronE2EBlockingSmokeTestFiles = ['tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts'];
+const electronE2EBlockingSmokeTestFiles = [
+    'tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts',
+    'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
+];
 const electronE2EDrawShapeTestFiles = [
     'tests/e2e/electron/annotationStrokeParity.e2e.test.ts',
     'tests/e2e/electron/drawShapeLifecycle.e2e.test.ts',

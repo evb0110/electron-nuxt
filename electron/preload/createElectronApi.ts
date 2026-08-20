@@ -304,8 +304,9 @@ export function createElectronApi(
             const dirtyWorkingCopyPaths = new Set<string>();
             const flushedWorkingCopyPaths = new Set<string>();
             const errors: string[] = [];
+            const callbacks = Array.from(shutdownSaveFlushCallbacks);
 
-            for (const callback of shutdownSaveFlushCallbacks) {
+            for (const callback of callbacks) {
                 try {
                     const result = await callback();
                     for (const path of result.dirtyWorkingCopyPaths ?? []) {
@@ -324,10 +325,13 @@ export function createElectronApi(
             }
 
             const response: IShutdownSaveFlushResult = {
+                callbackCount: callbacks.length,
                 requestId,
                 dirtyWorkingCopyPaths: Array.from(dirtyWorkingCopyPaths),
                 flushedWorkingCopyPaths: Array.from(flushedWorkingCopyPaths),
-                ...(errors.length > 0 ? {error: errors.join('; ')} : {}),
+                ...(callbacks.length === 0
+                    ? {error: 'No shutdown save-flush handler is registered.'}
+                    : errors.length > 0 ? {error: errors.join('; ')} : {}),
             };
             ipcRenderer.send(CORE_IPC_SEND_CHANNELS.shutdownSaveFlushResult, response);
         })();

@@ -39,11 +39,12 @@ describePosix('terminateProcessTree (posix)', () => {
             return true;
         }) as typeof processTreeRuntime.kill);
 
-        await terminateProcessTree(pid, {
+        const terminated = await terminateProcessTree(pid, {
             graceMs: 0,
             preferProcessGroup: true,
         });
 
+        expect(terminated).toBe(false);
         expect(killSpy).toHaveBeenCalled();
         expect(killCalls.some(call => call.pid === -pid && call.signal === 'SIGTERM')).toBe(true);
         expect(killCalls.some(call => call.pid === -pid && call.signal === 'SIGKILL')).toBe(true);
@@ -75,18 +76,20 @@ describePosix('terminateProcessTree (posix)', () => {
             return true;
         }) as typeof processTreeRuntime.kill);
 
-        await terminateProcessTree(pid, {
+        const terminated = await terminateProcessTree(pid, {
             graceMs: 1_000,
             preferProcessGroup: false,
         });
 
+        expect(terminated).toBe(true);
         expect(killCalls.some(call => call.pid === pid && call.signal === 'SIGTERM')).toBe(true);
         expect(killCalls.some(call => call.signal === 'SIGKILL')).toBe(false);
     });
 
-    it('does not signal a reused pid after the original target exits', async () => {
+    it('finishes the detached process group after its leader exits', async () => {
         const pid = makeTestPid(4343);
         let originalTargetAlive = true;
+        let processGroupAlive = true;
         const killCalls: Array<{
             pid: number;
             signal: NodeJS.Signals | 0 | undefined
@@ -96,20 +99,30 @@ describePosix('terminateProcessTree (posix)', () => {
                 pid: targetPid,
                 signal,
             });
+            if (signal === 0 && targetPid === -pid) {
+                if (processGroupAlive) {
+                    return true;
+                }
+                throw new Error('ESRCH');
+            }
             if (signal === 'SIGTERM') {
                 originalTargetAlive = false;
+            }
+            if (signal === 'SIGKILL') {
+                processGroupAlive = false;
             }
             return true;
         }) as typeof processTreeRuntime.kill);
 
-        await terminateProcessTree(pid, {
+        const terminated = await terminateProcessTree(pid, {
             graceMs: 0,
             isTargetAlive: () => originalTargetAlive,
             preferProcessGroup: true,
         });
 
+        expect(terminated).toBe(true);
         expect(killCalls.some(call => call.signal === 'SIGTERM')).toBe(true);
-        expect(killCalls.some(call => call.signal === 'SIGKILL')).toBe(false);
+        expect(killCalls.some(call => call.signal === 'SIGKILL')).toBe(true);
     });
 });
 
@@ -119,7 +132,7 @@ describe('terminateProcessTree (win32 taskkill)', () => {
         vi.restoreAllMocks();
     });
 
-    it('bounds stuck taskkill helper processes', async () => {
+    it('bounds stuck taskkill helpers and trusts the confirmed target exit', async () => {
         vi.useFakeTimers();
         const pid = makeTestPid(5151);
         const helpers: Array<EventEmitter & {kill: ReturnType<typeof vi.fn>}> = [];
@@ -154,12 +167,37 @@ describe('terminateProcessTree (win32 taskkill)', () => {
         await vi.advanceTimersByTimeAsync(50);
         await Promise.resolve();
         await vi.advanceTimersByTimeAsync(50);
-        await terminatePromise;
+        await expect(terminatePromise).resolves.toBe(true);
 
         expect(spawnSpy).toHaveBeenCalledTimes(2);
         expect(spawnSpy.mock.calls[0]?.[1]).not.toContain('/F');
         expect(spawnSpy.mock.calls[1]?.[1]).toContain('/F');
         expect(helpers[0]?.kill).toHaveBeenCalledTimes(1);
         expect(helpers[1]?.kill).toHaveBeenCalledTimes(1);
+    });
+
+    it('accepts confirmed process exit when taskkill loses the exit race', async () => {
+        const pid = makeTestPid(5252);
+        let alive = true;
+        vi.spyOn(processTreeRuntime, 'spawn').mockImplementation(() => {
+            const child = new EventEmitter() as EventEmitter & {kill: ReturnType<typeof vi.fn>};
+            child.kill = vi.fn();
+            queueMicrotask(() => {
+                alive = false;
+                child.emit('close', 1);
+            });
+            return child as never;
+        });
+        vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((targetPid, signal?: NodeJS.Signals | 0) => {
+            if (targetPid === pid && signal === 0 && !alive) {
+                throw new Error('ESRCH');
+            }
+            return true;
+        }) as typeof processTreeRuntime.kill);
+
+        await expect(terminateProcessTree(pid, {
+            graceMs: 0,
+            platform: 'win32',
+        })).resolves.toBe(true);
     });
 });

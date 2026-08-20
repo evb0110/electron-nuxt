@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Compact DjVu fidelity remains one conversion owner; quota monitoring extends that lifecycle. */
 import { randomUUID } from 'node:crypto';
 import {
     mkdir,
@@ -38,6 +39,7 @@ import {
     openCompactDjvuCheckpointJob,
     type ICheckpointedCompactPageSpec as ICompactPageSpec,
 } from '@electron/features/djvu/main/compactDjvuCheckpoint';
+import { createDjvuDiskQuotaMonitor } from '@electron/features/djvu/main/djvuArtifactManifest';
 
 interface ICompactDjvuPdfExportOptions {
     jobId: string;
@@ -168,7 +170,6 @@ const DJVU_COMPACT_FOREGROUND_CHUNKS = new Set([
     'FG2k',
 ]);
 const DJVU_COMPACT_MASK_CHUNKS = new Set(['Sjbz']);
-
 export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfExportOptions) {
     const pages = normalizePages(options.pages, options.pageCount);
     if (pages.length === 0) {
@@ -179,125 +180,157 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
             error: 'No DjVu pages available for compact PDF export',
         };
     }
-
     const checkpointJob = await openCompactDjvuCheckpointJob(options.djvuPath, pages, options.qualityPreset);
-    const pageTempDir = join(checkpointJob.directory, 'compact-pages');
-    await mkdir(pageTempDir, {recursive: true});
-    const pageStructures = await readDjvuPageStructures(options.djvuPath, options.jobId, options.signal);
-    const workerCount = Math.min(DJVU_COMPACT_MAX_PAGE_WORKERS, pages.length);
-    let completedPageCount = 0;
-    let lastProgress = 0;
-    const emitProgress = (percent: number) => {
-        const nextProgress = Math.max(lastProgress, Math.min(PROGRESS_COMBINE_CAP, percent));
-        lastProgress = nextProgress;
-        options.onProgress?.(nextProgress);
-    };
-    const buildPageWithLimit = limitAsync(async (pageNumber: number) => {
-        throwIfAborted(options.signal);
-        const pageSpec = await loadOrBuildCompactDjvuPage(checkpointJob, pages.indexOf(pageNumber), () => withCompactDjvuResourceLease({
-            jobId: options.jobId,
-            kind: 'page',
-            ...(options.signal ? {signal: options.signal} : {}),
-            task: () => buildCompactPageSpec(
-                options,
-                pageTempDir,
-                pageNumber,
-                pageStructures.get(pageNumber) ?? null,
-            ),
-        }));
-        throwIfAborted(options.signal);
-        completedPageCount += 1;
-        emitProgress(Math.round((completedPageCount / pages.length) * PROGRESS_EXTRACTION_CAP));
-        return pageSpec;
-    }, workerCount);
-
-    const pageSpecs = await Promise.all(pages.map(buildPageWithLimit));
-    const manifestPath = join(options.tempDir, 'compact-manifest.tsv');
-    await writeFile(
-        manifestPath,
-        `${pageSpecs.map(spec => spec.manifestLine).join('\n')}\n`,
-        'utf8',
-    );
-    await writeCompactDjvuFidelityManifest(options.tempDir, options.qualityPreset, pageSpecs);
-    emitProgress(PROGRESS_COMBINE_START);
-    throwIfAborted(options.signal);
-
-    const layeredCount = pageSpecs.filter(spec => spec.kind === 'layered').length;
-    const layeredColorCount = pageSpecs.filter(spec => spec.kind === 'layered-color').length;
-    const bitonalCount = pageSpecs.filter(spec => spec.kind === 'bitonal').length;
-    const photoCount = pageSpecs.filter(spec => spec.kind === 'photo').length;
-    logger.info(
-        `[${options.jobId}] Compact DjVu PDF manifest ready: ${bitonalCount} bitonal, ${layeredCount} layered, ${layeredColorCount} layered-color, ${photoCount} photo page(s)`,
-    );
-
-    const binaryPath = resolveNativePdfImageCombinePath();
-    if (!binaryPath) {
-        return {
-            success: false,
-            outputPath: options.outputPath,
-            fileSize: 0,
-            error: 'Native PDF image combiner is unavailable',
-        };
-    }
-    throwIfAborted(options.signal);
-
-    const result = await withCompactDjvuResourceLease({
-        jobId: options.jobId,
-        kind: 'combine',
-        ...(options.signal ? {signal: options.signal} : {}),
-        task: () => runRegisteredDjvuProcess(
-            `${options.jobId}-compact-combine`,
-            binaryPath,
-            [
-                '--output',
-                options.outputPath,
-                '--json-progress',
-                '--compact-manifest',
-                manifestPath,
-            ],
-            {
-                env: {
-                    ...process.env,
-                    EVB_PDF_COMBINE_MAX_PAGES: String(Math.max(pageSpecs.length, 1)),
-                },
-                onStdout: createPdfCombineProgressHandler(
-                    pageSpecs.length,
-                    (processed, total) => emitProgress(PROGRESS_COMBINE_START + Math.round(
-                        (processed / total) * (PROGRESS_COMBINE_CAP - PROGRESS_COMBINE_START),
-                    )),
-                    line => logger.debug(`Ignoring malformed native compact PDF progress: ${line}`),
-                ),
-            },
-        ),
-    });
-    if (!result.success) {
-        return {
-            success: false,
-            outputPath: options.outputPath,
-            fileSize: 0,
-            error: result.error,
-        };
-    }
-
+    let quotaMonitor: Awaited<ReturnType<typeof createDjvuDiskQuotaMonitor>> | null = null;
     try {
-        const s = await stat(options.outputPath);
-        emitProgress(PROGRESS_COMBINE_CAP);
-        await checkpointJob.cleanup?.().catch((cleanupError: unknown) => {
-            logger.debug(`Failed to cleanup successful compact DjVu artifacts: ${getErrorMessage(cleanupError)}`);
+        const pageTempDir = join(checkpointJob.directory, 'compact-pages');
+        await mkdir(pageTempDir, {recursive: true});
+        quotaMonitor = await createDjvuDiskQuotaMonitor({
+            paths: [
+                checkpointJob.directory,
+                options.outputPath,
+            ],
+            fileSystemPath: checkpointJob.directory,
+            maxTotalBytes: checkpointJob.maxTotalBytes,
+            ...(options.signal ? {signal: options.signal} : {}),
         });
-        return {
-            success: true,
-            outputPath: options.outputPath,
-            fileSize: s.size,
-            pageSpecs,
+        const activeQuotaMonitor = quotaMonitor;
+        const conversionOptions: ICompactDjvuPdfExportOptions = {
+            ...options,
+            signal: activeQuotaMonitor.signal,
         };
-    } catch (error) {
-        return {
-            success: false,
-            outputPath: options.outputPath,
-            fileSize: 0,
-            error: `Compact PDF output file not found: ${getErrorMessage(error)}`,
+        const pageStructures = await readDjvuPageStructures(options.djvuPath, options.jobId, activeQuotaMonitor.signal);
+        const workerCount = Math.min(DJVU_COMPACT_MAX_PAGE_WORKERS, pages.length);
+        let completedPageCount = 0;
+        let lastProgress = 0;
+        const emitProgress = (percent: number) => {
+            const nextProgress = Math.max(lastProgress, Math.min(PROGRESS_COMBINE_CAP, percent));
+            lastProgress = nextProgress;
+            options.onProgress?.(nextProgress);
         };
+        const buildPageWithLimit = limitAsync(async (pageNumber: number) => {
+            throwIfAborted(activeQuotaMonitor.signal);
+            const pageSpec = await loadOrBuildCompactDjvuPage(checkpointJob, pages.indexOf(pageNumber), () => withCompactDjvuResourceLease({
+                jobId: options.jobId,
+                kind: 'page',
+                signal: activeQuotaMonitor.signal,
+                task: () => buildCompactPageSpec(
+                    conversionOptions,
+                    pageTempDir,
+                    pageNumber,
+                    pageStructures.get(pageNumber) ?? null,
+                ),
+            }));
+            await activeQuotaMonitor.checkNow();
+            throwIfAborted(activeQuotaMonitor.signal);
+            completedPageCount += 1;
+            emitProgress(Math.round((completedPageCount / pages.length) * PROGRESS_EXTRACTION_CAP));
+            return pageSpec;
+        }, workerCount);
+
+        let pageSpecs: ICompactPageSpec[];
+        try {
+            pageSpecs = await Promise.all(pages.map(buildPageWithLimit));
+        } catch (error) {
+            if (activeQuotaMonitor.failure) {
+                throw new Error(activeQuotaMonitor.failure.message, {cause: error});
+            }
+            throw error;
+        }
+        const manifestPath = join(options.tempDir, 'compact-manifest.tsv');
+        await writeFile(
+            manifestPath,
+            `${pageSpecs.map(spec => spec.manifestLine).join('\n')}\n`,
+            'utf8',
+        );
+        await writeCompactDjvuFidelityManifest(options.tempDir, options.qualityPreset, pageSpecs);
+        emitProgress(PROGRESS_COMBINE_START);
+        await activeQuotaMonitor.checkNow();
+        throwIfAborted(activeQuotaMonitor.signal);
+
+        const layeredCount = pageSpecs.filter(spec => spec.kind === 'layered').length;
+        const layeredColorCount = pageSpecs.filter(spec => spec.kind === 'layered-color').length;
+        const bitonalCount = pageSpecs.filter(spec => spec.kind === 'bitonal').length;
+        const photoCount = pageSpecs.filter(spec => spec.kind === 'photo').length;
+        logger.info(
+            `[${options.jobId}] Compact DjVu PDF manifest ready: ${bitonalCount} bitonal, ${layeredCount} layered, ${layeredColorCount} layered-color, ${photoCount} photo page(s)`,
+        );
+
+        const binaryPath = resolveNativePdfImageCombinePath();
+        if (!binaryPath) {
+            return {
+                success: false,
+                outputPath: options.outputPath,
+                fileSize: 0,
+                error: 'Native PDF image combiner is unavailable',
+            };
+        }
+        throwIfAborted(activeQuotaMonitor.signal);
+
+        const result = await withCompactDjvuResourceLease({
+            jobId: options.jobId,
+            kind: 'combine',
+            signal: activeQuotaMonitor.signal,
+            task: () => runRegisteredDjvuProcess(
+                `${options.jobId}-compact-combine`,
+                binaryPath,
+                [
+                    '--output',
+                    options.outputPath,
+                    '--json-progress',
+                    '--compact-manifest',
+                    manifestPath,
+                ],
+                {
+                    signal: activeQuotaMonitor.signal,
+                    env: {
+                        ...process.env,
+                        EVB_PDF_COMBINE_MAX_PAGES: String(Math.max(pageSpecs.length, 1)),
+                    },
+                    onStdout: createPdfCombineProgressHandler(
+                        pageSpecs.length,
+                        (processed, total) => emitProgress(PROGRESS_COMBINE_START + Math.round(
+                            (processed / total) * (PROGRESS_COMBINE_CAP - PROGRESS_COMBINE_START),
+                        )),
+                        line => logger.debug(`Ignoring malformed native compact PDF progress: ${line}`),
+                    ),
+                },
+            ),
+        });
+        if (!result.success) {
+            return {
+                success: false,
+                outputPath: options.outputPath,
+                fileSize: 0,
+                error: activeQuotaMonitor.failure?.message ?? result.error,
+            };
+        }
+
+        try {
+            await activeQuotaMonitor.checkNow();
+            const s = await stat(options.outputPath);
+            emitProgress(PROGRESS_COMBINE_CAP);
+            await checkpointJob.cleanup?.().catch((cleanupError: unknown) => {
+                logger.debug(`Failed to cleanup successful compact DjVu artifacts: ${getErrorMessage(cleanupError)}`);
+            });
+            return {
+                success: true,
+                outputPath: options.outputPath,
+                fileSize: s.size,
+                pageSpecs,
+            };
+        } catch (error) {
+            return {
+                success: false,
+                outputPath: options.outputPath,
+                fileSize: 0,
+                error: activeQuotaMonitor.failure?.message
+                    ?? `Compact PDF output file not found: ${getErrorMessage(error)}`,
+            };
+        }
+    } finally {
+        await quotaMonitor?.stop();
+        await checkpointJob.close();
     }
 }
 

@@ -6,6 +6,7 @@ import {
     readFile,
     rm,
 } from 'fs/promises';
+import { finished } from 'node:stream/promises';
 import { sumBy } from 'es-toolkit/math';
 import UTIF, { type IUtifFrame } from 'utif';
 import {
@@ -18,6 +19,7 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { tryCombinePagesWithNativeTiffCombiner } from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
+import { abortErrorFromSignal } from '@electron/utils/abort';
 
 interface ITiffPageRgba {
     width: number;
@@ -33,6 +35,10 @@ interface ICombinePagesIntoMultiPageTiffLocalOptions {
 }
 
 const CLASSIC_TIFF_MAX_BYTE_LENGTH = 0xFFFFFFFF;
+
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) throw abortErrorFromSignal(signal);
+}
 
 interface IIndexedArrayBufferView extends ArrayBufferView {
     readonly length: number;
@@ -241,11 +247,13 @@ export function splitTiffPageDescriptorsForClassicLimit<TPage extends ITiffImage
     return groups;
 }
 
-export async function readTiffPageDescriptors(pagePaths: string[]) {
+export async function readTiffPageDescriptors(pagePaths: string[], signal?: AbortSignal) {
     const pages: ILocalTiffPageDescriptor[] = [];
 
     for (const pagePath of pagePaths) {
+        throwIfAborted(signal);
         const tiffBytes = await readFile(pagePath);
+        throwIfAborted(signal);
         const metadata = decodeSinglePageTiffMetadata(tiffBytes);
         pages.push({
             path: pagePath,
@@ -258,7 +266,11 @@ export async function readTiffPageDescriptors(pagePaths: string[]) {
     return pages;
 }
 
-async function writeChunkToStream(stream: WriteStream, chunk: Uint8Array) {
+async function writeChunkToStream(
+    stream: WriteStream,
+    chunk: Uint8Array,
+    streamCompletion: Promise<unknown>,
+) {
     if (chunk.length === 0) {
         return;
     }
@@ -267,7 +279,7 @@ async function writeChunkToStream(stream: WriteStream, chunk: Uint8Array) {
         return;
     }
 
-    await new Promise<void>((resolve, reject) => {
+    const drain = new Promise<void>((resolve, reject) => {
         const handleDrain = () => {
             stream.off('error', handleError);
             resolve();
@@ -280,23 +292,10 @@ async function writeChunkToStream(stream: WriteStream, chunk: Uint8Array) {
         stream.once('drain', handleDrain);
         stream.once('error', handleError);
     });
-}
-
-async function closeWriteStream(stream: WriteStream) {
-    await new Promise<void>((resolve, reject) => {
-        const handleFinish = () => {
-            stream.off('error', handleError);
-            resolve();
-        };
-        const handleError = (error: Error) => {
-            stream.off('finish', handleFinish);
-            reject(error);
-        };
-
-        stream.once('finish', handleFinish);
-        stream.once('error', handleError);
-        stream.end();
-    });
+    await Promise.race([
+        drain,
+        streamCompletion,
+    ]);
 }
 
 export async function combinePagesIntoMultiPageTiffLocal(
@@ -309,11 +308,14 @@ export async function combinePagesIntoMultiPageTiffLocal(
     if (pagePaths.length === 0) {
         throw new Error('No pages available for TIFF export');
     }
+    throwIfAborted(signal);
     if (await tryCombinePagesWithNativeTiffCombiner(pagePaths, outputPath, signal)) {
         return;
     }
 
-    const pages = await readTiffPageDescriptors(pagePaths);
+    throwIfAborted(signal);
+    const pages = await readTiffPageDescriptors(pagePaths, signal);
+    throwIfAborted(signal);
     const totalByteLength = estimateMultiPageTiffByteLength(pages);
     if (totalByteLength > CLASSIC_TIFF_MAX_BYTE_LENGTH) {
         throw new Error('Multi-page TIFF export exceeds the Classic TIFF 4GB limit');
@@ -325,18 +327,27 @@ export async function combinePagesIntoMultiPageTiffLocal(
     } = encodeMultiPageTiffHeader(pages);
     const tempOutputPath = makeSiblingTempPath(outputPath);
     const stream = createWriteStream(tempOutputPath, { flags: 'w' });
+    const streamCompletion = finished(stream);
+    void streamCompletion.catch(() => undefined);
+    const abortStream = signal
+        ? () => stream.destroy(abortErrorFromSignal(signal))
+        : null;
+    if (abortStream) signal?.addEventListener('abort', abortStream, {once: true});
     let replacedOutput = false;
 
     try {
-        await writeChunkToStream(stream, header);
+        throwIfAborted(signal);
+        await writeChunkToStream(stream, header, streamCompletion);
 
         const paddingLength = firstPageDataOffset - header.length;
         if (paddingLength > 0) {
-            await writeChunkToStream(stream, new Uint8Array(paddingLength));
+            await writeChunkToStream(stream, new Uint8Array(paddingLength), streamCompletion);
         }
 
         for (const page of pages) {
+            throwIfAborted(signal);
             const tiffBytes = await readFile(page.path);
+            throwIfAborted(signal);
             const decoded = decodeSinglePageTiffRgba(
                 tiffBytes,
                 page.width,
@@ -347,19 +358,23 @@ export async function combinePagesIntoMultiPageTiffLocal(
                 throw new Error('Decoded TIFF page size did not match computed descriptor size');
             }
 
-            await writeChunkToStream(stream, decoded.rgba);
-            if (deleteSourcePages) {
-                await rm(page.path, { force: true }).catch(() => undefined);
-            }
+            await writeChunkToStream(stream, decoded.rgba, streamCompletion);
         }
 
-        await closeWriteStream(stream);
+        stream.end();
+        await streamCompletion;
+        throwIfAborted(signal);
         await atomicReplace(tempOutputPath, outputPath);
         replacedOutput = true;
+        if (deleteSourcePages) {
+            await Promise.all(pages.map(page => rm(page.path, {force: true}).catch(() => undefined)));
+        }
     } catch (error) {
         stream.destroy();
+        await streamCompletion.catch(() => undefined);
         throw error;
     } finally {
+        if (abortStream) signal?.removeEventListener('abort', abortStream);
         if (!replacedOutput) {
             await rm(tempOutputPath, { force: true }).catch(() => undefined);
         }

@@ -19,9 +19,6 @@ interface IRestoreWorkspaceCheckpointOptions {
 const WORKSPACE_RESTORE_CONCURRENCY = 2;
 
 function getRestoreTarget(tab: IWorkspaceCheckpointTab): TDocumentRef | TOpenFileResult | null {
-    if (tab.isDjvu) {
-        return tab.sourceRef;
-    }
     if (tab.workingCopyRef && tab.sourceRef) {
         return {
             kind: 'pdf',

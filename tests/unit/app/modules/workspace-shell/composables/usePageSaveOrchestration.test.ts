@@ -13,6 +13,7 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
 import type { IScrollSnapshot } from '@app/types/pdfUi';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import { cast } from '@tests/helpers/cast';
 
@@ -193,5 +194,85 @@ describe('usePageSaveOrchestration', () => {
             .toBeLessThan(
                 saveMocks.handleOptimizePdfForInteraction.mock.invocationCallOrder[0]!,
             );
+    });
+
+    it('creates a detached recovery snapshot without acknowledging the dirty save frontier', async () => {
+        const assertAnnotationSaveCurrent = vi.fn(async () => undefined);
+        const verifyAnnotationSave = vi.fn(async () => undefined);
+        const commitAnnotationSave = vi.fn();
+        const runSaveTransaction = vi.fn(async () => ({
+            source: 'serialized-rewrite' as const,
+            baseBytes: null,
+            serializedBytes: Uint8Array.of(4, 5, 6),
+            serializedResult: null,
+            nativeMutationProjection: null,
+            fallbackDecision: {},
+            annotationSavePlan: {},
+            assertAnnotationSaveCurrent,
+            verifyAnnotationSave,
+            commitAnnotationSave,
+        }));
+        const runWithDocumentOperationLease = vi.fn(async (_kind, operation: () => Promise<unknown>) => operation());
+        const orchestration = usePageSaveOrchestration(createDeps({
+            annotationDirty: ref(true),
+            hasPendingUnsavedChanges: computed(() => true),
+            pdfViewerRef: ref({
+                runSaveTransaction,
+                getAllShapes: vi.fn(() => []),
+            }),
+            runWithDocumentOperationLease,
+        }));
+
+        await expect(orchestration.createRecoverySnapshotBytes()).resolves.toEqual(Uint8Array.of(4, 5, 6));
+
+        expect(runWithDocumentOperationLease).toHaveBeenCalledWith('recovery-snapshot', expect.any(Function));
+        expect(runSaveTransaction).toHaveBeenCalledWith(expect.objectContaining({
+            mode: 'snapshot',
+            saveFlowMode: 'save',
+            serializeResult: true,
+        }));
+        expect(assertAnnotationSaveCurrent).toHaveBeenCalledOnce();
+        expect(verifyAnnotationSave).toHaveBeenCalledWith(Uint8Array.of(4, 5, 6));
+        expect(commitAnnotationSave).not.toHaveBeenCalled();
+    });
+
+    it('does not serialize a recovery snapshot for a clean document', async () => {
+        const runSaveTransaction = vi.fn();
+        const orchestration = usePageSaveOrchestration(createDeps({pdfViewerRef: ref({
+            runSaveTransaction,
+            getAllShapes: vi.fn(() => []),
+        })}));
+
+        await expect(orchestration.createRecoverySnapshotBytes()).resolves.toBeNull();
+        expect(runSaveTransaction).not.toHaveBeenCalled();
+    });
+
+    it('discards a recovery snapshot when the document revision changes during serialization', async () => {
+        const documentRevisionToken = ref<TDocumentRevisionToken | null>(
+            'revision-1' as TDocumentRevisionToken,
+        );
+        const runSaveTransaction = vi.fn(async () => {
+            documentRevisionToken.value = 'revision-2' as TDocumentRevisionToken;
+            return {
+                source: 'serialized-rewrite' as const,
+                baseBytes: null,
+                serializedBytes: Uint8Array.of(4, 5, 6),
+                serializedResult: null,
+                nativeMutationProjection: null,
+                fallbackDecision: {},
+                annotationSavePlan: {},
+            };
+        });
+        const orchestration = usePageSaveOrchestration(createDeps({
+            annotationDirty: ref(true),
+            documentRevisionToken,
+            hasPendingUnsavedChanges: computed(() => true),
+            pdfViewerRef: ref({
+                runSaveTransaction,
+                getAllShapes: vi.fn(() => []),
+            }),
+        }));
+
+        await expect(orchestration.createRecoverySnapshotBytes()).resolves.toBeNull();
     });
 });

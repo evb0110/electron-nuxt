@@ -43,6 +43,8 @@ import {
     shouldPreserveE2EArtifacts,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
+    cleanupRunFixtures,
+    cleanupSessionFixtures,
     createLargeScannedFixturePdf,
     createMultiPageTextFixturePdf,
     type IFixtureDescribeSelector,
@@ -160,6 +162,26 @@ describe('Electron E2E fixture policy', () => {
             );
         } finally {
             await rm(outputPath, { force: true });
+        }
+    });
+
+    it('keeps run-owned generated PDFs across session cleanup until their owner releases them', async () => {
+        const owner = `unit-large-pdf-${process.pid}-${Date.now()}`;
+        const outputPath = await createLargeScannedFixturePdf(
+            'run-owned-large-scanned-policy.pdf',
+            2,
+            0,
+            1,
+            {runOwner: owner},
+        );
+
+        try {
+            cleanupSessionFixtures(`e2e-unrelated-session-${process.pid}`);
+            await expect(stat(outputPath)).resolves.toBeDefined();
+            cleanupRunFixtures(owner);
+            await expect(stat(outputPath)).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            cleanupRunFixtures(owner);
         }
     });
 

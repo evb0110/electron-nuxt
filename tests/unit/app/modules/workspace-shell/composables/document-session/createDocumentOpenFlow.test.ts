@@ -19,6 +19,7 @@ import {
     createEpochGuard,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import {BrowserFilePickerSetupDeniedError} from '@app/platform/browser-api/browserFilePickerAdapter';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import {
@@ -40,6 +41,7 @@ const mocks = vi.hoisted(() => ({
         openDocumentDirect: vi.fn(),
         openDocumentDirectBatch: vi.fn(),
     },
+    documentPdf: {validatePdfPath: vi.fn()},
     documentPicker: { openDocumentDialog: vi.fn() },
     documentRecentFiles: {recentFiles: {get: vi.fn()}},
     performanceProfile: {
@@ -51,6 +53,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentFilesCapability: () => mocks.documentFiles,
     getDocumentOpenCapability: () => mocks.documentOpen,
+    getDocumentPdfCapability: () => mocks.documentPdf,
     getDocumentPickerCapability: () => mocks.documentPicker,
     getDocumentRecentFilesCapability: () => mocks.documentRecentFiles,
 }));
@@ -121,6 +124,12 @@ describe('createDocumentOpenFlow', () => {
         mocks.documentFiles.readFile.mockResolvedValue(PDF_BYTES);
         mocks.documentFiles.readFileRange.mockResolvedValue(new Uint8Array());
         mocks.documentFiles.writeFile.mockResolvedValue(true);
+        mocks.documentPdf.validatePdfPath.mockResolvedValue({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: [],
+        });
         mocks.documentRecentFiles.recentFiles.get.mockResolvedValue([]);
         mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue({
             pageNumber: 1,
@@ -143,6 +152,65 @@ describe('createDocumentOpenFlow', () => {
         expect(nextState.pdfData).toEqual(PDF_BYTES);
         expect(mocks.documentFiles.statFile).toHaveBeenCalledWith('/tmp/work.pdf');
         expect(mocks.documentFiles.readFile).toHaveBeenCalledWith('/tmp/work.pdf');
+    });
+
+    it('localizes browser picker setup denial without exposing its transport code', async () => {
+        mocks.documentPicker.openDocumentDialog.mockRejectedValueOnce(
+            new BrowserFilePickerSetupDeniedError(),
+        );
+        const {
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+
+        await expect(openFlow.openFile()).resolves.toEqual({
+            status: 'failed',
+            error: 'errors.browser.filePickerSetupDenied',
+        });
+        expect(state.error.value).toBe('errors.browser.filePickerSetupDenied');
+    });
+
+    it('retains the active PDF when a staged replacement fails parser validation', async () => {
+        const {
+            deps,
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+        const activeData = Uint8Array.of(1, 2, 3);
+        const activeSource = new Blob([activeData], {type: 'application/pdf'});
+        state.originalPath.value = '/documents/active.pdf';
+        state.workingCopyPath.value = '/tmp/active-working.pdf';
+        state.pdfData.value = activeData;
+        state.pdfSrc.value = activeSource;
+        state.pdfReloadSrc.value = activeSource;
+        state.isDirty.value = true;
+        const corruptCandidate: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: '/documents/corrupt.pdf',
+            workingPath: '/tmp/corrupt-working.pdf',
+        };
+        mocks.documentPdf.validatePdfPath.mockResolvedValueOnce({
+            isValid: false,
+            tool: 'qpdf',
+            errors: ['damaged xref table'],
+            warnings: [],
+        });
+
+        await expect(openFlow.openFile(corruptCandidate)).resolves.toMatchObject({
+            status: 'failed',
+            error: 'errors.file.invalid',
+        });
+
+        expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith('/tmp/corrupt-working.pdf');
+        expect(state.originalPath.value).toBe('/documents/active.pdf');
+        expect(state.workingCopyPath.value).toBe('/tmp/active-working.pdf');
+        expect(state.pdfData.value).toBe(activeData);
+        expect(state.pdfSrc.value).toBe(activeSource);
+        expect(state.pdfReloadSrc.value).toBe(activeSource);
+        expect(state.isDirty.value).toBe(true);
+        expect(deps.resetHistory).not.toHaveBeenCalled();
+        expect(deps.cleanupPreviousWorkingCopy).not.toHaveBeenCalled();
+        expect(deps.cleanupAbandonedWorkingCopy).toHaveBeenCalledWith('/tmp/corrupt-working.pdf');
     });
 
     it('keeps PDFs above the direct IPC ceiling path-backed', async () => {

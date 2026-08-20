@@ -26,6 +26,11 @@ import {
 import { randomBytes } from 'node:crypto';
 import { app } from 'electron';
 import { getErrorMessage } from '@electron/utils/error';
+import { resolveCodexProcessLaunch } from '@electron/features/agent/codexProcessLaunch';
+import {
+    createDetachedChildProcessSpawnOptions,
+    terminateDetachedChildProcess,
+} from '@electron/utils/nativeChildProcess';
 import { downloadPinnedCodexArtifact } from '@electron/features/agent/codexCliArtifactDownload';
 import {
     PINNED_CODEX_CLI_VERSION,
@@ -151,43 +156,82 @@ function runCommand(
         return `${existing}${chunk}`.slice(0, CODEX_COMMAND_MAX_OUTPUT_CHARS);
     };
     return new Promise((resolve) => {
-        const child = spawn(command, args, {
+        let launch: ReturnType<typeof resolveCodexProcessLaunch>;
+        try {
+            launch = resolveCodexProcessLaunch(command, args);
+        } catch (error) {
+            resolve({
+                ok: false,
+                stdout: '',
+                stderr: getErrorMessage(error),
+                exitCode: null,
+            });
+            return;
+        }
+        const child = spawn(launch.command, launch.args, createDetachedChildProcessSpawnOptions({
             env: {
                 ...process.env,
                 NO_COLOR: '1',
                 ...options.env,
             },
+            shell: launch.shell,
             windowsHide: true,
-        });
+        }));
+        const childStdout = child.stdout;
+        const childStderr = child.stderr;
+        if (!childStdout || !childStderr) {
+            const resolveMissingPipes = () => {
+                resolve({
+                    ok: false,
+                    stdout: '',
+                    stderr: 'Codex command output pipes were not created.',
+                    exitCode: null,
+                });
+            };
+            void terminateDetachedChildProcess(child, 1_000).then(resolveMissingPipes, resolveMissingPipes);
+            return;
+        }
         let stdout = '';
         let stderr = '';
         let settled = false;
-        const timeout = setTimeout(() => {
+        let timingOut = false;
+        const settleTimeout = (terminated: boolean) => {
             if (settled) {
                 return;
             }
-            child.kill();
             settled = true;
             resolve({
                 ok: false,
                 stdout,
-                stderr: stderr || 'Command timed out.',
+                stderr: stderr || (terminated
+                    ? 'Command timed out.'
+                    : 'Command timed out and its process tree did not terminate.'),
                 exitCode: null,
             });
+        };
+        const timeout = setTimeout(() => {
+            if (settled || timingOut) {
+                return;
+            }
+            timingOut = true;
+            void terminateDetachedChildProcess(child, 1_000).then(
+                settleTimeout,
+                () => settleTimeout(false),
+            );
         }, timeoutMs);
 
-        child.stdout.setEncoding('utf8');
-        child.stderr.setEncoding('utf8');
-        child.stdout.on('data', (chunk: string) => {
+        childStdout.setEncoding('utf8');
+        childStderr.setEncoding('utf8');
+        childStdout.on('data', (chunk: string) => {
             stdout = appendBoundedOutput(stdout, chunk);
             options.onStdout?.(chunk);
         });
-        child.stderr.on('data', (chunk: string) => {
+        childStderr.on('data', (chunk: string) => {
             stderr = appendBoundedOutput(stderr, chunk);
             options.onStderr?.(chunk);
         });
         child.on('error', (error) => {
-            if (settled) {
+            if (settled || timingOut) {
                 return;
             }
             clearTimeout(timeout);
@@ -200,7 +244,7 @@ function runCommand(
             });
         });
         child.on('close', (exitCode) => {
-            if (settled) {
+            if (settled || timingOut) {
                 return;
             }
             clearTimeout(timeout);

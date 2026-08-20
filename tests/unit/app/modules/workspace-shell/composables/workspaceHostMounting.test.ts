@@ -322,10 +322,16 @@ describe('workspace host startup visibility', () => {
         })).toBe(false);
     });
 
-    it('hides the Recent placeholder while a hinted document has not committed', () => {
+    it('retains the committed empty placeholder until the opening surface owns presentation', () => {
         expect(shouldShowWorkspacePlaceholder({
             ...emptyPlaceholderSignals,
             hasPendingDocumentHint: true,
+            isDocumentOpenInFlight: true,
+        })).toBe(true);
+        expect(shouldShowWorkspacePlaceholder({
+            ...emptyPlaceholderSignals,
+            hasPendingDocumentHint: true,
+            hasVisibleDocument: true,
             isDocumentOpenInFlight: true,
         })).toBe(false);
         expect(shouldShowWorkspaceHostLoader({
@@ -333,7 +339,7 @@ describe('workspace host startup visibility', () => {
             hasHostError: false,
             hasPendingDocumentHint: true,
             isStartupOpenClaimPending: true,
-        })).toBe(true);
+        })).toBe(false);
     });
 
     it('hides the startup loader once startup open claim settles', () => {
@@ -345,11 +351,11 @@ describe('workspace host startup visibility', () => {
         })).toBe(false);
     });
 
-    it('hides the Recent placeholder for a title-only pending record before open ownership', () => {
+    it('retains the Recent placeholder for a title-only pending record before open ownership', () => {
         expect(shouldShowWorkspacePlaceholder({
             ...emptyPlaceholderSignals,
             hasPendingDocumentHint: true,
-        })).toBe(false);
+        })).toBe(true);
     });
 
     it('releases a title-only pending hint from live committed workspace evidence', () => {

@@ -81,9 +81,10 @@ import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/
 import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/source/createPagePreviewDocumentSource';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
-import type {
-    IDocumentPreviewPageState,
-    IPagePreviewSource,
+import {
+    getPagePreviewSizesWithDeadline,
+    type IDocumentPreviewPageState,
+    type IPagePreviewSource,
 } from '@app/utils/document-viewer/pagePreviewSource';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
@@ -152,7 +153,6 @@ const NATIVE_PDF_RENDER_OVERSCAN_VIEWPORTS = 2;
 const NATIVE_PDF_RENDER_MARGIN_PAGES = 3;
 const NATIVE_PDF_RENDER_CONCURRENCY = 2;
 const NATIVE_PDF_DEVICE_PIXEL_RATIO_CAP = 2;
-const EMPTY_NATIVE_PDF_ERROR = 'PDF contains no pages';
 const viewerContainer = ref<HTMLElement | null>(null);
 function setPageElement(pageNumber: number, element: Element | ComponentPublicInstance | null) {
     if (element instanceof HTMLElement) {
@@ -164,6 +164,7 @@ function setPageElement(pageNumber: number, element: Element | ComponentPublicIn
 const pageSizes = ref<IPdfNativePageSize[]>([]);
 const pageStates = ref<IDocumentPreviewPageState[]>([]);
 const {pixelRatio: devicePixelRatio} = useDevicePixelRatio();
+const {t} = useTypedI18n();
 const activePage = ref(1);
 const containerWidth = ref(0);
 const containerHeight = ref(0);
@@ -493,8 +494,7 @@ function isPageVisualCommitted(pageNumber: number) {
 }
 function revokeObjectUrl(pageNumber: number, objectUrl: string) {
     if (!activeSource) {
-        // stopSource terminates the source only after cleanupRenderedPages, and
-        // source termination releases any remaining source-owned leases.
+        // Stop only after rendered-page cleanup so remaining source-owned leases can be released.
         return;
     }
     revokeNativePdfPageObjectUrl(activeSource, pageNumber, objectUrl);
@@ -920,7 +920,7 @@ async function loadSource(nextSrc: TDocumentRef, generation: number) {
         return;
     }
     activeSource = source;
-    const sizes = await source.getPageSizes();
+    const sizes = await getPagePreviewSizesWithDeadline(source, 30_000);
     if (!isCurrentLoadGeneration(generation) || source !== activeSource) {
         source.terminate();
         return;
@@ -1174,7 +1174,7 @@ watch(
             emit('update:totalPages', pageSizes.value.length);
             emit('update:currentPage', restoredPage);
             if (pageSizes.value.length === 0) {
-                throw new Error(EMPTY_NATIVE_PDF_ERROR);
+                throw new Error(t('errors.file.noPages'));
             }
 
             await nextTick();
@@ -1198,7 +1198,7 @@ watch(
             }
 
             clearFailedLoadSource(generation);
-            viewerError.value = error instanceof Error ? error.message : 'Failed to open PDF preview';
+            viewerError.value = error instanceof Error ? error.message : t('errors.file.open');
             BrowserLogger.error('native-pdf-viewer', 'Failed to initialize native PDF viewer', {
                 src: nextSrc,
                 error,
@@ -1234,7 +1234,7 @@ watch(isActive, async (active) => {
             emit('update:totalPages', pageSizes.value.length);
             viewerError.value = null;
             if (pageSizes.value.length === 0) {
-                throw new Error(EMPTY_NATIVE_PDF_ERROR);
+                throw new Error(t('errors.file.noPages'));
             }
             await nextTick();
             measureContainer();
@@ -1245,7 +1245,7 @@ watch(isActive, async (active) => {
                 return;
             }
             clearFailedLoadSource(generation);
-            viewerError.value = error instanceof Error ? error.message : 'Failed to open PDF preview';
+            viewerError.value = error instanceof Error ? error.message : t('errors.file.open');
             BrowserLogger.error('native-pdf-viewer', 'Failed to resume native PDF viewer', {
                 src,
                 error,

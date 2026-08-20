@@ -167,6 +167,18 @@ describe('release selection', () => {
         expect(installer?.arch).toBe('x64');
     });
 
+    it('does not guess that an unlabelled generic ZIP is a macOS installer', () => {
+        const [installer] = normalizeInstallers([createInstaller({
+            arch: 'unknown',
+            extension: 'zip',
+            id: 1,
+            name: 'EVB-Viewer-portable.zip',
+            platform: 'unknown',
+        })]);
+
+        expect(installer?.platform).toBe('unknown');
+    });
+
     it('filters unknown non-legacy Windows exe assets only when arch-specific exes are present', () => {
         const installers = normalizeInstallers([
             createInstaller({

@@ -25,7 +25,10 @@ import {
     createShutdownCoordinator,
     createShutdownPhaseRunners,
 } from '@electron/bootstrap/shutdown';
-import { requestShutdownSaveFlush } from '@electron/bootstrap/requestShutdownSaveFlush';
+import {
+    requestShutdownSaveFlush,
+    shutdownSaveFlushRequiresRecoveryPreservation,
+} from '@electron/bootstrap/requestShutdownSaveFlush';
 import { createStartupTrace } from '@electron/bootstrap/createStartupTrace';
 import { config } from '@electron/config';
 import { registerIpcHandlers } from '@electron/platform-ipc/registerIpcHandlers';
@@ -102,6 +105,7 @@ import {
     drainCriticalMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { sweepStaleManagedScratchTempDirs } from '@electron/utils/managedScratchTemp';
+import { initializeAppTempNamespace } from '@electron/utils/appTempDir';
 import {
     configureProcessSafeMode,
     createProcessDeathRecovery,
@@ -131,6 +135,7 @@ if (automationUserDataDir) {
 } else {
     app.setPath('userData', join(app.getPath('appData'), app.name));
 }
+initializeAppTempNamespace(app.getPath('userData'));
 resetSettingsCacheAfterUserDataPathChange();
 
 const logger = createLogger('main');
@@ -343,7 +348,7 @@ function maybePromptForDefaultViewer() {
 
 const workingCopyCleanupSkipPaths = new Set<string>();
 const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
-    createPreservationSteps: () => {
+    createPreservationSteps: context => {
         workingCopyCleanupSkipPaths.clear();
         return [
             {
@@ -355,6 +360,10 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                         logger,
                         timeoutMs: RENDERER_SAVE_FLUSH_TIMEOUT_MS,
                     });
+                    if (shutdownSaveFlushRequiresRecoveryPreservation(result)) {
+                        context.preserveRecoveryState = true;
+                        logger.error('Renderer shutdown save flush was incomplete; retaining workspace recovery state');
+                    }
                     for (const workingCopyPath of result.dirtyWorkingCopyPaths) {
                         workingCopyCleanupSkipPaths.add(workingCopyPath);
                         logger.error(`Renderer reported dirty working copy during shutdown; skipping deletion: ${workingCopyPath}`);

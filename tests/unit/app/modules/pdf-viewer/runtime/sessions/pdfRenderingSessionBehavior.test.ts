@@ -79,7 +79,10 @@ vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer', 
     cleanupCanvas: canvasFixture.cleanup,
     cleanupCanvasRenderResult: canvasFixture.cleanupResult,
 })}));
-vi.mock('@app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator', () => ({usePdfViewerRerenderCoordinator: vi.fn(() => ({reRenderVisiblePagesAndSyncCurrentPage: vi.fn(async () => undefined)}))}));
+vi.mock('@app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator', () => ({usePdfViewerRerenderCoordinator: vi.fn(() => ({
+    reRenderVisiblePagesAndSyncCurrentPage: vi.fn(async () => undefined),
+    cleanupZoomOrchestration: vi.fn(),
+}))}));
 vi.mock('@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle', () => ({usePdfViewerResizeLifecycle: vi.fn(() => ({
     buildResizeAnchorContext: vi.fn(() => null),
     beginResizeTransition: vi.fn(),
@@ -923,6 +926,70 @@ describe('PdfRenderingSession behavior', () => {
         }
     });
 
+    it('starts superseding mandatory demand on a host task without waiting for a frame', async () => {
+        const fixture = createRenderingFixture();
+        const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame');
+        const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame');
+        try {
+            await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
+            requestAnimationFrameSpy.mockImplementation(() => 42);
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 2,
+                mandatoryRaster: null,
+            };
+            expect(requestAnimationFrameSpy).toHaveBeenCalled();
+            fixture.documentSession.ensurePageMetricsInRange.mockClear();
+
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 3,
+                mandatoryRaster: {
+                    id: 2,
+                    range: {
+                        start: 3,
+                        end: 3,
+                    },
+                    options: {bufferOverride: 0},
+                },
+            };
+
+            expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(42);
+            expect(fixture.documentSession.ensurePageMetricsInRange).not.toHaveBeenCalled();
+            await vi.waitFor(() => expect(
+                fixture.documentSession.ensurePageMetricsInRange,
+            ).toHaveBeenCalledOnce());
+            await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(2));
+        } finally {
+            cancelAnimationFrameSpy.mockRestore();
+            requestAnimationFrameSpy.mockRestore();
+            await fixture.dispose();
+        }
+    });
+
+    it('cancels a queued mandatory-demand task when the session is disposed', async () => {
+        const fixture = createRenderingFixture();
+        await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
+        fixture.documentSession.ensurePageMetricsInRange.mockClear();
+
+        fixture.demand.value = {
+            ...fixture.demand.value,
+            revision: 2,
+            mandatoryRaster: {
+                id: 2,
+                range: {
+                    start: 3,
+                    end: 3,
+                },
+                options: {bufferOverride: 0},
+            },
+        };
+        await fixture.dispose();
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        expect(fixture.documentSession.ensurePageMetricsInRange).not.toHaveBeenCalled();
+    });
+
     it('shares the exact in-flight job across overlapping same-key direct requests', async () => {
         const fixture = createRenderingFixture({autoResolve: false});
         try {
@@ -1017,6 +1084,88 @@ describe('PdfRenderingSession behavior', () => {
                     pageNumber: 4,
                 }));
         } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('omits resident siblings only from explicit visible-only raster passes', async () => {
+        const fixture = createRenderingFixture();
+        const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame');
+        const setDemandSpy = vi.spyOn(fixture.rasterScheduler, 'setDemand');
+        const frameCallbacks: FrameRequestCallback[] = [];
+        const submittedPages = () => {
+            const request = setDemandSpy.mock.calls.at(-1)?.[0] as {input: Array<{pageNumber: number}>} | undefined;
+            return request?.input.map(demand => demand.pageNumber).sort((left, right) => left - right);
+        };
+        try {
+            await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
+            requestAnimationFrameSpy.mockImplementation((callback) => {
+                frameCallbacks.push(callback);
+                return frameCallbacks.length;
+            });
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 2,
+                nearbyPages: [4],
+                residentPages: [
+                    3,
+                    4,
+                ],
+                mountedPages: [
+                    3,
+                    4,
+                ],
+                mandatoryRaster: null,
+            };
+
+            frameCallbacks.shift()?.(performance.now());
+            await vi.waitFor(() => expect(submittedPages()).toEqual([
+                3,
+                4,
+            ]));
+
+            fixture.effectiveScale.value = 5;
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 3,
+            };
+            setDemandSpy.mockClear();
+            frameCallbacks.shift()?.(performance.now());
+            await vi.waitFor(() => expect(submittedPages()).toEqual([3]));
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+
+            setDemandSpy.mockClear();
+            const queuedFrames = frameCallbacks.splice(0);
+            queuedFrames.forEach(callback => callback(performance.now()));
+            if (queuedFrames.length > 0) {
+                await vi.waitFor(() => expect(setDemandSpy).toHaveBeenCalled());
+            }
+            setDemandSpy.mockClear();
+            await fixture.rendering.reRenderAllVisiblePages(() => ({
+                start: 3,
+                end: 3,
+            }), {renderBufferOverride: 0});
+            expect(submittedPages()).toEqual([3]);
+
+            setDemandSpy.mockClear();
+            frameCallbacks.shift()?.(performance.now());
+            await vi.waitFor(() => expect(submittedPages()).toEqual([
+                3,
+                4,
+            ]));
+
+            setDemandSpy.mockClear();
+            await fixture.rendering.renderVisiblePages({
+                start: 3,
+                end: 3,
+            }, {bufferOverride: 0});
+            expect(submittedPages()).toEqual([
+                3,
+                4,
+            ]);
+        } finally {
+            setDemandSpy.mockRestore();
+            requestAnimationFrameSpy.mockRestore();
             await fixture.dispose();
         }
     });

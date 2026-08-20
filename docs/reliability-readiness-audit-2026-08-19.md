@@ -528,3 +528,100 @@ Do not switch the recommendation to “ready” until all of the following are t
 ---
 
 **Audit team:** multiple independent GPT-5.6-sol reviewers covering UI/session state, Electron lifecycle/security, native processing, server/web/privacy, CI/release/artifacts, followed by an adversarial verifier that re-checked the highest-impact claims against the audited commit. No application code was changed during the audit.
+
+## Remediation status — 2026-08-20
+
+This appendix records the follow-up implementation campaign. The report above is
+preserved as the historical audit of the shipped v0.1.426 release; statuses here
+describe the current working tree, not that public release. At the time of this
+update the remediation diff has completed its final local gates and two bounded
+CodeRabbit CLI passes. Production-impact findings from both passes were assessed
+and the valid findings were fixed; commit and push remain pending.
+
+Status meanings:
+
+- **Code-complete** — the identified code defect has an implementation and focused
+  regression coverage in the current tree.
+- **Mitigated** — the highest-risk path is closed, but broader coverage or an
+  operational proof remains.
+- **External** — completion depends on credentials, protected-environment setup,
+  clean platform runners, production deployment, or publishing a new release.
+
+### Finding disposition
+
+| Findings | Status | Current-tree resolution or remaining proof |
+|---|---|---|
+| R-01 | Code-complete; external release proof | Release jobs now gate Linux artifacts against the declared glibc baseline. The already-public v0.1.426 AppImage is unchanged; corrected artifacts require a new release and oldest-supported-distribution execution proof. |
+| R-02 | Code-complete | Browser recovery is durable in IndexedDB, uses versioned/CAS ownership and multi-window fencing, retains partial restores, prompts on dirty unload, and refreshes mutated dirty state through debounced lifecycle capture with bounded retry. |
+| R-03 | Code-complete | Forced note persistence now propagates viewer-update failure instead of acknowledging a false save; note persistence has regression coverage. |
+| R-04 | Code-complete | Electron shutdown is a two-phase flush with critical-write preservation and explicit OS-shutdown handling; shutdown no longer discards document topology merely because a deadline expires. |
+| R-05 | Code-complete | MCP startup failure degrades the optional integration instead of preventing the main UI from opening; startup/disable races are serialized. |
+| R-06 | Code-complete | GPU recovery/relaunch now uses the coordinated shutdown path rather than bypassing pending saves. |
+| R-07 | Code-complete | Release metadata selection is separated from cacheable catalog data, so cached responses cannot collapse cohorts. |
+| R-08, R-15 | Code-complete | Release lookup has stale-known-good fallback, bounded upstream work, safer status propagation, and abuse controls instead of amplifying misses or turning an upstream outage into a total download outage. |
+| R-09 | Code-complete; external credentials/release | Windows publication fails closed when signing material is unavailable and signed metadata is required. Authenticode credentials and a newly published installer are still operational dependencies. |
+| R-10 | Code-complete; external release proof | Exact-release-SHA Electron lanes and real packaged-installer smokes are blocking in the release graph, renderer/page errors fail the packaged smoke, and the final local headless Electron gate passed 10/10. Published-artifact proof still requires a new release on the protected runners. |
+| R-11–R-14 | Code-complete | DjVu scratch state is isolated and content-bound, resume manifests verify source/artifact identity, and DjVu/image-combine paths enforce aggregate disk, output, and memory budgets. |
+| R-16 | Code-complete | Release preparation verifies protected `main`, the workflow SHA, and successful CI for that exact SHA before publication. |
+| R-17, R-18 | Mitigated; external platform proof | CI now builds and smoke-checks the required Windows and macOS architectures, including the Intel mac artifact. Clean-machine AppX/Store install, upgrade, association/data-retention journeys, and installed Intel DMG execution still require the corresponding signed packages and platform runners. |
+| R-19 | Code-complete | Publication is staged: immutable assets/checksums and mirror state are verified before Store reconciliation and final promotion. Retry-safe Store submission and mirror race handling prevent partial retries from silently clobbering artifacts. |
+| R-20–R-22 | Code-complete | Assistant lifecycle ownership is serialized; PDF and DjVu candidates are validated before the live document is replaced, so corrupt/failed candidates do not evict the working document. |
+| R-23 | Code-complete | Recent filenames no longer travel in a site-wide cookie; recent-file state has a direct local owner. |
+| R-24–R-26 | Code-complete | Temporary storage is namespaced by user/profile/instance with live-owner markers; export holds a document-operation lease; print is single-flight and older cleanup cannot tear down the newer job. |
+| R-27–R-29 | Code-complete | DjVu retry state resets correctly, unsupported UAs no longer receive fabricated installer matches, and the public web surface applies consistent CSP/frame/security headers. |
+| R-30–R-33 | Code-complete | Export publication and native PDF append are transactional with rollback; search work is bounded and cancellation remains responsive; PDF/TIFF/native parsers apply admission limits before expensive allocation or decode. |
+| R-34–R-36 | Code-complete | OCR preserves useful low-confidence text for search, note focus restoration is bounded, and native-viewer handoff has a deadline/failure path. |
+| R-37–R-40 | Code-complete | Desktop recovery, working-copy cleanup, recent-file validation, Windows helper launch, and process-tree completion now use explicit ownership and lifecycle contracts without shell execution. |
+| R-41, R-42 | Code-complete; production deployment pending | Analytics writes are host/abuse constrained and retention cleanup is implemented. Production migration, cron secret/environment configuration, and deployment remain separate operational work if not already performed. |
+| R-43 | Code-complete | Mirror/tag retention preserves stable rollback tags and performs semver-aware pruning with rollback behavior. |
+| R-44, R-48 | Mitigated | GitHub Actions and OCI references are immutable, final assets have strict SHA-256 manifests and OIDC attestations, and mirror uploads are create-only plus read-back verified. Homebrew/apt ecosystem snapshots and third-party package indexes remain external moving inputs. |
+| R-45 | Code-complete | Packaged smoke fails on collected renderer console/page errors outside a narrow allowlist, with failure-path coverage. |
+| R-46 | Code-complete | Validation launchers use an explicit bounded heap policy; the full lint path now completes under the supported environment. |
+| R-47 | Code-complete | Unit coverage now instruments Vue SFCs as well as TypeScript, and CI fails when a changed covered production file has no executed lines. Nine explicitly enumerated integration-only entrypoints remain assigned to their stronger Electron/browser/packaged/OCR gates instead of being misrepresented by unit coverage. |
+| R-49 | Mitigated | Browser integration increased from 2 to 4 passing journeys and exercises durable recovery/multi-window behavior. A complete rendered open/edit/save/reload/unload, quota denial, worker restart, export/print/OCR matrix remains future coverage. |
+| R-50 | Code-complete | Required OCR quality testing now uses a representative multilingual/degraded corpus and gates normalized recognition quality and critical-token retention. |
+
+All additional lower-severity findings 1–17 have code fixes and focused tests in
+the current tree, including retryable managed-temp cleanup, Store-updater guards,
+shutdown reply validation, updater cancellation, native rollback/callback/PNG-CRC
+hardening, search reset, localization/accessibility, landing configuration and geo
+normalization, release URL constraints, generic-ZIP platform selection, IndexedDB
+timeouts, file-picker denial handling, upstream status preservation, and strict site
+URL normalization. Additional finding 18 is **mitigated** by immutable mirror writes,
+checksum verification, and read-back verification; an independent periodic public
+mirror health probe is still outstanding.
+
+### Verification of the remediation tree
+
+| Check | Remediation result |
+|---|---|
+| Full unit/coverage suite | Passed: 7,600 tests; coverage ratchet and 164-file zero-execution tripwire passed |
+| TypeScript typecheck | Passed |
+| Full lint and architecture/import policy | Passed |
+| Browser integration | Passed: 4/4 |
+| Electron, root production, and landing builds | Passed |
+| Rust formatting and workspace clippy with warnings denied | Passed |
+| Full Rust workspace tests, including the long real fixture | Passed |
+| Required native OCR smoke and OCR quality corpus | Passed |
+| Final headless Electron gate | Passed: 10/10 real Electron journeys in 323.90 seconds |
+| CodeRabbit review | Passed: two bounded local CLI passes; production-impact findings assessed and valid findings fixed |
+
+### Operational work that code changes cannot complete
+
+The following items must not be confused with defects left silently unfixed:
+
+1. Provision Windows/macOS signing credentials and protected GitHub release
+   environments/secrets, then validate their policy on the real release runners.
+2. Install, launch, upgrade, exercise associations/data retention, and uninstall the
+   final Store/AppX and macOS Intel packages on clean supported machines/VMs.
+3. Publish a new release. The existing public v0.1.426 Linux and Windows artifacts
+   retain the ABI/signing defects documented by the original audit.
+4. Apply and verify the landing/root production retention migrations, cron secrets,
+   and Vercel deployments if those operations have not been performed separately.
+5. Add independent scheduled public-mirror health monitoring and extend the browser
+   and coverage matrices described under R-47/R-49.
+
+Accordingly, the implementation campaign has closed the known code-level P0/P1
+failure paths, but the acquisition recommendation remains conditional until the
+review is complete and newly signed/portable artifacts have passed the external
+installation matrix.

@@ -41,10 +41,27 @@ fn passthrough_preserves_compressed_data_and_metadata_without_decoding() {
     );
 
     let corrupt = fixture("corrupt-crc.png");
-    let accepted = read_png_passthrough(corrupt.as_slice(), PASSTHROUGH).unwrap();
-    assert_eq!(accepted.idat, source_idat(&corrupt));
+    assert!(read_png_passthrough(corrupt.as_slice(), PASSTHROUGH).is_err());
     assert!(decode_png(corrupt.as_slice(), DECODE).is_err());
     assert!(read_png_passthrough(fixture("rgba8.png").as_slice(), PASSTHROUGH).is_err());
+}
+
+#[test]
+fn passthrough_rejects_bad_crc_on_every_trusted_chunk_kind() {
+    for (fixture_name, chunk_kind) in [
+        ("rgb8.png", *b"IHDR"),
+        ("multi-idat.png", *b"IDAT"),
+        ("phys.png", *b"pHYs"),
+        ("rgb8.png", *b"IEND"),
+    ] {
+        let corrupt = corrupt_chunk_crc(fixture(fixture_name), chunk_kind);
+        let error = read_png_passthrough(corrupt.as_slice(), PASSTHROUGH).unwrap_err();
+        assert!(
+            error.to_string().contains("CRC mismatch"),
+            "{fixture_name} {}: {error}",
+            String::from_utf8_lossy(&chunk_kind)
+        );
+    }
 }
 
 #[test]
@@ -199,4 +216,21 @@ fn source_idat(bytes: &[u8]) -> Vec<u8> {
         offset = data.end + 4;
     }
     idat
+}
+
+fn corrupt_chunk_crc(mut bytes: Vec<u8>, target: [u8; 4]) -> Vec<u8> {
+    let mut offset = 8;
+    while offset + 12 <= bytes.len() {
+        let length = u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+        let crc_offset = offset + 8 + length;
+        if bytes[offset + 4..offset + 8] == target {
+            bytes[crc_offset] ^= 0x01;
+            return bytes;
+        }
+        offset = crc_offset + 4;
+    }
+    panic!(
+        "fixture did not contain chunk {}",
+        String::from_utf8_lossy(&target)
+    );
 }

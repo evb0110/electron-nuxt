@@ -144,7 +144,6 @@ export async function createOcrJobManifestController(jobDir: string, fingerprint
                 manifest.verifiedPages.push(pageNumber);
                 manifest.verifiedPages.sort((a, b) => a - b);
             }
-            manifest.nodes['recognized-page'] = 'verified';
             return persist();
         },
         setTerminal(state: 'completed' | 'failed' | 'cancelled') {

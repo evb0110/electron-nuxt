@@ -21,6 +21,8 @@ export interface IRenderVisiblePagesOptions {
         end: number;
     };
     forceRerender?: boolean;
+    suppressResidentRasterDemand?: boolean;
+    retainOnlyCurrentResidentRaster?: boolean;
     preserveInFlightRequiredPages?: boolean;
     prioritizeTextLayer?: boolean;
     transactionRequest?: IPdfViewerTransactionRenderRequest;

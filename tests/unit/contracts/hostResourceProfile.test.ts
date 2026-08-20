@@ -8,11 +8,26 @@ import {
     resolveDocumentSavePerformanceTier,
     resolveDetectedHostResourceTier,
     resolveEffectiveHostResourceTier,
+    usesSoftwareCanvasRendering,
 } from '@contracts/hostResourceProfile';
 
 const GIB = 1024 ** 3;
 
 describe('host resource profile contract', () => {
+    it('detects software fallback only on canonical canvas rendering features', () => {
+        expect(usesSoftwareCanvasRendering({
+            '2d_canvas': 'enabled',
+            'gpu_compositing': 'disabled_software',
+            'rasterization': 'enabled',
+        })).toBe(true);
+        expect(usesSoftwareCanvasRendering({
+            '2d_canvas': 'enabled',
+            'gpu_compositing': 'enabled',
+            'rasterization': 'enabled',
+            'webgl': 'disabled_software',
+        })).toBe(false);
+    });
+
     it.each([
         [
             0,

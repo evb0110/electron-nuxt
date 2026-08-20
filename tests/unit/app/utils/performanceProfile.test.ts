@@ -23,6 +23,7 @@ import {
     resolvePerformanceProfile,
 } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
+import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 const MEBIBYTE = 1024 * 1024;
 
@@ -92,6 +93,52 @@ describe('resolvePerformanceProfile', () => {
             settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION,
             maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_WORKSTATION,
         });
+    });
+
+    it('constrains software canvas rendering without lowering workstation memory budgets', () => {
+        const profile = resolvePerformanceProfile({
+            hardwareConcurrency: 24,
+            totalMemoryBytes: 32 * 1024 ** 3,
+            gpuStatus: {
+                '2d_canvas': 'disabled_software',
+                'gpu_compositing': 'disabled_software',
+                'rasterization': 'disabled_software',
+            },
+        });
+
+        expect(profile).toMatchObject({
+            tier: 'high',
+            lowMemory: false,
+            lowCpu: true,
+            pdfBufferPages: PDF_BUFFER_PAGES_WORKSTATION,
+            concurrentPdfRenders: PDF_RENDER_CONCURRENCY_LOW_CPU,
+            maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_WORKSTATION,
+            thumbnailBaseConcurrency: PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE,
+            settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION,
+            maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_WORKSTATION,
+        });
+        expect(resolvePdfRenderPerformancePolicy(profile).outputScaleFloor).toBe(1);
+    });
+
+    it('keeps workstation rendering enabled when canonical GPU features are hardware-backed', () => {
+        const profile = resolvePerformanceProfile({
+            hardwareConcurrency: 24,
+            totalMemoryBytes: 32 * 1024 ** 3,
+            gpuStatus: {
+                '2d_canvas': 'enabled',
+                'gpu_compositing': 'enabled',
+                'rasterization': 'enabled',
+            },
+        });
+
+        expect(profile).toMatchObject({
+            tier: 'high',
+            lowMemory: false,
+            lowCpu: false,
+            concurrentPdfRenders: 6,
+            thumbnailBaseConcurrency: PDF_THUMBNAIL_CONCURRENCY_WORKSTATION,
+        });
+        expect(resolvePdfRenderPerformancePolicy(profile).outputScaleFloor).toBe(2);
     });
 
     it('requires both workstation memory and CPU before widening concurrent work', () => {

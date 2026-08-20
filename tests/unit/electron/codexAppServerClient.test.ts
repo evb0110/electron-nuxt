@@ -62,6 +62,7 @@ describe('CodexAppServerClient stdin handling', () => {
         }));
         mocks.terminateDetachedChildProcess.mockImplementation(async (process: FakeAssistantAppServerProcess) => {
             process.emit('close', 0);
+            return true;
         });
     });
 
@@ -212,6 +213,23 @@ describe('CodexAppServerClient stdin handling', () => {
         }));
         expect(mocks.spawn.mock.calls[0]?.[2]).toMatchObject({detached: true});
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(fakeProcess, 1_000);
+        expect(snapshotMainOperations()).toEqual([]);
+    });
+
+    it('releases lifecycle accounting when process-tree termination is unconfirmed', async () => {
+        const fakeProcess = new FakeAssistantAppServerProcess((_line, callback) => {
+            callback?.();
+            return true;
+        });
+        mocks.terminateDetachedChildProcess.mockImplementationOnce(async () => {
+            fakeProcess.emit('close', 0);
+            return false;
+        });
+        const { client } = await createClient(fakeProcess);
+        const { snapshotMainOperations } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+
+        await expect(client.shutdown()).rejects.toThrow('process tree did not terminate cleanly');
+
         expect(snapshotMainOperations()).toEqual([]);
     });
 });

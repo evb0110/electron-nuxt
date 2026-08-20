@@ -5,6 +5,7 @@ import {
     copyFileSync,
     linkSync,
     mkdtempSync,
+    mkdirSync,
     readFileSync,
     renameSync,
     rmSync,
@@ -94,6 +95,34 @@ describe('managed temporary file handles', () => {
         expect(mocks.inspect).toHaveBeenCalledWith(mocks.path);
         expect(releaseManagedTempFileHandle({senderId: 7}, handle.leaseId)).toBe(false);
         expect(releaseManagedTempFileHandle({senderId: 42}, handle.leaseId)).toBe(true);
+        expect(releaseManagedTempFileHandle({senderId: 42}, handle.leaseId)).toBe(false);
+    });
+
+    it('retains a cleanup lease for retry when file removal fails', async () => {
+        const {
+            createManagedTempFileHandle,
+            getManagedTempFileCleanupStateForTests,
+            releaseManagedTempFileHandle,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+        const handle = await createManagedTempFileHandle({senderId: 42}, mocks.path, {cleanupOnRelease: true});
+        const heldPath = `${mocks.path}.held`;
+        renameSync(mocks.path, heldPath);
+        mkdirSync(mocks.path);
+
+        expect(releaseManagedTempFileHandle({senderId: 42}, handle.leaseId)).toBe(true);
+        await vi.waitFor(() => expect(getManagedTempFileCleanupStateForTests(handle.leaseId)).toEqual({
+            exists: true,
+            pending: false,
+        }));
+        rmSync(mocks.path, {recursive: true});
+        renameSync(heldPath, mocks.path);
+
+        expect(releaseManagedTempFileHandle({senderId: 42}, handle.leaseId)).toBe(true);
+        await vi.waitFor(() => expect(getManagedTempFileCleanupStateForTests(handle.leaseId)).toEqual({
+            exists: false,
+            pending: false,
+        }));
+        expect(() => statSync(mocks.path)).toThrow();
         expect(releaseManagedTempFileHandle({senderId: 42}, handle.leaseId)).toBe(false);
     });
 

@@ -262,6 +262,7 @@ export interface IWorkspaceAutomationStateSnapshot {
 }
 
 export interface IWorkspaceAutomationPort {
+    createRecoverySnapshotBytes: () => Promise<Uint8Array | null>;
     commentAtPoint?: (
         pageNumber: number,
         pageX: number,

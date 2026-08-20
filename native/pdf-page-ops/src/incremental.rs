@@ -32,6 +32,79 @@ impl<W: Write> Write for SkipWriter<W> {
     }
 }
 
+pub(crate) trait AppendRollback: Write {
+    fn rollback_to(&mut self, len: u64) -> std::io::Result<()>;
+    fn sync_all(&mut self) -> std::io::Result<()>;
+}
+
+impl AppendRollback for File {
+    fn rollback_to(&mut self, len: u64) -> std::io::Result<()> {
+        self.set_len(len)?;
+        self.seek(SeekFrom::End(0))?;
+        Ok(())
+    }
+
+    fn sync_all(&mut self) -> std::io::Result<()> {
+        File::sync_all(self)
+    }
+}
+
+fn rollback_incremental_write<W: AppendRollback>(
+    output: &mut W,
+    previous_len: usize,
+    error: Box<dyn Error>,
+    context: &str,
+) -> Result<()> {
+    let rollback_len = u64::try_from(previous_len)?;
+    if let Err(rollback_error) = output.rollback_to(rollback_len) {
+        return Err(format!(
+            "{error}; failed to roll back {context} incremental append: {rollback_error}"
+        )
+        .into());
+    }
+    if let Err(sync_error) = output.sync_all() {
+        return Err(format!(
+            "{error}; rolled back {context} incremental append but failed to sync it: {sync_error}"
+        )
+        .into());
+    }
+    Err(error)
+}
+
+pub(crate) fn write_incremental_revision_transactionally<W>(
+    output: &mut W,
+    previous_len: usize,
+    write_revision: impl FnOnce(&mut SkipWriter<&mut W>) -> Result<()>,
+) -> Result<()>
+where
+    W: AppendRollback,
+{
+    let write_result = {
+        let mut writer = SkipWriter::new(&mut *output, previous_len);
+        write_revision(&mut writer).and_then(|()| {
+            writer.flush()?;
+            Ok(())
+        })
+    };
+
+    if let Err(write_error) = write_result {
+        return rollback_incremental_write(output, previous_len, write_error, "partial");
+    }
+    if let Err(sync_error) = output.sync_all() {
+        return rollback_incremental_write(output, previous_len, Box::new(sync_error), "partial");
+    }
+
+    Ok(())
+}
+
+fn rollback_incremental_append(
+    output: &mut File,
+    previous_len: usize,
+    error: Box<dyn Error>,
+) -> Result<()> {
+    rollback_incremental_write(output, previous_len, error, "invalid")
+}
+
 pub(crate) fn append_paths_refer_to_same_file(input_path: &PathBuf, output_path: &PathBuf) -> bool {
     if input_path == output_path {
         return true;
@@ -166,23 +239,31 @@ pub(crate) fn append_native_mutations(
     let previous_xref_start = incremental.get_prev_documents().xref_start;
     let expected_object_ids = collect_incremental_append_object_ids(&incremental);
 
-    let output = OpenOptions::new().append(true).open(output_path)?;
-    let mut writer = SkipWriter::new(output, previous_len);
-    incremental.save_to(&mut writer)?;
-    writer.flush()?;
+    validate_appended_revision_postconditions(
+        &AppendedRevision::new(&incremental),
+        mutations,
+        modified_at,
+    )?;
 
-    validate_incremental_append_output(
+    let mut output = OpenOptions::new().append(true).open(output_path)?;
+    write_incremental_revision_transactionally(&mut output, previous_len, |writer| {
+        incremental.save_to(writer)?;
+        Ok(())
+    })?;
+
+    let validation_result = validate_incremental_append_output(
         output_path,
         previous_len,
         previous_xref_start,
         &expected_object_ids,
     )
-    .map_err(|error| reclassify_domain_error(error, NativeErrorCode::CorruptXref))?;
-    validate_appended_revision_postconditions(
-        &AppendedRevision::new(&incremental),
-        mutations,
-        modified_at,
-    )
+    .map_err(|error| reclassify_domain_error(error, NativeErrorCode::CorruptXref));
+    if let Err(error) = validation_result {
+        return rollback_incremental_append(&mut output, previous_len, error);
+    }
+    output.sync_all()?;
+
+    Ok(())
 }
 
 pub(crate) fn collect_incremental_append_object_ids(

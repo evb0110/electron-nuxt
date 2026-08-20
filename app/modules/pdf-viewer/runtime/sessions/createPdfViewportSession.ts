@@ -875,6 +875,17 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         singlePageScroll.submitNavigationRequest(request);
     }
     let anchoredZoomAlreadySubmitted: number | null = null;
+    function submitZoomViewportStateIntent(value: number) {
+        if (
+            anchoredZoomAlreadySubmitted !== null
+            && Math.abs(anchoredZoomAlreadySubmitted - value) < 0.000_001
+        ) {
+            anchoredZoomAlreadySubmitted = null;
+            return;
+        }
+        anchoredZoomAlreadySubmitted = null;
+        void singlePageScroll.submitViewportStateIntent('zoom', { zoom: value });
+    }
     watch(() => singlePageScroll.viewportAuthority.activeIntent.value, (activeIntent, previousIntent) => {
         if (activeIntent === null && previousIntent !== null) {
             const terminalOutcome = singlePageScroll.viewportAuthority.getTerminalOutcome(previousIntent.id);
@@ -899,17 +910,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             };
         }
     }, { flush: 'sync' });
-    watch(options.zoom, (value) => {
-        if (
-            anchoredZoomAlreadySubmitted !== null
-            && Math.abs(anchoredZoomAlreadySubmitted - value) < 0.000_001
-        ) {
-            anchoredZoomAlreadySubmitted = null;
-            return;
-        }
-        anchoredZoomAlreadySubmitted = null;
-        void singlePageScroll.submitViewportStateIntent('zoom', { zoom: value });
-    });
     watch(options.fitMode, () => { void singlePageScroll.submitViewportStateIntent('fit'); });
     watch(options.viewMode, value => {
         void singlePageScroll.submitViewportStateIntent('view-mode', { viewMode: value });
@@ -1125,6 +1125,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         markAnchoredZoomSubmitted: (zoom: number) => {
             anchoredZoomAlreadySubmitted = zoom;
         },
+        submitZoomViewportStateIntent,
         markPageMounted(pageNumber: number) {
             pageSlots.markMounted(pageNumber);
             if (options.continuousScroll.value) {

@@ -5,4 +5,6 @@ export type TDocumentOperationKind =
     | 'optimize-pdf'
     | 'page-operation'
     | 'ocr-apply'
+    | 'raster-export'
+    | 'recovery-snapshot'
     | 'split-capture';

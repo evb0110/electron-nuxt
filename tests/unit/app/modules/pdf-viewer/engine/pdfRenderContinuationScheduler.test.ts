@@ -1,4 +1,5 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -9,19 +10,15 @@ import {
     type IContinuationSchedulerEnvironment,
 } from '@app/modules/pdf-viewer/engine/pdf-render-continuation-scheduler/pdfRenderContinuationScheduler';
 
-function createHarness(options: {
-    constrained?: boolean;
-    inputPending?: boolean;
-} = {}) {
-    const microtasks: Array<() => void> = [];
+function createHarness(options: {inputPending?: boolean} = {}) {
+    const tasks: Array<() => void> = [];
     const frames: Array<(timestamp: number) => void> = [];
     let inputPending = options.inputPending ?? false;
     let now = 0;
     const environment: IContinuationSchedulerEnvironment = {
-        constrained: options.constrained ?? false,
         isInputPending: () => inputPending,
         now: () => now,
-        queueMicrotask: callback => microtasks.push(callback),
+        queueTask: callback => tasks.push(callback),
         requestAnimationFrame: callback => {
             frames.push(callback);
             return frames.length;
@@ -29,8 +26,8 @@ function createHarness(options: {
     };
     return {
         scheduler: createPdfRenderContinuationScheduler(environment),
-        flushMicrotask() {
-            microtasks.shift()?.();
+        flushTask() {
+            tasks.shift()?.();
         },
         flushFrame(frameStartedAt = now) {
             frames.shift()?.(frameStartedAt);
@@ -42,13 +39,48 @@ function createHarness(options: {
             now = value;
         },
         frames,
-        microtasks,
+        tasks,
     };
 }
 
 describe('PDF render continuation scheduler', () => {
-    it('serializes constrained paints and runs navigation before queued background work', () => {
-        const harness = createHarness({ constrained: true });
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    it('runs recursive foreground slices in separate 16 ms timer quanta', () => {
+        vi.useFakeTimers();
+        const postTask = vi.fn();
+        vi.stubGlobal('scheduler', { postTask });
+        const scheduler = createPdfRenderContinuationScheduler();
+        const continuation = vi.fn();
+        const scheduleSlice = () => scheduler.schedule({
+            key: 'viewer:1',
+            priority: 'visible',
+            continueRender: () => {
+                continuation();
+                if (continuation.mock.calls.length < 2) {
+                    scheduleSlice();
+                }
+            },
+        });
+
+        scheduleSlice();
+
+        expect(postTask).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(15);
+        expect(continuation).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1);
+        expect(continuation).toHaveBeenCalledOnce();
+        vi.advanceTimersByTime(15);
+        expect(continuation).toHaveBeenCalledOnce();
+        vi.advanceTimersByTime(1);
+        expect(continuation).toHaveBeenCalledTimes(2);
+    });
+
+    it('serializes paints and runs navigation from a host task before queued background work', () => {
+        const harness = createHarness();
         const events: string[] = [];
         harness.scheduler.schedule({
             key: 'prefetch:2',
@@ -61,10 +93,13 @@ describe('PDF render continuation scheduler', () => {
             continueRender: () => events.push('navigation'),
         });
 
+        expect(harness.tasks).toHaveLength(1);
         expect(harness.frames).toHaveLength(1);
+        harness.flushTask();
+        expect(events).toEqual(['navigation']);
+        expect(harness.frames).toHaveLength(2);
         harness.flushFrame();
         expect(events).toEqual(['navigation']);
-        expect(harness.frames).toHaveLength(1);
         harness.flushFrame();
         expect(events).toEqual([
             'navigation',
@@ -90,7 +125,7 @@ describe('PDF render continuation scheduler', () => {
         expect(continuation).toHaveBeenCalledOnce();
     });
 
-    it('runs high-priority work immediately on capable systems and deduplicates keys', () => {
+    it('runs visible work from a host task without a frame and deduplicates keys', async () => {
         const harness = createHarness();
         const stale = vi.fn();
         const current = vi.fn();
@@ -105,10 +140,82 @@ describe('PDF render continuation scheduler', () => {
             continueRender: current,
         });
 
-        expect(harness.microtasks).toHaveLength(1);
-        harness.flushMicrotask();
+        expect(harness.tasks).toHaveLength(1);
+        expect(harness.frames).toHaveLength(0);
+        await Promise.resolve();
+        expect(stale).not.toHaveBeenCalled();
+        expect(current).not.toHaveBeenCalled();
+        harness.flushTask();
         expect(stale).not.toHaveBeenCalled();
         expect(current).toHaveBeenCalledOnce();
+    });
+
+    it('yields between recursive visible continuations', () => {
+        const harness = createHarness();
+        const events: string[] = [];
+        harness.scheduler.schedule({
+            key: 'viewer:1',
+            priority: 'visible',
+            continueRender: () => {
+                events.push('first');
+                harness.scheduler.schedule({
+                    key: 'viewer:1',
+                    priority: 'visible',
+                    continueRender: () => events.push('second'),
+                });
+            },
+        });
+
+        harness.flushTask();
+        expect(events).toEqual(['first']);
+        expect(harness.tasks).toHaveLength(1);
+        harness.flushTask();
+        expect(events).toEqual([
+            'first',
+            'second',
+        ]);
+    });
+
+    it('promotes visible work out of an already queued background frame', () => {
+        const harness = createHarness();
+        const events: string[] = [];
+        harness.scheduler.schedule({
+            key: 'prefetch:2',
+            priority: 'prefetch',
+            continueRender: () => events.push('prefetch'),
+        });
+        harness.scheduler.schedule({
+            key: 'viewer:1',
+            priority: 'visible',
+            continueRender: () => events.push('visible'),
+        });
+
+        expect(harness.tasks).toHaveLength(1);
+        harness.flushTask();
+        expect(events).toEqual(['visible']);
+        expect(harness.frames).toHaveLength(2);
+        harness.flushFrame();
+        expect(events).toEqual(['visible']);
+        harness.flushFrame();
+        expect(events).toEqual([
+            'visible',
+            'prefetch',
+        ]);
+    });
+
+    it('cancels visible work without consuming a frame', () => {
+        const harness = createHarness();
+        const continuation = vi.fn();
+        const cancel = harness.scheduler.schedule({
+            key: 'viewer:1',
+            priority: 'navigation-target',
+            continueRender: continuation,
+        });
+
+        cancel();
+        harness.flushTask();
+        expect(continuation).not.toHaveBeenCalled();
+        expect(harness.frames).toHaveLength(0);
     });
 
     it('defers background work after the frame headroom is consumed', () => {

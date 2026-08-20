@@ -94,13 +94,17 @@ impl SearchService {
     }
 
     fn request_raw(&mut self, request: &str) -> Value {
-        writeln!(self.stdin, "{request}").expect("write search service frame");
-        self.stdin.flush().expect("flush search service frame");
+        self.send_raw(request);
         let mut line = String::new();
         self.stdout
             .read_line(&mut line)
             .expect("read search service response");
         serde_json::from_str(&line).expect("parse search service response")
+    }
+
+    fn send_raw(&mut self, request: &str) {
+        writeln!(self.stdin, "{request}").expect("write search service frame");
+        self.stdin.flush().expect("flush search service frame");
     }
 }
 
@@ -191,6 +195,33 @@ fn service_cache_evicts_the_least_recently_used_index_and_reloads_it() {
     let reloaded = service.request(&search_request("reloaded", &first_path, "replacement"));
     assert_eq!(reloaded["type"], "result", "{reloaded}");
     assert_eq!(reloaded["result"]["results"].as_array().unwrap().len(), 1);
+
+    drop(service);
+    fs::remove_dir_all(directory).expect("remove service fixture directory");
+}
+
+#[test]
+fn reset_cache_reloads_an_atomic_same_revision_replacement() {
+    let directory = fixture_directory("reset-cache");
+    let index_path = directory.join("document.search-index.bin");
+    let replacement_path = directory.join("replacement.search-index.bin");
+    write_index(&index_path, "original token");
+    let mut service = SearchService::spawn();
+
+    let original = service.request(&search_request("original", &index_path, "original"));
+    assert_eq!(original["type"], "result");
+    assert_eq!(original["result"]["results"].as_array().unwrap().len(), 1);
+
+    write_index(&replacement_path, "replacement token");
+    fs::rename(&replacement_path, &index_path).expect("replace search index atomically");
+    service.send_raw(r#"{"type":"reset-cache"}"#);
+
+    let replacement = service.request(&search_request("replacement", &index_path, "replacement"));
+    assert_eq!(replacement["type"], "result", "{replacement}");
+    assert_eq!(
+        replacement["result"]["results"].as_array().unwrap().len(),
+        1
+    );
 
     drop(service);
     fs::remove_dir_all(directory).expect("remove service fixture directory");

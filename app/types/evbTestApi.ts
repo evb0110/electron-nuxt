@@ -38,6 +38,10 @@ export interface IEvbTestApi {
         commandName: string,
         args?: unknown[],
     ) => Promise<IEvbTestCommandResult<TResult>>;
+    callActiveWorkspaceSyncCommand: <TResult = unknown>(
+        commandName: string,
+        args?: unknown[],
+    ) => IEvbTestCommandResult<TResult>;
     collectWorkspaceDebugState: () => IEvbTestWorkspaceDebugState;
     getAutomationEvents: () => IEvbAutomationEvent[];
     getActiveTabId: () => string | null;

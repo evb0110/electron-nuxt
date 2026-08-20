@@ -118,7 +118,10 @@ describe('changed-area classifier', () => {
             'scripts/ci/classify-changed-areas.mjs',
             'scripts/generate-djvu-fidelity-corpus.mjs',
             'scripts/nativeResourceManifest.ts',
+            'scripts/fixtures/ocr-quality-corpus.json',
+            'scripts/ocrQualityMetrics.mjs',
             'scripts/test-ocr-native-smoke.mjs',
+            'scripts/test-ocr-quality-corpus.mjs',
             'scripts/verify-packaged-startup.sh',
         ]) {
             expect(classifyChangedFiles([file]).native_or_build?.matched, file).toBe(true);

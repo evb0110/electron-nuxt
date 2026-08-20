@@ -34,6 +34,7 @@ jobs:
       - name: Checkout full history
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Reject prohibited attribution and local-only artifacts
@@ -62,6 +63,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -123,6 +127,9 @@ jobs:
 
       - name: Coverage zero-execution tripwire
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        env:
+          EVB_COVERAGE_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          EVB_COVERAGE_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: pnpm run test:coverage
 
       - name: Production dependency audit
@@ -147,6 +154,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -195,6 +204,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -233,6 +243,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -262,6 +274,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -312,6 +326,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -341,6 +357,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -371,6 +389,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -408,6 +428,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -491,6 +513,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -561,6 +585,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install cargo-fuzz
         run: |
@@ -594,6 +620,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -626,6 +654,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -645,7 +675,7 @@ jobs:
 
       - name: Install OCR native smoke tools
         timeout-minutes: 15
-        run: scripts/ci/apt-install.sh tesseract-ocr tesseract-ocr-eng poppler-utils
+        run: scripts/ci/apt-install.sh tesseract-ocr tesseract-ocr-eng poppler-utils unpaper
 
       - name: Install Rust WASM target
         id: setup
@@ -703,16 +733,21 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run test:ocr:native-smoke:required
 
+      - name: OCR degraded multilingual quality corpus
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run test:ocr:quality:required
+
   nightly_electron_e2e_regression:
     name: Nightly Electron E2E Regression
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
-    continue-on-error: true
     timeout-minutes: 60
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -742,12 +777,13 @@ jobs:
     name: Nightly Electron E2E Save Pipeline
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
-    continue-on-error: true
     timeout-minutes: 60
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -777,12 +813,13 @@ jobs:
     name: Nightly Electron E2E Rapid Navigation
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
-    continue-on-error: true
     timeout-minutes: 45
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -812,12 +849,13 @@ jobs:
     name: Nightly Electron E2E Large PDF
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
-    continue-on-error: true
     timeout-minutes: 90
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -853,6 +891,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -885,12 +925,13 @@ jobs:
     name: Nightly Electron E2E Visible Window
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
-    continue-on-error: true
     timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -926,6 +967,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5

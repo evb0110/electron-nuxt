@@ -863,6 +863,8 @@ export default {
         'unitByte': 'B',
         'unitKilobyte': 'KB',
         'unitMegabyte': 'MB',
+        'pdfPage': 'Pagina PDF {page}',
+        'pageRenderFailed': 'Impossibile visualizzare questa pagina',
     },
     'print': {
         'title': 'Stampa',
@@ -1444,6 +1446,7 @@ export default {
             'openNotFound': 'Impossibile aprire «{name}». Il file potrebbe essere stato spostato, eliminato o il suo archivio è stato cancellato.',
             'invalid': 'File non valido o inesistente',
             'emptyPdf': 'Il file PDF è vuoto (0 byte)',
+            'noPages': 'Il PDF non contiene pagine',
             'folderEmpty': 'Nessun documento supportato trovato nella cartella selezionata',
             'save': 'Impossibile salvare il file',
             'browserStorageTitle': 'Lo spazio di archiviazione del browser non è disponibile',
@@ -1453,7 +1456,10 @@ export default {
             'images': 'Esportazione immagini non riuscita',
             'multiPageTiff': 'Esportazione TIFF non riuscita',
         },
-        'browser': { 'largeSaveHandleHint': 'Usa un browser con accesso al file system locale abilitato per salvare documenti di grandi dimensioni.' },
+        'browser': {
+            'filePickerSetupDenied': 'L’accesso del browser ai file è stato negato. Scegli di nuovo Apri per usare il selettore compatibile.',
+            'largeSaveHandleHint': 'Usa un browser con accesso al file system locale abilitato per salvare documenti di grandi dimensioni.',
+        },
         'search': {
             'browserTooLarge': 'La ricerca non è disponibile nel browser per documenti molto grandi.',
             'unavailable': 'La ricerca non è attualmente disponibile per questo documento.',

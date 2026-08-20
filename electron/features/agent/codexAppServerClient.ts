@@ -13,6 +13,7 @@ import {
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import { resolveCodexProcessLaunch } from '@electron/features/agent/codexProcessLaunch';
 
 const logger = createLogger('agent-codex-assistant');
 const APP_SERVER_REQUEST_TIMEOUT_MS = 30_000;
@@ -89,13 +90,17 @@ export class CodexAppServerClient {
     private stderrBuffer = '';
     private stderrTruncated = false;
     private closed = false;
+    private terminationRequested = false;
+    private lifecycleCompleted = false;
     private shutdownPromise: Promise<void> | null = null;
     private readonly closePromise: Promise<void>;
     private resolveClosePromise: () => void = () => undefined;
     private readonly lifecycleOperation = registerMainOperation({
         kind: 'resource-cleanup',
         cancel: () => {
-            void this.shutdown();
+            void this.shutdown().catch(error => {
+                logger.warn(`Failed to shut down Codex app-server during lifecycle cancellation: ${getErrorMessage(error)}`);
+            });
         },
     });
 
@@ -109,15 +114,23 @@ export class CodexAppServerClient {
         this.closePromise = new Promise(resolve => {
             this.resolveClosePromise = resolve;
         });
-        const child = spawn(codexPath, [
-            'app-server',
-            '--listen',
-            'stdio://',
-        ], createDetachedChildProcessSpawnOptions({
-            cwd,
-            env,
-            windowsHide: true,
-        }));
+        let child: ReturnType<typeof spawn>;
+        try {
+            const launch = resolveCodexProcessLaunch(codexPath, [
+                'app-server',
+                '--listen',
+                'stdio://',
+            ]);
+            child = spawn(launch.command, launch.args, createDetachedChildProcessSpawnOptions({
+                cwd,
+                env,
+                shell: launch.shell,
+                windowsHide: true,
+            }));
+        } catch (error) {
+            this.lifecycleOperation.complete();
+            throw error;
+        }
         if (!child.stdin || !child.stdout || !child.stderr) {
             this.lifecycleOperation.complete();
             throw new Error('Codex app-server stdio pipes were not created.');
@@ -135,9 +148,15 @@ export class CodexAppServerClient {
         this.child.on('error', error => this.failAll(`Codex app-server failed: ${getErrorMessage(error)}`));
         this.child.on('close', (exitCode) => {
             this.resolveClosePromise();
-            this.lifecycleOperation.complete();
+            if (!this.terminationRequested) {
+                this.completeLifecycleOperation();
+            }
             const detail = this.getStderrDetail();
-            this.failAll(`Codex app-server exited${exitCode === null ? '' : ` with code ${exitCode}`}${detail ? `: ${detail}` : '.'}`);
+            this.failAll(
+                `Codex app-server exited${exitCode === null ? '' : ` with code ${exitCode}`}${detail ? `: ${detail}` : '.'}`,
+                undefined,
+                false,
+            );
         });
     }
 
@@ -266,21 +285,25 @@ export class CodexAppServerClient {
     }
 
     private async terminateChild() {
+        this.terminationRequested = true;
         try {
-            await terminateDetachedChildProcess(this.child, APP_SERVER_SHUTDOWN_GRACE_MS);
-            await this.waitForClose(APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS);
+            const treeTerminated = await terminateDetachedChildProcess(this.child, APP_SERVER_SHUTDOWN_GRACE_MS);
+            const childClosed = await this.waitForClose(APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS);
+            if (!treeTerminated || !childClosed) {
+                throw new Error('Codex app-server process tree did not terminate cleanly.');
+            }
         } finally {
-            this.lifecycleOperation.complete();
+            this.completeLifecycleOperation();
         }
     }
 
     private async waitForClose(timeoutMs: number) {
         let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
         try {
-            await Promise.race([
-                this.closePromise,
-                new Promise<void>(resolve => {
-                    timeoutHandle = setTimeout(resolve, timeoutMs);
+            return await Promise.race([
+                this.closePromise.then(() => true),
+                new Promise<boolean>(resolve => {
+                    timeoutHandle = setTimeout(() => resolve(false), timeoutMs);
                     timeoutHandle.unref?.();
                 }),
             ]);
@@ -443,13 +466,12 @@ export class CodexAppServerClient {
         this.respond(request.id, null);
     }
 
-    private failAll(message: string, error?: Error) {
+    private failAll(message: string, error?: Error, terminate = true) {
         if (this.closed) {
             return;
         }
 
         this.closed = true;
-        this.lifecycleOperation.complete();
         for (const [
             id,
             pending,
@@ -459,5 +481,19 @@ export class CodexAppServerClient {
             this.pending.delete(id);
         }
         this.onExit(message);
+        if (terminate) {
+            this.shutdownPromise ??= this.terminateChild();
+            void this.shutdownPromise.catch(terminationError => {
+                logger.warn(`Failed to terminate Codex app-server after an error: ${getErrorMessage(terminationError)}`);
+            });
+        }
+    }
+
+    private completeLifecycleOperation() {
+        if (this.lifecycleCompleted) {
+            return;
+        }
+        this.lifecycleCompleted = true;
+        this.lifecycleOperation.complete();
     }
 }

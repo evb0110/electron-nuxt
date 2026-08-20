@@ -65,3 +65,36 @@ export interface IPagePreviewSource {
     revokeObjectURL(url: string): void;
     terminate(): void;
 }
+
+export class PagePreviewSourceDeadlineError extends Error {
+    readonly retryable = true;
+
+    constructor(message: string) {
+        super(message);
+        this.name = 'PagePreviewSourceDeadlineError';
+    }
+}
+
+export async function getPagePreviewSizesWithDeadline(
+    source: Pick<IPagePreviewSource, 'getPageSizes'>,
+    deadlineMs: number,
+) {
+    let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+    const deadline = new Promise<never>((_resolve, reject) => {
+        deadlineTimer = setTimeout(() => {
+            reject(new PagePreviewSourceDeadlineError(
+                'Timed out while reading PDF page sizes. Retry opening the document.',
+            ));
+        }, deadlineMs);
+    });
+    try {
+        return await Promise.race([
+            source.getPageSizes(),
+            deadline,
+        ]);
+    } finally {
+        if (deadlineTimer !== null) {
+            clearTimeout(deadlineTimer);
+        }
+    }
+}

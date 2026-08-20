@@ -1,6 +1,9 @@
 import {
     BROWSER_CHUNK_WRITE_YIELD_EVERY,
     BROWSER_DOCUMENT_CHUNK_SIZE,
+    DOCUMENTS_STORE,
+    DOCUMENT_CHUNKS_STORE,
+    WORKSPACE_RECOVERY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import { uniq } from 'es-toolkit/array';
 import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/buildRecentFilesFromPersistedRecords';
@@ -12,12 +15,12 @@ import {
     toPersistedDocumentRecord,
 } from '@app/platform/browser/browserDocumentRecords';
 import {
-    deleteRecord,
     loadAllRecordKeysAvailability,
     loadRecordAvailability,
+    runObjectStoresTransaction,
 } from '@app/platform/browser/browserDocumentIdb';
 import {
-    deleteChunkRecord,
+    createChunkKey,
     loadAllChunkKeysAvailability,
     parseChunkKey,
 } from '@app/platform/browser/browserDocumentChunks';
@@ -33,6 +36,7 @@ import type {
 } from '@app/platform/browser/browserDocumentTypes';
 import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/browser/browserPersistedDocumentRecordsLoadResult';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
+import { loadBrowserWorkspaceRecoveryLeasedRefs } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 
 export async function loadBrowserPersistedDocumentRecordsResult(): Promise<IBrowserPersistedDocumentRecordsLoadResult> {
     const rawKeysResult = await loadAllRecordKeysAvailability();
@@ -110,6 +114,7 @@ export function isBrowserRecentFileRef(ref: string) {
 export async function sweepBrowserDocumentMaintenance(
     entries: Map<string, IBrowserDocumentEntry>,
 ) {
+    const recoveryLeasedRefs = await loadBrowserWorkspaceRecoveryLeasedRefs();
     const {
         available,
         records,
@@ -117,10 +122,6 @@ export async function sweepBrowserDocumentMaintenance(
     if (!available) {
         return;
     }
-    if (records.length === 0) {
-        return;
-    }
-
     const pendingRefs = new Set(Array.from(entries.values())
         .filter((entry) => Boolean(entry.pendingLoad))
         .map((entry) => entry.ref));
@@ -160,6 +161,7 @@ export async function sweepBrowserDocumentMaintenance(
             recentRefs,
             nonWorkingDependentCounts,
         ))
+        .filter(record => !recoveryLeasedRefs.has(record.ref))
         .filter((record) => !pendingRefs.has(record.ref))
         .map(record => record.ref);
     const chunkIndicesByRef = collectChunkIndicesByRef(chunkKeys);
@@ -171,43 +173,74 @@ export async function sweepBrowserDocumentMaintenance(
         ...refsToRemove,
         ...brokenChunkRefs,
     ]);
-    const chunkDeletes = chunkKeys
-        .filter((chunkKey) => {
-            const record = recordsByRef.get(chunkKey.ref);
-            if (pendingRefs.has(chunkKey.ref)) {
-                return false;
-            }
-            if (!record || refsToRemoveSet.has(chunkKey.ref)) {
-                return true;
-            }
-
-            if (record.storageMode !== 'chunked') {
-                return true;
-            }
-
-            return (
-                chunkKey.generation !== (record.chunkGeneration ?? undefined)
-                || chunkKey.index >= (record.chunkCount ?? 0)
-            );
-        })
-        .map((chunkKey) => deleteChunkRecord(chunkKey.ref, chunkKey.index, chunkKey.generation));
-
-    if (refsToRemoveSet.size === 0 && chunkDeletes.length === 0) {
+    if (refsToRemoveSet.size === 0 && chunkKeys.length === 0) {
         return;
     }
 
-    refsToRemoveSet.forEach((ref) => {
-        entries.delete(ref);
-    });
-    await Promise.all([
-        ...chunkDeletes,
-        ...Array.from(refsToRemoveSet, async (ref) => {
-            await deleteRecord(ref);
-        }),
-    ]);
-    if (refsToRemoveSet.size > 0) {
+    // Include the recovery journal in the destructive transaction. IndexedDB
+    // serializes this with checkpoint publication, so the lease read and the
+    // corresponding document/chunk deletes cannot race each other.
+    const deletedRefs = await runObjectStoresTransaction<Set<string>>(
+        [
+            WORKSPACE_RECOVERY_STORE,
+            DOCUMENTS_STORE,
+            DOCUMENT_CHUNKS_STORE,
+        ],
+        'readwrite',
+        (transaction, setResult) => {
+            const recoveryStore = transaction.objectStore(WORKSPACE_RECOVERY_STORE);
+            const recoveriesRead = recoveryStore.getAll();
+            recoveriesRead.onsuccess = () => {
+                const leasedRefs = new Set<string>();
+                if (Array.isArray(recoveriesRead.result)) {
+                    for (const record of recoveriesRead.result) {
+                        if (!record || typeof record !== 'object') {
+                            continue;
+                        }
+                        const snapshotRefs = (record as {snapshotRefs?: unknown}).snapshotRefs;
+                        if (!Array.isArray(snapshotRefs)) {
+                            continue;
+                        }
+                        for (const ref of snapshotRefs) {
+                            if (typeof ref === 'string') {
+                                leasedRefs.add(ref);
+                            }
+                        }
+                    }
+                }
+                const finalRefs = new Set(Array.from(refsToRemoveSet).filter(
+                    ref => !leasedRefs.has(ref),
+                ));
+                const documentsStore = transaction.objectStore(DOCUMENTS_STORE);
+                const chunksStore = transaction.objectStore(DOCUMENT_CHUNKS_STORE);
+                finalRefs.forEach(ref => documentsStore.delete(ref));
+                for (const chunkKey of chunkKeys) {
+                    if (pendingRefs.has(chunkKey.ref)) continue;
+                    const record = recordsByRef.get(chunkKey.ref);
+                    const shouldDelete = !record
+                        || finalRefs.has(chunkKey.ref)
+                        || record.storageMode !== 'chunked'
+                        || chunkKey.generation !== (record.chunkGeneration ?? undefined)
+                        || chunkKey.index >= (record.chunkCount ?? 0);
+                    if (shouldDelete) {
+                        chunksStore.delete(createChunkKey(
+                            chunkKey.ref,
+                            chunkKey.index,
+                            chunkKey.generation,
+                        ));
+                    }
+                }
+                setResult(finalRefs);
+            };
+        },
+    );
+    if (!deletedRefs) {
+        return;
+    }
+    deletedRefs.forEach(ref => entries.delete(ref));
+    if (deletedRefs.size > 0) {
         const remainingRecentFiles = readRecentFilesFromStorage().filter(
-            (candidate) => !refsToRemoveSet.has(candidate.originalPath),
+            (candidate) => !deletedRefs.has(candidate.originalPath),
         );
         writeRecentFilesToStorage(remainingRecentFiles);
     }

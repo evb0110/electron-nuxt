@@ -77,7 +77,8 @@ async function readTsConfigJsonWithGlobs(filePath: string) {
 }
 
 function workflowJob(workflow: string, jobName: string) {
-    const start = workflow.indexOf(`  ${jobName}:\n`);
+    const jobsStart = workflow.indexOf('\njobs:\n');
+    const start = workflow.indexOf(`  ${jobName}:\n`, Math.max(0, jobsStart));
     if (start === -1) {
         throw new Error(`Missing workflow job: ${jobName}`);
     }
@@ -592,6 +593,8 @@ describe('CI topology policy', () => {
 
     it('verifies release build artifacts before upload', async () => {
         const workflow = await readProjectFile('.github/workflows/build.yml');
+        const macIntelWorkflow = await readProjectFile('.github/workflows/build-mac-intel.yml');
+        const win7Workflow = await readProjectFile('.github/workflows/build-win7-legacy.yml');
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
         const macSigningScript = await readProjectFile('scripts/release/configure-macos-signing.sh');
         const macCertificateImportScript = await readProjectFile('scripts/release/import-macos-codesign-certificate.sh');
@@ -612,10 +615,33 @@ describe('CI topology policy', () => {
         expect(dmgNotarizationStep).toContain('bash scripts/release/import-macos-codesign-certificate.sh');
         expect(dmgNotarizationStep).toContain('node scripts/release/notarize-macos-dmgs.mjs release');
         expect(workflow).toContain('::error::Partial WIN_CSC_* secrets detected; set both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD or neither');
-        expect(workflow).toContain('name: Verify packaged Linux x64 core PDF journey');
-        expect(workflow).toContain('if: runner.os == \'Linux\' && matrix.arch == \'x64\'');
-        expect(workflow).toContain('xvfb-run -a pnpm run test:packaged-core-pdf-smoke -- --executable release/linux-unpacked/evb-viewer');
-        expect(workflow).toContain('pnpm run test:packaged-core-pdf-smoke -- --executable "release/win-unpacked/EVB Viewer.exe"');
+        expect(workflow).toContain('name: Verify packaged Linux core PDF journey');
+        expect(workflow).toContain('if: runner.os == \'Linux\'');
+        expect(workflow).toContain('find release -type f -path \'*/linux*-unpacked/evb-viewer\'');
+        expect(workflow).toContain('name: Verify packaged Windows core PDF journey');
+        expect(workflow).toContain('find release -type f -path \'*/win*-unpacked/EVB Viewer.exe\'');
+        expect(workflow).toContain('name: Verify installed Linux AppImage and DEB journeys');
+        expect(workflow).toContain('APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a');
+        expect(workflow).toContain('sudo apt-get install -y "$(realpath "$deb")"');
+        expect(workflow).toContain('sudo apt-get remove -y "$package_name"');
+        expect(workflow).toContain('name: Verify installed Windows NSIS journey');
+        expect(workflow).toContain('-ArgumentList \'/S\' -Wait -PassThru');
+        expect(workflow).toContain('$uninstallDeadline = (Get-Date).AddSeconds(30)');
+        expect(workflow).toContain('throw \'NSIS uninstall left the EVB Viewer executable installed.\'');
+        expect(workflow).toContain('name: Enforce Linux glibc 2.35 compatibility baseline');
+        expect(workflow).toContain('run: node scripts/release/assert-linux-glibc-baseline.mjs release 2.35');
+        expect(workflow).toContain('ubuntu@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc');
+        expect(workflow).toContain('--env EVB_HOST_UID="$(id -u)"');
+        expect(workflow).toContain('chown -R "$EVB_HOST_UID:$EVB_HOST_GID" resources');
+        for (const privilegedBuildWorkflow of [
+            workflow,
+            macIntelWorkflow,
+            win7Workflow,
+        ]) {
+            expect(privilegedBuildWorkflow).toContain('persist-credentials: false');
+        }
+        expect(macIntelWorkflow).toContain('name: Verify packaged macOS Intel core PDF journey');
+        expect(win7Workflow).toContain('name: Verify packaged Windows 7 core PDF journey');
         expect(workflow).toContain('os: windows-11-arm\n            platform: win\n            arch: arm64');
         expect(workflow).toContain(
             'uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884',
@@ -660,6 +686,14 @@ describe('CI topology policy', () => {
         expect(macCertificateImportScript).toContain('security set-key-partition-list');
         expect(macCertificateImportScript).toContain('Developer ID Application');
 
+        const releaseCredentials = workflowJob(releaseWorkflow, 'release_credentials');
+        expect(releaseCredentials).toContain('Require public release credentials');
+        expect(releaseCredentials).toContain('environment: release');
+        expect(releaseCredentials).toContain('unsigned Windows installers cannot be promoted');
+        expect(releaseCredentials).toContain('unsigned or unnotarized macOS artifacts cannot be promoted');
+        expect(releaseCredentials).toContain('required Microsoft Store channel cannot be skipped');
+        expect(workflowJob(releaseWorkflow, 'build_artifacts')).toContain('- release_credentials');
+
         const packagedScanCleanupVerifier = workflowJob(releaseWorkflow, 'verify_packaged_scan_cleanup');
         const publish = workflowJob(releaseWorkflow, 'publish');
         expect(packagedScanCleanupVerifier).toContain('runs-on: macos-14');
@@ -676,20 +710,36 @@ describe('CI topology policy', () => {
 
     it('keeps release quality gates from requiring pre-bundle host Linux resources', async () => {
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
+        const prepareJob = workflowJob(releaseWorkflow, 'prepare');
         const qualityJob = workflowJob(releaseWorkflow, 'quality');
 
         expect(releaseWorkflow).not.toContain('tags:');
         expect(releaseWorkflow).toContain('workflow_dispatch:');
+        expect(releaseWorkflow).toContain('group: release-${{ github.repository }}');
         expect(releaseWorkflow).toContain('target_ref:');
+        expect(prepareJob).toContain('Stable public release tag must be exactly vMAJOR.MINOR.PATCH.');
+        expect(prepareJob).toContain('if: ${{ github.ref == \'refs/heads/main\' }}');
+        expect(prepareJob).toContain('WORKFLOW_SHA: ${{ github.workflow_sha }}');
+        expect(prepareJob).toContain('git merge-base --is-ancestor "$WORKFLOW_SHA" refs/remotes/origin/main');
         expect(releaseWorkflow).toContain('git rev-parse --verify "${DISPATCH_TARGET_REF}^{commit}"');
         expect(releaseWorkflow).toContain('"repos/${GITHUB_REPOSITORY}/commits/${DISPATCH_TARGET_REF}"');
         expect(releaseWorkflow).toContain('git checkout --detach "$target_sha"');
+        expect(prepareJob).toContain('git merge-base --is-ancestor "$TARGET_SHA" refs/remotes/origin/main');
+        expect(prepareJob).toContain('actions/workflows/ci.yml/runs?head_sha=${TARGET_SHA}&event=push');
+        expect(prepareJob).toContain('--paginate');
+        expect(prepareJob).toContain('select(.name == "gates_ok")');
+        expect(releaseWorkflow.indexOf('name: Verify protected-main ancestry and exact-SHA CI'))
+            .toBeLessThan(releaseWorkflow.indexOf('run: pnpm run release:verify:checks'));
+        expect(releaseWorkflow).not.toContain('secrets: inherit');
+        expect(releaseWorkflow).not.toContain('build_win7_legacy:');
+        expect(releaseWorkflow).not.toContain('publish_win7_legacy:');
         expect(qualityJob).toContain('run: rustup target add wasm32-unknown-unknown');
         expect(qualityJob).toContain('EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: \'1\'');
         expect(qualityJob).not.toContain('pnpm --dir landing install');
         expect(qualityJob).toContain('run: pnpm exec playwright install --with-deps chromium');
         expect(qualityJob).toContain('run: pnpm run release:verify:checks');
         const publishJob = workflowJob(releaseWorkflow, 'publish');
+        expect(publishJob).toContain('environment: release');
         expect(publishJob).toContain(
             'uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320',
         );
@@ -707,9 +757,68 @@ describe('CI topology policy', () => {
         expect(releaseArtifactDownloadIndex).toBeGreaterThanOrEqual(0);
         expect(releaseDependencyInstallIndex).toBeLessThan(releaseArtifactDownloadIndex);
         expect(publishJob).toContain('gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes --target "$TARGET_SHA"');
+        expect(publishJob).toContain('gh release delete-asset "$RELEASE_TAG" "$existing_name" --yes');
+        expect(publishJob).toContain('gh release upload "$RELEASE_TAG" "$source" --clobber');
+        expect(publishJob).toContain('grep -Fqx \'SHA256SUMS\'');
         expect(publishJob).toContain('gh release download "$RELEASE_TAG" --dir downloaded-assets');
+        expect(publishJob).toContain('release-checksums.mjs verify downloaded-assets');
         expect(publishJob).toContain('sha256sum "$source"');
-        expect(publishJob).toContain('gh release edit "$RELEASE_TAG" --draft=false');
+        expect(publishJob).not.toContain('gh release edit "$RELEASE_TAG" --draft=false');
+
+        const finalizeAssetsJob = workflowJob(releaseWorkflow, 'finalize_release_assets');
+        const stageMirrorJob = workflowJob(releaseWorkflow, 'stage_mirror');
+        const publishStoreJob = workflowJob(releaseWorkflow, 'publish_store');
+        const promoteJob = workflowJob(releaseWorkflow, 'promote_release');
+        expect(finalizeAssetsJob).toContain('environment: release');
+        expect(stageMirrorJob).toContain('environment: release');
+        expect(promoteJob).toContain('environment: release');
+        expect(publishJob).toContain('- build_mac_intel');
+        expect(publishJob).toContain('pattern: supplemental-mac-x64');
+        expect(finalizeAssetsJob).not.toContain('- publish_store');
+        expect(stageMirrorJob).toContain('- finalize_release_assets');
+        expect(publishStoreJob).toContain('- stage_mirror');
+        expect(publishStoreJob).toContain('submit: true');
+        expect(stageMirrorJob).toContain('publish-release-mirror.mjs artifacts "${{ needs.prepare.outputs.tag }}" --stage');
+        expect(promoteJob).toContain('- stage_mirror');
+        expect(promoteJob).toContain('- publish_store');
+        expect(stageMirrorJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
+        expect(promoteJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
+        expect(finalizeAssetsJob).toContain('name: Publish or verify immutable release checksums');
+        expect(finalizeAssetsJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
+        expect(finalizeAssetsJob).toContain('persist-credentials: false');
+        expect(finalizeAssetsJob).toContain('release-checksums.mjs generate artifacts');
+        expect(finalizeAssetsJob).toContain('release-checksums.mjs verify artifacts');
+        expect(finalizeAssetsJob).toContain('attestations: write');
+        expect(finalizeAssetsJob).toContain('id-token: write');
+        expect(finalizeAssetsJob).toContain('actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a');
+        expect(promoteJob.indexOf('gh release edit "$RELEASE_TAG" --draft=false'))
+            .toBeLessThan(promoteJob.indexOf('name: Activate verified mirror channel'));
+    });
+
+    it('keeps local distribution and cold lint fail-closed within supported resources', async () => {
+        const packageJson = JSON.parse(await readProjectFile('package.json')) as {scripts: Record<string, string>};
+        const validationGates = await readProjectFile('scripts/validation-gates.mjs');
+
+        expect(packageJson.scripts.dist).toMatch(/^node scripts\/check-dev-environment\.mjs --strict &&/u);
+        expect(validationGates).toContain('parsePositiveInteger(process.env.EVB_ESLINT_WORKERS, 1)');
+        expect(validationGates).not.toContain('parsePositiveInteger(process.env.EVB_ESLINT_WORKERS, 4)');
+    });
+
+    it('pins every external action in privileged release workflows to an immutable commit', async () => {
+        for (const workflowPath of [
+            '.github/workflows/release.yml',
+            '.github/workflows/build.yml',
+            '.github/workflows/build-mac-intel.yml',
+            '.github/workflows/build-win7-legacy.yml',
+            '.github/workflows/store-appx.yml',
+        ]) {
+            const workflow = await readProjectFile(workflowPath);
+            const externalUses = [...workflow.matchAll(/^\s*uses:\s+([^./][^@\s]+)@([^\s#]+)/gmu)];
+            expect(externalUses.length, `${workflowPath} should exercise the pinning policy`).toBeGreaterThan(0);
+            for (const match of externalUses) {
+                expect(match[2], `${workflowPath}: ${match[0]}`).toMatch(/^[0-9a-f]{40}$/u);
+            }
+        }
     });
 
     it('keeps artifact-only release builds reusable and non-publishing', async () => {
@@ -731,6 +840,9 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'build_win7_legacy')).toContain('uses: ./.github/workflows/build-win7-legacy.yml');
         expect(workflowJob(workflow, 'build_store')).toContain('uses: ./.github/workflows/store-appx.yml');
         expect(workflowJob(workflow, 'build_store')).toContain('submit: false');
+        expect(workflowJob(workflow, 'build_artifacts')).not.toContain('release_environment: release');
+        expect(workflowJob(workflow, 'build_mac_intel')).not.toContain('release_environment: release');
+        expect(workflow).not.toContain('secrets: inherit');
         expect(workflow).not.toContain('gh release create');
         expect(workflow).not.toContain('gh release upload');
         expect(workflow).not.toContain('Package and Submit Microsoft Store AppX');
@@ -740,7 +852,8 @@ describe('CI topology policy', () => {
     it('keeps release cutting dispatch-based instead of tag-push based', async () => {
         const releaseScript = await readProjectFile('scripts/release/cut-release.mjs');
 
-        expect(releaseScript).toContain('`release: ${version} [skip ci]`');
+        expect(releaseScript).toContain('`release: ${version}`');
+        expect(releaseScript).not.toContain('[skip ci]');
         expect(releaseScript).toContain('\'workflow\'');
         expect(releaseScript).toContain('\'run\'');
         expect(releaseScript).toContain('\'release.yml\'');
@@ -750,6 +863,28 @@ describe('CI topology policy', () => {
         expect(releaseScript).not.toContain('refs/tags/${tag}');
         expect(releaseScript).not.toContain('\'tag\',\n            tag');
         expect(releaseScript).not.toContain('\'--atomic\'');
+    });
+
+    it('keeps Store credentials reachable only through the gated reusable release path', async () => {
+        const storeWorkflow = await readProjectFile('.github/workflows/store-appx.yml');
+        const buildWorkflow = await readProjectFile('.github/workflows/build.yml');
+        const macIntelWorkflow = await readProjectFile('.github/workflows/build-mac-intel.yml');
+        const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
+
+        expect(storeWorkflow).toContain('workflow_call:');
+        expect(storeWorkflow).not.toContain('workflow_dispatch:');
+        expect(workflowJob(storeWorkflow, 'submit')).toContain('environment: release');
+        expect(workflowJob(storeWorkflow, 'submit')).toContain('if: ${{ inputs.submit }}');
+        expect(workflowJob(buildWorkflow, 'build')).toContain('environment: ${{ inputs.release_environment }}');
+        expect(workflowJob(macIntelWorkflow, 'build_mac_intel'))
+            .toContain('environment: ${{ inputs.release_environment }}');
+        expect(buildWorkflow).toContain('default: artifact-build');
+        expect(macIntelWorkflow).toContain('default: artifact-build');
+        expect(storeWorkflow).toContain('Microsoft Store submission was requested, but Partner Center credentials are not configured.');
+        expect(releaseWorkflow).toContain('PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}');
+        expect(workflowJob(releaseWorkflow, 'build_artifacts')).toContain('release_environment: release');
+        expect(workflowJob(releaseWorkflow, 'build_mac_intel')).toContain('release_environment: release');
+        expect(workflowJob(releaseWorkflow, 'publish_store')).not.toContain('secrets: inherit');
     });
 
     it('runs the heavier deterministic checks in the nightly lane', async () => {
@@ -888,7 +1023,7 @@ describe('CI topology policy', () => {
         }
     });
 
-    it('keeps Electron desktop automation and PDF tab diagnostics nightly and non-blocking', async () => {
+    it('keeps stable Electron desktop automation blocking and quarantined diagnostics advisory', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const artifactAction = await readProjectFile('.github/actions/upload-electron-e2e-artifacts/action.yml');
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
@@ -905,10 +1040,10 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Nightly Electron E2E Rapid Navigation');
         expect(workflowJob(workflow, 'nightly_electron_e2e_regression')).toContain('run: pnpm run check:electron:install');
         expect(workflowJob(workflow, 'nightly_electron_e2e_rapid_navigation')).toContain('run: pnpm run check:electron:install');
-        expect(workflow).toMatch(/nightly_electron_e2e_rapid_navigation:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run test:e2e:electron:rapid-navigation/u);
+        expect(workflowJob(workflow, 'nightly_electron_e2e_rapid_navigation')).not.toContain('continue-on-error: true');
         expect(workflow).toContain('name: Nightly Electron E2E Large PDF');
         expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).toContain('run: pnpm run check:electron:install');
-        expect(workflow).toMatch(/nightly_electron_e2e_large_pdf:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run test:e2e:electron:large/u);
+        expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).not.toContain('continue-on-error: true');
         expect(packageJson).toContain('"test:e2e:electron:large": "pnpm run build:pdf-page-ops');
         expect(packageJson).toContain('EVB_PDF_PAGE_OPS_ENABLE=1 EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose');
         expect(workflow).toContain('name: Nightly Electron E2E Quarantine');
@@ -917,6 +1052,17 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Nightly Electron E2E Visible Window');
         expect(workflowJob(workflow, 'nightly_electron_e2e_visible_window')).toContain('runs-on: macos-14');
         expect(workflowJob(workflow, 'nightly_electron_e2e_visible_window')).toContain('run: pnpm run test:e2e:electron:visible-window');
+        for (const jobName of [
+            'nightly_electron_e2e_regression',
+            'nightly_electron_e2e_save_pipeline',
+            'nightly_electron_e2e_rapid_navigation',
+            'nightly_electron_e2e_large_pdf',
+            'nightly_electron_e2e_visible_window',
+        ]) {
+            expect(workflowJob(workflow, jobName)).not.toContain('continue-on-error: true');
+        }
+        expect(workflowJob(workflow, 'nightly_electron_e2e_quarantine')).toContain('continue-on-error: true');
+        expect(workflowJob(workflow, 'nightly_pdf_tabs_diagnostics')).toContain('continue-on-error: true');
         expect(packageJson).toContain('"test:e2e:electron:visible-window": "pnpm run build:electron && vitest run --project e2e-visible-window --reporter verbose"');
         expect(sharedVitestConfig).toContain('electronE2EVisibleWindow: \'e2e-visible-window\'');
         expect(workflow).toContain('EVB_E2E_PRESERVE_ARTIFACTS: \'1\'');
@@ -1013,7 +1159,7 @@ describe('CI topology policy', () => {
         expect(packageJson).not.toContain('"check:coverage:ratchet"');
         expect(vitestConfig).toContain('provider: \'v8\'');
         expect(vitestConfig).toContain('include: [');
-        expect(vitestConfig).toContain('\'app/**/*.ts\'');
+        expect(vitestConfig).toContain('\'app/**/*.{ts,vue}\'');
         expect(vitestConfig).toContain('\'electron/**/*.ts\'');
         expect(vitestConfig).toContain('\'packages/**/*.ts\'');
         expect(vitestConfig).toContain('\'json-summary\'');

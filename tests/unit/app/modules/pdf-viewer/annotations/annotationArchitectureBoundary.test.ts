@@ -25,6 +25,17 @@ function sourceFiles(path: string): string[] {
 }
 
 describe('annotation architecture boundaries', () => {
+    it('uses one body-only post-mount focus repair without trapping later navigation', () => {
+        const noteWindow = read('app/modules/pdf-viewer/components/annotations/PdfAnnotationNoteWindow.vue');
+
+        expect(noteWindow).toContain('initialFocusRepairFrame = window.requestAnimationFrame');
+        expect(noteWindow).toContain('activeElement === document.body');
+        expect(noteWindow).not.toContain('NOTE_WINDOW_FOCUS_GUARD_DURATION_MS');
+        expect(noteWindow).not.toContain('focusGuardTimer');
+        expect(noteWindow).not.toContain('reclaimFocusUntilDeadline');
+        expect(noteWindow).not.toContain('postPaintInput.blur()');
+    });
+
     it('keeps note-window state canonical and compatibility comments read-only', () => {
         const stateSource = read('app/types/annotationNoteWindow.ts');
         const stateBody = stateSource.match(/interface IAnnotationNoteWindowState \{([\s\S]*?)\n\}/)?.[1] ?? '';

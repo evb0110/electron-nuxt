@@ -401,7 +401,10 @@ export async function runNativeCommand(
             }
 
             cleanupProcessOutput(targetProc, true);
-            terminationPromise = terminateNativeProcessBestEffort(targetProc, terminationGraceMs).catch(() => undefined);
+            terminationPromise = terminateNativeProcessBestEffort(targetProc, terminationGraceMs).then(
+                () => undefined,
+                () => undefined,
+            );
             void terminationPromise.finally(() => {
                 if (pendingTerminationError === error) {
                     finalizeReject(error);
@@ -495,14 +498,26 @@ export async function runNativeCommand(
                 return;
             }
             output.appendStdout(Buffer.from(text, 'utf8'));
-            onStdout?.(text);
+            try {
+                onStdout?.(text);
+            } catch (error) {
+                requestTermination(new Error(
+                    `${context.displayName} stdout handler failed: ${getErrorMessage(error)}`,
+                ));
+            }
         };
         const appendDecodedStderr = (text: string) => {
             if (!text) {
                 return;
             }
             output.appendStderr(Buffer.from(text, 'utf8'));
-            onStderr?.(text);
+            try {
+                onStderr?.(text);
+            } catch (error) {
+                requestTermination(new Error(
+                    `${context.displayName} stderr handler failed: ${getErrorMessage(error)}`,
+                ));
+            }
         };
         stdoutDataHandler = (data: Buffer) => appendDecodedStdout(stdoutDecoder.write(data));
         stderrDataHandler = (data: Buffer) => appendDecodedStderr(stderrDecoder.write(data));
@@ -539,6 +554,9 @@ export async function runNativeCommand(
 
             appendDecodedStdout(stdoutDecoder.end());
             appendDecodedStderr(stderrDecoder.end());
+            if (pendingTerminationError) {
+                return;
+            }
 
             const exitCode = typeof code === 'number' ? code : -1;
             const outputSnapshot = output.snapshot();

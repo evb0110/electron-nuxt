@@ -730,6 +730,7 @@ useAgentWorkspaceSnapshot({
 
 useAppShellResilience({
     enabled: computed(() => isDesktopRuntime.value && !isStartupOpenClaimPending.value),
+    browserEnabled: computed(() => isBrowserRuntime.value && !isStartupOpenClaimPending.value),
     editorPanesManager,
     workspaceRefs,
     documentRecordsByTabId,
@@ -896,5 +897,4 @@ useAppShellLifecycle({
     closeUpdatesDialog,
 });
 </script>
-
 <style scoped src="./AppShellRoot.css"></style>

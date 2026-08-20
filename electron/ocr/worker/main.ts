@@ -22,15 +22,11 @@ import {
 } from 'node:crypto';
 import {createReadStream} from 'node:fs';
 import {
-    copyFile,
     mkdir,
     mkdtemp,
     readFile,
-    rename,
     rm,
     stat,
-    unlink,
-    writeFile,
 } from 'fs/promises';
 import { join } from 'path';
 import {uniq} from 'es-toolkit/array';
@@ -90,10 +86,17 @@ import {
     cleanupStaleOcrJobDirectories,
     createOcrJobManifestController,
 } from '@electron/ocr/worker/ocrJobManifest';
+import {
+    createOcrJobStorageBudget,
+    isOcrStorageFailure,
+    type TOcrJobStorageBudget,
+} from '@electron/ocr/worker/ocrJobStorageBudget';
+import {persistOcrPageCheckpoint} from '@electron/ocr/worker/persistOcrPageCheckpoint';
 
 const initialWorkerData: unknown = workerData;
 const paths = resolveWorkerPaths(initialWorkerData);
 const activeJobControllers = new Map<string, AbortController>();
+const activeSharedCheckpointFingerprints = new Set<string>();
 const OCR_PAGE_SIZES_TIMEOUT_MS = 30_000;
 const OCR_PAGE_SIZE_FALLBACK_MAX_INPUT_BYTES = parseIntegerEnv(
     'EVB_OCR_PAGE_SIZE_FALLBACK_MAX_INPUT_MB',
@@ -254,14 +257,6 @@ function throwIfAborted(signal: AbortSignal) {
         : new Error('OCR job aborted');
 }
 
-async function unlinkIfPresent(filePath: string) {
-    try {
-        await unlink(filePath);
-    } catch {
-        // Ignore cleanup errors
-    }
-}
-
 async function readPngDimensions(imagePath: string) {
     const dims = await getPngDimensionsFromFile(imagePath);
     if (!dims) {
@@ -286,6 +281,7 @@ interface IOcrPageProcessingContext {
     checkpointPage: (pageNumber: number) => Promise<void>;
     popplerEnv?: NodeJS.ProcessEnv;
     signal: AbortSignal;
+    storageBudget: TOcrJobStorageBudget;
     trackTempFile: (path: string) => string;
 }
 
@@ -302,13 +298,19 @@ async function processOcrPage(
     const checkpointPdfPath = join(context.checkpointDir, `page-${page.pageNumber}.pdf`);
     try {
         const checkpoint = JSON.parse(await readFile(checkpointJsonPath, 'utf8')) as {
+            version?: number;
             pageData?: IOcrPageWithWords;
             effectiveDpi?: number;
             diagnostics?: IOcrDiagnostic[];
+            pdfSize?: number;
+            pdfSha256?: string;
         };
         const checkpointPdfStat = await stat(checkpointPdfPath);
         if (
-            checkpointPdfStat.size > 0
+            checkpoint.version === 2
+            && checkpointPdfStat.size > 0
+            && checkpointPdfStat.size === checkpoint.pdfSize
+            && await sha256File(checkpointPdfPath) === checkpoint.pdfSha256
             && checkpoint.pageData?.pageNumber === page.pageNumber
             && checkpoint.pageData.imageWidth > 0
             && checkpoint.pageData.imageHeight > 0
@@ -326,6 +328,10 @@ async function processOcrPage(
     } catch {
         // Missing or invalid checkpoints are recomputed.
     }
+    await Promise.all([
+        rm(checkpointJsonPath, {force: true}),
+        rm(checkpointPdfPath, {force: true}),
+    ]).catch(() => undefined);
     log('debug', `Processing page ${page.pageNumber}`);
 
     const pageImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}.png`));
@@ -368,6 +374,7 @@ async function processOcrPage(
             context.popplerEnv,
             context.signal,
         );
+        await context.storageBudget.assertWithinBudget();
 
         const dims = await readPngDimensions(pageImagePath);
         let ocrImagePath = pageImagePath;
@@ -409,6 +416,7 @@ async function processOcrPage(
                 }
             }
         }
+        await context.storageBudget.assertWithinBudget();
         const ocrResult = await runOcrFileBased(
             ocrImagePath,
             page.languages,
@@ -423,8 +431,10 @@ async function processOcrPage(
         );
 
         if (!ocrResult.success || !ocrResult.pageData) {
+            await context.storageBudget.assertFailureWithinBudget(ocrResult.error);
             return { error: `Page ${page.pageNumber}: ${ocrResult.error}` };
         }
+        await context.storageBudget.assertWithinBudget();
 
         const pageData: IOcrPageWithWords = {
             pageNumber: page.pageNumber,
@@ -442,17 +452,20 @@ async function processOcrPage(
         }
 
         context.trackTempFile(ocrResult.pdfPath);
-        const checkpointTempPdf = `${checkpointPdfPath}.${process.pid}.${randomUUID()}.tmp`;
-        const checkpointTempJson = `${checkpointJsonPath}.${process.pid}.${randomUUID()}.tmp`;
-        await copyFile(ocrResult.pdfPath, checkpointTempPdf);
-        await writeFile(checkpointTempJson, JSON.stringify({
-            version: 1,
-            pageData,
-            effectiveDpi,
-            diagnostics,
-        }), 'utf8');
-        await rename(checkpointTempPdf, checkpointPdfPath);
-        await rename(checkpointTempJson, checkpointJsonPath);
+        await persistOcrPageCheckpoint({
+            checkpointJsonPath,
+            checkpointPdfPath,
+            checkpointData: {
+                pageData,
+                effectiveDpi,
+                diagnostics,
+            },
+            pageNumber: page.pageNumber,
+            sha256File,
+            signal: context.signal,
+            sourcePdfPath: ocrResult.pdfPath,
+            storageBudget: context.storageBudget,
+        });
         await context.checkpointPage(page.pageNumber);
         return {
             pageData,
@@ -461,6 +474,9 @@ async function processOcrPage(
             diagnostics,
         };
     } catch (err) {
+        if (isOcrStorageFailure(err)) {
+            throw context.storageBudget.fail(err);
+        }
         if (isAbortError(err)) {
             throw err;
         }
@@ -532,10 +548,12 @@ async function processOcrPages(
             );
         }
     };
-    await Promise.all(Array.from(
+    const workerResults = await Promise.allSettled(Array.from(
         {length: Math.min(concurrency, targetPages.length)},
         () => runWorker(),
     ));
+    const failedWorker = workerResults.find(result => result.status === 'rejected');
+    if (failedWorker?.status === 'rejected') throw failedWorker.reason;
 
     return {
         errors,
@@ -838,7 +856,10 @@ async function cleanupTempFiles(
         if (keepFiles.has(filePath)) {
             continue;
         }
-        await unlinkIfPresent(filePath);
+        await rm(filePath, {
+            recursive: true,
+            force: true,
+        }).catch(() => undefined);
     }
 }
 
@@ -868,6 +889,8 @@ async function processOcrJob(
     const jobWarnings: string[] = [];
     const jobDiagnostics: IOcrDiagnostic[] = [];
     let durableManifest: Awaited<ReturnType<typeof createOcrJobManifestController>> | null = null;
+    let storageBudget: TOcrJobStorageBudget | null = null;
+    let ownedSharedCheckpointFingerprint: string | null = null;
 
     const trackTempFile = (filePath: string) => {
         tempFiles.add(filePath);
@@ -916,22 +939,44 @@ async function processOcrJob(
             })),
             options,
         })).digest('hex');
-        const checkpointDir = join(paths.tempDir, 'ocr-checkpoints', checkpointFingerprint);
-        await mkdir(checkpointDir, {recursive: true});
         const checkpointRoot = join(paths.tempDir, 'ocr-checkpoints');
+        const useSharedCheckpoint = !activeSharedCheckpointFingerprints.has(checkpointFingerprint);
+        if (useSharedCheckpoint) {
+            activeSharedCheckpointFingerprints.add(checkpointFingerprint);
+            ownedSharedCheckpointFingerprint = checkpointFingerprint;
+        }
+        const checkpointDir = join(
+            checkpointRoot,
+            useSharedCheckpoint
+                ? checkpointFingerprint
+                : `${checkpointFingerprint}-concurrent-${randomUUID()}`,
+        );
+        await mkdir(checkpointDir, {recursive: true});
         await cleanupStaleOcrJobDirectories(checkpointRoot);
+        storageBudget = createOcrJobStorageBudget({
+            abortController,
+            checkpointDir,
+            sessionId,
+            tempDir: paths.tempDir,
+        });
+        await storageBudget.assertWithinBudget();
+        log('debug', `OCR storage budget: ${JSON.stringify(storageBudget.describe())}`);
         durableManifest = await createOcrJobManifestController(checkpointDir, checkpointFingerprint);
         await durableManifest.markNode('model', 'verified');
         await durableManifest.markNode('normalized-source', 'running');
         sendStageProgress(jobId, pages, 'pdf-prep');
-        const preparedPopplerPdf = await preparePdfForPoppler(
-            paths,
-            log,
-            sourcePdfPath,
-            sessionId,
-            trackTempFile,
-            abortController.signal,
+        const preparedPopplerPdf = await storageBudget.withReservation(
+            (await stat(sourcePdfPath)).size,
+            () => preparePdfForPoppler(
+                paths,
+                log,
+                sourcePdfPath,
+                sessionId,
+                trackTempFile,
+                abortController.signal,
+            ),
         );
+        await storageBudget.assertWithinBudget();
         const popplerSourcePdfPath = preparedPopplerPdf.pdfPath;
         await durableManifest.markNode('normalized-source', 'verified');
         jobWarnings.push(...preparedPopplerPdf.warnings);
@@ -946,6 +991,7 @@ async function processOcrJob(
             options,
             checkpointDir,
             checkpointPage: pageNumber => durableManifest!.markPageVerified(pageNumber),
+            storageBudget,
             trackTempFile,
         };
         if (popplerEnv !== undefined) {
@@ -1005,16 +1051,20 @@ async function processOcrJob(
 
         sendStageProgress(jobId, targetPages, 'merging');
         await durableManifest.markNode('assembled-document', 'running');
-        const mergedPdfPath = await assembleMergedOcrPdf(
-            jobId,
-            sourcePdfPath,
-            ocrPdfMap,
-            pageCount,
-            sessionId,
-            trackTempFile,
-            completionMessages,
-            abortController.signal,
+        const mergedPdfPath = await storageBudget.withReservation(
+            (await stat(sourcePdfPath)).size,
+            () => assembleMergedOcrPdf(
+                jobId,
+                sourcePdfPath,
+                ocrPdfMap,
+                pageCount,
+                sessionId,
+                trackTempFile,
+                completionMessages,
+                abortController.signal,
+            ),
         );
+        await storageBudget.assertWithinBudget();
         if (!mergedPdfPath) {
             await durableManifest.setTerminal('failed');
             return;
@@ -1058,7 +1108,11 @@ async function processOcrJob(
             errors: completionMessages,
             diagnostics: jobDiagnostics,
         });
-    } catch (err) {
+    } catch (caughtError) {
+        const err = storageBudget?.violation
+            ?? (storageBudget && isOcrStorageFailure(caughtError)
+                ? storageBudget.fail(caughtError)
+                : caughtError);
         const errMsg = getErrorMessage(err);
         if (isAbortError(err)) {
             await durableManifest?.setTerminal('cancelled').catch(() => undefined);
@@ -1076,6 +1130,10 @@ async function processOcrJob(
             errors: [`Critical error: ${errMsg}`],
         });
     } finally {
+        await storageBudget?.stop();
+        if (ownedSharedCheckpointFingerprint) {
+            activeSharedCheckpointFingerprints.delete(ownedSharedCheckpointFingerprint);
+        }
         activeJobControllers.delete(jobId);
         await cleanupTempFiles(tempFiles, keepFiles);
         sendCleanupComplete(jobId);

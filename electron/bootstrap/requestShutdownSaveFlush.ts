@@ -1,10 +1,10 @@
 import { randomUUID } from 'crypto';
 import { ipcMain } from 'electron';
 import type { BrowserWindow } from 'electron';
-import type {IShutdownSaveFlushResult} from '@electron/platform-ipc/coreContract';
 import {
     CORE_IPC_EVENT_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
+    decodeShutdownSaveFlushResult,
 } from '@electron/platform-ipc/coreContract';
 import type { ILogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -12,14 +12,22 @@ import { workingCopyMap } from '@electron/file-access/workingCopyStore';
 
 export interface IShutdownSaveFlushSummary {
     dirtyWorkingCopyPaths: string[];
+    failedWindowIds: number[];
     flushedWorkingCopyPaths: string[];
     timedOutWindowIds: number[];
+}
+
+export function shutdownSaveFlushRequiresRecoveryPreservation(
+    summary: IShutdownSaveFlushSummary,
+) {
+    return summary.dirtyWorkingCopyPaths.length > 0
+        || summary.failedWindowIds.length > 0
+        || summary.timedOutWindowIds.length > 0;
 }
 
 function normalizePathList(value: unknown): string[] {
     return Array.isArray(value)
         ? (value as unknown[]).filter((path): path is string => typeof path === 'string' && path.trim().length > 0)
-            .map(path => path.trim())
         : [];
 }
 
@@ -33,6 +41,7 @@ export async function requestShutdownSaveFlush(options: {
     if (windows.length === 0) {
         return {
             dirtyWorkingCopyPaths: [],
+            failedWindowIds: [],
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
         };
@@ -44,6 +53,7 @@ export async function requestShutdownSaveFlush(options: {
         window.id,
     ]));
     const dirtyWorkingCopyPaths = new Set<string>();
+    const failedWindowIds = new Set<number>();
     const flushedWorkingCopyPaths = new Set<string>();
 
     return new Promise(resolve => {
@@ -72,6 +82,7 @@ export async function requestShutdownSaveFlush(options: {
             }
             resolve({
                 dirtyWorkingCopyPaths: Array.from(dirtyWorkingCopyPaths),
+                failedWindowIds: Array.from(failedWindowIds),
                 flushedWorkingCopyPaths: Array.from(flushedWorkingCopyPaths),
                 timedOutWindowIds,
             });
@@ -90,6 +101,7 @@ export async function requestShutdownSaveFlush(options: {
             cleanup();
             resolve({
                 dirtyWorkingCopyPaths: Array.from(dirtyWorkingCopyPaths),
+                failedWindowIds: Array.from(failedWindowIds),
                 flushedWorkingCopyPaths: Array.from(flushedWorkingCopyPaths),
                 timedOutWindowIds: [],
             });
@@ -97,16 +109,33 @@ export async function requestShutdownSaveFlush(options: {
 
         const handleResponse = (
             event: Electron.IpcMainEvent,
-            payload: IShutdownSaveFlushResult,
+            rawPayload: unknown,
         ) => {
-            if (payload?.requestId !== requestId || !pendingBySenderId.has(event.sender.id)) {
+            if (!pendingBySenderId.has(event.sender.id)) {
+                return;
+            }
+            const windowId = pendingBySenderId.get(event.sender.id)!;
+            const payload = decodeShutdownSaveFlushResult(rawPayload);
+            if (!payload || payload.requestId !== requestId) {
+                preserveOwnedWorkingCopies(event.sender.id);
+                failedWindowIds.add(windowId);
+                pendingBySenderId.delete(event.sender.id);
+                options.logger.error(`Renderer shutdown save flush returned an invalid response for sender ${event.sender.id}`);
+                finishIfDone();
                 return;
             }
             pendingBySenderId.delete(event.sender.id);
             for (const path of normalizePathList(payload.dirtyWorkingCopyPaths)) {
                 dirtyWorkingCopyPaths.add(path);
+                flushedWorkingCopyPaths.delete(path);
             }
             for (const path of normalizePathList(payload.flushedWorkingCopyPaths)) {
+                if (dirtyWorkingCopyPaths.has(path)) {
+                    options.logger.error(
+                        `Renderer shutdown save flush reported the same working copy as both dirty and flushed; preserving it: ${path}`,
+                    );
+                    continue;
+                }
                 const entry = workingCopyMap.get(path);
                 if (
                     entry
@@ -129,9 +158,12 @@ export async function requestShutdownSaveFlush(options: {
                     dirtyWorkingCopyPaths.delete(path);
                 }
             }
-            if (payload.error) {
+            if (payload.callbackCount === 0 || payload.error) {
                 preserveOwnedWorkingCopies(event.sender.id);
-                options.logger.error(`Renderer shutdown save flush failed: ${payload.error}`);
+                failedWindowIds.add(windowId);
+                options.logger.error(payload.callbackCount === 0
+                    ? 'Renderer shutdown save flush had no registered handlers'
+                    : `Renderer shutdown save flush failed: ${payload.error}`);
             }
             finishIfDone();
         };
@@ -143,6 +175,7 @@ export async function requestShutdownSaveFlush(options: {
             } catch (error) {
                 pendingBySenderId.delete(window.webContents.id);
                 preserveOwnedWorkingCopies(window.webContents.id);
+                failedWindowIds.add(window.id);
                 options.logger.error(`Failed to request renderer save flush for window ${window.id}: ${getErrorMessage(error)}`);
             }
         }

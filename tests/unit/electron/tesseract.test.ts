@@ -214,8 +214,44 @@ describe('Tesseract TSV geometry parsing', () => {
                     height: 30,
                 },
             ],
-            text: 'First\nSecond',
+            text: 'First faint\nSecond',
         });
+    });
+
+    it('rejects TSV structures before unbounded row, word, or text accumulation', async () => {
+        const { parseTsvOcrData } = await import('@electron/ocr/worker/tesseractRunner');
+        const header = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext';
+        const rows = [
+            '5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t90\tone',
+            '5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t90\ttwo',
+        ];
+
+        expect(() => parseTsvOcrData([
+            header,
+            ...rows,
+        ].join('\n'), {maxRows: 1}))
+            .toThrow('1-row limit');
+        expect(() => parseTsvOcrData([
+            header,
+            ...rows,
+        ].join('\n'), {maxWords: 1}))
+            .toThrow('1-word limit');
+        expect(() => parseTsvOcrData([
+            header,
+            rows[0]!,
+        ].join('\n'), {maxTextCharacters: 2}))
+            .toThrow('2-character text limit');
+        expect(() => parseTsvOcrData([
+            header,
+            '5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t90\ta',
+            '5\t1\t1\t1\t2\t1\t0\t10\t10\t10\t90\tb',
+        ].join('\n'), {maxTextCharacters: 2}))
+            .toThrow('2-character text limit');
+        expect(() => parseTsvOcrData([
+            header,
+            rows[0]!,
+        ].join('\n'), {maxInputCharacters: 4}))
+            .toThrow('parser input limit');
     });
 });
 

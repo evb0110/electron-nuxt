@@ -23,7 +23,7 @@ import {
     resolve,
     sep,
 } from 'path';
-import { getAppTempDirPath } from '@electron/utils/appTempDir';
+import { getLegacyAppTempDirPath } from '@electron/utils/appTempDir';
 
 export const SCAN_CLEANUP_OUTPUT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES = 255;
@@ -41,7 +41,7 @@ export function getScanCleanupOutputBaseDirs() {
     // only place outputs are created, classified or swept; elsewhere the legacy
     // root is all there is to report.
     const appDataDir = (electron as {app?: Pick<App, 'getPath'>}).app?.getPath('userData');
-    const legacyTempDir = getAppTempDirPath();
+    const legacyTempDir = getLegacyAppTempDirPath();
     return appDataDir ? [
         appDataDir,
         legacyTempDir,

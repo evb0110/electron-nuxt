@@ -101,6 +101,8 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     let browserPrintCleanupTimer: number | null = null;
     let activeBrowserPrintUrl: string | null = null;
     let activePrintAbortController: AbortController | null = null;
+    let activePrintResourceOwner: number | null = null;
+    let nextPrintRunId = 0;
     let closeDialogForSystemPrint = false;
     let preparingPrintToastTimer: number | null = null;
     let preparingPrintToastId: string | number | null = null;
@@ -132,7 +134,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         activeBrowserPrintUrl = null;
     }
 
-    function cleanupPrintFrame() {
+    function cleanupPrintFrame(expectedOwner?: number) {
+        if (expectedOwner !== undefined && activePrintResourceOwner !== expectedOwner) {
+            return;
+        }
         if (typeof window !== 'undefined' && removeAfterPrintListener) {
             removeAfterPrintListener();
             removeAfterPrintListener = null;
@@ -148,6 +153,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             activePrintFrame.value.remove();
             activePrintFrame.value = null;
         }
+        activePrintResourceOwner = null;
     }
 
     function clearPreparingPrintToast() {
@@ -162,6 +168,25 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
     }
 
+    function showPreparingPrintToast() {
+        if (preparingPrintToastId !== null || !isPreparingPrint.value) {
+            return;
+        }
+        if (typeof window !== 'undefined' && preparingPrintToastTimer !== null) {
+            window.clearTimeout(preparingPrintToastTimer);
+            preparingPrintToastTimer = null;
+        }
+        const preparingToast = toast.add({
+            close: false,
+            color: 'neutral',
+            description: t('print.systemDialogHint'),
+            duration: 0,
+            icon: 'i-ph-circle-notch',
+            title: t('print.preparing'),
+        });
+        preparingPrintToastId = preparingToast.id;
+    }
+
     function schedulePreparingPrintToast() {
         if (typeof window === 'undefined' || preparingPrintToastTimer !== null || preparingPrintToastId !== null) {
             return;
@@ -172,16 +197,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             if (!isPreparingPrint.value) {
                 return;
             }
-
-            const preparingToast = toast.add({
-                close: false,
-                color: 'neutral',
-                description: t('print.systemDialogHint'),
-                duration: 0,
-                icon: 'i-ph-circle-notch',
-                title: t('print.preparing'),
-            });
-            preparingPrintToastId = preparingToast.id;
+            showPreparingPrintToast();
         }, PRINT_PREPARING_TOAST_DELAY_MS);
     }
 
@@ -287,12 +303,13 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
     }
 
-    function createHiddenPrintFrame() {
+    function createHiddenPrintFrame(owner: number) {
         if (typeof window === 'undefined' || typeof document === 'undefined' || typeof window.print !== 'function') {
             throw new Error('Window printing is unavailable');
         }
 
         cleanupPrintFrame();
+        activePrintResourceOwner = owner;
 
         const frame = document.createElement('iframe');
         const frameWidth = Math.max(window.innerWidth || 0, BROWSER_PRINT_FRAME_MIN_WIDTH_PX);
@@ -401,8 +418,9 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             signal: AbortSignal | undefined,
         ) => Promise<void>,
         signal?: AbortSignal,
+        owner = 0,
     ) {
-        const frame = createHiddenPrintFrame();
+        const frame = createHiddenPrintFrame(owner);
         const frameLoad = waitForPrintFrameLoad(frame, signal);
 
         frame.srcdoc = buildBrowserPrintFrameMarkup();
@@ -411,7 +429,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
         const frameWindow = frame.contentWindow;
         if (!frameWindow) {
-            cleanupPrintFrame();
+            cleanupPrintFrame(owner);
             throw new Error('Missing print frame window');
         }
 
@@ -419,7 +437,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         throwIfPrintAborted(signal);
 
         const afterPrint = () => {
-            cleanupPrintFrame();
+            cleanupPrintFrame(owner);
         };
         window.addEventListener('afterprint', afterPrint, { once: true });
         removeAfterPrintListener = () => {
@@ -433,7 +451,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             };
         } catch (error) {
             if (!isCrossOriginFrameAccessError(error)) {
-                cleanupPrintFrame();
+                cleanupPrintFrame(owner);
                 throw error;
             }
         }
@@ -450,12 +468,16 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 title: t('print.requestSent'),
             });
         } catch (error) {
-            cleanupPrintFrame();
+            cleanupPrintFrame(owner);
             throw error;
         }
     }
 
-    async function printPdfInHiddenFrame(printablePdf: Blob | Uint8Array, signal?: AbortSignal) {
+    async function printPdfInHiddenFrame(
+        printablePdf: Blob | Uint8Array,
+        signal?: AbortSignal,
+        owner = 0,
+    ) {
         await printRenderedContentInHiddenFrame(
             async (targetDocument, renderSignal) => {
                 const { renderPdfPagesForBrowserPrint } = await import('@app/utils/pdfPrint');
@@ -466,10 +488,15 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 );
             },
             signal,
+            owner,
         );
     }
 
-    async function printLoadedPdfPagesInHiddenFrame(pageNumbers: number[], signal?: AbortSignal) {
+    async function printLoadedPdfPagesInHiddenFrame(
+        pageNumbers: number[],
+        signal?: AbortSignal,
+        owner = 0,
+    ) {
         if (!deps.renderLoadedPdfPagesForBrowserPrint) {
             throw new Error('Loaded PDF printing is unavailable');
         }
@@ -481,11 +508,16 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 createPrintSignalOptions(renderSignal),
             ),
             signal,
+            owner,
         );
     }
 
-    async function printPdfWithBrowserPdfViewer(printablePdf: Blob | Uint8Array, signal?: AbortSignal) {
-        const frame = createHiddenPrintFrame();
+    async function printPdfWithBrowserPdfViewer(
+        printablePdf: Blob | Uint8Array,
+        signal?: AbortSignal,
+        owner = 0,
+    ) {
+        const frame = createHiddenPrintFrame(owner);
         const printUrl = createBrowserPrintUrl(printablePdf);
         activeBrowserPrintUrl = printUrl;
         const frameLoad = waitForPrintFrameLoad(frame, signal);
@@ -502,7 +534,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             }
 
             const afterPrint = () => {
-                cleanupPrintFrame();
+                cleanupPrintFrame(owner);
             };
             window.addEventListener('afterprint', afterPrint, { once: true });
             removeAfterPrintListener = () => {
@@ -531,7 +563,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 title: t('print.requestSent'),
             });
         } catch (error) {
-            cleanupPrintFrame();
+            cleanupPrintFrame(owner);
             throw error;
         }
     }
@@ -539,14 +571,15 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     async function tryPrintInBrowserWithNativeFallback(
         printablePdf: Blob | Uint8Array,
         signal?: AbortSignal,
+        owner = 0,
     ) {
         try {
-            await printPdfInHiddenFrame(printablePdf, signal);
+            await printPdfInHiddenFrame(printablePdf, signal, owner);
             return true;
         } catch (renderedPrintError) {
             throwIfPrintAborted(signal);
             try {
-                await printPdfWithBrowserPdfViewer(printablePdf, signal);
+                await printPdfWithBrowserPdfViewer(printablePdf, signal, owner);
                 return true;
             } catch (pdfViewerPrintError) {
                 throw pdfViewerPrintError instanceof Error
@@ -584,7 +617,11 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             reopenDialogOnError?: boolean;
         } = {},
     ) {
-        activePrintAbortController?.abort();
+        if (isPreparingPrint.value) {
+            showPreparingPrintToast();
+            return;
+        }
+        const printRunId = ++nextPrintRunId;
         const abortController = new AbortController();
         activePrintAbortController = abortController;
         const { signal } = abortController;
@@ -622,7 +659,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
             const loadedPageNumbers = resolveLoadedPdfSinglePagePrint(payload);
             if (loadedPageNumbers) {
-                await printLoadedPdfPagesInHiddenFrame(loadedPageNumbers, signal);
+                await printLoadedPdfPagesInHiddenFrame(loadedPageNumbers, signal, printRunId);
                 return;
             }
 
@@ -634,7 +671,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             }
 
             if (options.printSourceDirectly === true) {
-                await tryPrintInBrowserWithNativeFallback(sourceData, signal);
+                await tryPrintInBrowserWithNativeFallback(sourceData, signal, printRunId);
                 return;
             }
 
@@ -645,7 +682,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 throw new Error('Failed to prepare printable PDF data');
             }
 
-            await tryPrintInBrowserWithNativeFallback(printablePdfData, signal);
+            await tryPrintInBrowserWithNativeFallback(printablePdfData, signal, printRunId);
         } catch (error) {
             if (isPrintAbortError(error)) {
                 return;

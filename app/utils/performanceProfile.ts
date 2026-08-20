@@ -6,6 +6,8 @@ import {
     HOST_TIER_LOW_RAM_MAX_GIB,
     HOST_TIER_MODEST_CPU_MAX,
     resolveDetectedHostResourceTier,
+    usesSoftwareCanvasRendering,
+    type IHostGpuStatusSnapshot,
     type THostResourceTier,
     type TPerformanceMode,
 } from '@contracts/hostResourceProfile';
@@ -36,6 +38,7 @@ export interface IPerformanceProfileEnvironment {
     deviceMemory?: number;
     hardwareConcurrency?: number;
     totalMemoryBytes?: number;
+    gpuStatus?: IHostGpuStatusSnapshot;
     tier?: THostResourceTier;
     performanceMode?: TPerformanceMode;
 }
@@ -60,6 +63,7 @@ function readNavigatorPerformanceEnvironment(): IPerformanceProfileEnvironment {
         return {
             hardwareConcurrency: resourceProfile.logicalCpus,
             totalMemoryBytes: resourceProfile.totalRamBytes,
+            ...(resourceProfile.gpuStatus === undefined ? {} : {gpuStatus: resourceProfile.gpuStatus}),
             tier: resourceProfile.tier,
             performanceMode: resourceProfile.performanceMode,
         };
@@ -164,6 +168,21 @@ function resolveCanonicalPerformanceProfile(
     };
 }
 
+function applySoftwareCanvasConstraint(
+    profile: IPerformanceProfile,
+    gpuStatus: IHostGpuStatusSnapshot | undefined,
+): IPerformanceProfile {
+    if (!usesSoftwareCanvasRendering(gpuStatus)) {
+        return profile;
+    }
+    return {
+        ...profile,
+        lowCpu: true,
+        concurrentPdfRenders: PDF_RENDER_CONCURRENCY_LOW_CPU,
+        thumbnailBaseConcurrency: PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE,
+    };
+}
+
 export function resolvePerformanceProfile(
     environment: IPerformanceProfileEnvironment = readNavigatorPerformanceEnvironment(),
 ): IPerformanceProfile {
@@ -178,10 +197,13 @@ export function resolvePerformanceProfile(
             ? null
             : environment.performanceMode);
     if (effectiveTier !== null) {
-        return resolveCanonicalPerformanceProfile(
-            effectiveTier,
-            hardwareConcurrency,
-            totalMemoryGiB,
+        return applySoftwareCanvasConstraint(
+            resolveCanonicalPerformanceProfile(
+                effectiveTier,
+                hardwareConcurrency,
+                totalMemoryGiB,
+            ),
+            environment.gpuStatus,
         );
     }
 
@@ -219,7 +241,7 @@ export function resolvePerformanceProfile(
                 ? PDF_RENDER_CONCURRENCY_LOW_MEMORY
                 : PDF_RENDER_CONCURRENCY_DEFAULT;
 
-    return {
+    return applySoftwareCanvasConstraint({
         tier,
         lowMemory,
         lowCpu,
@@ -249,7 +271,7 @@ export function resolvePerformanceProfile(
             : lowMemory
                 ? PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY
                 : PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
-    };
+    }, environment.gpuStatus);
 }
 
 export function getPerformanceProfile() {

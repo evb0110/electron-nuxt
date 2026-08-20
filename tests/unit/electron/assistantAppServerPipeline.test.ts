@@ -53,6 +53,7 @@ describe('assistant app-server pipeline', () => {
         vi.resetModules();
         mocks.terminate.mockImplementation(async (process: FakeAssistantAppServerProcess) => {
             process.emit('close', 0);
+            return true;
         });
     });
 

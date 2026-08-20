@@ -7,6 +7,26 @@ on:
         description: Git ref or commit SHA to build.
         required: false
         type: string
+      release_environment:
+        description: Environment used only for signed public-release builds.
+        required: false
+        default: artifact-build
+        type: string
+    secrets:
+      CSC_LINK:
+        required: false
+      CSC_KEY_PASSWORD:
+        required: false
+      APPLE_API_KEY:
+        required: false
+      APPLE_API_KEY_ID:
+        required: false
+      APPLE_API_ISSUER:
+        required: false
+      WIN_CSC_LINK:
+        required: false
+      WIN_CSC_KEY_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -19,6 +39,7 @@ env:
 jobs:
   build:
     name: build (${{ matrix.os }}, ${{ matrix.platform }}, ${{ matrix.arch }})
+    environment: ${{ inputs.release_environment }}
     strategy:
       fail-fast: false
       matrix:
@@ -29,7 +50,7 @@ jobs:
             arch: arm64
 
           # Linux — native runners for each arch
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             platform: linux
             arch: x64
           - os: ubuntu-24.04-arm
@@ -50,15 +71,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -74,7 +96,7 @@ jobs:
         if: runner.os == 'Windows'
         # Optional accelerator only: the bundling script downloads on cache miss.
         continue-on-error: true
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: ${{ runner.temp }}/win-bundle-cache
           key: win-native-tools-${{ matrix.arch }}-${{ hashFiles('scripts/bundle-tools-windows.sh') }}
@@ -127,7 +149,15 @@ jobs:
       - name: Bundle native tools (Linux)
         if: runner.os == 'Linux'
         timeout-minutes: 20
-        run: bash scripts/bundle-tools-linux.sh
+        run: |
+          docker run --rm \
+            --env EVB_HOST_GID="$(id -g)" \
+            --env EVB_HOST_UID="$(id -u)" \
+            --volume "$PWD:/workspace" \
+            --workdir /workspace \
+            ubuntu@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc \
+            bash -c \
+              'status=0; bash scripts/bundle-tools-linux.sh || status=$?; chown -R "$EVB_HOST_UID:$EVB_HOST_GID" resources; exit "$status"'
 
       - name: Verify Windows ARM64 MSYS2 toolchain
         if: runner.os == 'Windows' && matrix.arch == 'arm64'
@@ -172,7 +202,7 @@ jobs:
 
       - name: Upload strict build log on failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: build-log-${{ matrix.platform }}-${{ matrix.arch }}
           path: .tmp/build.log
@@ -337,6 +367,11 @@ jobs:
         shell: bash
         run: node scripts/release/assert-packaged-app-contents.mjs
 
+      - name: Enforce Linux glibc 2.35 compatibility baseline
+        if: runner.os == 'Linux'
+        shell: bash
+        run: node scripts/release/assert-linux-glibc-baseline.mjs release 2.35
+
       - name: Record Windows packaged-app provenance
         if: runner.os == 'Windows'
         shell: bash
@@ -350,15 +385,89 @@ jobs:
             "release/${unpacked_dir}/resources/app.asar" \
             "release/EVB-Viewer-${version}-win-${{ matrix.arch }}-provenance.json"
 
-      - name: Verify packaged Linux x64 core PDF journey
-        if: runner.os == 'Linux' && matrix.arch == 'x64'
+      - name: Verify packaged Linux core PDF journey
+        if: runner.os == 'Linux'
         shell: bash
-        run: xvfb-run -a pnpm run test:packaged-core-pdf-smoke -- --executable release/linux-unpacked/evb-viewer
+        run: |
+          executable="$(find release -type f -path '*/linux*-unpacked/evb-viewer' -print -quit)"
+          test -n "$executable"
+          xvfb-run -a pnpm run test:packaged-core-pdf-smoke -- --executable "$executable"
 
-      - name: Verify packaged Windows x64 core PDF journey
-        if: runner.os == 'Windows' && matrix.arch == 'x64'
+      - name: Verify installed Linux AppImage and DEB journeys
+        if: runner.os == 'Linux'
         shell: bash
-        run: pnpm run test:packaged-core-pdf-smoke -- --executable "release/win-unpacked/EVB Viewer.exe"
+        run: |
+          set -euo pipefail
+          appimage="$(find release -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          deb="$(find release -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$appimage"
+          test -n "$deb"
+
+          chmod +x "$appimage"
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a \
+            pnpm run test:packaged-core-pdf-smoke -- --executable "$appimage"
+
+          package_name="$(dpkg-deb -f "$deb" Package)"
+          cleanup_deb() {
+            sudo apt-get remove -y "$package_name" >/dev/null 2>&1 || true
+          }
+          trap cleanup_deb EXIT
+          sudo apt-get install -y "$(realpath "$deb")"
+          installed_executable="$(command -v evb-viewer)"
+          test -x "$installed_executable"
+          xvfb-run -a pnpm run test:packaged-core-pdf-smoke -- --executable "$installed_executable"
+          cleanup_deb
+          trap - EXIT
+          hash -r
+          if command -v evb-viewer >/dev/null 2>&1; then
+            echo "::error::DEB uninstall left the EVB Viewer executable installed."
+            exit 1
+          fi
+
+      - name: Verify packaged Windows core PDF journey
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          executable="$(find release -type f -path '*/win*-unpacked/EVB Viewer.exe' -print -quit)"
+          test -n "$executable"
+          pnpm run test:packaged-core-pdf-smoke -- --executable "$executable"
+
+      - name: Verify installed Windows NSIS journey
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Get-ChildItem release -File -Filter '*-setup.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "NSIS installer exited with $($install.ExitCode)." }
+          $app = $null
+          $installDeadline = (Get-Date).AddSeconds(30)
+          do {
+            $app = Get-ChildItem "$env:LOCALAPPDATA\\Programs" -Recurse -File -Filter 'EVB Viewer.exe' `
+              -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+            if (-not $app) { Start-Sleep -Milliseconds 500 }
+          } while (-not $app -and (Get-Date) -lt $installDeadline)
+          if (-not $app) { throw 'Installed EVB Viewer executable was not found.' }
+          $installDir = $app.Directory.FullName
+
+          try {
+            pnpm run test:packaged-core-pdf-smoke -- --executable $app.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Installed NSIS smoke failed with $LASTEXITCODE." }
+          } finally {
+            $uninstaller = Get-ChildItem $installDir -File -Filter 'Uninstall*.exe' | Select-Object -First 1
+            if ($uninstaller) {
+              $uninstall = Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait -PassThru
+              if ($uninstall.ExitCode -ne 0) { throw "NSIS uninstaller exited with $($uninstall.ExitCode)." }
+            }
+          }
+          $uninstallDeadline = (Get-Date).AddSeconds(30)
+          while ((Test-Path $app.FullName) -and (Get-Date) -lt $uninstallDeadline) {
+            Start-Sleep -Milliseconds 500
+          }
+          if (Test-Path $app.FullName) { throw 'NSIS uninstall left the EVB Viewer executable installed.' }
 
       - name: Verify packaged macOS arm64 core PDF journey
         if: runner.os == 'macOS' && matrix.arch == 'arm64'
@@ -367,7 +476,7 @@ jobs:
 
       - name: Upload packaged core PDF diagnostics
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: packaged-core-pdf-smoke-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.run_attempt }}
           path: .devkit/test/packaged-core-pdf-smoke/**
@@ -391,7 +500,7 @@ jobs:
 
       - name: Upload macOS LaunchServices diagnostics
         if: failure() && runner.os == 'macOS' && env.MAC_EXPECT_DEVELOPER_ID == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: macos-launchservices-${{ matrix.arch }}-${{ github.run_attempt }}
           path: .devkit/test/macos-launchservices-startup/**
@@ -423,7 +532,7 @@ jobs:
         run: node scripts/release/assert-build-artifacts.mjs release "${{ matrix.platform }}" "${{ matrix.arch }}"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dist-${{ matrix.platform }}-${{ matrix.arch }}
           path: |

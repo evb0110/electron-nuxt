@@ -228,7 +228,7 @@ async function cutRelease(level) {
         run('git', [
             'commit',
             '-m',
-            `release: ${version} [skip ci]`,
+            `release: ${version}`,
             '--',
             'package.json',
         ], {stdio: 'inherit'});

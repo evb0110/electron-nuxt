@@ -12,10 +12,10 @@ use evb_native_support::{
     NativeError, NativeErrorCode,
 };
 use evb_pdf_image_combine::{
-    combine_tiff_paths, default_worker_threads, encode_netpbm_path_as_png, probe_netpbm_path,
-    write_pdf, FramePolicy, ImageCompression, ImageProcessing, ImageSpec, InputSource,
-    JpegSizeGuardrail, PageSpec, PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement, PdfPageSize,
-    Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
+    combine_tiff_paths, encode_netpbm_path_as_png, probe_netpbm_path, write_pdf, FramePolicy,
+    ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail, PageSpec,
+    PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement, PdfPageSize, Result,
+    DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
 };
 use serde::Deserialize;
 
@@ -142,7 +142,10 @@ fn run(raw_args: Vec<String>) -> Result<()> {
             provenance_stamp_hex,
             worker_threads: read_limit(
                 "EVB_PDF_COMBINE_THREADS",
-                default_worker_threads() as u64,
+                // A prepared passthrough page may retain close to the per-image
+                // 512 MiB ceiling. Keep the safe default batch bounded to one;
+                // operators can explicitly trade memory for throughput.
+                1,
                 1,
                 MAX_WORKER_THREADS as u64,
             ) as usize,

@@ -140,6 +140,27 @@ function rememberInputOpenPickerMode() {
     );
 }
 
+const BROWSER_FILE_PICKER_SETUP_DENIED_CODE = 'browser-file-picker-setup-denied';
+
+export class BrowserFilePickerSetupDeniedError extends Error {
+    public readonly code = BROWSER_FILE_PICKER_SETUP_DENIED_CODE;
+
+    public constructor() {
+        super(BROWSER_FILE_PICKER_SETUP_DENIED_CODE);
+        this.name = 'BrowserFilePickerSetupDeniedError';
+    }
+}
+
+export function isBrowserFilePickerSetupDeniedError(
+    error: unknown,
+): error is BrowserFilePickerSetupDeniedError {
+    return error instanceof BrowserFilePickerSetupDeniedError;
+}
+
+function createBrowserFilePickerSetupDeniedError() {
+    return new BrowserFilePickerSetupDeniedError();
+}
+
 function buildBrowserLargeJobError(
     label: string,
     maxBytes: number,
@@ -188,7 +209,10 @@ export async function pickFiles(options: {
 
             if (isFileSystemAccessDeniedError(error)) {
                 rememberInputOpenPickerMode();
-                return [];
+                // This first failure is setup failure, not a user cancellation.
+                // The next explicit Open action uses the input fallback; never
+                // launch a second picker without another user gesture.
+                throw createBrowserFilePickerSetupDeniedError();
             }
             throw error;
         }

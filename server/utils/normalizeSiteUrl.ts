@@ -18,7 +18,25 @@ function firstNonEmptyString(values: Array<string | undefined>) {
 }
 
 export function normalizeSiteUrl(siteUrl: string) {
-    return siteUrl.endsWith('/') ? siteUrl : `${siteUrl}/`;
+    let parsed: URL;
+    try {
+        parsed = new URL(siteUrl.trim());
+    } catch {
+        throw new Error('Configured site URL must be an absolute HTTP(S) URL');
+    }
+    if (![
+        'http:',
+        'https:',
+    ].includes(parsed.protocol) || !parsed.hostname) {
+        throw new Error('Configured site URL must be an absolute HTTP(S) URL');
+    }
+    if (parsed.username || parsed.password) {
+        throw new Error('Configured site URL must not contain credentials');
+    }
+    parsed.hash = '';
+    parsed.search = '';
+    parsed.pathname = `${parsed.pathname.replace(/\/+$/u, '')}/`;
+    return parsed.toString();
 }
 
 export function resolveSiteUrl(event: H3Event) {

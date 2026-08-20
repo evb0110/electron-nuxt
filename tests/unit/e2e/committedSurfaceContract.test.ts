@@ -2,13 +2,16 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     findCommittedSurfaceCausalOpenViolations,
     findCommittedSurfaceContractViolations,
     findCommittedSurfaceInteractionTailViolations,
     findInitialRenderAuthorityViolations,
+    installCommittedSurfaceSampler,
     summarizeCommittedSurfaceTiming,
+    waitForCommittedSurfaceSamples,
     type ICommittedSurfaceFrame,
 } from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
 
@@ -70,6 +73,31 @@ function committedCanvas(sequence: number, shellId = 1) {
 }
 
 describe('committed surface E2E contract', () => {
+    it('keeps pixel sampling enabled by default and serializes an explicit opt-out', async () => {
+        const evaluate = vi.fn(async (_source: string) => undefined);
+        const page = {evaluate} as never;
+
+        await installCommittedSurfaceSampler(page);
+        await installCommittedSurfaceSampler(page, {sampleCanvasPixels: false});
+
+        expect(evaluate.mock.calls[0]?.[0]).toContain('})(true);');
+        expect(evaluate.mock.calls[1]?.[0]).toContain('})(false);');
+    });
+
+    it('polls sampler counts from the host until the requested frame kind is stable', async () => {
+        const evaluate = vi.fn<(source: string) => Promise<number>>()
+            .mockResolvedValueOnce(3)
+            .mockResolvedValueOnce(10);
+
+        await expect(waitForCommittedSurfaceSamples({evaluate} as never, {
+            kind: 'committed-canvas',
+            minimumSamples: 10,
+            pollIntervalMs: 0,
+            timeoutMs: 100,
+        })).resolves.toBe(10);
+        expect(evaluate).toHaveBeenCalledTimes(2);
+    });
+
     it('reports capture exceptions as explicit contract failures without disguising them as missing frames', () => {
         const trace = {
             errors: [{

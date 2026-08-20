@@ -294,29 +294,48 @@ describe('useDjvu', () => {
             expect(djvu.openingPath.value).toBeNull();
         });
 
-        it('finishes previous document cleanup before admitting the native DjVu open', async () => {
-            mockOpenJobResult.mockResolvedValue({
+        it('accepts the DjVu candidate before closing the active document', async () => {
+            const accepted = createDeferred<IDjvuOpenResult>();
+            mockOpenJobResult.mockReturnValue(accepted.promise);
+
+            const djvu = useDjvu();
+            const closeActiveDocument = vi.fn(async () => undefined);
+
+            const opening = djvu.openDjvuFile('/handoff.djvu', {closeActiveDocument});
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(mockElectronAPI.djvu.startOpenForViewing).toHaveBeenCalledTimes(1);
+            expect(closeActiveDocument).not.toHaveBeenCalled();
+            expect(djvu.isDjvuMode.value).toBe(false);
+
+            accepted.resolve({
                 success: true,
                 pageCount: 100,
                 jobId: 'job-source-handoff',
             });
-
-            const djvu = useDjvu();
-            const close = createDeferred<undefined>();
-            const closeActiveDocument = vi.fn(() => close.promise);
-
-            const opening = djvu.openDjvuFile('/handoff.djvu', {closeActiveDocument});
-            await Promise.resolve();
-
-            expect(closeActiveDocument).toHaveBeenCalledTimes(1);
-            expect(mockElectronAPI.djvu.startOpenForViewing).not.toHaveBeenCalled();
-            expect(djvu.isDjvuMode.value).toBe(false);
-
-            close.resolve(undefined);
             await opening;
 
-            expect(mockElectronAPI.djvu.startOpenForViewing).toHaveBeenCalledTimes(1);
+            expect(closeActiveDocument).toHaveBeenCalledTimes(1);
             expect(djvu.djvuSourcePath.value).toBe('/handoff.djvu');
+        });
+
+        it('does not close the active PDF when the DjVu candidate is rejected', async () => {
+            mockOpenJobResult.mockResolvedValue({
+                success: false,
+                error: 'DjVu directory is corrupt',
+            });
+            const closeActiveDocument = vi.fn(async () => undefined);
+            const djvu = useDjvu();
+
+            await expect(djvu.openDjvuFile(
+                '/corrupt.djvu',
+                {closeActiveDocument},
+            )).rejects.toThrow('DjVu directory is corrupt');
+
+            expect(closeActiveDocument).not.toHaveBeenCalled();
+            expect(djvu.isDjvuMode.value).toBe(false);
+            expect(djvu.djvuSourcePath.value).toBeNull();
         });
 
         it('releases the previous DjVu viewing path when switching files', async () => {

@@ -53,7 +53,7 @@ async function extractSourcePages(
     options: IStreamingPdfAssemblerOptions,
     pageNumbers: readonly number[],
 ) {
-    const splitDir = join(options.tempDir, `${options.sessionId}-source-pages`);
+    const splitDir = options.trackTempFile(join(options.tempDir, `${options.sessionId}-source-pages`));
     await mkdir(splitDir, {recursive: true});
     const argsPath = options.trackTempFile(join(
         options.tempDir,

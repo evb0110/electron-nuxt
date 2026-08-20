@@ -127,6 +127,7 @@ describe('useSettings', () => {
 
         const { useSettings } = await import('@app/composables/useSettings');
         const {
+            hasCookieSnapshot,
             settings,
             isLoaded,
             load,
@@ -137,6 +138,7 @@ describe('useSettings', () => {
         await load();
 
         expect(isLoaded.value).toBe(true);
+        expect(hasCookieSnapshot.value).toBe(false);
         expect(settings.value.theme).toBe('dark');
         expect(settings.value.locale).toBe('fr');
     });

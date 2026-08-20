@@ -3,6 +3,7 @@ import {
     DB_VERSION,
     DOCUMENTS_STORE,
     DOCUMENT_CHUNKS_STORE,
+    WORKSPACE_RECOVERY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import type { IBrowserPersistedDocumentRecord } from '@app/platform/browser/browserDocumentTypes';
 import { resolveBrowserCapabilityTier } from '@app/platform/browser/browserCapabilityTier';
@@ -12,6 +13,8 @@ interface IIndexedDbReadResult<T> {
     value: T | null;
 }
 
+const INDEXED_DB_OPEN_TIMEOUT_MS = 4_000;
+
 async function openDatabase() {
     const { indexedDbFactory } = resolveBrowserCapabilityTier();
     if (!indexedDbFactory) {
@@ -20,20 +23,39 @@ async function openDatabase() {
 
     return new Promise<IDBDatabase | null>((resolve) => {
         let request: IDBOpenDBRequest;
+        let settled = false;
+        let timeout: ReturnType<typeof setTimeout> | null = null;
+        const finish = (database: IDBDatabase | null) => {
+            if (settled) {
+                database?.close();
+                return;
+            }
+            settled = true;
+            if (timeout) {
+                clearTimeout(timeout);
+                timeout = null;
+            }
+            resolve(database);
+        };
         try {
             request = indexedDbFactory.open(DB_NAME, DB_VERSION);
         } catch {
-            resolve(null);
+            finish(null);
             return;
         }
+
+        timeout = setTimeout(() => finish(null), INDEXED_DB_OPEN_TIMEOUT_MS);
 
         request.onupgradeneeded = () => {
             upgradeBrowserDocumentDatabase(request.result);
         };
 
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => resolve(null);
-        request.onblocked = () => resolve(null);
+        request.onsuccess = () => finish(request.result);
+        request.onerror = () => finish(null);
+        // A previous tab can hold an old connection while it is being
+        // discarded. Keep waiting for the bounded timeout rather than treating
+        // the transient version-change block as a permanent storage failure.
+        request.onblocked = () => undefined;
     });
 }
 
@@ -45,6 +67,9 @@ export function upgradeBrowserDocumentDatabase(database: IDBDatabase) {
     }
     if (!database.objectStoreNames.contains(DOCUMENT_CHUNKS_STORE)) {
         database.createObjectStore(DOCUMENT_CHUNKS_STORE, { keyPath: 'key' });
+    }
+    if (!database.objectStoreNames.contains(WORKSPACE_RECOVERY_STORE)) {
+        database.createObjectStore(WORKSPACE_RECOVERY_STORE, { keyPath: 'id' });
     }
 }
 
@@ -157,6 +182,53 @@ export async function withObjectStore<T>(
                     cleanup(requestResult);
                 }
             };
+        } catch {
+            cleanup(null);
+        }
+    });
+}
+
+export async function runObjectStoreTransaction<T>(
+    storeName: string,
+    mode: IDBTransactionMode,
+    run: (store: IDBObjectStore, setResult: (value: T) => void) => void,
+) {
+    return runObjectStoresTransaction<T>(
+        [storeName],
+        mode,
+        (transaction, setResult) => run(transaction.objectStore(storeName), setResult),
+    );
+}
+
+/** Resolves a captured result only after its transaction commits; failures resolve null. */
+export async function runObjectStoresTransaction<T>(
+    storeNames: string[],
+    mode: IDBTransactionMode,
+    run: (transaction: IDBTransaction, setResult: (value: T) => void) => void,
+) {
+    const database = await openDatabase();
+    if (!database) {
+        return null;
+    }
+
+    return new Promise<T | null>((resolve) => {
+        let result: T | null = null;
+        let settled = false;
+        const cleanup = (value: T | null) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            database.close();
+            resolve(value);
+        };
+
+        try {
+            const transaction = database.transaction(storeNames, mode);
+            run(transaction, value => { result = value; });
+            transaction.onabort = () => cleanup(null);
+            transaction.onerror = () => cleanup(null);
+            transaction.oncomplete = () => queueMicrotask(() => cleanup(result));
         } catch {
             cleanup(null);
         }

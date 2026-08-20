@@ -484,6 +484,59 @@ describe('window runtime readiness', () => {
         window?.emit('responsive');
     });
 
+    it('rearms renderer recovery after a completed reload while bounding crash loops', async () => {
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow();
+        const window = mocks.BrowserWindow.windows[0];
+        expect(window).toBeDefined();
+        vi.clearAllMocks();
+
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+            window?.emitWebContents('render-process-gone', {}, {
+                exitCode: 1,
+                reason: 'crashed',
+            });
+            await vi.waitFor(() => {
+                expect(mocks.loadURL).toHaveBeenCalledTimes(Math.min(attempt + 1, 3));
+            });
+        }
+
+        expect(mocks.loadURL).toHaveBeenCalledTimes(3);
+        expect(mocks.logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining('attempt=3'),
+        );
+    });
+
+    it('does not offer unresponsive recovery after exhausting the reload cap', async () => {
+        vi.useFakeTimers();
+        try {
+            mocks.config.automation.hideWindow = false;
+            const {createAppWindow} = await import('@electron/window');
+
+            await createAppWindow();
+            const window = mocks.BrowserWindow.windows[0];
+            expect(window).toBeDefined();
+            vi.clearAllMocks();
+
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+                window?.emitWebContents('render-process-gone', {}, {
+                    exitCode: 1,
+                    reason: 'crashed',
+                });
+                await vi.waitFor(() => {
+                    expect(mocks.loadURL).toHaveBeenCalledTimes(attempt + 1);
+                });
+            }
+            window?.emit('unresponsive');
+            await vi.advanceTimersByTimeAsync(15_000);
+
+            expect(mocks.dialog.showMessageBox).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('escalates persistent unresponsive renderers after the recovery delay', async () => {
         vi.useFakeTimers();
         try {

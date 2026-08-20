@@ -322,6 +322,99 @@ describe('useWorkspacePrint', () => {
         });
     });
 
+    it('keeps print preparation strict single-flight under reentrant commands', async () => {
+        const readiness = Promise.withResolvers<boolean>();
+        const ensurePrintReady = vi.fn(() => readiness.promise);
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({ensurePrintReady});
+
+        try {
+            const first = state.handlePrintDialogSubmit({
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+            await Promise.resolve();
+            expect(state.isPreparingPrint.value).toBe(true);
+
+            const reentrant = state.handlePrintDialogSubmit({
+                pageNumbers: [2],
+                viewMode: 'single',
+                orientation: 'landscape',
+            });
+            await expect(reentrant).resolves.toBeUndefined();
+            expect(ensurePrintReady).toHaveBeenCalledOnce();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                duration: 0,
+                title: 'print.preparing',
+            }));
+
+            readiness.resolve(false);
+            await first;
+
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(state.isPreparingPrint.value).toBe(false);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('does not let an older afterprint callback remove a newer run frame', async () => {
+        const firstFrame = createFakeFrame();
+        const secondFrame = createFakeFrame();
+        stubDocumentWithFrames([
+            firstFrame,
+            secondFrame,
+        ]);
+        const {
+            scope,
+            state,
+        } = createState();
+
+        try {
+            const firstPrint = state.handlePrintDialogSubmit({
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+            await flushMicrotasks(12);
+            firstFrame.frame.trigger('load');
+            await firstPrint;
+
+            const fakeWindow = Reflect.get(globalThis, 'window');
+            const addWindowEventListener = typeof fakeWindow === 'object' && fakeWindow !== null
+                ? Reflect.get(fakeWindow, 'addEventListener')
+                : null;
+            if (!vi.isMockFunction(addWindowEventListener)) {
+                throw new Error('Expected a mocked window event listener');
+            }
+            const oldAfterPrint = addWindowEventListener.mock.calls.find(([eventName]) => (
+                String(eventName) === 'afterprint'
+            ))?.[1] as ((event: Event) => void) | undefined;
+            if (typeof oldAfterPrint !== 'function') {
+                throw new Error('Expected the first print run afterprint callback');
+            }
+
+            const secondPrint = state.handlePrintDialogSubmit({
+                pageNumbers: [2],
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+            await flushMicrotasks(12);
+            expect(document.body.append).toHaveBeenLastCalledWith(secondFrame.frame);
+
+            oldAfterPrint(new Event('afterprint'));
+            expect(secondFrame.frame.remove).not.toHaveBeenCalled();
+
+            secondFrame.frame.trigger('load');
+            await secondPrint;
+            expect(secondFrame.frameWindow.print).toHaveBeenCalledOnce();
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('aborts printing when open annotation-note persistence is not ready', async () => {
         const ensurePrintReady = vi.fn(async () => false);
         const getPrintableSourceData = vi.fn(async () => Uint8Array.of(1, 2, 3));

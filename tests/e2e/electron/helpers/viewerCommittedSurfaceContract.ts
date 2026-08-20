@@ -122,6 +122,16 @@ export interface ICommittedSurfaceTrace {
     frames: ICommittedSurfaceFrame[];
 }
 
+export interface ICommittedSurfaceSamplerOptions {sampleCanvasPixels?: boolean;}
+
+export interface ICommittedSurfaceSampleWaitOptions {
+    interactionCheckpoint?: string;
+    kind?: TCommittedSurfaceKind;
+    minimumSamples: number;
+    pollIntervalMs?: number;
+    timeoutMs?: number;
+}
+
 export interface ICommittedSurfaceCausalOpenContract {
     maxFirstCanvasMs: number;
     maxFirstPageShellMs: number;
@@ -749,8 +759,11 @@ export function findInitialRenderAuthorityViolations(
  * entry a browser-presentable frame and prevents mutation-only intermediate DOM
  * states from being mistaken for a flash the user could see.
  */
-export async function installCommittedSurfaceSampler(page: Page) {
-    await evaluateInPage(page, () => {
+export async function installCommittedSurfaceSampler(
+    page: Page,
+    options: ICommittedSurfaceSamplerOptions = {},
+) {
+    await evaluateInPage(page, (sampleCanvasPixels: boolean) => {
         const testWindow = window as typeof window & {
             __committedSurfaceAnimationFrame?: number;
             __committedSurfaceElementIds?: WeakMap<Element, number>;
@@ -896,24 +909,39 @@ export async function installCommittedSurfaceSampler(page: Page) {
                 return false;
             }
             try {
-                const probe = document.createElement('canvas');
-                probe.width = 128;
-                probe.height = 128;
-                const context = probe.getContext('2d', {willReadFrequently: true});
+                const context = canvas.getContext('2d', {willReadFrequently: true});
                 if (!context) {
                     return false;
                 }
-                context.drawImage(canvas, 0, 0, probe.width, probe.height);
-                const pixels = context.getImageData(0, 0, probe.width, probe.height).data;
-                for (let offset = 0; offset < pixels.length; offset += 4) {
-                    if (
-                        (pixels[offset + 3] ?? 0) > 0
-                        && (
-                            (pixels[offset] ?? 255) < 252
-                            || (pixels[offset + 1] ?? 255) < 252
-                            || (pixels[offset + 2] ?? 255) < 252
-                        )
-                    ) {
+                const hasContrast = (pixels: Uint8ClampedArray) => {
+                    for (let offset = 0; offset < pixels.length; offset += 4) {
+                        if (
+                            (pixels[offset + 3] ?? 0) > 0
+                            && (
+                                (pixels[offset] ?? 255) < 252
+                                || (pixels[offset + 1] ?? 255) < 252
+                                || (pixels[offset + 2] ?? 255) < 252
+                            )
+                        ) {
+                            return true;
+                        }
+                    }
+                    return false;
+                };
+                const gridSize = 12;
+                for (let index = 0; index < gridSize; index += 1) {
+                    const y = Math.min(
+                        canvas.height - 1,
+                        Math.floor(((index + 0.5) * canvas.height) / gridSize),
+                    );
+                    if (hasContrast(context.getImageData(0, y, canvas.width, 1).data)) {
+                        return true;
+                    }
+                    const x = Math.min(
+                        canvas.width - 1,
+                        Math.floor(((index + 0.5) * canvas.width) / gridSize),
+                    );
+                    if (hasContrast(context.getImageData(x, 0, 1, canvas.height).data)) {
                         return true;
                     }
                 }
@@ -1018,7 +1046,7 @@ export async function installCommittedSurfaceSampler(page: Page) {
                     return trackedPageNumber !== null && ownerPageNumber === trackedPageNumber;
                 });
                 const skeleton = exactSkeletons[0] ?? null;
-                const canvasNonblank = canvasHasNonblankPixels(canvas);
+                const canvasNonblank = sampleCanvasPixels && canvasHasNonblankPixels(canvas);
                 // `page_container--rendered` is applied by the render coordinator only
                 // after the render task commits; it is the white-page fallback where
                 // pixel contrast deliberately cannot prove readiness.
@@ -1130,11 +1158,13 @@ export async function installCommittedSurfaceSampler(page: Page) {
                         );
                         return {
                             canonicalCanvasId: getElementId(canonicalCanvas),
-                            canonicalCanvasNonblank: canvasHasNonblankPixels(canonicalCanvas),
+                            canonicalCanvasNonblank: sampleCanvasPixels
+                                && canvasHasNonblankPixels(canonicalCanvas),
                             canonicalCanvasVisible: isVisible(canonicalCanvas),
                             pageNumber: Number(candidate.dataset.page ?? 0) || null,
                             resizeSnapshotId: getElementId(resizeSnapshot),
-                            resizeSnapshotNonblank: canvasHasNonblankPixels(resizeSnapshot),
+                            resizeSnapshotNonblank: sampleCanvasPixels
+                                && canvasHasNonblankPixels(resizeSnapshot),
                             resizeSnapshotVisible: isVisible(resizeSnapshot),
                             skeletonVisible: isVisible(skeleton),
                         };
@@ -1294,7 +1324,7 @@ export async function installCommittedSurfaceSampler(page: Page) {
             }
         };
         capture();
-    });
+    }, options.sampleCanvasPixels !== false);
 }
 
 export async function markCommittedSurfaceInteractionCheckpoint(page: Page, checkpoint: string) {
@@ -1302,6 +1332,39 @@ export async function markCommittedSurfaceInteractionCheckpoint(page: Page, chec
         const testWindow = window as typeof window & {__committedSurfaceInteractionCheckpoint?: string | null;};
         testWindow.__committedSurfaceInteractionCheckpoint = nextCheckpoint;
     }, checkpoint);
+}
+
+export async function waitForCommittedSurfaceSamples(
+    page: Page,
+    options: ICommittedSurfaceSampleWaitOptions,
+) {
+    const timeoutMs = options.timeoutMs ?? 20_000;
+    const pollIntervalMs = options.pollIntervalMs ?? 100;
+    const deadline = Date.now() + timeoutMs;
+    let observedSamples = 0;
+    while (Date.now() <= deadline) {
+        observedSamples = await evaluateInPage(page, (
+            kind: TCommittedSurfaceKind | null,
+            interactionCheckpoint: string | null,
+        ) => {
+            const frames = (window as typeof window & {__committedSurfaceFrames?: ICommittedSurfaceFrame[];})
+                .__committedSurfaceFrames ?? [];
+            return frames.filter(frame => (
+                (kind === null || frame.kind === kind)
+                && (
+                    interactionCheckpoint === null
+                    || frame.interactionCheckpoint === interactionCheckpoint
+                )
+            )).length;
+        }, options.kind ?? null, options.interactionCheckpoint ?? null);
+        if (observedSamples >= options.minimumSamples) {
+            return observedSamples;
+        }
+        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
+    throw new Error(
+        `Timed out after ${String(timeoutMs)}ms waiting for ${String(options.minimumSamples)} committed-surface samples; observed ${String(observedSamples)}`,
+    );
 }
 
 export async function stopCommittedSurfaceSampler(page: Page): Promise<ICommittedSurfaceTrace> {

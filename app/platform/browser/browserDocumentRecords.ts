@@ -320,8 +320,15 @@ export function shouldRemovePersistedRecord(
     recentRefs: Set<string>,
     nonWorkingDependentCounts: Map<string, number>,
 ) {
+    const durableWorkingRecoveryGraceMs = 10 * 60 * 1_000;
     return (
-        record.kind === 'working'
+        (
+            record.kind === 'working'
+            && (
+                record.retention !== 'durable'
+                || record.updatedAt < Date.now() - durableWorkingRecoveryGraceMs
+            )
+        )
         || (
             !recentRefs.has(record.ref)
             && (nonWorkingDependentCounts.get(record.ref) ?? 0) === 0

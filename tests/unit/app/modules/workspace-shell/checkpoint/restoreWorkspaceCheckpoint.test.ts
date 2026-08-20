@@ -169,6 +169,51 @@ describe('restoreWorkspaceCheckpoint', () => {
         });
     });
 
+    it('restores a dirty DjVu recovery snapshot as a generated PDF working copy', async () => {
+        const openPathInReservedTab = vi.fn().mockResolvedValue(true);
+        await restoreWorkspaceCheckpoint({
+            version: 1,
+            capturedAt: 123,
+            activePaneId: 'pane-1',
+            activeTabId: 'tab-1',
+            layout: {
+                type: 'leaf',
+                paneId: 'pane-1',
+            },
+            panes: [{
+                paneId: 'pane-1',
+                tabIds: ['tab-1'],
+                activeTabId: 'tab-1',
+            }],
+            tabs: [{
+                tabId: 'tab-1',
+                paneId: 'pane-1',
+                fileName: 'scan.djvu',
+                sourceRef: 'browser://documents/scan.djvu',
+                workingCopyRef: 'browser://documents/scan-recovery.pdf',
+                requiresSaveAsOnFirstSave: true,
+                isDirty: true,
+                isDjvu: true,
+                currentPage: null,
+                zoom: null,
+                zoomMode: null,
+            }],
+        }, {
+            tabs: ref([]),
+            workspaceRefs: ref(new Map()),
+            restoreGraph: vi.fn(),
+            openPathInReservedTab,
+            activateTab: vi.fn(),
+        });
+
+        expect(openPathInReservedTab).toHaveBeenCalledWith('tab-1', {
+            kind: 'pdf',
+            workingPath: 'browser://documents/scan-recovery.pdf',
+            originalPath: 'browser://documents/scan.djvu',
+            isGenerated: true,
+        });
+    });
+
     it('restores a blank tab without waiting for document visual readiness', async () => {
         const waitForDocumentOpenSettled = vi.fn().mockResolvedValue(undefined);
         const workspace = cast<IWorkspaceExpose>({

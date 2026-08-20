@@ -4,6 +4,7 @@ import type {
     TEvbAutomationEventType,
 } from '@app/types/evbAutomationEvents';
 import type { IEvbTestApi } from '@app/types/evbTestApi';
+import { isWorkspaceExposeSyncCommandName } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import type {
     IWorkspaceExpose,
     IWorkspaceToolbarSnapshot,
@@ -411,13 +412,17 @@ export async function callWorkspaceCommand<TResult = unknown>(
     options: IFindWorkspaceExposeOptions = {},
 ): Promise<IWorkspaceCommandResult<TResult>> {
     await installWorkspaceExposeProbe(page);
-    return page.evaluate(async (payload: {
+    return page.evaluate((payload: {
         args: unknown[];
         commandName: string;
         searchOptions: IFindWorkspaceExposeOptions;
-    }): Promise<IWorkspaceCommandResult<TResult>> => {
+        syncCommand: boolean;
+    }): IWorkspaceCommandResult<TResult> | Promise<IWorkspaceCommandResult<TResult>> => {
         const api = (window as IWorkspaceExposeProbeWindow).__evbTestApi;
         if (api) {
+            if (payload.syncCommand) {
+                return api.callActiveWorkspaceSyncCommand<TResult>(payload.commandName, payload.args);
+            }
             return api.callActiveWorkspaceCommand<TResult>(payload.commandName, payload.args);
         }
 
@@ -430,11 +435,17 @@ export async function callWorkspaceCommand<TResult = unknown>(
             };
         }
 
-        const value = await Promise.resolve((command as (...values: unknown[]) => unknown)(...payload.args));
-        return {
+        const value = (command as (...values: unknown[]) => unknown)(...payload.args);
+        if (payload.syncCommand) {
+            return {
+                called: true,
+                value: (value ?? null) as TResult | null,
+            };
+        }
+        return Promise.resolve(value).then(resolvedValue => ({
             called: true,
-            value: (value ?? null) as TResult | null,
-        };
+            value: (resolvedValue ?? null) as TResult | null,
+        }));
     }, {
         args,
         commandName,
@@ -442,6 +453,7 @@ export async function callWorkspaceCommand<TResult = unknown>(
             ...options,
             requiredMethods: collectRequiredMethods(options, commandName),
         },
+        syncCommand: isWorkspaceExposeSyncCommandName(commandName),
     });
 }
 

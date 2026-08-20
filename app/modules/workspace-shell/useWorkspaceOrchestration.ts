@@ -495,8 +495,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         sourcePath: computed(() => (
             documentDriver.activeDocumentDriver.value?.source.path ?? workingCopyPath.value
         )),
+        documentRevisionToken,
         totalPages,
         ensureWorkingCopyFreshForRead,
+        runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
     const { handleExportImages } = exportControls;
 

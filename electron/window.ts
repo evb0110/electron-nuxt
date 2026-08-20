@@ -43,6 +43,8 @@ const UNRESPONSIVE_RECOVERY_DELAY_MS = (() => {
     }
     return parsed;
 })();
+const RENDERER_RECOVERY_WINDOW_MS = 5 * 60_000;
+const RENDERER_RECOVERY_MAX_ATTEMPTS = 3;
 
 function logWindowStartup(phase: string, details?: Record<string, unknown>) {
     if (!STARTUP_TRACE_ENABLED) {
@@ -172,9 +174,21 @@ async function promptUnresponsiveRendererRecovery(
 function attachRendererDiagnostics(window: BrowserWindow) {
     const webContents = window.webContents;
     const windowId = window.id;
-    let recoveryAttempted = false;
+    let recoveryInFlight = false;
+    let recentRecoveryAttempts: number[] = [];
     let unresponsiveRecoveryTimer: NodeJS.Timeout | null = null;
     let unresponsivePromptInFlight = false;
+
+    const isRecoveryUnavailable = (includePrompt = false) => {
+        const now = Date.now();
+        recentRecoveryAttempts = recentRecoveryAttempts.filter(
+            attemptedAt => now - attemptedAt < RENDERER_RECOVERY_WINDOW_MS,
+        );
+        return recoveryInFlight
+            || window.isDestroyed()
+            || recentRecoveryAttempts.length >= RENDERER_RECOVERY_MAX_ATTEMPTS
+            || (includePrompt && unresponsivePromptInFlight);
+    };
 
     const clearUnresponsiveRecoveryTimer = () => {
         if (!unresponsiveRecoveryTimer) {
@@ -185,13 +199,14 @@ function attachRendererDiagnostics(window: BrowserWindow) {
     };
 
     const recoverRenderer = (reason: string) => {
-        if (config.isDev || recoveryAttempted || window.isDestroyed()) {
+        if (config.isDev || isRecoveryUnavailable()) {
             return;
         }
 
-        recoveryAttempted = true;
+        recoveryInFlight = true;
+        recentRecoveryAttempts.push(Date.now());
         clearUnresponsiveRecoveryTimer();
-        logger.warn(`[renderer] attempting one-time recovery load (${reason}, windowId=${windowId})`);
+        logger.warn(`[renderer] attempting recovery load (${reason}, windowId=${windowId}, attempt=${recentRecoveryAttempts.length})`);
         void (async () => {
             try {
                 await windowRuntime.ensureReady();
@@ -205,6 +220,8 @@ function attachRendererDiagnostics(window: BrowserWindow) {
                         getErrorMessage(error)
                     }`,
                 );
+            } finally {
+                recoveryInFlight = false;
             }
         })();
     };
@@ -224,13 +241,13 @@ function attachRendererDiagnostics(window: BrowserWindow) {
 
     window.on('unresponsive', () => {
         logger.warn(`[renderer] window unresponsive (windowId=${windowId})`);
-        if (config.isDev || recoveryAttempted || window.isDestroyed() || UNRESPONSIVE_RECOVERY_DELAY_MS <= 0) {
+        if (config.isDev || isRecoveryUnavailable(true) || UNRESPONSIVE_RECOVERY_DELAY_MS <= 0) {
             return;
         }
         clearUnresponsiveRecoveryTimer();
         unresponsiveRecoveryTimer = setTimeout(() => {
             unresponsiveRecoveryTimer = null;
-            if (window.isDestroyed() || recoveryAttempted || unresponsivePromptInFlight) {
+            if (isRecoveryUnavailable(true)) {
                 return;
             }
 

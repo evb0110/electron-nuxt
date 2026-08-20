@@ -351,6 +351,23 @@ describe('usePdfSearch', () => {
         expect(search.isSearching.value).toBe(false);
     });
 
+    it('clears stale cancellation state when the search is cleared', async () => {
+        mockSearch.run.mockResolvedValueOnce({
+            results: [],
+            truncated: false,
+            canceled: true,
+        });
+        const search = await createPdfSearch();
+        const searchPromise = search.search('alpha', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await searchPromise;
+        expect(search.wasSearchCanceled.value).toBe(true);
+
+        search.clearSearch();
+
+        expect(search.wasSearchCanceled.value).toBe(false);
+    });
+
     it('keeps match navigation stable while streamed result batches grow', async () => {
         let requestId = '';
         let progressListener: (progress: {

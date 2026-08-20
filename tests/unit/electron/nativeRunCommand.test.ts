@@ -86,6 +86,44 @@ describe('runNativeCommand', () => {
         });
     });
 
+    it.each([
+        [
+            'stdout' as const,
+            'onStdout' as const,
+        ],
+        [
+            'stderr' as const,
+            'onStderr' as const,
+        ],
+    ])('contains throwing %s callbacks and terminates the helper', async (stream, callbackName) => {
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        const resultPromise = runNativeCommand('/bin/tool', [], {[callbackName]: () => {
+            throw new Error('callback exploded');
+        }});
+
+        expect(() => proc[stream].emit('data', Buffer.from('progress'))).not.toThrow();
+
+        await expect(resultPromise).rejects.toThrow(`${stream} handler failed: callback exploded`);
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
+    });
+
+    it('rejects a callback failure raised while flushing the decoder on close', async () => {
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        const resultPromise = runNativeCommand('/bin/tool', [], {onStdout: () => {
+            throw new Error('flush callback exploded');
+        }});
+
+        proc.stdout.emit('data', Buffer.from([0xd0]));
+        proc.emit('close', 0, null);
+
+        await expect(resultPromise).rejects.toThrow('stdout handler failed: flush callback exploded');
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
+    });
+
     it('decodes UTF-8 incrementally when multibyte characters straddle process chunks', async () => {
         const proc = new MockNativeProcess();
         const onStdout = vi.fn();

@@ -82,6 +82,11 @@ async function flushCurrentPageFitRerender() {
     await Promise.resolve();
 }
 
+async function flushZoomOrchestrationHostTask() {
+    await nextTick();
+    await new Promise(resolve => setTimeout(resolve, 0));
+}
+
 type TCoordinatorDeps = Parameters<typeof usePdfViewerRerenderCoordinator>[0];
 
 function createDeps(overrides: Partial<TCoordinatorDeps> = {}): TCoordinatorDeps {
@@ -209,7 +214,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }));
 
         zoom.value = 1.94;
-        await nextTick();
+        await flushZoomOrchestrationHostTask();
 
         expect(consumeSuppressedZoomRerender).toHaveBeenCalledWith(1.94);
         expect(cancelInFlightPageRenders).not.toHaveBeenCalled();
@@ -241,7 +246,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }));
 
         zoom.value = 1.43;
-        await nextTick();
+        await flushZoomOrchestrationHostTask();
 
         expect(buildResizeAnchorContext).toHaveBeenCalledWith({
             preferredAnchorPage: 157,
@@ -286,7 +291,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }));
 
         zoom.value = 1.43;
-        await nextTick();
+        await flushZoomOrchestrationHostTask();
 
         expect(buildResizeAnchorContext).not.toHaveBeenCalled();
         expect(enqueueZoomSync).toHaveBeenCalledWith(expect.objectContaining({
@@ -294,6 +299,139 @@ describe('usePdfViewerRerenderCoordinator', () => {
             stabilize: true,
             resizeAnchor: gestureAnchor,
         }));
+    });
+
+    it('defers and coalesces discrete zoom orchestration onto one latest host task', async () => {
+        vi.useFakeTimers();
+        try {
+            const zoom = ref(1);
+            const zoomMode = ref<'fit-width' | 'custom'>('fit-width');
+            const submitZoomViewportStateIntent = vi.fn();
+            const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(1));
+            const cancelInFlightPageRenders = vi.fn();
+            const enqueueZoomSync = vi.fn();
+            const {cleanupZoomOrchestration} = usePdfViewerRerenderCoordinator(createDeps({
+                zoom: computed(() => zoom.value),
+                zoomMode: computed(() => zoomMode.value),
+                fitMode: computed(() => 'width' as const),
+                submitZoomViewportStateIntent,
+                buildResizeAnchorContext,
+                cancelInFlightPageRenders,
+                enqueueZoomSync,
+            }));
+
+            zoom.value = 2;
+            zoomMode.value = 'custom';
+            await nextTick();
+            await Promise.resolve();
+
+            expect(submitZoomViewportStateIntent).not.toHaveBeenCalled();
+            expect(buildResizeAnchorContext).not.toHaveBeenCalled();
+            expect(cancelInFlightPageRenders).not.toHaveBeenCalled();
+            expect(enqueueZoomSync).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(submitZoomViewportStateIntent).toHaveBeenCalledOnce();
+            expect(submitZoomViewportStateIntent).toHaveBeenCalledWith(2);
+            expect(buildResizeAnchorContext).toHaveBeenCalledOnce();
+            expect(cancelInFlightPageRenders).toHaveBeenCalledOnce();
+            expect(enqueueZoomSync).toHaveBeenCalledOnce();
+            expect(submitZoomViewportStateIntent.mock.invocationCallOrder[0]!).toBeLessThan(
+                cancelInFlightPageRenders.mock.invocationCallOrder[0]!,
+            );
+            expect(cancelInFlightPageRenders.mock.invocationCallOrder[0]!).toBeLessThan(
+                buildResizeAnchorContext.mock.invocationCallOrder[0]!,
+            );
+            expect(buildResizeAnchorContext.mock.invocationCallOrder[0]!).toBeLessThan(
+                enqueueZoomSync.mock.invocationCallOrder[0]!,
+            );
+            expect(enqueueZoomSync).toHaveBeenCalledWith(expect.objectContaining({
+                source: PDF_RERENDER_SOURCE.ZoomModeChange,
+                stabilize: true,
+            }));
+            cleanupZoomOrchestration();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('cancels and fences queued zoom orchestration during cleanup', async () => {
+        vi.useFakeTimers();
+        try {
+            const zoom = ref(1);
+            const submitZoomViewportStateIntent = vi.fn();
+            const enqueueZoomSync = vi.fn();
+            const {cleanupZoomOrchestration} = usePdfViewerRerenderCoordinator(createDeps({
+                zoom: computed(() => zoom.value),
+                submitZoomViewportStateIntent,
+                enqueueZoomSync,
+            }));
+
+            zoom.value = 2;
+            await nextTick();
+            cleanupZoomOrchestration();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(submitZoomViewportStateIntent).not.toHaveBeenCalled();
+            expect(enqueueZoomSync).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('fences queued zoom orchestration from a replacement document', async () => {
+        vi.useFakeTimers();
+        try {
+            const zoom = ref(1);
+            const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({id: 'old'}));
+            const submitZoomViewportStateIntent = vi.fn();
+            const enqueueZoomSync = vi.fn();
+            usePdfViewerRerenderCoordinator(createDeps({
+                pdfDocument,
+                zoom: computed(() => zoom.value),
+                submitZoomViewportStateIntent,
+                enqueueZoomSync,
+            }));
+
+            zoom.value = 2;
+            await nextTick();
+            pdfDocument.value = cast({id: 'replacement'});
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(submitZoomViewportStateIntent).not.toHaveBeenCalled();
+            expect(enqueueZoomSync).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('cancels queued custom zoom orchestration when a fit transition takes ownership', async () => {
+        vi.useFakeTimers();
+        try {
+            const zoom = ref(1);
+            const zoomMode = ref<'custom' | 'fit-width'>('custom');
+            const submitZoomViewportStateIntent = vi.fn();
+            const enqueueZoomSync = vi.fn();
+            usePdfViewerRerenderCoordinator(createDeps({
+                zoom: computed(() => zoom.value),
+                zoomMode: computed(() => zoomMode.value),
+                fitMode: computed(() => 'width' as const),
+                submitZoomViewportStateIntent,
+                enqueueZoomSync,
+            }));
+
+            zoom.value = 2;
+            await nextTick();
+            zoomMode.value = 'fit-width';
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(submitZoomViewportStateIntent).not.toHaveBeenCalled();
+            expect(enqueueZoomSync).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('does not rerender continuous fit-width when passive scrolling changes the current page', async () => {

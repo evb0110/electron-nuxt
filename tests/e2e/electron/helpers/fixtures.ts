@@ -25,6 +25,7 @@ import {
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {createCanvas} from '@napi-rs/canvas';
+import { getE2ERunId } from '@scripts/electron-run/electronRunRunId';
 import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
 import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
@@ -35,6 +36,7 @@ import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/p
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
+const RUN_FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-run-fixtures');
 const FIXTURE_CACHE_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixture-cache');
 const TRACKED_PROJECT_FIXTURE_DIR = resolve(process.cwd(), 'tests', 'fixtures', 'electron');
 const LEGACY_PROJECT_FIXTURE_DIR = resolve(process.cwd(), '.devkit', 'test-pdfs');
@@ -171,12 +173,28 @@ function getFixtureDir(sessionName = getCurrentSessionName()) {
     return join(FIXTURE_ROOT_DIR, safeSessionName);
 }
 
+function getRunFixtureDir(owner: string, runId = getE2ERunId()) {
+    const safeRunId = runId.replaceAll(/[^a-zA-Z0-9._-]/g, '_');
+    const safeOwner = owner.replaceAll(/[^a-zA-Z0-9._-]/g, '_');
+    if (!safeOwner || safeOwner === '.' || safeOwner === '..') {
+        throw new Error('Run fixture owner must identify one bounded directory');
+    }
+    return join(RUN_FIXTURE_ROOT_DIR, safeRunId, safeOwner);
+}
+
 function ensureFixtureDir(sessionName = getCurrentSessionName()) {
     mkdirSync(getFixtureDir(sessionName), { recursive: true });
 }
 
 export function cleanupSessionFixtures(sessionName = getCurrentSessionName()) {
     rmSync(getFixtureDir(sessionName), {
+        recursive: true,
+        force: true,
+    });
+}
+
+export function cleanupRunFixtures(owner: string) {
+    rmSync(getRunFixtureDir(owner), {
         recursive: true,
         force: true,
     });
@@ -847,9 +865,13 @@ export async function createLargeScannedFixturePdf(
     pageCount = 431,
     attachmentSizeBytes = 28 * 1024 * 1024,
     rasterScale = 1,
+    options: {runOwner?: string} = {},
 ) {
-    ensureFixtureDir();
-    const filePath = join(getFixtureDir(), filename);
+    const fixtureDir = options.runOwner
+        ? getRunFixtureDir(options.runOwner)
+        : getFixtureDir();
+    mkdirSync(fixtureDir, {recursive: true});
+    const filePath = join(fixtureDir, filename);
     const cacheKey = createHash('sha256')
         .update(`large-scanned-v3:${pageCount}:${attachmentSizeBytes}:${rasterScale}`)
         .digest('hex');

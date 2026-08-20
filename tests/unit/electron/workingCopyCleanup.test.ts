@@ -106,7 +106,10 @@ vi.mock('@electron/file-access/workingCopyDirectory', () => ({
     safeRemoveDirectory: vi.fn(async () => false),
 }));
 
-vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => state.tempRoot}));
+vi.mock('@electron/utils/appTempDir', () => ({
+    getAppTempDir: () => state.tempRoot,
+    getLegacyAppTempDirPath: () => join(dirname(state.tempRoot), 'evb-viewer'),
+}));
 
 vi.mock('@electron/file-access/workingCopyMutationQueue', () => ({drainWorkingCopyMutations: vi.fn(async () => undefined)}));
 

@@ -22,6 +22,16 @@ interface IMockPendingUpdateStartup {
 }
 
 const mocks = vi.hoisted(() => {
+    class TestCancellationToken {
+        cancelled = false;
+
+        cancel() {
+            this.cancelled = true;
+        }
+
+        dispose() {}
+    }
+
     class TestEmitter {
         private readonly listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
@@ -66,6 +76,7 @@ const mocks = vi.hoisted(() => {
             getVersion: vi.fn(() => '1.0.0'),
             isPackaged: true,
         },
+        CancellationToken: TestCancellationToken,
         autoUpdater,
         fetch: vi.fn(),
         loadSettings: vi.fn(async () => ({})),
@@ -91,7 +102,10 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('electron', () => ({app: mocks.app}));
 
-vi.mock('electron-updater', () => ({default: {autoUpdater: mocks.autoUpdater}}));
+vi.mock('electron-updater', () => ({
+    CancellationToken: mocks.CancellationToken,
+    default: {autoUpdater: mocks.autoUpdater},
+}));
 
 vi.mock('@electron/config', () => ({config: {updates: {
     initialDelayMs: 1_000,
@@ -116,6 +130,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger
 
 const originalPlatform = process.platform;
 const originalArch = process.arch;
+const originalWindowsStore = process.windowsStore;
 
 function createMetadataResponse(version: string) {
     return {
@@ -154,6 +169,10 @@ beforeAll(() => {
         configurable: true,
         value: 'x64',
     });
+    Object.defineProperty(process, 'windowsStore', {
+        configurable: true,
+        value: false,
+    });
 });
 
 describe('updates robustness', () => {
@@ -165,6 +184,10 @@ describe('updates robustness', () => {
         Object.defineProperty(process, 'arch', {
             configurable: true,
             value: 'x64',
+        });
+        Object.defineProperty(process, 'windowsStore', {
+            configurable: true,
+            value: false,
         });
         vi.useFakeTimers();
         vi.clearAllMocks();
@@ -204,6 +227,15 @@ describe('updates robustness', () => {
         }
         vi.unstubAllGlobals();
         vi.useRealTimers();
+    });
+
+    it('reports the canonical runtime version before updater initialization completes', async () => {
+        const updates = await loadUpdatesModule();
+
+        expect(updates.getUpdateStatus()).toMatchObject({
+            phase: 'idle',
+            version: '1.0.0',
+        });
     });
 
     it('surfaces a failed install when the old application version is relaunched', async () => {
@@ -284,6 +316,64 @@ describe('updates robustness', () => {
             percent: 0,
             version: '1.1.0',
         });
+    });
+
+    it('defers update handling to Microsoft Store in an AppX runtime', async () => {
+        Object.defineProperty(process, 'windowsStore', {
+            configurable: true,
+            value: true,
+        });
+        const updates = await loadUpdatesModule();
+        const statuses: Array<Record<string, unknown>> = [];
+        updates.initializeUpdates(status => statuses.push({...status}));
+
+        await updates.triggerManualUpdateCheck();
+
+        expect(mocks.fetch).not.toHaveBeenCalled();
+        expect(mocks.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+        expect(statuses.at(-1)).toMatchObject({
+            phase: 'unsupported',
+            message: 'Updates for the Microsoft Store build are delivered by Microsoft Store.',
+        });
+    });
+
+    it('cancels and drains an active updater download during shutdown', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        let finishDownload: (() => void) | null = null;
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+        });
+        mocks.autoUpdater.downloadUpdate.mockImplementation(() => new Promise<void>((resolve) => {
+            finishDownload = resolve;
+        }));
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => undefined);
+        await updates.triggerManualUpdateCheck();
+        expect(updates.downloadAvailableUpdate()).toEqual({started: true});
+        await flushPromises();
+        const cancellationToken = mocks.autoUpdater.downloadUpdate.mock.calls[0]?.[0] as {cancelled: boolean};
+
+        const shutdownPromise = updates.shutdownUpdates();
+
+        expect(cancellationToken.cancelled).toBe(true);
+        const resolveDownload = finishDownload as (() => void) | null;
+        resolveDownload?.();
+        await expect(shutdownPromise).resolves.toBeUndefined();
+    });
+
+    it('does not start a queued updater download after shutdown begins', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+        });
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => undefined);
+        await updates.triggerManualUpdateCheck();
+
+        expect(updates.downloadAvailableUpdate()).toEqual({started: true});
+        await expect(updates.shutdownUpdates()).resolves.toBeUndefined();
+
+        expect(mocks.autoUpdater.downloadUpdate).not.toHaveBeenCalled();
     });
 
     it('lets a manual check complete after waiting for an automatic check already in flight', async () => {
@@ -857,5 +947,9 @@ afterAll(() => {
     Object.defineProperty(process, 'arch', {
         configurable: true,
         value: originalArch,
+    });
+    Object.defineProperty(process, 'windowsStore', {
+        configurable: true,
+        value: originalWindowsStore,
     });
 });

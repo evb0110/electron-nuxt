@@ -1277,22 +1277,25 @@ describe('release policy', () => {
         expect(workflow).toContain('Report release gate outcomes');
         expect(workflow).toContain('Updater metadata path policy');
         expect(workflow).toContain('Published asset presence and integrity');
-        expect(workflow).toContain('Verified draft promotion');
+        expect(workflow).toContain('Verified release promotion');
+        expect(workflow).toContain('Microsoft Store reconciliation');
         expect(workflow).toContain('steps.uploaded_assets.outcome');
     });
 
-    it('reuses matching public releases without mutating their assets or resubmitting the Store package', () => {
+    it('reuses immutable public assets while still reconciling the Store package', () => {
         const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
 
         expect(workflow).toContain('release view "$RELEASE_TAG" --json isDraft,targetCommitish');
-        expect(workflow).toContain('release_target" != "$TARGET_SHA');
+        expect(workflow).toContain('git/ref/tags/${RELEASE_TAG}');
+        expect(workflow).toContain('git/tags/${resolved_release_sha}');
+        expect(workflow).toContain('[ "$resolved_release_sha" != "$TARGET_SHA" ]');
         expect(workflow).toContain('already_public=true');
-        expect(workflow).toContain('steps.draft_release.outputs.already_public != \'true\'');
         expect(workflow).toContain('needs.publish.outputs.already_public != \'true\'');
+        expect(workflow).toContain('submit: true');
         expect(workflow).toContain('Existing public assets passed presence and updater integrity checks');
-        expect(workflow).toContain('Public release asset already exists and will not be replaced');
+        expect(workflow).toContain('Retaining checksum-finalized draft assets from the same target');
         expect(workflow).toContain('grep -Fq \'release not found\'');
-        expect(workflow.split('gh release upload "$RELEASE_TAG" artifacts/* --clobber')).toHaveLength(2);
+        expect(workflow).not.toContain('gh release upload "$RELEASE_TAG" artifacts/* --clobber');
     });
 
     it('keeps standalone release verification split into check and package gates', () => {

@@ -115,6 +115,7 @@ const {
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
     normalizeImageExportPath,
+    promoteStagedFiles,
 } = await import('@electron/features/image-export/main/export');
 const { IMAGE_EXPORT_MAX_NETPBM_READ_BYTES } = await import('@electron/features/image-export/main/imageExportResourceLimits');
 const {
@@ -606,6 +607,36 @@ describe('image export', () => {
         ]);
     });
 
+    it('honors an already-aborted signal before the local TIFF fallback reads pages', async () => {
+        const controller = new AbortController();
+        controller.abort(new DOMException('cancelled', 'AbortError'));
+
+        await expect(combinePagesIntoMultiPageTiffLocal(
+            [join(tempDir, 'missing-page.tif')],
+            join(tempDir, 'cancelled.tiff'),
+            controller.signal,
+        )).rejects.toMatchObject({name: 'AbortError'});
+
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+    });
+
+    it('rejects a deferred local TIFF WriteStream error without replacing the target', async () => {
+        const pagePath = join(tempDir, 'page.tif');
+        const outputPath = join(tempDir, 'stream-error.tiff');
+        await writeFile(pagePath, Buffer.from(UTIF.encodeImage(new Uint8Array([
+            1,
+            2,
+            3,
+            255,
+        ]), 1, 1)));
+        await import('node:fs/promises').then(({mkdir}) => mkdir(`${outputPath}.tmp`));
+
+        await expect(combinePagesIntoMultiPageTiffLocal([pagePath], outputPath))
+            .rejects.toBeInstanceOf(Error);
+
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+    });
+
     it('splits TIFF descriptors into classic-size multi-page parts', () => {
         const descriptors = [
             {
@@ -848,6 +879,78 @@ describe('image export', () => {
 
         expect(existsSync(firstTargetPath)).toBe(false);
         expect(existsSync(secondTargetPath)).toBe(false);
+    });
+
+    it('retains the only backup when rollback restoration fails', async () => {
+        const firstTargetPath = join(tempDir, 'first.png');
+        const secondTargetPath = join(tempDir, 'second.png');
+        const firstStagedPath = join(tempDir, 'first.staged');
+        const secondStagedPath = join(tempDir, 'second.staged');
+        await Promise.all([
+            writeFile(firstTargetPath, 'old-first'),
+            writeFile(secondTargetPath, 'old-second'),
+            writeFile(firstStagedPath, 'new-first'),
+            writeFile(secondStagedPath, 'new-second'),
+        ]);
+        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            if (sourcePath === secondStagedPath) {
+                throw new Error('second promotion failed');
+            }
+            if (sourcePath === `${firstTargetPath}.tmp`) {
+                throw new Error('first restore failed');
+            }
+            await writeFile(targetPath, await readFile(sourcePath));
+            await rm(sourcePath, {force: true});
+        });
+
+        await expect(promoteStagedFiles([
+            {
+                stagedPath: firstStagedPath,
+                targetPath: firstTargetPath,
+                targetExisted: true,
+            },
+            {
+                stagedPath: secondStagedPath,
+                targetPath: secondTargetPath,
+                targetExisted: true,
+            },
+        ])).rejects.toThrow('Recovery backup(s) retained');
+
+        expect(await readFile(`${firstTargetPath}.tmp`, 'utf8')).toBe('old-first');
+    });
+
+    it('backs up a destination that appears after export staging', async () => {
+        const firstTargetPath = join(tempDir, 'appeared-first.png');
+        const secondTargetPath = join(tempDir, 'appeared-second.png');
+        const firstStagedPath = join(tempDir, 'appeared-first.staged');
+        const secondStagedPath = join(tempDir, 'appeared-second.staged');
+        await Promise.all([
+            writeFile(firstTargetPath, 'concurrent-first'),
+            writeFile(firstStagedPath, 'new-first'),
+            writeFile(secondStagedPath, 'new-second'),
+        ]);
+        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            if (sourcePath === secondStagedPath) {
+                throw new Error('second promotion failed');
+            }
+            await writeFile(targetPath, await readFile(sourcePath));
+            await rm(sourcePath, {force: true});
+        });
+
+        await expect(promoteStagedFiles([
+            {
+                stagedPath: firstStagedPath,
+                targetPath: firstTargetPath,
+                targetExisted: false,
+            },
+            {
+                stagedPath: secondStagedPath,
+                targetPath: secondTargetPath,
+                targetExisted: false,
+            },
+        ])).rejects.toThrow('second promotion failed');
+
+        expect(await readFile(firstTargetPath, 'utf8')).toBe('concurrent-first');
     });
 
     it('removes staged image outputs when export is canceled before promotion', async () => {

@@ -348,6 +348,75 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         return handleSaveWithReload();
     }
 
+    async function createRecoverySnapshotBytesUnlocked() {
+        const viewer = pdfViewerRef.value;
+        const capturedWorkingCopyPath = workingCopyPath.value;
+        const capturedDocumentRevisionToken = documentRevisionToken.value;
+        const ownsCapturedDocument = () => (
+            workingCopyPath.value === capturedWorkingCopyPath
+            && documentRevisionToken.value === capturedDocumentRevisionToken
+        );
+        if (!viewer || !capturedWorkingCopyPath || !hasPendingUnsavedChanges?.value) {
+            return null;
+        }
+        if (!await persistAllAnnotationNotes()) {
+            throw new Error('Open annotation notes could not be prepared for crash recovery.');
+        }
+
+        const shapeStateDirty = hasViewerShapeChanges(viewer);
+        const result = await viewer.runSaveTransaction({
+            mode: 'snapshot',
+            saveMode: 'rewrite',
+            saveFlowMode: 'save',
+            forcePdfjsMaterialize: (hasPreservedAnnotationSourceChanges?.() ?? false)
+                || (hasSavedPdfJsAnnotationBaselineChanges?.() ?? false),
+            includeManagedShapes: shapeStateDirty,
+            rewriteShapeState: shapeStateDirty,
+            forceRewrite: pageLabelsDirty.value || bookmarksDirty.value || shapeStateDirty,
+            serializeResult: true,
+            dirtyState: {
+                annotationDirty: annotationDirty.value,
+                hasAnnotationChanges: hasAnnotationChanges(),
+                hasLivePdfJsAnnotationChanges: hasLivePdfJsAnnotationChanges?.() ?? false,
+                savedPdfjsAnnotationBaselineDirty: hasSavedPdfJsAnnotationBaselineChanges?.() ?? false,
+                shapeStateDirty,
+            },
+            documentStructure: {
+                pageLabelsDirty: pageLabelsDirty.value,
+                pageLabelRanges: pageLabelRanges.value,
+                bookmarksDirty: bookmarksDirty.value,
+                bookmarkItems: bookmarkItems.value,
+                untitledBookmarkLabel: t('bookmarks.untitled'),
+                totalPages: totalPages.value > 0
+                    ? totalPages.value
+                    : (pdfDocument.value?.numPages ?? 0),
+            },
+            source: {
+                getSourcePdfData,
+                serializePdfForSave,
+            },
+        });
+        const bytes = resolvePdfViewerSaveTransactionFinalBytes(result);
+        if (!bytes || !ownsCapturedDocument()) {
+            return null;
+        }
+        await result.assertAnnotationSaveCurrent?.();
+        await result.verifyAnnotationSave?.(bytes);
+        if (!ownsCapturedDocument()) {
+            return null;
+        }
+        // This is intentionally a detached byte snapshot. Do not call the
+        // transaction's commit callback: recovery must never acknowledge the
+        // live dirty frontier or change the active working-copy source.
+        return bytes.slice();
+    }
+
+    function createRecoverySnapshotBytes() {
+        return runWithDocumentOperationLease
+            ? runWithDocumentOperationLease('recovery-snapshot', createRecoverySnapshotBytesUnlocked)
+            : createRecoverySnapshotBytesUnlocked();
+    }
+
     async function getEmbeddedMutationBaseData() {
         if (!hasAnnotationChanges()) {
             return getSourcePdfData();
@@ -376,6 +445,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         handleOptimizePdfAsCopy,
         handleSaveAs,
         saveForExternalRead,
+        createRecoverySnapshotBytes,
         isAnySaving,
         canSave,
     };

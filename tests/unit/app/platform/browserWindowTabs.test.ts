@@ -9,6 +9,14 @@ import {
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import { cast } from '@tests/helpers/cast';
 
+const recoveryMocks = vi.hoisted(() => ({
+    claimBrowserWorkspaceRecoveryOwner: vi.fn(),
+    loadBrowserWorkspaceRecoveries: vi.fn(),
+    loadBrowserWorkspaceRecovery: vi.fn(),
+}));
+
+vi.mock('@app/platform/browser/browserWorkspaceRecoveryStore', () => recoveryMocks);
+
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 
 type TChannelListener = (event: MessageEvent<unknown>) => void;
@@ -121,6 +129,12 @@ describe('browserWindowTabsCapability', () => {
         vi.unstubAllGlobals();
         vi.useFakeTimers();
         MockBroadcastChannel.reset();
+        recoveryMocks.loadBrowserWorkspaceRecovery.mockResolvedValue(null);
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([]);
+        recoveryMocks.claimBrowserWorkspaceRecoveryOwner.mockResolvedValue({
+            claimed: false,
+            generation: 0,
+        });
         stubBrowserGlobals();
     });
 
@@ -153,6 +167,177 @@ describe('browserWindowTabsCapability', () => {
             windowId: 200,
             label: 'Other PDF',
         }]);
+    });
+
+    it('claims only its stable per-window recovery owner across a module reload', async () => {
+        const browserWindow = stubBrowserGlobals('http://localhost:3235/?evbWindowId=321');
+        recoveryMocks.loadBrowserWorkspaceRecovery.mockResolvedValue({checkpoint: {
+            version: 1,
+            tabs: [],
+        }});
+        const firstModule = await import('@app/platform/browserWindowTabs');
+
+        const firstClaim = firstModule.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+        await firstClaim;
+        expect(recoveryMocks.loadBrowserWorkspaceRecovery).toHaveBeenLastCalledWith('window:321');
+        expect(browserWindow.location.href).not.toContain('evbWindowId');
+
+        vi.resetModules();
+        const secondModule = await import('@app/platform/browserWindowTabs');
+        const secondClaim = secondModule.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+        await secondClaim;
+
+        expect(recoveryMocks.loadBrowserWorkspaceRecovery).toHaveBeenLastCalledWith('window:321');
+    });
+
+    it('rekeys a duplicated live context before it can share a recovery owner', async () => {
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=321');
+        const externalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
+        externalWindow.addEventListener('message', (event) => {
+            const data = event.data;
+            if (!data || typeof data !== 'object' || !('type' in data) || data.type !== 'discover') {
+                return;
+            }
+            externalWindow.postMessage({
+                type: 'announce',
+                windowId: 321,
+                instanceNonce: '!',
+                label: 'Original tab',
+                ready: true,
+            });
+        });
+
+        const module = await import('@app/platform/browserWindowTabs');
+
+        expect(module.getBrowserWindowRecoveryOwnerId()).not.toBe('window:321');
+        recoveryMocks.loadBrowserWorkspaceRecovery.mockResolvedValue(null);
+        recoveryMocks.loadBrowserWorkspaceRecovery.mockClear();
+        const claim = module.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+        await claim;
+        expect(recoveryMocks.loadBrowserWorkspaceRecovery).not.toHaveBeenCalledWith('window:321');
+    });
+
+    it('claims the newest inactive recovery journal without touching the remaining queue', async () => {
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=444');
+        const orphan = {
+            ownerId: 'window:321',
+            generation: 7,
+            checkpoint: {
+                version: 1,
+                tabs: [],
+            },
+            snapshotRefs: [],
+            updatedAt: 1,
+        };
+        const olderOrphan = {
+            ...orphan,
+            ownerId: 'window:111',
+            generation: 2,
+            updatedAt: 0,
+        };
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([
+            olderOrphan,
+            orphan,
+        ]);
+        recoveryMocks.claimBrowserWorkspaceRecoveryOwner.mockResolvedValue({
+            claimed: true,
+            generation: 8,
+        });
+        const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
+
+        const claimed = browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+
+        await expect(claimed).resolves.toBe(orphan.checkpoint);
+        expect(recoveryMocks.claimBrowserWorkspaceRecoveryOwner).toHaveBeenCalledWith(
+            'window:321',
+            'window:444',
+            7,
+        );
+        expect(recoveryMocks.claimBrowserWorkspaceRecoveryOwner).not.toHaveBeenCalledWith(
+            'window:111',
+            expect.anything(),
+            expect.anything(),
+        );
+    });
+
+    it('does not claim a fresh recovery heartbeat when live-peer discovery is unavailable', async () => {
+        vi.setSystemTime(100_000);
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=444');
+        vi.stubGlobal('BroadcastChannel', undefined);
+        expect(globalThis.BroadcastChannel).toBeUndefined();
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([{
+            ownerId: 'window:321',
+            generation: 7,
+            checkpoint: {
+                version: 1,
+                tabs: [],
+            },
+            snapshotRefs: [],
+            updatedAt: Number.MAX_SAFE_INTEGER,
+        }]);
+        const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
+        recoveryMocks.claimBrowserWorkspaceRecoveryOwner.mockClear();
+
+        await expect(browserWindowTabsCapability.claimWorkspaceCheckpoint()).resolves.toBeNull();
+        expect(recoveryMocks.claimBrowserWorkspaceRecoveryOwner).not.toHaveBeenCalled();
+    });
+
+    it('does not steal a fresh heartbeat when a live tab misses the discovery window', async () => {
+        vi.setSystemTime(100_000);
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=444');
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([{
+            ownerId: 'window:321',
+            generation: 7,
+            checkpoint: {
+                version: 1,
+                tabs: [],
+            },
+            snapshotRefs: [],
+            updatedAt: 99_999,
+        }]);
+        const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
+        recoveryMocks.claimBrowserWorkspaceRecoveryOwner.mockClear();
+
+        const claim = browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+
+        await expect(claim).resolves.toBeNull();
+        expect(recoveryMocks.claimBrowserWorkspaceRecoveryOwner).not.toHaveBeenCalled();
+    });
+
+    it('claims an expired recovery owner when live-peer discovery is unavailable', async () => {
+        vi.setSystemTime(100_000);
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=444');
+        vi.stubGlobal('BroadcastChannel', undefined);
+        const orphan = {
+            ownerId: 'window:321',
+            generation: 7,
+            checkpoint: {
+                version: 1,
+                tabs: [],
+            },
+            snapshotRefs: [],
+            updatedAt: 69_999,
+        };
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([orphan]);
+        recoveryMocks.claimBrowserWorkspaceRecoveryOwner.mockResolvedValue({
+            claimed: true,
+            generation: 8,
+        });
+        const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
+        recoveryMocks.claimBrowserWorkspaceRecoveryOwner.mockClear();
+
+        await expect(browserWindowTabsCapability.claimWorkspaceCheckpoint())
+            .resolves.toBe(orphan.checkpoint);
+        expect(recoveryMocks.claimBrowserWorkspaceRecoveryOwner).toHaveBeenCalledWith(
+            'window:321',
+            'window:444',
+            7,
+        );
     });
 
     it('prunes target windows that no longer answer discovery', async () => {

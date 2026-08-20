@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {execFileSync} from 'node:child_process';
 import {
     mkdir,
     mkdtemp,
@@ -15,11 +16,15 @@ import path from 'node:path';
 import {createTemporaryDirectoryRegistry} from '@tests/helpers/createTemporaryDirectoryRegistry';
 import {
     checkZeroExecutionCoverage,
+    collectChangedProductionCoverageTargets,
     collectZeroExecutionTripwireTargets,
     formatZeroExecutionCoverageResult,
     isZeroExecutionTripwireTarget,
+    isProductionCoverageSource,
+    NON_UNIT_COVERAGE_ENTRYPOINTS,
     parseLineCoverageSummary,
     runZeroExecutionCoverage,
+    selectChangedProductionCoverageTargets,
 } from '@scripts/checkZeroExecutionCoverage';
 
 const temporaryDirectories = createTemporaryDirectoryRegistry();
@@ -71,6 +76,7 @@ describe('zero-execution coverage tripwire', () => {
         ], coverage);
 
         expect(result).toEqual({
+            changedTargetFileCount: 0,
             missingFiles: ['packages/contracts/missing.ts'],
             passed: false,
             targetFileCount: 3,
@@ -116,6 +122,30 @@ describe('zero-execution coverage tripwire', () => {
         );
     });
 
+    it('selects every changed production source supported by the coverage report', () => {
+        expect(isProductionCoverageSource('app/components/Viewer.vue')).toBe(true);
+        expect(isProductionCoverageSource('app/runtime.ts')).toBe(true);
+        expect(isProductionCoverageSource('electron/main.ts')).toBe(true);
+        expect(isProductionCoverageSource('scripts/release/publish.mjs')).toBe(true);
+        expect(isProductionCoverageSource('server/api/health.ts')).toBe(true);
+        expect(isProductionCoverageSource('app/runtime.d.ts')).toBe(false);
+        expect(isProductionCoverageSource('landing/app/app.vue')).toBe(false);
+        expect(isProductionCoverageSource('native/src/lib.rs')).toBe(false);
+
+        expect(selectChangedProductionCoverageTargets([
+            'app/components/Viewer.vue',
+            './app/components/Viewer.vue',
+            'app/app.vue',
+            'electron/main.ts',
+            'scripts/release/publish.mjs',
+            'tests/unit/app/Viewer.test.ts',
+        ])).toEqual([
+            'app/components/Viewer.vue',
+            'scripts/release/publish.mjs',
+        ]);
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/app.vue');
+    });
+
     it('discovers and checks targets across the widened production roots', async () => {
         const projectRoot = temporaryDirectories.register(
             await mkdtemp(path.join(tmpdir(), 'evb-zero-execution-')),
@@ -152,6 +182,7 @@ describe('zero-execution coverage tripwire', () => {
         });
 
         expect(result).toMatchObject({
+            changedTargetFileCount: 0,
             missingFiles: [],
             passed: true,
             targetFileCount: targetFiles.length,
@@ -160,6 +191,100 @@ describe('zero-execution coverage tripwire', () => {
         expect(consoleLog).toHaveBeenCalledWith(
             `Zero-execution coverage tripwire passed for ${targetFiles.length} production files.`,
         );
+    });
+
+    it('adds changed Vue and TypeScript sources to the zero-execution gate', async () => {
+        const projectRoot = temporaryDirectories.register(
+            await mkdtemp(path.join(tmpdir(), 'evb-changed-zero-execution-')),
+        );
+        await Promise.all([
+            'app/components',
+            'electron',
+            'packages',
+            'scan-cleanup-adapters',
+            'scan-cleanup-core',
+        ].map(directory => mkdir(path.join(projectRoot, directory), {recursive: true})));
+        await Promise.all([
+            writeFile(
+                path.join(projectRoot, 'app/components/Viewer.vue'),
+                '<template><main /></template>',
+                'utf8',
+            ),
+            writeFile(
+                path.join(projectRoot, 'electron/runtime.ts'),
+                'export const runtime = true;',
+                'utf8',
+            ),
+        ]);
+        const summaryPath = path.join(projectRoot, 'summary.json');
+        await writeFile(summaryPath, JSON.stringify({
+            total: fileSummary(2, 1),
+            [path.join(projectRoot, 'app/components/Viewer.vue')]: fileSummary(1, 0),
+            [path.join(projectRoot, 'electron/runtime.ts')]: fileSummary(1, 1),
+        }), 'utf8');
+        vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+        const result = await runZeroExecutionCoverage({
+            changedFiles: [
+                'app/components/Viewer.vue',
+                'electron/runtime.ts',
+                'tests/unit/app/Viewer.test.ts',
+            ],
+            projectRoot,
+            summaryPath,
+        });
+
+        expect(result).toMatchObject({
+            changedTargetFileCount: 2,
+            passed: false,
+            targetFileCount: 2,
+            zeroExecutionFiles: ['app/components/Viewer.vue'],
+        });
+        expect(formatZeroExecutionCoverageResult(result)).toContain(
+            'including 2 changed production files',
+        );
+    });
+
+    it('discovers changed production sources from an explicit Git range', async () => {
+        const projectRoot = temporaryDirectories.register(
+            await mkdtemp(path.join(tmpdir(), 'evb-changed-coverage-git-')),
+        );
+        const runGit = (...args: string[]) => {
+            const result = execFileSync('git', [
+                '-c',
+                'commit.gpgSign=false',
+                ...args,
+            ], {
+                cwd: projectRoot,
+                encoding: 'utf8',
+            });
+            return result.trim();
+        };
+        runGit('init', '--quiet');
+        runGit('config', 'user.email', 'coverage@example.test');
+        runGit('config', 'user.name', 'Coverage Test');
+        await mkdir(path.join(projectRoot, 'app/components'), {recursive: true});
+        await writeFile(path.join(projectRoot, 'README.md'), 'base\n', 'utf8');
+        runGit('add', '--all');
+        runGit('commit', '--quiet', '-m', 'base');
+        const baseSha = runGit('rev-parse', 'HEAD');
+        await Promise.all([
+            writeFile(
+                path.join(projectRoot, 'app/components/Viewer.vue'),
+                '<template><main /></template>\n',
+                'utf8',
+            ),
+            writeFile(path.join(projectRoot, 'README.md'), 'head\n', 'utf8'),
+        ]);
+        runGit('add', '--all');
+        runGit('commit', '--quiet', '-m', 'head');
+        const headSha = runGit('rev-parse', 'HEAD');
+
+        expect(collectChangedProductionCoverageTargets({
+            baseSha,
+            headSha,
+            projectRoot,
+        })).toEqual(['app/components/Viewer.vue']);
     });
 
     it('marks a failed filesystem-backed tripwire run for process failure', async () => {

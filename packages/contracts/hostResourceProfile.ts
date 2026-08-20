@@ -6,6 +6,16 @@ export type TPerformanceMode = 'auto' | THostResourceTier;
 
 export interface IHostGpuStatusSnapshot {[featureName: string]: string;}
 
+const CANVAS_GPU_FEATURES = [
+    '2d_canvas',
+    'gpu_compositing',
+    'rasterization',
+] as const;
+
+export function usesSoftwareCanvasRendering(gpuStatus?: IHostGpuStatusSnapshot) {
+    return CANVAS_GPU_FEATURES.some(feature => gpuStatus?.[feature]?.includes('software') === true);
+}
+
 export interface IHostResourceProfileSnapshot {
     logicalCpus: number;
     totalRamBytes: number;

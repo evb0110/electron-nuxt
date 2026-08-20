@@ -123,6 +123,7 @@ export interface ICreateWorkspaceExposeDeps extends
     bookmarksDirty?: Ref<boolean>;
     sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowViewModel[]>;
     handleOcrComplete: (payload: unknown) => Promise<void>;
+    createRecoverySnapshotBytes?: IWorkspaceExpose['createRecoverySnapshotBytes'];
 }
 
 export interface ICreateWorkspaceExposeFromOwnersOptions {
@@ -451,6 +452,8 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         },
         getToolbarSnapshot,
         getAutomationStateSnapshot,
+        createRecoverySnapshotBytes: deps.createRecoverySnapshotBytes
+            ?? (() => Promise.resolve(null)),
         scrollToPage: (page: number) => {
             deps.documentViewerRef?.value?.scrollToPage(page);
         },
@@ -548,5 +551,6 @@ export function createWorkspaceExposeFromOwners(
         handleOcrComplete: payload => saveWorkflow.handleOcrComplete(
             payload as Parameters<typeof saveWorkflow.handleOcrComplete>[0],
         ),
+        createRecoverySnapshotBytes: saveWorkflow.createRecoverySnapshotBytes,
     });
 }

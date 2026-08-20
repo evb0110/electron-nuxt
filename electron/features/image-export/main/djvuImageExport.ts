@@ -3,6 +3,7 @@ import {
     copyFile,
     mkdir,
     rm,
+    stat,
 } from 'node:fs/promises';
 import {
     basename,
@@ -16,12 +17,12 @@ import {
     convertDjvuPageToImage,
     getDjvuPageSizesForViewing,
 } from '@electron/features/djvu/public';
-import { convertRenderedPpmToPng } from '@electron/features/image-export/main/export';
-import { tryCombinePagesWithNativeTiffCombiner } from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
 import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
+    convertRenderedPpmToPng,
+    promoteStagedFiles,
+} from '@electron/features/image-export/main/export';
+import { tryCombinePagesWithNativeTiffCombiner } from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
+import { makeSiblingTempPath } from '@electron/utils/atomicReplace';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import {
@@ -112,68 +113,87 @@ async function renderDjvuPngPages(
 ) {
     return usingDjvuScratch(options, 'djvu-image-export-', async tempDirectory => {
         let stagedBytes = 0;
-        options.onProgress?.({
-            phase: 'rendering',
-            processed: 0,
-            total: pages.length,
-            percent: 0,
-        });
-        for (const [
-            index,
-            page,
-        ] of pages.entries()) {
-            throwIfAborted(options.signal);
-            const brokerLease = await mainJobBroker.acquire({
-                ownerId: options.cancelGroup ?? `djvu-image-export:${djvuPath}`,
-                kind: 'djvu-image-export-page',
-                priority: 'user',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 128 * 1024 * 1024,
-                    nativeProcesses: 1,
-                    ioWeight: 2,
-                },
-                ...(options.signal ? {signal: options.signal} : {}),
-            });
-            const ppmPath = join(tempDirectory, `page-${page}.ppm`);
-            const pngPath = await (async () => {
-                const render = await convertDjvuPageToImage(
-                    djvuPath,
-                    ppmPath,
-                    page,
-                    `djvu-image-export-${randomUUID()}`,
-                    {
-                        format: 'ppm',
-                        ...(options.signal ? {signal: options.signal} : {}),
-                    },
-                );
-                if (!render.success) throw new Error(render.error ?? `Failed to render DjVu page ${page}`);
-                stagedBytes += render.fileSize;
-                if (stagedBytes > DJVU_EXPORT_MAX_STAGED_BYTES) {
-                    throw new Error('DjVu PNG export exceeds the staged-byte limit');
-                }
-                return convertRenderedPpmToPng(ppmPath, options.signal, options.cancelGroup);
-            })().finally(() => brokerLease.release());
-            const outputPath = outputPaths[index];
-            if (!outputPath) throw new Error('DjVu image export target is missing');
-            await mkdir(dirname(outputPath), {recursive: true});
-            const sibling = makeSiblingTempPath(outputPath);
-            try {
-                await copyFile(pngPath, sibling);
-                await atomicReplace(sibling, outputPath);
-            } finally {
-                await rm(sibling, {force: true}).catch(() => undefined);
-                await rm(ppmPath, {force: true}).catch(() => undefined);
-                await rm(pngPath, {force: true}).catch(() => undefined);
-            }
+        const stagedFiles: Array<{
+            stagedPath: string;
+            targetPath: string;
+            targetExisted: boolean;
+        }> = [];
+        try {
             options.onProgress?.({
                 phase: 'rendering',
-                processed: index + 1,
+                processed: 0,
                 total: pages.length,
-                percent: ((index + 1) / pages.length) * 100,
+                percent: 0,
             });
+            for (const [
+                index,
+                page,
+            ] of pages.entries()) {
+                throwIfAborted(options.signal);
+                const brokerLease = await mainJobBroker.acquire({
+                    ownerId: options.cancelGroup ?? `djvu-image-export:${djvuPath}`,
+                    kind: 'djvu-image-export-page',
+                    priority: 'user',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 128 * 1024 * 1024,
+                        nativeProcesses: 1,
+                        ioWeight: 2,
+                    },
+                    ...(options.signal ? {signal: options.signal} : {}),
+                });
+                const ppmPath = join(tempDirectory, `page-${page}.ppm`);
+                const pngPath = await (async () => {
+                    const render = await convertDjvuPageToImage(
+                        djvuPath,
+                        ppmPath,
+                        page,
+                        `djvu-image-export-${randomUUID()}`,
+                        {
+                            format: 'ppm',
+                            ...(options.signal ? {signal: options.signal} : {}),
+                        },
+                    );
+                    if (!render.success) throw new Error(render.error ?? `Failed to render DjVu page ${page}`);
+                    stagedBytes += render.fileSize;
+                    if (stagedBytes > DJVU_EXPORT_MAX_STAGED_BYTES) {
+                        throw new Error('DjVu PNG export exceeds the staged-byte limit');
+                    }
+                    return convertRenderedPpmToPng(ppmPath, options.signal, options.cancelGroup);
+                })().finally(() => brokerLease.release());
+                const outputPath = outputPaths[index];
+                if (!outputPath) throw new Error('DjVu image export target is missing');
+                await mkdir(dirname(outputPath), {recursive: true});
+                const targetExisted = await stat(outputPath).then(() => true).catch(() => false);
+                const sibling = makeSiblingTempPath(outputPath);
+                try {
+                    await copyFile(pngPath, sibling);
+                    throwIfAborted(options.signal);
+                    stagedFiles.push({
+                        stagedPath: sibling,
+                        targetPath: outputPath,
+                        targetExisted,
+                    });
+                } catch (error) {
+                    await rm(sibling, {force: true}).catch(() => undefined);
+                    throw error;
+                } finally {
+                    await rm(ppmPath, {force: true}).catch(() => undefined);
+                    await rm(pngPath, {force: true}).catch(() => undefined);
+                }
+                options.onProgress?.({
+                    phase: 'rendering',
+                    processed: index + 1,
+                    total: pages.length,
+                    percent: ((index + 1) / pages.length) * 100,
+                });
+            }
+            throwIfAborted(options.signal);
+            await promoteStagedFiles(stagedFiles, options.signal);
+            return outputPaths;
+        } finally {
+            await Promise.all(stagedFiles.map(({stagedPath}) => rm(stagedPath, {force: true}).catch(() => undefined)));
         }
-        return outputPaths;
     });
 }
 

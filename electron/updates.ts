@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import electronUpdater from 'electron-updater';
+import electronUpdater, {CancellationToken} from 'electron-updater';
 import { clamp } from 'es-toolkit/math';
 import type {
     ProgressInfo,
@@ -51,6 +51,7 @@ const MIN_POLL_INTERVAL_MS = 60_000;
 const MAX_JITTER_RATIO = 0.12;
 const UPDATE_PROGRESS_BROADCAST_THROTTLE_MS = 250;
 const UPDATER_SHUTDOWN_CHECK_WAIT_TIMEOUT_MS = 3_000;
+const UPDATER_SHUTDOWN_DOWNLOAD_WAIT_TIMEOUT_MS = 3_000;
 const GITHUB_RELEASE_OWNER = 'evb0110';
 const GITHUB_RELEASE_REPOSITORY = 'evb-viewer';
 const GITHUB_RELEASE_DOWNLOAD_BASE_URL = `https://github.com/${GITHUB_RELEASE_OWNER}/${GITHUB_RELEASE_REPOSITORY}/releases/download`;
@@ -75,6 +76,7 @@ let initialized = false;
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let currentCheckPromise: Promise<void> | null = null;
 let currentDownloadPromise: Promise<void> | null = null;
+let currentDownloadCancellationToken: CancellationToken | null = null;
 let currentCheckOrigin: TAppUpdateCheckOrigin = 'auto';
 let isShuttingDown = false;
 let downloadedVersion: string | null = null;
@@ -170,11 +172,15 @@ function setIdleStatus(origin: TAppUpdateCheckOrigin, version: string | null = g
 function isUpdaterRuntimeSupported() {
     const supportedArchs = UPDATER_SUPPORTED_ARCH_BY_PLATFORM[process.platform];
     return app.isPackaged
+        && process.windowsStore !== true
         && UPDATER_SUPPORTED_PLATFORMS.has(process.platform)
         && Boolean(supportedArchs?.has(process.arch));
 }
 
 function getUnsupportedRuntimeMessage() {
+    if (process.windowsStore === true) {
+        return 'Updates for the Microsoft Store build are delivered by Microsoft Store.';
+    }
     return `Updates are available only in packaged macOS arm64 and Windows x64 builds. Current runtime: ${process.platform}-${process.arch}.`;
 }
 
@@ -934,7 +940,13 @@ export async function triggerManualUpdateCheck() {
 
 // fallow-ignore-next-line unused-export
 export function getUpdateStatus() {
-    return status;
+    if (status.version !== null) {
+        return status;
+    }
+    return {
+        ...status,
+        version: getCurrentVersion(),
+    };
 }
 
 export function downloadAvailableUpdate() {
@@ -953,10 +965,20 @@ export function downloadAvailableUpdate() {
         message: null,
     });
 
+    const downloadCancellationToken = new CancellationToken();
+    currentDownloadCancellationToken = downloadCancellationToken;
     currentDownloadPromise = Promise.resolve()
-        .then(() => autoUpdater.downloadUpdate())
+        .then(() => {
+            if (isShuttingDown || downloadCancellationToken.cancelled) {
+                return;
+            }
+            return autoUpdater.downloadUpdate(downloadCancellationToken);
+        })
         .then(() => undefined)
         .catch((error) => {
+            if (isShuttingDown || downloadCancellationToken.cancelled) {
+                return;
+            }
             if (approvedDownloadAndInstallVersion === candidateVersion) {
                 approvedDownloadAndInstallVersion = null;
             }
@@ -971,6 +993,10 @@ export function downloadAvailableUpdate() {
             });
         })
         .finally(() => {
+            downloadCancellationToken.dispose();
+            if (currentDownloadCancellationToken === downloadCancellationToken) {
+                currentDownloadCancellationToken = null;
+            }
             currentDownloadPromise = null;
         });
 
@@ -1066,6 +1092,7 @@ export async function shutdownUpdates() {
     }
     clearProgressBroadcastTimer();
     lastProgressBroadcastAt = 0;
+    currentDownloadCancellationToken?.cancel();
 
     if (currentCheckPromise) {
         let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -1079,6 +1106,25 @@ export async function shutdownUpdates() {
             ]);
         } catch {
             // Ignore in-flight check failures during shutdown.
+        } finally {
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+            }
+        }
+    }
+
+    if (currentDownloadPromise) {
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        try {
+            await Promise.race([
+                currentDownloadPromise,
+                new Promise<void>((resolve) => {
+                    timeoutHandle = setTimeout(resolve, UPDATER_SHUTDOWN_DOWNLOAD_WAIT_TIMEOUT_MS);
+                    timeoutHandle.unref?.();
+                }),
+            ]);
+        } catch {
+            // Ignore in-flight download failures during shutdown.
         } finally {
             if (timeoutHandle) {
                 clearTimeout(timeoutHandle);

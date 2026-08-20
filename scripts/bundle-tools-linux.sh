@@ -35,7 +35,11 @@ run_apt_with_timeout() {
   local timeout_seconds="$1"
   shift
 
-  sudo env DEBIAN_FRONTEND=noninteractive timeout --foreground "${timeout_seconds}s" "$@"
+  if [ "$(id -u)" -eq 0 ]; then
+    env DEBIAN_FRONTEND=noninteractive timeout --foreground "${timeout_seconds}s" "$@"
+  else
+    sudo env DEBIAN_FRONTEND=noninteractive timeout --foreground "${timeout_seconds}s" "$@"
+  fi
 }
 
 # Install all required tools
@@ -53,6 +57,7 @@ run_apt_with_timeout "$APT_TIMEOUT_INSTALL_SECONDS" apt-get "${APT_RETRY_FLAGS[@
   ninja-build \
   pkg-config \
   python3-sphinx \
+  ca-certificates \
   patchelf
 
 # System .so paths to exclude (provided by glibc / base system)

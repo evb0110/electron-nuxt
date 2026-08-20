@@ -8,9 +8,11 @@ import {
     basename,
     join,
 } from 'node:path';
+import {setTimeout as delay} from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import {
     DeleteObjectsCommand,
+    GetObjectCommand,
     HeadObjectCommand,
     ListObjectsV2Command,
     PutObjectCommand,
@@ -25,6 +27,7 @@ const RETAINED_RELEASE_COUNT = 4;
 export async function publishReleaseMirror({
     artifactDirectory,
     releaseTag,
+    publishChannel = true,
     environment = process.env,
     client: providedClient,
 }) {
@@ -67,11 +70,14 @@ export async function publishReleaseMirror({
 
         const sha256 = await hashFile(filePath);
         const key = `${RELEASE_PREFIX}${releaseTag}/${name}`;
-        if (await uploadMatches(client, bucket, key, fileStat.size, sha256)) {
+        const existingState = await immutableUploadState(client, bucket, key, fileStat.size, sha256);
+        if (existingState === 'match') {
             console.log(`Already verified ${name} (${fileStat.size} bytes)`);
+        } else if (existingState === 'mismatch') {
+            throw new Error(`Immutable mirror object mismatch for ${key}`);
         } else {
             console.log(`Uploading ${name} (${fileStat.size} bytes)`);
-            await client.send(new PutObjectCommand({
+            await putImmutableObject(client, bucket, key, new PutObjectCommand({
                 Bucket: bucket,
                 Key: key,
                 Body: createReadStream(filePath),
@@ -79,8 +85,8 @@ export async function publishReleaseMirror({
                 ContentType: contentTypeFor(name),
                 CacheControl: 'public, max-age=31536000, immutable',
                 Metadata: { sha256 },
-            }));
-            await verifyUpload(client, bucket, key, fileStat.size, sha256);
+                IfNoneMatch: '*',
+            }), fileStat.size, sha256);
         }
         assets.push({
             name,
@@ -98,16 +104,26 @@ export async function publishReleaseMirror({
         release: { tag: releaseTag },
         assets,
     }, null, 2);
-    await putJson(client, bucket, `${RELEASE_PREFIX}${releaseTag}/manifest.json`, manifest, 'public, max-age=31536000, immutable');
+    await putImmutableJson(
+        client,
+        bucket,
+        `${RELEASE_PREFIX}${releaseTag}/manifest.json`,
+        manifest,
+        'public, max-age=31536000, immutable',
+    );
 
-    // Publish the mutable channel pointer last, after every immutable object has
-    // been uploaded and verified. Clients can never discover a partial release.
-    await putJson(client, bucket, CHANNEL_KEY, manifest, 'no-cache, no-store, must-revalidate');
-
-    const prunedTags = await pruneOldReleases(client, bucket);
-    console.log(`Mirror published ${releaseTag}; retained ${RETAINED_RELEASE_COUNT} releases${
-        prunedTags.length ? ` and pruned ${prunedTags.join(', ')}` : ''
-    }`);
+    let prunedTags = [];
+    if (publishChannel) {
+        // Publish the mutable channel pointer last, after every immutable object
+        // has been uploaded and verified. Clients cannot discover a partial release.
+        await publishStableChannel(client, bucket, manifest, releaseTag, environment);
+        prunedTags = await pruneOldReleases(client, bucket, releaseTag);
+        console.log(`Mirror published ${releaseTag}; retained ${RETAINED_RELEASE_COUNT} releases${
+            prunedTags.length ? ` and pruned ${prunedTags.join(', ')}` : ''
+        }`);
+    } else {
+        console.log(`Mirror staged ${releaseTag}; stable channel remains unchanged.`);
+    }
     return {
         assets,
         manifest,
@@ -131,66 +147,221 @@ export async function hashFile(filePath) {
     return hash.digest('hex');
 }
 
-async function verifyUpload(client, bucket, key, expectedSize, expectedSha256) {
-    const result = await client.send(new HeadObjectCommand({
+async function objectMatches(client, bucket, key, expectedSize, expectedSha256) {
+    const result = await client.send(new GetObjectCommand({
         Bucket: bucket,
         Key: key,
     }));
-    if (result.ContentLength !== expectedSize || result.Metadata?.sha256 !== expectedSha256) {
+    const actual = await hashObjectBody(result.Body);
+    return actual.size === expectedSize && actual.sha256 === expectedSha256;
+}
+
+async function verifyUpload(client, bucket, key, expectedSize, expectedSha256) {
+    if (!await objectMatches(client, bucket, key, expectedSize, expectedSha256)) {
         throw new Error(`Mirror verification failed for ${key}`);
     }
 }
 
-async function uploadMatches(client, bucket, key, expectedSize, expectedSha256) {
+async function hashObjectBody(body) {
+    if (!body) {
+        throw new Error('Mirror object response has no body');
+    }
+    const hash = createHash('sha256');
+    let size = 0;
+    if (typeof body[Symbol.asyncIterator] === 'function') {
+        for await (const chunk of body) {
+            const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            hash.update(bytes);
+            size += bytes.byteLength;
+        }
+    } else if (typeof body.transformToByteArray === 'function') {
+        const bytes = Buffer.from(await body.transformToByteArray());
+        hash.update(bytes);
+        size = bytes.byteLength;
+    } else if (typeof body === 'string' || Buffer.isBuffer(body) || ArrayBuffer.isView(body)) {
+        const bytes = Buffer.from(body);
+        hash.update(bytes);
+        size = bytes.byteLength;
+    } else {
+        throw new Error('Mirror object response body cannot be read');
+    }
+    return {
+        sha256: hash.digest('hex'),
+        size,
+    };
+}
+
+async function immutableUploadState(client, bucket, key, expectedSize, expectedSha256) {
     try {
         const result = await client.send(new HeadObjectCommand({
             Bucket: bucket,
             Key: key,
         }));
-        return result.ContentLength === expectedSize
-            && result.Metadata?.sha256 === expectedSha256;
+        if (result.$metadata?.httpStatusCode === 404 || result.ContentLength === undefined) {
+            return 'missing';
+        }
+        return await objectMatches(client, bucket, key, expectedSize, expectedSha256)
+            ? 'match'
+            : 'mismatch';
     } catch (error) {
         if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NotFound') {
-            return false;
+            return 'missing';
         }
         throw error;
     }
 }
 
-async function putJson(client, bucket, key, body, cacheControl) {
+async function putImmutableObject(client, bucket, key, command, expectedSize, expectedSha256) {
+    try {
+        await client.send(command);
+    } catch (error) {
+        if (!isConditionalWriteConflict(error)) {
+            throw error;
+        }
+        if (await objectMatches(client, bucket, key, expectedSize, expectedSha256)) {
+            return;
+        }
+        throw new Error(`Immutable mirror object mismatch for ${key}`, {cause: error});
+    }
+    await verifyUpload(client, bucket, key, expectedSize, expectedSha256);
+}
+
+function isConditionalWriteConflict(error) {
+    return error?.$metadata?.httpStatusCode === 409
+        || error?.$metadata?.httpStatusCode === 412
+        || error?.name === 'ConditionalRequestConflict'
+        || error?.name === 'PreconditionFailed';
+}
+
+async function putImmutableJson(client, bucket, key, body, cacheControl) {
+    const size = Buffer.byteLength(body);
     const sha256 = createHash('sha256').update(body).digest('hex');
-    await client.send(new PutObjectCommand({
+    const existingState = await immutableUploadState(client, bucket, key, size, sha256);
+    if (existingState === 'match') {
+        return;
+    }
+    if (existingState === 'mismatch') {
+        throw new Error(`Immutable mirror object mismatch for ${key}`);
+    }
+    await putImmutableObject(client, bucket, key, new PutObjectCommand({
         Bucket: bucket,
         Key: key,
         Body: body,
-        ContentLength: Buffer.byteLength(body),
+        ContentLength: size,
         ContentType: 'application/json; charset=utf-8',
         CacheControl: cacheControl,
         Metadata: { sha256 },
-    }));
-    await verifyUpload(client, bucket, key, Buffer.byteLength(body), sha256);
+        IfNoneMatch: '*',
+    }), size, sha256);
 }
 
-async function pruneOldReleases(client, bucket) {
+async function publishStableChannel(client, bucket, body, releaseTag, environment) {
+    const sha256 = createHash('sha256').update(body).digest('hex');
+    const size = Buffer.byteLength(body);
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+        const current = await readStableChannel(client, bucket);
+        if (
+            current
+            && compareReleaseTags(releaseTag, current.tag) < 0
+            && environment.EVB_ALLOW_RELEASE_ROLLBACK !== '1'
+        ) {
+            throw new Error(
+                `Refusing to move stable mirror backward from ${current.tag} to ${releaseTag}`,
+            );
+        }
+        if (current?.size === size && current.sha256 === sha256) {
+            return;
+        }
+        if (current && !current.etag) {
+            throw new Error('Stable mirror object response has no ETag; refusing an unguarded update');
+        }
+        try {
+            await client.send(new PutObjectCommand({
+                Bucket: bucket,
+                Key: CHANNEL_KEY,
+                Body: body,
+                ContentLength: size,
+                ContentType: 'application/json; charset=utf-8',
+                CacheControl: 'no-cache, no-store, must-revalidate',
+                Metadata: { sha256 },
+                ...(current
+                    ? {IfMatch: current.etag}
+                    : {IfNoneMatch: '*'}),
+            }));
+            await verifyUpload(client, bucket, CHANNEL_KEY, size, sha256);
+            return;
+        } catch (error) {
+            if (!isConditionalWriteConflict(error)) {
+                throw error;
+            }
+            if (attempt === 5) {
+                throw new Error('Stable mirror channel changed repeatedly during publication', {cause: error});
+            }
+            await delay(25 * attempt);
+        }
+    }
+}
+
+async function readStableChannel(client, bucket) {
+    let response;
+    try {
+        response = await client.send(new GetObjectCommand({
+            Bucket: bucket,
+            Key: CHANNEL_KEY,
+        }));
+    } catch (error) {
+        if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NoSuchKey') {
+            return null;
+        }
+        throw error;
+    }
+    const raw = await response.Body?.transformToString();
+    if (typeof raw !== 'string') {
+        throw new Error('Stable mirror object response has no readable body');
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(raw);
+    } catch (error) {
+        throw new Error('Stable mirror object is not valid JSON', {cause: error});
+    }
+    const tag = parsed?.release?.tag;
+    if (typeof tag !== 'string' || !RELEASE_TAG_PATTERN.test(tag)) {
+        throw new Error('Stable mirror object has an invalid release tag');
+    }
+    return {
+        etag: response.ETag,
+        sha256: createHash('sha256').update(raw).digest('hex'),
+        size: Buffer.byteLength(raw),
+        tag,
+    };
+}
+
+async function pruneOldReleases(client, bucket, protectedTag) {
     const objects = await listAllReleaseObjects(client, bucket);
     const tags = [...new Set(objects.map(object => object.Key?.slice(RELEASE_PREFIX.length).split('/')[0]).filter(Boolean))]
         .filter(tag => RELEASE_TAG_PATTERN.test(tag))
         .sort(compareReleaseTags)
         .reverse();
-    const staleTags = tags.slice(RETAINED_RELEASE_COUNT);
+    const retainedTags = new Set(tags.slice(0, RETAINED_RELEASE_COUNT));
+    retainedTags.add(protectedTag);
+    const staleTags = tags.filter(tag => !retainedTags.has(tag));
     const staleKeys = objects
         .map(object => object.Key)
         .filter(key => key && staleTags.some(tag => key.startsWith(`${RELEASE_PREFIX}${tag}/`)));
 
     for (let index = 0; index < staleKeys.length; index += 1_000) {
         const batch = staleKeys.slice(index, index + 1_000);
-        await client.send(new DeleteObjectsCommand({
+        const result = await client.send(new DeleteObjectsCommand({
             Bucket: bucket,
             Delete: {
                 Objects: batch.map(Key => ({ Key })),
                 Quiet: true,
             },
         }));
+        if ((result.Errors ?? []).length > 0) {
+            throw new Error(`Mirror pruning failed for ${result.Errors.map(error => error.Key ?? 'unknown').join(', ')}`);
+        }
     }
     return staleTags;
 }
@@ -211,19 +382,61 @@ async function listAllReleaseObjects(client, bucket) {
 }
 
 export function compareReleaseTags(left, right) {
-    const leftParts = versionParts(left);
-    const rightParts = versionParts(right);
+    const leftVersion = parseReleaseVersion(left);
+    const rightVersion = parseReleaseVersion(right);
     for (let index = 0; index < 3; index++) {
-        const comparison = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+        const comparison = leftVersion.core[index] - rightVersion.core[index];
         if (comparison !== 0) {
             return comparison;
         }
     }
-    return left.localeCompare(right);
+    if (leftVersion.prerelease.length === 0 || rightVersion.prerelease.length === 0) {
+        return leftVersion.prerelease.length === rightVersion.prerelease.length
+            ? 0
+            : leftVersion.prerelease.length === 0 ? 1 : -1;
+    }
+    const identifierCount = Math.max(leftVersion.prerelease.length, rightVersion.prerelease.length);
+    for (let index = 0; index < identifierCount; index++) {
+        const leftIdentifier = leftVersion.prerelease[index];
+        const rightIdentifier = rightVersion.prerelease[index];
+        if (leftIdentifier === undefined || rightIdentifier === undefined) {
+            return leftIdentifier === rightIdentifier ? 0 : leftIdentifier === undefined ? -1 : 1;
+        }
+        const leftNumeric = /^\d+$/u.test(leftIdentifier);
+        const rightNumeric = /^\d+$/u.test(rightIdentifier);
+        if (leftNumeric && rightNumeric) {
+            const comparison = Number(leftIdentifier) - Number(rightIdentifier);
+            if (comparison !== 0) {
+                return comparison;
+            }
+        } else if (leftNumeric !== rightNumeric) {
+            return leftNumeric ? -1 : 1;
+        } else {
+            if (leftIdentifier !== rightIdentifier) {
+                return leftIdentifier < rightIdentifier ? -1 : 1;
+            }
+        }
+    }
+    return 0;
 }
 
 export function versionParts(tag) {
-    return tag.slice(1).split(/[.-]/, 3).map(part => Number.parseInt(part, 10));
+    return parseReleaseVersion(tag).core;
+}
+
+function parseReleaseVersion(tag) {
+    const match = /^v(\d+)\.(\d+)\.(\d+)(?:[-.]([0-9A-Za-z][0-9A-Za-z.-]*))?$/u.exec(tag);
+    if (!match) {
+        throw new Error(`Invalid release tag: ${tag}`);
+    }
+    return {
+        core: [
+            Number(match[1]),
+            Number(match[2]),
+            Number(match[3]),
+        ],
+        prerelease: match[4]?.split('.') ?? [],
+    };
 }
 
 export function contentTypeFor(filename) {
@@ -244,9 +457,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const [
         artifactDirectory,
         releaseTag,
+        mode,
     ] = process.argv.slice(2);
+    if (mode && mode !== '--stage') {
+        throw new Error(`Unknown mirror publish mode: ${mode}`);
+    }
     await publishReleaseMirror({
         artifactDirectory,
         releaseTag,
+        publishChannel: mode !== '--stage',
     });
 }

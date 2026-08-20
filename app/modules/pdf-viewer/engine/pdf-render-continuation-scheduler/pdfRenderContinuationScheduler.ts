@@ -1,5 +1,3 @@
-import { getPerformanceProfile } from '@app/utils/performanceProfile';
-
 export type TPdfRenderContinuationPriority =
     | 'navigation-target'
     | 'visible'
@@ -16,10 +14,9 @@ interface IContinuationRequest {
 }
 
 export interface IContinuationSchedulerEnvironment {
-    constrained: boolean;
     isInputPending: () => boolean;
     now: () => number;
-    queueMicrotask: (callback: () => void) => void;
+    queueTask: (callback: () => void) => void;
     requestAnimationFrame: (callback: (timestamp: number) => void) => number;
 }
 
@@ -38,6 +35,7 @@ const PRIORITY_WEIGHT: Record<TPdfRenderContinuationPriority, number> = {
     'prefetch': 100,
 };
 const FRAME_HEADROOM_BUDGET_MS = 8;
+const FOREGROUND_CONTINUATION_DELAY_MS = 16;
 
 interface IQueuedContinuation extends IContinuationRequest {
     sequence: number;
@@ -49,15 +47,13 @@ function isBackgroundPriority(priority: TPdfRenderContinuationPriority) {
 }
 
 function createDefaultEnvironment(): IContinuationSchedulerEnvironment {
-    const profile = getPerformanceProfile();
     const scheduling = typeof navigator === 'undefined'
         ? null
         : (navigator as Navigator & {scheduling?: { isInputPending?: () => boolean };}).scheduling;
     return {
-        constrained: profile.lowCpu || profile.lowMemory || profile.concurrentPdfRenders <= 2,
         isInputPending: () => scheduling?.isInputPending?.() === true,
         now: () => performance.now(),
-        queueMicrotask: callback => queueMicrotask(callback),
+        queueTask: callback => setTimeout(callback, FOREGROUND_CONTINUATION_DELAY_MS),
         requestAnimationFrame: callback => (
             typeof window === 'undefined'
                 ? Number(setTimeout(() => callback(performance.now()), 0))
@@ -71,15 +67,23 @@ export function createPdfRenderContinuationScheduler(
 ): IPdfRenderContinuationScheduler {
     const queuedByKey = new Map<string, IQueuedContinuation>();
     let nextSequence = 0;
-    let pumpScheduled = false;
+    let scheduledPump: 'frame' | 'task' | null = null;
+    let pumpGeneration = 0;
 
-    function cancel(key: string) {
+    function removeQueued(key: string) {
         const queued = queuedByKey.get(key);
         if (!queued) {
-            return;
+            return false;
         }
         queued.removeAbortListener();
         queuedByKey.delete(key);
+        return true;
+    }
+
+    function cancel(key: string) {
+        if (removeQueued(key)) {
+            scheduleNextPump();
+        }
     }
 
     function takeNext() {
@@ -96,25 +100,45 @@ export function createPdfRenderContinuationScheduler(
     }
 
     function scheduleNextPump() {
-        if (pumpScheduled || queuedByKey.size === 0) {
+        if (queuedByKey.size === 0) {
+            scheduledPump = null;
+            pumpGeneration += 1;
             return;
         }
-        pumpScheduled = true;
         const highestPriority = [...queuedByKey.values()].reduce(
             (highest, item) => Math.max(highest, PRIORITY_WEIGHT[item.priority]),
             0,
         );
-        const useFrame = environment.constrained
-            || highestPriority <= PRIORITY_WEIGHT.nearby;
+        // Occluded Electron renderers can throttle animation frames to roughly
+        // 1 Hz. Keep serialized foreground work on yielding host tasks and
+        // reserve frame gating for nearby/background work.
+        const useFrame = highestPriority <= PRIORITY_WEIGHT.nearby;
+        const nextPump = useFrame ? 'frame' : 'task';
+        if (scheduledPump === nextPump) {
+            return;
+        }
+        scheduledPump = nextPump;
+        pumpGeneration += 1;
+        const generation = pumpGeneration;
         if (useFrame) {
-            environment.requestAnimationFrame(runFramePump);
+            environment.requestAnimationFrame(timestamp => runFramePump(timestamp, generation));
         } else {
-            environment.queueMicrotask(runImmediatePump);
+            environment.queueTask(() => runImmediatePump(generation));
         }
     }
 
-    function runImmediatePump() {
-        pumpScheduled = false;
+    function claimPump(pump: 'frame' | 'task', generation: number) {
+        if (scheduledPump !== pump || pumpGeneration !== generation) {
+            return false;
+        }
+        scheduledPump = null;
+        return true;
+    }
+
+    function runImmediatePump(generation?: number) {
+        if (generation !== undefined && !claimPump('task', generation)) {
+            return;
+        }
         const next = takeNext();
         if (next && next.signal?.aborted !== true) {
             next.continueRender();
@@ -122,8 +146,10 @@ export function createPdfRenderContinuationScheduler(
         scheduleNextPump();
     }
 
-    function runFramePump(frameStartedAt: number) {
-        pumpScheduled = false;
+    function runFramePump(frameStartedAt: number, generation: number) {
+        if (!claimPump('frame', generation)) {
+            return;
+        }
         const next = [...queuedByKey.values()].sort((left, right) => (
             PRIORITY_WEIGHT[right.priority] - PRIORITY_WEIGHT[left.priority]
             || left.sequence - right.sequence
@@ -140,8 +166,11 @@ export function createPdfRenderContinuationScheduler(
     }
 
     function schedule(request: IContinuationRequest) {
-        cancel(request.key);
+        const replacedQueuedRequest = removeQueued(request.key);
         if (request.signal?.aborted === true) {
+            if (replacedQueuedRequest) {
+                scheduleNextPump();
+            }
             return () => {};
         }
         const onAbort = () => cancel(request.key);
@@ -158,8 +187,9 @@ export function createPdfRenderContinuationScheduler(
 
     function clear() {
         for (const key of [...queuedByKey.keys()]) {
-            cancel(key);
+            removeQueued(key);
         }
+        scheduleNextPump();
     }
 
     return {

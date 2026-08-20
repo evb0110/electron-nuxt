@@ -15,6 +15,7 @@ import {
     loadAllChunkKeys,
     loadAllChunkKeysAvailability,
 } from '@app/platform/browser/browserDocumentChunks';
+import { cast } from '@tests/helpers/cast';
 
 describe('browserDocumentIdb', () => {
     beforeEach(() => {
@@ -41,5 +42,35 @@ describe('browserDocumentIdb', () => {
             available: false,
             value: null,
         });
+    });
+
+    it('bounds blocked opens and closes a database connection that succeeds after timeout', async () => {
+        vi.useFakeTimers();
+        const close = vi.fn();
+        const request: Partial<IDBOpenDBRequest> = {};
+        vi.stubGlobal('indexedDB', {open: () => request});
+
+        const pending = loadRecordAvailability('browser://documents/example/file.pdf');
+        request.onblocked?.call(
+            cast<IDBOpenDBRequest>(request),
+            new Event('blocked') as IDBVersionChangeEvent,
+        );
+        await vi.advanceTimersByTimeAsync(4_000);
+
+        await expect(pending).resolves.toEqual({
+            available: false,
+            value: null,
+        });
+
+        Object.defineProperty(request, 'result', {
+            configurable: true,
+            value: cast<IDBDatabase>({close}),
+        });
+        request.onsuccess?.call(
+            cast<IDBOpenDBRequest>(request),
+            new Event('success'),
+        );
+        expect(close).toHaveBeenCalledOnce();
+        vi.useRealTimers();
     });
 });

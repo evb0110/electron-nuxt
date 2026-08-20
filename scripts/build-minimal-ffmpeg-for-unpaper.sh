@@ -8,7 +8,7 @@ if [ "$#" -ne 2 ]; then
 fi
 
 resolve_path() {
-  node -e 'process.stdout.write(require("node:path").resolve(process.argv[1]))' "$1"
+  python3 -c 'import os, sys; sys.stdout.write(os.path.abspath(sys.argv[1]))' "$1"
 }
 
 WORK_DIR="$(resolve_path "$1")"

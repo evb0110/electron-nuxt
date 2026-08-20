@@ -646,6 +646,7 @@ export async function createPdfFileFromInputPaths(
     let replaced = false;
     try {
         await writeFile(stagedOutputPath, pdfBytes);
+        if (options?.signal?.aborted) throw abortErrorFromSignal(options.signal);
         await atomicReplace(stagedOutputPath, normalizedOutputPath);
         replaced = true;
     } finally {

@@ -27,6 +27,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { getValidationImpactPolicy } from './release/policy.mjs';
 import { matchesChangedAreaPattern } from './ci/classify-changed-areas.mjs';
+import { withNodeHeap } from './typecheckNodeEnv.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const unitProjects = [
@@ -332,13 +333,11 @@ function affectedPlan(tier, files, classification) {
     const stages = [];
     const typecheck = selectedTypecheckProjects(files, classification);
     const selectedUnits = selectedUnitProjects(files, classification);
-
     stages.push(nodeStage('lint.affected', 'scripts/validation-gates.mjs', [
         'lint',
         '--changed',
         ...files.map(file => `--file=${file}`),
     ]));
-
     if (typecheck.nuxt) {
         stages.push(nodeStage('typecheck.nuxt', 'scripts/run-nuxt-typecheck.mjs'));
     }
@@ -353,7 +352,6 @@ function affectedPlan(tier, files, classification) {
             ]),
         ]));
     }
-
     if (tier === 'iteration') {
         const relatedFiles = files.filter(file => /\.(?:[cm]?[jt]sx?|vue)$/u.test(file));
         if (relatedFiles.length > 0 && selectedUnits.length > 0) {
@@ -668,10 +666,11 @@ async function runLint(argv) {
                 `--cache-location=${cachePaths.eslint}`,
             ] : []),
             ...(!changed && !eslintCacheWarm
-                ? [`--concurrency=${parsePositiveInteger(process.env.EVB_ESLINT_WORKERS, 4)}`]
+                ? [`--concurrency=${parsePositiveInteger(process.env.EVB_ESLINT_WORKERS, 1)}`]
                 : []),
         ], {
             ...(!noCache ? {cachePath: cachePaths.eslint} : {}),
+            env: withNodeHeap(process.env, 6144),
             heavyWeight: full ? (eslintCacheWarm ? 1 : 2) : 0,
             inputFingerprint: cachePaths.fingerprint,
         }));
@@ -701,6 +700,7 @@ async function runLint(argv) {
                 ] : []),
             ], {
                 ...(!noCache ? {cachePath: cachePaths.landingEslint} : {}),
+                env: withNodeHeap(process.env, 6144),
                 inputFingerprint: cachePaths.fingerprint,
             }),
         );

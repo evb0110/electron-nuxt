@@ -173,6 +173,10 @@ class PersistentNativeSearchService {
         this.child.stdin.write(`${JSON.stringify(frame)}\n`);
     }
 
+    resetCache() {
+        this.writeFrame({type: 'reset-cache'});
+    }
+
     private tryWriteCancelFrame(requestId: string) {
         try {
             this.writeFrame({
@@ -328,6 +332,16 @@ class PersistentNativeSearchService {
 }
 
 const services = new Map<string, PersistentNativeSearchService>();
+
+export function resetPersistentNativeSearchServiceCaches() {
+    for (const service of services.values()) {
+        try {
+            service.resetCache();
+        } catch {
+            // A stopped daemon is evicted by its lifecycle handlers.
+        }
+    }
+}
 
 function persistentSearchIsDisabled() {
     return process.env.EVB_PDF_SEARCH_SERVICE_DISABLE === '1'

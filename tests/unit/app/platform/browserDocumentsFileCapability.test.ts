@@ -301,7 +301,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         }
     });
 
-    it('does not chain a hidden input picker after denied browser file handles', async () => {
+    it('surfaces first file-handle denial before using the fallback on the next user action', async () => {
         const pdfBytes = await createPdfBytes();
         const pickedPdf = new File([pdfBytes], 'fallback.pdf', { type: 'application/pdf' });
         const deniedHandle = cast<FileSystemFileHandle>({
@@ -317,7 +317,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             windowOverrides: { showOpenFilePicker },
         });
 
-        await expect(capability.openDocumentDialog()).resolves.toBeNull();
+        await expect(capability.openDocumentDialog()).rejects.toMatchObject({
+            code: 'browser-file-picker-setup-denied',
+            name: 'BrowserFilePickerSetupDeniedError',
+        });
         const fallbackResult = await capability.openDocumentDialog();
 
         expect(showOpenFilePicker).toHaveBeenCalledTimes(1);

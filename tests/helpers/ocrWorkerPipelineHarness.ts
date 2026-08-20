@@ -43,8 +43,12 @@ async function buildWorkerBundle(root: string) {
 }
 
 export async function createOcrWorkerPipelineHarness(options: {
+    concurrency?: number;
     failPage?: number;
+    growOutputKb?: number;
+    jobMaxTempMb?: number;
     stallPage?: number;
+    storagePollMs?: number;
     tempRoot?: string;
 } = {}): Promise<IOcrWorkerPipelineHarness> {
     const root = options.tempRoot ?? await mkdtemp(join(tmpdir(), 'evb-ocr-worker-pipeline-'));
@@ -89,6 +93,16 @@ if [ "\${EVB_FAKE_OCR_STALL_PAGE:-}" = "$page" ]; then
 fi
 printf '%s\\n' "$page" >> "$EVB_FAKE_OCR_CALL_LOG"
 cp "$EVB_FAKE_OCR_PDF_TEMPLATE" "$output.pdf"
+if [ -n "\${EVB_FAKE_OCR_GROW_KB:-}" ]; then
+    : > "$output.tsv"
+    written=0
+    while [ "$written" -lt "$EVB_FAKE_OCR_GROW_KB" ]; do
+        dd if=/dev/zero bs=1024 count=64 >> "$output.tsv" 2>/dev/null
+        written=$((written + 64))
+        sleep 0.02
+    done
+    exit 0
+fi
 printf 'level\\tpage_num\\tblock_num\\tpar_num\\tline_num\\tword_num\\tleft\\ttop\\twidth\\theight\\tconf\\ttext\\n4\\t1\\t1\\t1\\t1\\t0\\t20\\t30\\t300\\t30\\t-1\\t\\n5\\t1\\t1\\t1\\t1\\t1\\t20\\t30\\t120\\t30\\t95\\tcheckpoint\\n5\\t1\\t1\\t1\\t1\\t2\\t150\\t30\\t70\\t30\\t95\\tpage\\n5\\t1\\t1\\t1\\t1\\t3\\t230\\t30\\t30\\t30\\t95\\t%s\\n' "$page" > "$output.tsv"
 `);
     await chmod(fakeTesseract, 0o755);
@@ -96,10 +110,14 @@ printf 'level\\tpage_num\\tblock_num\\tpar_num\\tline_num\\tword_num\\tleft\\tto
     const worker = new Worker(workerPath, {
         env: {
             ...process.env,
-            OCR_CONCURRENCY: '1',
+            OCR_CONCURRENCY: String(options.concurrency ?? 1),
             OCR_TESSERACT_THREADS: '1',
+            EVB_OCR_JOB_MAX_TEMP_MB: String(options.jobMaxTempMb ?? 4_096),
+            EVB_OCR_MIN_FREE_SPACE_MB: '1',
+            EVB_OCR_STORAGE_POLL_MS: String(options.storagePollMs ?? 250),
             EVB_FAKE_OCR_CALL_LOG: callLogPath,
             ...(options.failPage === undefined ? {} : {EVB_FAKE_OCR_FAIL_PAGE: String(options.failPage)}),
+            ...(options.growOutputKb === undefined ? {} : {EVB_FAKE_OCR_GROW_KB: String(options.growOutputKb)}),
             ...(options.stallPage === undefined ? {} : {EVB_FAKE_OCR_STALL_PAGE: String(options.stallPage)}),
             EVB_FAKE_OCR_PDF_TEMPLATE: fakeTesseractPdf,
         },

@@ -7,15 +7,27 @@ import {
     validatePdfData as validatePdfBytes,
     validatePdfFile,
 } from '@electron/features/documents/main/pdfConformance';
+import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+
+async function readResolvedPdf<T>(
+    context: IDocumentsSenderIdContext,
+    filePath: unknown,
+    read: (physicalPath: string) => Promise<T>,
+) {
+    const resolvedPath = await resolveExistingReadablePdfPath(filePath, context.senderId);
+    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
+    return originalBackedRead
+        ? originalBackedRead.read(read)
+        : read(resolvedPath);
+}
 
 export async function handleAnalyzePdfConformance(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
 ): Promise<IPdfConformanceProfile> {
-    const resolvedPath = await resolveExistingReadablePdfPath(filePath, context.senderId);
-    return analyzePdfConformanceFile(resolvedPath);
+    return readResolvedPdf(context, filePath, analyzePdfConformanceFile);
 }
 
 export async function handleValidatePdfData(
@@ -36,6 +48,5 @@ export async function handleValidatePdfPath(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
 ): Promise<IPdfValidationResult> {
-    const resolvedPath = await resolveExistingReadablePdfPath(filePath, context.senderId);
-    return validatePdfFile(resolvedPath);
+    return readResolvedPdf(context, filePath, validatePdfFile);
 }

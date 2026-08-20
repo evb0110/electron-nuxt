@@ -10,6 +10,27 @@ const documentIdbMocks = vi.hoisted(() => ({
     deleteRecord: vi.fn(async () => undefined),
     loadAllRecordKeysAvailability: vi.fn(),
     loadRecordAvailability: vi.fn(),
+    recoveryRecordsAtDelete: [] as Array<{snapshotRefs: string[]}>,
+    runObjectStoresTransaction: vi.fn(async (
+        _stores: string[],
+        _mode: string,
+        run: (transaction: unknown, setResult: (value: unknown) => void) => void,
+    ) => {
+        let result: unknown = null;
+        const recoveryRequest = {result: documentIdbMocks.recoveryRecordsAtDelete} as {
+            result: unknown;
+            onsuccess?: () => void;
+        };
+        const transaction = {objectStore: (name: string) => ({
+            getAll: () => recoveryRequest,
+            delete: name.includes('chunk')
+                ? chunkMocks.deleteChunkRecord
+                : documentIdbMocks.deleteRecord,
+        })};
+        run(transaction, value => { result = value; });
+        recoveryRequest.onsuccess?.();
+        return result;
+    }),
 }));
 
 const chunkMocks = vi.hoisted(() => ({
@@ -31,10 +52,12 @@ const recentFilesStoreMocks = vi.hoisted(() => ({
     readRecentFilesFromStorage: vi.fn(() => []),
     writeRecentFilesToStorage: vi.fn(),
 }));
+const recoveryMocks = vi.hoisted(() => ({loadBrowserWorkspaceRecoveryLeasedRefs: vi.fn(async () => new Set<string>())}));
 
 vi.mock('@app/platform/browser/browserDocumentIdb', () => documentIdbMocks);
 vi.mock('@app/platform/browser/browserDocumentChunks', () => chunkMocks);
 vi.mock('@app/platform/browser/browserRecentFilesStore', () => recentFilesStoreMocks);
+vi.mock('@app/platform/browser/browserWorkspaceRecoveryStore', () => recoveryMocks);
 
 describe('browserDocumentMaintenance', () => {
     beforeEach(() => {
@@ -47,6 +70,69 @@ describe('browserDocumentMaintenance', () => {
             available: true,
             value: [],
         });
+        recoveryMocks.loadBrowserWorkspaceRecoveryLeasedRefs.mockResolvedValue(new Set());
+        documentIdbMocks.recoveryRecordsAtDelete = [];
+    });
+
+    it('retains a working document while the recovery journal leases it', async () => {
+        const { sweepBrowserDocumentMaintenance } = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/recovery.pdf';
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: {
+                ref,
+                fileName: 'recovery.pdf',
+                mimeType: 'application/pdf',
+                kind: 'working',
+                retention: 'durable',
+                data: Uint8Array.of(1),
+                fileSize: 1,
+                updatedAt: 1,
+                storageMode: 'inline',
+                chunkCount: 0,
+                chunkSize: 4,
+            },
+        });
+        recoveryMocks.loadBrowserWorkspaceRecoveryLeasedRefs.mockResolvedValue(new Set([ref]));
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(documentIdbMocks.deleteRecord).not.toHaveBeenCalledWith(ref);
+    });
+
+    it('rechecks a recovery lease committed while a destructive sweep is running', async () => {
+        const { sweepBrowserDocumentMaintenance } = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/recovery-race.pdf';
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: {
+                ref,
+                fileName: 'recovery-race.pdf',
+                mimeType: 'application/pdf',
+                kind: 'working',
+                retention: 'transient',
+                data: Uint8Array.of(1),
+                fileSize: 1,
+                updatedAt: 1,
+                storageMode: 'inline',
+                chunkCount: 0,
+                chunkSize: 4,
+            },
+        });
+        recoveryMocks.loadBrowserWorkspaceRecoveryLeasedRefs.mockResolvedValue(new Set());
+        documentIdbMocks.recoveryRecordsAtDelete = [{snapshotRefs: [ref]}];
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(documentIdbMocks.deleteRecord).not.toHaveBeenCalledWith(ref);
     });
 
     it('skips maintenance pruning when persisted IndexedDB records are unavailable', async () => {

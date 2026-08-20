@@ -12,7 +12,7 @@ export default defineConfig({ test: {
     coverage: {
         provider: 'v8',
         include: [
-            'app/**/*.ts',
+            'app/**/*.{ts,vue}',
             'electron/**/*.ts',
             'packages/**/*.ts',
             'scan-cleanup-adapters/**/*.ts',

@@ -151,9 +151,9 @@ export const useEditorPanesManager = () => {
     function restoreWorkspaceCheckpointGraph(checkpoint: IWorkspaceCheckpoint) {
         tabs.value = checkpoint.tabs.map(tab => ({
             id: tab.tabId,
-            fileName: null,
-            originalPath: null,
-            isDirty: false,
+            fileName: tab.fileName,
+            originalPath: tab.sourceRef,
+            isDirty: tab.isDirty,
             isDjvu: tab.isDjvu,
         }));
         panes.value = checkpoint.panes.map(pane => ({

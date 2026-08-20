@@ -57,6 +57,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         resetZoomRerenderQueueState,
         getUserViewportInteractionEpoch,
         consumeZoomViewportAnchor,
+        submitZoomViewportStateIntent,
         consumeSuppressedZoomRerender,
         transactionController,
     } = options;
@@ -66,6 +67,130 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     let currentPageFitRerenderRunId = 0;
     let viewModeRunId = 0;
     let continuousScrollRunId = 0;
+    let zoomOrchestrationTaskId: ReturnType<typeof setTimeout> | null = null;
+    let zoomOrchestrationGeneration = 0;
+    let zoomOrchestrationDisposed = false;
+    let pendingZoomOrchestration: {
+        document: PDFDocumentProxy | null;
+        previousZoom: number | null;
+        zoomChanged: boolean;
+        modeChangedToCustom: boolean;
+    } | null = null;
+
+    function cancelPendingZoomOrchestration() {
+        zoomOrchestrationGeneration += 1;
+        pendingZoomOrchestration = null;
+        if (zoomOrchestrationTaskId !== null) {
+            clearTimeout(zoomOrchestrationTaskId);
+            zoomOrchestrationTaskId = null;
+        }
+    }
+
+    function runPendingZoomOrchestration(generation: number) {
+        zoomOrchestrationTaskId = null;
+        const pending = pendingZoomOrchestration;
+        pendingZoomOrchestration = null;
+        if (zoomOrchestrationDisposed || generation !== zoomOrchestrationGeneration || !pending) {
+            return;
+        }
+        if (pdfDocument.value !== pending.document) {
+            return;
+        }
+        const nextZoom = zoom.value;
+        const zoomChanged = pending.zoomChanged
+            && pending.previousZoom !== null
+            && nextZoom !== pending.previousZoom;
+        if (!zoomChanged && !pending.modeChangedToCustom) {
+            return;
+        }
+        if (zoomChanged) {
+            submitZoomViewportStateIntent?.(nextZoom);
+        }
+        if (!pdfDocument.value) {
+            return;
+        }
+        if (
+            zoomChanged
+            && consumeSuppressedZoomRerender?.(nextZoom)
+            && !pending.modeChangedToCustom
+        ) {
+            return;
+        }
+        cancelDestinationNavigationTarget?.();
+        void cancelInFlightPageRenders?.();
+        const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
+        const trustCurrentPageAnchor = canTrustCurrentPageAsZoomAnchor();
+        const zoomRerenderSource = zoomViewportAnchor
+            ? PDF_RERENDER_SOURCE.ZoomGestureChange
+            : pending.modeChangedToCustom
+                ? PDF_RERENDER_SOURCE.ZoomModeChange
+                : PDF_RERENDER_SOURCE.ZoomChange;
+        const zoomAnchor = zoomViewportAnchor?.resizeAnchor ?? buildResizeAnchorContext({
+            preferredAnchorPage: currentPage.value,
+            trustPreferredAnchorPage: trustCurrentPageAnchor,
+        });
+        logPdfRenderTrace('zoom-rerender-anchor-captured', () => ({
+            previousZoom: pending.previousZoom ?? nextZoom,
+            nextZoom,
+            currentPage: currentPage.value,
+            visibleRange: {...visibleRange.value},
+            trustCurrentPageAnchor,
+            anchorPage: zoomAnchor.page,
+            semanticAnchorPage: zoomAnchor.semanticAnchor?.page ?? null,
+            navigationAnchorPage: navigationAnchorPage?.value ?? null,
+            pagedNavigationTargetPage: pagedNavigationTargetPage?.value ?? null,
+        }));
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-watch-schedule-rerender', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-watch] schedule zoom rerender', {
+            previousZoom: pending.previousZoom ?? nextZoom,
+            nextZoom,
+            consumedZoomViewportAnchor: zoomViewportAnchor,
+            trustCurrentPageAnchor,
+            zoomRerenderSource,
+            builtZoomAnchor: zoomAnchor,
+            viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+        });
+        enqueueZoomSync({
+            source: zoomRerenderSource,
+            stabilize: true,
+            resizeAnchor: zoomAnchor,
+            ...(zoomViewportAnchor?.sessionId !== undefined
+                ? {zoomGestureSessionId: zoomViewportAnchor.sessionId}
+                : {}),
+            zoomLockOperationId: zoomViewportAnchor?.zoomLockOperationId ?? null,
+        });
+    }
+
+    function queueZoomOrchestration(change: {
+        previousZoom?: number;
+        zoomChanged?: boolean;
+        modeChangedToCustom?: boolean;
+    }) {
+        if (zoomOrchestrationDisposed) {
+            return;
+        }
+        if (
+            pendingZoomOrchestration
+            && pendingZoomOrchestration.document !== pdfDocument.value
+        ) {
+            cancelPendingZoomOrchestration();
+        }
+        pendingZoomOrchestration = {
+            document: pdfDocument.value,
+            previousZoom: pendingZoomOrchestration?.previousZoom
+                ?? (change.zoomChanged === true ? change.previousZoom ?? zoom.value : null),
+            zoomChanged: pendingZoomOrchestration?.zoomChanged === true || change.zoomChanged === true,
+            modeChangedToCustom:
+                pendingZoomOrchestration?.modeChangedToCustom === true
+                || change.modeChangedToCustom === true,
+        };
+        if (zoomOrchestrationTaskId !== null) {
+            return;
+        }
+        const generation = ++zoomOrchestrationGeneration;
+        zoomOrchestrationTaskId = setTimeout(() => {
+            runPendingZoomOrchestration(generation);
+        }, 0);
+    }
 
     function isViewerAsyncRunActive(
         runId: number,
@@ -474,34 +599,17 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         );
     });
 
-    if (zoomMode) {
-        watch(zoomMode, async (mode, previousMode) => {
+    const stopZoomModeWatch = zoomMode
+        ? watch(zoomMode, async (mode, previousMode) => {
             if (mode === previousMode) {
                 return;
             }
             if (mode === 'custom') {
-                if (!pdfDocument.value) {
-                    return;
-                }
-                cancelDestinationNavigationTarget?.();
-                void cancelInFlightPageRenders?.();
-                const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
-                const trustCurrentPageAnchor = canTrustCurrentPageAsZoomAnchor();
-                const zoomAnchor = zoomViewportAnchor?.resizeAnchor ?? buildResizeAnchorContext({
-                    preferredAnchorPage: currentPage.value,
-                    trustPreferredAnchorPage: trustCurrentPageAnchor,
-                });
-                enqueueZoomSync({
-                    source: PDF_RERENDER_SOURCE.ZoomModeChange,
-                    stabilize: true,
-                    resizeAnchor: zoomAnchor,
-                    ...(zoomViewportAnchor?.sessionId !== undefined
-                        ? {zoomGestureSessionId: zoomViewportAnchor.sessionId}
-                        : {}),
-                    zoomLockOperationId: zoomViewportAnchor?.zoomLockOperationId ?? null,
-                });
+                queueZoomOrchestration({modeChangedToCustom: true});
                 return;
             }
+
+            cancelPendingZoomOrchestration();
 
             const modeFitMode: TFitMode = mode === 'fit-height' ? 'height' : 'width';
             if (fitMode.value !== modeFitMode) {
@@ -524,8 +632,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 ),
                 { forceRerender: true },
             );
-        });
-    }
+        })
+        : null;
 
     watch(viewMode, async () => {
         const runId = ++viewModeRunId;
@@ -682,53 +790,22 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         },
     );
 
-    watch(zoom, (nextZoom, previousZoom) => {
-        if (pdfDocument.value) {
-            if (consumeSuppressedZoomRerender?.(nextZoom)) {
-                return;
-            }
-            cancelDestinationNavigationTarget?.();
-            void cancelInFlightPageRenders?.();
-            const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
-            const trustCurrentPageAnchor = canTrustCurrentPageAsZoomAnchor();
-            const zoomRerenderSource = zoomViewportAnchor
-                ? PDF_RERENDER_SOURCE.ZoomGestureChange
-                : PDF_RERENDER_SOURCE.ZoomChange;
-            const zoomAnchor = zoomViewportAnchor?.resizeAnchor ?? buildResizeAnchorContext({
-                preferredAnchorPage: currentPage.value,
-                trustPreferredAnchorPage: trustCurrentPageAnchor,
-            });
-            logPdfRenderTrace('zoom-rerender-anchor-captured', () => ({
-                previousZoom,
-                nextZoom,
-                currentPage: currentPage.value,
-                visibleRange: {...visibleRange.value},
-                trustCurrentPageAnchor,
-                anchorPage: zoomAnchor.page,
-                semanticAnchorPage: zoomAnchor.semanticAnchor?.page ?? null,
-                navigationAnchorPage: navigationAnchorPage?.value ?? null,
-                pagedNavigationTargetPage: pagedNavigationTargetPage?.value ?? null,
-            }));
-            BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-watch-schedule-rerender', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-watch] schedule zoom rerender', {
-                previousZoom,
-                nextZoom,
-                consumedZoomViewportAnchor: zoomViewportAnchor,
-                trustCurrentPageAnchor,
-                zoomRerenderSource,
-                builtZoomAnchor: zoomAnchor,
-                viewer: summarizeViewerMetricsForLog(viewerContainer.value),
-            });
-            enqueueZoomSync({
-                source: zoomRerenderSource,
-                stabilize: true,
-                resizeAnchor: zoomAnchor,
-                ...(zoomViewportAnchor?.sessionId !== undefined
-                    ? {zoomGestureSessionId: zoomViewportAnchor.sessionId}
-                    : {}),
-                zoomLockOperationId: zoomViewportAnchor?.zoomLockOperationId ?? null,
-            });
-        }
+    const stopZoomWatch = watch(zoom, (_nextZoom, previousZoom) => {
+        queueZoomOrchestration({
+            previousZoom,
+            zoomChanged: true,
+        });
     });
 
-    return {reRenderVisiblePagesAndSyncCurrentPage};
+    function cleanupZoomOrchestration() {
+        zoomOrchestrationDisposed = true;
+        stopZoomModeWatch?.();
+        stopZoomWatch();
+        cancelPendingZoomOrchestration();
+    }
+
+    return {
+        reRenderVisiblePagesAndSyncCurrentPage,
+        cleanupZoomOrchestration,
+    };
 };

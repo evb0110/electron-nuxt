@@ -864,6 +864,8 @@ export default {
         'unitByte': 'o',
         'unitKilobyte': 'Ko',
         'unitMegabyte': 'Mo',
+        'pdfPage': 'Page PDF {page}',
+        'pageRenderFailed': 'Impossible d’afficher cette page',
     },
     'print': {
         'title': 'Imprimer',
@@ -1455,6 +1457,7 @@ export default {
             'openNotFound': '« {name} » n’a pas pu être ouvert. Le fichier a peut-être été déplacé, supprimé ou son stockage a été effacé.',
             'invalid': 'Fichier invalide ou inexistant',
             'emptyPdf': 'Le fichier PDF est vide (0 octet)',
+            'noPages': 'Le PDF ne contient aucune page',
             'folderEmpty': 'Aucun document pris en charge n’a été trouvé dans le dossier sélectionné',
             'save': 'Échec de l’enregistrement du fichier',
             'browserStorageTitle': 'Le stockage du navegador est indisponible',
@@ -1464,7 +1467,10 @@ export default {
             'images': 'Échec de l’export des images',
             'multiPageTiff': 'Échec de l’export TIFF',
         },
-        'browser': { 'largeSaveHandleHint': 'Utilisez un navigateur avec l’accès au système de fichiers local activé pour enregistrer de grands documents.' },
+        'browser': {
+            'filePickerSetupDenied': 'L’accès du navigateur aux fichiers a été refusé. Choisissez à nouveau Ouvrir pour utiliser le sélecteur compatible.',
+            'largeSaveHandleHint': 'Utilisez un navigateur avec l’accès au système de fichiers local activé pour enregistrer de grands documents.',
+        },
         'search': {
             'browserTooLarge': 'La recherche n’est pas disponible dans le navigateur pour les très gros documents.',
             'unavailable': 'La recherche est actuellement indisponible pour ce document.',

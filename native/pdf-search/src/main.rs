@@ -939,6 +939,7 @@ enum ServiceRequest {
         #[serde(rename = "requestId")]
         request_id: String,
     },
+    ResetCache,
 }
 
 fn default_search_limit() -> usize {
@@ -1028,6 +1029,11 @@ impl ServiceIndexCacheState {
             }
         }
     }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.recency.clear();
+    }
 }
 
 type ServiceIndexCache = Arc<Mutex<ServiceIndexCacheState>>;
@@ -1072,6 +1078,18 @@ fn get_cached_index(
     Ok(index)
 }
 
+fn reap_finished_service_workers(workers: &mut Vec<thread::JoinHandle<()>>) {
+    let mut index = 0;
+    while index < workers.len() {
+        if workers[index].is_finished() {
+            let worker = workers.remove(index);
+            let _ = worker.join();
+        } else {
+            index += 1;
+        }
+    }
+}
+
 fn run_service() -> Result<(), Box<dyn Error>> {
     let cache: ServiceIndexCache = Arc::new(Mutex::new(ServiceIndexCacheState::default()));
     let cancellations: ServiceCancellationMap = Arc::new(Mutex::new(HashMap::new()));
@@ -1106,6 +1124,12 @@ fn run_service() -> Result<(), Box<dyn Error>> {
             }
         };
         match request {
+            ServiceRequest::ResetCache => {
+                cache
+                    .lock()
+                    .map_err(|_| native_failure("Search index cache lock poisoned".to_string()))?
+                    .clear();
+            }
             ServiceRequest::Cancel { request_id } => {
                 if let Some(flag) = cancellations
                     .lock()
@@ -1125,9 +1149,36 @@ fn run_service() -> Result<(), Box<dyn Error>> {
                 match_case,
                 page_count,
             } => {
+                reap_finished_service_workers(&mut workers);
+                let cancellation_exists = cancellations
+                    .lock()
+                    .map_err(|_| native_failure("Search cancellation lock poisoned".to_string()))?
+                    .contains_key(&request_id);
+                if cancellation_exists {
+                    write_service_response(
+                        &output,
+                        &ServiceResponse::Error {
+                            request_id: &request_id,
+                            error: ErrorEnvelope {
+                                code: NativeErrorCode::InvalidRequest,
+                                message: "Duplicate active search request id".to_string(),
+                            },
+                        },
+                    )?;
+                    continue;
+                }
                 if workers.len() >= MAX_SERVICE_WORKERS {
-                    let worker = workers.remove(0);
-                    let _ = worker.join();
+                    write_service_response(
+                        &output,
+                        &ServiceResponse::Error {
+                            request_id: &request_id,
+                            error: ErrorEnvelope {
+                                code: NativeErrorCode::NativeFailure,
+                                message: "Persistent native search service is busy".to_string(),
+                            },
+                        },
+                    )?;
+                    continue;
                 }
                 let canceled = Arc::new(AtomicBool::new(false));
                 cancellations
@@ -1183,10 +1234,10 @@ fn run_service() -> Result<(), Box<dyn Error>> {
                             }
                         }
                     };
-                    let _ = write_service_response(&output, &response);
                     if let Ok(mut map) = cancellations.lock() {
                         map.remove(&request_id);
                     }
+                    let _ = write_service_response(&output, &response);
                 }));
             }
         }
@@ -1303,6 +1354,40 @@ mod tests {
             .expect_err("canceled search must stop");
 
         assert!(error.to_string().contains("canceled"));
+    }
+
+    #[test]
+    fn service_worker_reaping_never_joins_active_workers() {
+        let release = Arc::new(AtomicBool::new(false));
+        let mut workers = (0..MAX_SERVICE_WORKERS)
+            .map(|_| {
+                let release = Arc::clone(&release);
+                thread::spawn(move || {
+                    while !release.load(Ordering::Relaxed) {
+                        thread::yield_now();
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        reap_finished_service_workers(&mut workers);
+
+        assert_eq!(workers.len(), MAX_SERVICE_WORKERS);
+        release.store(true, Ordering::Relaxed);
+        for worker in workers {
+            worker.join().expect("join released worker");
+        }
+    }
+
+    #[test]
+    fn service_worker_reaping_removes_only_finished_workers() {
+        let mut workers = vec![thread::spawn(|| {})];
+        while !workers[0].is_finished() {
+            thread::yield_now();
+        }
+
+        reap_finished_service_workers(&mut workers);
+
+        assert!(workers.is_empty());
     }
 
     const TEST_DOCUMENT_REVISION: &str = "revision-token";

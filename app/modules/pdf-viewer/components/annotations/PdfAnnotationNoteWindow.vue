@@ -112,10 +112,6 @@ const { t } = useTypedI18n();
 
 const NOTE_WINDOW_INITIAL_OFFSET_X = 14;
 const NOTE_WINDOW_INITIAL_OFFSET_Y = 72;
-const NOTE_WINDOW_FOCUS_GUARD_DURATION_MS = 1200;
-const NOTE_WINDOW_FOCUS_FAST_INTERVAL_MS = 16;
-const NOTE_WINDOW_FOCUS_FAST_DURATION_MS = 400;
-const NOTE_WINDOW_FOCUS_SLOW_INTERVAL_MS = 60;
 
 const noteInputRef = ref<HTMLTextAreaElement | null>(null);
 const noteWindowRef = ref<HTMLElement | null>(null);
@@ -128,8 +124,7 @@ const dragStartY = ref(0);
 const frameStartX = ref(0);
 const frameStartY = ref(0);
 const isDragging = ref(false);
-let focusGuardTimer: ReturnType<typeof setTimeout> | null = null;
-let focusGuardToken = 0;
+let initialFocusRepairFrame: number | null = null;
 const dragWindowTarget = shallowRef<Window | undefined>();
 
 function focusNote() {
@@ -204,96 +199,31 @@ async function focusTextInput() {
     input.focus({ preventScroll: true });
     const end = input.value.length;
     input.setSelectionRange(end, end);
-    if (typeof window !== 'undefined') {
-        window.requestAnimationFrame(() => {
-            window.requestAnimationFrame(() => {
-                const postPaintInput = noteInputRef.value;
-                if (!postPaintInput) {
-                    return;
-                }
-                postPaintInput.blur();
-                postPaintInput.focus({ preventScroll: true });
-                const postEnd = postPaintInput.value.length;
-                postPaintInput.setSelectionRange(postEnd, postEnd);
-            });
-        });
-    }
 }
 
-function clearFocusGuard() {
-    if (focusGuardTimer) {
-        clearTimeout(focusGuardTimer);
-        focusGuardTimer = null;
+function clearInitialFocusRepair() {
+    if (initialFocusRepairFrame !== null && typeof window !== 'undefined') {
+        window.cancelAnimationFrame(initialFocusRepairFrame);
     }
+    initialFocusRepairFrame = null;
 }
 
-function isTextEntryElement(element: HTMLElement) {
-    if (element.isContentEditable) {
-        return true;
-    }
-    const tagName = element.tagName;
-    return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
-}
-
-function shouldReclaimFocus(activeElement: HTMLElement | null) {
-    if (!activeElement || activeElement === document.body) {
-        return true;
-    }
-    if (activeElement === noteInputRef.value) {
-        return false;
-    }
-    if (noteWindowRef.value?.contains(activeElement)) {
-        return false;
-    }
-    if (isTextEntryElement(activeElement)) {
-        const insidePdfViewer = Boolean(
-            activeElement.closest('.annotationEditorLayer, .annotation-editor-layer, .pdfViewer, .pdf-viewer'),
-        );
-        return insidePdfViewer;
-    }
-    return true;
-}
-
-function startFocusGuard(durationMs = NOTE_WINDOW_FOCUS_GUARD_DURATION_MS) {
+function scheduleInitialFocusRepair() {
     if (typeof window === 'undefined') {
         return;
     }
-    clearFocusGuard();
-    const token = ++focusGuardToken;
-    const deadline = window.performance.now() + durationMs;
-    const reclaimFocusUntilDeadline = async () => {
-        if (token !== focusGuardToken) {
-            return;
-        }
-        const input = noteInputRef.value;
-        if (!input) {
-            return;
-        }
+    clearInitialFocusRepair();
+    initialFocusRepairFrame = window.requestAnimationFrame(() => {
+        initialFocusRepairFrame = null;
         const activeElement = document.activeElement instanceof HTMLElement
             ? document.activeElement
             : null;
-        if (shouldReclaimFocus(activeElement)) {
-            await focusTextInput();
+        // A single post-mount repair covers focus dropped to the document
+        // body during PDF.js DOM churn. Any explicit Tab/click target wins.
+        if (!activeElement || activeElement === document.body) {
+            void focusTextInput();
         }
-
-        if (token !== focusGuardToken) {
-            return;
-        }
-        const now = window.performance.now();
-        if (now >= deadline) {
-            focusGuardTimer = null;
-            return;
-        }
-        const elapsed = durationMs - (deadline - now);
-        const interval = elapsed < NOTE_WINDOW_FOCUS_FAST_DURATION_MS
-            ? NOTE_WINDOW_FOCUS_FAST_INTERVAL_MS
-            : NOTE_WINDOW_FOCUS_SLOW_INTERVAL_MS;
-        focusGuardTimer = setTimeout(() => {
-            void reclaimFocusUntilDeadline();
-        }, interval);
-    };
-
-    void reclaimFocusUntilDeadline();
+    });
 }
 
 function syncPosition(position: IAnnotationNotePosition | null) {
@@ -505,12 +435,11 @@ onMounted(() => {
         emitPositionUpdate();
     }
     void focusTextInput();
-    startFocusGuard();
+    scheduleInitialFocusRepair();
 });
 
 onBeforeUnmount(() => {
-    clearFocusGuard();
-    focusGuardToken += 1;
+    clearInitialFocusRepair();
     stopDrag();
 });
 
@@ -533,19 +462,7 @@ watch(
             emitPositionUpdate();
         }
         void focusTextInput();
-        startFocusGuard();
-    },
-);
-
-watch(
-    () => zIndex,
-    (nextZIndex, previousZIndex) => {
-        if (nextZIndex === previousZIndex) {
-            return;
-        }
-        if (focusGuardTimer !== null) {
-            void focusTextInput();
-        }
+        scheduleInitialFocusRepair();
     },
 );
 

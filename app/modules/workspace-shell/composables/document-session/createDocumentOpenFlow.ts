@@ -10,6 +10,7 @@ import type {
     IDocumentMutationRevisionOptions,
     TOpenFileResult,
 } from '@contracts/electronApiDocuments';
+import {isBrowserFilePickerSetupDeniedError} from '@app/platform/browser-api/public';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
 import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
@@ -35,6 +36,7 @@ import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSe
 import {
     getDocumentFilesCapability,
     getDocumentOpenCapability,
+    getDocumentPdfCapability,
     getDocumentPickerCapability,
     getDocumentRecentFilesCapability,
 } from '@app/utils/platformDocuments';
@@ -539,6 +541,9 @@ export function createDocumentOpenFlow(
     }
 
     function classifyOpenError(e: unknown, path: TDocumentRef | null) {
+        if (isBrowserFilePickerSetupDeniedError(e)) {
+            return deps.t('errors.browser.filePickerSetupDenied');
+        }
         const rawMessage = e instanceof Error ? e.message : '';
         if (rawMessage && /ENOENT|could not be found|no such file|chunk missing|does not exist/i.test(rawMessage)) {
             const baseName = path ? getDocumentRefBaseName(path) : '';
@@ -883,6 +888,23 @@ export function createDocumentOpenFlow(
                 currentLoadRequestId: deps.loadEpoch.current(),
             });
             return;
+        }
+
+        // The open capability only stages a working copy. Keep the currently
+        // displayed document intact until a real PDF parser accepts that copy.
+        // This is intentionally before the transient source reset and before
+        // any working-copy/history ownership changes.
+        const validation = await getDocumentPdfCapability().validatePdfPath(path);
+        if (!isCurrent()) {
+            return;
+        }
+        if (!validation.isValid) {
+            BrowserLogger.warn('pdf-file', 'Rejected invalid staged PDF', {
+                path,
+                requestId,
+                validationErrors: validation.errors,
+            });
+            throw new Error(deps.t('errors.file.invalid'));
         }
 
         if (opts?.resetSourceBeforeCommit && state.pdfSrc.value) {

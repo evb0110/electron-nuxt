@@ -28,7 +28,10 @@ import {
     isWorkingCopyDirectoryName,
     safeRemoveDirectory,
 } from '@electron/file-access/workingCopyDirectory';
-import { getAppTempDir } from '@electron/utils/appTempDir';
+import {
+    getAppTempDir,
+    getLegacyAppTempDirPath,
+} from '@electron/utils/appTempDir';
 import { drainWorkingCopyMutations } from '@electron/file-access/workingCopyMutationQueue';
 import {
     clearWorkingCopyRevisionInitializations,
@@ -72,25 +75,37 @@ export async function cleanupStaleWorkingCopyDirectories(
     removedDirectories: number;
     removedOcrDirectories: number;
 }> {
-    const tempDir = resolve(getAppTempDir());
-    let entries: string[] = [];
-    try {
-        entries = await readdir(tempDir);
-    } catch {
-        return {
-            removedDirectories: 0,
-            removedOcrDirectories: 0,
-        };
-    }
-
     let removedDirectories = 0;
     let removedOcrDirectories = 0;
     const now = Date.now();
-    const candidates = entries
-        .filter(entryName => isWorkingCopyDirectoryName(entryName) && !entryName.endsWith('.ocr'))
+    const tempDirs = Array.from(new Set([
+        resolve(getAppTempDir()),
+        resolve(getLegacyAppTempDirPath()),
+    ]));
+    const entriesByTempDir = await Promise.all(tempDirs.map(async (tempDir) => {
+        try {
+            return (await readdir(tempDir)).map(entryName => ({
+                entryName,
+                tempDir,
+            }));
+        } catch {
+            return [];
+        }
+    }));
+    const candidates = entriesByTempDir.flat()
+        .filter(({entryName}) => isWorkingCopyDirectoryName(entryName) && !entryName.endsWith('.ocr'))
         .slice(0, STALE_WORK_DIR_SCAN_LIMIT)
-        .map(entryName => resolve(join(tempDir, entryName)))
-        .filter((workDir) => {
+        .map(({
+            entryName,
+            tempDir,
+        }) => ({
+            tempDir,
+            workDir: resolve(join(tempDir, entryName)),
+        }))
+        .filter(({
+            tempDir,
+            workDir,
+        }) => {
             const relativePath = relative(tempDir, workDir);
             return relativePath !== '..'
                 && !relativePath.startsWith(`..${sep}`)
@@ -106,10 +121,11 @@ export async function cleanupStaleWorkingCopyDirectories(
         while (nextCandidateIndex < candidates.length) {
             const candidateIndex = nextCandidateIndex;
             nextCandidateIndex += 1;
-            const workDir = candidates[candidateIndex];
-            if (!workDir) {
+            const candidate = candidates[candidateIndex];
+            if (!candidate) {
                 continue;
             }
+            const {workDir} = candidate;
 
             try {
                 const workDirStat = await stat(workDir);
@@ -160,16 +176,18 @@ async function cleanupWorkingCopyDirectory(
     }
 
     try {
-        const tempDir = resolve(getAppTempDir());
+        const tempDirs = new Set([
+            resolve(getAppTempDir()),
+            resolve(getLegacyAppTempDirPath()),
+        ]);
         const workDir = resolve(dirname(normalizedPath));
-        const relativePath = relative(tempDir, workDir);
         const workDirName = basename(workDir);
-
-        const isWithinTemp = (
-            relativePath !== '..'
-            && !relativePath.startsWith(`..${sep}`)
-            && !isAbsolute(relativePath)
-        );
+        const isWithinTemp = Array.from(tempDirs).some((tempDir) => {
+            const relativePath = relative(tempDir, workDir);
+            return relativePath !== '..'
+                && !relativePath.startsWith(`..${sep}`)
+                && !isAbsolute(relativePath);
+        });
         const isWorkingCopyDir = workDirName.startsWith('pdf-work-');
 
         if (isWithinTemp && isWorkingCopyDir) {
