@@ -887,6 +887,26 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         anchoredZoomAlreadySubmitted = null;
         void singlePageScroll.submitViewportStateIntent('zoom', { zoom: value });
     }
+    function reconcileIdleOpenSurfaceViewport() {
+        const surface = chassisAuthority?.openSurface;
+        const committedRender = surface?.snapshot.value.committedRender;
+        if (
+            !surface
+            || !committedRender
+            || surface.snapshot.value.committedViewport
+            || singlePageScroll.viewportAuthority.activeIntent.value !== null
+        ) {
+            return false;
+        }
+        const committed = singlePageScroll.commitCurrentViewportIfSettled(committedRender.pageNumber);
+        if (committed) {
+            navigationCommittedSignal.value = {
+                revision: navigationCommittedSignal.value.revision + 1,
+                pageNumber: committedRender.pageNumber,
+            };
+        }
+        return committed;
+    }
     watch(() => singlePageScroll.viewportAuthority.activeIntent.value, (activeIntent, previousIntent) => {
         if (activeIntent === null && previousIntent !== null) {
             const terminalOutcome = singlePageScroll.viewportAuthority.getTerminalOutcome(previousIntent.id);
@@ -899,18 +919,13 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         if (activeIntent !== null) {
             return;
         }
-        const surface = chassisAuthority?.openSurface;
-        const committedRender = surface?.snapshot.value.committedRender;
-        if (!surface || !committedRender || surface.snapshot.value.committedViewport) {
-            return;
-        }
-        if (singlePageScroll.commitCurrentViewportIfSettled(committedRender.pageNumber)) {
-            navigationCommittedSignal.value = {
-                revision: navigationCommittedSignal.value.revision + 1,
-                pageNumber: committedRender.pageNumber,
-            };
-        }
+        reconcileIdleOpenSurfaceViewport();
     }, { flush: 'sync' });
+    watch([
+        () => chassisAuthority?.openSurface.snapshot.value.committedRender,
+        () => chassisAuthority?.openSurface.snapshot.value.committedViewport,
+        viewportLayoutMetrics,
+    ], reconcileIdleOpenSurfaceViewport, {flush: 'post'});
     watch(options.fitMode, () => { void singlePageScroll.submitViewportStateIntent('fit'); });
     watch(options.viewMode, value => {
         void singlePageScroll.submitViewportStateIntent('view-mode', { viewMode: value });

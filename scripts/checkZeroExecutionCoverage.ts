@@ -49,6 +49,7 @@ export const NON_UNIT_COVERAGE_ENTRYPOINTS = [
     'electron/main.ts',
     'electron/ocr/worker/runProductionOcrQualityCase.ts',
     'scripts/release/verifyPackagedCorePdfSmoke.ts',
+    'scripts/release/verifyPackagedScanCleanup.ts',
     'scripts/test-ocr-quality-corpus.mjs',
 ] as const;
 

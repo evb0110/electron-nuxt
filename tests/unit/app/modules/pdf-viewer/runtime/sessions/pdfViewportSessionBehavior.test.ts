@@ -21,7 +21,10 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
+import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
+import { cast } from '@tests/helpers/cast';
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     diagnostic: vi.fn(),
@@ -112,6 +115,7 @@ function createDocumentFixture(pageCount = 100) {
 
 function createViewportFixture(input: {
     bufferPages?: number;
+    chassisAuthority?: IDocumentViewerChassisAuthority;
     continuousScroll?: boolean;
     pageCount?: number;
     viewMode?: 'single' | 'facing' | 'facing-first-single';
@@ -138,7 +142,7 @@ function createViewportFixture(input: {
         setup() {
             viewport = createPdfViewportSession({
                 document: documentSession,
-                chassisAuthority: null,
+                chassisAuthority: input.chassisAuthority ?? null,
                 performancePolicy,
                 maxBufferCanvasPixels: 100,
                 settledMaxCanvasPixels: 1_000_000,
@@ -639,6 +643,97 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.zoomMode.value).toBe('fit-width');
             expect(fixture.emittedPages.at(-1)).toBe(200);
         } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('reconciles a staged opening canvas when viewport layout publishes later', async () => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: 'warm-open.pdf',
+            documentRevision: 'revision-1',
+        });
+        surface.metadataReady(10);
+        expect(surface.commitGeometry(generation, {
+            width: 600,
+            height: 900,
+            margin: 20,
+        })).toBe(true);
+        const fixture = createViewportFixture({
+            chassisAuthority: cast<IDocumentViewerChassisAuthority>({openSurface: surface}),
+            pageCount: 0,
+        });
+        try {
+            const renderFence = surface.createRenderFence({
+                generation,
+                documentRevision: 'revision-1',
+                renderVersion: 1,
+                requestId: 3,
+                pageNumber: 1,
+            });
+            expect(renderFence).not.toBeNull();
+            expect(surface.commitCanvas(renderFence!)).toBe(true);
+            await nextTick();
+            expect(surface.snapshot.value.committedViewport).toBeNull();
+
+            fixture.documentSession.numPages.value = 10;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 10}, () => ({
+                width: 600,
+                height: 900,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+
+            await vi.waitFor(() => expect(surface.snapshot.value.committedViewport).toMatchObject({
+                documentRevision: 'revision-1',
+                pageNumber: 1,
+                viewportIntentId: renderFence!.viewportIntentId,
+            }));
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('leaves staged opening authority with the active viewport intent until it settles', async () => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: 'intent-owned-open.pdf',
+            documentRevision: 'revision-1',
+        });
+        surface.metadataReady(10);
+        expect(surface.commitGeometry(generation, {
+            width: 600,
+            height: 900,
+            margin: 20,
+        })).toBe(true);
+        const fixture = createViewportFixture({
+            chassisAuthority: cast<IDocumentViewerChassisAuthority>({openSurface: surface}),
+            pageCount: 10,
+        });
+        const metrics = Promise.withResolvers<boolean>();
+        try {
+            fixture.viewport.markPageMounted(1);
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
+            const intent = fixture.viewport.singlePageScroll.submitViewportStateIntent('fit');
+            await vi.waitFor(() => expect(
+                fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value,
+            ).not.toBeNull());
+            const renderFence = surface.createRenderFence({
+                generation,
+                documentRevision: 'revision-1',
+                renderVersion: 1,
+                requestId: 4,
+                pageNumber: 1,
+            });
+            expect(renderFence).not.toBeNull();
+            expect(surface.commitCanvas(renderFence!)).toBe(true);
+            await nextTick();
+            expect(surface.snapshot.value.committedViewport).toBeNull();
+
+            metrics.resolve(true);
+            await intent;
+            await vi.waitFor(() => expect(surface.snapshot.value.committedViewport?.pageNumber).toBe(1));
+        } finally {
+            metrics.resolve(true);
             fixture.app.unmount();
         }
     });

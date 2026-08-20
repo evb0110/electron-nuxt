@@ -597,7 +597,7 @@ mirror health probe is still outstanding.
 
 | Check | Remediation result |
 |---|---|
-| Full unit/coverage suite | Passed: 7,633 tests; coverage ratchet and 164-file zero-execution tripwire passed |
+| Full unit/coverage suite | Passed: 7,637 tests; coverage ratchet and 164-file zero-execution tripwire passed |
 | TypeScript typecheck | Passed |
 | Full lint and architecture/import policy | Passed |
 | Browser integration | Passed: 4/4 |
@@ -606,6 +606,7 @@ mirror health probe is still outstanding.
 | Full Rust workspace tests, including the long real fixture | Passed |
 | Required native OCR smoke and OCR quality corpus | Passed |
 | Final headless Electron gate | Passed: 10/10 real Electron journeys in 323.90 seconds |
+| Large-PDF warm-reopen stress regression | Passed 3/3 isolated Electron runs in 74.008, 74.083, and 75.077 seconds |
 | CodeRabbit review | Passed: two bounded local CLI passes; production-impact findings assessed and valid findings fixed |
 
 ### Operational work that code changes cannot complete
