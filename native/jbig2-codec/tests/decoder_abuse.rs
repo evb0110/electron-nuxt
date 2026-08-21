@@ -1,6 +1,9 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use jbig2_codec::{decode_pdf_generic, encode_pdf_generic, Bilevel, DecodeLimits, Jbig2Error};
+use jbig2_codec::{
+    decode_pdf_generic, decode_pdf_generic_source, encode_pdf_generic, Bilevel, DecodeLimits,
+    Jbig2Error,
+};
 
 const PAGE_WIDTH_OFFSET: usize = 11;
 const PAGE_HEIGHT_OFFSET: usize = 15;
@@ -170,6 +173,71 @@ fn rejects_premature_mq_termination_markers_without_panicking() {
             DecodeLimits::default(),
         );
     }
+}
+
+fn truncated_source_stream(valid: &[u8], mq_end: usize) -> Vec<u8> {
+    let mut premature = valid[..mq_end].to_vec();
+    premature.extend_from_slice(&[0xff, 0xac]);
+    let region_length =
+        u32::try_from(GENERIC_REGION_HEADER_LENGTH + (mq_end - MQ_DATA_OFFSET) + 2).unwrap();
+    set_u32(&mut premature, SECOND_SEGMENT_LENGTH_OFFSET, region_length);
+    premature
+}
+
+#[test]
+fn source_decoder_rejects_a_grossly_truncated_mq_payload_with_an_appended_marker() {
+    // The source decoder skips the canonical re-encode check, so a truncated
+    // arithmetic payload with `ff ac` appended must be caught by the decoder's
+    // own flush-budget guard rather than decoding to Ok from padded state. A
+    // stream that keeps only a quarter of its real MQ bytes cannot decode every
+    // pixel without leaning heavily on synthesized padding.
+    let valid = valid_stream();
+    assert!(valid.ends_with(&[0xff, 0xac]));
+    let mq_len = (valid.len() - 2) - MQ_DATA_OFFSET;
+    let mq_end = MQ_DATA_OFFSET + mq_len / 4;
+    let premature = truncated_source_stream(&valid, mq_end);
+    assert_eq!(
+        decode_pdf_generic_source(&premature, DecodeLimits::default()),
+        Err(Jbig2Error::Truncated)
+    );
+}
+
+#[test]
+fn source_decoder_never_panics_and_rejects_nearly_every_truncated_mq_payload() {
+    // Sweeping every truncation point, the source decoder must never panic, and
+    // the flush-budget guard must reject the overwhelming majority. A couple of
+    // near-complete truncations happen to form a structurally valid alternate
+    // encoding of a different bitmap (flush stuffing stays within the T.88
+    // bound); those decode to a bounded, correctly-sized image rather than
+    // panicking, which is not the padded-state threat this guard targets.
+    let valid = valid_stream();
+    assert!(valid.ends_with(&[0xff, 0xac]));
+    let mut rejected = 0usize;
+    let mut total = 0usize;
+    for mq_end in MQ_DATA_OFFSET..valid.len() - 2 {
+        let premature = truncated_source_stream(&valid, mq_end);
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            decode_pdf_generic_source(&premature, DecodeLimits::default())
+        }))
+        .unwrap_or_else(|_| panic!("source decode panicked at mq_end {mq_end}"));
+        total += 1;
+        match outcome {
+            Err(_) => rejected += 1,
+            Ok(decoded) => assert_eq!((decoded.width, decoded.height), (31, 33)),
+        }
+    }
+    assert!(
+        rejected * 10 >= total * 9,
+        "flush-budget guard rejected only {rejected} of {total} truncations"
+    );
+}
+
+#[test]
+fn source_decoder_accepts_an_intact_stream() {
+    let valid = valid_stream();
+    let decoded = decode_pdf_generic_source(&valid, DecodeLimits::default())
+        .expect("intact source stream should decode");
+    assert_eq!((decoded.width, decoded.height), (31, 33));
 }
 
 #[test]

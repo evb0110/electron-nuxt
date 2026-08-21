@@ -34,6 +34,7 @@ interface IPrivateDeployModule {
         deployTarget?: string;
         projectRoot?: string;
     }) => IPreparedPrivateDeploySource;
+    quoteWindowsShellArg: (arg: string) => string;
 }
 
 const {
@@ -41,6 +42,7 @@ const {
     parsePrivateDeployOptions,
     promoteLandingVercelOutput,
     preparePrivateDeploySource,
+    quoteWindowsShellArg,
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href
 ) as IPrivateDeployModule;
@@ -297,5 +299,27 @@ describe('private Vercel deployment source', () => {
         });
         expect(() => parsePrivateDeployOptions(['--target=unknown']))
             .toThrow('Unsupported deploy target: unknown');
+    });
+
+    describe('quoteWindowsShellArg', () => {
+        it('wraps every argument so cmd metacharacters stay literal', () => {
+            // A cmd metacharacter with no surrounding whitespace (e.g. an "A&B"
+            // Windows account name in a scratch path) must not leak out of the
+            // argument and run as a separate command.
+            expect(quoteWindowsShellArg('C:\\Users\\A&B\\AppData\\Local\\Temp\\evb'))
+                .toBe('"C:\\Users\\A&B\\AppData\\Local\\Temp\\evb"');
+            expect(quoteWindowsShellArg('a^b|c(d)e<f>g')).toBe('"a^b|c(d)e<f>g"');
+        });
+
+        it('quotes plain arguments and paths with spaces', () => {
+            expect(quoteWindowsShellArg('deploy')).toBe('"deploy"');
+            expect(quoteWindowsShellArg('--archive=tgz')).toBe('"--archive=tgz"');
+            expect(quoteWindowsShellArg('C:\\Users\\First Last\\Temp'))
+                .toBe('"C:\\Users\\First Last\\Temp"');
+        });
+
+        it('escapes embedded double quotes', () => {
+            expect(quoteWindowsShellArg('a"b')).toBe('"a\\"b"');
+        });
     });
 });

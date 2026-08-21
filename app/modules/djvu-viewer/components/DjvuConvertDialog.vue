@@ -418,9 +418,18 @@ watch(() => selectedConversion.value.pdfStrategy, (pdfStrategy) => {
     }
 });
 
-watch(open, async (isOpen) => {
+watch([
+    open,
+    () => djvuPath,
+], async ([isOpen]) => {
     dialogGeneration.value += 1;
     if (!isOpen || !djvuPath) {
+        // A closed dialog or a missing source must not keep stale info and
+        // estimates that would leave Convert enabled for a source that is gone.
+        info.value = null;
+        estimates.value = [];
+        estimatesLoading.value = false;
+        infoLoading.value = false;
         return;
     }
 

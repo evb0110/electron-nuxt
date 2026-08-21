@@ -137,6 +137,159 @@ fn jbig2dec_decodes_symbol_dictionary_and_text_region() {
     fs::remove_dir_all(&directory).unwrap();
 }
 
+fn sample_symbol_document() -> jbig2_codec::SymbolDocument {
+    let width = 24u32;
+    let height = 24u32;
+    let stride = width.div_ceil(8) as usize;
+    let mut rows = vec![0u8; stride * height as usize];
+    for y in 2..22usize {
+        for x in 2..22usize {
+            rows[y * stride + x / 8] |= 0x80 >> (x & 7);
+        }
+    }
+    let page = Bilevel {
+        width,
+        height,
+        rows: &rows,
+    };
+    let document =
+        encode_pdf_symbol_pages_verified(&[page, page], SymbolEncodeLimits::default()).unwrap();
+    assert_eq!(document.symbol_count, 1);
+    document
+}
+
+#[test]
+fn rejects_symbol_dictionary_claiming_an_absurd_exported_count() {
+    let document = sample_symbol_document();
+    let mut globals = document.globals.clone();
+    // The dictionary segment header is 11 bytes (no referred segments, short
+    // page association), so the exported and new counts sit at dictionary
+    // offsets 10 and 14.
+    const EXPORTED_OFFSET: usize = 11 + 10;
+    const NEW_OFFSET: usize = 11 + 14;
+    assert_eq!(
+        u32::from_be_bytes(globals[NEW_OFFSET..NEW_OFFSET + 4].try_into().unwrap()),
+        document.symbol_count as u32,
+        "unexpected symbol-dictionary layout"
+    );
+    globals[EXPORTED_OFFSET..EXPORTED_OFFSET + 4].copy_from_slice(&u32::MAX.to_be_bytes());
+    globals[NEW_OFFSET..NEW_OFFSET + 4].copy_from_slice(&u32::MAX.to_be_bytes());
+
+    let page = document.pages[0].as_ref().unwrap();
+    let error = decode_pdf_symbol_page(&globals, &page.data, DecodeLimits::default()).unwrap_err();
+    assert!(
+        matches!(error, jbig2_codec::Jbig2Error::Unsupported(_)),
+        "unexpected error: {error:?}"
+    );
+}
+
+#[test]
+fn rejects_symbol_bitmaps_larger_than_the_dimension_limit() {
+    let document = sample_symbol_document();
+    let page = document.pages[0].as_ref().unwrap();
+    // The exemplar glyph is ~20 px per side; a 4 px dimension ceiling must be
+    // enforced before its bitmap is allocated.
+    let error = decode_pdf_symbol_page(
+        &document.globals,
+        &page.data,
+        DecodeLimits::new(u64::MAX).with_max_dimension(4),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error, jbig2_codec::Jbig2Error::InvalidDimensions { .. }),
+        "unexpected error: {error:?}"
+    );
+}
+
+fn two_symbol_document() -> jbig2_codec::SymbolDocument {
+    let width = 24u32;
+    let height = 24u32;
+    let stride = width.div_ceil(8) as usize;
+    let mut solid = vec![0u8; stride * height as usize];
+    for y in 2..22usize {
+        for x in 2..22usize {
+            solid[y * stride + x / 8] |= 0x80 >> (x & 7);
+        }
+    }
+    let mut inset = vec![0u8; stride * height as usize];
+    for y in 6..18usize {
+        for x in 6..18usize {
+            inset[y * stride + x / 8] |= 0x80 >> (x & 7);
+        }
+    }
+    let solid_page = Bilevel {
+        width,
+        height,
+        rows: &solid,
+    };
+    let inset_page = Bilevel {
+        width,
+        height,
+        rows: &inset,
+    };
+    // Each distinct glyph appears twice so the shared dictionary is worthwhile
+    // and both survive as exported symbols rather than falling back to generic.
+    let document = encode_pdf_symbol_pages_verified(
+        &[solid_page, inset_page, solid_page, inset_page],
+        SymbolEncodeLimits::default(),
+    )
+    .unwrap();
+    assert!(
+        document.fallback_pages.is_empty(),
+        "unexpected symbol fallbacks: {:?}",
+        document.fallback_pages
+    );
+    assert_eq!(document.symbol_count, 2);
+    document
+}
+
+#[test]
+fn rejects_symbol_page_dimensions_above_the_limit() {
+    let document = sample_symbol_document();
+    let page = document.pages[0].as_ref().unwrap();
+    // The page bitmap is 24x24 while its lone glyph symbol is ~20 px per side, so
+    // a 23 px ceiling clears every symbol yet must still reject the page bitmap
+    // before it is allocated.
+    let error = decode_pdf_symbol_page(
+        &document.globals,
+        &page.data,
+        DecodeLimits::new(u64::MAX).with_max_dimension(23),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            error,
+            jbig2_codec::Jbig2Error::InvalidDimensions {
+                width: 24,
+                height: 24
+            }
+        ),
+        "unexpected error: {error:?}"
+    );
+}
+
+#[test]
+fn rejects_symbol_dictionary_whose_cumulative_pixels_exceed_the_budget() {
+    let document = two_symbol_document();
+    let page = document.pages[0].as_ref().unwrap();
+    // Each symbol (20x20 and 12x12) fits under a 500-pixel budget on its own; a
+    // per-symbol check would admit them both. Their combined area must not, so a
+    // rejection here proves the budget accumulates across the whole dictionary.
+    let error = decode_pdf_symbol_page(
+        &document.globals,
+        &page.data,
+        DecodeLimits::new(500).with_max_dimension(100),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            error,
+            jbig2_codec::Jbig2Error::PixelLimitExceeded { maximum: 500, .. }
+        ),
+        "unexpected error: {error:?}"
+    );
+}
+
 fn parse_p4(data: &[u8]) -> (u32, u32, &[u8]) {
     assert_eq!(&data[..2], b"P4");
     let mut position = 2usize;

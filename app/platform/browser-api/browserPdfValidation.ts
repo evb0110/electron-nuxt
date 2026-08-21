@@ -125,6 +125,22 @@ export async function analyzeBrowserPdfConformance(path: string): Promise<IPdfCo
     }
 }
 
+type TPdfjsLoadingTask = ReturnType<Awaited<ReturnType<typeof getPdfjsLib>>['getDocument']>;
+
+async function loadAndDestroyPdfDocument(loadingTask: TPdfjsLoadingTask) {
+    try {
+        const pdfDocument = await loadingTask.promise;
+        await pdfDocument.destroy();
+    } catch (error) {
+        try {
+            await loadingTask.destroy();
+        } catch {
+            // Ignore cleanup failure so the original validation error surfaces.
+        }
+        throw error;
+    }
+}
+
 export async function validateBrowserPdfData(data: Uint8Array): Promise<IPdfValidationResult> {
     if (!(data instanceof Uint8Array) || data.byteLength === 0) {
         return {
@@ -141,8 +157,7 @@ export async function validateBrowserPdfData(data: Uint8Array): Promise<IPdfVali
         const loadingTask = pdfjsLib.getDocument(
             createPdfjsDocumentInit(pdfjsLib, data),
         );
-        const pdfDocument = await loadingTask.promise;
-        await pdfDocument.destroy();
+        await loadAndDestroyPdfDocument(loadingTask);
         return {
             isValid: true,
             tool: 'browser',
@@ -179,8 +194,7 @@ export async function validateBrowserPdfPath(path: string): Promise<IPdfValidati
                 rangeRead.error = error;
             }}),
         );
-        const pdfDocument = await loadingTask.promise;
-        await pdfDocument.destroy();
+        await loadAndDestroyPdfDocument(loadingTask);
         if (rangeRead.error) {
             throw rangeRead.error;
         }

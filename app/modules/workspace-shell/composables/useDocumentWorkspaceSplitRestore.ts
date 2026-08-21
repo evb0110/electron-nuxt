@@ -81,6 +81,12 @@ function isCachedSplitEntryCurrent(
 export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceSplitRestoreOptions) => {
     let splitPayloadCaptureGeneration = 0;
     let isWorkspaceMounted = true;
+    // A DjVu restore failure keeps its cache entry so a later remount can retry.
+    // Clearing isRestoringSplitPayload in the finally re-triggers this same
+    // watcher, so without a per-mount guard the retained entry would restore in
+    // a tight loop within one mount. Track the entry that just failed and skip
+    // it until a fresh entry arrives or the composable remounts.
+    let restoreFailedEntryId: string | null = null;
     const splitCacheSession = computed(() => options.splitCacheSession?.value ?? null);
     const hasQueuedSplitRestore = computed(() => {
         const session = splitCacheSession.value;
@@ -154,6 +160,9 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
         if (!cached) {
             return;
         }
+        if (cached.id === restoreFailedEntryId) {
+            return;
+        }
         const { payload } = cached;
 
         options.isRestoringSplitPayload.value = true;
@@ -178,6 +187,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
             } else {
                 options.workspaceSplitCache.consume(options.tabId, cached.id);
             }
+            restoreFailedEntryId = null;
         } catch (error) {
             if (!isWorkspaceMounted || !isCachedSplitEntryCurrent(options.workspaceSplitCache, options.tabId, cached.id, session)) {
                 BrowserLogger.warn('workspace', 'Cached split payload restore finished after workspace became stale', {
@@ -187,16 +197,27 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
                 });
                 return;
             }
-            const consumedPayload = (
-                session
-                    ? options.workspaceSplitCache.consume(options.tabId, cached.id, {session})
-                    : options.workspaceSplitCache.consume(options.tabId, cached.id)
-            ) ?? payload;
             BrowserLogger.warn('workspace', 'Failed to restore cached split payload', {
                 tabId: options.tabId,
                 payloadKind: payload.kind,
                 error,
             });
+            // Only a pdfSnapshot owns an on-disk snapshot that would leak if its
+            // cache entry survived, so it is consumed and cleaned up here. A DjVu
+            // payload is pure page-position metadata pointing at the user's own
+            // file; keeping its entry lets a transient restore failure retry on the
+            // next remount instead of silently dropping the restored page. Mark the
+            // entry as failed so the watcher does not immediately retry it in a loop
+            // once isRestoringSplitPayload clears in the finally below.
+            if (payload.kind !== 'pdfSnapshot') {
+                restoreFailedEntryId = cached.id;
+                return;
+            }
+            const consumedPayload = (
+                session
+                    ? options.workspaceSplitCache.consume(options.tabId, cached.id, {session})
+                    : options.workspaceSplitCache.consume(options.tabId, cached.id)
+            ) ?? payload;
             await cleanupSplitPayloadSnapshot(consumedPayload, {
                 logSection: 'workspace',
                 context: 'failed-cached-split-restore',

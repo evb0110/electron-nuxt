@@ -27,6 +27,12 @@ const INTEGER_CONTEXT_COUNT: usize = 512;
 /// sharing a class even though transport remains pixel-exact.
 const MIN_CLASSIFIER_AGREEMENT_PER_MILLE: usize = 800;
 const MAX_NEAR_MATCH_COMPONENT_AREA: usize = 16_384;
+/// Hard ceiling on the number of symbols a decoded dictionary may declare,
+/// enforced before reserving. It matches the encoder's default
+/// [`SymbolEncodeLimits::max_symbols`], so every stream this crate produces
+/// still decodes, while a hostile count such as `0xffffffff` is rejected before
+/// any allocation.
+const MAX_DICTIONARY_SYMBOLS: usize = 500_000;
 
 /// Defensive limits for lossless symbol extraction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -333,7 +339,7 @@ pub fn decode_pdf_symbol_page(
     page: &[u8],
     limits: DecodeLimits,
 ) -> Result<OwnedBilevel, Jbig2Error> {
-    let symbols = decode_symbol_dictionary(globals)?;
+    let symbols = decode_symbol_dictionary(globals, limits)?;
     if symbols.is_empty() {
         return Err(Jbig2Error::InvalidSegment("empty symbol dictionary"));
     }
@@ -402,7 +408,7 @@ pub fn decode_pdf_symbol_page(
     let mut integer_contexts = IntegerContexts::new();
     let mut iaid_contexts = vec![0; 1usize << log2_up(symbols.len())];
     let mut refinement_contexts = vec![0; 1 << 13];
-    let mut rows = vec![0u8; stride * height as usize];
+    let mut rows = generic::allocate_zeroed(stride, height)?;
 
     let initial_t = decode_integer(&mut decoder, integer_contexts.get_mut(IntegerProc::Dt))?
         .ok_or(Jbig2Error::InvalidArithmeticData)?;
@@ -470,6 +476,17 @@ pub fn decode_pdf_symbol_page(
                         if target_width == 0 || target_height == 0 {
                             return Err(Jbig2Error::InvalidArithmeticData);
                         }
+                        // A positive refinement delta can push a symbol that was
+                        // exactly at the per-side ceiling past it, so re-check the
+                        // refined target before allocating it.
+                        if target_width > limits.max_dimension
+                            || target_height > limits.max_dimension
+                        {
+                            return Err(Jbig2Error::InvalidDimensions {
+                                width: target_width,
+                                height: target_height,
+                            });
+                        }
                         refined_symbol = decode_refinement(
                             &mut decoder,
                             &mut refinement_contexts,
@@ -478,7 +495,7 @@ pub fn decode_pdf_symbol_page(
                             target_height,
                             rdw >> 1,
                             rdh >> 1,
-                        );
+                        )?;
                         &refined_symbol
                     }
                     _ => return Err(Jbig2Error::InvalidArithmeticData),
@@ -815,13 +832,13 @@ fn decode_refinement(
     height: u32,
     reference_dx: i32,
     reference_dy: i32,
-) -> Symbol {
+) -> Result<Symbol, Jbig2Error> {
     let stride = width.div_ceil(8) as usize;
     let mut target = Symbol {
         width,
         height,
         stride,
-        rows: vec![0; stride * height as usize],
+        rows: generic::allocate_zeroed(stride, height)?,
     };
     for y in 0..target.height as i32 {
         for x in 0..target.width as i32 {
@@ -831,7 +848,7 @@ fn decode_refinement(
             }
         }
     }
-    target
+    Ok(target)
 }
 
 // T.88 template 0 with the standard text-region adaptive pixels (-1,-1).
@@ -1143,7 +1160,7 @@ fn encode_symbol_page(
     Ok(output)
 }
 
-fn decode_symbol_dictionary(data: &[u8]) -> Result<Vec<Symbol>, Jbig2Error> {
+fn decode_symbol_dictionary(data: &[u8], limits: DecodeLimits) -> Result<Vec<Symbol>, Jbig2Error> {
     let (header, dictionary, trailing) = read_segment(data)?;
     if header.number != 0
         || header.segment_type != SYMBOL_DICTIONARY
@@ -1167,6 +1184,15 @@ fn decode_symbol_dictionary(data: &[u8]) -> Result<Vec<Symbol>, Jbig2Error> {
             "symbol dictionary does not export every new symbol",
         ));
     }
+    // The declared symbol count is attacker-controlled and reaches
+    // `Vec::with_capacity` before any bitmap is decoded, so cap it before
+    // reserving. A dictionary claiming millions of symbols cannot be produced
+    // by the bounded encoder and would only serve to exhaust memory.
+    if new > MAX_DICTIONARY_SYMBOLS {
+        return Err(Jbig2Error::Unsupported(
+            "symbol dictionary exports more symbols than the decoder allows",
+        ));
+    }
     let arithmetic = &dictionary[SYMBOL_DICTIONARY_HEADER_LENGTH..];
     if arithmetic.len() < 2 || !arithmetic.ends_with(&[0xff, 0xac]) {
         return Err(Jbig2Error::InvalidArithmeticData);
@@ -1176,6 +1202,12 @@ fn decode_symbol_dictionary(data: &[u8]) -> Result<Vec<Symbol>, Jbig2Error> {
     let mut bitmap_contexts = vec![0; generic::CONTEXT_COUNT];
     let mut symbols = Vec::with_capacity(new);
     let mut height = 0i64;
+    // The per-symbol dimension cap bounds one bitmap, but MAX_DICTIONARY_SYMBOLS
+    // of them can still aggregate to an enormous allocation. Track the running
+    // pixel total and reject the dictionary once it exceeds the same ceiling the
+    // page bitmap is held to.
+    let mut total_pixels = 0u64;
+    let pixel_ceiling = limits.max_pixels.min(DecodeLimits::HARD_MAX_PIXELS);
     while symbols.len() < new {
         let delta_height = decode_integer(&mut decoder, integers.get_mut(IntegerProc::Dh))?
             .ok_or(Jbig2Error::InvalidArithmeticData)?;
@@ -1195,8 +1227,20 @@ fn decode_symbol_dictionary(data: &[u8]) -> Result<Vec<Symbol>, Jbig2Error> {
                 return Err(Jbig2Error::InvalidArithmeticData);
             }
             let (width, height) = (width as u32, height as u32);
+            if width > limits.max_dimension || height > limits.max_dimension {
+                return Err(Jbig2Error::InvalidDimensions { width, height });
+            }
+            total_pixels = total_pixels
+                .checked_add(u64::from(width) * u64::from(height))
+                .ok_or(Jbig2Error::AllocationFailed)?;
+            if total_pixels > pixel_ceiling {
+                return Err(Jbig2Error::PixelLimitExceeded {
+                    pixels: total_pixels,
+                    maximum: pixel_ceiling,
+                });
+            }
             let stride = width.div_ceil(8) as usize;
-            let mut rows = vec![0u8; stride * height as usize];
+            let mut rows = generic::allocate_zeroed(stride, height)?;
             generic::decode_with_coder(
                 &mut decoder,
                 &mut bitmap_contexts,
@@ -1522,7 +1566,7 @@ fn set_bit(rows: &mut [u8], stride: usize, x: u32, y: u32) {
 }
 
 fn validate_dimensions(width: u32, height: u32, limits: DecodeLimits) -> Result<usize, Jbig2Error> {
-    if width == 0 || height == 0 {
+    if width == 0 || height == 0 || width > limits.max_dimension || height > limits.max_dimension {
         return Err(Jbig2Error::InvalidDimensions { width, height });
     }
     let pixels = u64::from(width) * u64::from(height);

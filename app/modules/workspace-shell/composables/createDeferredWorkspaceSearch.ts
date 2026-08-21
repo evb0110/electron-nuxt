@@ -63,11 +63,21 @@ export function createDeferredWorkspaceSearch<TIdentity, TOptions>(options: {
         return options.isReady();
     };
 
+    let latestRequestSeq = 0;
+
     const handleSearchWhenDocumentReady = async () => {
+        const requestSeq = ++latestRequestSeq;
         const requestedIdentity = options.readIdentity();
         const requestedQuery = options.readQuery();
         const requestedOptions = options.readOptions();
         if (!await waitUntilReady() || !options.isIdentityCurrent(requestedIdentity)) {
+            return;
+        }
+        // A newer search request superseded this one while it waited for the
+        // document to become ready. An explicit clear is such a request, so
+        // restoring the captured query here would resurrect the text the user
+        // just erased; abandon the stale request instead.
+        if (requestSeq !== latestRequestSeq) {
             return;
         }
         if (!options.readQuery() && requestedQuery) {

@@ -12,6 +12,7 @@ export type TPdfjsTextOps = Partial<Record<
     | 'setHScale'
     | 'setLeading'
     | 'setFont'
+    | 'setTextRise'
     | 'setTextMatrix'
     | 'moveText'
     | 'setLeadingMoveText'
@@ -44,6 +45,7 @@ interface ITextState {
     charSpacing: number;
     wordSpacing: number;
     leading: number;
+    textRise: number;
 }
 
 interface IIndexedGlyphBox extends IOcrWord {
@@ -208,6 +210,7 @@ function createInitialTextState(): ITextState {
         charSpacing: 0,
         wordSpacing: 0,
         leading: 0,
+        textRise: 0,
     };
 }
 
@@ -244,11 +247,16 @@ function createPageSpaceBox(
     pageBox: IPdfjsPageViewBox,
 ) {
     const textToPage = multiplyMatrices(ctm, state.textMatrix);
+    // PDF text rise (Ts) shifts the glyph vertically in unscaled text space, so
+    // superscripts/subscripts paint above/below the baseline. Offset the glyph's
+    // text-space y before mapping to page space, or the box lands on the baseline.
+    const riseBottom = state.textRise;
+    const riseTop = state.textRise + glyphHeight;
     const corners = [
-        transformPoint(textToPage, 0, 0),
-        transformPoint(textToPage, glyphWidth, 0),
-        transformPoint(textToPage, glyphWidth, glyphHeight),
-        transformPoint(textToPage, 0, glyphHeight),
+        transformPoint(textToPage, 0, riseBottom),
+        transformPoint(textToPage, glyphWidth, riseBottom),
+        transformPoint(textToPage, glyphWidth, riseTop),
+        transformPoint(textToPage, 0, riseTop),
     ];
     const minX = Math.min(...corners.map(point => point.x));
     const maxX = Math.max(...corners.map(point => point.x));
@@ -509,6 +517,9 @@ export function extractPdfjsWordBoxesFromOperatorList(
                 break;
             case ops.setFont:
                 state.fontSize = Math.abs(finiteNumber(args[1], state.fontSize));
+                break;
+            case ops.setTextRise:
+                state.textRise = finiteNumber(args[0], state.textRise);
                 break;
             case ops.setTextMatrix:
                 activeWord = flushActiveWord(words, activeWord);

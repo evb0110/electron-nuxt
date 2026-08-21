@@ -60,6 +60,12 @@ impl OwnedBilevel {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DecodeLimits {
     pub max_pixels: u64,
+    /// Ceiling on either bitmap side, enforced from decoded header values
+    /// before any allocation sized from them. [`DecodeLimits::new`] leaves this
+    /// unconstrained so the pixel ceiling stays the sole limit for existing
+    /// callers; hostile-input callers narrow it with
+    /// [`DecodeLimits::with_max_dimension`].
+    pub max_dimension: u32,
 }
 
 impl DecodeLimits {
@@ -68,7 +74,20 @@ impl DecodeLimits {
 
     #[must_use]
     pub const fn new(max_pixels: u64) -> Self {
-        Self { max_pixels }
+        Self {
+            max_pixels,
+            max_dimension: u32::MAX,
+        }
+    }
+
+    /// Narrows the per-side dimension ceiling, rejecting any decoded width or
+    /// height above `max_dimension` before its bitmap is allocated.
+    #[must_use]
+    pub const fn with_max_dimension(self, max_dimension: u32) -> Self {
+        Self {
+            max_pixels: self.max_pixels,
+            max_dimension,
+        }
     }
 }
 

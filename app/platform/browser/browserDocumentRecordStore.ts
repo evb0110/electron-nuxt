@@ -204,6 +204,21 @@ export class BrowserDocumentRecordStore {
             };
         }
 
+        // A write (or another hydration) may have installed a fresher entry
+        // while the IndexedDB read above was in flight. Installing the loaded
+        // record unconditionally would overwrite those newer bytes, so re-check
+        // the map and defer to whatever landed instead of clobbering it.
+        const concurrent = this.entries.get(ref);
+        if (concurrent) {
+            if (concurrent.pendingLoad) {
+                await concurrent.pendingLoad;
+            }
+            return {
+                available: true,
+                entry: concurrent,
+            };
+        }
+
         const entry = createEntryFromPersistedRecord(normalizedRecord);
 
         this.entries.set(ref, entry);

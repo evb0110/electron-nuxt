@@ -5,7 +5,7 @@ use evb_raster_io::{
     decode_png, decode_png_gray, decode_ppm, decode_ppm_gray, read_png_dimensions,
     read_ppm_dimensions,
 };
-use jbig2_codec::{decode_pdf_generic_source, DecodeLimits};
+use jbig2_codec::{decode_pdf_generic_source, DecodeLimits, Jbig2Error};
 use scan_primitives::{GrayImage, RgbImage};
 use std::{
     fs::File,
@@ -60,8 +60,31 @@ fn read_foreground_selection_with_limit(
         .is_some_and(|extension| extension.eq_ignore_ascii_case("jb2e"))
     {
         let bytes = read_file_bounded(path, max_compressed_bytes).map_err(map_bounded_io_error)?;
-        let decoded = decode_pdf_generic_source(&bytes, DecodeLimits::new(max_pixels))
-            .map_err(|error| RasterReadError::Invalid(error.to_string()))?;
+        let decoded = decode_pdf_generic_source(
+            &bytes,
+            DecodeLimits::new(max_pixels).with_max_dimension(max_dimension),
+        )
+        // A selection that exceeds the caller's dimension or pixel budget is a
+        // resource-limit rejection, not malformed input, so it must surface as
+        // TooLarge to match the explicit post-decode check below and the error
+        // taxonomy the batch adapter maps to NativeErrorCode::TooLarge. Only
+        // genuinely malformed JBIG2 stays Invalid.
+        .map_err(|error| match error {
+            Jbig2Error::InvalidDimensions { width, height }
+                if width > max_dimension || height > max_dimension =>
+            {
+                RasterReadError::TooLarge(format!(
+                    "decoded JBIG2 dimensions {width}x{height} exceed the limit of {max_dimension}"
+                ))
+            }
+            Jbig2Error::PixelLimitExceeded { pixels, maximum } => RasterReadError::TooLarge(
+                format!("decoded JBIG2 has {pixels} pixels, exceeding the limit of {maximum}"),
+            ),
+            other => RasterReadError::Invalid(other.to_string()),
+        })?;
+        // Defense in depth: the decoder already rejects oversized dimensions
+        // from the header before allocating, so this can no longer trip, but it
+        // keeps the guarantee explicit at the call site.
         if decoded.width > max_dimension || decoded.height > max_dimension {
             return Err(RasterReadError::TooLarge(format!(
                 "decoded JBIG2 dimensions {}x{} exceed the limit of {}",
@@ -273,6 +296,30 @@ mod tests {
             assert_eq!(selection.get(2, 0), 0);
             fs::remove_file(path).unwrap();
         }
+    }
+
+    #[test]
+    fn rejects_jbig2_selection_dimensions_above_the_limit_before_allocation() {
+        let encoded = jbig2_codec::encode_pdf_generic(jbig2_codec::Bilevel {
+            width: 8,
+            height: 1,
+            rows: &[0b1010_0000],
+        })
+        .unwrap();
+        let path = temp_path("oversize-dimension-selection.jb2e");
+        fs::write(&path, &encoded).unwrap();
+
+        // The 8 px wide selection exceeds a 4 px dimension ceiling; the decoder
+        // must reject it from the header rather than after allocating. An
+        // over-limit selection is a resource-limit rejection, so it surfaces as
+        // TooLarge (mapped to NativeErrorCode::TooLarge), not Invalid.
+        let error = read_foreground_selection(&path, 64, 4).unwrap_err();
+
+        assert!(
+            matches!(error, RasterReadError::TooLarge(_)),
+            "unexpected error: {error}"
+        );
+        fs::remove_file(&path).unwrap();
     }
 
     #[test]

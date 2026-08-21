@@ -206,6 +206,7 @@ pub(crate) struct Decoder<'a> {
     clow: u32,
     ct: u8,
     a: u32,
+    stuffed: u32,
 }
 
 impl<'a> Decoder<'a> {
@@ -218,6 +219,7 @@ impl<'a> Decoder<'a> {
             clow: 0,
             ct: 0,
             a: 0x8000,
+            stuffed: 0,
         };
         decoder.byte_in();
         decoder.chigh = ((decoder.chigh << 7) & 0xffff) | (decoder.clow >> 9 & 0x7f);
@@ -282,6 +284,10 @@ impl<'a> Decoder<'a> {
         bit
     }
 
+    pub(crate) fn stuffed(&self) -> u32 {
+        self.stuffed
+    }
+
     fn byte_in(&mut self) {
         let current = self.data[self.byte_position];
         if current == 0xff {
@@ -291,6 +297,7 @@ impl<'a> Decoder<'a> {
                 .copied()
                 .unwrap_or(0xff);
             if next > 0x8f {
+                self.stuffed += 1;
                 self.clow += 0xff00;
                 self.ct = 8;
             } else {
@@ -300,10 +307,13 @@ impl<'a> Decoder<'a> {
             }
         } else {
             self.byte_position += 1;
-            self.clow += self
-                .data
-                .get(self.byte_position)
-                .map_or(0xff00, |next| u32::from(*next) << 8);
+            match self.data.get(self.byte_position) {
+                Some(next) => self.clow += u32::from(*next) << 8,
+                None => {
+                    self.stuffed += 1;
+                    self.clow += 0xff00;
+                }
+            }
             self.ct = 8;
         }
         if self.clow > 0xffff {

@@ -327,10 +327,11 @@ async function assertDjvuExportDiskSpace(sourcePath: string, targetPath: string)
 
 async function copyFileCancellable(sourcePath: string, targetPath: string, signal: AbortSignal) {
     const source = await open(sourcePath, 'r');
-    const target = await open(targetPath, 'wx');
     const buffer = Buffer.allocUnsafe(4 * 1024 * 1024);
     let position = 0;
+    let target: Awaited<ReturnType<typeof open>> | null = null;
     try {
+        target = await open(targetPath, 'wx');
         while (true) {
             if (signal.aborted) throw abortErrorFromSignal(signal);
             const {bytesRead} = await source.read(buffer, 0, buffer.byteLength, position);
@@ -342,7 +343,7 @@ async function copyFileCancellable(sourcePath: string, targetPath: string, signa
     } finally {
         await Promise.allSettled([
             source.close(),
-            target.close(),
+            target?.close(),
         ]);
     }
 }

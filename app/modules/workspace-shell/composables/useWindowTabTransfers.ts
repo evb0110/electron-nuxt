@@ -685,7 +685,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    async function handleIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
+    async function processIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
         let target: IIncomingTransferTarget | null = null;
         try {
             target = await prepareIncomingTransferTarget(transfer.transferId);
@@ -720,6 +720,20 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             }
             await ackIncomingTransferFailure(transfer.transferId, getErrorMessage(error));
         }
+    }
+
+    let incomingTransferTail = Promise.resolve();
+
+    function handleIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
+        // Incoming transfers arrive as fire-and-forget IPC events, so two can
+        // overlap. Target acquisition reuses a pane's placeholder tab but only
+        // fills it a few awaits later, so overlapping transfers would both claim
+        // the same placeholder and the second would clobber the first. Serialize
+        // them so each transfer finishes claiming and restoring before the next
+        // resolves its target.
+        const run = incomingTransferTail.then(() => processIncomingTabTransfer(transfer));
+        incomingTransferTail = run.catch(() => undefined);
+        return run;
     }
 
     return {

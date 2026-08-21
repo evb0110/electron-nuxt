@@ -1823,9 +1823,10 @@ mod tests {
     #[test]
     fn layered_jpeg_uses_jbig2_when_it_is_the_smallest_verified_mask_payload() {
         let foreground_mask = BilevelStream::encode(
-            &crate::netpbm::parse_pbm_p4(include_bytes!(
-                "../../jbig2-codec/tests/fixtures/scan-page-000-body.pbm"
-            ))
+            &crate::netpbm::parse_pbm_p4(
+                include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-000-body.pbm"),
+                u64::MAX,
+            )
             .unwrap(),
         )
         .unwrap();
@@ -1974,9 +1975,10 @@ mod tests {
 
     #[test]
     fn the_fallback_payload_prefers_group4_over_deflate_when_it_is_smaller() {
-        let mask = crate::netpbm::parse_pbm_p4(include_bytes!(
-            "../../jbig2-codec/tests/fixtures/scan-page-000-body.pbm"
-        ))
+        let mask = crate::netpbm::parse_pbm_p4(
+            include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-000-body.pbm"),
+            u64::MAX,
+        )
         .unwrap();
 
         let payload = encode_fallback_bilevel_payload(&mask).unwrap();
@@ -2264,7 +2266,7 @@ mod tests {
                     .as_slice(),
             ),
         ] {
-            let mask = parse_pbm_p4(pbm).unwrap();
+            let mask = parse_pbm_p4(pbm, u64::MAX).unwrap();
             let flate = deflate_bytes(&mask.bitmap).unwrap();
             let group4 = encode_mask_ccitt_g4(&mask).unwrap().unwrap();
             let jbig2 = jbig2_codec::encode_pdf_generic_verified(Bilevel {
@@ -2291,9 +2293,10 @@ mod tests {
 
     #[test]
     fn repeated_text_masks_share_one_verified_symbol_dictionary() {
-        let mask = crate::netpbm::parse_pbm_p4(include_bytes!(
-            "../../jbig2-codec/tests/fixtures/scan-page-007-notes.pbm"
-        ))
+        let mask = crate::netpbm::parse_pbm_p4(
+            include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-007-notes.pbm"),
+            u64::MAX,
+        )
         .unwrap();
         let mut first = BilevelStream::encode(&mask).unwrap();
         let mut second = BilevelStream::encode(&mask).unwrap();

@@ -10,6 +10,16 @@ use fax::{
 pub(crate) const CONTEXT_COUNT: usize = 1 << 16;
 const TPGD_CONTEXT: usize = 0x9b25;
 
+/// Upper bound on synthesized (stuffed) bytes an intact arithmetic stream needs
+/// while draining the C register at its terminating marker. The MQ decoder
+/// reads at most two synthetic bytes past the real payload during termination
+/// (T.88 Annex E), so a conformant stream stuffs at most twice regardless of
+/// image size; this was confirmed empirically across thousands of random
+/// streams from 1x1 to 400x400. A truncation that leans on the appended marker
+/// to fabricate missing arithmetic bytes stuffs more, so anything above this
+/// bound is a padded-state decode.
+const MAX_FLUSH_STUFFED_BYTES: u32 = 2;
+
 pub(crate) fn encode(width: u32, height: u32, rows: &[u8], stride: usize) -> Vec<u8> {
     let mut coder = Encoder::new();
     let mut contexts = vec![0; CONTEXT_COUNT];
@@ -82,6 +92,17 @@ pub(crate) fn decode(
         &mut rows,
         typical_prediction,
     );
+
+    // A complete stream reaches its terminating `ff ac` marker only for the
+    // final C-register flush, which stuffs at most two synthesized bytes
+    // regardless of image size. A truncated payload with a marker appended
+    // forces the decoder to fabricate the missing arithmetic bytes, producing
+    // pixels from padded state. The canonical decoder catches this by
+    // re-encoding, but the source decoder disables that check, so reject a
+    // stream that leans on more than a small flush budget of stuffed bytes.
+    if coder.stuffed() > MAX_FLUSH_STUFFED_BYTES {
+        return Err(Jbig2Error::Truncated);
+    }
 
     if require_canonical_arithmetic && encode(width, height, &rows, stride) != data {
         return Err(Jbig2Error::InvalidArithmeticData);
@@ -176,7 +197,7 @@ pub(crate) fn decode_mmr(
     })
 }
 
-fn allocate_zeroed(stride: usize, height: u32) -> Result<Vec<u8>, Jbig2Error> {
+pub(crate) fn allocate_zeroed(stride: usize, height: u32) -> Result<Vec<u8>, Jbig2Error> {
     let length = stride
         .checked_mul(height as usize)
         .ok_or(Jbig2Error::AllocationFailed)?;

@@ -148,7 +148,7 @@ pub(crate) fn decode(
 }
 
 fn validate_dimensions(width: u32, height: u32, limits: DecodeLimits) -> Result<usize, Jbig2Error> {
-    if width == 0 || height == 0 {
+    if width == 0 || height == 0 || width > limits.max_dimension || height > limits.max_dimension {
         return Err(Jbig2Error::InvalidDimensions { width, height });
     }
     let pixels = u64::from(width) * u64::from(height);

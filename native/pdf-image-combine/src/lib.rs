@@ -77,7 +77,7 @@ pub fn fuzz_parse_tiff(data: &[u8]) {
 
 #[doc(hidden)]
 pub fn fuzz_parse_netpbm(data: &[u8]) {
-    let _ = netpbm::parse_pbm_p4(data);
+    let _ = netpbm::parse_pbm_p4(data, 80_000_000);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -792,11 +792,7 @@ fn read_mask_bitmap(source: InputSource<'_>, max_pixels: u64) -> Result<crate::n
     }
     match source {
         InputSource::File { file, .. } => Ok(read_pbm_p4_file(file, max_pixels)?),
-        InputSource::Bytes { data, .. } => {
-            let mask = parse_pbm_p4(data)?;
-            assert_pixel_limit(mask.width, mask.height, max_pixels)?;
-            Ok(mask)
-        }
+        InputSource::Bytes { data, .. } => Ok(parse_pbm_p4(data, max_pixels)?),
     }
 }
 

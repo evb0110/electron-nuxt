@@ -230,6 +230,19 @@ export function buildPrivateDeployArgs(sourceRoot, rawArgs = []) {
     ];
 }
 
+export function quoteWindowsShellArg(arg) {
+    // spawnSync with shell:true on Windows concatenates args into a cmd.exe
+    // command line. Whitespace splits an unquoted arg, but so do cmd's own
+    // metacharacters (& | < > ( ) ^): a scratch path under an account name like
+    // "A&B" (C:\Users\A&B\AppData\Local\Temp\...) has no spaces yet the bare &
+    // makes cmd run the tail as a separate command. Wrapping every argument in
+    // double quotes makes all of those literal, and the target program's own
+    // argv parser strips the outer quotes. The one residual cmd cannot escape is
+    // % (env expansion runs even inside quotes); it is not reachable from the
+    // paths and deploy flags built here.
+    return `"${arg.replace(/"/g, '\\"')}"`;
+}
+
 export function runPrivateVercelDeploy({
     command = process.env.VERCEL_CLI || 'vercel',
     projectRoot = defaultProjectRoot,
@@ -246,11 +259,14 @@ export function runPrivateVercelDeploy({
     const commandArgs = buildPrivateDeployArgs(prepared.sourceRoot, deployArgs);
 
     try {
+        const useShell = process.platform === 'win32';
+        const spawnCommand = useShell ? quoteWindowsShellArg(command) : command;
+        const spawnArgs = useShell ? commandArgs.map(quoteWindowsShellArg) : commandArgs;
         console.log(`> ${command} ${commandArgs.join(' ')}`);
-        const result = spawnSync(command, commandArgs, {
+        const result = spawnSync(spawnCommand, spawnArgs, {
             cwd: prepared.sourceRoot,
             env: process.env,
-            shell: process.platform === 'win32',
+            shell: useShell,
             stdio: 'inherit',
         });
 

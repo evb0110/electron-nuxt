@@ -116,22 +116,35 @@ export default defineNuxtPlugin((nuxtApp) => {
         }
 
         void (async () => {
-            if (!await waitForRuntimeErrorLogBridge() || cleanedUp || unsubscribeDebugLog) {
-                return;
-            }
-
-            unsubscribeDebugLog = getSettingsCapability().onDebugLog((entry) => {
-                if (!isUiReportableLog(entry)) {
+            try {
+                if (!await waitForRuntimeErrorLogBridge() || cleanedUp || unsubscribeDebugLog) {
                     return;
                 }
 
+                unsubscribeDebugLog = getSettingsCapability().onDebugLog((entry) => {
+                    if (!isUiReportableLog(entry)) {
+                        return;
+                    }
+
+                    reportRuntimeError({
+                        title: t('errors.runtime.streamError'),
+                        source: entry.source,
+                        error: `${entry.timestamp}\n${entry.message}`,
+                        dedupeKey: `${entry.source}\n${entry.message}`,
+                    });
+                });
+            } catch (error) {
+                // The bridge readiness probe only checks for a raw electronAPI
+                // object; getSettingsCapability() validates the full contract and
+                // can still throw on a partially initialized bridge. Surface that
+                // instead of leaking an unhandled rejection.
                 reportRuntimeError({
                     title: t('errors.runtime.streamError'),
-                    source: entry.source,
-                    error: `${entry.timestamp}\n${entry.message}`,
-                    dedupeKey: `${entry.source}\n${entry.message}`,
+                    source: 'runtime-error-log-stream',
+                    error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+                    dedupeKey: 'runtime-error-log-stream-init',
                 });
-            });
+            }
         })();
     });
 

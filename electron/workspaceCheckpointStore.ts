@@ -9,11 +9,16 @@ import {
     decodeWorkspaceCheckpoint,
     type IWorkspaceCheckpoint,
 } from '@contracts/workspaceCheckpoint';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isErrnoException,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import { createLogger } from '@electron/utils/createLogger';
+import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
 import {
     claimWorkingCopyOwnership,
     getWorkingCopyBackingEntry,
@@ -26,6 +31,8 @@ import {
     type TWorkingCopyBackingErrorCode,
     type TWorkingCopyRole,
 } from '@electron/file-access/workingCopyStore';
+
+const log = createLogger('workspace-checkpoint-store');
 
 interface IStoredLazyWorkingCopy {
     admissionSnapshot: {
@@ -289,11 +296,41 @@ function canonicalizeCheckpointSources(
     } satisfies IWorkspaceCheckpoint;
 }
 
+async function quarantineCorruptWorkspaceCheckpoint(reason: string) {
+    // A corrupt checkpoint must not silently masquerade as "no checkpoint" on
+    // every startup: log it and move it aside so recovery stops repeating while
+    // the bad file is preserved for diagnosis.
+    log.error(`Discarding workspace checkpoint: ${reason}`);
+    const storagePath = getStoragePath();
+    try {
+        const quarantinePath = await quarantineCorruptFile(storagePath);
+        if (quarantinePath) {
+            log.warn(`Quarantined corrupt workspace checkpoint at ${quarantinePath}`);
+        } else {
+            log.warn(`Corrupt workspace checkpoint already absent at ${storagePath}; nothing to quarantine`);
+        }
+    } catch (error) {
+        // A failed quarantine must not masquerade as success: keep the original
+        // error and the checkpoint path so the bad file can still be found. The
+        // corrupt checkpoint is treated as discarded either way, so recovery
+        // continues rather than propagating this failure.
+        log.error(`Failed to quarantine corrupt workspace checkpoint at ${storagePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
 async function writeStoredWorkspaceCheckpoint(stored: IStoredWorkspaceCheckpoint) {
     const storagePath = getStoragePath();
     const tempPath = makeSiblingTempPath(storagePath);
-    await writeFile(tempPath, JSON.stringify(stored, null, 2), 'utf-8');
-    await atomicReplace(tempPath, storagePath);
+    try {
+        await writeFile(tempPath, JSON.stringify(stored, null, 2), 'utf-8');
+        await atomicReplace(tempPath, storagePath);
+    } catch (error) {
+        // A failed write or replace must not leave the sibling .tmp behind, or
+        // autosave retries accumulate orphans in userData and worsen a disk-full
+        // condition. Best-effort cleanup; the original error still propagates.
+        await rm(tempPath, {force: true}).catch(() => undefined);
+        throw error;
+    }
 }
 
 function settleCheckpointSave(
@@ -490,16 +527,45 @@ export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, 
 
 export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
     return enqueueWorkspaceCheckpointBarrier(async () => {
+        let raw: string;
+        try {
+            raw = await readFile(getStoragePath(), 'utf-8');
+        } catch (error) {
+            if (isErrnoException(error) && error.code === 'ENOENT') {
+                // No checkpoint has been written yet: the normal clean-startup case.
+                return null;
+            }
+            // A permission or transient I/O failure is not corruption; log it but
+            // leave the file in place rather than quarantining a file we could not read.
+            log.error(`Failed to read workspace checkpoint: ${error instanceof Error ? error.message : String(error)}`);
+            return null;
+        }
+
         let stored: IStoredWorkspaceCheckpoint | null = null;
         try {
-            stored = decodeStoredCheckpoint(JSON.parse(await readFile(getStoragePath(), 'utf-8')));
-        } catch {
+            stored = decodeStoredCheckpoint(JSON.parse(raw));
+        } catch (error) {
+            await quarantineCorruptWorkspaceCheckpoint(
+                `parse failure: ${error instanceof Error ? error.message : String(error)}`,
+            );
             return null;
         }
         if (!stored) {
+            await quarantineCorruptWorkspaceCheckpoint('schema decode returned no checkpoint');
             return null;
         }
-        assertNoDirtyLazyRecovery(stored);
+        try {
+            assertNoDirtyLazyRecovery(stored);
+        } catch (error) {
+            // A persisted-state invariant violation is corruption, not a
+            // transient failure: quarantine and return null like the parse and
+            // schema paths above, or the same bad file crash-loops recovery on
+            // every startup. This runs before any ownership change below.
+            await quarantineCorruptWorkspaceCheckpoint(
+                `invariant failure: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            return null;
+        }
         const canonicalCheckpoint = canonicalizeCheckpointSources(
             stored.checkpoint,
             stored.ownerWebContentsId,

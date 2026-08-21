@@ -190,7 +190,7 @@ const projectConfig = withNuxt(
         ['electron/features/agent/mcp/mcpServerCore.ts', 979],
         ['scripts/architecture/boundary-check.mjs', 1232],
         ['app/platform/browser-api/browserDjvuCapability.ts', 1202],
-        ['electron/features/djvu/main/pdfExport.ts', 1287],
+        ['electron/features/djvu/main/pdfExport.ts', 1288],
         ['packages/contracts/djvuPlatformFeature.ts', 1328],
         ['packages/contracts/ocrPlatformFeature.ts', 1368],
     ].map(([

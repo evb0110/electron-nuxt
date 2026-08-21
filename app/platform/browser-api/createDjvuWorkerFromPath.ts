@@ -753,6 +753,11 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
         }
         return sizes;
     });
+    // The load starts eagerly, so a stale transition can terminate the preview
+    // before any accessor awaits it. Attach a detached handler to keep a
+    // rejection from surfacing as an unhandled rejection; real consumers still
+    // await pageSizesPromise and observe the error.
+    pageSizesPromise.catch(() => undefined);
 
     return {
         fullResolutionDecodeBeforeScale: true,

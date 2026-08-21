@@ -13,6 +13,7 @@ import {
 import { getErrorMessage } from '@app/utils/error';
 
 const canceledRequestIds = new Set<number>();
+const activeLoadCancellers = new Map<number, (error: Error) => void>();
 
 async function handleExtractDocumentTextRequest(
     request: IBrowserSearchWorkerRequest<'extractDocumentText'>,
@@ -21,6 +22,14 @@ async function handleExtractDocumentTextRequest(
     const rangeReadFailure = new Promise<never>((_resolve, reject) => {
         rejectRangeReadFailure = reject;
     });
+    let cancelLoad: ((error: Error) => void) | null = null;
+    const loadCancellation = new Promise<never>((_resolve, reject) => {
+        cancelLoad = reject;
+    });
+    // A cancel that arrives while the document is still loading must abort the
+    // load itself; the page loop below only observes cancellation once loading
+    // has resolved, which for a large ranged PDF can keep range reads alive.
+    activeLoadCancellers.set(request.id, (error) => cancelLoad?.(error));
     const loadingTask = pdfjsLib.getDocument(await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, request.payload.pdfPath, {onRangeReadFailure: (error) => {
         const reject = rejectRangeReadFailure;
         rejectRangeReadFailure = null;
@@ -31,12 +40,16 @@ async function handleExtractDocumentTextRequest(
         pdfDocument = await Promise.race([
             loadingTask.promise,
             rangeReadFailure,
+            loadCancellation,
         ]);
     } catch (error) {
         await loadingTask.destroy();
+        canceledRequestIds.delete(request.id);
         throw error;
     } finally {
         rejectRangeReadFailure = null;
+        cancelLoad = null;
+        activeLoadCancellers.delete(request.id);
     }
     const pageTexts = Array.from({ length: pdfDocument.numPages }, () => '');
 
@@ -74,7 +87,9 @@ async function handleExtractDocumentTextRequest(
 function handleCancelRequest(
     request: IBrowserSearchWorkerRequest<'cancel'>,
 ) {
-    canceledRequestIds.add(request.payload.requestId);
+    const { requestId } = request.payload;
+    canceledRequestIds.add(requestId);
+    activeLoadCancellers.get(requestId)?.(new Error('ERR_BROWSER_SEARCH_CANCELED'));
     return { canceled: true };
 }
 

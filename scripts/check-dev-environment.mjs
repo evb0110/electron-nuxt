@@ -2,6 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import {
+    delimiter,
     dirname,
     join,
 } from 'node:path';
@@ -25,10 +26,14 @@ Options:
     process.exit(0);
 }
 
+const userHome = process.env.HOME ?? process.env.USERPROFILE ?? '';
+const cargoBin = process.env.CARGO_HOME
+    ? join(process.env.CARGO_HOME, 'bin')
+    : userHome ? join(userHome, '.cargo', 'bin') : '';
 const PATH = [
-    join(process.env.HOME ?? '', '.cargo', 'bin'),
+    cargoBin,
     process.env.PATH ?? '',
-].filter(Boolean).join(':');
+].filter(Boolean).join(delimiter);
 
 function run(command, commandArgs = [], options = {}) {
     const result = spawnSync(command, commandArgs, {
@@ -55,11 +60,13 @@ function run(command, commandArgs = [], options = {}) {
 }
 
 function commandPath(command) {
-    const result = run('sh', [
-        '-lc',
-        `command -v ${command}`,
-    ], { timeout: 5_000 });
-    return result.ok ? result.stdout.split('\n')[0] : null;
+    const result = process.platform === 'win32'
+        ? run('where', [command], { timeout: 5_000 })
+        : run('sh', [
+            '-lc',
+            `command -v ${command}`,
+        ], { timeout: 5_000 });
+    return result.ok ? (result.stdout.split('\n')[0] ?? '').trim() || null : null;
 }
 
 function nodeProbe(source) {

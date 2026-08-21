@@ -140,7 +140,7 @@ function resolveWasmUrl() {
 }
 
 async function loadPdfPageOpsWasm() {
-    wasmExportsPromise ??= (async () => {
+    const pending = wasmExportsPromise ??= (async () => {
         try {
             const instantiated = await loadWasmWithDeadline(resolveWasmUrl());
             const instance = 'instance' in instantiated
@@ -148,11 +148,16 @@ async function loadPdfPageOpsWasm() {
                 : instantiated;
             return getPdfPageOpsWasmExports(instance.exports);
         } catch {
+            // A transient fetch/instantiate failure must not disable WASM for the
+            // rest of the session. Clear the memo so a later op re-attempts the
+            // load. A module that loads but exports the wrong shape returns null
+            // without throwing and stays cached, since that failure is permanent.
+            wasmExportsPromise = null;
             return null;
         }
     })();
 
-    return wasmExportsPromise;
+    return pending;
 }
 
 function writeMagic(request: Uint8Array, offset: number) {

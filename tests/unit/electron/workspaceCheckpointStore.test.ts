@@ -1,5 +1,6 @@
 import {
     mkdtemp,
+    readdir,
     readFile,
     rm,
     writeFile,
@@ -300,7 +301,7 @@ describe('workspace checkpoint store', () => {
         });
     });
 
-    it('rejects dirty lazy checkpoint persistence and recovery', async () => {
+    it('rejects dirty lazy persistence and quarantines it on recovery', async () => {
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
         state.backingEntries.set(workingCopyRef, {
@@ -333,8 +334,16 @@ describe('workspace checkpoint store', () => {
                 workingCopyRef,
             }],
         }));
-        await expect(claimWorkspaceCheckpoint(22))
-            .rejects.toThrow('rejected dirty lazy working-copy recovery');
+        // The save path throws on dirty-lazy state, so a persisted checkpoint
+        // can never legitimately contain it: encountering it on recovery means
+        // the file is corrupt. Claim quarantines the bad file and returns null
+        // rather than throwing, which would otherwise crash-loop recovery on
+        // every startup because nothing clears the file. Ownership is untouched
+        // because the guard runs before any transfer.
+        await expect(claimWorkspaceCheckpoint(22)).resolves.toBeNull();
         expect(state.owners.get(workingCopyRef)).toBe(11);
+        const entries = await readdir(state.userDataPath);
+        expect(entries).not.toContain('workspace-checkpoint.json');
+        expect(entries.some(name => name.endsWith('.corrupt'))).toBe(true);
     });
 });

@@ -29,7 +29,6 @@ export function createPdfRangeRequestBridge({
     getRenderVersion,
     onRangeReadFailure,
 }: IPdfRangeRequestBridgeOptions) {
-    let rangeReadTail = Promise.resolve();
     function createRangeReadFailureHandler(): IPdfRangeReadFailureHandler {
         let rejectRangeReadFailure: ((error: Error) => void) | null = null;
         let failed = false;
@@ -194,6 +193,13 @@ export function createPdfRangeRequestBridge({
         preloadedRanges: readonly IPdfPreloadedRange[],
     ) {
         const isAbandoned = () => version !== getRenderVersion() || rangeFailure.hasFailed();
+
+        // Serialize this transport's range reads so overlapping intervals never
+        // interleave onDataRange deliveries. The queue is scoped to this handler
+        // so a stale document whose read hangs (transport.abort() is a no-op in
+        // the bundled PDF.js and readFileRange has no cancel signal) cannot block
+        // the next document's transport, which gets its own fresh chain.
+        let rangeReadTail = Promise.resolve();
 
         // PDF.js will call this to request additional chunks.
         transport.requestDataRange = (
