@@ -1291,7 +1291,8 @@ describe('release policy', () => {
         expect(workflow).toContain('[ "$resolved_release_sha" != "$TARGET_SHA" ]');
         expect(workflow).toContain('already_public=true');
         expect(workflow).toContain('needs.publish.outputs.already_public != \'true\'');
-        expect(workflow).toContain('submit: true');
+        expect(workflow)
+            .toContain('submit: ${{ needs.release_credentials.outputs.submit_store == \'true\' }}');
         expect(workflow).toContain('Existing public assets passed presence and updater integrity checks');
         expect(workflow).toContain('Retaining checksum-finalized draft assets from the same target');
         expect(workflow).toContain('grep -Fq \'release not found\'');
