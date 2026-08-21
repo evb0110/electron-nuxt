@@ -27,6 +27,14 @@
                     </div>
                 </div>
 
+                <UAlert
+                    v-if="conversionBlockedMessage"
+                    color="warning"
+                    variant="soft"
+                    icon="i-ph-warning-circle"
+                    :description="conversionBlockedMessage"
+                />
+
                 <div class="convert-presets flex flex-col gap-2">
                     <URadioGroup
                         v-model="selectedPresetValue"
@@ -154,7 +162,8 @@
             <UButton
                 :label="t('common.convert')"
                 color="primary"
-                :disabled="estimatesLoading"
+                :loading="infoLoading"
+                :disabled="infoLoading || Boolean(conversionBlockedMessage)"
                 @click="handleConvert"
             />
         </template>
@@ -171,6 +180,7 @@ import type {
 import {
     DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES,
     evaluateDjvuPdfConversionPolicy,
+    resolveBrowserDjvuConversionPreflight,
     type IDjvuPdfConversionMetrics,
 } from '@contracts/djvuConversionPolicy';
 import {
@@ -187,6 +197,7 @@ import {
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
+import { isBrowserPlatformActive } from '@app/utils/platform';
 
 const { t } = useTypedI18n();
 
@@ -227,8 +238,10 @@ interface IResolvedPreset {
 }
 
 const info = ref<IInfo | null>(null);
+const infoLoading = ref(false);
 const estimates = ref<IDjvuSizeEstimate[]>([]);
 const estimatesLoading = ref(false);
+const dialogGeneration = ref(0);
 const selectedPresetValue = ref<TDjvuConvertDialogPresetValue>(DJVU_COMPACT_BALANCED_PRESET_VALUE);
 const preserveBookmarks = ref(true);
 const advancedRasterOpen = ref(false);
@@ -316,6 +329,27 @@ const selectedConversionPolicy = computed(() => (
         : null
 ));
 
+const browserConversionPreflight = computed(() => {
+    if (!isBrowserPlatformActive() || !info.value) {
+        return null;
+    }
+
+    return resolveBrowserDjvuConversionPreflight(info.value.pageSizes ?? [], info.value.pageCount);
+});
+const conversionBlockedMessage = computed(() => {
+    const preflight = browserConversionPreflight.value;
+    if (!preflight || preflight.allowed) {
+        return null;
+    }
+
+    return preflight.reason === 'page-count'
+        ? t('djvu.convertDialog.browserPageLimit', {
+            pages: preflight.pageCount.toLocaleString(),
+            maxPages: preflight.maxPages.toLocaleString(),
+        })
+        : t('djvu.convertDialog.browserPixelLimit');
+});
+
 const fileName = computed(() => getDocumentRefBaseName(djvuPath) ?? '');
 const pageCountLabel = computed(() => info.value?.pageCount.toLocaleString() ?? t('common.loading'));
 const sourceResolutionLabel = computed(() => (
@@ -384,28 +418,27 @@ watch(() => selectedConversion.value.pdfStrategy, (pdfStrategy) => {
     }
 });
 
-watch(open, async (isOpen, _wasOpen, onCleanup) => {
+watch(open, async (isOpen) => {
+    dialogGeneration.value += 1;
     if (!isOpen || !djvuPath) {
         return;
     }
 
-    let isCurrentRequest = true;
+    const generation = dialogGeneration.value;
     const requestPath = djvuPath;
-    onCleanup(() => {
-        isCurrentRequest = false;
-    });
 
     selectedPresetValue.value = DJVU_COMPACT_BALANCED_PRESET_VALUE;
     advancedRasterOpen.value = false;
     preserveBookmarks.value = true;
     info.value = null;
     estimates.value = [];
-    estimatesLoading.value = true;
+    estimatesLoading.value = false;
+    infoLoading.value = true;
 
     try {
         const djvu = getDjvuCapability();
         const djvuInfo = await djvu.getInfo(requestPath);
-        if (!isCurrentRequest) {
+        if (generation !== dialogGeneration.value) {
             return;
         }
         info.value = {
@@ -413,29 +446,55 @@ watch(open, async (isOpen, _wasOpen, onCleanup) => {
             pageSizes: null,
         };
 
-        const [
-            pageSizes,
-            sizeEstimates,
-        ] = await Promise.all([
-            djvu.getPageSizes(requestPath).catch((pageSizeError: unknown) => {
-                BrowserLogger.warn('djvu-convert-dialog', 'Failed to load DjVu page sizes for conversion policy', {
-                    path: requestPath,
-                    error: pageSizeError,
-                });
-                return null;
-            }),
-            djvu.estimateSizes(requestPath),
-        ]);
-        if (!isCurrentRequest) {
+        const pageSizes = await djvu.getPageSizes(requestPath).catch((pageSizeError: unknown) => {
+            BrowserLogger.warn('djvu-convert-dialog', 'Failed to load DjVu page sizes for conversion policy', {
+                path: requestPath,
+                error: pageSizeError,
+            });
+            return null;
+        });
+        if (generation !== dialogGeneration.value) {
             return;
         }
         info.value = {
             ...djvuInfo,
             pageSizes,
         };
+    } catch (error) {
+        if (generation !== dialogGeneration.value) {
+            return;
+        }
+        BrowserLogger.warn('djvu-convert-dialog', 'Failed to load DjVu conversion info', {
+            path: requestPath,
+            error,
+        });
+    } finally {
+        if (generation === dialogGeneration.value) {
+            infoLoading.value = false;
+        }
+    }
+});
+
+watch(advancedRasterOpen, async (isAdvancedOpen) => {
+    if (!isAdvancedOpen || !open.value || !djvuPath) {
+        return;
+    }
+    if (estimatesLoading.value || estimates.value.length > 0) {
+        return;
+    }
+
+    const generation = dialogGeneration.value;
+    const requestPath = djvuPath;
+    estimatesLoading.value = true;
+
+    try {
+        const sizeEstimates = await getDjvuCapability().estimateSizes(requestPath);
+        if (generation !== dialogGeneration.value) {
+            return;
+        }
         estimates.value = sizeEstimates;
     } catch (error) {
-        if (!isCurrentRequest) {
+        if (generation !== dialogGeneration.value) {
             return;
         }
         BrowserLogger.warn('djvu-convert-dialog', 'Failed to load DjVu conversion estimates', {
@@ -443,13 +502,16 @@ watch(open, async (isOpen, _wasOpen, onCleanup) => {
             error,
         });
     } finally {
-        if (isCurrentRequest) {
+        if (generation === dialogGeneration.value) {
             estimatesLoading.value = false;
         }
     }
 });
 
 function handleConvert() {
+    if (infoLoading.value || conversionBlockedMessage.value) {
+        return;
+    }
     const policy = selectedConversionPolicy.value;
     if (policy && !policy.isAllowed) {
         selectedPresetValue.value = DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE;

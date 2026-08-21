@@ -9,6 +9,7 @@ import type {
 import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import {
     normalizeDjvuPdfSubsample,
+    resolveBrowserDjvuConversionPreflight,
     resolveDjvuPdfExportStrategy,
 } from '@contracts/djvuConversionPolicy';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -42,8 +43,6 @@ import {
     type IRenderedDjvuPage,
 } from '@app/platform/browser-api/browserDjvuRasterizer';
 
-const DJVU_MAX_PAGES = 500;
-const DJVU_MAX_PAGE_PIXELS = 80_000_000;
 const DJVU_COMPACT_PHOTO_PAGE_SPEC_MAX_BYTES = 192 * 1024 * 1024;
 const DJVU_PAGE_SPEC_OVERHEAD_BYTES = 256;
 const DJVU_DIRECT_PDF_JPEG_QUALITY = 0.92;
@@ -119,14 +118,10 @@ export function resolveBrowserDjvuPdfRenderConcurrency(
     );
 }
 
-export interface IBrowserDjvuConversionPreflight {
-    allowed: boolean;
-    maxPagePixels: number;
-    maxPages: number;
-    observedMaxPagePixels: number;
-    pageCount: number;
-    reason?: 'page-count' | 'page-pixels';
-}
+export {
+    resolveBrowserDjvuConversionPreflight,
+    type IBrowserDjvuConversionPreflight,
+} from '@contracts/djvuConversionPolicy';
 
 export interface IBrowserDjvuCompactExportPlan {
     strategy: 'compact-djvu-aware' | 'direct-fallback';
@@ -162,29 +157,6 @@ export function resolveBrowserDjvuCompactExportPlan(
         estimatedPageSpecBytes,
         maxPageSpecBytes,
         ...(fallbackReason ? {fallbackReason} : {}),
-    };
-}
-
-export function resolveBrowserDjvuConversionPreflight(
-    pageSizes: readonly IDjvuPageMetrics[],
-): IBrowserDjvuConversionPreflight {
-    const observedMaxPagePixels = pageSizes.reduce((maxPixels, page) => {
-        const width = Number.isFinite(page.width) ? Math.max(0, Math.trunc(page.width ?? 0)) : 0;
-        const height = Number.isFinite(page.height) ? Math.max(0, Math.trunc(page.height ?? 0)) : 0;
-        return Math.max(maxPixels, width * height);
-    }, 0);
-    const reason = pageSizes.length > DJVU_MAX_PAGES
-        ? 'page-count'
-        : observedMaxPagePixels > DJVU_MAX_PAGE_PIXELS
-            ? 'page-pixels'
-            : undefined;
-    return {
-        allowed: reason === undefined,
-        maxPagePixels: DJVU_MAX_PAGE_PIXELS,
-        maxPages: DJVU_MAX_PAGES,
-        observedMaxPagePixels,
-        pageCount: pageSizes.length,
-        ...(reason ? {reason} : {}),
     };
 }
 
@@ -802,10 +774,10 @@ export async function runBrowserDjvuConversion(
         }
         const preflight = resolveBrowserDjvuConversionPreflight(pageSizes);
         if (!preflight.allowed) {
-            const limit = preflight.reason === 'page-count'
-                ? `${preflight.maxPages} pages`
-                : `${preflight.maxPagePixels.toLocaleString('en-US')} pixels per page`;
-            throw new Error(`Browser rasterized compatibility export exceeds its ${limit} limit. Use the Electron app for archival conversion.`);
+            const limitDescription = preflight.reason === 'page-count'
+                ? `has ${preflight.pageCount} pages, but converting in the browser supports up to ${preflight.maxPages}`
+                : 'has pages too large to convert in the browser';
+            throw new Error(`This document ${limitDescription}. Use the desktop app to convert it.`);
         }
 
         emitProgress({

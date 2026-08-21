@@ -149,7 +149,6 @@ describe('browserDjvuConversionPipeline', () => {
         expect(resolveBrowserDjvuConversionPreflight(Array.from({length: 500}, () => ({
             width: 8_000,
             height: 10_000,
-            dpi: 300,
         })))).toMatchObject({
             allowed: true,
             maxPagePixels: 80_000_000,
@@ -158,7 +157,6 @@ describe('browserDjvuConversionPipeline', () => {
         expect(resolveBrowserDjvuConversionPreflight(Array.from({length: 501}, () => ({
             width: 100,
             height: 100,
-            dpi: 300,
         })))).toMatchObject({
             allowed: false,
             reason: 'page-count',
@@ -166,7 +164,6 @@ describe('browserDjvuConversionPipeline', () => {
         expect(resolveBrowserDjvuConversionPreflight([{
             width: 10_000,
             height: 8_001,
-            dpi: 300,
         }])).toMatchObject({
             allowed: false,
             reason: 'page-pixels',
