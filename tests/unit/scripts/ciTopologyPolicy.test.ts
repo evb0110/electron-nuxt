@@ -1,5 +1,8 @@
 import {isRecord} from '@contracts/runtimeGuards';
-import { execFileSync } from 'node:child_process';
+import {
+    execFileSync,
+    spawnSync,
+} from 'node:child_process';
 import {
     chmodSync,
     existsSync,
@@ -687,11 +690,12 @@ describe('CI topology policy', () => {
         expect(macCertificateImportScript).toContain('Developer ID Application');
 
         const releaseCredentials = workflowJob(releaseWorkflow, 'release_credentials');
-        expect(releaseCredentials).toContain('Require public release credentials');
+        expect(releaseCredentials).toContain('Resolve public release channels');
         expect(releaseCredentials).toContain('environment: release');
-        expect(releaseCredentials).toContain('unsigned Windows installers cannot be promoted');
+        expect(releaseCredentials).toContain('direct-download Windows installers will be unsigned');
         expect(releaseCredentials).toContain('unsigned or unnotarized macOS artifacts cannot be promoted');
-        expect(releaseCredentials).toContain('required Microsoft Store channel cannot be skipped');
+        expect(releaseCredentials).toContain('Microsoft Store submission will be skipped');
+        expect(releaseCredentials).toContain('publish_store=$publish_store');
         expect(workflowJob(releaseWorkflow, 'build_artifacts')).toContain('- release_credentials');
 
         const packagedScanCleanupVerifier = workflowJob(releaseWorkflow, 'verify_packaged_scan_cleanup');
@@ -776,11 +780,14 @@ describe('CI topology policy', () => {
         expect(publishJob).toContain('pattern: supplemental-mac-x64');
         expect(finalizeAssetsJob).not.toContain('- publish_store');
         expect(stageMirrorJob).toContain('- finalize_release_assets');
+        expect(publishStoreJob).toContain('- release_credentials');
         expect(publishStoreJob).toContain('- stage_mirror');
+        expect(publishStoreJob).toContain('if: ${{ needs.release_credentials.outputs.publish_store == \'true\' }}');
         expect(publishStoreJob).toContain('submit: true');
         expect(stageMirrorJob).toContain('publish-release-mirror.mjs artifacts "${{ needs.prepare.outputs.tag }}" --stage');
         expect(promoteJob).toContain('- stage_mirror');
         expect(promoteJob).toContain('- publish_store');
+        expect(promoteJob).toContain('needs.publish_store.result == \'success\' || needs.publish_store.result == \'skipped\'');
         expect(stageMirrorJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
         expect(promoteJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
         expect(finalizeAssetsJob).toContain('name: Publish or verify immutable release checksums');
@@ -793,6 +800,105 @@ describe('CI topology policy', () => {
         expect(finalizeAssetsJob).toContain('actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a');
         expect(promoteJob.indexOf('gh release edit "$RELEASE_TAG" --draft=false'))
             .toBeLessThan(promoteJob.indexOf('name: Activate verified mirror channel'));
+    });
+
+    it('resolves optional release channels across the credential matrix', async () => {
+        const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
+        const releaseCredentials = parseWorkflowJobs(releaseWorkflow).release_credentials;
+        const resolver = releaseCredentials?.steps?.find(step => step.name === 'Resolve public release channels')?.run;
+        expect(resolver).toBeTypeOf('string');
+        if (typeof resolver !== 'string') {
+            return;
+        }
+
+        const completeCredentials = {
+            APPLE_API_ISSUER: 'apple-issuer',
+            APPLE_API_KEY: 'apple-key',
+            APPLE_API_KEY_ID: 'apple-key-id',
+            CSC_KEY_PASSWORD: 'mac-password',
+            CSC_LINK: 'mac-certificate',
+            PARTNER_CLIENT_ID: '',
+            PARTNER_CLIENT_SECRET: '',
+            PARTNER_TENANT_ID: '',
+            WIN_CSC_KEY_PASSWORD: '',
+            WIN_CSC_LINK: '',
+        };
+        const runResolver = (overrides: Partial<typeof completeCredentials>) => {
+            const directory = mkdtempSync(path.join(tmpdir(), 'evb-release-channels-'));
+            const outputPath = path.join(directory, 'github-output');
+            try {
+                const result = spawnSync('/bin/bash', [
+                    '-c',
+                    resolver,
+                ], {
+                    encoding: 'utf8',
+                    env: {
+                        ...process.env,
+                        ...completeCredentials,
+                        ...overrides,
+                        GITHUB_OUTPUT: outputPath,
+                    },
+                });
+                return {
+                    log: `${result.stdout}${result.stderr}`,
+                    output: existsSync(outputPath) ? readFileSync(outputPath, 'utf8') : '',
+                    status: result.status,
+                };
+            } finally {
+                rmSync(directory, {
+                    force: true,
+                    recursive: true,
+                });
+            }
+        };
+
+        const missingMacCredentials = runResolver({APPLE_API_KEY: ''});
+        expect(missingMacCredentials.status).not.toBe(0);
+        expect(missingMacCredentials.log).toContain('unsigned or unnotarized macOS artifacts cannot be promoted');
+
+        for (const partialWindowsCredentials of [
+            {
+                WIN_CSC_KEY_PASSWORD: '',
+                WIN_CSC_LINK: 'windows-certificate',
+            },
+            {
+                WIN_CSC_KEY_PASSWORD: 'windows-password',
+                WIN_CSC_LINK: '',
+            },
+        ]) {
+            const result = runResolver(partialWindowsCredentials);
+            expect(result.status).not.toBe(0);
+            expect(result.log).toContain('Partial Windows signing credentials detected');
+        }
+
+        const unsignedWindows = runResolver({});
+        expect(unsignedWindows.status).toBe(0);
+        expect(unsignedWindows.log).toContain('direct-download Windows installers will be unsigned');
+        expect(unsignedWindows.log).toContain('Microsoft Store submission will be skipped');
+        expect(unsignedWindows.output).toContain('publish_store=false');
+
+        const signedWindows = runResolver({
+            WIN_CSC_KEY_PASSWORD: 'windows-password',
+            WIN_CSC_LINK: 'windows-certificate',
+        });
+        expect(signedWindows.status).toBe(0);
+        expect(signedWindows.log).not.toContain('direct-download Windows installers will be unsigned');
+
+        const completePartnerCredentials = runResolver({
+            PARTNER_CLIENT_ID: 'partner-client',
+            PARTNER_CLIENT_SECRET: 'partner-secret',
+            PARTNER_TENANT_ID: 'partner-tenant',
+        });
+        expect(completePartnerCredentials.status).toBe(0);
+        expect(completePartnerCredentials.output).toContain('publish_store=true');
+
+        const incompletePartnerCredentials = runResolver({PARTNER_TENANT_ID: 'partner-tenant'});
+        expect(incompletePartnerCredentials.status).toBe(0);
+        expect(incompletePartnerCredentials.output).toContain('publish_store=false');
+
+        const promoteJob = workflowJob(releaseWorkflow, 'promote_release');
+        expect(promoteJob).toContain('always()');
+        expect(promoteJob).toContain('needs.publish_store.result == \'skipped\'');
     });
 
     it('keeps local distribution and cold lint fail-closed within supported resources', async () => {

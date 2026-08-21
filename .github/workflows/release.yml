@@ -249,13 +249,16 @@ jobs:
         run: pnpm run release:verify:checks
 
   release_credentials:
-    name: Require Public Release Credentials
+    name: Resolve Public Release Channels
     needs: prepare
     runs-on: ubuntu-latest
     environment: release
+    outputs:
+      publish_store: ${{ steps.channels.outputs.publish_store }}
 
     steps:
-      - name: Require public release credentials
+      - name: Resolve public release channels
+        id: channels
         shell: bash
         env:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
@@ -270,19 +273,28 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "$WIN_CSC_LINK" ] || [ -z "$WIN_CSC_KEY_PASSWORD" ]; then
-            echo "::error::Public releases require both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD; unsigned Windows installers cannot be promoted."
-            exit 1
-          fi
           if [ -z "$CSC_LINK" ] || [ -z "$CSC_KEY_PASSWORD" ] \
             || [ -z "$APPLE_API_KEY" ] || [ -z "$APPLE_API_KEY_ID" ] || [ -z "$APPLE_API_ISSUER" ]; then
             echo "::error::Public releases require Developer ID signing and App Store Connect notarization credentials; unsigned or unnotarized macOS artifacts cannot be promoted."
             exit 1
           fi
-          if [ -z "$PARTNER_TENANT_ID" ] || [ -z "$PARTNER_CLIENT_ID" ] || [ -z "$PARTNER_CLIENT_SECRET" ]; then
-            echo "::error::Public releases require complete Partner Center credentials so the required Microsoft Store channel cannot be skipped."
+
+          if { [ -n "$WIN_CSC_LINK" ] && [ -z "$WIN_CSC_KEY_PASSWORD" ]; } \
+            || { [ -z "$WIN_CSC_LINK" ] && [ -n "$WIN_CSC_KEY_PASSWORD" ]; }; then
+            echo "::error::Partial Windows signing credentials detected; set both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD or neither."
             exit 1
           fi
+          if [ -z "$WIN_CSC_LINK" ]; then
+            echo "::notice::Windows signing credentials are not configured; direct-download Windows installers will be unsigned."
+          fi
+
+          publish_store=false
+          if [ -n "$PARTNER_TENANT_ID" ] && [ -n "$PARTNER_CLIENT_ID" ] && [ -n "$PARTNER_CLIENT_SECRET" ]; then
+            publish_store=true
+          else
+            echo "::notice::Complete Partner Center credentials are not configured; Microsoft Store submission will be skipped."
+          fi
+          echo "publish_store=$publish_store" >> "$GITHUB_OUTPUT"
 
   build_artifacts:
     name: Package Release Artifacts
@@ -747,7 +759,9 @@ jobs:
     name: Package and Reconcile Microsoft Store AppX
     needs:
       - prepare
+      - release_credentials
       - stage_mirror
+    if: ${{ needs.release_credentials.outputs.publish_store == 'true' }}
     uses: ./.github/workflows/store-appx.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
@@ -758,12 +772,13 @@ jobs:
       PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}
 
   promote_release:
-    name: Promote Required Release Channels
+    name: Promote Available Release Channels
     needs:
       - prepare
       - publish
       - publish_store
       - stage_mirror
+    if: ${{ always() && needs.prepare.result == 'success' && needs.publish.result == 'success' && needs.stage_mirror.result == 'success' && (needs.publish_store.result == 'success' || needs.publish_store.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -829,7 +844,7 @@ jobs:
           {
             echo '## Verified release promotion'
             echo
-            echo '| Required channel | Outcome |'
+            echo '| Channel | Outcome |'
             echo '| --- | --- |'
             echo "| GitHub release promotion | $GITHUB_PROMOTION_OUTCOME |"
             echo "| Regional mirror activation | $MIRROR_ACTIVATION_OUTCOME |"

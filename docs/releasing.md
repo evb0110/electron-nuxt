@@ -8,7 +8,7 @@ Releases are cut locally and published by dispatching the GitHub Release workflo
    The release script now fails before the version bump unless it is running under the Node major pinned in `package.json` `engines.node`, which is the project's current latest-LTS baseline (currently `24.x`).
 2. The script bumps `package.json`, then runs the local release gate against that exact would-be tagged tree. The gate is split into the CI-mode lint/static/test phase (`release:verify:checks`) and the current-platform package phase (`release:verify:package:local`). In a combined run, the checks phase performs the strict build once and writes a source/toolchain/target/output receipt; packaging reuses it only after recomputing and matching every fingerprint. The standalone package command remains correct by rebuilding when no exact receipt is supplied.
 3. If that local release gate passes, the script verifies that only `package.json` changed, commits the release version, scans the exact upstream-to-`HEAD` publication range, pushes the branch update, and dispatches the GitHub [`Release`](../.github/workflows/release.yml) workflow with the intended tag and target ref.
-4. The release workflow reruns the focused release checks, packages the main artifacts, creates the matching `v*` tag, and publishes the release in one run.
+4. The release workflow reruns the focused release checks, packages the main artifacts, creates the matching `v*` tag, and publishes the release in one run. A complete Windows signing pair produces signed installers. When both secrets are absent, the workflow produces unsigned direct-download installers. Setting exactly one of `WIN_CSC_LINK` or `WIN_CSC_KEY_PASSWORD` fails the credential check. Missing Partner Center credentials skip Microsoft Store submission without blocking the GitHub release or regional mirror.
 5. The local command exits after the GitHub Actions run is visible. It prints the run URL, the future artifact section URL, the future release URL, and the expected artifact group names.
 
 ## Artifact-only flow
@@ -52,9 +52,11 @@ Store AppX packages must declare every shipped UI locale in `electron-builder.ym
 - On macOS, packaged native-tool verification must execute the bundled tools from inside the signed app resources, not just inspect file presence or `otool` output. That is how we catch Team-ID/library-validation regressions in bundled DjVuLibre, Poppler, qpdf, and Tesseract payloads before tag push.
 - The macOS PDF-tool bundler treats missing Homebrew binaries/libraries, failed install-name rewrites, and residual Homebrew references as fatal; it must never publish a partial Poppler/qpdf resource tree.
 - Cross-platform runner differences, hosted-runner quirks, and secret-only signing/notarization failures can still require GitHub Actions, but ordinary release regressions should now fail before tag push.
-- macOS and Windows signing secrets are optional. Unsigned releases must still build and launch correctly.
-- Unsigned macOS releases are manual-install only. GitHub builds prune `latest-mac*.yml` and `.blockmap` for ad-hoc mac bundles so the updater feed cannot mix signed and ad-hoc framework blocks.
+- Public releases require the macOS Developer ID and notarization secrets. Artifact-only builds may remain ad-hoc signed and must still build and launch correctly.
+- Ad-hoc macOS artifact builds are manual-install only. GitHub builds prune `latest-mac*.yml` and `.blockmap` for ad-hoc mac bundles so the updater feed cannot mix signed and ad-hoc framework blocks.
+- Windows signing secrets are optional for public releases.
 - Unsigned Windows releases are manual-install only too. GitHub builds prune `latest*.yml` and `.blockmap` unless the Windows artifact is the signed x64 updater target.
+- Microsoft Store submission runs only when all three Partner Center secrets are configured. Otherwise the release skips that job and still promotes its verified GitHub and mirror channels.
 - The release publish step must tolerate zero updater metadata files. Some releases are intentionally download-only across every platform.
 - Distribution decisions must remain compatible with an individual, free,
   non-commercial project. Treat any business identity, paid account, or account
