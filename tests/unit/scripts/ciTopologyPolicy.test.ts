@@ -628,8 +628,13 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('sudo apt-get install -y "$(realpath "$deb")"');
         expect(workflow).toContain('sudo apt-get remove -y "$package_name"');
         expect(workflow).toContain('name: Verify installed Windows NSIS journey');
-        expect(workflow).toContain('-ArgumentList \'/S\' -Wait -PassThru');
+        expect(workflow).toContain('-ArgumentList \'/S\', "/D=$installDir" -Wait -PassThru');
+        expect(workflow).toContain('$appPath = Join-Path $installDir \'EVB Viewer.exe\'');
+        expect(workflow).toContain('while (-not (Test-Path $appPath -PathType Leaf)');
+        expect(workflow).toContain('$app = Get-Item $appPath');
+        expect(workflow).not.toContain('Get-ChildItem "$env:LOCALAPPDATA\\\\Programs"');
         expect(workflow).toContain('$uninstallDeadline = (Get-Date).AddSeconds(30)');
+        expect(workflow).toContain('if (Test-Path $appPath)');
         expect(workflow).toContain('throw \'NSIS uninstall left the EVB Viewer executable installed.\'');
         expect(workflow).toContain('name: Enforce Linux glibc 2.35 compatibility baseline');
         expect(workflow).toContain('run: node scripts/release/assert-linux-glibc-baseline.mjs release 2.35');

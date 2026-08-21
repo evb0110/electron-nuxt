@@ -440,18 +440,21 @@ jobs:
           $installer = Get-ChildItem release -File -Filter '*-setup.exe' | Select-Object -First 1
           if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
 
-          $install = Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait -PassThru
+          $installDir = Join-Path $env:RUNNER_TEMP 'evb-viewer-nsis-${{ matrix.arch }}-${{ github.run_attempt }}'
+          $appPath = Join-Path $installDir 'EVB Viewer.exe'
+          $install = Start-Process -FilePath $installer.FullName `
+            -ArgumentList '/S', "/D=$installDir" -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "NSIS installer exited with $($install.ExitCode)." }
-          $app = $null
           $installDeadline = (Get-Date).AddSeconds(30)
-          do {
-            $app = Get-ChildItem "$env:LOCALAPPDATA\\Programs" -Recurse -File -Filter 'EVB Viewer.exe' `
-              -ErrorAction SilentlyContinue |
-              Select-Object -First 1
-            if (-not $app) { Start-Sleep -Milliseconds 500 }
-          } while (-not $app -and (Get-Date) -lt $installDeadline)
-          if (-not $app) { throw 'Installed EVB Viewer executable was not found.' }
-          $installDir = $app.Directory.FullName
+          while (-not (Test-Path $appPath -PathType Leaf) -and (Get-Date) -lt $installDeadline) {
+            Start-Sleep -Milliseconds 500
+          }
+          if (-not (Test-Path $appPath -PathType Leaf)) {
+            Get-ChildItem $installDir -Recurse -Force -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host "Installer output: $($_.FullName)" }
+            throw "Installed EVB Viewer executable was not found at $appPath."
+          }
+          $app = Get-Item $appPath
 
           try {
             pnpm run test:packaged-core-pdf-smoke -- --executable $app.FullName
@@ -464,10 +467,10 @@ jobs:
             }
           }
           $uninstallDeadline = (Get-Date).AddSeconds(30)
-          while ((Test-Path $app.FullName) -and (Get-Date) -lt $uninstallDeadline) {
+          while ((Test-Path $appPath) -and (Get-Date) -lt $uninstallDeadline) {
             Start-Sleep -Milliseconds 500
           }
-          if (Test-Path $app.FullName) { throw 'NSIS uninstall left the EVB Viewer executable installed.' }
+          if (Test-Path $appPath) { throw 'NSIS uninstall left the EVB Viewer executable installed.' }
 
       - name: Verify packaged macOS arm64 core PDF journey
         if: runner.os == 'macOS' && matrix.arch == 'arm64'

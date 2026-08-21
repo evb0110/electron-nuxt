@@ -23,7 +23,8 @@ interface IWebDeployAssetsModule {
     getExpectedWebDeployOutputRoots: (env?: NodeJS.ProcessEnv) => string[];
     getNodeServerBootTiming: (platform?: NodeJS.Platform) => {
         healthDeadlineMs: number;
-        processTimeoutMs: number;
+        listeningDeadlineMs: number;
+        shutdownTimeoutMs: number;
     };
     assertInitialRendererDependencyGraph: (rootPath: string) => Promise<{
         modulePreloads: string[];
