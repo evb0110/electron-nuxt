@@ -97,6 +97,50 @@ export interface ICreatePdfAnnotationSessionOptions {
     emitShapeContextMenu: Parameters<typeof usePdfShapeTool>[0]['emitShapeContextMenu'];
 }
 
+interface IAnnotationSnapshotDocumentIdentityInput {
+    originalPath: string | null;
+    workingCopyPath: string | null;
+    source: TPdfSource | null;
+}
+
+const annotationSnapshotBlobIdentities = new WeakMap<Blob, string>();
+let nextAnnotationSnapshotBlobIdentity = 0;
+
+function annotationDocumentKey(source: TPdfSource | null) {
+    if (!source) {
+        return 'no-document';
+    }
+    if (source instanceof Blob) {
+        return `blob:${'name' in source ? String(source.name) : 'unnamed'}:${source.size}`;
+    }
+    return `path:${source.path}`;
+}
+
+function annotationSnapshotDocumentKey(source: TPdfSource | null) {
+    if (!(source instanceof Blob)) {
+        return annotationDocumentKey(source);
+    }
+    const existing = annotationSnapshotBlobIdentities.get(source);
+    if (existing) {
+        return existing;
+    }
+    nextAnnotationSnapshotBlobIdentity += 1;
+    const identity = `blob-instance:${nextAnnotationSnapshotBlobIdentity}`;
+    annotationSnapshotBlobIdentities.set(source, identity);
+    return identity;
+}
+
+export function resolveAnnotationSnapshotDocumentIdentity(
+    input: IAnnotationSnapshotDocumentIdentityInput,
+) {
+    if (input.originalPath) {
+        return `source:${input.originalPath}`;
+    }
+    return input.workingCopyPath
+        ? `path:${input.workingCopyPath}`
+        : annotationSnapshotDocumentKey(input.source);
+}
+
 export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionOptions) => {
     const documentSession = options.document;
     const viewport = options.viewport;
@@ -244,19 +288,17 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationCommentModel.emitCommentsForSidebar(projected);
     }
     let stopAnnotationApplicationProjection = annotationApplication.value.store.subscribe(projectCanonicalAnnotations);
-    function annotationDocumentKey(source: TPdfSource | null) {
-        if (!source) {
-            return 'no-document';
-        }
-        if (source instanceof Blob) {
-            return `blob:${'name' in source ? String(source.name) : 'unnamed'}:${source.size}`;
-        }
-        return `path:${source.path}`;
-    }
     const annotationDocumentIdentity = computed(() => (
         options.workingCopyPath.value
             ? `path:${options.workingCopyPath.value}`
             : annotationDocumentKey(options.src.value)
+    ));
+    const annotationSnapshotDocumentIdentity = computed(() => (
+        resolveAnnotationSnapshotDocumentIdentity({
+            originalPath: options.originalPath.value,
+            workingCopyPath: options.workingCopyPath.value,
+            source: options.src.value,
+        })
     ));
     function resetAnnotationApplication(documentKey: string) {
         stopAnnotationApplicationProjection();
@@ -354,7 +396,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     });
     const commentSync = useAnnotationSync({
         pdfDocument: documentSession.pdfDocument,
-        documentIdentity: annotationDocumentIdentity,
+        documentIdentity: annotationSnapshotDocumentIdentity,
         documentRevisionToken: options.documentRevisionToken,
         numPages: documentSession.numPages,
         currentPage: viewport.currentPage,

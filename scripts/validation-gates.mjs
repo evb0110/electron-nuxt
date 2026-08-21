@@ -46,6 +46,7 @@ const allTs7Projects = [
 ];
 const heavyGateDefaultCapacity = 2;
 const heavyGateDefaultWaitMs = 30 * 60_000;
+const lintableSourcePattern = /\.(?:[cm]?[jt]sx?|vue)$/u;
 const validationTiers = new Set([
     'iteration',
     'acceptance',
@@ -551,18 +552,17 @@ export function getLintCachePaths({
         stylelint: path.join(cacheRoot, 'stylelint.cache'),
     };
 }
-function lintTargets(files) {
+async function lintTargets(files) {
     const existingFiles = files.filter(file => existsSync(path.join(projectRoot, file)));
-    const eslint = existingFiles.filter(file => !file.startsWith('landing/') && (
-        /\.(?:[cm]?[jt]sx?|vue)$/u.test(file)
-        || [
-            'eslint-plugin-custom.mjs',
-            'vitest.config.ts',
-            'vitest.shared.config.ts',
-        ].includes(file)
+    const eslintCandidates = existingFiles.filter(file => !file.startsWith('landing/') && (
+        lintableSourcePattern.test(file)
     ));
+    const { ESLint } = await import('eslint');
+    const rootEslint = new ESLint({cwd: projectRoot});
+    const ignored = await Promise.all(eslintCandidates.map(file => rootEslint.isPathIgnored(file)));
+    const eslint = eslintCandidates.filter((_, index) => !ignored[index]);
     const landing = existingFiles.filter(file => file.startsWith('landing/') && (
-        /\.(?:[cm]?[jt]sx?|vue)$/u.test(file)
+        lintableSourcePattern.test(file)
     ));
     const stylelint = existingFiles.filter(file => /\.(?:vue|scss|css)$/u.test(file) && (
         file.startsWith('app/') || file.startsWith('landing/app/')
@@ -641,7 +641,7 @@ async function runLint(argv) {
             landing: all ? ['landing'] : [],
             stylelint: [all ? '{app,landing/app}/**/*.{vue,scss,css}' : 'app/**/*.{vue,scss,css}'],
         }
-        : lintTargets(changes.files);
+        : await lintTargets(changes.files);
     const cachePaths = getLintCachePaths();
     if (!noCache) {
         await mkdir(cachePaths.cacheRoot, {recursive: true});

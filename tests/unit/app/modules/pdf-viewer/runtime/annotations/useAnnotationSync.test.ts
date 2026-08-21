@@ -1,4 +1,5 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -11,11 +12,17 @@ import {
     shallowRef,
 } from 'vue';
 import type { Ref } from 'vue';
-import type {IAnnotationCommentSummary} from '@app/types/annotations';
+import type {
+    IAnnotationCommentSummary,
+    ILinkAnnotation,
+} from '@app/types/annotations';
 import { useAnnotationIdentity } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationIdentity';
 import type { IPdfPageAnnotationBundle } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
+import type { TPdfSource } from '@app/types/pdfUi';
 import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
+import { createBrowserDocumentRef } from '@app/platform/browser/browserDocumentRefs';
+import { resolveAnnotationSnapshotDocumentIdentity } from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
 
 function resolvePdfAnnotationNameReadLimits(tier: 'low' | 'medium') {
     const policy = resolveOpenPathSecondaryPerformancePolicy(resolvePerformanceProfile({ tier }));
@@ -77,6 +84,11 @@ vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/load
     };
 });
 
+beforeEach(() => {
+    vi.resetModules();
+    loadPdfPageAnnotations.mockReset();
+});
+
 async function withAnnotationSyncScope<T>(run: () => Promise<T>) {
     const scope = effectScope();
     try {
@@ -126,6 +138,7 @@ async function createSyncHarness(options: {
     limits?: ReturnType<typeof resolvePdfAnnotationNameReadLimits>;
     pdfDocument?: object;
     setAnnotations?: ReturnType<typeof vi.fn>;
+    setLinkAnnotations?: ReturnType<typeof vi.fn>;
 } = {}) {
     const annotationCommentsCache = options.annotationCommentsCache ?? ref<IAnnotationCommentSummary[]>([]);
     const identity = useAnnotationIdentity(annotationCommentsCache);
@@ -134,6 +147,7 @@ async function createSyncHarness(options: {
         annotationCommentsCache.value = comments;
         return comments;
     });
+    const setLinkAnnotations = options.setLinkAnnotations ?? vi.fn((_links: ILinkAnnotation[]) => {});
     const { useAnnotationSync } = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync');
     const textMarkupPresentation = {notify: vi.fn()};
     const sync = useAnnotationSync({
@@ -148,7 +162,7 @@ async function createSyncHarness(options: {
         getMarkupSubtype: () => markupSubtypeStore.markupSubtype,
         getStore: () => ({
             setAnnotations,
-            setLinkAnnotations: vi.fn(),
+            setLinkAnnotations,
             setActiveKey: vi.fn(),
         }),
         syncInlineCommentIndicators: vi.fn(),
@@ -161,12 +175,180 @@ async function createSyncHarness(options: {
         annotationCommentsCache,
         ...markupSubtypeStore,
         setAnnotations,
+        setLinkAnnotations,
         sync,
         textMarkupPresentation,
     };
 }
 
 describe('useAnnotationSync', () => {
+    it('gives pathless Blob instances distinct stable snapshot identities', () => {
+        const lastModified = 1_735_689_600_000;
+        const first = new File(
+            [Uint8Array.of(1, 2, 3, 4)],
+            'shared-name.pdf',
+            {lastModified},
+        );
+        const second = new File(
+            [Uint8Array.of(5, 6, 7, 8)],
+            'shared-name.pdf',
+            {lastModified},
+        );
+        const resolveIdentity = (source: TPdfSource | null) => resolveAnnotationSnapshotDocumentIdentity({
+            originalPath: null,
+            workingCopyPath: null,
+            source,
+        });
+
+        const firstIdentity = resolveIdentity(first);
+
+        expect(resolveIdentity(first)).toBe(firstIdentity);
+        expect(resolveIdentity(second)).not.toBe(firstIdentity);
+        expect(resolveIdentity(null)).toBe('no-document');
+        expect(resolveAnnotationSnapshotDocumentIdentity({
+            originalPath: '/documents/original.pdf',
+            workingCopyPath: '/managed/working.pdf',
+            source: first,
+        })).toBe('source:/documents/original.pdf');
+        expect(resolveAnnotationSnapshotDocumentIdentity({
+            originalPath: null,
+            workingCopyPath: '/managed/working.pdf',
+            source: first,
+        })).toBe('path:/managed/working.pdf');
+        expect(resolveIdentity({
+            kind: 'path',
+            path: '/documents/source.pdf',
+            size: 4,
+        })).toBe('path:/documents/source.pdf');
+    });
+
+    it('isolates same-metadata handle records while reusing a reopened record snapshot', async () => {
+        loadPdfPageAnnotations
+            .mockResolvedValueOnce({
+                annotations: [
+                    {
+                        id: 'document-a-comment',
+                        subtype: 'FreeText',
+                        contentsObj: {str: 'Document A note'},
+                        rect: [
+                            10,
+                            10,
+                            20,
+                            20,
+                        ],
+                    },
+                    {
+                        id: 'document-a-link',
+                        subtype: 'Link',
+                        url: 'https://document-a.example',
+                        rect: [
+                            30,
+                            30,
+                            40,
+                            40,
+                        ],
+                    },
+                ],
+                pageRotation: 0,
+                pageView: [
+                    0,
+                    0,
+                    100,
+                    100,
+                ],
+            })
+            .mockResolvedValueOnce({
+                annotations: [],
+                pageRotation: 0,
+                pageView: [
+                    0,
+                    0,
+                    100,
+                    100,
+                ],
+            });
+
+        const lastModified = 1_735_689_600_000;
+        const documentAFile = new File(
+            [Uint8Array.of(1, 2, 3, 4)],
+            'shared-name.pdf',
+            {lastModified},
+        );
+        const documentBFile = new File(
+            [Uint8Array.of(5, 6, 7, 8)],
+            'shared-name.pdf',
+            {lastModified},
+        );
+        const documentAOriginalPath = createBrowserDocumentRef(documentAFile.name);
+        const documentBOriginalPath = createBrowserDocumentRef(documentBFile.name);
+        const documentAIdentity = resolveAnnotationSnapshotDocumentIdentity({
+            originalPath: documentAOriginalPath,
+            workingCopyPath: null,
+            source: documentAFile,
+        });
+        const documentBIdentity = resolveAnnotationSnapshotDocumentIdentity({
+            originalPath: documentBOriginalPath,
+            workingCopyPath: null,
+            source: documentBFile,
+        });
+        const sharedRevision = `handle:${documentAFile.size}:${documentAFile.lastModified}`;
+
+        expect(documentBFile).toMatchObject({
+            name: documentAFile.name,
+            size: documentAFile.size,
+            lastModified: documentAFile.lastModified,
+        });
+        expect(documentBOriginalPath).not.toBe(documentAOriginalPath);
+
+        await withAnnotationSyncScope(async () => {
+            const documentA = await createSyncHarness({
+                documentIdentity: ref(documentAIdentity),
+                documentRevisionToken: ref(sharedRevision),
+                pdfDocument: {},
+            });
+            await documentA.sync.syncAnnotationComments();
+
+            expect(documentA.setAnnotations).toHaveBeenLastCalledWith(
+                [expect.objectContaining({annotationId: 'document-a-comment'})],
+                expect.any(Object),
+            );
+            expect(documentA.setLinkAnnotations).toHaveBeenLastCalledWith(
+                [expect.objectContaining({id: 'document-a-link'})],
+            );
+
+            const reopenedDocumentA = await createSyncHarness({
+                documentIdentity: ref(resolveAnnotationSnapshotDocumentIdentity({
+                    originalPath: documentAOriginalPath,
+                    workingCopyPath: null,
+                    source: documentAFile,
+                })),
+                documentRevisionToken: ref(sharedRevision),
+                pdfDocument: {},
+            });
+            await reopenedDocumentA.sync.syncAnnotationComments();
+
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(1);
+            expect(reopenedDocumentA.setAnnotations).toHaveBeenLastCalledWith(
+                [expect.objectContaining({annotationId: 'document-a-comment'})],
+                expect.any(Object),
+            );
+            expect(reopenedDocumentA.setLinkAnnotations).toHaveBeenLastCalledWith(
+                [expect.objectContaining({id: 'document-a-link'})],
+            );
+
+            const documentB = await createSyncHarness({
+                documentIdentity: ref(documentBIdentity),
+                documentRevisionToken: ref(sharedRevision),
+                pdfDocument: {},
+            });
+            await documentB.sync.syncAnnotationComments();
+
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(2);
+            expect(documentB.setAnnotations).toHaveBeenLastCalledWith([], expect.any(Object));
+            expect(documentB.setLinkAnnotations).toHaveBeenLastCalledWith([]);
+        });
+    });
+
     it('uses inclusive 16 MiB normal and 4 MiB constrained eager boundaries', async () => {
         expect(resolvePdfAnnotationNameReadLimits('medium')).toEqual({
             eagerMaxBytes: 16 * 1024 * 1024,

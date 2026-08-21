@@ -98,13 +98,13 @@ function createAbortWaiter(
     };
 }
 
-function cancelActiveOperation(activeOperation: IActivePdfPageOperation) {
-    if (!activeOperation.cancel) {
+function cancelPdfPageRender(cancel: (() => void) | undefined) {
+    if (!cancel) {
         return;
     }
 
     try {
-        activeOperation.cancel();
+        cancel();
     } catch {
         // PDF.js cancellation is best-effort and the render promise still settles.
     }
@@ -126,7 +126,7 @@ async function waitForActiveOperation(
             activePriority: activeOperation.priority,
             activeRenderId: activeOperation.id,
         });
-        cancelActiveOperation(activeOperation);
+        cancelPdfPageRender(activeOperation.cancel);
     } else {
         logPdfRenderTrace('pdf-page-render-coordinator-wait', {
             pageNumber: activeOperation.pageNumber,
@@ -162,14 +162,41 @@ async function waitForActiveOperation(
 async function waitForCoordinatedTurn(
     pdfPage: PDFPageProxy,
     owner: string,
+    pageNumber: number,
     priority: number,
     signal?: AbortSignal | undefined,
+    cancel?: (() => void) | undefined,
 ) {
     while (true) {
-        throwIfCoordinatedOperationCancelled(signal, pdfPage.pageNumber, owner);
+        throwIfCoordinatedOperationCancelled(signal, pageNumber, owner);
         const activeOperation = activePageOperations.get(pdfPage);
         if (!activeOperation) {
-            return;
+            const id = ++nextRenderId;
+            let markSettled!: () => void;
+            const settled = new Promise<void>((resolve) => {
+                markSettled = resolve;
+            });
+            const operation: IActivePdfPageOperation = {
+                cancel,
+                id,
+                owner,
+                pageNumber,
+                priority,
+                settled,
+            };
+            activePageOperations.set(pdfPage, operation);
+
+            let released = false;
+            return () => {
+                if (released) {
+                    return;
+                }
+                released = true;
+                markSettled();
+                if (activePageOperations.get(pdfPage)?.id === id) {
+                    activePageOperations.delete(pdfPage);
+                }
+            };
         }
 
         await waitForActiveOperation(pdfPage, activeOperation, owner, priority, signal);
@@ -190,36 +217,23 @@ export async function runCoordinatedPdfPageOperation<TResult>(
         shouldStart,
     } = options;
 
-    await waitForCoordinatedTurn(pdfPage, owner, priority, signal);
-    throwIfCoordinatedOperationCancelled(signal, pageNumber, owner);
-
-    if (shouldStart?.() === false) {
-        throw createCoordinatedRenderCancelledError(pageNumber, owner);
-    }
-
-    const id = ++nextRenderId;
-    let markSettled!: () => void;
-    const settled = new Promise<void>((resolve) => {
-        markSettled = resolve;
-    });
-    let released = false;
-    const releaseOperation = () => {
-        if (released) {
-            return;
-        }
-        released = true;
-        markSettled();
-        if (activePageOperations.get(pdfPage)?.id === id) {
-            activePageOperations.delete(pdfPage);
-        }
-    };
-    activePageOperations.set(pdfPage, {
-        id,
+    const releaseOwnership = await waitForCoordinatedTurn(
+        pdfPage,
         owner,
         pageNumber,
         priority,
-        settled,
-    });
+        signal,
+    );
+    try {
+        throwIfCoordinatedOperationCancelled(signal, pageNumber, owner);
+
+        if (shouldStart?.() === false) {
+            throw createCoordinatedRenderCancelledError(pageNumber, owner);
+        }
+    } catch (error) {
+        releaseOwnership();
+        throw error;
+    }
 
     const abortWaiter = createAbortWaiter(signal, pageNumber, owner);
     let operationPromise: Promise<TResult>;
@@ -227,12 +241,12 @@ export async function runCoordinatedPdfPageOperation<TResult>(
         operationPromise = operation();
     } catch (error) {
         abortWaiter?.remove();
-        releaseOperation();
+        releaseOwnership();
         throw error;
     }
     void operationPromise
         .catch(() => {})
-        .then(releaseOperation);
+        .then(releaseOwnership);
     try {
         const result = await (abortWaiter
             ? Promise.race([
@@ -264,43 +278,56 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
         continuation,
     } = options;
 
-    await waitForCoordinatedTurn(pdfPage, owner, priority, signal);
-    throwIfCoordinatedOperationCancelled(signal, pageNumber, owner);
-
-    if (shouldStart?.() === false) {
-        throw createCoordinatedRenderCancelledError(pageNumber, owner);
-    }
-
-    const task = startRender();
-    const disposeContinuation = continuation
-        ? bindRenderTaskContinuation(task, continuation, signal)
-        : () => {};
-    const id = ++nextRenderId;
-    const settled = task.promise
-        .catch(() => {})
-        .then(() => {
-            if (activePageOperations.get(pdfPage)?.id === id) {
-                activePageOperations.delete(pdfPage);
-            }
-        });
-
-    activePageOperations.set(pdfPage, {
-        cancel: () => task.cancel(),
-        id,
+    let cancelTask: (() => void) | undefined = undefined;
+    let cancelRequested = false;
+    const requestCancel = () => {
+        if (!cancelTask) {
+            cancelRequested = true;
+            return;
+        }
+        cancelTask();
+    };
+    const releaseOwnership = await waitForCoordinatedTurn(
+        pdfPage,
         owner,
         pageNumber,
         priority,
-        settled,
-    });
+        signal,
+        requestCancel,
+    );
+    let task: TTask;
+    try {
+        throwIfCoordinatedOperationCancelled(signal, pageNumber, owner);
+
+        if (shouldStart?.() === false) {
+            throw createCoordinatedRenderCancelledError(pageNumber, owner);
+        }
+
+        task = startRender();
+    } catch (error) {
+        releaseOwnership();
+        throw error;
+    }
+    const disposeContinuation = continuation
+        ? bindRenderTaskContinuation(task, continuation, signal)
+        : () => {};
+    const settled = task.promise
+        .catch(() => {})
+        .then(releaseOwnership);
+
+    cancelTask = () => task.cancel();
+    if (cancelRequested) {
+        cancelRequested = false;
+        cancelPdfPageRender(cancelTask);
+    }
     onTask?.(task);
 
-    const abortWaiter = createAbortWaiter(signal, pageNumber, owner, () => {
-        try {
-            task.cancel();
-        } catch {
-            // PDF.js cancellation is best-effort and the render promise still settles.
-        }
-    });
+    const abortWaiter = createAbortWaiter(
+        signal,
+        pageNumber,
+        owner,
+        () => cancelPdfPageRender(cancelTask),
+    );
 
     try {
         await (abortWaiter

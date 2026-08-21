@@ -21,7 +21,7 @@ function createCancelledRenderError() {
     return error;
 }
 
-function createRenderTask() {
+function createRenderTask(options: { settleOnCancel?: boolean } = {}) {
     let resolveTask!: () => void;
     let rejectTask!: (error: unknown) => void;
     let settled = false;
@@ -38,7 +38,7 @@ function createRenderTask() {
     return {
         promise,
         cancel: vi.fn(() => {
-            if (!settled) {
+            if (!settled && options.settleOnCancel !== false) {
                 rejectTask(createCancelledRenderError());
             }
         }),
@@ -62,6 +62,216 @@ function createDeferred<T = void>() {
 }
 
 describe('runCoordinatedPdfPageRender', () => {
+    it.each([
+        {
+            waitingPriority: 100,
+            priorityRelationship: 'equal',
+        },
+        {
+            waitingPriority: 10,
+            priorityRelationship: 'lower',
+        },
+    ])('claims same-page render ownership before a $priorityRelationship-priority synchronous caller can overlap', async ({ waitingPriority }) => {
+        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const events: string[] = [];
+        const firstTask = createRenderTask();
+        const secondTask = createRenderTask();
+
+        const firstRun = runCoordinatedPdfPageRender({
+            owner: 'first',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: 100,
+            startRender: () => {
+                events.push('start first');
+                return firstTask;
+            },
+        });
+        const secondRun = runCoordinatedPdfPageRender({
+            owner: 'second',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: waitingPriority,
+            startRender: () => {
+                events.push('start second');
+                return secondTask;
+            },
+        });
+
+        await flushAsync();
+        expect(events).toEqual(['start first']);
+        expect(firstTask.cancel).not.toHaveBeenCalled();
+
+        firstTask.resolve();
+        await firstRun;
+        await flushAsync();
+        expect(events).toEqual([
+            'start first',
+            'start second',
+        ]);
+
+        secondTask.resolve();
+        await secondRun;
+    });
+
+    it('claims same-page operation ownership before synchronous callers can overlap', async () => {
+        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const events: string[] = [];
+        const firstOperation = createDeferred<string>();
+        const secondOperation = createDeferred<string>();
+
+        const firstRun = runCoordinatedPdfPageOperation({
+            owner: 'first-filter',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: 100,
+            operation: async () => {
+                events.push('start first');
+                return firstOperation.promise;
+            },
+        });
+        const secondRun = runCoordinatedPdfPageOperation({
+            owner: 'second-filter',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: 100,
+            operation: async () => {
+                events.push('start second');
+                return secondOperation.promise;
+            },
+        });
+
+        await flushAsync();
+        expect(events).toEqual(['start first']);
+
+        firstOperation.resolve('first');
+        expect(await firstRun).toBe('first');
+        await flushAsync();
+        expect(events).toEqual([
+            'start first',
+            'start second',
+        ]);
+
+        secondOperation.resolve('second');
+        expect(await secondRun).toBe('second');
+    });
+
+    it('preempts a synchronously queued lower-priority render but waits for settlement', async () => {
+        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const events: string[] = [];
+        const thumbnailTask = createRenderTask({ settleOnCancel: false });
+        const viewerTask = createRenderTask();
+
+        const thumbnailRun = runCoordinatedPdfPageRender({
+            owner: 'thumbnail',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: 10,
+            startRender: () => {
+                events.push('start thumbnail');
+                return thumbnailTask;
+            },
+        });
+        const viewerRun = runCoordinatedPdfPageRender({
+            owner: 'viewer',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: 100,
+            startRender: () => {
+                events.push('start viewer');
+                return viewerTask;
+            },
+        });
+
+        await flushAsync();
+        expect(thumbnailTask.cancel).toHaveBeenCalledOnce();
+        expect(events).toEqual(['start thumbnail']);
+
+        thumbnailTask.resolve();
+        await thumbnailRun;
+        await flushAsync();
+        expect(events).toEqual([
+            'start thumbnail',
+            'start viewer',
+        ]);
+
+        viewerTask.resolve();
+        await viewerRun;
+    });
+
+    it('allows synchronous renders for different page proxies to overlap', async () => {
+        const firstPage = cast<PDFPageProxy>({ pageNumber: 1 });
+        const secondPage = cast<PDFPageProxy>({ pageNumber: 1 });
+        const events: string[] = [];
+        const firstTask = createRenderTask();
+        const secondTask = createRenderTask();
+
+        const firstRun = runCoordinatedPdfPageRender({
+            owner: 'first',
+            pageNumber: 1,
+            pdfPage: firstPage,
+            priority: 100,
+            startRender: () => {
+                events.push('start first');
+                return firstTask;
+            },
+        });
+        const secondRun = runCoordinatedPdfPageRender({
+            owner: 'second',
+            pageNumber: 1,
+            pdfPage: secondPage,
+            priority: 100,
+            startRender: () => {
+                events.push('start second');
+                return secondTask;
+            },
+        });
+
+        await flushAsync();
+        expect(events).toEqual([
+            'start first',
+            'start second',
+        ]);
+
+        firstTask.resolve();
+        secondTask.resolve();
+        await Promise.all([
+            firstRun,
+            secondRun,
+        ]);
+    });
+
+    it('releases same-page ownership when shouldStart rejects a render', async () => {
+        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const rejectedStart = vi.fn(() => createRenderTask());
+
+        await expect(runCoordinatedPdfPageRender({
+            owner: 'stale-viewer',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: 100,
+            shouldStart: () => false,
+            startRender: rejectedStart,
+        })).rejects.toMatchObject({ name: 'RenderingCancelledException' });
+        expect(rejectedStart).not.toHaveBeenCalled();
+
+        const nextTask = createRenderTask();
+        const nextStart = vi.fn(() => nextTask);
+        const nextRun = runCoordinatedPdfPageRender({
+            owner: 'current-viewer',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: 100,
+            startRender: nextStart,
+        });
+
+        await flushAsync();
+        expect(nextStart).toHaveBeenCalledOnce();
+
+        nextTask.resolve();
+        await nextRun;
+    });
+
     it('preempts a lower-priority thumbnail render when the viewer needs the same page', async () => {
         const page = cast<PDFPageProxy>({ pageNumber: 1 });
         const events: string[] = [];

@@ -4,6 +4,7 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import {
     join,
@@ -15,6 +16,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { ESLint } from 'eslint';
 
 interface IValidationChanges {
     files: string[];
@@ -74,6 +76,35 @@ interface IValidationGateModule {
 const validationGates = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/validation-gates.mjs')).href
 ) as IValidationGateModule;
+const ignoredRootEslintConfigFiles = [
+    'eslint.config.mjs',
+    'eslint.shared.mjs',
+    'nuxt.config.ts',
+    'stylelint.config.mjs',
+];
+
+function runChangedLint(files: string[]) {
+    const result = spawnSync(process.execPath, [
+        'scripts/validation-gates.mjs',
+        'lint',
+        '--changed',
+        '--no-cache',
+        ...files.map(file => `--file=${file}`),
+    ], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        env: process.env,
+        stdio: [
+            'ignore',
+            'pipe',
+            'pipe',
+        ],
+    });
+    return {
+        output: `${result.stdout}${result.stderr}`,
+        status: result.status,
+    };
+}
 
 async function createLintConfigRoot() {
     const root = await mkdtemp(join(tmpdir(), 'evb-validation-cache-'));
@@ -88,6 +119,41 @@ async function createLintConfigRoot() {
 }
 
 describe('validation gate policy', () => {
+    it.sequential('skips root config files ignored by ESLint while still checking lintable changed files', async () => {
+        const invalidPath = `tests/unit/scripts/validation-gate-policy-invalid-${process.pid}.ts`;
+        await rm(invalidPath, {force: true});
+        await writeFile(invalidPath, 'const invalidSyntax = ;\n');
+        try {
+            const ignoredConfigsOnly = runChangedLint(ignoredRootEslintConfigFiles);
+            const withLintableError = runChangedLint([
+                ...ignoredRootEslintConfigFiles,
+                invalidPath,
+            ]);
+
+            expect(ignoredConfigsOnly, ignoredConfigsOnly.output).toMatchObject({status: 0});
+            expect(withLintableError.status).not.toBe(0);
+            expect(withLintableError.output).toContain(invalidPath);
+        } finally {
+            await rm(invalidPath, {force: true});
+        }
+    }, 30_000);
+
+    it('keeps root and landing config ignore policies distinct', async () => {
+        const rootEslint = new ESLint({cwd: process.cwd()});
+        const landingEslint = new ESLint({cwd: join(process.cwd(), 'landing')});
+
+        await expect(Promise.all(ignoredRootEslintConfigFiles.map(
+            file => rootEslint.isPathIgnored(file),
+        ))).resolves.toEqual(ignoredRootEslintConfigFiles.map(() => true));
+        await expect(Promise.all([
+            'drizzle.config.ts',
+            'nuxt.config.ts',
+        ].map(file => landingEslint.isPathIgnored(file)))).resolves.toEqual([
+            false,
+            false,
+        ]);
+    });
+
     it('fails closed for unmatched paths and unknown change detection', () => {
         const classification = validationGates.classifyValidationImpacts(['unowned/new-input.xyz']);
         expect(classification).toMatchObject({

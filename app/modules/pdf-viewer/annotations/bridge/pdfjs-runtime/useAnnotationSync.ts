@@ -207,6 +207,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         if (revision) {
             return JSON.stringify([
                 'revision',
+                identity,
                 revision,
                 pageCount,
             ]);
@@ -214,7 +215,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         // A path/name/length tuple is not a content revision: a save can
         // replace bytes in place. Without a revision token the exact PDF.js
         // proxy WeakMap below is the only safe reusable source identity.
-        void identity;
         return null;
     }
 
