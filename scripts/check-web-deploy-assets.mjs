@@ -23,6 +23,16 @@ const FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES = [
     'utif',
     'pako',
 ];
+const NODE_SERVER_BOOT_TIMINGS = Object.freeze({
+    default: Object.freeze({
+        healthDeadlineMs: 8_000,
+        processTimeoutMs: 10_000,
+    }),
+    win32: Object.freeze({
+        healthDeadlineMs: 30_000,
+        processTimeoutMs: 35_000,
+    }),
+});
 export {
     REQUIRED_WEB_DEPLOY_ASSETS,
     REQUIRED_WEB_OUTPUT_CONTRACTS,
@@ -37,6 +47,12 @@ export function getExpectedWebDeployOutputRoots(env = process.env) {
     return isVercelBuildOutputEnv(env)
         ? ['.vercel/output/static']
         : ['nuxt-output/public'];
+}
+
+export function getNodeServerBootTiming(platform = process.platform) {
+    return platform === 'win32'
+        ? NODE_SERVER_BOOT_TIMINGS.win32
+        : NODE_SERVER_BOOT_TIMINGS.default;
 }
 
 async function assertDirectory(dirPath, label) {
@@ -265,13 +281,14 @@ export async function validateNodeServerBoot({projectRoot = defaultProjectRoot} 
     });
     const entryUrl = pathToFileURL(entryPath).href;
     const healthUrl = `http://127.0.0.1:${String(port)}/`;
+    const timing = getNodeServerBootTiming();
     try {
         await execFileAsync(process.execPath, [
             '--input-type=module',
             '--eval',
             [
                 `await import(${JSON.stringify(entryUrl)});`,
-                'const deadline = Date.now() + 8_000;',
+                `const deadline = Date.now() + ${String(timing.healthDeadlineMs)};`,
                 'let lastError;',
                 'while (Date.now() < deadline) {',
                 '  try {',
@@ -293,10 +310,21 @@ export async function validateNodeServerBoot({projectRoot = defaultProjectRoot} 
                 NITRO_PORT: String(port),
                 PORT: String(port),
             },
-            timeout: 10_000,
+            timeout: timing.processTimeoutMs,
         });
     } catch (error) {
-        throw new Error('Nuxt node server failed to boot', {cause: error});
+        const childOutput = [
+            error?.stdout,
+            error?.stderr,
+        ]
+            .filter(output => typeof output === 'string' && output.trim().length > 0)
+            .map(output => output.trim())
+            .join('\n');
+        const details = error instanceof Error ? error.message : String(error);
+        throw new Error(
+            `Nuxt node server failed to boot: ${details}${childOutput ? `\n${childOutput}` : ''}`,
+            {cause: error},
+        );
     }
 }
 

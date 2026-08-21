@@ -19,6 +19,10 @@ interface IWebDeployAssetsModule {
     REQUIRED_WEB_OUTPUT_CONTRACTS: string[];
     REQUIRED_WEB_WASM_ASSETS: Array<{ relativePath: string }>;
     getExpectedWebDeployOutputRoots: (env?: NodeJS.ProcessEnv) => string[];
+    getNodeServerBootTiming: (platform?: NodeJS.Platform) => {
+        healthDeadlineMs: number;
+        processTimeoutMs: number;
+    };
     assertInitialRendererDependencyGraph: (rootPath: string) => Promise<{
         modulePreloads: string[];
         staticAssets: string[];
@@ -39,6 +43,7 @@ const {
     REQUIRED_WEB_WASM_ASSETS,
     assertInitialRendererDependencyGraph,
     getExpectedWebDeployOutputRoots,
+    getNodeServerBootTiming,
     validateWebDeployAssets,
     validateNodeServerBoot,
     validateVercelFunctionBoot,
@@ -92,6 +97,21 @@ async function createTempProject() {
 }
 
 describe('web deploy assets check', () => {
+    it('keeps the strict boot deadline except for slower Windows cold starts', () => {
+        expect(getNodeServerBootTiming('linux')).toEqual({
+            healthDeadlineMs: 8_000,
+            processTimeoutMs: 10_000,
+        });
+        expect(getNodeServerBootTiming('darwin')).toEqual({
+            healthDeadlineMs: 8_000,
+            processTimeoutMs: 10_000,
+        });
+        expect(getNodeServerBootTiming('win32')).toEqual({
+            healthDeadlineMs: 30_000,
+            processTimeoutMs: 35_000,
+        });
+    });
+
     it('boots the generated Node server entry instead of trusting file presence', async () => {
         const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-node-server-'));
         const serverRoot = path.join(tempRoot, 'nuxt-output/server');
@@ -103,7 +123,7 @@ describe('web deploy assets check', () => {
                 'utf8',
             );
             await expect(validateNodeServerBoot({projectRoot: tempRoot}))
-                .rejects.toThrow('Nuxt node server failed to boot');
+                .rejects.toThrow(/Nuxt node server failed to boot:.*missing-runtime-module/su);
 
             await writeFile(
                 path.join(serverRoot, 'index.mjs'),
