@@ -180,6 +180,7 @@
     "overrides": [
         {
             "files": [
+                "app/modules/agent-panel/components/AgentAssistantPanel.vue",
                 "app/modules/djvu-viewer/components/DjvuConversionOverlay.vue",
                 "app/modules/djvu-viewer/components/DjvuConvertDialog.vue",
                 "app/modules/native-pdf-viewer/components/NativePdfViewer.vue",

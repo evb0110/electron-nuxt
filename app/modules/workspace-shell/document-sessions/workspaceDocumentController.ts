@@ -47,7 +47,6 @@ import type {
     IWorkspaceDocumentIdentity,
     IWorkspaceDocumentSnapshot,
     IWorkspaceDocumentTransaction,
-    IWorkspacePendingCloseDecision,
     TWorkspaceDocumentPhase,
     TWorkspaceDocumentTransactionKind,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentSnapshot';
@@ -56,9 +55,6 @@ export type {
     IWorkspaceDocumentIdentity,
     IWorkspaceDocumentSnapshot,
     IWorkspaceDocumentTransaction,
-    IWorkspacePendingCloseDecision,
-    TWorkspaceDocumentPhase,
-    TWorkspaceDocumentTransactionKind,
 };
 export interface IDocumentOperationLease {
     activeKind: Ref<TDocumentOperationKind | null>;
