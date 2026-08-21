@@ -14,6 +14,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { createServer } from 'node:http';
 
 interface IWebDeployAssetsModule {
     REQUIRED_WEB_DEPLOY_ASSETS: Array<{ relativePath: string }>;
@@ -35,7 +36,10 @@ interface IWebDeployAssetsModule {
         sourceRoot?: string;
     }) => Promise<unknown>;
     validateVercelFunctionBoot: (options?: {projectRoot?: string}) => Promise<void>;
-    validateNodeServerBoot: (options?: {projectRoot?: string}) => Promise<void>;
+    validateNodeServerBoot: (options?: {
+        port?: number;
+        projectRoot?: string;
+    }) => Promise<void>;
 }
 
 const {
@@ -101,15 +105,18 @@ describe('web deploy assets check', () => {
     it('keeps the strict boot deadline except for slower Windows cold starts', () => {
         expect(getNodeServerBootTiming('linux')).toEqual({
             healthDeadlineMs: 8_000,
-            processTimeoutMs: 10_000,
+            listeningDeadlineMs: 8_000,
+            shutdownTimeoutMs: 2_000,
         });
         expect(getNodeServerBootTiming('darwin')).toEqual({
             healthDeadlineMs: 8_000,
-            processTimeoutMs: 10_000,
+            listeningDeadlineMs: 8_000,
+            shutdownTimeoutMs: 2_000,
         });
         expect(getNodeServerBootTiming('win32')).toEqual({
             healthDeadlineMs: 30_000,
-            processTimeoutMs: 35_000,
+            listeningDeadlineMs: 30_000,
+            shutdownTimeoutMs: 5_000,
         });
     });
 
@@ -140,7 +147,9 @@ describe('web deploy assets check', () => {
                     `  writeFileSync(${JSON.stringify(shutdownMarker)}, "closed", "utf8");`,
                     '  server.close();',
                     '});',
-                    'server.listen(Number(process.env.PORT), process.env.HOST);',
+                    'server.listen(Number(process.env.PORT), process.env.HOST, () => {',
+                    '  console.log(`Listening on http://${process.env.HOST}:${process.env.PORT}`);',
+                    '});',
                 ].join('\n'),
                 'utf8',
             );
@@ -152,6 +161,55 @@ describe('web deploy assets check', () => {
                 recursive: true,
             });
         }
+    });
+
+    it('rejects a response served by a different process on the selected port', async () => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-node-server-port-race-'));
+        const serverRoot = path.join(tempRoot, 'nuxt-output/server');
+        const impostor = createServer((_request, response) => {
+            response.statusCode = 204;
+            response.end();
+        });
+        try {
+            await mkdir(serverRoot, {recursive: true});
+            await new Promise<void>((resolvePromise, rejectPromise) => {
+                impostor.once('error', rejectPromise);
+                impostor.listen(0, '127.0.0.1', resolvePromise);
+            });
+            const address = impostor.address();
+            if (!address || typeof address === 'string') {
+                throw new Error('Unable to bind the impostor server.');
+            }
+            await writeFile(
+                path.join(serverRoot, 'index.mjs'),
+                [
+                    'import {createServer} from "node:http";',
+                    'const server = createServer((_request, response) => response.end());',
+                    'server.listen(Number(process.env.PORT), process.env.HOST, () => {',
+                    '  console.log(`Listening on http://${process.env.HOST}:${process.env.PORT}`);',
+                    '});',
+                ].join('\n'),
+                'utf8',
+            );
+
+            await expect(validateNodeServerBoot({
+                port: address.port,
+                projectRoot: tempRoot,
+            })).rejects.toThrow(/Nuxt node server failed to boot.*EADDRINUSE/su);
+        } finally {
+            await new Promise<void>(resolvePromise => impostor.close(() => resolvePromise()));
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('rejects an invalid explicit boot-check port', async () => {
+        await expect(validateNodeServerBoot({
+            port: 0,
+            projectRoot: process.cwd(),
+        })).rejects.toThrow('The Nuxt boot check port must be an integer from 1 through 65535.');
     });
 
     it('checks local Nuxt build output assets', async () => {

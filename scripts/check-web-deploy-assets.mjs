@@ -2,10 +2,9 @@ import {
     readFile,
     stat,
 } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import {
     fileURLToPath,
     pathToFileURL,
@@ -17,7 +16,6 @@ import {
 } from './web-deploy-asset-manifest.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const execFileAsync = promisify(execFile);
 const FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES = [
     'pdf-lib',
     'utif',
@@ -26,13 +24,16 @@ const FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES = [
 const NODE_SERVER_BOOT_TIMINGS = Object.freeze({
     default: Object.freeze({
         healthDeadlineMs: 8_000,
-        processTimeoutMs: 10_000,
+        listeningDeadlineMs: 8_000,
+        shutdownTimeoutMs: 2_000,
     }),
     win32: Object.freeze({
         healthDeadlineMs: 30_000,
-        processTimeoutMs: 35_000,
+        listeningDeadlineMs: 30_000,
+        shutdownTimeoutMs: 5_000,
     }),
 });
+const NODE_SERVER_OUTPUT_LIMIT = 64 * 1024;
 export {
     REQUIRED_WEB_DEPLOY_ASSETS,
     REQUIRED_WEB_OUTPUT_CONTRACTS,
@@ -252,15 +253,8 @@ export async function validateVercelFunctionBoot({projectRoot = defaultProjectRo
     }
 }
 
-export async function validateNodeServerBoot({projectRoot = defaultProjectRoot} = {}) {
-    const entryPath = path.join(projectRoot, 'nuxt-output/server/index.mjs');
-    await assertFileAsset(
-        path.dirname(entryPath),
-        'Nuxt node server',
-        {relativePath: path.basename(entryPath)},
-    );
-
-    const port = await new Promise((resolve, reject) => {
+async function reserveLoopbackPort() {
+    return new Promise((resolve, reject) => {
         const reservation = createServer();
         reservation.once('error', reject);
         reservation.listen(0, '127.0.0.1', () => {
@@ -279,58 +273,227 @@ export async function validateNodeServerBoot({projectRoot = defaultProjectRoot} 
             });
         });
     });
-    const entryUrl = pathToFileURL(entryPath).href;
+}
+
+async function waitForListeningMarker({
+    deadline,
+    getProcessFailure,
+    isListeningObserved,
+}) {
+    while (Date.now() < deadline) {
+        const processFailure = getProcessFailure();
+        if (processFailure) {
+            throw processFailure;
+        }
+        if (isListeningObserved()) {
+            return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    throw new Error('Nuxt server did not report its listening address before the deadline.');
+}
+
+async function pollHealthEndpoint({
+    deadline,
+    healthUrl,
+}) {
+    let lastError;
+    while (Date.now() < deadline) {
+        try {
+            const response = await fetch(healthUrl, {signal: AbortSignal.timeout(1_000)});
+            await response.arrayBuffer();
+            if (!response.ok) {
+                throw new Error(
+                    `Nuxt server health request returned HTTP ${String(response.status)}.`,
+                );
+            }
+            return;
+        } catch (error) {
+            lastError = error;
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+    }
+    throw lastError ?? new Error('Nuxt server did not answer its loopback health request.');
+}
+
+async function shutdownChild(child, childClosed, timeoutMs) {
+    if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGTERM');
+    }
+    let shutdownTimer;
+    const shutdownTimeout = new Promise(resolve => {
+        shutdownTimer = setTimeout(resolve, timeoutMs);
+    });
+    await Promise.race([
+        childClosed,
+        shutdownTimeout,
+    ]);
+    clearTimeout(shutdownTimer);
+    if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL');
+        await childClosed;
+    }
+}
+
+function startNodeServer(entryPath, port, listeningPattern) {
+    const state = {
+        exit: undefined,
+        listeningObserved: false,
+        spawnError: undefined,
+        stderrOutput: '',
+        stderrTruncated: false,
+        stdoutOutput: '',
+        stdoutTruncated: false,
+    };
+    const child = spawn(process.execPath, [entryPath], {
+        env: {
+            ...process.env,
+            HOST: '127.0.0.1',
+            NITRO_HOST: '127.0.0.1',
+            NITRO_PORT: String(port),
+            PORT: String(port),
+        },
+        stdio: [
+            'ignore',
+            'pipe',
+            'pipe',
+        ],
+        windowsHide: true,
+    });
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', chunk => {
+        const updatedOutput = `${state.stdoutOutput}${chunk}`;
+        state.listeningObserved ||= listeningPattern.test(updatedOutput);
+        state.stdoutTruncated ||= updatedOutput.length > NODE_SERVER_OUTPUT_LIMIT;
+        state.stdoutOutput = updatedOutput.slice(-NODE_SERVER_OUTPUT_LIMIT);
+    });
+    child.stderr?.on('data', chunk => {
+        const updatedOutput = `${state.stderrOutput}${chunk}`;
+        state.stderrTruncated ||= updatedOutput.length > NODE_SERVER_OUTPUT_LIMIT;
+        state.stderrOutput = updatedOutput.slice(-NODE_SERVER_OUTPUT_LIMIT);
+    });
+    const childClosed = new Promise(resolve => {
+        child.once('error', error => {
+            state.spawnError = error;
+        });
+        child.once('exit', (code, signal) => {
+            state.exit = {
+                code,
+                signal,
+            };
+        });
+        child.once('close', (code, signal) => {
+            state.exit ??= {
+                code,
+                signal,
+            };
+            resolve(state.exit);
+        });
+    });
+    return {
+        child,
+        childClosed,
+        state,
+    };
+}
+
+function formatNodeServerFailure(error, state) {
+    const childOutput = [
+        [
+            'stderr',
+            state.stderrOutput,
+            state.stderrTruncated,
+        ],
+        [
+            'stdout',
+            state.stdoutOutput,
+            state.stdoutTruncated,
+        ],
+    ]
+        .filter(([
+            , output,
+        ]) => output.trim().length > 0)
+        .map(([
+            streamName,
+            output,
+            truncated,
+        ]) => [
+            truncated ? `[${streamName} output truncated to the last 64 KiB]` : '',
+            output.trim(),
+        ].filter(Boolean).join('\n'))
+        .join('\n');
+    const details = error instanceof Error ? error.message : String(error);
+    return new Error(
+        `Nuxt node server failed to boot: ${details}${childOutput ? `\n${childOutput}` : ''}`,
+        {cause: error},
+    );
+}
+
+async function runNodeServerBootProbe(entryPath, port) {
     const healthUrl = `http://127.0.0.1:${String(port)}/`;
+    const listeningPattern = new RegExp(
+        `Listening\\s+on\\s+https?://(?:127\\.0\\.0\\.1|localhost):${String(port)}(?:/|\\s|$)`,
+        'iu',
+    );
     const timing = getNodeServerBootTiming();
+    const {
+        child,
+        childClosed,
+        state,
+    } = startNodeServer(entryPath, port, listeningPattern);
+
+    let bootError;
     try {
-        await execFileAsync(process.execPath, [
-            '--input-type=module',
-            '--eval',
-            [
-                `await import(${JSON.stringify(entryUrl)});`,
-                `const deadline = Date.now() + ${String(timing.healthDeadlineMs)};`,
-                'let booted = false;',
-                'let lastError;',
-                'while (Date.now() < deadline) {',
-                '  try {',
-                `    const response = await fetch(${JSON.stringify(healthUrl)}, {signal: AbortSignal.timeout(1_000)});`,
-                '    await response.body?.cancel();',
-                '    booted = true;',
-                '    process.emit("SIGTERM", "SIGTERM");',
-                '    break;',
-                '  } catch (error) {',
-                '    lastError = error;',
-                '    await new Promise(resolve => setTimeout(resolve, 50));',
-                '  }',
-                '}',
-                'if (!booted) {',
-                '  throw lastError ?? new Error("Nuxt server did not answer its loopback health request.");',
-                '}',
-            ].join('\n'),
-        ], {
-            env: {
-                ...process.env,
-                HOST: '127.0.0.1',
-                NITRO_HOST: '127.0.0.1',
-                NITRO_PORT: String(port),
-                PORT: String(port),
+        await waitForListeningMarker({
+            deadline: Date.now() + timing.listeningDeadlineMs,
+            getProcessFailure: () => {
+                if (state.spawnError) {
+                    return state.spawnError;
+                }
+                return state.exit
+                    ? new Error(
+                        'Nuxt server exited before reporting its listening address '
+                        + `(code ${String(state.exit.code)}, `
+                        + `signal ${String(state.exit.signal)}).`,
+                    )
+                    : undefined;
             },
-            timeout: timing.processTimeoutMs,
+            isListeningObserved: () => state.listeningObserved,
+        });
+        await pollHealthEndpoint({
+            deadline: Date.now() + timing.healthDeadlineMs,
+            healthUrl,
         });
     } catch (error) {
-        const childOutput = [
-            error?.stdout,
-            error?.stderr,
-        ]
-            .filter(output => typeof output === 'string' && output.trim().length > 0)
-            .map(output => output.trim())
-            .join('\n');
-        const details = error instanceof Error ? error.message : String(error);
-        throw new Error(
-            `Nuxt node server failed to boot: ${details}${childOutput ? `\n${childOutput}` : ''}`,
-            {cause: error},
-        );
+        bootError = error;
+    } finally {
+        await shutdownChild(child, childClosed, timing.shutdownTimeoutMs);
     }
+    if (bootError) {
+        throw formatNodeServerFailure(bootError, state);
+    }
+}
+
+export async function validateNodeServerBoot({
+    port: requestedPort,
+    projectRoot = defaultProjectRoot,
+} = {}) {
+    if (
+        requestedPort !== undefined
+        && (!Number.isInteger(requestedPort) || requestedPort < 1 || requestedPort > 65_535)
+    ) {
+        throw new Error('The Nuxt boot check port must be an integer from 1 through 65535.');
+    }
+    const entryPath = path.join(projectRoot, 'nuxt-output/server/index.mjs');
+    await assertFileAsset(
+        path.dirname(entryPath),
+        'Nuxt node server',
+        {relativePath: path.basename(entryPath)},
+    );
+
+    const port = requestedPort ?? await reserveLoopbackPort();
+    await runNodeServerBootProbe(entryPath, port);
 }
 
 const isDirectCliRun = process.argv[1]
