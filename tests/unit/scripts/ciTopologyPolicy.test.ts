@@ -630,10 +630,21 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Verify installed Windows NSIS journey');
         expect(workflow).toContain('-ArgumentList \'/S\', "/D=$installDir" -Wait -PassThru');
         expect(workflow).toContain('$appPath = Join-Path $installDir \'EVB Viewer.exe\'');
-        expect(workflow).toContain('while (-not (Test-Path $appPath -PathType Leaf)');
+        expect(workflow).toContain('(Join-Path $installDir \'d3dcompiler_47.dll\')');
+        expect(workflow).toContain('(Join-Path $installDir \'ffmpeg.dll\')');
+        expect(workflow).toContain('(Join-Path $installDir \'libEGL.dll\')');
+        expect(workflow).toContain('(Join-Path $installDir \'libGLESv2.dll\')');
+        expect(workflow).toContain('$installDeadline = (Get-Date).AddMinutes(3)');
+        expect(workflow).toContain('while ($missingRuntimePaths.Count -gt 0');
+        expect(workflow).toContain('Join-Path $env:RUNNER_TEMP \'evb-viewer-nsis-');
+        expect(workflow).toContain(
+            'throw \'Installed EVB Viewer runtime did not become ready before the deadline.\'',
+        );
+        expect(workflow).toContain('Get-Command Get-MpThreatDetection -ErrorAction SilentlyContinue');
+        expect(workflow).toContain('Get-MpThreatDetection -ErrorAction SilentlyContinue');
         expect(workflow).toContain('$app = Get-Item $appPath');
-        expect(workflow).not.toContain('Get-ChildItem "$env:LOCALAPPDATA\\\\Programs"');
-        expect(workflow).toContain('$uninstallDeadline = (Get-Date).AddSeconds(30)');
+        expect(workflow).not.toContain('Get-ChildItem "$env:LOCALAPPDATA\\Programs"');
+        expect(workflow).toContain('$uninstallDeadline = (Get-Date).AddMinutes(3)');
         expect(workflow).toContain('if (Test-Path $appPath)');
         expect(workflow).toContain('throw \'NSIS uninstall left the EVB Viewer executable installed.\'');
         expect(workflow).toContain('name: Enforce Linux glibc 2.35 compatibility baseline');

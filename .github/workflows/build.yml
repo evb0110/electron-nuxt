@@ -442,17 +442,35 @@ jobs:
 
           $installDir = Join-Path $env:RUNNER_TEMP 'evb-viewer-nsis-${{ matrix.arch }}-${{ github.run_attempt }}'
           $appPath = Join-Path $installDir 'EVB Viewer.exe'
+          $runtimePaths = @(
+            $appPath,
+            (Join-Path $installDir 'd3dcompiler_47.dll'),
+            (Join-Path $installDir 'ffmpeg.dll'),
+            (Join-Path $installDir 'libEGL.dll'),
+            (Join-Path $installDir 'libGLESv2.dll')
+          )
           $install = Start-Process -FilePath $installer.FullName `
             -ArgumentList '/S', "/D=$installDir" -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "NSIS installer exited with $($install.ExitCode)." }
-          $installDeadline = (Get-Date).AddSeconds(30)
-          while (-not (Test-Path $appPath -PathType Leaf) -and (Get-Date) -lt $installDeadline) {
+          # Assisted NSIS installers can leave their extraction child running
+          # after the launcher exits. The ARM64 payload is large enough that the
+          # PE files may arrive well after static resources and the uninstaller.
+          $installDeadline = (Get-Date).AddMinutes(3)
+          $missingRuntimePaths = @($runtimePaths | Where-Object { -not (Test-Path $_ -PathType Leaf) })
+          while ($missingRuntimePaths.Count -gt 0 -and (Get-Date) -lt $installDeadline) {
             Start-Sleep -Milliseconds 500
+            $missingRuntimePaths = @($runtimePaths | Where-Object { -not (Test-Path $_ -PathType Leaf) })
           }
-          if (-not (Test-Path $appPath -PathType Leaf)) {
+          if ($missingRuntimePaths.Count -gt 0) {
             Get-ChildItem $installDir -Recurse -Force -ErrorAction SilentlyContinue |
               ForEach-Object { Write-Host "Installer output: $($_.FullName)" }
-            throw "Installed EVB Viewer executable was not found at $appPath."
+            Write-Host "Missing runtime paths: $($missingRuntimePaths -join ', ')"
+            if (Get-Command Get-MpThreatDetection -ErrorAction SilentlyContinue) {
+              Get-MpThreatDetection -ErrorAction SilentlyContinue |
+                Select-Object InitialDetectionTime, ThreatName, Resources |
+                Format-List | Out-String | Write-Host
+            }
+            throw 'Installed EVB Viewer runtime did not become ready before the deadline.'
           }
           $app = Get-Item $appPath
 
@@ -466,7 +484,7 @@ jobs:
               if ($uninstall.ExitCode -ne 0) { throw "NSIS uninstaller exited with $($uninstall.ExitCode)." }
             }
           }
-          $uninstallDeadline = (Get-Date).AddSeconds(30)
+          $uninstallDeadline = (Get-Date).AddMinutes(3)
           while ((Test-Path $appPath) -and (Get-Date) -lt $uninstallDeadline) {
             Start-Sleep -Milliseconds 500
           }
