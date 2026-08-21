@@ -118,10 +118,7 @@ export function resolveBrowserDjvuPdfRenderConcurrency(
     );
 }
 
-export {
-    resolveBrowserDjvuConversionPreflight,
-    type IBrowserDjvuConversionPreflight,
-} from '@contracts/djvuConversionPolicy';
+export { resolveBrowserDjvuConversionPreflight } from '@contracts/djvuConversionPolicy';
 
 export interface IBrowserDjvuCompactExportPlan {
     strategy: 'compact-djvu-aware' | 'direct-fallback';
