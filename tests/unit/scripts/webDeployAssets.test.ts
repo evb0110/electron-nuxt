@@ -2,6 +2,7 @@ import {
     copyFile,
     mkdir,
     mkdtemp,
+    readFile,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -115,6 +116,7 @@ describe('web deploy assets check', () => {
     it('boots the generated Node server entry instead of trusting file presence', async () => {
         const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-node-server-'));
         const serverRoot = path.join(tempRoot, 'nuxt-output/server');
+        const shutdownMarker = path.join(tempRoot, 'graceful-shutdown.txt');
         try {
             await mkdir(serverRoot, {recursive: true});
             await writeFile(
@@ -128,16 +130,22 @@ describe('web deploy assets check', () => {
             await writeFile(
                 path.join(serverRoot, 'index.mjs'),
                 [
+                    'import {writeFileSync} from "node:fs";',
                     'import {createServer} from "node:http";',
                     'const server = createServer((_request, response) => {',
                     '  response.statusCode = 204;',
                     '  response.end();',
+                    '});',
+                    'process.once("SIGTERM", () => {',
+                    `  writeFileSync(${JSON.stringify(shutdownMarker)}, "closed", "utf8");`,
+                    '  server.close();',
                     '});',
                     'server.listen(Number(process.env.PORT), process.env.HOST);',
                 ].join('\n'),
                 'utf8',
             );
             await expect(validateNodeServerBoot({projectRoot: tempRoot})).resolves.toBeUndefined();
+            await expect(readFile(shutdownMarker, 'utf8')).resolves.toBe('closed');
         } finally {
             await rm(tempRoot, {
                 force: true,
