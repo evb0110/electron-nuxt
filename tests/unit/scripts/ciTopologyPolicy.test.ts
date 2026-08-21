@@ -694,8 +694,8 @@ describe('CI topology policy', () => {
         expect(releaseCredentials).toContain('environment: release');
         expect(releaseCredentials).toContain('direct-download Windows installers will be unsigned');
         expect(releaseCredentials).toContain('unsigned or unnotarized macOS artifacts cannot be promoted');
-        expect(releaseCredentials).toContain('Microsoft Store submission will be skipped');
-        expect(releaseCredentials).toContain('publish_store=$publish_store');
+        expect(releaseCredentials).toContain('Microsoft Store submission will be skipped after the AppX packages are built and verified');
+        expect(releaseCredentials).toContain('submit_store=$submit_store');
         expect(workflowJob(releaseWorkflow, 'build_artifacts')).toContain('- release_credentials');
 
         const packagedScanCleanupVerifier = workflowJob(releaseWorkflow, 'verify_packaged_scan_cleanup');
@@ -782,12 +782,12 @@ describe('CI topology policy', () => {
         expect(stageMirrorJob).toContain('- finalize_release_assets');
         expect(publishStoreJob).toContain('- release_credentials');
         expect(publishStoreJob).toContain('- stage_mirror');
-        expect(publishStoreJob).toContain('if: ${{ needs.release_credentials.outputs.publish_store == \'true\' }}');
-        expect(publishStoreJob).toContain('submit: true');
+        expect(publishStoreJob).not.toContain('if:');
+        expect(publishStoreJob).toContain('submit: ${{ needs.release_credentials.outputs.submit_store == \'true\' }}');
         expect(stageMirrorJob).toContain('publish-release-mirror.mjs artifacts "${{ needs.prepare.outputs.tag }}" --stage');
         expect(promoteJob).toContain('- stage_mirror');
         expect(promoteJob).toContain('- publish_store');
-        expect(promoteJob).toContain('needs.publish_store.result == \'success\' || needs.publish_store.result == \'skipped\'');
+        expect(parseWorkflowJobs(releaseWorkflow).promote_release?.if).toBeUndefined();
         expect(stageMirrorJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
         expect(promoteJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
         expect(finalizeAssetsJob).toContain('name: Publish or verify immutable release checksums');
@@ -875,7 +875,7 @@ describe('CI topology policy', () => {
         expect(unsignedWindows.status).toBe(0);
         expect(unsignedWindows.log).toContain('direct-download Windows installers will be unsigned');
         expect(unsignedWindows.log).toContain('Microsoft Store submission will be skipped');
-        expect(unsignedWindows.output).toContain('publish_store=false');
+        expect(unsignedWindows.output).toContain('submit_store=false');
 
         const signedWindows = runResolver({
             WIN_CSC_KEY_PASSWORD: 'windows-password',
@@ -890,15 +890,11 @@ describe('CI topology policy', () => {
             PARTNER_TENANT_ID: 'partner-tenant',
         });
         expect(completePartnerCredentials.status).toBe(0);
-        expect(completePartnerCredentials.output).toContain('publish_store=true');
+        expect(completePartnerCredentials.output).toContain('submit_store=true');
 
         const incompletePartnerCredentials = runResolver({PARTNER_TENANT_ID: 'partner-tenant'});
         expect(incompletePartnerCredentials.status).toBe(0);
-        expect(incompletePartnerCredentials.output).toContain('publish_store=false');
-
-        const promoteJob = workflowJob(releaseWorkflow, 'promote_release');
-        expect(promoteJob).toContain('always()');
-        expect(promoteJob).toContain('needs.publish_store.result == \'skipped\'');
+        expect(incompletePartnerCredentials.output).toContain('submit_store=false');
     });
 
     it('keeps local distribution and cold lint fail-closed within supported resources', async () => {

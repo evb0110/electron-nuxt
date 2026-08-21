@@ -254,7 +254,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     outputs:
-      publish_store: ${{ steps.channels.outputs.publish_store }}
+      submit_store: ${{ steps.channels.outputs.submit_store }}
 
     steps:
       - name: Resolve public release channels
@@ -288,13 +288,13 @@ jobs:
             echo "::notice::Windows signing credentials are not configured; direct-download Windows installers will be unsigned."
           fi
 
-          publish_store=false
+          submit_store=false
           if [ -n "$PARTNER_TENANT_ID" ] && [ -n "$PARTNER_CLIENT_ID" ] && [ -n "$PARTNER_CLIENT_SECRET" ]; then
-            publish_store=true
+            submit_store=true
           else
-            echo "::notice::Complete Partner Center credentials are not configured; Microsoft Store submission will be skipped."
+            echo "::notice::Complete Partner Center credentials are not configured; Microsoft Store submission will be skipped after the AppX packages are built and verified."
           fi
-          echo "publish_store=$publish_store" >> "$GITHUB_OUTPUT"
+          echo "submit_store=$submit_store" >> "$GITHUB_OUTPUT"
 
   build_artifacts:
     name: Package Release Artifacts
@@ -761,24 +761,22 @@ jobs:
       - prepare
       - release_credentials
       - stage_mirror
-    if: ${{ needs.release_credentials.outputs.publish_store == 'true' }}
     uses: ./.github/workflows/store-appx.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
-      submit: true
+      submit: ${{ needs.release_credentials.outputs.submit_store == 'true' }}
     secrets:
       PARTNER_TENANT_ID: ${{ secrets.PARTNER_TENANT_ID }}
       PARTNER_CLIENT_ID: ${{ secrets.PARTNER_CLIENT_ID }}
       PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}
 
   promote_release:
-    name: Promote Available Release Channels
+    name: Promote Verified Release
     needs:
       - prepare
       - publish
       - publish_store
       - stage_mirror
-    if: ${{ always() && needs.prepare.result == 'success' && needs.publish.result == 'success' && needs.stage_mirror.result == 'success' && (needs.publish_store.result == 'success' || needs.publish_store.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
