@@ -42,6 +42,15 @@ run_apt_with_timeout() {
   fi
 }
 
+reset_bundle_dir() {
+  local bundle_dir="$1"
+  if [ -z "$bundle_dir" ]; then
+    echo "Error: Refusing to reset an empty Linux bundle path" >&2
+    return 1
+  fi
+  rm -rf -- "$bundle_dir"
+}
+
 # Install all required tools
 echo ""
 echo "Installing tools via apt..."
@@ -170,7 +179,7 @@ echo "1. Bundling Tesseract..."
 echo "=========================================="
 
 TESSERACT_DIR="$RESOURCES_DIR/tesseract/$PLATFORM_ARCH"
-rm -rf "$TESSERACT_DIR"
+reset_bundle_dir "$TESSERACT_DIR"
 bundle_tool "tesseract" "$TESSERACT_DIR"
 bundle_lib_deps "$TESSERACT_DIR/lib"
 fix_lib_rpaths "$TESSERACT_DIR/lib"
@@ -184,6 +193,7 @@ echo "2. Bundling Poppler tools..."
 echo "=========================================="
 
 POPPLER_DIR="$RESOURCES_DIR/poppler/$PLATFORM_ARCH"
+reset_bundle_dir "$POPPLER_DIR"
 for tool in pdfinfo pdftoppm pdftotext pdfimages; do
   bundle_tool "$tool" "$POPPLER_DIR"
 done
@@ -211,6 +221,7 @@ echo "3. Bundling qpdf..."
 echo "=========================================="
 
 QPDF_DIR="$RESOURCES_DIR/qpdf/$PLATFORM_ARCH"
+reset_bundle_dir "$QPDF_DIR"
 bundle_tool "qpdf" "$QPDF_DIR"
 bundle_lib_deps "$QPDF_DIR/lib"
 fix_lib_rpaths "$QPDF_DIR/lib"
@@ -224,6 +235,7 @@ echo "4. Bundling DjVuLibre..."
 echo "=========================================="
 
 DJVU_DIR="$RESOURCES_DIR/djvulibre/$PLATFORM_ARCH"
+reset_bundle_dir "$DJVU_DIR"
 for tool in ddjvu djvused djvudump; do
   bundle_tool "$tool" "$DJVU_DIR"
 done
