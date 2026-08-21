@@ -7,6 +7,7 @@ import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { buildWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
+import { buildWorkspaceCheckpointChangeSignature } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
@@ -92,8 +93,10 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
     }
 
     const stop = watch(
+        // Watch a cheap change signature instead of the serialized checkpoint:
+        // the full checkpoint is built only inside the debounced persist.
         () => options.enabled.value
-            ? JSON.stringify(buildWorkspaceCheckpoint(options))
+            ? buildWorkspaceCheckpointChangeSignature(options).workspace
             : null,
         scheduleCheckpoint,
         {immediate: true},

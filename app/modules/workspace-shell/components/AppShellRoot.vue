@@ -151,8 +151,6 @@ import { guardAsync } from '@app/utils/asyncGuard';
 import { resolveAppWindowTitle } from '@app/utils/appWindowTitle';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
-import { AgentAssistantPanel } from '@app/modules/agent-panel/public';
-import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
 import EditorPanesHost from '@app/modules/workspace-shell/components/EditorPanesHost.vue';
@@ -204,6 +202,10 @@ import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 traceRendererStartup('index.vue script setup start');
 useDirectOpenAutomationDispatcherShell();
+
+// User-initiated surfaces load on first open; split policy: warmupDesktopViewerChunks.ts.
+const AgentAssistantPanel = defineAsyncComponent(async () => (await import('@app/modules/agent-panel/public')).AgentAssistantPanel);
+const CombinePdfPage = defineAsyncComponent(() => import('@app/components/combine/CombinePdfPage.vue'));
 
 const editorPanesManager = useEditorPanesManager();
 const {
@@ -638,16 +640,13 @@ function isTabEmpty(tabId: string) {
     return !hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities) && !snapshot?.isOpeningDocument && !snapshot?.hasOpenError;
 }
 
-const assistantActiveTab = computed(() => activeTabId.value ? getTabById(activeTabId.value) : null);
-const assistantHasActiveDocument = computed(() => (
-    assistantActiveTab.value ? !isTabEmpty(assistantActiveTab.value.id) : false
-));
+const assistantHasActiveDocument = computed(() => (activeTab.value ? !isTabEmpty(activeTab.value.id) : false));
 const assistantHasAnyDocument = computed(() => tabs.value.some(tab => !isTabEmpty(tab.id)));
 const assistantActiveDocumentName = computed(() => assistantHasActiveDocument.value
-    ? assistantActiveTab.value?.fileName ?? null
+    ? activeTab.value?.fileName ?? null
     : null);
 const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
-    const tab = assistantActiveTab.value;
+    const tab = activeTab.value;
     if (!tab || !assistantHasActiveDocument.value) {
         return null;
     }

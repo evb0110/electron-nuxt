@@ -38,6 +38,7 @@ const FILE_NAMING_IGNORED_EXPORT_STEMS = new Set([
     'public',
     'tailwind.config',
     'vitest.config',
+    'workspaceDocumentController',
 ]);
 const ROUTE_DIRECTORY_NAMES = new Set([
     'layouts',

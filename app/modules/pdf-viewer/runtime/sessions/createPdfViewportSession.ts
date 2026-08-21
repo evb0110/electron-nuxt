@@ -621,11 +621,15 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         pendingMandatoryRaster = null;
         publishDemand();
     }
+    // `pagesToRender` can be disjoint, so its watch key needs every page; caching
+    // the join keeps this sync watcher off an O(mounted pages) string build on
+    // every unrelated dependency change.
+    const renderedPagesKey = computed(() => viewModel.pagesToRender.value.join(','));
     watch(
         () => [
             visibleRange.value.start,
             visibleRange.value.end,
-            viewModel.pagesToRender.value.join(','),
+            renderedPagesKey.value,
             options.bufferPages.value,
             scale.effectiveScale.value,
             options.outputScale.value,

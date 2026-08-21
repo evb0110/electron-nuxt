@@ -354,8 +354,16 @@ export function createPdfPageRasterScheduler(
             || left.sequence - right.sequence;
     }
 
+    // Only the minimum is needed, and the queue can change between dequeues
+    // within one pump, so this scans live entries instead of snapshotting and
+    // sorting the whole queue. `compareWork` remains the only ordering source.
     function takeNextWork() {
-        const next = [...queued.values()].sort(compareWork)[0] ?? null;
+        let next: IRasterWork | null = null;
+        for (const work of queued.values()) {
+            if (next === null || compareWork(work, next) < 0) {
+                next = work;
+            }
+        }
         if (next) {
             queued.delete(next.key);
         }

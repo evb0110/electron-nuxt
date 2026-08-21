@@ -21,6 +21,9 @@ const mocks = vi.hoisted(() => ({
     copyFile: vi.fn(),
     cp: vi.fn(),
     rm: vi.fn(),
+    access: vi.fn(),
+    lstat: vi.fn<(path: string) => Promise<{ isSymbolicLink: () => boolean; }>>(),
+    realpath: vi.fn<(path: string) => Promise<string>>(),
     stat: vi.fn(),
     unlink: vi.fn(),
     rename: vi.fn(),
@@ -69,6 +72,9 @@ vi.mock('fs/promises', () => ({
     copyFile: mocks.copyFile,
     readFile: mocks.readFile,
     writeFile: mocks.writeFile,
+    access: mocks.access,
+    lstat: mocks.lstat,
+    realpath: mocks.realpath,
     stat: mocks.stat,
     unlink: mocks.unlink,
     rename: mocks.rename,
@@ -259,7 +265,13 @@ describe('fileOps path security', () => {
             size: 123,
             mtimeMs: 1,
         });
-        mocks.stat.mockResolvedValue({ size: 123 });
+        mocks.access.mockResolvedValue(undefined);
+        mocks.lstat.mockResolvedValue({ isSymbolicLink: () => false });
+        mocks.realpath.mockImplementation(async (path: string) => path);
+        mocks.stat.mockResolvedValue({
+            size: 123,
+            mtimeMs: 1,
+        });
         mocks.writeFile.mockResolvedValue(undefined);
         mocks.copyFile.mockResolvedValue(undefined);
         mocks.rename.mockResolvedValue(undefined);
@@ -651,18 +663,31 @@ describe('fileOps path security', () => {
         ).resolves.toBe('/tmp/electron-test/lazy.pdf');
     });
 
-    it('reads lazy-original documents through a checked short-lived source handle', async () => {
-        const entry = lazyOriginalEntry();
+    it('reads lazy-original documents through a checked cached source handle', async () => {
+        const entry = {
+            ...lazyOriginalEntry(),
+            admissionSnapshot: {
+                size: 2n,
+                mtimeNs: 1_000_000n,
+            },
+        };
         const close = vi.fn(async () => {});
-        const readFromHandle = vi.fn(async () => Buffer.from([
-            8,
-            9,
-        ]));
+        const read = vi.fn(async (buffer: Buffer, offset: number, length: number) => {
+            buffer.set([
+                8,
+                9,
+            ], offset);
+            return {bytesRead: length};
+        });
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
+        mocks.captureWorkingCopyAdmissionSnapshot.mockResolvedValue({
+            size: 2n,
+            mtimeNs: 1_000_000n,
+        });
         mocks.open.mockResolvedValue({
             close,
-            readFile: readFromHandle,
+            read,
         });
 
         await expect(
@@ -673,10 +698,13 @@ describe('fileOps path security', () => {
         ]));
 
         expect(mocks.ensureWorkingCopyDirectory).not.toHaveBeenCalled();
+        // Pre-read admission assert plus the post-read torn-write assert.
         expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
         expect(mocks.open).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf', 'r');
-        expect(close).toHaveBeenCalledTimes(1);
         expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(close).not.toHaveBeenCalled();
+        await clearCachedRangeReadHandlesForTests();
+        expect(close).toHaveBeenCalledTimes(1);
     });
 
     it('stats lazy-original documents against the admission witness', async () => {
@@ -690,8 +718,8 @@ describe('fileOps path security', () => {
             modifiedAt: 1,
         });
 
-        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
-        expect(mocks.statSync).not.toHaveBeenCalled();
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(1);
+        expect(mocks.stat).not.toHaveBeenCalled();
     });
 
     it('runs lazy-original probes against the witnessed source without materializing', async () => {
@@ -704,7 +732,7 @@ describe('fileOps path security', () => {
         expect(probe).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf');
         expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
         expect(mocks.ensureWorkingCopyMaterialized).not.toHaveBeenCalled();
-        expect(mocks.statSync).not.toHaveBeenCalled();
+        expect(mocks.stat).not.toHaveBeenCalled();
     });
 
     it('returns a typed error when the lazy-original registration swaps during a probe', async () => {
@@ -762,9 +790,19 @@ describe('fileOps path security', () => {
         );
     });
 
-    it('discards lazy-original bytes when the post-read witness changed', async () => {
+    it('discards short lazy-original reads when the post-read witness changed', async () => {
         const entry = lazyOriginalEntry();
         const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer, offset: number) => {
+            if (read.mock.calls.length > 1) {
+                return {bytesRead: 0};
+            }
+            buffer.set([
+                4,
+                5,
+            ], offset);
+            return {bytesRead: 2};
+        });
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
         mocks.captureWorkingCopyAdmissionSnapshot
@@ -775,23 +813,21 @@ describe('fileOps path security', () => {
             });
         mocks.open.mockResolvedValue({
             close,
-            readFile: vi.fn(async () => Buffer.from([
-                4,
-                5,
-            ])),
+            read,
         });
 
         await expect(
             handleFileRead(readContext, '/tmp/electron-test/lazy.pdf'),
         ).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
 
-        expect(close).toHaveBeenCalledTimes(1);
         expect(mocks.transitionWorkingCopyBackingState).toHaveBeenCalledWith(
             '/tmp/electron-test/lazy.pdf',
             7,
             'lazy-original',
             expect.objectContaining({sourceBackingErrorCode: 'SOURCE_BACKING_CHANGED'}),
         );
+        await clearCachedRangeReadHandlesForTests();
+        expect(close).toHaveBeenCalledTimes(1);
     });
 
     it('fails lazy-original reads with a typed unavailable error', async () => {
@@ -818,7 +854,7 @@ describe('fileOps path security', () => {
         const result = await handleFileStat(readContext, '/Users/alice/Documents/file.pdf');
 
         expect(mocks.findWorkingCopyPathByOriginalPath).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf', 42);
-        expect(mocks.statSync).toHaveBeenCalledWith('/tmp/electron-test/mapped.pdf');
+        expect(mocks.stat).toHaveBeenCalledWith('/tmp/electron-test/mapped.pdf');
         expect(result).toEqual({
             size: 123,
             modifiedAt: 1,
@@ -909,7 +945,7 @@ describe('fileOps path security', () => {
         expect(close).toHaveBeenCalledTimes(1);
     });
 
-    it('never caches original-backed range read handles', async () => {
+    it('caches original-backed range read handles until backing-swap invalidation', async () => {
         const entry = {
             ...lazyOriginalEntry(),
             backingState: 'materializing',
@@ -929,9 +965,17 @@ describe('fileOps path security', () => {
         await handleFileReadRange(readContext, '/tmp/electron-test/lazy.pdf', 0, 2);
         await handleFileReadRange(readContext, '/tmp/electron-test/lazy.pdf', 2, 2);
 
-        expect(mocks.open).toHaveBeenCalledTimes(2);
-        expect(close).toHaveBeenCalledTimes(2);
-        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(4);
+        expect(mocks.open).toHaveBeenCalledTimes(1);
+        expect(mocks.open).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf', 'r');
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
+        expect(close).not.toHaveBeenCalled();
+
+        await mocks.backingSwapCacheInvalidator?.(
+            '/tmp/electron-test/lazy.pdf',
+            '/Users/alice/Documents/file.pdf',
+        );
+
+        expect(close).toHaveBeenCalledTimes(1);
         expect(getRangeReadCacheStatsForTests()).toMatchObject({
             handles: 0,
             pendingOpens: 0,
@@ -941,12 +985,12 @@ describe('fileOps path security', () => {
     it('reopens cached range read handles when file metadata changes', async () => {
         const firstClose = vi.fn(async () => {});
         const secondClose = vi.fn(async () => {});
-        mocks.statSync
-            .mockReturnValueOnce({
+        mocks.stat
+            .mockResolvedValueOnce({
                 size: 123,
                 mtimeMs: 1,
             })
-            .mockReturnValueOnce({
+            .mockResolvedValueOnce({
                 size: 123,
                 mtimeMs: 2,
             });
@@ -1031,7 +1075,7 @@ describe('fileOps path security', () => {
             0,
             2,
         );
-        await waitForSettledQueueTurn();
+        await vi.waitFor(() => expect(mocks.open).toHaveBeenCalledTimes(1));
         await enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', async () => undefined);
         firstOpen.resolve({
             close: firstClose,
@@ -1124,7 +1168,7 @@ describe('fileOps path security', () => {
     it('allows direct reads for DjVu files approved for native viewing', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.isAllowedDjvuViewingPath.mockReturnValue(true);
-        mocks.realpathSync.mockReturnValue('/Users/alice/Documents/file.djvu');
+        mocks.realpath.mockResolvedValue('/Users/alice/Documents/file.djvu');
 
         const content = await handleFileRead({}, '/Users/alice/Documents/file.djvu');
 
@@ -1140,12 +1184,12 @@ describe('fileOps path security', () => {
     it('allows direct stats for DjVu files approved for native viewing', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.isAllowedDjvuViewingPath.mockReturnValue(true);
-        mocks.realpathSync.mockReturnValue('/Users/alice/Documents/file.djvu');
+        mocks.realpath.mockResolvedValue('/Users/alice/Documents/file.djvu');
 
         const result = await handleFileStat({}, '/Users/alice/Documents/file.djvu');
 
         expect(mocks.isAllowedDjvuViewingPath).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
-        expect(mocks.statSync).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
+        expect(mocks.stat).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
         expect(result).toEqual({
             size: 123,
             modifiedAt: 1,
@@ -1155,7 +1199,7 @@ describe('fileOps path security', () => {
     it('allows direct range reads for DjVu files approved for native viewing', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.isAllowedDjvuViewingPath.mockReturnValue(true);
-        mocks.realpathSync.mockReturnValue('/Users/alice/Documents/file.djvu');
+        mocks.realpath.mockResolvedValue('/Users/alice/Documents/file.djvu');
         const close = vi.fn(async () => {});
         const read = vi.fn(async (buffer: Buffer) => {
             buffer.set([

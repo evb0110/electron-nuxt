@@ -7,6 +7,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    existsSync,
     mkdirSync,
     rmSync,
     writeFileSync,
@@ -14,6 +15,7 @@ import {
 import { join } from 'path';
 import { pathToFileURL } from 'url';
 import type * as NodeCrypto from 'crypto';
+import type * as FsPromises from 'fs/promises';
 
 const mocks = vi.hoisted(() => {
     const browserWindowInstances: MockBrowserWindow[] = [];
@@ -94,7 +96,15 @@ vi.mock('electron', () => ({
     shell: { openPath: mocks.openPath },
 }));
 
-vi.mock('fs/promises', () => ({
+vi.mock('fs/promises', async (importOriginal) => ({
+    ...await importOriginal<typeof FsPromises>(),
+    // Resolve existence on a microtask: settleNativePrint pumps promises under
+    // fake timers, so a real event-loop-bound access() would never settle.
+    access: async (path: string) => {
+        if (!existsSync(path)) {
+            throw new Error(`ENOENT: ${path}`);
+        }
+    },
     mkdtemp: mocks.mkdtemp,
     readdir: mocks.readdir,
     readFile: mocks.readFile,

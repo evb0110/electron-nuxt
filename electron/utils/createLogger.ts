@@ -35,11 +35,15 @@ export interface ILogger {
 interface ILoggerOptions {broadcastToRenderers?: boolean;}
 
 interface IFileLogState {
+    source: string;
     queue: Promise<void>;
     initialized: boolean;
     approximateBytes: number;
     pendingWrites: number;
     droppedWrites: number;
+    buffer: string[];
+    bufferBytes: number;
+    flushTimer: NodeJS.Timeout | null;
 }
 
 type TLogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
@@ -84,6 +88,8 @@ const LOG_WRITE_QUEUE_MAX_PENDING = (() => {
     }
     return Math.min(parsed, 100_000);
 })();
+const LOG_WRITE_FLUSH_INTERVAL_MS = 100;
+const LOG_WRITE_FLUSH_BYTES = 8 * 1024;
 const LOG_DIR_PRUNE_INTERVAL_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_FILE_LOG_DIR_PRUNE_INTERVAL_MS ?? `${60 * 1000}`, 10);
     if (!Number.isFinite(parsed) || parsed < 5_000) {
@@ -138,18 +144,22 @@ async function broadcastToRenderers(data: ILogMessage) {
     }
 }
 
-function ensureState(logFile: string): IFileLogState {
+function ensureState(logFile: string, source: string): IFileLogState {
     const existingState = fileLogStates.get(logFile);
     if (existingState) {
         return existingState;
     }
 
     const nextState: IFileLogState = {
+        source,
         queue: Promise.resolve(),
         initialized: false,
         approximateBytes: 0,
         pendingWrites: 0,
         droppedWrites: 0,
+        buffer: [],
+        bufferBytes: 0,
+        flushTimer: null,
     };
     fileLogStates.set(logFile, nextState);
     return nextState;
@@ -273,17 +283,21 @@ async function pruneLogDirectory(force = false) {
     return logDirPrunePromise;
 }
 
-function enqueueWrite(
-    source: string,
-    logFile: string,
-    line: string,
-) {
-    const state = ensureState(logFile);
-    if (state.pendingWrites >= LOG_WRITE_QUEUE_MAX_PENDING) {
-        state.droppedWrites += 1;
-        return;
+function flushState(logFile: string, state: IFileLogState) {
+    if (state.flushTimer) {
+        clearTimeout(state.flushTimer);
+        state.flushTimer = null;
     }
-    state.pendingWrites += 1;
+    // droppedWrites can be pending with an empty buffer when every dropped
+    // line arrived while the previous batch was in flight; the warning must
+    // still reach the file on the final flush.
+    if (state.buffer.length === 0 && state.droppedWrites === 0) {
+        return state.queue;
+    }
+
+    const bufferedLines = state.buffer;
+    state.buffer = [];
+    state.bufferBytes = 0;
 
     state.queue = state.queue
         .then(async () => {
@@ -292,12 +306,12 @@ function enqueueWrite(
             const linesToWrite: string[] = [];
             if (state.droppedWrites > 0) {
                 linesToWrite.push(
-                    `[${new Date().toISOString()}] [${source}] [WARN] `
+                    `[${new Date().toISOString()}] [${state.source}] [WARN] `
                     + `Dropped ${state.droppedWrites} buffered log message(s) due to logger backpressure`,
                 );
                 state.droppedWrites = 0;
             }
-            linesToWrite.push(line);
+            linesToWrite.push(...bufferedLines);
             const payload = `${linesToWrite.join('\n')}\n`;
             const payloadBytes = Buffer.byteLength(payload, 'utf8');
 
@@ -315,8 +329,54 @@ function enqueueWrite(
             // Avoid throwing from logger writes.
         })
         .finally(() => {
-            state.pendingWrites = Math.max(0, state.pendingWrites - 1);
+            state.pendingWrites = Math.max(0, state.pendingWrites - bufferedLines.length);
         });
+
+    return state.queue;
+}
+
+function enqueueWrite(
+    source: string,
+    logFile: string,
+    line: string,
+    level: TLogLevel,
+) {
+    const state = ensureState(logFile, source);
+    if (state.pendingWrites >= LOG_WRITE_QUEUE_MAX_PENDING) {
+        state.droppedWrites += 1;
+        return;
+    }
+    state.pendingWrites += 1;
+    state.buffer.push(line);
+    state.bufferBytes += Buffer.byteLength(line, 'utf8') + 1;
+
+    // Errors are the lines most likely to be needed after a crash, so they never wait
+    // on the coalescing window.
+    if (level === 'ERROR' || state.bufferBytes >= LOG_WRITE_FLUSH_BYTES) {
+        void flushState(logFile, state);
+        return;
+    }
+    if (state.flushTimer) {
+        return;
+    }
+    state.flushTimer = setTimeout(() => {
+        state.flushTimer = null;
+        void flushState(logFile, state);
+    }, LOG_WRITE_FLUSH_INTERVAL_MS);
+    state.flushTimer.unref?.();
+}
+
+/**
+ * Drains every buffered and in-flight log write. Shutdown must await this before the
+ * process exits, otherwise coalesced lines are lost.
+ */
+export async function flushPendingLogWrites() {
+    await Promise.all([...fileLogStates].map(
+        ([
+            logFile,
+            state,
+        ]) => flushState(logFile, state).catch(() => undefined),
+    ));
 }
 
 export function createLogger(source: string, options: ILoggerOptions = {}): ILogger {
@@ -334,7 +394,7 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
         const formattedMsg = `[${ts}] [${source}] [${level}] ${msg}`;
 
         if (shouldLog(level, FILE_LOG_LEVEL)) {
-            enqueueWrite(source, logFile, formattedMsg);
+            enqueueWrite(source, logFile, formattedMsg, level);
         }
 
         if (broadcastToRenderersEnabled && shouldLog(level, RENDER_LOG_LEVEL)) {

@@ -4,8 +4,8 @@ import { LOCALE_CODES } from '@i18n-core';
 interface IUseWebSeoOptions { noindex?: boolean; }
 
 const SEO_IMAGE_PATH = '/evb-viewer-seo.png';
-const SEO_IMAGE_WIDTH = 2926;
-const SEO_IMAGE_HEIGHT = 1898;
+const SEO_IMAGE_WIDTH = 1600;
+const SEO_IMAGE_HEIGHT = 1038;
 const FALLBACK_WEB_SITE_URL = 'https://web.evb-viewer.com';
 
 function normalizeSiteUrl(siteUrl: string) {

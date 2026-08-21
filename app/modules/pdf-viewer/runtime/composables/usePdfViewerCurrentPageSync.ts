@@ -169,7 +169,7 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
             BrowserLogger.diagnostic(
                 'pdf-nav',
                 `${buildSyncSummaryLine(source, previous, page, changed, fallbackToCurrent, samples)} eventId=${eventId}`,
-                {
+                () => ({
                     source,
                     eventId,
                     previousPage: previous,
@@ -194,7 +194,7 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
                             return null;
                         }
                     })(),
-                },
+                }),
             );
         }
 
@@ -239,7 +239,7 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
                 `[sync-sample] source=${source} run=${syncRunId}`
                 + ` sample=${sampleIndex + 1}/${CURRENT_PAGE_SYNC_SAMPLE_COUNT}`
                 + ` page=${sampledPage}`,
-                {
+                () => ({
                     source,
                     syncRunId,
                     sampleIndex,
@@ -251,7 +251,7 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
                     },
                     viewer: summarizeViewerMetricsForLog(container),
                     visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(container),
-                },
+                }),
             );
             if (sampleIndex + 1 < CURRENT_PAGE_SYNC_SAMPLE_COUNT) {
                 await nextTick();
@@ -293,28 +293,29 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
         }
 
         const syncRunId = ++currentPageSyncRunId;
-        if (options.resizeAnchor && isAnchoredCurrentPageSyncSource(source)) {
+        const resizeAnchor = options.resizeAnchor;
+        if (resizeAnchor && isAnchoredCurrentPageSyncSource(source)) {
             if (!canAcceptViewportCurrentPage(source)) {
                 return;
             }
             BrowserLogger.diagnostic(
                 'pdf-nav',
                 `[anchor] fixed current-page sync source=${source}`
-                + ` page=${options.resizeAnchor.page}`
-                + ` token=${options.resizeAnchor.transitionToken}`,
-                {
+                + ` page=${resizeAnchor.page}`
+                + ` token=${resizeAnchor.transitionToken}`,
+                () => ({
                     source,
-                    page: options.resizeAnchor.page,
-                    transitionToken: options.resizeAnchor.transitionToken,
-                    capturedAtMs: options.resizeAnchor.capturedAtMs,
-                    capturedVisibleRange: options.resizeAnchor.visibleRange,
-                    capturedViewerMetrics: options.resizeAnchor.viewerMetrics,
+                    page: resizeAnchor.page,
+                    transitionToken: resizeAnchor.transitionToken,
+                    capturedAtMs: resizeAnchor.capturedAtMs,
+                    capturedVisibleRange: resizeAnchor.visibleRange,
+                    capturedViewerMetrics: resizeAnchor.viewerMetrics,
                     viewer: summarizeViewerMetricsForLog(viewerContainer.value),
                     visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
-                },
+                }),
             );
             emitCurrentPageIfChanged(
-                options.resizeAnchor.page,
+                resizeAnchor.page,
                 `${source}:anchor-fixed`,
                 null,
                 false,

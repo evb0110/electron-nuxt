@@ -1,9 +1,12 @@
 import {
     existsSync,
-    lstatSync,
-    realpathSync,
     statSync,
 } from 'fs';
+import {
+    access,
+    lstat,
+    realpath,
+} from 'fs/promises';
 import {
     extname,
     resolve,
@@ -62,7 +65,7 @@ export function normalizeNonEmptyPath(filePath: unknown) {
     return normalizedPath;
 }
 
-function resolveDirectSourceReadPath(
+async function resolveDirectSourceReadPath(
     normalizedPath: string,
     extension: string,
     senderId?: number,
@@ -79,18 +82,23 @@ function resolveDirectSourceReadPath(
     }
 
     const absolutePath = resolve(normalizedPath);
-    if (!existsSync(absolutePath)) {
-        return null;
-    }
-
     try {
-        if (lstatSync(absolutePath).isSymbolicLink()) {
+        if ((await lstat(absolutePath)).isSymbolicLink()) {
             return null;
         }
 
-        return realpathSync(absolutePath);
+        return await realpath(absolutePath);
     } catch {
         return null;
+    }
+}
+
+async function pathExists(path: string) {
+    try {
+        await access(path);
+        return true;
+    } catch {
+        return false;
     }
 }
 
@@ -196,7 +204,7 @@ async function resolveExistingReadablePath(
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
 
-    if (!existsSync(resolvedPath) && !isOriginalBackedManagedRef(resolvedPath, senderId)) {
+    if (!isOriginalBackedManagedRef(resolvedPath, senderId) && !(await pathExists(resolvedPath))) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
@@ -215,7 +223,7 @@ export async function resolveExistingReadablePdfPath(filePath: unknown, senderId
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
 
-    if (!existsSync(resolvedPath) && !isOriginalBackedManagedRef(resolvedPath, senderId)) {
+    if (!isOriginalBackedManagedRef(resolvedPath, senderId) && !(await pathExists(resolvedPath))) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 

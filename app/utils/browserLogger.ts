@@ -285,6 +285,12 @@ function emitThrottled(
     data?: TLazyValue,
     options: {writeConsole?: boolean;} = {},
 ) {
+    // Filtered levels must not resolve lazy payloads, so the level check happens
+    // here rather than only inside emitLog after resolveLazyValue.
+    if (!shouldLog(level)) {
+        return;
+    }
+
     const throttle = takeThrottledLogSuppressionCount(section, key, intervalMs);
     if (!throttle.allowed) {
         return;

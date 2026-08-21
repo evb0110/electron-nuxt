@@ -15,6 +15,29 @@ interface IWorkspaceMetadataSnapshot {
     pageLabelRanges: IPdfPageLabelRange[];
 }
 
+// Serialized-size approximations of one entry's fixed fields, used so the history
+// budget can be charged without stringifying whole snapshots on every edit.
+const BOOKMARK_ENTRY_FIXED_BYTES = 120;
+const PAGE_LABEL_RANGE_FIXED_BYTES = 64;
+
+function estimateBookmarkBytes(entries: IPdfBookmarkEntry[]): number {
+    let total = 0;
+    for (const entry of entries) {
+        total += BOOKMARK_ENTRY_FIXED_BYTES
+            + entry.title.length
+            + estimateBookmarkBytes(entry.items);
+    }
+    return total;
+}
+
+function estimateSnapshotBytes(snapshot: IWorkspaceMetadataSnapshot) {
+    let total = estimateBookmarkBytes(snapshot.bookmarkItems);
+    for (const range of snapshot.pageLabelRanges) {
+        total += PAGE_LABEL_RANGE_FIXED_BYTES + range.prefix.length;
+    }
+    return total;
+}
+
 export const useWorkspaceMetadataHistory = (deps: {
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
     bookmarksDirty: Ref<boolean>;
@@ -162,7 +185,7 @@ export const useWorkspaceMetadataHistory = (deps: {
             cmd: redoMetadata,
             canUndo: () => canUndoMetadata.value,
             canRedo: () => canRedoMetadata.value,
-            estimatedBytes: JSON.stringify(snapshot).length + JSON.stringify(current).length,
+            estimatedBytes: estimateSnapshotBytes(snapshot) + estimateSnapshotBytes(current),
         });
         syncDirtyFlags(snapshot);
     }

@@ -103,9 +103,9 @@ const {
     border-radius: var(--app-space-3xs);
     background: var(--app-document-page-bg);
     box-shadow: var(--app-document-page-shadow);
-    transition:
-        border-color 0.15s ease,
-        box-shadow 0.15s ease;
+
+    /* box-shadow stays untransitioned: animating it repaints every frame. */
+    transition: border-color 0.15s ease;
 }
 
 .document-thumbnail-item.is-current .document-thumbnail-item__frame {

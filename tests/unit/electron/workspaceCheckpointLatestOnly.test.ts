@@ -304,6 +304,30 @@ describe('workspace checkpoint latest-only writer', () => {
         expect(JSON.parse(mocks.persisted ?? '{}').checkpoint.capturedAt).toBe(2);
     });
 
+    it('coalesces steady checkpoint drips and flushes the debounced save on shutdown', async () => {
+        mocks.atomicReplace.mockImplementation(async (source: string) => {
+            mocks.persisted = mocks.staged.get(source) ?? null;
+        });
+        const {
+            flushPendingWorkspaceCheckpointSave,
+            saveWorkspaceCheckpoint,
+        } = await import('@electron/workspaceCheckpointStore');
+
+        await saveWorkspaceCheckpoint(createCheckpoint(1), 10);
+        expect(mocks.atomicReplace).toHaveBeenCalledTimes(1);
+
+        const debounced = [
+            saveWorkspaceCheckpoint(createCheckpoint(2), 10),
+            saveWorkspaceCheckpoint(createCheckpoint(3), 10),
+        ];
+        expect(mocks.atomicReplace).toHaveBeenCalledTimes(1);
+
+        await flushPendingWorkspaceCheckpointSave();
+        await Promise.all(debounced);
+        expect(mocks.atomicReplace).toHaveBeenCalledTimes(2);
+        expect(JSON.parse(mocks.persisted ?? '{}').checkpoint.capturedAt).toBe(3);
+    });
+
     it('rolls back suppression when checkpoint deletion fails', async () => {
         mocks.remove.mockRejectedValueOnce(new Error('checkpoint delete failed'));
         mocks.atomicReplace.mockImplementation(async (source: string) => {

@@ -26,11 +26,38 @@ export const useToolbarOverflow = () => {
     let needsRecalculation = false;
     let suppressMutationEvents = false;
     let rafPending = false;
+    let hasPendingLayoutMutation = true;
+    let descendantCache = new WeakMap<HTMLElement, HTMLElement[]>();
     let lastStableState: {
         tier: number
         clientWidth: number
         scrollWidth: number
     } | null = null;
+
+    function invalidateDescendantCache() {
+        descendantCache = new WeakMap();
+    }
+
+    function getDescendants(el: HTMLElement) {
+        const cached = descendantCache.get(el);
+        if (cached) {
+            return cached;
+        }
+
+        const descendants = Array.from(el.querySelectorAll('*'))
+            .filter((node): node is HTMLElement => node instanceof HTMLElement);
+        descendantCache.set(el, descendants);
+        return descendants;
+    }
+
+    function setCollapseTier(tier: number) {
+        if (collapseTier.value === tier) {
+            return;
+        }
+
+        collapseTier.value = tier;
+        invalidateDescendantCache();
+    }
 
     function isElementOverflowing(el: HTMLElement) {
         return (el.scrollWidth - el.clientWidth) > OVERFLOW_TOLERANCE_PX;
@@ -42,11 +69,7 @@ export const useToolbarOverflow = () => {
             return false;
         }
 
-        return Array.from(el.querySelectorAll<HTMLElement>('*')).some((child) => {
-            if (!(child instanceof HTMLElement)) {
-                return false;
-            }
-
+        return getDescendants(el).some((child) => {
             const childRect = child.getBoundingClientRect();
             if (childRect.width <= 0) {
                 return false;
@@ -78,25 +101,29 @@ export const useToolbarOverflow = () => {
         suppressMutationEvents = true;
         const toolbar = toolbarRef.value;
         if (!toolbar) {
-            collapseTier.value = 0;
+            setCollapseTier(0);
             lastStableState = null;
             suppressMutationEvents = false;
             return;
         }
 
         try {
+            // Nothing that can change the layout has happened since the last settled
+            // pass, so skip the descendant rect scan entirely.
             if (
                 lastStableState
+                && !hasPendingLayoutMutation
                 && collapseTier.value === lastStableState.tier
                 && toolbar.clientWidth === lastStableState.clientWidth
                 && toolbar.scrollWidth === lastStableState.scrollWidth
-                && !isOverflowing(toolbar)
             ) {
                 return;
             }
 
+            hasPendingLayoutMutation = false;
+
             for (let tier = 0; tier <= MAX_COLLAPSE_TIER; tier += 1) {
-                collapseTier.value = tier;
+                setCollapseTier(tier);
                 await waitForLayout();
 
                 const currentToolbar = toolbarRef.value;
@@ -114,7 +141,7 @@ export const useToolbarOverflow = () => {
                 }
             }
 
-            collapseTier.value = MAX_COLLAPSE_TIER;
+            setCollapseTier(MAX_COLLAPSE_TIER);
             lastStableState = {
                 tier: MAX_COLLAPSE_TIER,
                 clientWidth: toolbar.clientWidth,
@@ -172,6 +199,8 @@ export const useToolbarOverflow = () => {
     }
 
     watch(toolbarRef, () => {
+        invalidateDescendantCache();
+        hasPendingLayoutMutation = true;
         scheduleRecalculation();
     }, { flush: 'post' });
 
@@ -191,17 +220,23 @@ export const useToolbarOverflow = () => {
     }
 
     useMutationObserver(toolbarRef, (mutations) => {
-        if (suppressMutationEvents) {
-            needsRecalculation = true;
-            return;
+        if (mutations.some(mutation => mutation.type === 'childList')) {
+            invalidateDescendantCache();
         }
         if (!shouldRecalculateForMutations(mutations)) {
+            return;
+        }
+
+        hasPendingLayoutMutation = true;
+        if (suppressMutationEvents) {
+            needsRecalculation = true;
             return;
         }
         scheduleRecalculation();
     }, {
         subtree: true,
         childList: true,
+        // Page/zoom readouts patch text nodes, and their width feeds the tier decision.
         characterData: true,
         attributes: true,
     });
@@ -218,6 +253,8 @@ export const useToolbarOverflow = () => {
 
         runDetached(async () => {
             await document.fonts?.ready;
+            // Font swaps resize text without mutating the DOM, so force a full pass.
+            hasPendingLayoutMutation = true;
             scheduleRecalculation();
         }, {
             category: 'background-diagnostic',

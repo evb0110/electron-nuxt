@@ -2131,13 +2131,22 @@ fn masked_spread_input(
     };
     let protected = protected_picture_mask(picture_mask, dpi);
     let mut masked = image.clone();
-    for y in 0..masked.height() {
-        for x in 0..masked.width() {
-            if protected.get(x, y) {
-                masked.set(x, y, 255);
-            }
-        }
+    let width = masked.width();
+    let stride = masked.stride();
+    if width == 0 {
+        return masked;
     }
+    masked
+        .data_mut()
+        .par_chunks_mut(stride)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, value) in row[..width].iter_mut().enumerate() {
+                if protected.get(x, y) {
+                    *value = 255;
+                }
+            }
+        });
     masked
 }
 

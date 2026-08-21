@@ -53,6 +53,7 @@ import {
     shutdownDjvuConversions,
     pruneStaleDjvuArtifactJobs,
 } from '@electron/features/djvu/public';
+import { warmNativeToolProtocolHandshakes } from '@electron/native-tools/warmNativeToolProtocolHandshakes';
 import { shutdownLocalMcpServer } from '@electron/features/agent/mcpServer';
 import { syncAgentMcpServerWithSettings } from '@electron/features/agent/codexMcpIntegration';
 import { shutdownAgentAssistantIfLoaded } from '@electron/features/agent/lazyAgentAssistant';
@@ -77,7 +78,10 @@ import {
     markWindowTabTransferWindowClosed,
 } from '@electron/windowTabTransfer';
 import { promptSetDefaultViewer } from '@electron/promptSetDefaultViewer';
-import { createLogger } from '@electron/utils/createLogger';
+import {
+    createLogger,
+    flushPendingLogWrites,
+} from '@electron/utils/createLogger';
 import {
     closeCachedRangeReadHandles,
     sweepStaleDefaultAppTempPdfs,
@@ -114,7 +118,10 @@ import { markPendingUpdateHealthy } from '@electron/updateHealthMarker';
 import { runDetached } from '@electron/utils/runDetached';
 import { resolveApplicationVersion } from '@electron/appVersion';
 import { createUnhandledRejectionRecovery } from '@electron/unhandledRejectionRecovery';
-import { clearWorkspaceCheckpoint } from '@electron/workspaceCheckpointStore';
+import {
+    clearWorkspaceCheckpoint,
+    flushPendingWorkspaceCheckpointSave,
+} from '@electron/workspaceCheckpointStore';
 import { initializeHostResourceProfile } from '@electron/resources/hostResourceProfile';
 import { configureMainJobBroker } from '@electron/resources/jobBroker';
 import { initializeElectronTranslations } from '@electron/te';
@@ -412,6 +419,12 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                     }
                 },
             },
+            {
+                // Last, so a checkpoint written by any earlier preservation step still
+                // survives the debounce window instead of dying with the process.
+                label: 'workspace-checkpoint-flush',
+                run: () => flushPendingWorkspaceCheckpointSave(),
+            },
         ];
     },
     createBestEffortCleanupSteps: context => [
@@ -463,6 +476,12 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
             run: () => context.preserveRecoveryState
                 ? undefined
                 : clearAllWorkingCopies({skipPaths: workingCopyCleanupSkipPaths}),
+        },
+        // Last, so lines emitted by every earlier shutdown step reach disk.
+        {
+            label: 'log-flush',
+            timeoutMs: 2_000,
+            run: () => flushPendingLogWrites(),
         },
     ],
 });
@@ -599,6 +618,7 @@ void runInitSequence({
     sweepStaleManagedScratchTempDirs,
     sweepStaleOcrTempArtifacts,
     pruneStaleDjvuArtifactJobs,
+    warmNativeToolProtocolHandshakes,
 })
     .then(() => syncAgentMcpServerWithSettings())
     .catch((error) => {

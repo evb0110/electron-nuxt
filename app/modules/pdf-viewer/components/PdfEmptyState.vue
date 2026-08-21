@@ -305,7 +305,6 @@ import { useElementSize } from '@vueuse/core';
 import { formatRelativeTime } from '@app/utils/formatters';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { isBrowserPlatformActive } from '@app/utils/platform';
-import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import SettingsPage from '@app/components/settings/SettingsPage.vue';
 import type { TStartSection } from '@app/types/startSection';
@@ -313,6 +312,12 @@ import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
 import PdfOpenBatchProgress from '@app/modules/pdf-viewer/components/PdfOpenBatchProgress.vue';
 import type { IPdfOpenBatchProgress } from '@app/modules/pdf-viewer/runtime/contracts/pdfOpenBatchProgress.types';
 import AppSearchInput from '@app/components/AppSearchInput.vue';
+
+// User-initiated surface: stays out of the startup chunk and loads on first open,
+// matching the split policy documented in warmupDesktopViewerChunks.ts.
+const CombinePdfPage = defineAsyncComponent(
+    () => import('@app/components/combine/CombinePdfPage.vue'),
+);
 
 const {
     recentFiles,

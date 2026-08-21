@@ -29,6 +29,37 @@ import { pickPageAnnotationImageFile } from '@app/modules/workspace-shell/annota
 import { readPageAnnotationImageFileFromClipboard } from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
 import { resolveShapeAnnotationDefaultSettings } from '@app/modules/workspace-shell/annotations/resolveShapeAnnotationDefaultSettings';
 import { createPageAnnotationDeleteActions } from '@app/modules/workspace-shell/composables/createPageAnnotationDeleteActions';
+import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
+
+interface IShapePopoverBounds {
+    id: string;
+    pageIndex: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    x2: number | null;
+    y2: number | null;
+}
+
+function isSameShapePopoverBounds(
+    bounds: IShapePopoverBounds | null,
+    other: IShapePopoverBounds | null,
+) {
+    if (!bounds || !other) {
+        return bounds === other;
+    }
+
+    return bounds.id === other.id
+        && bounds.pageIndex === other.pageIndex
+        && bounds.x === other.x
+        && bounds.y === other.y
+        && bounds.width === other.width
+        && bounds.height === other.height
+        && bounds.x2 === other.x2
+        && bounds.y2 === other.y2;
+}
+
 interface IPageAnnotationActionsDeps {
     pdfViewerRef: Ref<TPageAnnotationActionsPdfViewer | null>;
     annotationTool: Ref<TAnnotationTool>;
@@ -702,26 +733,34 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     { immediate: true },
     );
 
+    // Popover placement depends only on the shape's outer bounds; point and stroke
+    // arrays stay out of the comparison so dragging ink does not walk thousands of
+    // points per reactive tick.
+    let lastShapePopoverBounds: IShapePopoverBounds | null = null;
+
     watch(
-        () => {
+        (): IShapePopoverBounds | null => {
             const shape = selectedShape.value;
             if (!shape || !shapePropertiesPopover.value.visible) {
                 return null;
             }
-            return JSON.stringify({
+            return {
                 id: shape.id,
+                pageIndex: shape.pageIndex,
                 x: shape.x,
                 y: shape.y,
                 width: shape.width,
                 height: shape.height,
                 x2: shape.x2 ?? null,
                 y2: shape.y2 ?? null,
-                points: shape.points ?? null,
-                strokes: shape.strokes ?? null,
-            });
+            };
         },
-        () => {
-            if (selectedShape.value && shapePropertiesPopover.value.visible) {
+        (bounds) => {
+            if (isSameShapePopoverBounds(bounds, lastShapePopoverBounds)) {
+                return;
+            }
+            lastShapePopoverBounds = bounds;
+            if (bounds && selectedShape.value) {
                 updateShapePropertiesPopoverPosition(selectedShape.value);
             }
         },
@@ -736,10 +775,13 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
     }
 
-    VueUse.useEventListener(viewerContainer, 'scroll', handleViewportChange, { passive: true });
-    VueUse.useEventListener(windowTarget, 'resize', handleViewportChange);
+    const viewportChange = createRafCoalescedCallback(handleViewportChange);
+
+    VueUse.useEventListener(viewerContainer, 'scroll', viewportChange.schedule, { passive: true });
+    VueUse.useEventListener(windowTarget, 'resize', viewportChange.schedule);
     VueUse.useEventListener(viewerContainer, 'pointerup', () => setTimeout(refreshSelectedTextMarkupProperties, 0));
     VueUse.useEventListener(viewerContainer, 'keyup', refreshSelectedTextMarkupProperties);
+    onScopeDispose(viewportChange.cancel, true);
 
     function handleViewerAnnotationContextMenu(payload: {
         comment: IAnnotationCommentSummary | null;

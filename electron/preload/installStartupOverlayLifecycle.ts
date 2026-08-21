@@ -333,12 +333,19 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
         requestOverlayUnmount('timeout');
     }, MAX_WAIT_MS);
 
-    checkInterval = window.setInterval(() => {
-        const windowWithReady = window as Window & { __appReady?: boolean };
-        if (windowWithReady.__appReady) {
-            scheduleAppReadyRemoval('__appReady-interval');
-        }
-    }, 50);
+    // The app-ready event covers the normal path; this poll only catches a flag that was
+    // set outside it, so it checks once immediately and then idles instead of waking the
+    // renderer 20 times a second through the whole startup window.
+    if ((window as Window & { __appReady?: boolean }).__appReady) {
+        scheduleAppReadyRemoval('__appReady-initial');
+    } else {
+        checkInterval = window.setInterval(() => {
+            const windowWithReady = window as Window & { __appReady?: boolean };
+            if (windowWithReady.__appReady) {
+                scheduleAppReadyRemoval('__appReady-interval');
+            }
+        }, 250);
+    }
 
     window.addEventListener(APP_READY_EVENT_NAME, handleAppReady, { once: true });
     window.addEventListener(STARTUP_OPEN_CLAIMED_EVENT_NAME, handleStartupOpenClaimed, { once: true });

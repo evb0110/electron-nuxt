@@ -42,12 +42,37 @@ export const useAssistantPanelResize = () => {
 
     const panelResize = createRafCoalescedCallback(handlePanelResize);
 
+    let detachDragListeners: (() => void) | null = null;
+
+    function cleanupPanelResize() {
+        panelResize.cancel();
+        detachDragListeners?.();
+        detachDragListeners = null;
+    }
+
+    // Window-level pointer listeners exist only for the duration of a drag so idle
+    // mouse movement does not schedule a frame callback for every pointermove.
+    function attachDragListeners() {
+        const target = typeof window !== 'undefined' ? window : undefined;
+        const stops = [
+            useEventListener(target, 'pointermove', panelResize.schedule),
+            useEventListener(target, 'pointerup', stopPanelResize),
+            useEventListener(target, 'pointercancel', stopPanelResize),
+        ];
+        detachDragListeners = () => {
+            for (const stop of stops) {
+                stop();
+            }
+        };
+    }
+
     function stopPanelResize(event: PointerEvent) {
         if (!isResizingPanel.value) {
             return;
         }
         panelResize.flush(event);
         isResizingPanel.value = false;
+        cleanupPanelResize();
     }
 
     function startPanelResize(event: PointerEvent) {
@@ -55,18 +80,15 @@ export const useAssistantPanelResize = () => {
         isResizingPanel.value = true;
         resizeStartX = event.clientX;
         resizeStartWidth = panelWidth.value;
+        cleanupPanelResize();
+        attachDragListeners();
     }
-
-    const target = typeof window !== 'undefined' ? window : undefined;
-    useEventListener(target, 'pointermove', panelResize.schedule);
-    useEventListener(target, 'pointerup', stopPanelResize);
-    useEventListener(target, 'pointercancel', stopPanelResize);
 
     onMounted(() => {
         // Normalize any previously persisted value that falls outside the bounds.
         applyClampedWidth(persistedPanelWidth.value);
     });
-    onScopeDispose(panelResize.cancel);
+    onScopeDispose(cleanupPanelResize);
 
     return {
         panelWidth,

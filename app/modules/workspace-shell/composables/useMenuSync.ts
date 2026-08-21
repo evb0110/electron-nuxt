@@ -1,3 +1,4 @@
+import { isEqual } from 'es-toolkit/predicate';
 import { guardAsync } from '@app/utils/asyncGuard';
 import type {
     IUseWorkspaceShellStateOptions,
@@ -96,7 +97,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             canCloseTab: context?.canCloseTab ?? false,
             canTransferActiveTab: context?.canTransferActiveTab ?? false,
         };
-        if (JSON.stringify(lastSyncedMenuDocumentState) === JSON.stringify(state)) {
+        if (lastSyncedMenuDocumentState && isEqual(lastSyncedMenuDocumentState, state)) {
             return;
         }
         lastSyncedMenuDocumentState = state;

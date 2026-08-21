@@ -1,73 +1,49 @@
 <template>
-    <div class="document-bookmark-item">
-        <div
-            class="document-bookmark-item__row"
-            :class="{'is-active': activeId === item.id}"
-            :data-bookmark-id="item.id"
-            tabindex="0"
-            role="button"
-            :aria-current="activeId === item.id ? 'location' : undefined"
-            @click="emit('activate', item.id)"
-            @keydown.enter.prevent="emit('activate', item.id)"
-            @keydown.space.prevent="emit('activate', item.id)"
-        >
-            <AppTooltip v-if="item.children.length > 0" :text="isExpanded ? t('bookmarks.collapse') : t('bookmarks.expand')" :delay-duration="800">
-                <button
-                    type="button"
-                    class="document-bookmark-item__toggle"
-                    :aria-label="isExpanded ? t('bookmarks.collapse') : t('bookmarks.expand')"
-                    :aria-expanded="isExpanded"
-                    @click.stop="emit('toggle-expand', item.id)"
-                ><UIcon :name="isExpanded ? 'i-ph-caret-down' : 'i-ph-caret-right'" class="size-4" /></button>
-            </AppTooltip>
-            <span v-else class="document-bookmark-item__spacer" />
-            <AppTooltip :text="item.title || t('bookmarks.untitled')" :delay-duration="800">
-                <span class="document-bookmark-item__title" :style="titleStyle">{{ item.title || t('bookmarks.untitled') }}</span>
-            </AppTooltip>
-        </div>
-        <div v-if="item.children.length > 0 && isExpanded" class="document-bookmark-item__children">
-            <DocumentBookmarkTreeItem
-                v-for="child in item.children"
-                :key="child.id"
-                :item="child"
-                :active-id="activeId"
-                :display-mode="displayMode"
-                :expanded-ids="expandedIds"
-                :active-path-ids="activePathIds"
-                @activate="emit('activate', $event)"
-                @toggle-expand="emit('toggle-expand', $event)"
-            />
-        </div>
+    <div
+        class="document-bookmark-item__row"
+        :class="{'is-active': isActive}"
+        :data-bookmark-id="item.id"
+        :style="rowStyle"
+        tabindex="0"
+        role="button"
+        :aria-current="isActive ? 'location' : undefined"
+        @click="emit('activate', item.id)"
+        @keydown.enter.prevent="emit('activate', item.id)"
+        @keydown.space.prevent="emit('activate', item.id)"
+    >
+        <button
+            v-if="item.children.length > 0"
+            type="button"
+            class="document-bookmark-item__toggle"
+            :aria-label="isExpanded ? t('bookmarks.collapse') : t('bookmarks.expand')"
+            :aria-expanded="isExpanded"
+            @click.stop="emit('toggle-expand', item.id)"
+            @keydown.enter.stop
+            @keydown.space.stop
+        ><UIcon :name="isExpanded ? 'i-ph-caret-down' : 'i-ph-caret-right'" class="size-4" /></button>
+        <span v-else class="document-bookmark-item__spacer" />
+        <span
+            class="document-bookmark-item__title"
+            :style="titleStyle"
+        >{{ item.title || t('bookmarks.untitled') }}</span>
     </div>
 </template>
 
 <script setup lang="ts">
-import type {
-    IDocumentBookmarkTreeItem,
-    TDocumentBookmarkDisplayMode,
-} from '@app/utils/document-viewer/bookmarks/documentBookmarks';
+import type {IDocumentBookmarkTreeItem} from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 
 const props = defineProps<{
     item: IDocumentBookmarkTreeItem;
-    activeId: string | null;
-    displayMode: TDocumentBookmarkDisplayMode;
-    expandedIds: ReadonlySet<string>;
-    activePathIds: ReadonlySet<string>;
+    depth: number;
+    isExpanded: boolean;
+    isActive: boolean;
 }>();
 const emit = defineEmits<{
     activate: [id: string];
     'toggle-expand': [id: string];
 }>();
 const {t} = useTypedI18n();
-const isExpanded = computed(() => {
-    if (props.displayMode === 'all-expanded') {
-        return true;
-    }
-    if (props.displayMode === 'current-expanded') {
-        return props.activePathIds.has(props.item.id);
-    }
-    return props.expandedIds.has(props.item.id);
-});
+const rowStyle = computed(() => ({marginInlineStart: `calc(${String(props.depth)} * var(--app-sidebar-outline-depth-indent))`}));
 const titleStyle = computed(() => ({
     color: props.item.color ?? undefined,
     fontWeight: props.item.bold ? '600' : '500',
@@ -79,6 +55,10 @@ const titleStyle = computed(() => ({
 <style scoped>
 .document-bookmark-item__row {
     display: flex;
+    box-sizing: border-box;
+
+    /* Fixed height keyed to BOOKMARK_ROW_HEIGHT_PX in DocumentBookmarkTree.vue. */
+    height: calc(var(--app-sidebar-action-size) + 2 * var(--app-sidebar-row-padding-block) + 2px);
     align-items: center;
     gap: var(--app-sidebar-row-gap);
     padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
@@ -137,5 +117,4 @@ const titleStyle = computed(() => ({
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.document-bookmark-item__children { padding-inline-start: var(--app-sidebar-outline-depth-indent); }
 </style>

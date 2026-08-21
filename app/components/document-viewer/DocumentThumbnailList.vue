@@ -127,7 +127,6 @@ function handleItemClick(pageNumber: number, event: MouseEvent) {
     position: absolute;
     top: 0;
     left: 0;
-    will-change: transform;
 }
 
 .document-thumbnail-list__placeholder {
@@ -140,10 +139,6 @@ function handleItemClick(pageNumber: number, event: MouseEvent) {
         ease-in-out infinite alternate;
 }
 
-:global(html.app-low-graphics) .document-thumbnail-list__item {
-    will-change: auto;
-}
-
 :global(html.app-low-graphics) .document-thumbnail-list__placeholder {
     animation: none;
 }
@@ -154,10 +149,6 @@ function handleItemClick(pageNumber: number, event: MouseEvent) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .document-thumbnail-list__item {
-        will-change: auto;
-    }
-
     .document-thumbnail-list__placeholder {
         animation: none;
     }

@@ -4,6 +4,9 @@
 
 use std::collections::{HashMap, VecDeque};
 
+#[cfg(not(target_family = "wasm"))]
+use rayon::prelude::*;
+
 use crate::{
     arith::{Decoder, Encoder},
     generic, validate_image, Bilevel, DecodeLimits, Jbig2Error, OwnedBilevel,
@@ -142,7 +145,10 @@ pub fn encode_pdf_symbol_pages_verified(
     }
 
     let mut symbols = Vec::<Symbol>::new();
-    let mut exact_classes = HashMap::<SymbolKey, (usize, i32, i32)>::new();
+    // Buckets keyed by a cheap sampled digest. Class assignment still requires
+    // full bitmap equality inside the bucket, so a digest collision costs one
+    // extra comparison and never changes classification.
+    let mut exact_classes = HashMap::<u64, Vec<(SymbolKey, (usize, i32, i32))>>::new();
     let mut near_classes = HashMap::<(u32, u32), Vec<usize>>::new();
     let mut class_comparisons = 0usize;
     let mut class_budget_exhausted = false;
@@ -150,13 +156,22 @@ pub fn encode_pdf_symbol_pages_verified(
     for components in extracted_pages {
         let mut placements = Vec::with_capacity(components.len());
         for component in components {
-            let key = SymbolKey {
-                width: component.symbol.width,
-                height: component.symbol.height,
-                rows: component.symbol.rows.clone(),
-            };
-            let (symbol, alignment_x, alignment_y) = match exact_classes.get(&key) {
-                Some(&class) => class,
+            let digest = symbol_key_digest(
+                component.symbol.width,
+                component.symbol.height,
+                &component.symbol.rows,
+            );
+            let bucket = exact_classes.entry(digest).or_default();
+            let exact_match = bucket
+                .iter()
+                .find(|(key, _)| {
+                    key.width == component.symbol.width
+                        && key.height == component.symbol.height
+                        && key.rows == component.symbol.rows
+                })
+                .map(|&(_, class)| class);
+            let (symbol, alignment_x, alignment_y) = match exact_match {
+                Some(class) => class,
                 None => {
                     let area = component.symbol.width as usize * component.symbol.height as usize;
                     let mut near_match = None;
@@ -199,9 +214,14 @@ pub fn encode_pdf_symbol_pages_verified(
                             "symbol classifier comparison budget exceeded",
                         ));
                     }
+                    let key = SymbolKey {
+                        width: component.symbol.width,
+                        height: component.symbol.height,
+                        rows: component.symbol.rows.clone(),
+                    };
                     match near_match {
                         Some((symbol, (alignment_x, alignment_y))) => {
-                            exact_classes.insert(key, (symbol, alignment_x, alignment_y));
+                            bucket.push((key, (symbol, alignment_x, alignment_y)));
                             (symbol, alignment_x, alignment_y)
                         }
                         None => {
@@ -211,7 +231,7 @@ pub fn encode_pdf_symbol_pages_verified(
                                 ));
                             }
                             let symbol = symbols.len();
-                            exact_classes.insert(key, (symbol, 0, 0));
+                            bucket.push((key, (symbol, 0, 0)));
                             near_classes
                                 .entry((component.symbol.width, component.symbol.height))
                                 .or_default()
@@ -252,25 +272,41 @@ pub fn encode_pdf_symbol_pages_verified(
 
     let globals = encode_symbol_dictionary(&wire_symbols)?;
     let symbol_code_length = log2_up(wire_symbols.len());
+    // Every page encodes against the same immutable dictionary with
+    // per-invocation coder state, so the verified roundtrips are independent
+    // and the indexed collect keeps the exact serial page order and bytes.
+    let encode_one = |page: &Bilevel<'_>, placements: &[Placement]| {
+        encode_symbol_page(*page, placements, &wire_symbols, symbol_code_length).and_then(|data| {
+            let decoded = decode_pdf_symbol_page(
+                &globals,
+                &data,
+                DecodeLimits::new(u64::from(page.width) * u64::from(page.height)),
+            )?;
+            verify_exact_bitmap(*page, decoded.as_bilevel())?;
+            Ok(SymbolPage {
+                width: page.width,
+                height: page.height,
+                data,
+                component_count: placements.len(),
+            })
+        })
+    };
+    #[cfg(not(target_family = "wasm"))]
+    let page_results: Vec<Result<SymbolPage, Jbig2Error>> = pages
+        .par_iter()
+        .zip(placements_by_page.par_iter())
+        .map(|(page, placements)| encode_one(page, placements))
+        .collect();
+    #[cfg(target_family = "wasm")]
+    let page_results: Vec<Result<SymbolPage, Jbig2Error>> = pages
+        .iter()
+        .zip(placements_by_page.iter())
+        .map(|(page, placements)| encode_one(page, placements))
+        .collect();
     let mut encoded_pages = Vec::with_capacity(pages.len());
     let mut fallback_pages = Vec::new();
-    for (page_index, (page, placements)) in pages.iter().zip(&placements_by_page).enumerate() {
-        let encoded_page = encode_symbol_page(*page, placements, &wire_symbols, symbol_code_length)
-            .and_then(|data| {
-                let decoded = decode_pdf_symbol_page(
-                    &globals,
-                    &data,
-                    DecodeLimits::new(u64::from(page.width) * u64::from(page.height)),
-                )?;
-                verify_exact_bitmap(*page, decoded.as_bilevel())?;
-                Ok(SymbolPage {
-                    width: page.width,
-                    height: page.height,
-                    data,
-                    component_count: placements.len(),
-                })
-            });
-        match encoded_page {
+    for (page_index, result) in page_results.into_iter().enumerate() {
+        match result {
             Ok(page) => encoded_pages.push(Some(page)),
             Err(reason) => {
                 encoded_pages.push(None);
@@ -596,6 +632,34 @@ struct SymbolKey {
     width: u32,
     height: u32,
     rows: Vec<u8>,
+}
+
+/// FNV-1a over the dimensions, row length, and up to 32 sampled row bytes.
+/// Cheap enough to probe with borrowed data; exactness comes from the full
+/// bitmap comparison inside the digest bucket, not from this hash.
+fn symbol_key_digest(width: u32, height: u32, rows: &[u8]) -> u64 {
+    const OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    const SAMPLES: usize = 32;
+    let mut hash = OFFSET_BASIS;
+    let mut mix = |value: u64| {
+        hash ^= value;
+        hash = hash.wrapping_mul(PRIME);
+    };
+    mix(u64::from(width));
+    mix(u64::from(height));
+    mix(rows.len() as u64);
+    if rows.len() <= SAMPLES {
+        for &byte in rows {
+            mix(u64::from(byte));
+        }
+    } else {
+        let step = rows.len() / SAMPLES;
+        for index in 0..SAMPLES {
+            mix(u64::from(rows[index * step]));
+        }
+    }
+    hash
 }
 
 impl From<&Symbol> for SymbolKey {

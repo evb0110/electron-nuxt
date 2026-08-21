@@ -85,6 +85,7 @@ async function stubSuccessfulWasmFetch() {
     const wasmBytes = await readFile(join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'));
     const fetchMock = vi.fn(async () => ({
         ok: true,
+        headers: {get: () => null},
         arrayBuffer: async () => toArrayBuffer(wasmBytes),
     }));
     vi.stubGlobal('fetch', fetchMock);

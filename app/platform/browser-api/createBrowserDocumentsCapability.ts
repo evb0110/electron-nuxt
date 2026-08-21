@@ -41,18 +41,17 @@ import {
     onBrowserOpenDocumentDirectBatchProgress,
 } from '@app/platform/browser-api/documentsMenuCapability';
 import { createBrowserPageOpsCapability } from '@app/platform/browser-api/createBrowserPageOpsCapability';
-import {
-    DEFAULT_LOCALE,
-    LOCALE_MESSAGES,
-} from '@i18n-app';
 import type {
     TLocale,
     TTranslateFn,
     TTranslationKey,
 } from '@i18n-app';
 import {
+    DEFAULT_LOCALE,
+    LOCALE_CODES,
     formatTranslationLeaf,
     getNestedTranslationLeaf,
+    isLocaleMessageSource,
     normalizeTranslationParams,
 } from '@i18n-core';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
@@ -72,6 +71,8 @@ export interface IBrowserDocumentCapabilities {
     pageOps: IPageOpsCapability;
 }
 
+const SUPPORTED_LOCALES = new Set<string>(LOCALE_CODES);
+
 function getBrowserLocale(): TLocale {
     const cookieMatch = typeof document !== 'undefined'
         ? document.cookie.match(/(?:^|;\s*)i18n_redirected=([^;]+)/u)
@@ -80,26 +81,29 @@ function getBrowserLocale(): TLocale {
         ? safeDecodeURIComponent(cookieMatch[1])
         : null;
 
-    if (cookieLocale && cookieLocale in LOCALE_MESSAGES) {
+    if (cookieLocale && SUPPORTED_LOCALES.has(cookieLocale)) {
         return cookieLocale as TLocale;
     }
 
     const navigatorLocale = typeof navigator !== 'undefined'
         ? navigator.language.split('-')[0]
         : null;
-    return navigatorLocale && navigatorLocale in LOCALE_MESSAGES
+    return navigatorLocale && SUPPORTED_LOCALES.has(navigatorLocale)
         ? navigatorLocale as TLocale
         : DEFAULT_LOCALE;
 }
 
+// Read messages from the already-loaded vue-i18n composer so resolving this capability
+// does not download every locale pack.
 const translateBrowserMessage: TTranslateFn = (key, ...args) => {
     const params = normalizeTranslationParams(args[0]);
     const locale = getBrowserLocale();
-    const messages = LOCALE_MESSAGES[locale] ?? LOCALE_MESSAGES[DEFAULT_LOCALE];
-    const fallbackMessages = LOCALE_MESSAGES[DEFAULT_LOCALE];
-    const leaf = getNestedTranslationLeaf(messages, key)
-        ?? getNestedTranslationLeaf(fallbackMessages, key)
-        ?? key;
+    const composer: unknown = tryUseNuxtApp()?.$i18n;
+    const leaf = isLocaleMessageSource(composer)
+        ? getNestedTranslationLeaf(composer.getLocaleMessage(locale), key)
+            ?? getNestedTranslationLeaf(composer.getLocaleMessage(DEFAULT_LOCALE), key)
+            ?? key
+        : key;
 
     return formatTranslationLeaf(leaf, params, locale);
 };

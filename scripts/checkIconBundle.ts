@@ -952,6 +952,17 @@ function collectIconClientBundleIcons(node: unknown, icons: Set<string>) {
         const clientBundleNode = getObjectExpressionPropertyValue(node.initializer, 'clientBundle');
         const iconsNode = getObjectExpressionPropertyValue(clientBundleNode, 'icons');
         collectIconArrayValues(iconsNode, icons);
+        // `icon: buildIconBundles([...])` derives both bundles from one literal list,
+        // so that call's first argument is the client bundle. Other call forms stay
+        // uninspected so an unrecognized config shape fails the coverage check.
+        if (
+            ts.isCallExpression(node.initializer)
+            && ts.isIdentifier(node.initializer.expression)
+            && node.initializer.expression.text === 'buildIconBundles'
+            && node.initializer.arguments.length > 0
+        ) {
+            collectIconArrayValues(node.initializer.arguments[0], icons);
+        }
     }
 
     ts.forEachChild(node, (child) => {

@@ -149,7 +149,7 @@
         </div>
         <DevOnly>
             <ClientOnly>
-                <AgentationWidget />
+                <component :is="AgentationWidget" v-if="AgentationWidget" />
             </ClientOnly>
         </DevOnly>
     </UApp>
@@ -158,7 +158,6 @@
 <script setup lang="ts">
 import { useClipboard } from '@vueuse/core';
 import { sumBy } from 'es-toolkit/math';
-import AgentationWidget from '@app/components/AgentationWidget.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
@@ -179,6 +178,12 @@ import {
     scheduleIdleWork,
     type TCancelIdleWork,
 } from '@app/utils/scheduleIdleWork';
+
+// The <DevOnly> template block is stripped from production builds, but a static
+// import would still pull agentation-vue3 into the production entry chunk.
+const AgentationWidget = import.meta.dev
+    ? defineAsyncComponent(() => import('@app/components/AgentationWidget.vue'))
+    : null;
 
 const {
     load: loadSettings,
@@ -203,6 +208,7 @@ const {isDesktopRuntime} = useRuntimeEnvironment();
 const {
     locale,
     t,
+    loadLocaleMessages,
     setLocale,
 } = useTypedI18n();
 const {
@@ -459,7 +465,21 @@ function installViteReloadDiagnostics() {
 
 installViteReloadDiagnostics();
 
+// `settings` is seeded from the persisted locale cookie before the authoritative
+// load resolves, so the message chunk can download during the bridge/settings wait
+// instead of after it. The real switch still happens once settings are loaded.
+function prefetchPersistedLocaleMessages() {
+    if (locale.value === settings.value.locale) {
+        return;
+    }
+
+    void loadLocaleMessages(settings.value.locale).catch(error => {
+        BrowserLogger.debug('i18n', 'Speculative locale message prefetch failed', error);
+    });
+}
+
 onMounted(async () => {
+    prefetchPersistedLocaleMessages();
     try {
         hostEnvironmentUnsubscribers.push(onBrowserDocumentPersistenceWarning(({
             fileName,

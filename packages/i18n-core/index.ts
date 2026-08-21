@@ -9,9 +9,11 @@ export { LOCALE_DEFINITIONS } from '@evb/i18n-core/localeDefinitions';
 export {
     formatTranslationLeaf,
     getNestedTranslationLeaf,
+    isLocaleMessageSource,
     isPluralMessage,
     normalizeTranslationParams,
     plural,
+    type ILocaleMessageSource,
     type IPluralMessage,
     type TMessageInterpolationValue,
     type TMessageParams,

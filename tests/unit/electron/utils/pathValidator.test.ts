@@ -36,9 +36,15 @@ vi.mock('fs', () => ({
     realpathSync: (path: string) => mocks.realpathSync(path),
 }));
 
+vi.mock('fs/promises', () => ({
+    lstat: async (path: string) => mocks.lstatSync(path),
+    realpath: async (path: string) => mocks.realpathSync(path),
+}));
+
 const {
     isAllowedReadPath,
     isAllowedWritePath,
+    resetPathValidatorCachesForTests,
     resolveAllowedReadPath,
     resolveAllowedWritePath,
 } = await import('@electron/utils/pathValidator');
@@ -46,6 +52,7 @@ const {
 process.env.EVB_APP_TEMP_NAMESPACE = 'test-profile';
 
 beforeEach(() => {
+    resetPathValidatorCachesForTests();
     mocks.tempDir = '/tmp/electron-test';
     mocks.userDataDir = '/profiles/electron-test';
     mocks.existsSync.mockReset();

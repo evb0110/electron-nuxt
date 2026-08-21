@@ -1,16 +1,14 @@
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
-import {
-    DEFAULT_LOCALE,
-    LOCALE_MESSAGES,
-} from '@i18n-app';
 import type {
     TLocale,
     TTranslateFn,
 } from '@i18n-app';
 import {
+    DEFAULT_LOCALE,
     formatTranslationLeaf,
     getNestedTranslationLeaf,
+    isLocaleMessageSource,
     normalizeTranslationParams,
 } from '@i18n-core';
 import {
@@ -26,14 +24,15 @@ function isUiReportableLog(entry: IDebugLogEntry) {
     return entry.message.startsWith('[ERROR]');
 }
 
-function createPluginTranslate(getLocale: () => TLocale | null | undefined): TTranslateFn {
+function createPluginTranslate(
+    getLocaleMessages: (locale: TLocale) => Record<string, unknown>,
+    getLocale: () => TLocale | null | undefined,
+): TTranslateFn {
     const t: TTranslateFn = (key, ...args) => {
         const params = normalizeTranslationParams(args[0]);
         const locale = getLocale() ?? DEFAULT_LOCALE;
-        const messages = LOCALE_MESSAGES[locale] ?? LOCALE_MESSAGES[DEFAULT_LOCALE];
-        const fallbackMessages = LOCALE_MESSAGES[DEFAULT_LOCALE];
-        const leaf = getNestedTranslationLeaf(messages, key)
-            ?? getNestedTranslationLeaf(fallbackMessages, key)
+        const leaf = getNestedTranslationLeaf(getLocaleMessages(locale), key)
+            ?? getNestedTranslationLeaf(getLocaleMessages(DEFAULT_LOCALE), key)
             ?? key;
 
         return formatTranslationLeaf(leaf, params, locale);
@@ -64,7 +63,17 @@ export default defineNuxtPlugin((nuxtApp) => {
 
     const { reportRuntimeError } = useRuntimeErrorReports();
     const localeCookie = useCookie<TLocale>('i18n_redirected');
-    const t = createPluginTranslate(() => localeCookie.value);
+    // Read messages from the already-loaded vue-i18n composer so this plugin does not
+    // pull every locale pack into the entry chunk.
+    const t = createPluginTranslate(
+        (locale) => {
+            const composer: unknown = nuxtApp.$i18n;
+            return isLocaleMessageSource(composer)
+                ? composer.getLocaleMessage(locale)
+                : {};
+        },
+        () => localeCookie.value,
+    );
     let unsubscribeDebugLog: (() => void) | null = null;
     let cleanedUp = false;
 

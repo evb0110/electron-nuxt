@@ -11,6 +11,10 @@ import {
     lstatSync,
     realpathSync,
 } from 'fs';
+import {
+    lstat,
+    realpath,
+} from 'fs/promises';
 import { getAppTempDirPath } from '@electron/utils/appTempDir';
 
 interface IPathOps {
@@ -118,16 +122,36 @@ function safeRealpathSync(path: string) {
     }
 }
 
+// The temp namespace is fixed at startup and getAppTempDir() refuses symlinked
+// temp roots, so the canonical base dirs cannot legitimately change while the
+// configured path stays the same; caching them avoids a realpath per validation.
+let cachedTempBaseDirs: {
+    configuredTempDir: string;
+    baseDirs: string[];
+} | null = null;
+
 function getTempBaseDirsSync() {
     const configuredTempDir = getAppTempDirPath();
+    if (cachedTempBaseDirs?.configuredTempDir === configuredTempDir) {
+        return cachedTempBaseDirs.baseDirs;
+    }
     const tempDir = normalizeCandidatePath(configuredTempDir) ?? resolve(configuredTempDir);
     const canonicalTempDir = safeRealpathSync(tempDir);
-    return isSamePath(canonicalTempDir, tempDir)
+    const baseDirs = isSamePath(canonicalTempDir, tempDir)
         ? [tempDir]
         : [
             tempDir,
             canonicalTempDir,
         ];
+    cachedTempBaseDirs = {
+        configuredTempDir,
+        baseDirs,
+    };
+    return baseDirs;
+}
+
+export function resetPathValidatorCachesForTests() {
+    cachedTempBaseDirs = null;
 }
 
 function isSymlinkPathSync(path: string) {
@@ -193,7 +217,7 @@ export function isAllowedReadPath(filePath: string) {
     }
 }
 
-function resolveAllowedReadPathSync(filePath: string) {
+export async function resolveAllowedReadPath(filePath: string) {
     const absolutePath = normalizeCandidatePath(filePath);
     if (!absolutePath) {
         return null;
@@ -204,12 +228,16 @@ function resolveAllowedReadPathSync(filePath: string) {
         return null;
     }
 
-    const resolvedPath = resolveExistingTempPath(absolutePath, tempBaseDirs);
-    return resolvedPath && resolvedPath.length > 0 ? resolvedPath : null;
-}
+    try {
+        if ((await lstat(absolutePath)).isSymbolicLink()) {
+            return null;
+        }
 
-export function resolveAllowedReadPath(filePath: string) {
-    return Promise.resolve(resolveAllowedReadPathSync(filePath));
+        const resolvedPath = await realpath(absolutePath).catch(() => absolutePath);
+        return isPathInsideAnyBaseDir(tempBaseDirs, resolvedPath) ? resolvedPath : null;
+    } catch {
+        return null;
+    }
 }
 
 function resolveAllowedWritePathSync(filePath: string) {

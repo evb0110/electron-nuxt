@@ -8,6 +8,10 @@ import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { buildWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
+import {
+    buildWorkspaceCheckpointChangeSignature,
+    type IWorkspaceCheckpointChangeSignature,
+} from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import {
     clearBrowserWorkspaceRecovery,
@@ -44,7 +48,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     let attemptedCheckpointRevision = -1;
     let retryNotBefore = 0;
     let previousTabSignatures = new Map<string, string>();
-    let observedCheckpoint: ReturnType<typeof buildWorkspaceCheckpoint> | null = null;
+    let observedSignature: IWorkspaceCheckpointChangeSignature | null = null;
     const tabMutationRevisions = new Map<string, number>();
     const persistedTabMutationRevisions = new Map<string, number>();
     const attemptedTabMutationRevisions = new Map<string, number>();
@@ -73,15 +77,15 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
         retryNotBefore = 0;
     }
 
-    function recordCheckpointMutation(checkpoint: ReturnType<typeof buildWorkspaceCheckpoint>) {
-        const nextSignatures = new Map(checkpoint.tabs.map(tab => [
-            tab.tabId,
-            JSON.stringify(tab),
-        ]));
-        const changedDirtyTabs = checkpoint.tabs
-            .filter(tab => tab.isDirty && previousTabSignatures.get(tab.tabId) !== nextSignatures.get(tab.tabId))
-            .map(tab => tab.tabId);
-        previousTabSignatures = nextSignatures;
+    function recordCheckpointMutation(signature: IWorkspaceCheckpointChangeSignature) {
+        const dirtyIds = dirtyTabIds();
+        const changedDirtyTabs = [...signature.tabSignatures]
+            .filter(([
+                tabId,
+                tabSignature,
+            ]) => dirtyIds.has(tabId) && previousTabSignatures.get(tabId) !== tabSignature)
+            .map(([tabId]) => tabId);
+        previousTabSignatures = new Map(signature.tabSignatures);
         markMutation(changedDirtyTabs);
     }
 
@@ -362,19 +366,27 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     }
 
     const stop = watch(
+        // The cheap change signature keeps this watcher from rebuilding and
+        // serializing the full checkpoint on every reactive tick; the
+        // checkpoint itself is built only inside the debounced persist.
         () => {
             if (!options.enabled.value) {
-                observedCheckpoint = null;
+                observedSignature = null;
                 return null;
             }
-            const checkpoint = buildWorkspaceCheckpoint(options);
-            observedCheckpoint = checkpoint;
-            return JSON.stringify(checkpoint);
+            const signature = buildWorkspaceCheckpointChangeSignature(options);
+            observedSignature = signature;
+            return signature.workspace;
         },
         () => {
-            // The fallback supports lightweight structural watch doubles; Vue
-            // always evaluates the source before invoking this callback.
-            recordCheckpointMutation(observedCheckpoint ?? buildWorkspaceCheckpoint(options));
+            // Vue always evaluates the source before invoking this callback;
+            // the fallback supports lightweight structural watch doubles by
+            // treating every dirty tab as mutated.
+            if (observedSignature) {
+                recordCheckpointMutation(observedSignature);
+            } else {
+                markMutation(dirtyTabIds());
+            }
             schedule();
         },
         {immediate: true},

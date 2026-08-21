@@ -80,6 +80,9 @@ export const DJVU_ARTIFACT_MAX_TOTAL_BYTES = (() => {
     return (Number.isFinite(parsed) && parsed >= 128 ? parsed : 4096) * 1024 * 1024;
 })();
 const DJVU_ARTIFACT_FREE_SPACE_RESERVE_BYTES = 128 * 1024 * 1024;
+// The walk also sizes the in-progress conversion output, so it cannot be replaced by the
+// manifest's verified-artifact totals; poll rarely enough to stay off the conversion's I/O path.
+const DJVU_QUOTA_MONITOR_INTERVAL_MS = 2_000;
 const activeFingerprintTails = new Map<string, Promise<void>>();
 
 async function ensureJobRoot() {
@@ -195,7 +198,7 @@ export async function createDjvuDiskQuotaMonitor(options: {
             return;
         }
         void checkNow().catch(() => undefined);
-    }, options.intervalMs ?? 250);
+    }, options.intervalMs ?? DJVU_QUOTA_MONITOR_INTERVAL_MS);
     timer.unref?.();
 
     return {

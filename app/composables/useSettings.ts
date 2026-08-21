@@ -27,7 +27,19 @@ const PERSISTENT_SETTINGS_COOKIE_OPTIONS = {
     path: '/',
     secure: import.meta.client && window.location?.protocol === 'https:',
 };
+const SETTINGS_SAVE_DEBOUNCE_MS = 400;
 let settingsPersistenceQueue: ISettingsPersistenceQueue | null = null;
+let settingsSaveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let flushDebouncedSettingsSave: (() => void) | null = null;
+let settingsSaveFlushListener: (() => void) | null = null;
+
+function cancelDebouncedSettingsSave() {
+    if (settingsSaveDebounceTimer !== null) {
+        clearTimeout(settingsSaveDebounceTimer);
+        settingsSaveDebounceTimer = null;
+    }
+    flushDebouncedSettingsSave = null;
+}
 
 export const useSettings = () => {
     const localeCookie = useCookie(
@@ -118,7 +130,31 @@ export const useSettings = () => {
     }
 
     async function save() {
+        cancelDebouncedSettingsSave();
         return getSettingsPersistenceQueue().save();
+    }
+
+    // Trailing debounce: per-keystroke updates otherwise write storage plus
+    // two cookies (browser) or an IPC round-trip (desktop) on every change.
+    // The queue reads the live snapshot at save time, so the flushed save
+    // always persists the latest state.
+    function scheduleDebouncedSave() {
+        if (settingsSaveFlushListener === null && typeof window !== 'undefined') {
+            settingsSaveFlushListener = () => flushDebouncedSettingsSave?.();
+            window.addEventListener('pagehide', settingsSaveFlushListener);
+        }
+        if (settingsSaveDebounceTimer !== null) {
+            clearTimeout(settingsSaveDebounceTimer);
+        }
+        flushDebouncedSettingsSave = () => {
+            void save();
+        };
+        settingsSaveDebounceTimer = setTimeout(() => {
+            settingsSaveDebounceTimer = null;
+            const flush = flushDebouncedSettingsSave;
+            flushDebouncedSettingsSave = null;
+            flush?.();
+        }, SETTINGS_SAVE_DEBOUNCE_MS);
     }
 
     function updateSetting<K extends keyof ISettingsData>(key: K, value: ISettingsData[K]) {
@@ -126,7 +162,7 @@ export const useSettings = () => {
             ...settings.value,
             [key]: value,
         };
-        void save();
+        scheduleDebouncedSave();
     }
 
     return {
@@ -144,6 +180,11 @@ export const useSettings = () => {
 
 if (import.meta.hot) {
     import.meta.hot.dispose(() => {
+        cancelDebouncedSettingsSave();
+        if (settingsSaveFlushListener !== null && typeof window !== 'undefined') {
+            window.removeEventListener('pagehide', settingsSaveFlushListener);
+            settingsSaveFlushListener = null;
+        }
         settingsPersistenceQueue?.clearRetryTimer();
         settingsPersistenceQueue = null;
     });

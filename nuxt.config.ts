@@ -1,8 +1,59 @@
+import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
+import {getIcons} from '@iconify/utils';
 import {
     DEFAULT_LOCALE,
     LOCALE_DEFINITIONS,
 } from './packages/i18n-core';
+
+const requireFromConfig = createRequire(import.meta.url);
+
+type TIconifyCollection = Parameters<typeof getIcons>[0];
+
+function isIconifyCollection(value: unknown): value is TIconifyCollection {
+    return typeof value === 'object'
+        && value !== null
+        && typeof Reflect.get(value, 'prefix') === 'string'
+        && typeof Reflect.get(value, 'icons') === 'object';
+}
+
+// Nuxt Icon inlines whole Iconify collections into the Nitro server bundle (`ph` alone is
+// ~4.5 MB of JSON), so the server bundle is narrowed to the same allowlist the client ships.
+// An icon rendered without being listed here would resolve from neither bundle, hence the throw.
+function buildIconBundles(iconNames: string[]) {
+    const namesByPrefix = new Map<string, string[]>();
+    for (const iconName of iconNames) {
+        const segments = iconName.split(':');
+        const [prefix, name] = segments;
+        if (segments.length !== 2 || !prefix || !name) {
+            throw new Error(`Invalid bundled icon name: ${iconName}`);
+        }
+        namesByPrefix.set(prefix, [...(namesByPrefix.get(prefix) ?? []), name]);
+    }
+
+    const collections = [...namesByPrefix].map(([prefix, names]) => {
+        const source: unknown = requireFromConfig(`@iconify-json/${prefix}/icons.json`);
+        if (!isIconifyCollection(source)) {
+            throw new Error(`Unreadable icon collection: @iconify-json/${prefix}`);
+        }
+
+        const subset = getIcons(source, names, true);
+        if (!subset) {
+            throw new Error(`Unreadable icon collection: @iconify-json/${prefix}`);
+        }
+
+        const missing = subset.not_found ?? [];
+        if (missing.length > 0) {
+            throw new Error(`Icons missing from @iconify-json/${prefix}: ${missing.join(', ')}`);
+        }
+        return subset;
+    });
+
+    return {
+        serverBundle: {collections},
+        clientBundle: {icons: iconNames},
+    };
+}
 
 function isInvalidNuxtUiResizableImport(entry: unknown) {
     if (!entry || typeof entry !== 'object') {
@@ -318,133 +369,130 @@ export default defineNuxtConfig({
         },
     },
 
-    icon: {
-        serverBundle: {collections: ['ph']},
-        clientBundle: {icons: [
-            'ph:arrow-down',
-            'ph:arrow-down-left',
-            'ph:arrow-down-right',
-            'ph:arrow-left',
-            'ph:arrow-right',
-            'ph:arrow-up',
-            'ph:arrow-up-left',
-            'ph:text-b',
-            'ph:book-open',
-            'ph:bookmark',
-            'ph:bounding-box',
-            'ph:check',
-            'ph:caret-down',
-            'ph:caret-left',
-            'ph:caret-right',
-            'ph:caret-up',
-            'ph:caret-up-down',
-            'ph:caret-double-left',
-            'ph:caret-double-right',
-            'ph:warning-circle',
-            'ph:check-circle',
-            'ph:stop-circle',
-            'ph:x-circle',
-            'ph:clock',
-            'ph:scan',
-            'ph:text-aa',
-            'ph:text-align-center',
-            'ph:copy',
-            'ph:stack-plus',
-            'ph:crop',
-            'ph:dots-three',
-            'ph:dot-outline',
-            'ph:arrow-square-out',
-            'ph:eye',
-            'ph:eye-slash',
-            'ph:file',
-            'ph:file-plus',
-            'ph:file-text',
-            'ph:files',
-            'ph:flag',
-            'ph:folder',
-            'ph:folder-open',
-            'ph:gauge',
-            'ph:globe',
-            'ph:hand',
-            'ph:hash',
-            'ph:highlighter',
-            'ph:image',
-            'ph:images',
-            'ph:info',
-            'ph:text-italic',
-            'ph:lightbulb',
-            'ph:lightning',
-            'ph:list',
-            'ph:circle-notch',
-            'ph:rows',
-            'ph:tree-view',
-            'ph:crosshair-simple',
-            'ph:chat-circle',
-            'ph:chat',
-            'ph:chat-circle-dots',
-            'ph:sparkle',
-            'ph:monitor',
-            'ph:download-simple',
-            'ph:moon',
-            'ph:arrows-out-line-horizontal',
-            'ph:arrows-out-line-vertical',
-            'ph:sidebar-simple',
-            'ph:pen-nib',
-            'ph:plus',
-            'ph:pencil',
-            'ph:printer',
-            'ph:pencil-simple-line',
-            'ph:dots-six-vertical',
-            'ph:arrows-clockwise',
-            'ph:floppy-disk',
-            'ph:floppy-disk-back',
-            'ph:magnifying-glass',
-            'ph:scroll',
-            'ph:sun',
-            'ph:cursor-text',
-            'ph:trash',
-            'ph:text-t',
-            'ph:warning',
-            'ph:arrow-u-up-left',
-            'ph:upload',
-            'ph:user',
-            'ph:x',
-            'ph:magnifying-glass-plus',
-            'ph:play',
-            'ph:frame-corners',
-            'ph:magic-wand',
-            'ph:arrow-u-up-right',
-            'ph:text-underline',
-            'ph:text-strikethrough',
-            'ph:waves',
-            'ph:square',
-            'ph:circle',
-            'ph:clipboard-text',
-            'ph:minus',
-            'ph:arrow-up-right',
-            'ph:arrow-line-right',
-            'ph:square-split-horizontal',
-            'ph:square-split-vertical',
-            'ph:gear',
-            'ph:sliders-horizontal',
-            'ph:note',
-            'circle-flags:gb',
-            'circle-flags:ru',
-            'circle-flags:fr',
-            'circle-flags:de',
-            'circle-flags:es',
-            'circle-flags:it',
-            'circle-flags:pt',
-            'circle-flags:br',
-            'circle-flags:nl',
-            'ph:export',
-            'ph:file-arrow-down',
-            'ph:arrow-clockwise',
-            'ph:arrow-counter-clockwise',
-            'ph:corners-out',
-            'ph:corners-in',
-        ]},
-    },
+    icon: buildIconBundles([
+        'ph:arrow-down',
+        'ph:arrow-down-left',
+        'ph:arrow-down-right',
+        'ph:arrow-left',
+        'ph:arrow-right',
+        'ph:arrow-up',
+        'ph:arrow-up-left',
+        'ph:text-b',
+        'ph:book-open',
+        'ph:bookmark',
+        'ph:bounding-box',
+        'ph:check',
+        'ph:caret-down',
+        'ph:caret-left',
+        'ph:caret-right',
+        'ph:caret-up',
+        'ph:caret-up-down',
+        'ph:caret-double-left',
+        'ph:caret-double-right',
+        'ph:warning-circle',
+        'ph:check-circle',
+        'ph:stop-circle',
+        'ph:x-circle',
+        'ph:clock',
+        'ph:scan',
+        'ph:text-aa',
+        'ph:text-align-center',
+        'ph:copy',
+        'ph:stack-plus',
+        'ph:crop',
+        'ph:dots-three',
+        'ph:dot-outline',
+        'ph:arrow-square-out',
+        'ph:eye',
+        'ph:eye-slash',
+        'ph:file',
+        'ph:file-plus',
+        'ph:file-text',
+        'ph:files',
+        'ph:flag',
+        'ph:folder',
+        'ph:folder-open',
+        'ph:gauge',
+        'ph:globe',
+        'ph:hand',
+        'ph:hash',
+        'ph:highlighter',
+        'ph:image',
+        'ph:images',
+        'ph:info',
+        'ph:text-italic',
+        'ph:lightbulb',
+        'ph:lightning',
+        'ph:list',
+        'ph:circle-notch',
+        'ph:rows',
+        'ph:tree-view',
+        'ph:crosshair-simple',
+        'ph:chat-circle',
+        'ph:chat',
+        'ph:chat-circle-dots',
+        'ph:sparkle',
+        'ph:monitor',
+        'ph:download-simple',
+        'ph:moon',
+        'ph:arrows-out-line-horizontal',
+        'ph:arrows-out-line-vertical',
+        'ph:sidebar-simple',
+        'ph:pen-nib',
+        'ph:plus',
+        'ph:pencil',
+        'ph:printer',
+        'ph:pencil-simple-line',
+        'ph:dots-six-vertical',
+        'ph:arrows-clockwise',
+        'ph:floppy-disk',
+        'ph:floppy-disk-back',
+        'ph:magnifying-glass',
+        'ph:scroll',
+        'ph:sun',
+        'ph:cursor-text',
+        'ph:trash',
+        'ph:text-t',
+        'ph:warning',
+        'ph:arrow-u-up-left',
+        'ph:upload',
+        'ph:user',
+        'ph:x',
+        'ph:magnifying-glass-plus',
+        'ph:play',
+        'ph:frame-corners',
+        'ph:magic-wand',
+        'ph:arrow-u-up-right',
+        'ph:text-underline',
+        'ph:text-strikethrough',
+        'ph:waves',
+        'ph:square',
+        'ph:circle',
+        'ph:clipboard-text',
+        'ph:minus',
+        'ph:arrow-up-right',
+        'ph:arrow-line-right',
+        'ph:square-split-horizontal',
+        'ph:square-split-vertical',
+        'ph:gear',
+        'ph:sliders-horizontal',
+        'ph:note',
+        'circle-flags:gb',
+        'circle-flags:ru',
+        'circle-flags:fr',
+        'circle-flags:de',
+        'circle-flags:es',
+        'circle-flags:it',
+        'circle-flags:pt',
+        'circle-flags:br',
+        'circle-flags:nl',
+        'ph:export',
+        'ph:file-arrow-down',
+        'ph:arrow-clockwise',
+        'ph:arrow-counter-clockwise',
+        'ph:corners-out',
+        'ph:corners-in',
+    ]),
 
     vite: {
         ...(isolatedNuxtViteCacheDir ? {cacheDir: isolatedNuxtViteCacheDir} : {}),

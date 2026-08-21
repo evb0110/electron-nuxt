@@ -176,6 +176,42 @@ describe('useSettings', () => {
         vi.useRealTimers();
     });
 
+    it('debounces updateSetting saves and flushes a pending save on pagehide', async () => {
+        vi.useFakeTimers();
+        mockSave.mockResolvedValue(undefined);
+        const addEventListener = vi.fn<(type: string, listener: () => void) => void>();
+        vi.stubGlobal('window', { addEventListener });
+
+        try {
+            const { useSettings } = await import('@app/composables/useSettings');
+            const { updateSetting } = useSettings();
+
+            updateSetting('authorName', 'First');
+            updateSetting('authorName', 'Latest');
+            expect(mockSave).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(400);
+            expect(mockSave).toHaveBeenCalledTimes(1);
+            expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({ authorName: 'Latest' }));
+
+            updateSetting('authorName', 'Unflushed');
+            const pagehideListener = addEventListener.mock.calls
+                .find(([type]) => type === 'pagehide')?.[1];
+            expect(pagehideListener).toBeDefined();
+            pagehideListener?.();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(mockSave).toHaveBeenCalledTimes(2);
+            expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({ authorName: 'Unflushed' }));
+
+            await vi.advanceTimersByTimeAsync(400);
+            expect(mockSave).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.useRealTimers();
+            vi.unstubAllGlobals();
+        }
+    });
+
     it('shares one in-flight save queue across settings composable callers', async () => {
         const firstSave = createDeferred();
         mockSave

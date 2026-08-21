@@ -22,7 +22,9 @@ export function getDjvuCanvas2dContext(
     if (typeof HTMLCanvasElement !== 'undefined' && canvas instanceof HTMLCanvasElement) {
         return canvas.getContext('2d');
     }
-    return canvas.getContext('2d');
+    // An HTMLCanvasElement cannot exist in a runtime whose constructor is undefined,
+    // so the remaining case is always OffscreenCanvas.
+    return (canvas as OffscreenCanvas).getContext('2d');
 }
 
 export function createDjvuImageData(imageData: IDjvuImageData) {

@@ -1,10 +1,7 @@
 import {
-    existsSync,
-    statSync,
-} from 'fs';
-import {
     open as openFileHandle,
     readFile,
+    stat,
 } from 'fs/promises';
 import type { FileHandle } from 'fs/promises';
 import { extname } from 'path';
@@ -236,7 +233,7 @@ async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadH
         const {
             mtimeMs,
             size,
-        } = statSync(resolvedPath);
+        } = await stat(resolvedPath);
         const epoch = getRangeReadPathEpoch(resolvedPath);
         const cachedEntry = rangeReadHandles.get(resolvedPath);
         if (cachedEntry) {
@@ -462,28 +459,50 @@ async function assertOriginalBackingSnapshot(backing: IOriginalBackedRead) {
     return snapshot;
 }
 
+// Original-backed reads share the rangeReadHandles cache keyed by the original
+// path: the backing-swap invalidation event fires with that path, so a swap or
+// materialization closes the cached handle. Every read runs the admission-
+// snapshot assert both before and after the bytes are read: a same-size
+// in-place rewrite during the read window would otherwise hand torn bytes to
+// the renderer, and a short read whose snapshot still matches is a source
+// anomaly that must fail rather than return a truncated document.
 async function readOriginalBacking(
     backing: IOriginalBackedRead,
 ) {
     await assertOriginalBackingSnapshot(backing);
-    assertWithinIpcReadBudget(backing.logicalRef, Number(backing.admissionSnapshot.size));
-    let handle: FileHandle | null = null;
-    let buffer: Buffer;
+    const size = Number(backing.admissionSnapshot.size);
+    assertWithinIpcReadBudget(backing.logicalRef, size);
+    const buffer = Buffer.allocUnsafe(size);
+    let totalBytesRead = 0;
+    let lease: IRangeReadHandleLease | null = null;
     try {
-        handle = await openFileHandle(backing.originalPath, 'r');
-        buffer = await handle.readFile();
+        lease = await acquireRangeReadHandle(backing.originalPath);
+        while (totalBytesRead < size) {
+            const {bytesRead} = await lease.handle.read(
+                buffer,
+                totalBytesRead,
+                size - totalBytesRead,
+                totalBytesRead,
+            );
+            if (bytesRead <= 0) {
+                break;
+            }
+            totalBytesRead += bytesRead;
+        }
     } catch (error) {
         failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
     } finally {
-        await handle?.close().catch(() => undefined);
+        await lease?.release();
     }
     await assertOriginalBackingSnapshot(backing);
+    if (totalBytesRead !== size) {
+        failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE');
+    }
     return new Uint8Array(buffer);
 }
 
 async function statOriginalBacking(backing: IOriginalBackedRead) {
     const snapshot = await assertOriginalBackingSnapshot(backing);
-    await assertOriginalBackingSnapshot(backing);
     return {
         size: Number(snapshot.size),
         modifiedAt: Math.trunc(Number(snapshot.mtimeNs) / 1_000_000),
@@ -496,18 +515,20 @@ async function readOriginalBackingRange(
     length: number,
 ) {
     await assertOriginalBackingSnapshot(backing);
-    let handle: FileHandle | null = null;
     const buffer = Buffer.allocUnsafe(length);
-    let bytesRead: number;
+    let bytesRead = 0;
+    let lease: IRangeReadHandleLease | null = null;
     try {
-        handle = await openFileHandle(backing.originalPath, 'r');
-        ({bytesRead} = await handle.read(buffer, 0, length, offset));
+        lease = await acquireRangeReadHandle(backing.originalPath);
+        ({bytesRead} = await lease.handle.read(buffer, 0, length, offset));
     } catch (error) {
         failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
     } finally {
-        await handle?.close().catch(() => undefined);
+        await lease?.release();
     }
-    await assertOriginalBackingSnapshot(backing);
+    if (bytesRead < length) {
+        await assertOriginalBackingSnapshot(backing);
+    }
     return new Uint8Array(buffer.subarray(0, bytesRead));
 }
 
@@ -592,11 +613,14 @@ export async function handleFileRead(context: IDocumentsSenderIdContext, filePat
         return readOriginalBacking(originalBacking);
     }
 
-    if (!existsSync(resolvedPath)) {
+    let size: number;
+    try {
+        ({size} = await stat(resolvedPath));
+    } catch {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
-    assertWithinIpcReadBudget(resolvedPath);
+    assertWithinIpcReadBudget(resolvedPath, size);
     const buffer = await readFile(resolvedPath);
     return new Uint8Array(buffer);
 }
@@ -613,7 +637,7 @@ export async function handleFileStat(
     if (originalBacking) {
         return statOriginalBacking(originalBacking);
     }
-    const s = statSync(resolvedPath);
+    const s = await stat(resolvedPath);
     return {
         size: s.size,
         modifiedAt: Math.trunc(s.mtimeMs),
@@ -687,11 +711,14 @@ export async function handleFileReadText(
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
 
-    if (!existsSync(resolvedPath)) {
+    let size: number;
+    try {
+        ({size} = await stat(resolvedPath));
+    } catch {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
-    assertWithinIpcReadBudget(resolvedPath);
+    assertWithinIpcReadBudget(resolvedPath, size);
     const buffer = await readFile(resolvedPath, 'utf-8');
     return buffer;
 }

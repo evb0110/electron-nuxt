@@ -7,9 +7,14 @@ import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
     type IWorkspaceToolbarSnapshot,
+    type IWorkspaceViewerCapabilities,
 } from '@app/types/workspaceExpose';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
-import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type {
+    IScanCleanupTabSessionState,
+    ITabViewSessionState,
+} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type { TScanCleanupPageOutputMapping } from '@contracts/scan-cleanup/domain';
 import { getWorkspaceViewerCapabilitiesForDocumentType } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 
 export type TWorkspaceDocumentTabState = Pick<ITab, 'fileName' | 'originalPath' | 'documentInstanceId' | 'isDirty' | 'isDjvu'>;
@@ -106,9 +111,218 @@ export function createPendingWorkspaceDocumentRecord(
     });
 }
 
+// Equality below is field-wise instead of JSON.stringify so hot-path record
+// publishes stop serializing full records. The Record<keyof T, true> key maps
+// fail compilation when a field is added without a comparator, so the equality
+// can never silently become looser than the previous stringify comparison.
+// The constraint pins every compared field to a primitive so `===` stays a
+// value comparison; an object or array field fails to compile here and needs
+// its own structural comparator instead.
+type TShallowEqualityField = string | number | boolean | null | undefined;
+
+function createShallowKeyEquality<T extends Partial<Record<keyof T, TShallowEqualityField>>>(keyFlags: Record<keyof T, true>) {
+    const keys = Object.keys(keyFlags) as Array<keyof T>;
+    return (first: T, second: T) => keys.every(key => first[key] === second[key]);
+}
+
+const areViewerCapabilitiesEqual = createShallowKeyEquality<IWorkspaceViewerCapabilities>({
+    closeableDocument: true,
+    continuousScroll: true,
+    conversionBanner: true,
+    conversionDialog: true,
+    crop: true,
+    optimizePdf: true,
+    pdfDocument: true,
+    pdfMutationActions: true,
+    print: true,
+    regionCapture: true,
+    repairSave: true,
+    save: true,
+    saveAs: true,
+    sidebar: true,
+    viewMode: true,
+});
+
+const areToolbarSnapshotPrimitivesEqual = createShallowKeyEquality<Omit<IWorkspaceToolbarSnapshot, 'viewerCapabilities'>>({
+    canExportDocx: true,
+    canOptimizePdf: true,
+    canRedo: true,
+    canRepairSave: true,
+    canSave: true,
+    canUndo: true,
+    continuousScroll: true,
+    currentPage: true,
+    dragMode: true,
+    effectiveZoom: true,
+    fitMode: true,
+    hasOpenError: true,
+    hasPdf: true,
+    initialVisualReady: true,
+    isAnySaving: true,
+    isCapturingRegion: true,
+    isCropSelecting: true,
+    isDjvuMode: true,
+    isExportingDocx: true,
+    isFitHeightActive: true,
+    isFitWidthActive: true,
+    isHistoryBusy: true,
+    isOpeningDocument: true,
+    isPageOperationInProgress: true,
+    isPlacingPageNote: true,
+    isPreparingCurrentPagePrint: true,
+    isPreparingPrint: true,
+    isSaving: true,
+    isSavingAs: true,
+    selectedPageCount: true,
+    showSidebar: true,
+    sidebarTab: true,
+    sidebarWidth: true,
+    totalPages: true,
+    viewMode: true,
+    zoom: true,
+    zoomMode: true,
+});
+
+export function areWorkspaceToolbarSnapshotsEqual(
+    first: IWorkspaceToolbarSnapshot,
+    second: IWorkspaceToolbarSnapshot,
+) {
+    return areToolbarSnapshotPrimitivesEqual(first, second)
+        && areViewerCapabilitiesEqual(first.viewerCapabilities, second.viewerCapabilities);
+}
+
+function areScanCleanupPageMappingsEqual(
+    first: TScanCleanupPageOutputMapping | undefined,
+    second: TScanCleanupPageOutputMapping | undefined,
+) {
+    if (first === second) {
+        return true;
+    }
+    if (!first || !second) {
+        return false;
+    }
+    const firstKeys = Object.keys(first);
+    if (firstKeys.length !== Object.keys(second).length) {
+        return false;
+    }
+    return firstKeys.every((key) => {
+        if (!Object.hasOwn(second, key)) {
+            return false;
+        }
+        const firstPages = first[key] ?? [];
+        const secondPages = second[key] ?? [];
+        return firstPages.length === secondPages.length
+            && firstPages.every((page, index) => page === secondPages[index]);
+    });
+}
+
+const areScanCleanupPrimitivesEqual = createShallowKeyEquality<Omit<IScanCleanupTabSessionState, 'pageMapping'>>({
+    ownerId: true,
+    previewPage: true,
+    previewViewMode: true,
+});
+
+function areScanCleanupStatesEqual(
+    first: IScanCleanupTabSessionState | undefined,
+    second: IScanCleanupTabSessionState | undefined,
+) {
+    if (first === second) {
+        return true;
+    }
+    if (!first || !second) {
+        return false;
+    }
+    return areScanCleanupPrimitivesEqual(first, second)
+        && areScanCleanupPageMappingsEqual(first.pageMapping, second.pageMapping);
+}
+
+const areViewStatePrimitivesEqual = createShallowKeyEquality<Omit<ITabViewSessionState, 'scanCleanup'>>({
+    continuousScroll: true,
+    currentPage: true,
+    effectiveZoom: true,
+    fitMode: true,
+    showSidebar: true,
+    sidebarTab: true,
+    sidebarWidth: true,
+    surfaceMode: true,
+    viewMode: true,
+    zoom: true,
+    zoomMode: true,
+});
+
+export function areTabViewSessionStatesEqual(
+    first: ITabViewSessionState,
+    second: ITabViewSessionState,
+) {
+    return areViewStatePrimitivesEqual(first, second)
+        && areScanCleanupStatesEqual(first.scanCleanup, second.scanCleanup);
+}
+
+const areDocumentRevisionInfoFieldsEqual = createShallowKeyEquality<IDocumentRevisionInfo>({
+    authority: true,
+    contentRevision: true,
+    documentRef: true,
+    mintedAt: true,
+    token: true,
+    version: true,
+});
+
+export function areDocumentRevisionInfosEqual(
+    first: IDocumentRevisionInfo | null,
+    second: IDocumentRevisionInfo | null,
+) {
+    if (first === second) {
+        return true;
+    }
+    if (!first || !second) {
+        return false;
+    }
+    return areDocumentRevisionInfoFieldsEqual(first, second);
+}
+
+const areTabStatesEqual = createShallowKeyEquality<TWorkspaceDocumentTabState>({
+    documentInstanceId: true,
+    fileName: true,
+    isDirty: true,
+    isDjvu: true,
+    originalPath: true,
+});
+
+// No `-?` modifier: tsgo 7 stops correlating the map's call signatures with it,
+// and every record field is required anyway.
+const recordFieldComparators: {
+    [K in keyof IWorkspaceDocumentRecord]: (
+        first: IWorkspaceDocumentRecord[K],
+        second: IWorkspaceDocumentRecord[K],
+    ) => boolean;
+} = {
+    tab: areTabStatesEqual,
+    documentIdentity: areDocumentRevisionInfosEqual,
+    toolbarSnapshot: areWorkspaceToolbarSnapshotsEqual,
+    viewState: areTabViewSessionStatesEqual,
+};
+
+const recordFieldKeys = Object.keys(recordFieldComparators) as Array<keyof IWorkspaceDocumentRecord>;
+
+function areRecordFieldsEqual<K extends keyof IWorkspaceDocumentRecord>(
+    key: K,
+    first: IWorkspaceDocumentRecord,
+    second: IWorkspaceDocumentRecord,
+) {
+    return recordFieldComparators[key](first[key], second[key]);
+}
+
 export function areWorkspaceDocumentRecordsEqual(
     first: IWorkspaceDocumentRecord | null | undefined,
     second: IWorkspaceDocumentRecord | null | undefined,
 ) {
-    return JSON.stringify(first ?? null) === JSON.stringify(second ?? null);
+    const firstRecord = first ?? null;
+    const secondRecord = second ?? null;
+    if (firstRecord === secondRecord) {
+        return true;
+    }
+    if (!firstRecord || !secondRecord) {
+        return false;
+    }
+    return recordFieldKeys.every(key => areRecordFieldsEqual(key, firstRecord, secondRecord));
 }

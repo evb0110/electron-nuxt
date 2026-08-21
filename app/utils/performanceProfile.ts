@@ -12,6 +12,7 @@ import {
     type TPerformanceMode,
 } from '@contracts/hostResourceProfile';
 
+export const PDF_SETTLED_MAX_CANVAS_PIXELS_LOW_TIER = 2 ** 24;
 export const PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT = 2 ** 25;
 export const PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY = 2 ** 26;
 export const PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION = 2 ** 27;
@@ -159,7 +160,9 @@ function resolveCanonicalPerformanceProfile(
             ? PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION
             : tier === 'high'
                 ? PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY
-                : PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
+                : lowTier
+                    ? PDF_SETTLED_MAX_CANVAS_PIXELS_LOW_TIER
+                    : PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
         maxBufferCanvasPixels: workstationProfile
             ? PDF_BUFFER_MAX_CANVAS_PIXELS_WORKSTATION
             : lowTier
@@ -180,6 +183,12 @@ function applySoftwareCanvasConstraint(
         lowCpu: true,
         concurrentPdfRenders: PDF_RENDER_CONCURRENCY_LOW_CPU,
         thumbnailBaseConcurrency: PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE,
+        // Software rasterization pays for every deep-zoom pixel on the CPU, so the
+        // settled canvas keeps the low-tier cap regardless of installed RAM.
+        settledMaxCanvasPixels: Math.min(
+            profile.settledMaxCanvasPixels,
+            PDF_SETTLED_MAX_CANVAS_PIXELS_LOW_TIER,
+        ),
     };
 }
 
@@ -261,11 +270,13 @@ export function resolvePerformanceProfile(
             : lowMemory || lowCpu
                 ? PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE
                 : PDF_THUMBNAIL_CONCURRENCY_DEFAULT,
-        settledMaxCanvasPixels: workstationMemory
-            ? PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION
-            : highCanvasMemory
-                ? PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY
-                : PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
+        settledMaxCanvasPixels: tier === 'low'
+            ? PDF_SETTLED_MAX_CANVAS_PIXELS_LOW_TIER
+            : workstationMemory
+                ? PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION
+                : highCanvasMemory
+                    ? PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY
+                    : PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
         maxBufferCanvasPixels: workstationProfile
             ? PDF_BUFFER_MAX_CANVAS_PIXELS_WORKSTATION
             : lowMemory

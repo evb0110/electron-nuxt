@@ -242,6 +242,9 @@ describe('BrowserLogger', () => {
         logger.debug('section-a', 'filtered message', lazyData);
         expect(lazyData).not.toHaveBeenCalled();
 
+        logger.diagnosticThrottled('section-a', 'key-1', 1_000, 'filtered throttled message', lazyData);
+        expect(lazyData).not.toHaveBeenCalled();
+
         logger.warn('section-a', 'emitted message', lazyData);
         expect(lazyData).toHaveBeenCalledTimes(1);
     });

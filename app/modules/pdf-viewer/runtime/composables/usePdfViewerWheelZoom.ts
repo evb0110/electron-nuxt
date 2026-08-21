@@ -254,7 +254,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
     }
 
     function logWheelDispatch(event: IDocumentWheelSourceEvent, context: IWheelDispatchContext) {
-        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'wheel-dispatch', WHEEL_DISPATCH_LOG_THROTTLE_MS, '[wheel] dispatch', {
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'wheel-dispatch', WHEEL_DISPATCH_LOG_THROTTLE_MS, '[wheel] dispatch', () => ({
             recentZoomIntentId: context.recentZoomAnchor?.id ?? null,
             recentZoomAgeMs: context.recentZoomAgeMs,
             recentModifierZoomEventId: lastModifierWheelZoomEventId || null,
@@ -268,7 +268,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                 : 0,
             viewer: summarizeViewerStateForLog(),
             wheel: summarizeWheelEventForDebug(event),
-        });
+        }));
     }
 
     function blockWheelForSnipMode(event: IDocumentWheelSourceEvent) {
@@ -292,10 +292,10 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             'wheel-routed-platform-modifier-to-scroll',
             wheelDetailLogThrottleMs,
             '[wheel] allowed platform-modified wheel to scroll',
-            {
+            () => ({
                 viewer: summarizeViewerStateForLog(),
                 wheel: summarizeWheelEventForDebug(interaction.event),
-            },
+            }),
         );
         cancelPendingSearchScroll();
         return true;
@@ -341,7 +341,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             'wheel-suppressed-non-modifier',
             wheelDetailLogThrottleMs,
             '[wheel] suppressed non-modifier packet during active zoom lock',
-            {
+            () => ({
                 zoomInteractionLocked: context.zoomInteractionLocked,
                 graceWindowMs: DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS,
                 recentModifierZoomEventId: lastModifierWheelZoomEventId || null,
@@ -349,7 +349,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                 activeSessionId: context.activeSession?.id ?? null,
                 viewer: summarizeViewerStateForLog(),
                 wheel: summarizeWheelEventForDebug(event),
-            },
+            }),
         );
         cancelPendingSearchScroll();
         return true;
@@ -360,7 +360,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         const nowMs = Date.now();
         const debugId = ++zoomDebugWheelEventId;
         const wheelIntent = getModifierWheelIntent(interaction, nowMs);
-        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'wheel-zoom-received', wheelDetailLogThrottleMs, `[wheel-zoom] received id=${debugId}`, {
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'wheel-zoom-received', wheelDetailLogThrottleMs, `[wheel-zoom] received id=${debugId}`, () => ({
             id: debugId,
             hasModifierZoomSignal: wheelIntent.hasModifierZoomSignal,
             shouldTreatAsZoomSignal: wheelIntent.shouldTreatAsZoomSignal,
@@ -368,7 +368,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             activeSessionId: wheelIntent.activeSession?.id ?? null,
             viewer: summarizeViewerStateForLog(),
             wheel: summarizeWheelEventForDebug(event),
-        });
+        }));
         if (!wheelIntent.shouldTreatAsZoomSignal) {
             BrowserLogger.diagnosticThrottled(
                 'pdf-zoom-debug',
@@ -389,11 +389,11 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             'wheel-zoom-prevent-default',
             wheelDetailLogThrottleMs,
             `[wheel-zoom] prevent-default id=${debugId}`,
-            {
+            () => ({
                 id: debugId,
                 cancelable: event.cancelable,
                 defaultPrevented: event.defaultPrevented,
-            },
+            }),
         );
         const container = viewerContainer.value;
         if (!container || !src.value || isLoading.value) {
@@ -402,13 +402,13 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                 'wheel-zoom-ignored-not-ready',
                 wheelDetailLogThrottleMs,
                 `[wheel-zoom] ignored id=${debugId} reason=viewer-not-ready`,
-                {
+                () => ({
                     id: debugId,
                     hasContainer: Boolean(container),
                     hasSrc: Boolean(src.value),
                     isLoading: isLoading.value,
                     viewer: summarizeViewerStateForLog(),
-                },
+                }),
             );
             return true;
         }
@@ -434,10 +434,10 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                 'wheel-zoom-ignored-zero-delta',
                 wheelDetailLogThrottleMs,
                 `[wheel-zoom] ignored id=${debugId} reason=zero-delta`,
-                {
+                () => ({
                     id: debugId,
                     wheel: summarizeWheelEventForDebug(event),
-                },
+                }),
             );
             return true;
         }
@@ -449,12 +449,12 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                 'wheel-zoom-ignored-invalid-factor',
                 wheelDetailLogThrottleMs,
                 `[wheel-zoom] ignored id=${debugId} reason=invalid-factor`,
-                {
+                () => ({
                     id: debugId,
                     deltaCumulative: session.cumulativeDelta,
                     zoomFactor: zoomTarget.zoomFactor,
                     sessionId: session.id,
-                },
+                }),
             );
             return true;
         }
@@ -466,7 +466,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                 'wheel-zoom-ignored-no-change',
                 wheelDetailLogThrottleMs,
                 `[wheel-zoom] ignored id=${debugId} reason=no-zoom-change`,
-                {
+                () => ({
                     id: debugId,
                     sessionId: session.id,
                     currentZoomMultiplier: zoom.value,
@@ -476,7 +476,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                     delta,
                     zoomFactor: zoomTarget.zoomFactor,
                     cumulativeDelta: session.cumulativeDelta,
-                },
+                }),
             );
             return true;
         }
@@ -492,7 +492,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             nowMs,
             session.resizeAnchor,
         );
-        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'wheel-zoom-emit', wheelDetailLogThrottleMs, `[wheel-zoom] emit id=${debugId}`, {
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'wheel-zoom-emit', wheelDetailLogThrottleMs, `[wheel-zoom] emit id=${debugId}`, () => ({
             id: debugId,
             sessionId: session.id,
             gestureAnchorReused: reusedGestureAnchor,
@@ -510,7 +510,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             anchor: pendingZoomViewportAnchor.value,
             viewerBeforeEmit: summarizeViewerStateForLog(),
             wheel: summarizeWheelEventForDebug(event),
-        });
+        }));
 
         // Capture committed pixels before the reactive scale mutation can
         // clear or replace renderer canvases. The rerender coordinator also

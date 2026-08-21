@@ -23,7 +23,6 @@ import { appendPdfImagePage } from '@app/platform/browser-api/appendPdfImagePage
 import {
     BROWSER_COMBINE_IMAGE_EXTENSIONS,
     getBrowserFileExtension,
-    toBrowserOwnedArrayBuffer,
 } from '@app/platform/browser-api/browserPlatformHelpers';
 import { tryCombineImageInputsWithWasm } from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
@@ -75,7 +74,11 @@ async function convertWorkerImageBytesToPng(fileName: string, bytes: Uint8Array)
         throw new Error(`ERR_BROWSER_PDF_COMBINE_UNREADABLE_IMAGE_HEADER:${fileName}`);
     }
     assertImageDimensions(metadata.width, metadata.height, fileName);
-    const blob = new Blob([toBrowserOwnedArrayBuffer(bytes, { copy: true })]);
+    // Blob snapshots the view synchronously, so a defensive copy of the source would be
+    // redundant. BlobPart rejects SharedArrayBuffer-backed views, which still need a copy.
+    const blob = new Blob([bytes.buffer instanceof ArrayBuffer
+        ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+        : Uint8Array.from(bytes)]);
     const bitmap = await createImageBitmap(blob);
 
     try {
@@ -103,8 +106,11 @@ function createWorkerImageData(width: number, height: number, rgba: Uint8Array) 
         throw new Error('ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_IMAGE_RUNTIME');
     }
 
-    const clamped = new Uint8ClampedArray(rgba.byteLength);
-    clamped.set(rgba);
+    // putImageData copies into the canvas, so aliasing the decoded frame is safe. ImageData
+    // rejects SharedArrayBuffer-backed views, which is the one case that still needs a copy.
+    const clamped = rgba.buffer instanceof ArrayBuffer
+        ? new Uint8ClampedArray(rgba.buffer, rgba.byteOffset, rgba.byteLength)
+        : Uint8ClampedArray.from(rgba);
     return new ImageData(clamped, width, height);
 }
 

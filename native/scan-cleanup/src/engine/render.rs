@@ -672,7 +672,7 @@ struct CanonicalTransferTap {
 #[allow(clippy::too_many_arguments)]
 fn replay_canonical_detail_transfer(
     detail_gray: &mut GrayImage,
-    mut detail_color: Option<&mut RgbImage>,
+    detail_color: Option<&mut RgbImage>,
     base_source: &GrayImage,
     base_color_source: Option<&RgbImage>,
     base_cleaned_gray: &GrayImage,
@@ -683,8 +683,11 @@ fn replay_canonical_detail_transfer(
 ) {
     const GAIN_CLASS_TOLERANCE: f64 = 0.18;
     let width = detail_gray.width();
-    let height = detail_gray.height();
-    for y in 0..height {
+    let stride = detail_gray.stride();
+    if width == 0 || detail_gray.height() == 0 {
+        return;
+    }
+    let process_row = |y: usize, gray_row: &mut [u8], mut color_row: Option<&mut [u8]>| {
         for x in 0..width {
             let base_output = Point::new(
                 (sampled_region.x + x as f64) / scale,
@@ -712,18 +715,15 @@ fn replay_canonical_detail_transfer(
             } else {
                 reference
             };
-            detail_gray.set(
-                x,
-                y,
-                (f64::from(detail_gray.get(x, y)) * gray_gain)
-                    .round()
-                    .clamp(0.0, 255.0) as u8,
-            );
+            gray_row[x] = (f64::from(gray_row[x]) * gray_gain)
+                .round()
+                .clamp(0.0, 255.0) as u8;
 
-            let Some(color) = detail_color.as_deref_mut() else {
+            let Some(color_row) = color_row.as_deref_mut() else {
                 continue;
             };
-            let source_pixel = color.get(x, y);
+            let pixel = &mut color_row[x * 3..x * 3 + 3];
+            let source_pixel: [u8; 3] = (&*pixel).try_into().expect("rgb pixel width");
             let reference_color = taps[0].and_then(|tap| tap.color_gain);
             let mut target = source_pixel;
             for channel in 0..3 {
@@ -748,7 +748,24 @@ fn replay_canonical_detail_transfer(
                     .round()
                     .clamp(0.0, 255.0) as u8;
             }
-            color.set(x, y, target);
+            pixel.copy_from_slice(&target);
+        }
+    };
+    match detail_color {
+        Some(color) => {
+            detail_gray
+                .data_mut()
+                .par_chunks_mut(stride)
+                .zip(color.data_mut().par_chunks_mut(width * 3))
+                .enumerate()
+                .for_each(|(y, (gray_row, color_row))| process_row(y, gray_row, Some(color_row)));
+        }
+        None => {
+            detail_gray
+                .data_mut()
+                .par_chunks_mut(stride)
+                .enumerate()
+                .for_each(|(y, gray_row)| process_row(y, gray_row, None));
         }
     }
 }
@@ -4940,31 +4957,41 @@ fn prefilter_confirmed_photo_regions(image: &mut GrayImage, owner: &BinaryImage)
     }
     let original = image.clone();
     let kernel = [1u32, 2, 1];
-    for y in 1..image.height() - 1 {
-        for x in 1..image.width() - 1 {
-            if !owner.get(x, y) {
-                continue;
+    let width = image.width();
+    let height = image.height();
+    let stride = image.stride();
+    image
+        .data_mut()
+        .par_chunks_mut(stride)
+        .enumerate()
+        .for_each(|(y, row)| {
+            if y == 0 || y == height - 1 {
+                return;
             }
-            let center = u32::from(original.get(x, y));
-            let mut weighted_sum = 0u32;
-            let mut weight_sum = 0u32;
-            for (ky, &row_weight) in kernel.iter().enumerate() {
-                for (kx, &column_weight) in kernel.iter().enumerate() {
-                    let sample_x = x + kx - 1;
-                    let sample_y = y + ky - 1;
-                    let weight = row_weight * column_weight;
-                    let sample = if owner.get(sample_x, sample_y) {
-                        u32::from(original.get(sample_x, sample_y))
-                    } else {
-                        center
-                    };
-                    weighted_sum += sample * weight;
-                    weight_sum += weight;
+            for (x, target) in row.iter_mut().enumerate().take(width - 1).skip(1) {
+                if !owner.get(x, y) {
+                    continue;
                 }
+                let center = u32::from(original.get(x, y));
+                let mut weighted_sum = 0u32;
+                let mut weight_sum = 0u32;
+                for (ky, &row_weight) in kernel.iter().enumerate() {
+                    for (kx, &column_weight) in kernel.iter().enumerate() {
+                        let sample_x = x + kx - 1;
+                        let sample_y = y + ky - 1;
+                        let weight = row_weight * column_weight;
+                        let sample = if owner.get(sample_x, sample_y) {
+                            u32::from(original.get(sample_x, sample_y))
+                        } else {
+                            center
+                        };
+                        weighted_sum += sample * weight;
+                        weight_sum += weight;
+                    }
+                }
+                *target = (weighted_sum / weight_sum.max(1)) as u8;
             }
-            image.set(x, y, (weighted_sum / weight_sum.max(1)) as u8);
-        }
-    }
+        });
 }
 
 fn should_prefilter_confirmed_photo_regions(
@@ -6909,8 +6936,8 @@ fn render_gray_field(
 /// narrow protected ring used by composition, so a stencil just outside a
 /// photo can be reconstructed from the already-blended edge tone without
 /// pulling paper toward the photo. Samples are taken from non-stencil pixels
-/// in that same ownership mask. The source clones keep one fill from
-/// influencing the next sample.
+/// in that same ownership mask. Fills are collected in a read-only scan and
+/// applied afterwards, so one fill never influences another fill's sample.
 fn fill_picture_stencil_knockouts(
     background: &mut GrayImage,
     mut color_background: Option<&mut RgbImage>,
@@ -6930,77 +6957,82 @@ fn fill_picture_stencil_knockouts(
     }
     let max_radius = (dpi * 0.5 / 25.4).ceil().clamp(2.0, 16.0) as isize;
     let source_color = color_background.as_deref();
-    let mut fills = Vec::new();
+    let source_gray: &GrayImage = background;
 
-    for y in 0..height {
-        for x in 0..width {
-            if !stencil.get(x, y) || !picture_ownership_mask.get(x, y) {
-                continue;
-            }
-            // Soft-alpha composition may deliberately put the original plate
-            // pixel back after the foreground pass (notably for chromatic
-            // plate detail). Only a white knockout is a hole that needs
-            // reconstruction; never replace an already-preserved source
-            // tone with the surrounding background average.
-            if background.get(x, y) != 255
-                || color_background
-                    .as_ref()
-                    .is_some_and(|background| background.get(x, y) != [255; 3])
-            {
-                continue;
-            }
+    let fills: Vec<(usize, usize, u8, Option<[u8; 3]>)> = (0..height)
+        .into_par_iter()
+        .flat_map_iter(|y| {
+            let mut row_fills = Vec::new();
+            for x in 0..width {
+                if !stencil.get(x, y) || !picture_ownership_mask.get(x, y) {
+                    continue;
+                }
+                // Soft-alpha composition may deliberately put the original
+                // plate pixel back after the foreground pass (notably for
+                // chromatic plate detail). Only a white knockout is a hole
+                // that needs reconstruction; never replace an already-
+                // preserved source tone with the surrounding background
+                // average.
+                if source_gray.get(x, y) != 255
+                    || source_color.is_some_and(|background| background.get(x, y) != [255; 3])
+                {
+                    continue;
+                }
 
-            let mut gray_sum = 0u64;
-            let mut color_sum = [0u64; 3];
-            let mut samples = 0u64;
-            for radius in 1..=max_radius {
-                for dy in -radius..=radius {
-                    for dx in -radius..=radius {
-                        if dx.abs().max(dy.abs()) != radius {
-                            continue;
-                        }
-                        let sample_x = x as isize + dx;
-                        let sample_y = y as isize + dy;
-                        if sample_x < 0
-                            || sample_y < 0
-                            || sample_x >= width as isize
-                            || sample_y >= height as isize
-                        {
-                            continue;
-                        }
-                        let sample_x = sample_x as usize;
-                        let sample_y = sample_y as usize;
-                        if !picture_ownership_mask.get(sample_x, sample_y)
-                            || stencil.get(sample_x, sample_y)
-                        {
-                            continue;
-                        }
-                        gray_sum += u64::from(background.get(sample_x, sample_y));
-                        if let Some(source_color) = source_color.as_ref() {
-                            let pixel = source_color.get(sample_x, sample_y);
-                            for (channel, value) in pixel.into_iter().enumerate() {
-                                color_sum[channel] += u64::from(value);
+                let mut gray_sum = 0u64;
+                let mut color_sum = [0u64; 3];
+                let mut samples = 0u64;
+                for radius in 1..=max_radius {
+                    for dy in -radius..=radius {
+                        for dx in -radius..=radius {
+                            if dx.abs().max(dy.abs()) != radius {
+                                continue;
                             }
+                            let sample_x = x as isize + dx;
+                            let sample_y = y as isize + dy;
+                            if sample_x < 0
+                                || sample_y < 0
+                                || sample_x >= width as isize
+                                || sample_y >= height as isize
+                            {
+                                continue;
+                            }
+                            let sample_x = sample_x as usize;
+                            let sample_y = sample_y as usize;
+                            if !picture_ownership_mask.get(sample_x, sample_y)
+                                || stencil.get(sample_x, sample_y)
+                            {
+                                continue;
+                            }
+                            gray_sum += u64::from(source_gray.get(sample_x, sample_y));
+                            if let Some(source_color) = source_color.as_ref() {
+                                let pixel = source_color.get(sample_x, sample_y);
+                                for (channel, value) in pixel.into_iter().enumerate() {
+                                    color_sum[channel] += u64::from(value);
+                                }
+                            }
+                            samples += 1;
                         }
-                        samples += 1;
+                    }
+                    if samples > 0 {
+                        break;
                     }
                 }
-                if samples > 0 {
-                    break;
+                if samples == 0 {
+                    continue;
                 }
-            }
-            if samples == 0 {
-                continue;
-            }
 
-            fills.push((
-                x,
-                y,
-                ((gray_sum + samples / 2) / samples) as u8,
-                source_color.map(|_| color_sum.map(|sum| ((sum + samples / 2) / samples) as u8)),
-            ));
-        }
-    }
+                row_fills.push((
+                    x,
+                    y,
+                    ((gray_sum + samples / 2) / samples) as u8,
+                    source_color
+                        .map(|_| color_sum.map(|sum| ((sum + samples / 2) / samples) as u8)),
+                ));
+            }
+            row_fills
+        })
+        .collect();
 
     for (x, y, gray, color) in fills {
         background.set(x, y, gray);

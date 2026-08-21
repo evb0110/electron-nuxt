@@ -114,6 +114,7 @@ export interface IRunInitSequenceOptions {
     sweepStaleManagedScratchTempDirs?: () => Promise<unknown>;
     sweepStaleOcrTempArtifacts?: () => Promise<unknown>;
     pruneStaleDjvuArtifactJobs?: () => Promise<unknown>;
+    warmNativeToolProtocolHandshakes?: () => Promise<unknown>;
 }
 
 function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOptions, 'externalOpenManager' | 'logger'>): IStartupExternalOpenClaimTracker {
@@ -347,6 +348,7 @@ function createPostRendererReadyMaintenanceRunner(
         sweepStaleManagedScratchTempDirs,
         sweepStaleOcrTempArtifacts,
         pruneStaleDjvuArtifactJobs,
+        warmNativeToolProtocolHandshakes,
     } = options;
 
     const steps: IStartupMaintenanceStepDefinition[] = [
@@ -354,6 +356,12 @@ function createPostRendererReadyMaintenanceRunner(
             label: 'default-app temp PDFs',
             run: sweepStaleDefaultAppTempPdfs,
         },
+        ...(warmNativeToolProtocolHandshakes
+            ? [{
+                label: 'native tool protocol warmup',
+                run: warmNativeToolProtocolHandshakes,
+            }]
+            : []),
         ...(pruneStaleDjvuArtifactJobs
             ? [{
                 label: 'DjVu artifact jobs',
@@ -553,7 +561,11 @@ export async function runInitSequence(options: IRunInitSequenceOptions) {
     const startupExternalOpenClaims = createStartupExternalOpenClaimTracker(options);
     bootSingleInstance(options);
     await bootProtocol(options);
-    await options.initializeElectronTranslations();
+    // te() serves English until the locale bundle resolves, and nothing before the menu
+    // renders localized text, so the non-English chunk load must not delay the window.
+    const electronTranslationsReady = options.initializeElectronTranslations().catch((error: unknown) => {
+        options.logger.error(`Failed to initialize Electron translations: ${getErrorMessage(error)}`);
+    });
     await options.initializeResourceRuntime();
     await bootDevDockIcon(options);
     bootAboutPanel(options);
@@ -566,6 +578,7 @@ export async function runInitSequence(options: IRunInitSequenceOptions) {
     void (async () => {
         bootUpdates(options);
         await options.loadSettings();
+        await electronTranslationsReady;
         bootMenu(options);
         try {
             await options.initRecentFilesCache();

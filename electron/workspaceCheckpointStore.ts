@@ -57,8 +57,19 @@ interface IPendingWorkspaceCheckpointSave {
     waiters: IWorkspaceCheckpointSaveWaiter[];
 }
 
+interface ITrailingWorkspaceCheckpointSave {
+    stored: IStoredWorkspaceCheckpoint;
+    ownerWebContentsId: number;
+    waiters: IWorkspaceCheckpointSaveWaiter[];
+    timer: NodeJS.Timeout;
+}
+
+const WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS = 500;
+
 let checkpointWriteInFlight: Promise<void> | null = null;
 let pendingLatestCheckpointSave: IPendingWorkspaceCheckpointSave | null = null;
+let trailingCheckpointSave: ITrailingWorkspaceCheckpointSave | null = null;
+let lastCheckpointSaveStartedAtMs = 0;
 let checkpointBarrierQueue: Promise<unknown> = Promise.resolve();
 const discardedCheckpointOwnerGenerations = new Map<number, string>();
 let nextDiscardedCheckpointOwnerGeneration = 1;
@@ -357,8 +368,82 @@ async function drainWorkspaceCheckpointWrites() {
     }
 }
 
+function takeTrailingCheckpointSave() {
+    const pending = trailingCheckpointSave;
+    if (!pending) {
+        return null;
+    }
+    trailingCheckpointSave = null;
+    clearTimeout(pending.timer);
+    return pending;
+}
+
+// Runs only from inside the barrier queue: committing anywhere else would let a
+// queued clear or claim land between taking the trailing save and writing it,
+// and the write would resurrect the checkpoint the barrier just removed.
+async function commitTrailingCheckpointSave(pending: ITrailingWorkspaceCheckpointSave) {
+    lastCheckpointSaveStartedAtMs = Date.now();
+    try {
+        if (!discardedCheckpointOwnerGenerations.has(pending.ownerWebContentsId)) {
+            await enqueueWorkspaceCheckpointSave(pending.stored);
+        }
+        for (const waiter of pending.waiters) {
+            waiter.resolve();
+        }
+    } catch (error) {
+        for (const waiter of pending.waiters) {
+            waiter.reject(error);
+        }
+    }
+}
+
+function scheduleTrailingCheckpointSave(
+    stored: IStoredWorkspaceCheckpoint,
+    ownerWebContentsId: number,
+    delayMs: number,
+) {
+    return new Promise<void>((resolve, reject) => {
+        const waiter = {
+            resolve,
+            reject,
+        };
+        if (trailingCheckpointSave) {
+            trailingCheckpointSave.stored = stored;
+            trailingCheckpointSave.ownerWebContentsId = ownerWebContentsId;
+            trailingCheckpointSave.waiters.push(waiter);
+            return;
+        }
+        const timer = setTimeout(() => {
+            // The barrier's own take-and-flush commits the pending save; a no-op
+            // barrier serializes the debounced write against queued clears/claims.
+            void enqueueWorkspaceCheckpointBarrier(async () => {});
+        }, delayMs);
+        timer.unref?.();
+        trailingCheckpointSave = {
+            stored,
+            ownerWebContentsId,
+            waiters: [waiter],
+            timer,
+        };
+    });
+}
+
+/**
+ * Writes any debounced checkpoint immediately. Shutdown preservation must await this
+ * before the process exits, otherwise the newest checkpoint is lost.
+ */
+export async function flushPendingWorkspaceCheckpointSave() {
+    await enqueueWorkspaceCheckpointBarrier(async () => {});
+}
+
 function enqueueWorkspaceCheckpointBarrier<T>(operation: () => Promise<T>) {
     const barrier = checkpointBarrierQueue.then(async () => {
+        // Claim and clear observe the newest state, so a debounced save is written
+        // before them rather than after, where it would resurrect a removed checkpoint.
+        const pending = takeTrailingCheckpointSave();
+        if (pending) {
+            await commitTrailingCheckpointSave(pending);
+        }
         await drainWorkspaceCheckpointWrites();
         return operation();
     });
@@ -391,7 +476,16 @@ export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, 
     if (discardedCheckpointOwnerGenerations.has(ownerWebContentsId)) {
         return;
     }
-    return enqueueWorkspaceCheckpointSave(stored);
+    const elapsedMs = Date.now() - lastCheckpointSaveStartedAtMs;
+    if (!trailingCheckpointSave && elapsedMs >= WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS) {
+        lastCheckpointSaveStartedAtMs = Date.now();
+        return enqueueWorkspaceCheckpointSave(stored);
+    }
+    return scheduleTrailingCheckpointSave(
+        stored,
+        ownerWebContentsId,
+        Math.max(0, WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS - elapsedMs),
+    );
 }
 
 export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {

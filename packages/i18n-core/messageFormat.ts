@@ -47,6 +47,14 @@ export function normalizeTranslationParams(rawParams?: number | TMessageParams):
     return rawParams;
 }
 
+export interface ILocaleMessageSource { getLocaleMessage: (locale: string) => Record<string, unknown>; }
+
+// Narrows loosely typed composer access (e.g. `nuxtApp.$i18n` outside a component
+// setup context) to the one method the plain-message helpers below need.
+export function isLocaleMessageSource(value: unknown): value is ILocaleMessageSource {
+    return isRecord(value) && typeof value.getLocaleMessage === 'function';
+}
+
 export function getNestedTranslationLeaf(messages: Record<string, unknown>, path: string): TTranslationLeaf | null {
     const parts = path.split('.');
     let current: unknown = messages;

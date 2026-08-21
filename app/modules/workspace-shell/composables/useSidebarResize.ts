@@ -41,8 +41,12 @@ export const useSidebarResize = (deps: {
         minWidth: '0',
     }));
 
+    let detachDragListeners: (() => void) | null = null;
+
     function cleanupSidebarResizeListeners() {
         sidebarResize.cancel();
+        detachDragListeners?.();
+        detachDragListeners = null;
     }
 
     function handleSidebarResize(event: PointerEvent) {
@@ -98,23 +102,26 @@ export const useSidebarResize = (deps: {
         });
 
         cleanupSidebarResizeListeners();
+        attachDragListeners();
     }
 
-    useEventListener(
-        typeof window !== 'undefined' ? window : undefined,
-        'pointermove',
-        sidebarResize.schedule,
-    );
-    useEventListener(
-        typeof window !== 'undefined' ? window : undefined,
-        'pointerup',
-        stopSidebarResize,
-    );
-    useEventListener(
-        typeof window !== 'undefined' ? window : undefined,
-        'pointercancel',
-        stopSidebarResize,
-    );
+    // Window-level pointer listeners exist only for the duration of a drag so idle
+    // mouse movement does not schedule a frame callback for every pointermove.
+    function attachDragListeners() {
+        const target = typeof window !== 'undefined' ? window : undefined;
+        const stops = [
+            useEventListener(target, 'pointermove', sidebarResize.schedule),
+            useEventListener(target, 'pointerup', stopSidebarResize),
+            useEventListener(target, 'pointercancel', stopSidebarResize),
+        ];
+        detachDragListeners = () => {
+            for (const stop of stops) {
+                stop();
+            }
+        };
+    }
+
+    onScopeDispose(cleanupSidebarResizeListeners, true);
 
     watch(showSidebar, (isOpen) => {
         BrowserLogger.diagnostic('pdf-nav', `[sidebar-state] open=${isOpen}`, {
