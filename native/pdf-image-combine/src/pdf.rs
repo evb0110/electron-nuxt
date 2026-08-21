@@ -200,11 +200,11 @@ pub(crate) fn apply_shared_symbol_encoding(streams: &mut [&mut BilevelStream]) {
     };
     let encoded = match encoded {
         Ok(encoded) => encoded,
-        Err(error) => {
+        Err(_error) => {
             #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
             eprintln!(
                 "{}",
-                symbol_fallback_record(streams.len(), &error.to_string())
+                symbol_fallback_record(streams.len(), &_error.to_string())
             );
             return;
         }
@@ -262,8 +262,11 @@ pub(crate) fn apply_shared_symbol_encoding(streams: &mut [&mut BilevelStream]) {
     }
 
     let globals = Arc::new(encoded.globals);
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     let symbol_count = encoded.symbol_count;
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     let component_count = encoded.component_count;
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     let class_comparison_count = encoded.class_comparison_count;
     for (stream, page) in streams.iter_mut().zip(encoded.pages) {
         if let Some(page) = page {
@@ -290,6 +293,7 @@ pub(crate) fn apply_shared_symbol_encoding(streams: &mut [&mut BilevelStream]) {
     );
 }
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 fn symbol_fallback_record(pages: usize, reason: &str) -> serde_json::Value {
     serde_json::json!({
         "type": "jbig2-symbol-fallback",
@@ -298,6 +302,7 @@ fn symbol_fallback_record(pages: usize, reason: &str) -> serde_json::Value {
     })
 }
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 fn symbol_page_fallback_record(page: usize, reason: &str) -> serde_json::Value {
     serde_json::json!({
         "type": "jbig2-symbol-page-fallback",
@@ -306,6 +311,7 @@ fn symbol_page_fallback_record(page: usize, reason: &str) -> serde_json::Value {
     })
 }
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 fn symbol_size_record(
     record_type: &str,
     pages: usize,
