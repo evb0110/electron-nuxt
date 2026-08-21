@@ -5,6 +5,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { ANALYTICS_GEO_LIMITS } from '@contracts/analytics';
 
 const rootMigration = readFileSync(
     resolve(process.cwd(), 'drizzle/0002_analytics_admission.sql'),
@@ -34,6 +35,14 @@ const landingRetentionMigration = readFileSync(
     resolve(process.cwd(), 'landing/drizzle/0003_analytics_event_retention.sql'),
     'utf8',
 );
+const landingRegionMigration = readFileSync(
+    resolve(process.cwd(), 'landing/drizzle/0004_widen_analytics_region.sql'),
+    'utf8',
+);
+const landingRegionSnapshot = JSON.parse(readFileSync(
+    resolve(process.cwd(), 'landing/drizzle/meta/0004_snapshot.json'),
+    'utf8',
+)) as {tables: Record<string, {columns: Record<string, {type: string}>}>};
 const rootRetentionEndpoint = readFileSync(
     resolve(process.cwd(), 'server/api/maintenance/analyticsRetention.get.ts'),
     'utf8',
@@ -101,6 +110,25 @@ describe('analytics SQL admission migrations', () => {
         expect(landingSchemaMigration).toContain(
             'ALTER TABLE "landing_page_view" ALTER COLUMN "created_at" SET DATA TYPE timestamp with time zone USING "created_at" AT TIME ZONE \'UTC\'',
         );
+    });
+
+    it('keeps landing region storage aligned with the shared analytics contract', () => {
+        expect(landingAnalyticsSchema).toContain(
+            'import { ANALYTICS_GEO_LIMITS } from \'@evb/contracts/analytics\'',
+        );
+        expect(
+            landingAnalyticsSchema.match(/length: ANALYTICS_GEO_LIMITS\.region/gu),
+        ).toHaveLength(2);
+        expect(landingRegionMigration).toContain(
+            `ALTER TABLE "landing_download" ALTER COLUMN "region" SET DATA TYPE varchar(${ANALYTICS_GEO_LIMITS.region})`,
+        );
+        expect(landingRegionMigration).toContain(
+            `ALTER TABLE "landing_page_view" ALTER COLUMN "region" SET DATA TYPE varchar(${ANALYTICS_GEO_LIMITS.region})`,
+        );
+        expect(landingRegionSnapshot.tables['public.landing_download']?.columns.region?.type)
+            .toBe(`varchar(${ANALYTICS_GEO_LIMITS.region})`);
+        expect(landingRegionSnapshot.tables['public.landing_page_view']?.columns.region?.type)
+            .toBe(`varchar(${ANALYTICS_GEO_LIMITS.region})`);
     });
 
     it.each([
@@ -222,26 +250,40 @@ describe('analytics SQL admission migrations', () => {
         }
     });
 
-    it('keeps generated migration journals and custom snapshots aligned', () => {
-        for (const directory of [
-            'drizzle',
-            'landing/drizzle',
-        ]) {
-            const journal = JSON.parse(readFileSync(
-                resolve(process.cwd(), directory, 'meta/_journal.json'),
-                'utf8',
-            )) as {entries: Array<{
-                idx: number;
-                tag: string
-            }>};
-            expect(journal.entries.at(-1)).toEqual(expect.objectContaining({
-                idx: 3,
-                tag: '0003_analytics_event_retention',
-            }));
-            expect(() => readFileSync(
-                resolve(process.cwd(), directory, 'meta/0003_snapshot.json'),
-                'utf8',
-            )).not.toThrow();
-        }
+    it.each([
+        {
+            directory: 'drizzle',
+            idx: 3,
+            tag: '0003_analytics_event_retention',
+        },
+        {
+            directory: 'landing/drizzle',
+            idx: 4,
+            tag: '0004_widen_analytics_region',
+        },
+    ])('keeps $directory migration journal and snapshots aligned', ({
+        directory,
+        idx,
+        tag,
+    }) => {
+        const journal = JSON.parse(readFileSync(
+            resolve(process.cwd(), directory, 'meta/_journal.json'),
+            'utf8',
+        )) as {entries: Array<{
+            idx: number;
+            tag: string
+        }>};
+        expect(journal.entries.at(-1)).toEqual(expect.objectContaining({
+            idx,
+            tag,
+        }));
+        expect(() => readFileSync(
+            resolve(
+                process.cwd(),
+                directory,
+                `meta/${String(idx).padStart(4, '0')}_snapshot.json`,
+            ),
+            'utf8',
+        )).not.toThrow();
     });
 });

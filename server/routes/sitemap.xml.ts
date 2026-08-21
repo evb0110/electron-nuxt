@@ -4,7 +4,6 @@ import {
 } from 'h3';
 import { resolveSiteUrl } from '@server/utils/normalizeSiteUrl';
 
-const BUILD_TIMESTAMP = new Date().toISOString();
 const SEO_IMAGE_PATH = '/evb-viewer-seo.png';
 
 export default defineEventHandler((event) => {
@@ -17,7 +16,6 @@ export default defineEventHandler((event) => {
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>${loc}</loc>
-    <lastmod>${BUILD_TIMESTAMP}</lastmod>
     <image:image>
       <image:loc>${imageUrl}</image:loc>
       <image:title>EVB Viewer Web — browser document workspace</image:title>

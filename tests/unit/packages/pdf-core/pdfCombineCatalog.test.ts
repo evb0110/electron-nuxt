@@ -1,6 +1,7 @@
 import {
     PDFDocument,
     PDFName,
+    PDFString,
 } from 'pdf-lib';
 import {
     describe,
@@ -65,6 +66,47 @@ describe('PDF combine catalog policy', () => {
         source.addPage();
         source.catalog.set(PDFName.of(key), source.context.obj({}));
         expect(() => inspectPdfCombineCatalog(source)).toThrow(/does not support source/u);
+    });
+
+    it('stops when inline outline dictionaries form a cycle', async () => {
+        const source = await PDFDocument.create();
+        source.addPage();
+        const item = source.context.obj({Title: PDFString.of('Loop')});
+        item.set(PDFName.of('Next'), item);
+        source.catalog.set(PDFName.of('Outlines'), source.context.obj({First: item}));
+
+        expect(inspectPdfCombineCatalog(source).bookmarks).toEqual([expect.objectContaining({
+            title: 'Loop',
+            items: [],
+        })]);
+    });
+
+    it('stops when page-label number-tree kids form a cycle', async () => {
+        const source = await PDFDocument.create();
+        source.addPage();
+        const labels = source.context.obj({});
+        labels.set(PDFName.of('Kids'), source.context.obj([labels]));
+        source.catalog.set(PDFName.of('PageLabels'), labels);
+
+        expect(inspectPdfCombineCatalog(source).pageLabels).toEqual([]);
+    });
+
+    it('stops when named-destination tree kids form a cycle', async () => {
+        const source = await PDFDocument.create();
+        source.addPage();
+        const destinations = source.context.obj({});
+        destinations.set(PDFName.of('Kids'), source.context.obj([destinations]));
+        source.catalog.set(PDFName.of('Names'), source.context.obj({Dests: destinations}));
+        const item = source.context.obj({
+            Dest: PDFString.of('Missing'),
+            Title: PDFString.of('Named destination'),
+        });
+        source.catalog.set(PDFName.of('Outlines'), source.context.obj({First: item}));
+
+        expect(inspectPdfCombineCatalog(source).bookmarks).toEqual([expect.objectContaining({
+            pageIndex: null,
+            title: 'Named destination',
+        })]);
     });
 
     it('declares every document-catalog semantic used by the planner', () => {

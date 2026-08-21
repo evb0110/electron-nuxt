@@ -41,7 +41,16 @@ function refKey(value: PDFObject | undefined) {
     return value instanceof PDFRef ? `${value.objectNumber}:${value.generationNumber}` : null;
 }
 
-function collectNumberTreeEntries(document: PDFDocument, node: PDFDict, output: Array<[number, PDFDict]>) {
+function collectNumberTreeEntries(
+    document: PDFDocument,
+    node: PDFDict,
+    output: Array<[number, PDFDict]>,
+    visited = new WeakSet<PDFDict>(),
+) {
+    if (visited.has(node)) {
+        return;
+    }
+    visited.add(node);
     const nums = node.lookupMaybe(PDFName.of('Nums'), PDFArray);
     if (nums) {
         for (let index = 0; index + 1 < nums.size(); index += 2) {
@@ -56,7 +65,7 @@ function collectNumberTreeEntries(document: PDFDocument, node: PDFDict, output: 
     const kids = node.lookupMaybe(PDFName.of('Kids'), PDFArray);
     if (kids) {
         for (let index = 0; index < kids.size(); index += 1) {
-            collectNumberTreeEntries(document, kids.lookup(index, PDFDict), output);
+            collectNumberTreeEntries(document, kids.lookup(index, PDFDict), output, visited);
         }
     }
 }
@@ -69,7 +78,12 @@ function findNamedDestination(document: PDFDocument, name: string): PDFObject | 
     }
     const names = document.catalog.lookupMaybe(PDFName.of('Names'), PDFDict);
     const root = names?.lookupMaybe(PDFName.of('Dests'), PDFDict);
+    const visited = new WeakSet<PDFDict>();
     const visit = (node: PDFDict): PDFObject | undefined => {
+        if (visited.has(node)) {
+            return undefined;
+        }
+        visited.add(node);
         const entries = node.lookupMaybe(PDFName.of('Names'), PDFArray);
         if (entries) {
             for (let index = 0; index + 1 < entries.size(); index += 2) {
@@ -105,16 +119,19 @@ function destinationPageIndex(document: PDFDocument, value: PDFObject | undefine
     return pageRefs.get(refKey(destination.get(0)) ?? '') ?? null;
 }
 
-function readOutlineItems(document: PDFDocument, first: PDFObject | undefined, pageRefs: Map<string, number>): IPdfBookmarkEntry[] {
+function readOutlineItems(
+    document: PDFDocument,
+    first: PDFObject | undefined,
+    pageRefs: Map<string, number>,
+    visited = new WeakSet<PDFDict>(),
+): IPdfBookmarkEntry[] {
     const output: IPdfBookmarkEntry[] = [];
     let current = first;
-    const visited = new Set<string>();
     while (current) {
-        const key = refKey(current);
-        if (key && visited.has(key)) break;
-        if (key) visited.add(key);
         const dict = current instanceof PDFRef ? document.context.lookup(current, PDFDict) : current;
         if (!(dict instanceof PDFDict)) break;
+        if (visited.has(dict)) break;
+        visited.add(dict);
         const title = textValue(dict.get(PDFName.of('Title'))) ?? 'Untitled';
         const pageIndex = destinationPageIndex(document, dict.get(PDFName.of('Dest')) ?? dict.lookupMaybe(PDFName.of('A'), PDFDict)?.get(PDFName.of('D')), pageRefs);
         const flags = dict.lookupMaybe(PDFName.of('F'), PDFNumber)?.asNumber() ?? 0;
@@ -125,7 +142,7 @@ function readOutlineItems(document: PDFDocument, first: PDFObject | undefined, p
             bold: (flags & 2) !== 0,
             italic: (flags & 1) !== 0,
             color: null,
-            items: readOutlineItems(document, dict.get(PDFName.of('First')), pageRefs),
+            items: readOutlineItems(document, dict.get(PDFName.of('First')), pageRefs, visited),
         });
         current = dict.get(PDFName.of('Next'));
     }

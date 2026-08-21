@@ -8,6 +8,7 @@ import {
     timestamp,
     varchar,
 } from 'drizzle-orm/pg-core';
+import { ANALYTICS_GEO_LIMITS } from '@evb/contracts/analytics';
 
 export const landingPageView = pgTable(
     'landing_page_view',
@@ -17,7 +18,7 @@ export const landingPageView = pgTable(
         referrer: text('referrer'),
         country: varchar('country', { length: 2 }),
         city: varchar('city', { length: 255 }),
-        region: varchar('region', { length: 10 }),
+        region: varchar('region', { length: ANALYTICS_GEO_LIMITS.region }),
         visitorHash: varchar('visitor_hash', { length: 64 }),
         userAgent: text('user_agent'),
         createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
@@ -40,7 +41,7 @@ export const landingDownload = pgTable(
         fileName: varchar('file_name', { length: 255 }).notNull(),
         country: varchar('country', { length: 2 }),
         city: varchar('city', { length: 255 }),
-        region: varchar('region', { length: 10 }),
+        region: varchar('region', { length: ANALYTICS_GEO_LIMITS.region }),
         visitorHash: varchar('visitor_hash', { length: 64 }),
         userAgent: text('user_agent'),
         createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),

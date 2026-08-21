@@ -31,10 +31,19 @@ function resolveDatabaseUrl(event?: H3Event) {
 }
 
 export function getAnalyticsDb(event?: H3Event): NeonHttpDatabase<typeof schema> {
+    const db = getOptionalAnalyticsDb(event);
+    if (!db) {
+        throw new Error('Analytics database URL is not configured');
+    }
+
+    return db;
+}
+
+export function getOptionalAnalyticsDb(event?: H3Event): NeonHttpDatabase<typeof schema> | null {
     if (!dbInstance) {
         const url = resolveDatabaseUrl(event);
         if (!url) {
-            throw new Error('Analytics database URL is not configured');
+            return null;
         }
 
         dbInstance = drizzle(neon(url), { schema });

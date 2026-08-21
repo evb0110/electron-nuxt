@@ -4,7 +4,7 @@ import {
     getHeader,
     setHeader,
 } from 'h3';
-import { getAnalyticsDb } from '@server/db';
+import { getOptionalAnalyticsDb } from '@server/db';
 import { admitViewerAnalyticsEvents } from '@server/db/admitViewerAnalyticsEvents';
 import {
     extractGeo,
@@ -39,6 +39,22 @@ export default defineEventHandler(async (event) => {
             statusMessage: 'Analytics request is not same-origin JSON',
         });
     }
+    let db: ReturnType<typeof getOptionalAnalyticsDb>;
+    try {
+        db = getOptionalAnalyticsDb(event);
+    } catch (error) {
+        console.error('viewer analytics database initialization failed', error);
+        return {
+            ok: false,
+            persisted: false,
+        };
+    }
+    if (!db) {
+        return {
+            ok: true,
+            persisted: false,
+        };
+    }
 
     const body = await readBoundedAnalyticsJsonBody(event, ROOT_ANALYTICS_BODY_MAX_BYTES);
     const parsedEvents = decodeViewerAnalyticsEventsBody(body);
@@ -61,7 +77,6 @@ export default defineEventHandler(async (event) => {
     );
 
     try {
-        const db = getAnalyticsDb(event);
         await admitViewerAnalyticsEvents(db, {
             ...policy,
             events: parsedEvents,
