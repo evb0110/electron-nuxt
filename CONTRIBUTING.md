@@ -29,6 +29,23 @@ pnpm run test:unit
 
 Use `pnpm validate` for the full maintenance gate when the change touches shared architecture, build tooling, or release-critical behavior.
 
+The pre-push hook also runs Cubic against each unpublished local commit. This
+is a local pre-flight review and does not create or poll a pull request. Run the
+same check manually for the current commit with:
+
+```bash
+node scripts/review-cubic-commits.mjs --commit HEAD
+```
+
+Passing results are cached by commit and Cubic version. P0, P1, and unclassified
+findings block the push; P2 and P3 advice remains visible but does not block.
+Authentication, rate-limit, and service failures warn and continue because the
+deterministic gates remain authoritative. Install and authenticate the Cubic
+CLI on each development host; the hook reports a skipped auxiliary review when
+either prerequisite is unavailable. Set `CUBIC_REVIEW_FORCE=1` to re-review a
+commit that already passed. Reviews time out after ten minutes by default; set
+`CUBIC_REVIEW_TIMEOUT_MS` to change that limit.
+
 For Electron runtime, native binaries or tools, OCR/DjVu paths, workers, or
 packaging changes, also run:
 
