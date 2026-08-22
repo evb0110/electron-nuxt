@@ -69,7 +69,10 @@ import {
     sha256ScanCleanupFile,
 } from '@scan-cleanup-core/provenanceStamp';
 import {readPdfPageSizes} from '@scan-cleanup-core/pdfPageSizes';
-import {buildNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
+import {
+    buildGeometryOnlyNativeScanCleanupManifest,
+    buildRunnableNativeScanCleanupManifest,
+} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
 import {assertNativeScanCleanupManifestGeometry} from '@scan-cleanup-core/policy/assertNativeScanCleanupManifestGeometry';
 import {
     resolveScanCleanupDocumentCanvasDpi,
@@ -749,7 +752,7 @@ export async function runScanCleanupConversion(
         // source can contain hundreds of expensive MRC masks; discovering one
         // malformed page only after extracting all of them made a validation
         // error look like a hung cleanup.
-        assertNativeScanCleanupManifestGeometry(buildNativeScanCleanupManifest({
+        assertNativeScanCleanupManifestGeometry(buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'final',
             canvasScope: 'document',
@@ -996,7 +999,7 @@ export async function runScanCleanupConversion(
         const canStreamRasters = supportsRasterStreaming
             && rasterHandoff.format === 'ppm'
             && dependencies.createRasterPipes !== undefined;
-        const manifest = buildNativeScanCleanupManifest({
+        const manifest = buildRunnableNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'final',
             canvasScope: 'document',
@@ -1149,6 +1152,7 @@ export async function runScanCleanupConversion(
                 operationSignal,
                 log,
                 reportNativeProgress,
+                {allowedPathRoot: paths.tempDir},
             ),
             onProducerComplete: () => {
                 if (!canStreamRasters) {

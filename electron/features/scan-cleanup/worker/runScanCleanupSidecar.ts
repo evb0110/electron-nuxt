@@ -39,6 +39,12 @@ export class NativeScanCleanupError extends Error {
 interface IRunScanCleanupSidecarOptions {
     priority?: 'background';
     timeoutMs?: number;
+    /**
+     * Directory the native binary must keep every manifest path inside. The
+     * root travels in argv rather than in the manifest so a manifest can never
+     * widen the boundary it is checked against.
+     */
+    allowedPathRoot?: string;
 }
 
 const DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
@@ -124,6 +130,12 @@ async function streamScanCleanupSidecar(
     const child = spawn(binaryPath, [
         '--manifest',
         manifestPath,
+        ...(options.allowedPathRoot === undefined
+            ? []
+            : [
+                '--allowed-path-root',
+                options.allowedPathRoot,
+            ]),
     ], createDetachedChildProcessSpawnOptions({stdio: [
         'ignore',
         'pipe',

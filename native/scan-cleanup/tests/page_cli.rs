@@ -4808,6 +4808,157 @@ fn batch_preserves_asymmetric_margin_order_in_named_metadata() {
     );
 }
 
+/// A manifest is data. Without a trusted root, a symlinked output directory
+/// inside the run's scratch redirects publication anywhere the process can
+/// write; with one, the escape is refused before the transaction stages a
+/// single backup.
+#[cfg(unix)]
+#[test]
+fn allowed_path_root_refuses_a_symlinked_output_escape_before_publication() {
+    use std::os::unix::fs::symlink;
+
+    let scratch = Scratch::new("allowed-root-escape");
+    let root = scratch.path("root");
+    let outside = scratch.path("outside");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    let input = root.join("escape-input.png");
+    fs::write(&input, encode_gray(&GrayImage::new(80, 60, 235)).unwrap()).unwrap();
+    let victim = outside.join("victim.png");
+    let original = b"unrelated file outside the run root\0with exact bytes";
+    fs::write(&victim, original).unwrap();
+    symlink(&outside, root.join("escape-dir")).unwrap();
+
+    let manifest = root.join("escape-manifest.json");
+    let page_metadata = root.join("escape-page.json");
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": page_metadata,
+                "options": CleanupOptions {
+                    output_mode: OutputMode::Grayscale,
+                    normalize_illumination: false,
+                    crop_content: false,
+                    match_page_size: false,
+                    ..CleanupOptions::default()
+                },
+                "outputs": [{
+                    "outputPath": root.join("escape-dir/victim.png"),
+                    "metadataPath": root.join("escape-output.json"),
+                }],
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let constrained = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .args(["--allowed-path-root", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(!constrained.status.success());
+    let envelope: Value = serde_json::from_slice(&constrained.stderr).unwrap();
+    assert_eq!(envelope["code"], "invalid-request");
+    assert!(
+        envelope["message"]
+            .as_str()
+            .unwrap()
+            .contains("escapes the allowed path root"),
+        "{envelope}"
+    );
+    assert_eq!(fs::read(&victim).unwrap(), original);
+    assert!(!page_metadata.exists());
+    assert!(fs::read_dir(&outside).unwrap().all(|entry| !entry
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .contains(".evb-tmp-")));
+
+    // The same manifest without a root is still accepted for external CLI
+    // users, and it really does publish outside the run root. That is the
+    // behavior the flag exists to stop.
+    let unconstrained = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(
+        unconstrained.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&unconstrained.stdout),
+        String::from_utf8_lossy(&unconstrained.stderr)
+    );
+    assert_ne!(fs::read(&victim).unwrap(), original);
+}
+
+/// The root itself is validated before any manifest path is judged against it.
+#[test]
+fn allowed_path_root_must_be_an_existing_directory() {
+    let scratch = Scratch::new("allowed-root-shape");
+    let input = scratch.path("root-shape-input.png");
+    fs::write(&input, encode_gray(&GrayImage::new(40, 30, 240)).unwrap()).unwrap();
+    let manifest = scratch.path("root-shape-manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "analyze",
+            "renderMode": "preview",
+            "canvasScope": "page",
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": scratch.path("root-shape-page.json"),
+                "options": unmatched_options(),
+                "outputs": [],
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    for (root, expected) in [
+        (scratch.path("no-such-root"), "not an existing directory"),
+        (input.clone(), "not a directory"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .args(["--allowed-path-root", root.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1), "root: {}", root.display());
+        let envelope: Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(envelope["code"], "invalid-request");
+        assert!(
+            envelope["message"].as_str().unwrap().contains(expected),
+            "{envelope}"
+        );
+    }
+
+    // The same manifest is accepted when the root really holds every path.
+    let accepted = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .args(["--allowed-path-root", scratch.dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        accepted.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&accepted.stdout),
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+    assert!(scratch.path("root-shape-page.json").exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn final_render_publishes_each_page_without_a_whole_document_analysis_pass() {
@@ -4853,6 +5004,10 @@ fn final_render_publishes_each_page_without_a_whole_document_analysis_pass() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
         .args(["--manifest", manifest.to_str().unwrap()])
+        // A FIFO input and outputs that do not exist yet stay valid under a
+        // trusted root: containment judges where they resolve, not whether
+        // they are ordinary files that already exist.
+        .args(["--allowed-path-root", scratch.dir.to_str().unwrap()])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()

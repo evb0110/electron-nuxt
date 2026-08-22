@@ -1,5 +1,17 @@
-import {readFile} from 'node:fs/promises';
-import {resolve} from 'node:path';
+import {
+    mkdir,
+    mkdtemp,
+    readFile,
+    rm,
+    symlink,
+    writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {
+    join,
+    resolve,
+} from 'node:path';
+import {realpathSync} from 'node:fs';
 import type {
     INativeScanCleanupManifestV3,
     IScanCleanupNormalizedZonePolygon,
@@ -9,13 +21,17 @@ import type {
     TScanCleanupCanvasScope,
 } from '@contracts/electronApiScanCleanup';
 import {
-    buildNativeScanCleanupManifest,
+    buildGeometryOnlyNativeScanCleanupManifest,
+    buildRunnableNativeScanCleanupManifest,
     serializeNativeScanCleanupOptions,
+    type IScanCleanupManifestPageInput,
 } from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
 import {assertNativeScanCleanupManifestGeometry} from '@scan-cleanup-core/policy/assertNativeScanCleanupManifestGeometry';
 import {resolveEffectiveScanCleanupOptions} from '@scan-cleanup-core/policy/effectiveOptions';
 import {ScanCleanupContractError} from '@scan-cleanup-core/errors';
 import {
+    afterAll,
+    beforeAll,
     describe,
     expect,
     it,
@@ -112,7 +128,7 @@ describe('native scan-cleanup manifest builder', () => {
             dpi: 150,
             pageMetadataPath: '/fixtures/output/page-1.json',
         };
-        const pagePlan = buildNativeScanCleanupManifest({
+        const pagePlan = buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'analyze',
             analysisPurpose: 'page-plan',
             renderMode: 'preview',
@@ -121,7 +137,7 @@ describe('native scan-cleanup manifest builder', () => {
             options: optionsWithManualCrop,
             pages: [page],
         });
-        const preview = buildNativeScanCleanupManifest({
+        const preview = buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'preview',
             canvasScope: 'page',
@@ -159,7 +175,7 @@ describe('native scan-cleanup manifest builder', () => {
                 },
             ];
         }));
-        const manifest = buildNativeScanCleanupManifest({
+        const manifest = buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'final',
             canvasScope: 'document',
@@ -202,7 +218,7 @@ describe('native scan-cleanup manifest builder', () => {
     });
 
     it('derives native layout and output mode from reusable detection evidence', () => {
-        const manifest = buildNativeScanCleanupManifest({
+        const manifest = buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'preview',
             canvasScope: 'page',
@@ -225,7 +241,7 @@ describe('native scan-cleanup manifest builder', () => {
     });
 
     it('clamps trusted native pixel limits to the engine guardrails', () => {
-        const manifest = buildNativeScanCleanupManifest({
+        const manifest = buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'final',
             canvasScope: 'document',
@@ -247,7 +263,7 @@ describe('native scan-cleanup manifest builder', () => {
             maxPixels: 160_000_000,
             maxDimensionPx: 40_000,
         });
-        expect(() => buildNativeScanCleanupManifest({
+        expect(() => buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'final',
             canvasScope: 'document',
@@ -263,44 +279,8 @@ describe('native scan-cleanup manifest builder', () => {
         })).toThrow(ScanCleanupContractError);
     });
 
-    it('rejects manifest paths that escape the native work root', () => {
-        expect(() => buildNativeScanCleanupManifest({
-            operation: 'render',
-            renderMode: 'final',
-            canvasScope: 'document',
-            qualityPath: 'raster',
-            options,
-            allowedPathRoot: '/tmp/scan-cleanup-boundary',
-            pages: [{
-                inputPath: '/tmp/scan-cleanup-boundary/../outside.png',
-                pageNumber: 1,
-                dpi: 300,
-                pageMetadataPath: '/tmp/scan-cleanup-boundary/page-1.json',
-            }],
-        })).toThrow(ScanCleanupContractError);
-
-        expect(() => buildNativeScanCleanupManifest({
-            operation: 'render',
-            renderMode: 'final',
-            canvasScope: 'document',
-            qualityPath: 'raster',
-            options,
-            allowedPathRoot: '/tmp/scan-cleanup-boundary',
-            pages: [{
-                inputPath: '/tmp/scan-cleanup-boundary/page-1.png',
-                pageNumber: 1,
-                dpi: 300,
-                pageMetadataPath: '/tmp/scan-cleanup-boundary/page-1.json',
-                outputs: [{
-                    outputPath: '/tmp/scan-cleanup-boundary/../outside.png',
-                    metadataPath: '/tmp/scan-cleanup-boundary/page-1-output.json',
-                }],
-            }],
-        })).toThrow(ScanCleanupContractError);
-    });
-
     it('rejects a soft-alpha output plane without a base layer', () => {
-        expect(() => buildNativeScanCleanupManifest({
+        expect(() => buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'final',
             canvasScope: 'document',
@@ -322,7 +302,7 @@ describe('native scan-cleanup manifest builder', () => {
 
     it.each(cases)('matches the shared $name golden', async testCase => {
         const golden = JSON.parse(await readFile(resolve(fixtureDirectory, testCase.name), 'utf8')) as INativeScanCleanupManifestV3;
-        const manifest = buildNativeScanCleanupManifest({
+        const manifest = buildGeometryOnlyNativeScanCleanupManifest({
             operation: testCase.operation,
             renderMode: testCase.renderMode,
             canvasScope: testCase.canvasScope,
@@ -384,7 +364,7 @@ describe('native scan-cleanup manifest builder', () => {
             false,
             true,
         ]) {
-            const manifest = buildNativeScanCleanupManifest({
+            const manifest = buildGeometryOnlyNativeScanCleanupManifest({
                 operation: 'analyze',
                 renderMode: 'preview',
                 canvasScope: 'page',
@@ -524,7 +504,7 @@ describe('native scan-cleanup manifest builder', () => {
                 },
             }},
         };
-        const manifest = buildNativeScanCleanupManifest({
+        const manifest = buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'final',
             canvasScope: 'document',
@@ -577,7 +557,7 @@ describe('native scan-cleanup manifest builder', () => {
             },
             agreementStrength: 0.88,
         };
-        const manifest = buildNativeScanCleanupManifest({
+        const manifest = buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'analyze',
             renderMode: 'preview',
             canvasScope: 'page',
@@ -605,7 +585,7 @@ describe('native scan-cleanup manifest builder', () => {
     });
 
     it('carries an explicit physical document canvas while canvas scope stays page-local', () => {
-        const manifest = buildNativeScanCleanupManifest({
+        const manifest = buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'preview',
             canvasScope: 'page',
@@ -641,7 +621,7 @@ describe('native scan-cleanup manifest builder', () => {
     });
 
     it('ships resolved ink anchors per page and names the page whose anchor is unusable', () => {
-        const build = (anchorY: number) => buildNativeScanCleanupManifest({
+        const build = (anchorY: number) => buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'final',
             canvasScope: 'document',
@@ -680,7 +660,7 @@ describe('native scan-cleanup manifest builder', () => {
     });
 
     it('reports the host memory the sidecar cannot read for itself, and omits it when unknown', () => {
-        const build = (hostMemoryBytes?: number) => buildNativeScanCleanupManifest({
+        const build = (hostMemoryBytes?: number) => buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'final',
             canvasScope: 'document',
@@ -705,7 +685,7 @@ describe('native scan-cleanup manifest builder', () => {
     });
 
     it('bounds an explicit streamed-raster lookahead and omits it for replayable inputs', () => {
-        const build = (rasterWindow?: number) => buildNativeScanCleanupManifest({
+        const build = (rasterWindow?: number) => buildGeometryOnlyNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'final',
             canvasScope: 'document',
@@ -727,5 +707,269 @@ describe('native scan-cleanup manifest builder', () => {
         expect(build(3).rasterWindow).toBe(3);
         expect(build(99).rasterWindow).toBe(16);
         expect(build()).not.toHaveProperty('rasterWindow');
+    });
+});
+
+describe('runnable native scan-cleanup manifest path containment', () => {
+    let root = '';
+    let canonicalRoot = '';
+    let outside = '';
+
+    const runnable = (pages: Parameters<typeof buildRunnableNativeScanCleanupManifest>[0]['pages'], allowedPathRoot = root) => buildRunnableNativeScanCleanupManifest({
+        operation: 'render',
+        renderMode: 'final',
+        canvasScope: 'document',
+        qualityPath: 'raster',
+        options,
+        allowedPathRoot,
+        pages,
+    });
+
+    const page = (inputPath: string, outputPath: string) => ({
+        inputPath,
+        pageNumber: 1,
+        dpi: 300,
+        pageMetadataPath: join(root, 'page-1.json'),
+        outputs: [{
+            outputPath,
+            metadataPath: join(root, 'page-1-output.json'),
+        }],
+    });
+
+    beforeAll(async () => {
+        const base = await mkdtemp(join(tmpdir(), 'scan-cleanup-root-boundary-'));
+        root = join(base, 'root');
+        outside = join(base, 'outside');
+        await mkdir(root);
+        await mkdir(outside);
+        await mkdir(join(root, 'nested'));
+        canonicalRoot = realpathSync(root);
+        await writeFile(join(root, 'input.png'), 'input');
+        await writeFile(join(outside, 'secret.png'), 'secret');
+        await symlink(join(outside, 'secret.png'), join(root, 'input-link.png'));
+        await symlink(join(root, 'input.png'), join(root, 'inside-link.png'));
+        await symlink(outside, join(root, 'escape-dir'));
+        await symlink(join(outside, 'missing.png'), join(root, 'dangling.png'));
+    });
+
+    afterAll(async () => {
+        if (root !== '') {
+            await rm(resolve(root, '..'), {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('accepts an existing input and a missing output below a real directory', () => {
+        expect(() => runnable([page(join(root, 'input.png'), join(root, 'nested/output.png'))])).not.toThrow();
+    });
+
+    it('accepts a symlink that resolves back inside the root', () => {
+        expect(() => runnable([page(join(root, 'inside-link.png'), join(root, 'nested/output.png'))])).not.toThrow();
+    });
+
+    it('rejects an existing input symlink that points outside the root', () => {
+        expect(() => runnable([page(join(root, 'input-link.png'), join(root, 'nested/output.png'))]))
+            .toThrow(ScanCleanupContractError);
+    });
+
+    it('rejects a missing output below a directory symlinked outside the root', () => {
+        expect(() => runnable([page(join(root, 'input.png'), join(root, 'escape-dir/output.png'))]))
+            .toThrow(ScanCleanupContractError);
+    });
+
+    it('rejects a dangling symlink segment', () => {
+        expect(() => runnable([page(join(root, 'dangling.png'), join(root, 'nested/output.png'))]))
+            .toThrow(/unresolved symlink/u);
+    });
+
+    it('rejects a lexical parent-directory escape', () => {
+        expect(() => runnable([page(join(root, 'input.png'), join(root, '../outside/output.png'))]))
+            .toThrow(ScanCleanupContractError);
+    });
+
+    it('rejects a relative candidate path and a relative root', () => {
+        expect(() => runnable([page('input.png', join(root, 'nested/output.png'))]))
+            .toThrow(/must be an absolute path/u);
+        expect(() => runnable(
+            [page(join(root, 'input.png'), join(root, 'nested/output.png'))],
+            'relative-root',
+        )).toThrow(/must be an absolute path/u);
+    });
+
+    it('rejects a root that does not exist or is not a directory', () => {
+        expect(() => runnable(
+            [page(join(root, 'input.png'), join(root, 'nested/output.png'))],
+            join(root, 'no-such-root'),
+        )).toThrow(/allowed root does not exist/u);
+        expect(() => runnable(
+            [page(join(root, 'input.png'), join(root, 'nested/output.png'))],
+            join(root, 'input.png'),
+        )).toThrow(/allowed root is not a directory/u);
+    });
+
+    it('treats a canonical root alias such as /var and /private/var as the same root', () => {
+        // On macOS the OS temp directory is reached through a symlinked /var.
+        // The uncanonicalized spelling and its canonical form describe the same
+        // directory, and both must accept the same paths.
+        expect(() => runnable(
+            [page(join(root, 'input.png'), join(root, 'nested/output.png'))],
+            canonicalRoot,
+        )).not.toThrow();
+        expect(() => runnable(
+            [page(join(canonicalRoot, 'input.png'), join(canonicalRoot, 'nested/output.png'))],
+            root,
+        )).not.toThrow();
+    });
+
+    // The builder names every path field it checks by hand, so each auxiliary
+    // slot is exercised directly: a symlink resolving back inside the root is
+    // accepted, and the same slot holding a symlink that resolves outside it is
+    // rejected. A field dropped from the builder's list fails here.
+    const region = {
+        xPx: 0,
+        yPx: 0,
+        widthPx: 16,
+        heightPx: 16,
+    };
+    const detailPlan = (
+        baseMetadataPath: string,
+        baseRasterPath: string,
+        baseCleanedRasterPath: string,
+    ) => ({
+        baseMetadataPath,
+        baseRasterPath,
+        baseCleanedRasterPath,
+        sourceCrop: region,
+        fullSourceWidthPx: 32,
+        fullSourceHeightPx: 32,
+        scale: 1,
+        renderRegion: region,
+        sampledRegion: region,
+    });
+
+    type TAuxiliarySlot = (target: IScanCleanupManifestPageInput, path: string) => void;
+
+    const auxiliarySlots: Array<[string, TAuxiliarySlot]> = [
+        [
+            'analysisInputPath',
+            (target, path) => {
+                target.analysisInputPath = path;
+                target.analysisDpi = 150;
+            },
+        ],
+        [
+            'trustedForegroundMaskPath',
+            (target, path) => void (target.trustedForegroundMaskPath = path),
+        ],
+        [
+            'trustedMrcBackgroundPath',
+            (target, path) => void (target.trustedMrcBackgroundPath = path),
+        ],
+        [
+            'detailRenderPlan.baseMetadataPath',
+            (target, path) => void (target.detailRenderPlan = detailPlan(
+                path,
+                join(root, 'inside-link.png'),
+                join(root, 'inside-link.png'),
+            )),
+        ],
+        [
+            'detailRenderPlan.baseRasterPath',
+            (target, path) => void (target.detailRenderPlan = detailPlan(
+                join(root, 'inside-link.png'),
+                path,
+                join(root, 'inside-link.png'),
+            )),
+        ],
+        [
+            'detailRenderPlan.baseCleanedRasterPath',
+            (target, path) => void (target.detailRenderPlan = detailPlan(
+                join(root, 'inside-link.png'),
+                join(root, 'inside-link.png'),
+                path,
+            )),
+        ],
+        [
+            'pageMetadataPath',
+            (target, path) => void (target.pageMetadataPath = path),
+        ],
+        [
+            'outputs.metadataPath',
+            (target, path) => void (target.outputs![0]!.metadataPath = path),
+        ],
+        [
+            'outputs.bilevelOutputPath',
+            (target, path) => void (target.outputs![0]!.bilevelOutputPath = path),
+        ],
+        [
+            'outputs.backgroundOutputPath',
+            (target, path) => void (target.outputs![0]!.backgroundOutputPath = path),
+        ],
+        [
+            'outputs.foregroundMaskOutputPath',
+            (target, path) => {
+                target.outputs![0]!.backgroundOutputPath = join(root, 'inside-link.png');
+                target.outputs![0]!.foregroundMaskOutputPath = path;
+            },
+        ],
+        [
+            'outputs.foregroundAlphaOutputPath',
+            (target, path) => {
+                target.outputs![0]!.backgroundOutputPath = join(root, 'inside-link.png');
+                target.outputs![0]!.foregroundAlphaOutputPath = path;
+            },
+        ],
+        [
+            'outputs.pictureMaskOutputPath',
+            (target, path) => void (target.outputs![0]!.pictureMaskOutputPath = path),
+        ],
+        [
+            'outputs.tonePreservationAlphaOutputPath',
+            (target, path) => void (target.outputs![0]!.tonePreservationAlphaOutputPath = path),
+        ],
+    ];
+
+    const pageWithSlot = (fill: TAuxiliarySlot, path: string) => {
+        const target: IScanCleanupManifestPageInput = page(
+            join(root, 'input.png'),
+            join(root, 'nested/output.png'),
+        );
+        fill(target, path);
+        return target;
+    };
+
+    it.each(auxiliarySlots)('judges %s by the same root as the page input', (_label, fill) => {
+        expect(() => runnable([pageWithSlot(fill, join(root, 'inside-link.png'))])).not.toThrow();
+        expect(() => runnable([pageWithSlot(fill, join(root, 'input-link.png'))]))
+            .toThrow(ScanCleanupContractError);
+    });
+
+    it('keeps geometry-only placeholders out of path validation and matches the runnable assembly', () => {
+        const placeholderPages = [{
+            inputPath: '',
+            pageNumber: 1,
+            dpi: 300,
+            pageMetadataPath: '',
+        }];
+        expect(() => buildGeometryOnlyNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options,
+            pages: placeholderPages,
+        })).not.toThrow();
+
+        const realPages = [page(join(root, 'input.png'), join(root, 'nested/output.png'))];
+        expect(runnable(realPages)).toEqual(buildGeometryOnlyNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options,
+            pages: realPages,
+        }));
     });
 });

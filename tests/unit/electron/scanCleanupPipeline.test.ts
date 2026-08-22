@@ -21,6 +21,7 @@ import type {
     TScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
+import type {INativeScanCleanupOutputV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
     classifyScanCleanupError,
     grantScanCleanupOutputAccess,
@@ -40,6 +41,7 @@ import {
     type IRunScanCleanupPipelineDependencies,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
 import {observeScanCleanupAnalysisReleasePromises} from '@scan-cleanup-core/runScanCleanupConversion';
+import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
 import {
     resolveReusablePagePlan,
     resolveReusablePagePlanResult,
@@ -129,6 +131,17 @@ interface ICleanupOutput {
     backgroundOutputPath?: string;
     foregroundMaskOutputPath?: string;
 }
+
+const nativeOutputPathKeys = [
+    'outputPath',
+    'metadataPath',
+    'bilevelOutputPath',
+    'backgroundOutputPath',
+    'foregroundMaskOutputPath',
+    'foregroundAlphaOutputPath',
+    'pictureMaskOutputPath',
+    'tonePreservationAlphaOutputPath',
+] as const satisfies ReadonlyArray<keyof INativeScanCleanupOutputV3>;
 
 const options: IScanCleanupOptions = {
     preserveOriginalQuality: false,
@@ -367,7 +380,22 @@ async function measurePipelineRasterPeak(
             activeRasters -= 1;
         }
     };
-    const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+    const sidecarRoots: Array<string | undefined> = [];
+    const manifestPaths: string[] = [];
+    const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath, _signal, _log, _onProgress, sidecarOptions) => {
+        sidecarRoots.push(sidecarOptions?.allowedPathRoot);
+        const decoded = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+            inputPath: string;
+            pageMetadataPath: string;
+            outputs?: INativeScanCleanupOutputV3[];
+        }>};
+        manifestPaths.push(...decoded.pages
+            .flatMap(page => [
+                page.inputPath,
+                page.pageMetadataPath,
+                ...(page.outputs ?? []).flatMap(output => nativeOutputPathKeys.map(key => output[key])),
+            ])
+            .filter((path): path is string => typeof path === 'string'));
         if (site === 'lossless') {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
             await Promise.all(manifest.pages.map(page => writeFile(page.pageMetadataPath, JSON.stringify({
@@ -491,6 +519,11 @@ async function measurePipelineRasterPeak(
         undefined,
         pipelineDependencies,
     );
+    // Both the lossless analysis manifest and the raster-final manifest are
+    // built against, and launched against, the run's own temp root.
+    expect(sidecarRoots.length).toBeGreaterThan(0);
+    expect(new Set(sidecarRoots)).toEqual(new Set([fixture.dir]));
+    expect(manifestPaths.filter(path => !isPathWithinRoot(path, fixture.dir))).toEqual([]);
     return peakRasters;
 }
 
@@ -3035,6 +3068,9 @@ describe('scan cleanup pipeline', () => {
         expect(record[13]).toBe('default');
     });
 
+    // The geometry preflight builds a manifest of placeholder paths. It must
+    // reach the geometry verdict without any runnable path validation, or this
+    // would fail on the empty placeholders instead.
     it('rejects malformed final geometry before extracting reusable MRC layers', async () => {
         const fixture = await setup();
         const pipelineDependencies = dependencies(vi.fn());

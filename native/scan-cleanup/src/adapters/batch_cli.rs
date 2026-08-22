@@ -281,7 +281,10 @@ enum ScanCleanupCliInvocation {
         ocr_mode: bool,
         experimental_auto_dewarp: bool,
     },
-    Manifest(PathBuf),
+    Manifest {
+        path: PathBuf,
+        allowed_path_root: Option<PathBuf>,
+    },
 }
 
 fn cli_value<'a>(
@@ -300,6 +303,7 @@ fn cli_value<'a>(
 fn parse_cli_args(args: &[String]) -> Result<ScanCleanupCliInvocation, NativeError> {
     let mut seen = HashSet::new();
     let mut manifest = None;
+    let mut allowed_path_root = None;
     let mut input = None;
     let mut output = None;
     let mut metadata = None;
@@ -320,6 +324,9 @@ fn parse_cli_args(args: &[String]) -> Result<ScanCleanupCliInvocation, NativeErr
         }
         match flag {
             "--manifest" => manifest = Some(PathBuf::from(cli_value(args, &mut index, flag)?)),
+            "--allowed-path-root" => {
+                allowed_path_root = Some(PathBuf::from(cli_value(args, &mut index, flag)?))
+            }
             "--input" => input = Some(PathBuf::from(cli_value(args, &mut index, flag)?)),
             "--output" => output = Some(PathBuf::from(cli_value(args, &mut index, flag)?)),
             "--metadata" => metadata = Some(PathBuf::from(cli_value(args, &mut index, flag)?)),
@@ -348,7 +355,14 @@ fn parse_cli_args(args: &[String]) -> Result<ScanCleanupCliInvocation, NativeErr
                 "--manifest cannot be combined with direct-mode arguments",
             ));
         }
-        return Ok(ScanCleanupCliInvocation::Manifest(path));
+        return Ok(ScanCleanupCliInvocation::Manifest {
+            path,
+            allowed_path_root,
+        });
+    }
+
+    if allowed_path_root.is_some() {
+        return Err(invalid("--allowed-path-root requires --manifest"));
     }
 
     Ok(ScanCleanupCliInvocation::Direct {
@@ -380,7 +394,10 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
                 ocr_mode,
                 experimental_auto_dewarp,
             ),
-            ScanCleanupCliInvocation::Manifest(path) => return run_manifest(&path),
+            ScanCleanupCliInvocation::Manifest {
+                path,
+                allowed_path_root,
+            } => return run_manifest(&path, allowed_path_root.as_deref()),
         };
     let mut options = options
         .as_deref()
@@ -420,10 +437,13 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
     .map(|_| ())
 }
 
-fn run_manifest(path: &Path) -> Result<(), Box<dyn Error>> {
+fn run_manifest(path: &Path, allowed_path_root: Option<&Path>) -> Result<(), Box<dyn Error>> {
     let manifest: ManifestV3 =
         deserialize_json_file_bounded(path, MAX_MANIFEST_BYTES, "v3 batch manifest")?;
     manifest.validate_for_execution()?;
+    if let Some(root) = allowed_path_root {
+        assert_manifest_paths_within_root(&manifest, root)?;
+    }
     preflight_manifest_paths(&manifest)?;
     let total = manifest.pages.len();
     let result = run_manifest_transaction(&manifest, || run_manifest_inner(&manifest));
@@ -1534,6 +1554,49 @@ fn page_complete_progress(result: &PageRunResult, index: usize, total_pages: usi
         soft_alpha_foreground_recommendation: metadata.soft_alpha_foreground_recommendation,
         output_mode_diagnostics: metadata.output_mode_diagnostics,
     }
+}
+
+/// A manifest launched by the application is confined to the caller's
+/// process-owned directory. The root travels in argv, never in the manifest, so
+/// the document being cleaned cannot widen the boundary it is judged against.
+fn assert_manifest_paths_within_root(
+    manifest: &ManifestV3,
+    root: &Path,
+) -> Result<(), NativeError> {
+    let canonical_root = fs::canonicalize(root).map_err(|error| {
+        invalid(format!(
+            "Allowed path root is not an existing directory: {} ({error})",
+            root.display()
+        ))
+    })?;
+    if !canonical_root.is_dir() {
+        return Err(invalid(format!(
+            "Allowed path root is not a directory: {}",
+            root.display()
+        )));
+    }
+    let canonical_root = normalized_path(&canonical_root);
+    for path in manifest
+        .input_paths()
+        .into_iter()
+        .chain(manifest.destination_paths())
+    {
+        // An entry that exists but cannot be resolved is a dangling or looping
+        // symlink: it names no directory this root can vouch for.
+        if fs::symlink_metadata(path).is_ok() && fs::canonicalize(path).is_err() {
+            return Err(invalid(format!(
+                "Manifest path cannot be resolved: {}",
+                path.display()
+            )));
+        }
+        if !resolved_manifest_path(path).starts_with(&canonical_root) {
+            return Err(invalid(format!(
+                "Manifest path escapes the allowed path root: {}",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn preflight_manifest_paths(manifest: &ManifestV3) -> Result<(), NativeError> {
@@ -4747,16 +4810,16 @@ fn map_image_error(message: String) -> NativeError {
 mod tests {
     use super::{
         adaptive_thread_count, align_deferred_spread_vertical_placements,
-        align_spread_vertical_placements, background_canvas_dimensions,
-        background_dimensions_to_publish, cache_budget_bytes, canvas_fit_for, decode_page_inputs,
-        derive_page_ink_contexts, edge_near_paper_run_in_gray, estimate_peak_page_bytes,
-        fold_side_near_paper_run_in_gray, fold_trim_for, manifest_cache, manifest_worker_threads,
-        map_image_error, map_page_io_error, map_raster_error, matched_output_paper_dimensions_for,
-        materialize_gray_primary_on_canvas, materialize_stream_page,
-        normalize_trusted_foreground_selection, optical_binary_bounds_x, optical_content_bounds_x,
-        optical_content_center_x, page_cache_for, page_worker_threads, parse_cli_args,
-        place_on_white_canvas, place_on_white_canvas_with_source_offset, plan_canvas_placement_for,
-        plan_canvas_placement_for_with_optical_center,
+        align_spread_vertical_placements, assert_manifest_paths_within_root,
+        background_canvas_dimensions, background_dimensions_to_publish, cache_budget_bytes,
+        canvas_fit_for, decode_page_inputs, derive_page_ink_contexts, edge_near_paper_run_in_gray,
+        estimate_peak_page_bytes, fold_side_near_paper_run_in_gray, fold_trim_for, manifest_cache,
+        manifest_worker_threads, map_image_error, map_page_io_error, map_raster_error,
+        matched_output_paper_dimensions_for, materialize_gray_primary_on_canvas,
+        materialize_stream_page, normalize_trusted_foreground_selection, optical_binary_bounds_x,
+        optical_content_bounds_x, optical_content_center_x, page_cache_for, page_worker_threads,
+        parse_cli_args, place_on_white_canvas, place_on_white_canvas_with_source_offset,
+        plan_canvas_placement_for, plan_canvas_placement_for_with_optical_center,
         plan_canvas_placement_for_with_optical_center_and_fit,
         plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim,
         plan_canvas_placement_with_shared_fit, preflight_manifest_paths,
@@ -4770,8 +4833,8 @@ mod tests {
     use crate::io::raster::RasterReadError;
     use crate::{
         protocol::manifest_v3::{
-            AnalysisPurpose, CanvasScope, DocumentCanvas, ManifestV3, Operation, Page, PageOutput,
-            RenderMode, SplitSeamPolyline, VERSION,
+            AnalysisPurpose, CanvasScope, DetailPixelRect, DetailRenderPlan, DocumentCanvas,
+            ManifestV3, Operation, Page, PageOutput, RenderMode, SplitSeamPolyline, VERSION,
         },
         protocol::progress::PageStageTimings,
         split::{ClusterDimensions, DocumentPrior, LayoutClassification},
@@ -4801,7 +4864,23 @@ mod tests {
     fn strict_cli_parser_preserves_documented_invocations() {
         assert_eq!(
             parse_cli_args(&cli_args(&["--manifest", "/tmp/manifest.json"])).unwrap(),
-            ScanCleanupCliInvocation::Manifest(PathBuf::from("/tmp/manifest.json")),
+            ScanCleanupCliInvocation::Manifest {
+                path: PathBuf::from("/tmp/manifest.json"),
+                allowed_path_root: None,
+            },
+        );
+        assert_eq!(
+            parse_cli_args(&cli_args(&[
+                "--manifest",
+                "/tmp/manifest.json",
+                "--allowed-path-root",
+                "/tmp/run-root",
+            ]))
+            .unwrap(),
+            ScanCleanupCliInvocation::Manifest {
+                path: PathBuf::from("/tmp/manifest.json"),
+                allowed_path_root: Some(PathBuf::from("/tmp/run-root")),
+            },
         );
         assert_eq!(
             parse_cli_args(&cli_args(&[
@@ -4874,6 +4953,34 @@ mod tests {
                     "true",
                 ],
                 "Unexpected positional argument true",
+            ),
+            (
+                &["--allowed-path-root"],
+                "--allowed-path-root requires a value",
+            ),
+            (
+                &[
+                    "--manifest",
+                    "/tmp/a.json",
+                    "--allowed-path-root",
+                    "/tmp/root",
+                    "--allowed-path-root",
+                    "/tmp/other",
+                ],
+                "Duplicate argument --allowed-path-root",
+            ),
+            (
+                &[
+                    "--input",
+                    "/tmp/page.ppm",
+                    "--output",
+                    "/tmp/page.png",
+                    "--metadata",
+                    "/tmp/page.json",
+                    "--allowed-path-root",
+                    "/tmp/root",
+                ],
+                "--allowed-path-root requires --manifest",
             ),
             (&["--input=page.ppm"], "Unknown argument --input=page.ppm"),
             (&["--version"], "Unknown argument --version"),
@@ -7008,6 +7115,262 @@ mod tests {
         manifest.validate().unwrap();
         assert_eq!(page_worker_threads(&manifest).unwrap(), 2);
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn allowed_path_root_rejects_symlink_escapes_and_keeps_real_descendants() {
+        use std::os::unix::fs::symlink;
+
+        let base = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-allowed-root-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("root");
+        let outside = base.join("outside");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("input.png"), b"input").unwrap();
+        fs::write(outside.join("secret.png"), b"secret").unwrap();
+        symlink(outside.join("secret.png"), root.join("input-link.png")).unwrap();
+        symlink(&outside, root.join("escape-dir")).unwrap();
+        symlink(root.join("input.png"), root.join("inside-link.png")).unwrap();
+        symlink(outside.join("missing.png"), root.join("dangling.png")).unwrap();
+
+        let manifest_with = |input: PathBuf, output: PathBuf| ManifestV3 {
+            version: VERSION,
+            operation: Operation::Render,
+            analysis_purpose: AnalysisPurpose::Classification,
+            render_mode: RenderMode::Final,
+            canvas_scope: CanvasScope::Page,
+            document_canvas: None,
+            host_memory_bytes: None,
+            raster_window: 1,
+            pages: vec![Page {
+                input_path: input,
+                analysis_input_path: None,
+                analysis_dpi: None,
+                trusted_foreground_mask_path: None,
+                trusted_mrc_background_path: None,
+                source_page_index: 0,
+                page_metadata_path: root.join("page.json"),
+                options: CleanupOptions {
+                    match_page_size: false,
+                    ..CleanupOptions::default()
+                },
+                document_prior: None,
+                detail_render_plan: None,
+                outputs: vec![PageOutput {
+                    output_path: output,
+                    metadata_path: root.join("output.json"),
+                    bilevel_output_path: None,
+                    background_output_path: None,
+                    foreground_mask_output_path: None,
+                    foreground_alpha_output_path: None,
+                    picture_mask_output_path: None,
+                    tone_preservation_alpha_output_path: None,
+                }],
+            }],
+        };
+
+        // A real input and a not-yet-created output below a real directory.
+        assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("nested/output.png")),
+            &root,
+        )
+        .unwrap();
+
+        // A symlink that resolves back inside the root stays valid.
+        assert_manifest_paths_within_root(
+            &manifest_with(root.join("inside-link.png"), root.join("nested/output.png")),
+            &root,
+        )
+        .unwrap();
+
+        // An existing input symlink pointing outside the root.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input-link.png"), root.join("nested/output.png")),
+            &root,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("escapes the allowed path root"));
+
+        // A missing output below a symlinked external ancestor.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("escape-dir/output.png")),
+            &root,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("escapes the allowed path root"));
+
+        // A lexical escape that never touches the filesystem.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("../outside/output.png")),
+            &root,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("escapes the allowed path root"));
+
+        // A dangling symlink resolves to nothing this root can vouch for.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("dangling.png"), root.join("nested/output.png")),
+            &root,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("cannot be resolved"));
+
+        // input_paths() and destination_paths() carry more than inputPath and
+        // the primary output. Every auxiliary entry is judged by the same root,
+        // so each slot is filled twice: once with a symlink that resolves back
+        // inside the root, once with one that resolves outside it.
+        let inside_link = root.join("inside-link.png");
+        let outside_link = root.join("input-link.png");
+        let detail_plan = |base_metadata: PathBuf, base_raster: PathBuf, base_cleaned: PathBuf| {
+            let region = DetailPixelRect {
+                x_px: 0.0,
+                y_px: 0.0,
+                width_px: 16.0,
+                height_px: 16.0,
+            };
+            DetailRenderPlan {
+                base_metadata_path: base_metadata,
+                base_raster_path: base_raster,
+                base_cleaned_raster_path: Some(base_cleaned),
+                source_crop: region.clone(),
+                full_source_width_px: 32,
+                full_source_height_px: 32,
+                scale: 1.0,
+                render_region: region.clone(),
+                sampled_region: region,
+            }
+        };
+        let detail_slot = |select: fn(PathBuf, PathBuf) -> (PathBuf, PathBuf, PathBuf)| {
+            let inside = inside_link.clone();
+            move |page: &mut Page, path: PathBuf| {
+                let (base_metadata, base_raster, base_cleaned) = select(path, inside.clone());
+                page.detail_render_plan =
+                    Some(detail_plan(base_metadata, base_raster, base_cleaned));
+            }
+        };
+        type AuxiliarySlot = (&'static str, Box<dyn Fn(&mut Page, PathBuf)>);
+        let auxiliary_slots: Vec<AuxiliarySlot> = vec![
+            (
+                "analysisInputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.analysis_input_path = Some(path);
+                    page.analysis_dpi = Some(150.0);
+                }),
+            ),
+            (
+                "trustedForegroundMaskPath",
+                Box::new(|page: &mut Page, path| page.trusted_foreground_mask_path = Some(path)),
+            ),
+            (
+                "trustedMrcBackgroundPath",
+                Box::new(|page: &mut Page, path| page.trusted_mrc_background_path = Some(path)),
+            ),
+            (
+                "detailRenderPlan.baseMetadataPath",
+                Box::new(detail_slot(|path, inside| (path, inside.clone(), inside))),
+            ),
+            (
+                "detailRenderPlan.baseRasterPath",
+                Box::new(detail_slot(|path, inside| (inside.clone(), path, inside))),
+            ),
+            (
+                "detailRenderPlan.baseCleanedRasterPath",
+                Box::new(detail_slot(|path, inside| (inside.clone(), inside, path))),
+            ),
+            (
+                "pageMetadataPath",
+                Box::new(|page: &mut Page, path| page.page_metadata_path = path),
+            ),
+            (
+                "outputs.metadataPath",
+                Box::new(|page: &mut Page, path| page.outputs[0].metadata_path = path),
+            ),
+            (
+                "outputs.bilevelOutputPath",
+                Box::new(|page: &mut Page, path| page.outputs[0].bilevel_output_path = Some(path)),
+            ),
+            (
+                "outputs.backgroundOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].background_output_path = Some(path)
+                }),
+            ),
+            (
+                "outputs.foregroundMaskOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].foreground_mask_output_path = Some(path)
+                }),
+            ),
+            (
+                "outputs.foregroundAlphaOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].foreground_alpha_output_path = Some(path)
+                }),
+            ),
+            (
+                "outputs.pictureMaskOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].picture_mask_output_path = Some(path)
+                }),
+            ),
+            (
+                "outputs.tonePreservationAlphaOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].tone_preservation_alpha_output_path = Some(path)
+                }),
+            ),
+        ];
+        for (label, fill) in &auxiliary_slots {
+            let mut accepted =
+                manifest_with(root.join("input.png"), root.join("nested/output.png"));
+            fill(&mut accepted.pages[0], inside_link.clone());
+            assert!(
+                assert_manifest_paths_within_root(&accepted, &root).is_ok(),
+                "{label} resolving inside the root must be accepted",
+            );
+
+            let mut rejected =
+                manifest_with(root.join("input.png"), root.join("nested/output.png"));
+            fill(&mut rejected.pages[0], outside_link.clone());
+            let error = assert_manifest_paths_within_root(&rejected, &root)
+                .expect_err(&format!(
+                    "{label} resolving outside the root must be rejected"
+                ))
+                .to_string();
+            assert!(
+                error.contains("escapes the allowed path root"),
+                "{label}: {error}"
+            );
+        }
+
+        // A missing or non-directory root is rejected before any path check.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("nested/output.png")),
+            &base.join("no-such-root"),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("not an existing directory"));
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("nested/output.png")),
+            &root.join("input.png"),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("not a directory"));
+
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[cfg(unix)]

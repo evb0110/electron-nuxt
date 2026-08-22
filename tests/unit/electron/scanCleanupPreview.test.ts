@@ -11,6 +11,7 @@ import type * as FsPromises from 'fs/promises';
 import {EventEmitter} from 'node:events';
 import {tmpdir} from 'os';
 import {
+    dirname,
     join,
     normalize,
     sep,
@@ -53,6 +54,7 @@ import {
     configureMainJobBroker,
     mainJobBroker,
 } from '@electron/resources/jobBroker';
+import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
 
 configureMainJobBroker({
     logicalCpus: 11,
@@ -1826,9 +1828,12 @@ describe('scan cleanup preview', () => {
         let baseCleanedRasterBytes: Buffer | undefined;
         const baseMetadataPaths: string[] = [];
         const baseCleanedRasterPaths: string[] = [];
-        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+        const sidecarRoots: Array<string | undefined> = [];
+        const detailManifestPaths: string[] = [];
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress, options) => {
+            sidecarRoots.push(options?.allowedPathRoot);
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as TDetailPreviewManifest & {pages: Array<{inputPath: string}>;};
-            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+            await originalSidecar(binary, manifestPath, signal, log, onProgress, options);
             const page = manifest.pages[0]!;
             const output = page.outputs[0]!;
             const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8')) as Record<string, unknown>;
@@ -1858,6 +1863,7 @@ describe('scan cleanup preview', () => {
                 }));
                 return;
             }
+            detailManifestPaths.push(manifestPath);
             if (detailPlan.baseMetadataPath !== undefined) baseMetadataPaths.push(detailPlan.baseMetadataPath);
             if (detailPlan.baseCleanedRasterPath !== undefined) {
                 baseCleanedRasterPaths.push(detailPlan.baseCleanedRasterPath);
@@ -1946,6 +1952,16 @@ describe('scan cleanup preview', () => {
         expect(baseCleanedRasterPaths).toHaveLength(2);
         expect(new Set(baseMetadataPaths).size).toBe(1);
         expect(new Set(baseCleanedRasterPaths).size).toBe(1);
+        // Every product sidecar call — ordinary preview and detail alike —
+        // constrains native to the injected temp root, and the builder that
+        // wrote each manifest checked its paths against that same root.
+        expect(sidecarRoots.length).toBeGreaterThanOrEqual(3);
+        expect(new Set(sidecarRoots)).toEqual(new Set([dir]));
+        // The retained base-analysis raster a detail tile reuses sits beside
+        // the detail scratch, not inside it: the wider temp root is what keeps
+        // it admissible.
+        expect(isPathWithinRoot(baseCleanedRasterPaths[0]!, dir)).toBe(true);
+        expect(isPathWithinRoot(baseCleanedRasterPaths[0]!, dirname(detailManifestPaths[0]!))).toBe(false);
         await service.dispose();
         await expect(stat(baseCleanedRasterPaths[0]!)).rejects.toMatchObject({code: 'ENOENT'});
     });

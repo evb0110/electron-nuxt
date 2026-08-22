@@ -26,7 +26,7 @@ import {
     type TScanCleanupLog,
 } from '@scan-cleanup-core/types';
 import {DETECTION_DPI} from '@scan-cleanup-core/detection';
-import {buildNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
+import {buildRunnableNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
 import {
     buildScanCleanupPageOpsInstructions,
     isScanCleanupCliFallbackSentinel,
@@ -143,7 +143,7 @@ export async function runLosslessScanCleanup(
         };
     });
     pagePlanResolver.report();
-    const manifest = buildNativeScanCleanupManifest({
+    const manifest = buildRunnableNativeScanCleanupManifest({
         operation: 'analyze',
         renderMode: 'final',
         canvasScope: 'document',
@@ -174,7 +174,7 @@ export async function runLosslessScanCleanup(
             classifiedPageNumbers.add(pageNumbers[nativeProgress.pageNumber - 1]!);
         }
         emitProgress('classifying', classifiedPageNumbers.size, pageNumbers.length, classifiedPageNumbers);
-    });
+    }, {allowedPathRoot: paths.tempDir});
     emitProgress('collecting', 0, pages.length, []);
 
     const summary = createEmptyScanCleanupSummary(pageNumbers.length, preparedWarnings);

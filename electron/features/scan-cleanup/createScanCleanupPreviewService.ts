@@ -115,7 +115,7 @@ import {
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
-import {buildNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
+import {buildRunnableNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
 import {
     SCAN_CLEANUP_MAX_DIMENSION_PX,
     resolveReusablePagePlan,
@@ -1683,7 +1683,7 @@ async function runDetailPreview(
     if (pageInputs.length === 0) {
         throw new Error('Scan cleanup detail request has no matching base output');
     }
-    const manifest = buildNativeScanCleanupManifest({
+    const manifest = buildRunnableNativeScanCleanupManifest({
         operation: 'render',
         renderMode: 'preview',
         canvasScope: 'page',
@@ -1691,6 +1691,9 @@ async function runDetailPreview(
         options: effectiveOptions,
         experimental: {autoDewarp: false},
         pages: pageInputs,
+        // Detail render reads the retained base analysis rasters, which live in
+        // a sibling of this scratch under the app-owned temp root.
+        allowedPathRoot: dependencies.getTempDir(),
     });
     const manifestPath = join(scratch, 'detail-manifest.json');
     await writeFile(manifestPath, JSON.stringify(manifest));
@@ -1700,6 +1703,7 @@ async function runDetailPreview(
         signal,
         (level, message) => logger[level](message),
         () => undefined,
+        {allowedPathRoot: dependencies.getTempDir()},
     );
     const cleaned = [] as IScanCleanupPreviewResult['outputs'];
     for (const output of outputFiles) {
@@ -2122,7 +2126,7 @@ async function runPreview(
                 );
             }
         }
-        const manifest = buildNativeScanCleanupManifest({
+        const manifest = buildRunnableNativeScanCleanupManifest({
             operation: lossless ? 'analyze' : 'render',
             renderMode: 'preview',
             canvasScope: 'page',
@@ -2171,9 +2175,19 @@ async function runPreview(
                 outputs,
                 ...(request.documentPrior === undefined ? {} : {documentPrior: request.documentPrior}),
             }],
+            // Preview reads canonical rasters retained beside this scratch, so
+            // the app-owned temp root is the narrowest root that holds them all.
+            allowedPathRoot: dependencies.getTempDir(),
         });
         await writeFile(manifestPath, JSON.stringify(manifest));
-        await dependencies.runSidecar(binary, manifestPath, signal, (level, message) => logger[level](message), () => undefined);
+        await dependencies.runSidecar(
+            binary,
+            manifestPath,
+            signal,
+            (level, message) => logger[level](message),
+            () => undefined,
+            {allowedPathRoot: dependencies.getTempDir()},
+        );
         const pageMetadata = decodeNativeScanCleanupPreviewPageMetadataJson(
             await readFile(pageMetadataPath, 'utf8'),
         );

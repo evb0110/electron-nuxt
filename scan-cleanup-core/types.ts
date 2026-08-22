@@ -233,7 +233,10 @@ export type TScanCleanupRunSidecar = (
     signal: AbortSignal,
     log: TScanCleanupLog,
     onProgress: TScanCleanupSidecarProgress,
-    options?: {priority?: 'background'},
+    options?: {
+        priority?: 'background';
+        allowedPathRoot?: string;
+    },
 ) => Promise<void>;
 
 export type TScanCleanupRequirePublishedRaster = (

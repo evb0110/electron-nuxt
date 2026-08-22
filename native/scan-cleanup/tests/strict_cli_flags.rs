@@ -36,6 +36,45 @@ fn malformed_manifest_and_direct_flags_exit_as_invalid_requests() {
         ),
         (vec!["--input", "--output"], "--input requires a value"),
         (
+            vec!["--allowed-path-root"],
+            "--allowed-path-root requires a value",
+        ),
+        (
+            vec![
+                "--manifest",
+                "a.json",
+                "--allowed-path-root",
+                "root",
+                "--allowed-path-root",
+                "other",
+            ],
+            "Duplicate argument --allowed-path-root",
+        ),
+        (
+            vec![
+                "--input",
+                "in.ppm",
+                "--output",
+                "out.png",
+                "--metadata",
+                "out.json",
+                "--allowed-path-root",
+                "root",
+            ],
+            "--allowed-path-root requires --manifest",
+        ),
+        (
+            vec![
+                "--manifest",
+                "a.json",
+                "--allowed-path-root",
+                "root",
+                "--input",
+                "in.ppm",
+            ],
+            "--manifest cannot be combined with direct-mode arguments",
+        ),
+        (
             vec![
                 "--input",
                 "in.ppm",

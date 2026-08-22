@@ -64,8 +64,14 @@ export interface IBuildNativeScanCleanupManifestInput {
     experimental?: IScanCleanupExperimentalOptions;
     hostMemoryBytes?: number;
     rasterWindow?: number;
-    allowedPathRoot?: string;
 }
+
+/**
+ * `allowedPathRoot` is the process-owned directory every path in this manifest
+ * must resolve inside. A runnable manifest is launched against a native binary,
+ * so the root is required rather than optional.
+ */
+export interface IBuildRunnableNativeScanCleanupManifestInput extends IBuildNativeScanCleanupManifestInput {allowedPathRoot: string;}
 
 function clampNativeLimit(value: unknown, maximum: number, label: string) {
     if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -216,7 +222,7 @@ export function serializeNativeScanCleanupOptions(
     };
 }
 
-export function buildNativeScanCleanupManifest({
+function assembleNativeScanCleanupManifest({
     operation,
     analysisPurpose,
     renderMode,
@@ -228,8 +234,7 @@ export function buildNativeScanCleanupManifest({
     experimental,
     hostMemoryBytes,
     rasterWindow,
-    allowedPathRoot,
-}: IBuildNativeScanCleanupManifestInput): INativeScanCleanupManifestV3 {
+}: IBuildNativeScanCleanupManifestInput, allowedPathRoot: string | null): INativeScanCleanupManifestV3 {
     return {
         version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
         operation,
@@ -252,7 +257,7 @@ export function buildNativeScanCleanupManifest({
                     `page ${String(pageIndex + 1)} fixed analysis input requires a positive analysisDpi`,
                 );
             }
-            if (allowedPathRoot !== undefined) assertManifestPagePaths(page, pageIndex, allowedPathRoot);
+            if (allowedPathRoot !== null) assertManifestPagePaths(page, pageIndex, allowedPathRoot);
             const resolvedOptions = {
                 ...resolveEffectiveScanCleanupOptions({
                     options,
@@ -336,4 +341,25 @@ export function buildNativeScanCleanupManifest({
             };
         }),
     };
+}
+
+/**
+ * Build a manifest that will be handed to the native binary. Every path is
+ * checked against the caller's process-owned root before the manifest exists.
+ */
+export function buildRunnableNativeScanCleanupManifest(
+    input: IBuildRunnableNativeScanCleanupManifestInput,
+): INativeScanCleanupManifestV3 {
+    return assembleNativeScanCleanupManifest(input, input.allowedPathRoot);
+}
+
+/**
+ * Build a manifest only to validate shape and geometry. Callers use placeholder
+ * paths here, so path containment neither applies nor can be checked. Never
+ * hand the result to the native binary.
+ */
+export function buildGeometryOnlyNativeScanCleanupManifest(
+    input: IBuildNativeScanCleanupManifestInput,
+): INativeScanCleanupManifestV3 {
+    return assembleNativeScanCleanupManifest(input, null);
 }

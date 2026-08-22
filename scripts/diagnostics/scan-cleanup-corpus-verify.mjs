@@ -166,7 +166,7 @@ function materializeFixtureConfig(fixture) {
 }
 
 const {
-    buildNativeScanCleanupManifest,
+    buildRunnableNativeScanCleanupManifest,
     buildScanCleanupCompactManifest,
     buildScanCleanupPageOpsInstructions,
     DETECTION_DPI,
@@ -964,10 +964,12 @@ function resolveSafeRenderDpi(requestedRenderDpi, maxPixels, sourceDpi, dimensio
     )));
 }
 
-async function runSidecar(manifestPath) {
+async function runSidecar(manifestPath, allowedPathRoot) {
     const result = await run(defaultScanCleanupBinary, [
         '--manifest',
         manifestPath,
+        '--allowed-path-root',
+        allowedPathRoot,
     ]);
     const envelopes = result.stdout.split(/\r?\n/u)
         .filter(Boolean)
@@ -1298,7 +1300,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         fixtureDir,
         'detection-analysis-manifest.json',
     );
-    const detectionAnalysisManifest = buildNativeScanCleanupManifest({
+    const detectionAnalysisManifest = buildRunnableNativeScanCleanupManifest({
         operation: 'analyze',
         renderMode: 'final',
         canvasScope: 'page',
@@ -1314,9 +1316,10 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             pageMetadataPath: join(fixtureDir, `analysis-${page.pageNumber}.json`),
             outputs: [],
         })),
+        allowedPathRoot: fixtureDir,
     });
     await writeFile(detectionAnalysisManifestPath, JSON.stringify(detectionAnalysisManifest, null, 2));
-    const detectionAnalysisRun = await runSidecar(detectionAnalysisManifestPath);
+    const detectionAnalysisRun = await runSidecar(detectionAnalysisManifestPath, fixtureDir);
     await Promise.all([
         writeFile(
             join(fixtureDir, 'detection-analysis-stdout.jsonl'),
@@ -1401,7 +1404,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         fixtureDir,
         'final-input-analysis-manifest.json',
     );
-    const finalAnalysisManifest = buildNativeScanCleanupManifest({
+    const finalAnalysisManifest = buildRunnableNativeScanCleanupManifest({
         operation: 'analyze',
         renderMode: 'final',
         canvasScope: 'page',
@@ -1418,9 +1421,10 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             pageMetadataPath: page.finalAnalysisMetadataPath,
             outputs: [],
         })),
+        allowedPathRoot: fixtureDir,
     });
     await writeFile(finalAnalysisManifestPath, JSON.stringify(finalAnalysisManifest, null, 2));
-    const finalAnalysisRun = await runSidecar(finalAnalysisManifestPath);
+    const finalAnalysisRun = await runSidecar(finalAnalysisManifestPath, fixtureDir);
     await Promise.all([
         writeFile(
             join(fixtureDir, 'final-input-analysis-stdout.jsonl'),
@@ -1440,17 +1444,18 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
 
     const previewPages = pageRuns.map(page => buildRenderManifestPage(page, fixtureDir, 'preview'));
     const previewManifestPath = join(fixtureDir, 'preview-render-manifest.json');
-    const previewManifest = buildNativeScanCleanupManifest({
+    const previewManifest = buildRunnableNativeScanCleanupManifest({
         operation: 'render',
         renderMode: 'preview',
         canvasScope: 'page',
         qualityPath: 'raster',
         options: fixtureOptions,
         pages: previewPages,
+        allowedPathRoot: fixtureDir,
     });
     await writeFile(previewManifestPath, JSON.stringify(previewManifest, null, 2));
     await clearRenderTargets(previewPages);
-    await runSidecar(previewManifestPath);
+    await runSidecar(previewManifestPath, fixtureDir);
     const previewRuns = await Promise.all(pageRuns.map(async (page, pageIndex) => {
         const previewOutputs = [];
         for (const output of previewPages[pageIndex].outputs) {
@@ -1480,7 +1485,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         widthPoints: Math.max(...sourceSheets.map(sheet => sheet.widthPoints)),
     };
     const renderManifestPath = join(fixtureDir, 'render-manifest.json');
-    const renderManifest = buildNativeScanCleanupManifest({
+    const renderManifest = buildRunnableNativeScanCleanupManifest({
         operation: 'render',
         renderMode: 'final',
         canvasScope: 'document',
@@ -1492,10 +1497,11 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             widthPx: Math.max(1, Math.round(documentCanvas.widthPoints / 72 * canvasDpi)),
         },
         pages: renderPages,
+        allowedPathRoot: fixtureDir,
     });
     await writeFile(renderManifestPath, JSON.stringify(renderManifest, null, 2));
     await clearRenderTargets(renderPages);
-    await runSidecar(renderManifestPath);
+    await runSidecar(renderManifestPath, fixtureDir);
 
     const combinedPages = [];
     const planParityFailures = [];

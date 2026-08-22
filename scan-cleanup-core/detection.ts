@@ -19,7 +19,7 @@ import type {
 import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
-import {buildNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
+import {buildRunnableNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
 import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
 import {preserveScanCleanupJsonEvidence} from '@scan-cleanup-core/preserveScanCleanupJsonEvidence';
 import {
@@ -585,7 +585,7 @@ export async function runScanCleanupDetection<TDocument>(
         // Every page stays in one replayable manifest because final
         // reconciliation clusters the document's independent verdicts.
         const manifestPath = join(scratch, 'classify-manifest.json');
-        await writeFile(manifestPath, JSON.stringify(buildNativeScanCleanupManifest({
+        await writeFile(manifestPath, JSON.stringify(buildRunnableNativeScanCleanupManifest({
             operation: 'analyze',
             analysisPurpose: 'page-plan',
             renderMode: 'preview',
@@ -683,7 +683,10 @@ export async function runScanCleanupDetection<TDocument>(
                     percent: progress.totalUnits === 0 ? 100 : completedUnits / progress.totalUnits * 100,
                 }, documentCanvasSignature(completedPages.size === totalPages));
             },
-            {priority: 'background'},
+            {
+                priority: 'background',
+                allowedPathRoot: dependencies.getTempDir(),
+            },
         );
         await runAnalysis(signal);
         for (const page of manifestPages) {

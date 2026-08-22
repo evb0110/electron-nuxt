@@ -662,12 +662,21 @@ export async function runCliScanCleanupSidecar(
     signal: AbortSignal,
     log: TScanCleanupLog,
     onProgress: TScanCleanupSidecarProgress,
-    options: {priority?: 'background'} = {},
+    options: {
+        priority?: 'background';
+        allowedPathRoot?: string;
+    } = {},
 ) {
     if (signal.aborted) throw signal.reason;
     const child = spawn(binaryPath, [
         '--manifest',
         manifestPath,
+        ...(options.allowedPathRoot === undefined
+            ? []
+            : [
+                '--allowed-path-root',
+                options.allowedPathRoot,
+            ]),
     ], {
         detached: process.platform !== 'win32',
         stdio: [

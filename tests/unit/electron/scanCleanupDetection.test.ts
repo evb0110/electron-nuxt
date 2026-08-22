@@ -22,6 +22,7 @@ import type {INativeScanCleanupSplitDiagnosticsV3} from '@contracts/scan-cleanup
 import {decodeNativeScanCleanupPageMetadata} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {compactScanCleanupDetectionVerdicts} from '@scripts/scanCleanupCliAdapters';
+import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
 
 const dirs: string[] = [];
 const MIB = 1024 * 1024;
@@ -146,6 +147,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             'base64',
         );
         const createRasterPipes = vi.fn(async () => undefined);
+        const sidecarRoots: Array<string | undefined> = [];
         const manifests: Array<{
             rasterWindow?: number;
             pages: Array<{
@@ -195,9 +197,10 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 renderPage,
                 renderPagePpm: vi.fn(),
                 createRasterPipes,
-                runSidecar: vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+                runSidecar: vi.fn(async (_binary, manifestPath, _signal, _log, onProgress, sidecarOptions) => {
                     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as typeof manifests[number];
                     manifests.push(manifest);
+                    sidecarRoots.push(sidecarOptions?.allowedPathRoot);
                     expect(manifest.rasterWindow).toBeUndefined();
                     await Promise.all(manifest.pages.map(page => writeFile(
                         page.pageMetadataPath,
@@ -236,6 +239,15 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         expect(result.results).toHaveLength(pageCount);
         expect(manifests).toHaveLength(1);
         expect(manifests[0]!.pages.every(page => page.inputPath.endsWith('.png'))).toBe(true);
+        // The Analyze manifest and the native invocation that consumes it are
+        // constrained to the same injected temp root.
+        expect(sidecarRoots).toEqual([tempDir]);
+        expect(manifests[0]!.pages
+            .flatMap(page => [
+                page.inputPath,
+                page.pageMetadataPath,
+            ])
+            .filter(path => !isPathWithinRoot(path, tempDir))).toEqual([]);
         expect(renderPage).toHaveBeenCalledTimes(pageCount);
         expect(createRasterPipes).not.toHaveBeenCalled();
         expect(retention.release).toHaveBeenCalledOnce();

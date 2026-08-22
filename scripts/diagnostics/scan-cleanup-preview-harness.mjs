@@ -63,7 +63,7 @@ const [
         resolveScanCleanupDocumentCanvasDpi,
         resolveScanCleanupProvisionalDocumentCanvas,
     },
-    {buildNativeScanCleanupManifest},
+    {buildRunnableNativeScanCleanupManifest},
     {resolveReusablePagePlan},
     {createScanCleanupRenderers},
     {
@@ -1020,7 +1020,7 @@ async function main() {
                 : {[String(pageNumber)]: detectionResult.pagePlanEvidence},
             pageNumber,
         );
-        const manifest = buildNativeScanCleanupManifest({
+        const manifest = buildRunnableNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'preview',
             canvasScope: 'page',
@@ -1052,11 +1052,14 @@ async function main() {
                     ? {}
                     : {documentPrior: detectionResult.documentPrior}),
             }],
+            allowedPathRoot: pageDirectory,
         });
         await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
         await runCommand(tools.scanCleanup, [
             '--manifest',
             manifestPath,
+            '--allowed-path-root',
+            pageDirectory,
         ], {commandLabel: `preview-harness(page=${String(pageNumber)})`});
         const outputMetadata = [];
         for (const output of nativeOutputs) {
@@ -1109,6 +1112,8 @@ async function main() {
         await runCommand(tools.scanCleanup, [
             '--manifest',
             provisionalManifestPath,
+            '--allowed-path-root',
+            pageDirectory,
         ], {commandLabel: `preview-harness-provisional(page=${String(pageNumber)})`});
         const provisionalLeaves = [];
         for (const output of provisionalOutputs) {
