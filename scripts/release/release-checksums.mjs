@@ -16,6 +16,7 @@ import {
     join,
 } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isSupplementalReleaseAsset } from './policy.mjs';
 
 const CHECKSUM_FILENAME = 'SHA256SUMS';
 const CHECKSUM_LINE_PATTERN = /^([a-f0-9]{64}) {2}(.+)$/u;
@@ -45,7 +46,7 @@ export async function generateReleaseChecksums(artifactDirectory) {
     };
 }
 
-export async function verifyReleaseChecksums(artifactDirectory) {
+export async function verifyReleaseChecksums(artifactDirectory, {releaseVersion} = {}) {
     const assetNames = await releaseAssetNames(artifactDirectory);
     const checksumPath = join(artifactDirectory, CHECKSUM_FILENAME);
     const checksumStat = await lstat(checksumPath);
@@ -55,7 +56,13 @@ export async function verifyReleaseChecksums(artifactDirectory) {
     const listedAssets = parseChecksumManifest(await readFile(checksumPath, 'utf8'));
     const actualSet = new Set(assetNames);
     const listedSet = new Set(listedAssets.map(asset => asset.name));
-    const missing = assetNames.filter(name => !listedSet.has(name));
+    // Supplemental assets attach after SHA256SUMS is finalized, so an
+    // unlisted supplemental asset is expected on repair reruns. A listed one
+    // still gets full hash verification below. With a release version only
+    // the exact expected supplemental asset names are exempt.
+    const missing = assetNames.filter(
+        name => !listedSet.has(name) && !isSupplementalReleaseAsset(name, releaseVersion),
+    );
     const unexpected = listedAssets.map(asset => asset.name).filter(name => !actualSet.has(name));
     if (missing.length > 0 || unexpected.length > 0) {
         throw new Error(
@@ -171,19 +178,25 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const [
         command,
         artifactDirectory,
+        releaseVersion,
         ...extraArguments
     ] = process.argv.slice(2);
-    if (!artifactDirectory || extraArguments.length > 0 || ![
-        'generate',
-        'verify',
-    ].includes(command)) {
+    if (
+        !artifactDirectory
+        || extraArguments.length > 0
+        || (releaseVersion !== undefined && command !== 'verify')
+        || ![
+            'generate',
+            'verify',
+        ].includes(command)
+    ) {
         throw new Error(
-            'Usage: release-checksums.mjs <generate|verify> <artifact-directory>',
+            'Usage: release-checksums.mjs <generate|verify> <artifact-directory> [release-version]',
         );
     }
     if (command === 'generate') {
         await generateReleaseChecksums(artifactDirectory);
     } else {
-        await verifyReleaseChecksums(artifactDirectory);
+        await verifyReleaseChecksums(artifactDirectory, {releaseVersion});
     }
 }

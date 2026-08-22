@@ -107,6 +107,7 @@ interface IReleasePolicyModule {
         target: IReleaseTarget,
         env?: TReleaseEnv,
     ) => RegExp[];
+    isSupplementalReleaseAsset: (fileName: string, version?: string) => boolean;
     parseUpdaterMetadataFileUrls: (
         metadataFileName: string,
         metadataText: string,
@@ -312,6 +313,7 @@ const {
     getLocalReleaseTargets,
     getReleaseAutomationEnv,
     getRequiredArtifactPatterns,
+    isSupplementalReleaseAsset,
     parseUpdaterMetadataFileUrls,
     shouldVerifyPackagedStartup,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/policy.mjs')).href) as IReleasePolicyModule;
@@ -438,6 +440,18 @@ describe('release policy', () => {
 
         expect(existsSync(executable)).toBe(true);
         expect(() => accessSync(executable, constants.X_OK)).not.toThrow();
+    });
+
+    it('classifies only supplemental channel assets as outside the immutable core set', () => {
+        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64.zip')).toBe(true);
+        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-arm64.zip')).toBe(false);
+        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64-setup.exe')).toBe(false);
+        expect(isSupplementalReleaseAsset('SHA256SUMS')).toBe(false);
+
+        // With a release version, only that release's exact asset name is
+        // supplemental; other versions stop being exempt.
+        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64.zip', '0.1.427')).toBe(true);
+        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.426-x64.zip', '0.1.427')).toBe(false);
     });
 
     it('derives local release targets from host platform and arch', () => {

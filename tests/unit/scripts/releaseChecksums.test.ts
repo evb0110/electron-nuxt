@@ -72,6 +72,40 @@ describe('release checksum manifest', () => {
         );
     });
 
+    it('tolerates unlisted supplemental assets attached after finalization but verifies listed ones', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-supplemental-'));
+        await writeFile(join(directory, 'asset.zip'), 'core');
+        await generateReleaseChecksums(directory);
+
+        // The Intel ZIP attaches after promotion, outside SHA256SUMS.
+        await writeFile(join(directory, 'EVB-Viewer-0.1.427-x64.zip'), 'intel');
+        await expect(verifyReleaseChecksums(directory)).resolves.toEqual({assetNames: [
+            'EVB-Viewer-0.1.427-x64.zip',
+            'asset.zip',
+        ]});
+
+        // With the release version pinned, only that release's exact asset
+        // name is exempt from the manifest.
+        await expect(verifyReleaseChecksums(directory, {releaseVersion: '0.1.427'}))
+            .resolves.toEqual({assetNames: [
+                'EVB-Viewer-0.1.427-x64.zip',
+                'asset.zip',
+            ]});
+        await expect(verifyReleaseChecksums(directory, {releaseVersion: '0.1.428'}))
+            .rejects.toThrow('missing: EVB-Viewer-0.1.427-x64.zip; unexpected: (none)');
+
+        // A supplemental asset that made it into the manifest is still
+        // hash-verified like any other listed asset.
+        await writeFile(join(directory, 'SHA256SUMS'), [
+            `${sha256('core')}  asset.zip`,
+            `${sha256('not-intel')}  EVB-Viewer-0.1.427-x64.zip`,
+            '',
+        ].join('\n'));
+        await expect(verifyReleaseChecksums(directory)).rejects.toThrow(
+            'Checksum mismatch for release asset: EVB-Viewer-0.1.427-x64.zip',
+        );
+    });
+
     it('rejects duplicate, traversing, ambiguous, and malformed manifest basenames', () => {
         expect(() => parseChecksumManifest([
             `${sha256('a')}  Asset.zip`,

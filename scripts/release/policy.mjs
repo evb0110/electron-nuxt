@@ -1,3 +1,27 @@
+// Supplemental channels (macOS Intel today) attach to the GitHub release
+// after promotion, per the critical-path rule in docs/releasing.md. Their
+// assets are therefore intentionally absent from the immutable SHA256SUMS
+// core set, and release verification must tolerate them on repair reruns.
+// With a release version the exemption is the exact expected asset name;
+// the pattern fallback exists only for callers without version context.
+// The macOS Intel ZIP is the only released "-x64.zip" asset (Windows x64
+// ships as "-x64-setup.exe" and the Store package as "-x64-store.appx").
+const SUPPLEMENTAL_RELEASE_ASSET_PATTERNS = [ /^EVB-Viewer-.+-x64\.zip$/u ];
+
+export function getSupplementalReleaseAssetNames(version) {
+    return [ `EVB-Viewer-${version}-x64.zip` ];
+}
+
+export function isSupplementalReleaseAsset(fileName, version) {
+    if (version !== undefined) {
+        if (typeof version !== 'string' || version.trim() === '') {
+            throw new Error('Supplemental asset policy requires a non-empty release version when one is supplied');
+        }
+        return getSupplementalReleaseAssetNames(version).includes(fileName);
+    }
+    return SUPPLEMENTAL_RELEASE_ASSET_PATTERNS.some(pattern => pattern.test(fileName));
+}
+
 export function hasDeveloperIdSigningCredentials(env = process.env) {
     return Boolean(env.CSC_LINK && env.CSC_KEY_PASSWORD);
 }

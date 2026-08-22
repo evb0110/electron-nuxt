@@ -417,8 +417,9 @@ jobs:
           if-no-files-found: ignore
 
   build_mac_intel:
-    # Intel is a supported stable channel, so packaging and attachment complete
-    # before a new GitHub draft can be promoted publicly.
+    # Supplemental lane (docs/releasing.md "Critical-path rule"): it runs in
+    # parallel with the core matrix and its ZIP attaches to the already
+    # promoted release in attach_mac_intel. It must never gate publication.
     name: Package Release Artifacts / build (macos-15-intel, mac, x64)
     needs:
       - prepare
@@ -440,7 +441,6 @@ jobs:
     needs:
       - prepare
       - build_artifacts
-      - build_mac_intel
       - verify_packaged_scan_cleanup
     runs-on: ubuntu-latest
     environment: release
@@ -473,15 +473,9 @@ jobs:
       - name: Download release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          # dist-* matches exactly the five main build-matrix artifacts.
+          # dist-* matches exactly the five main build-matrix artifacts; the
+          # supplemental Intel ZIP attaches after promotion in attach_mac_intel.
           pattern: dist-*
-          path: artifacts
-          merge-multiple: true
-
-      - name: Download required macOS Intel artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: supplemental-mac-x64
           path: artifacts
           merge-multiple: true
 
@@ -589,6 +583,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
           ALREADY_PUBLIC: ${{ steps.draft_release.outputs.already_public }}
           FINALIZED_DRAFT: ${{ steps.draft_release.outputs.finalized_draft }}
           EVB_RELEASE_HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
@@ -601,7 +596,7 @@ jobs:
           node scripts/release/assert-publish-metadata-policy.mjs downloaded-assets "${{ needs.prepare.outputs.version }}"
 
           if [ "$ALREADY_PUBLIC" = "true" ] || [ "$FINALIZED_DRAFT" = "true" ]; then
-            node scripts/release/release-checksums.mjs verify downloaded-assets
+            node scripts/release/release-checksums.mjs verify downloaded-assets "$RELEASE_VERSION"
           fi
 
           for source in artifacts/*; do
@@ -621,7 +616,13 @@ jobs:
           if [ "$FINALIZED_DRAFT" = "true" ]; then
             for downloaded in downloaded-assets/*; do
               name="$(basename "$downloaded")"
-              if [ "$name" != 'SHA256SUMS' ] && [ ! -f "artifacts/$name" ]; then
+              case "$name" in
+                # Supplemental assets attach after promotion and are outside
+                # the immutable core set (policy.mjs isSupplementalReleaseAsset).
+                # Only this release's exact expected asset name is exempt.
+                'SHA256SUMS' | "EVB-Viewer-${RELEASE_VERSION}-x64.zip") continue ;;
+              esac
+              if [ ! -f "artifacts/$name" ]; then
                 echo "::error::Checksum-finalized draft contains an unexpected asset: $name"
                 exit 1
               fi
@@ -690,15 +691,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           checksum_path="artifacts/SHA256SUMS"
           if [ "$ALREADY_PUBLIC" = 'true' ] || [ "$FINALIZED_DRAFT" = 'true' ]; then
-            node scripts/release/release-checksums.mjs verify artifacts
+            node scripts/release/release-checksums.mjs verify artifacts "$RELEASE_VERSION"
           else
             node scripts/release/release-checksums.mjs generate artifacts
-            node scripts/release/release-checksums.mjs verify artifacts
+            node scripts/release/release-checksums.mjs verify artifacts "$RELEASE_VERSION"
             gh release upload "$RELEASE_TAG" "$checksum_path" --clobber
           fi
 
@@ -775,7 +777,6 @@ jobs:
     needs:
       - prepare
       - publish
-      - publish_store
       - stage_mirror
     runs-on: ubuntu-latest
     environment: release
@@ -851,7 +852,6 @@ jobs:
           GITHUB_PROMOTION_OUTCOME: ${{ steps.github_promotion.outcome }}
           GITHUB_ALREADY_PUBLIC: ${{ needs.publish.outputs.already_public }}
           MIRROR_ACTIVATION_OUTCOME: ${{ steps.mirror_activation.outcome }}
-          STORE_RECONCILIATION_OUTCOME: ${{ needs.publish_store.result }}
         run: |
           {
             echo '## Verified release promotion'
@@ -865,7 +865,7 @@ jobs:
             fi
             echo "| GitHub release promotion | $GITHUB_PROMOTION_STATUS |"
             echo "| Regional mirror activation | $MIRROR_ACTIVATION_OUTCOME |"
-            echo "| Microsoft Store reconciliation | $STORE_RECONCILIATION_OUTCOME |"
+            echo '| Microsoft Store reconciliation | reported by its own job; does not gate promotion |'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$MIRROR_ACTIVATION_OUTCOME" != 'success' ] || {
             [ "$GITHUB_PROMOTION_OUTCOME" != 'success' ] &&
@@ -874,3 +874,58 @@ jobs:
             echo '::error::Release channels did not converge. Reconcile the stable mirror and GitHub release before announcing this version.'
             exit 1
           fi
+
+  attach_mac_intel:
+    # Attach-afterward semantics for the supplemental Intel channel: the
+    # release is already public and checksum-finalized when this runs, and the
+    # Intel ZIP intentionally stays outside the immutable SHA256SUMS set
+    # (release verification tolerates it via policy.mjs). An Intel-lane
+    # failure downgrades to a warning here instead of failing the release.
+    name: Attach Supplemental macOS Intel Asset
+    needs:
+      - prepare
+      - build_mac_intel
+      - promote_release
+    if: ${{ !cancelled() && needs.promote_release.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Report unavailable Intel lane
+        if: ${{ needs.build_mac_intel.result != 'success' }}
+        run: echo "::warning::Supplemental macOS Intel build concluded '${{ needs.build_mac_intel.result }}'; the published release ships without the Intel ZIP until a repair run attaches it."
+
+      - name: Download macOS Intel artifacts
+        if: ${{ needs.build_mac_intel.result == 'success' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: supplemental-mac-x64
+          path: artifacts
+          merge-multiple: true
+
+      - name: Attach Intel ZIP to the published release
+        if: ${{ needs.build_mac_intel.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Attach exactly the expected version-specific asset; anything else
+          # in the supplemental artifact is a lane regression, not an upload.
+          expected="artifacts/EVB-Viewer-${RELEASE_VERSION}-x64.zip"
+          if [ ! -f "$expected" ]; then
+            echo "::error::Supplemental Intel artifact did not contain $(basename "$expected")."
+            exit 1
+          fi
+          for source in artifacts/*; do
+            if [ "$source" != "$expected" ]; then
+              echo "::error::Supplemental Intel artifact contained an unexpected file: $(basename "$source")."
+              exit 1
+            fi
+          done
+          gh release upload "$RELEASE_TAG" "$expected" --clobber

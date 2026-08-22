@@ -8,7 +8,7 @@ Releases are cut locally and published by dispatching the GitHub Release workflo
    The release script now fails before the version bump unless it is running under the Node major pinned in `package.json` `engines.node`, which is the project's current latest-LTS baseline (currently `24.x`).
 2. The script bumps `package.json`, then runs the local release gate against that exact would-be tagged tree. The gate is split into the CI-mode lint/static/test phase (`release:verify:checks`) and the current-platform package phase (`release:verify:package:local`). In a combined run, the checks phase performs the strict build once and writes a source/toolchain/target/output receipt; packaging reuses it only after recomputing and matching every fingerprint. The standalone package command remains correct by rebuilding when no exact receipt is supplied.
 3. If that local release gate passes, the script verifies that only `package.json` changed, commits the release version, scans the exact upstream-to-`HEAD` publication range, pushes the branch update, and dispatches the GitHub [`Release`](../.github/workflows/release.yml) workflow with the intended tag and target ref.
-4. The release workflow reruns the focused release checks, packages the main artifacts, creates the matching `v*` tag, and publishes the release in one run. A complete Windows signing pair produces signed installers. When both secrets are absent, the workflow produces unsigned direct-download installers. Setting exactly one of `WIN_CSC_LINK` or `WIN_CSC_KEY_PASSWORD` fails the credential check. The workflow always builds and verifies both Store AppX packages. Missing Partner Center credentials skip only API submission, not those package gates.
+4. The release workflow reruns the focused release checks, packages the main artifacts, creates the matching `v*` tag, and publishes the release in one run. A complete Windows signing pair produces signed installers. When both secrets are absent, the workflow produces unsigned direct-download installers. Setting exactly one of `WIN_CSC_LINK` or `WIN_CSC_KEY_PASSWORD` fails the credential check. The workflow always builds and verifies both Store AppX packages, in parallel with promotion; Store packaging or submission failure never gates the GitHub release. Missing Partner Center credentials skip only API submission, not those package gates.
 5. The local command exits after the GitHub Actions run is visible. It prints the run URL, the future artifact section URL, the future release URL, and the expected artifact group names.
 
 ## Artifact-only flow
@@ -92,14 +92,17 @@ gate to push such a branch.
 ## Critical-path rule
 
 - The release must publish as soon as the core release matrix is done: macOS arm64, Linux x64/arm64, and Windows x64/arm64.
-- The supplemental `macos-15-intel` lane is intentionally not on the critical path. It runs in parallel and attaches its ZIP to the already-published GitHub release afterward.
+- The supplemental `macos-15-intel` lane is intentionally not on the critical path. It runs in parallel and attaches its ZIP to the already-promoted GitHub release in the `attach_mac_intel` job. Because it attaches after `SHA256SUMS` is finalized, the Intel ZIP stays outside the immutable core checksum set; release verification tolerates that through `isSupplementalReleaseAsset` in `scripts/release/policy.mjs`.
 - The supplemental Windows 7 legacy lane is best-effort only. It packages a renamed legacy installer when available and must not block the main release.
-- Do not move the `macos-15-intel` or Windows 7 legacy builds back into the blocking reusable build workflow or make `Create GitHub Release` depend on them. If that happens, supplemental runner slowness or flakes will delay the whole release again.
+- Store AppX packaging and Partner Center reconciliation run in parallel with promotion. Nothing in the publish or promote chain `needs` them.
+- The Windows ARM64 NSIS installed-app journey in the build matrix is advisory (`continue-on-error`): it verifies hosted-runner installer behavior, not the product build, and repeatedly killed releases 28-30 minutes in on extraction races. A failure emits a warning annotation and uploads diagnostics. The same journey stays fully blocking on Windows x64.
+- Do not move the `macos-15-intel`, Windows 7 legacy, or Store builds back onto the blocking chain (`publish` or `promote_release` `needs`). If that happens, supplemental runner slowness or flakes will delay the whole release again.
 
 ## Recovery flow
 
-- If GitHub Actions flakes during packaging or publishing, rerun the failed `Release` workflow for the same tag in GitHub Actions.
-- If you need to retry from scratch, use the workflow's manual dispatch and provide the existing tag.
+- For an infrastructure flake (runner provisioning, network, installer race), the first action is GitHub's "Re-run failed jobs" on the same run and tag. Same-tag repair is supported: `prepare` accepts an existing tag that points at the requested SHA, and `publish` reconciles an existing draft. Do not bump the version and cut a fresh release for an infra flake; that costs a full local gate plus a new workflow run and leaves an unpublished version behind.
+- If a full retry is needed, use the workflow's manual dispatch with the existing tag and the same target SHA.
+- Only an actual code or workflow defect requires a new commit, and only a defect in the release commit itself requires a new version.
 - If local `release:verify` changes any tracked, staged, or untracked file, treat that as a release-script regression and fix it before retrying. The cutter also refuses to auto-stage unexpected release changes.
 
 ## Landing rollout, withdrawal, and rollback

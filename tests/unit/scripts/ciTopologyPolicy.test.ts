@@ -832,8 +832,10 @@ describe('CI topology policy', () => {
         expect(finalizeAssetsJob).toContain('environment: release');
         expect(stageMirrorJob).toContain('environment: release');
         expect(promoteJob).toContain('environment: release');
-        expect(publishJob).toContain('- build_mac_intel');
-        expect(publishJob).toContain('pattern: supplemental-mac-x64');
+        // Critical-path rule: supplemental and Store lanes never gate
+        // publication. The Intel ZIP attaches after promotion instead.
+        expect(publishJob).not.toContain('- build_mac_intel');
+        expect(publishJob).not.toContain('pattern: supplemental-mac-x64');
         expect(finalizeAssetsJob).not.toContain('- publish_store');
         expect(stageMirrorJob).toContain('- finalize_release_assets');
         expect(publishStoreJob).toContain('- release_credentials');
@@ -842,8 +844,16 @@ describe('CI topology policy', () => {
         expect(publishStoreJob).toContain('submit: ${{ needs.release_credentials.outputs.submit_store == \'true\' }}');
         expect(stageMirrorJob).toContain('publish-release-mirror.mjs artifacts "${{ needs.prepare.outputs.tag }}" --stage');
         expect(promoteJob).toContain('- stage_mirror');
-        expect(promoteJob).toContain('- publish_store');
+        expect(promoteJob).not.toContain('- publish_store');
         expect(parseWorkflowJobs(releaseWorkflow).promote_release?.if).toBeUndefined();
+
+        const attachMacIntelJob = workflowJob(releaseWorkflow, 'attach_mac_intel');
+        expect(attachMacIntelJob).toContain('- build_mac_intel');
+        expect(attachMacIntelJob).toContain('- promote_release');
+        expect(attachMacIntelJob).toContain('if: ${{ !cancelled() && needs.promote_release.result == \'success\' }}');
+        expect(attachMacIntelJob).toContain('pattern: supplemental-mac-x64');
+        expect(attachMacIntelJob).toContain('expected="artifacts/EVB-Viewer-${RELEASE_VERSION}-x64.zip"');
+        expect(attachMacIntelJob).toContain('the published release ships without the Intel ZIP');
         expect(stageMirrorJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
         expect(promoteJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
         expect(finalizeAssetsJob).toContain('name: Publish or verify immutable release checksums');
