@@ -30,11 +30,14 @@ describe('electron run session paths', () => {
         expect(second).toBe(join(sessionsBaseDir, 'second-session', 'electron-logs'));
     });
 
-    it('keeps an explicit automation log directory override', () => {
+    it('uses a safe session directory when the override is unset or empty', () => {
         expect(resolveAutomationFileLogDir({}, 'session')).toBe(electronFileLogDir('session'));
+        expect(resolveAutomationFileLogDir({EVB_FILE_LOG_DIR: ''}, 'session')).toBe(electronFileLogDir('session'));
+    });
+
+    it('keeps an explicit non-empty automation log directory override', () => {
         expect(resolveAutomationFileLogDir({EVB_FILE_LOG_DIR: '/tmp/explicit-logs'}, 'session'))
             .toBe('/tmp/explicit-logs');
-        expect(resolveAutomationFileLogDir({EVB_FILE_LOG_DIR: ''}, 'session')).toBe('');
     });
 
     it('rejects session names that can escape the sessions directory', () => {
