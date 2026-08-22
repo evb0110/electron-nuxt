@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import {
     mkdtemp,
     mkdir,
@@ -6,6 +7,7 @@ import {
     symlink,
     writeFile,
 } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -16,6 +18,7 @@ import {
 import {
     generateReleaseChecksums,
     parseChecksumManifest,
+    validateReleaseAssetNames,
     verifyReleaseChecksums,
 } from '@scripts/release/release-checksums.mjs';
 
@@ -89,26 +92,61 @@ describe('release checksum manifest', () => {
         );
     });
 
-    it('rejects non-regular entries and non-portable duplicate asset filenames', async () => {
-        const directory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-entry-'));
-        await writeFile(join(directory, 'Asset.zip'), 'first');
-        await writeFile(join(directory, 'asset.zip'), 'second');
-        await expect(generateReleaseChecksums(directory)).rejects.toThrow(
+    it('rejects non-portable duplicate asset filenames without relying on filesystem case sensitivity', () => {
+        expect(() => validateReleaseAssetNames([
+            'Asset.zip',
+            'asset.zip',
+        ])).toThrow(
             'Release asset basenames are not portable and unique',
         );
+    });
 
+    it('rejects an empty asset-name list without assuming a filesystem caller', () => {
+        expect(() => validateReleaseAssetNames([])).toThrow(
+            'Release asset names must not be empty',
+        );
+    });
+
+    it('propagates regular-file basename policy through checksum generation', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-unsafe-name-'));
+        await writeFile(join(directory, 'asset.zip '), 'asset');
+
+        await expect(generateReleaseChecksums(directory)).rejects.toThrow(
+            'Unsafe release asset basename: "asset.zip "',
+        );
+    });
+
+    it('rejects non-regular entries in real artifact directories', async () => {
         const nestedDirectory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-nested-'));
         await writeFile(join(nestedDirectory, 'asset.zip'), 'asset');
-        await mkdir(join(nestedDirectory, 'nested'));
+        await mkdir(join(nestedDirectory, 'nested '));
         await expect(generateReleaseChecksums(nestedDirectory)).rejects.toThrow(
-            'Release artifact must be a regular file: nested',
+            'Release artifact must be a regular file: "nested "',
         );
 
         const linkedDirectory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-link-'));
         await writeFile(join(linkedDirectory, 'asset.zip'), 'asset');
-        await symlink(join(linkedDirectory, 'asset.zip'), join(linkedDirectory, 'linked.zip'));
+        await symlink(join(linkedDirectory, 'asset.zip'), join(linkedDirectory, 'linked.zip '));
         await expect(generateReleaseChecksums(linkedDirectory)).rejects.toThrow(
-            'Release artifact must be a regular file: linked.zip',
+            'Release artifact must be a regular file: "linked.zip "',
         );
+    });
+
+    it.skipIf(process.platform === 'win32')('rejects unsafe Unix socket entries as non-regular files', async () => {
+        const socketDirectory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-socket-'));
+        await writeFile(join(socketDirectory, 'asset.zip'), 'asset');
+        const socketPath = join(socketDirectory, 'release.sock ');
+        const server = createServer();
+        server.listen(socketPath);
+        await once(server, 'listening');
+        try {
+            await expect(generateReleaseChecksums(socketDirectory)).rejects.toThrow(
+                'Release artifact must be a regular file: "release.sock "',
+            );
+        } finally {
+            const closePromise = once(server, 'close');
+            server.close();
+            await closePromise;
+        }
     });
 });

@@ -9,11 +9,24 @@ import {
     createPdfRenderSupervisor,
     type IPdfRenderSupervisorEvent,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
+import {
+    armPageStageDeadline,
+    withPageStageTimeout,
+} from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
+import { cast } from '@tests/helpers/cast';
+
+interface ITestPdfRenderTraceWindow {
+    __pdfRenderTrace: boolean;
+    __getPdfRenderTrace?: (() => Array<{
+        event: string;
+        payload: Record<string, unknown>;
+    }>) | undefined;
+}
 
 describe('pdf render supervisor', () => {
     afterEach(() => {
         vi.useRealTimers();
+        vi.unstubAllGlobals();
     });
 
     it('classifies page-stage timeout causes without changing the stall payload', async () => {
@@ -88,6 +101,39 @@ describe('pdf render supervisor', () => {
         expect(events).toEqual([]);
     });
 
+    it('keeps timeout classification when timeout cleanup aborts the stage signal', async () => {
+        vi.useFakeTimers();
+        const controller = new AbortController();
+        const abortedStage = new Promise<never>((_resolve, reject) => {
+            controller.signal.addEventListener('abort', () => {
+                const error = new Error('underlying render aborted');
+                error.name = 'AbortError';
+                reject(error);
+            }, {once: true});
+        });
+        const stalledPromise = withPageStageTimeout(
+            abortedStage,
+            {
+                pageNumber: 2,
+                stage: 'annotation-layer',
+                timeoutMs: 25,
+            },
+            () => true,
+            () => controller.abort(),
+            undefined,
+            createPdfRenderSupervisor(),
+            controller.signal,
+        );
+        const rejection = expect(stalledPromise).rejects.toMatchObject({
+            name: 'PdfPageRenderTimeoutError',
+            pageNumber: 2,
+            stage: 'annotation-layer',
+        });
+
+        await vi.advanceTimersByTimeAsync(25);
+        await rejection;
+    });
+
     it('drops superseded watchdog callbacks before they can run recovery', () => {
         const callbacks: Array<() => void> = [];
         const events: IPdfRenderSupervisorEvent[] = [];
@@ -138,6 +184,95 @@ describe('pdf render supervisor', () => {
             ownerKey: 'navigation-hold-recovery',
         }));
         handles.forEach(handle => clearTimeout(handle));
+    });
+
+    it('records actual elapsed time when the event loop fires a watchdog late', () => {
+        let now = 100;
+        let callback = () => {};
+        const events: IPdfRenderSupervisorEvent[] = [];
+        const traceWindow: ITestPdfRenderTraceWindow = {__pdfRenderTrace: true};
+        vi.stubGlobal('window', traceWindow);
+        const supervisor = createPdfRenderSupervisor({
+            clearTimeoutFn: () => {},
+            now: () => now,
+            onEvent: event => events.push(event),
+            setTimeoutFn: nextCallback => {
+                callback = nextCallback;
+                return cast<ReturnType<typeof setTimeout>>(1);
+            },
+        });
+        supervisor.armTimer({
+            cause: 'page-stage-timeout',
+            delayMs: 15_000,
+            key: 'late-canvas-render',
+            onFire: vi.fn(),
+        });
+
+        now = 15_275;
+        callback();
+
+        expect(events).toEqual([expect.objectContaining({
+            delayMs: 15_000,
+            elapsedMs: 15_175,
+            firedAtMs: 15_275,
+        })]);
+        expect(traceWindow.__getPdfRenderTrace?.()).toEqual([expect.objectContaining({
+            event: 'pdf-render-supervisor-watchdog',
+            payload: expect.objectContaining({
+                cause: 'page-stage-timeout',
+                elapsedMs: 15_175,
+                ownerKey: 'late-canvas-render',
+            }),
+        })]);
+    });
+
+    it('runs timeout work before notification and diagnoses callback failures', async () => {
+        vi.useFakeTimers();
+        const order: string[] = [];
+        const traceWindow: ITestPdfRenderTraceWindow = {__pdfRenderTrace: true};
+        vi.stubGlobal('window', traceWindow);
+        const deadline = armPageStageDeadline({
+            key: 'shared-canvas-deadline',
+            onRenderStall: () => {
+                order.push('notify');
+                throw new Error('notify failed');
+            },
+            onTimeout: () => {
+                order.push('timeout');
+                throw new Error('timeout failed');
+            },
+            payload: {
+                pageNumber: 9,
+                stage: 'canvas-render',
+                timeoutMs: 25,
+            },
+            renderSupervisor: createPdfRenderSupervisor(),
+            shouldNotify: () => true,
+        });
+        const rejection = expect(deadline.promise).rejects.toMatchObject({
+            name: 'PdfPageRenderTimeoutError',
+            pageNumber: 9,
+            stage: 'canvas-render',
+        });
+
+        await vi.advanceTimersByTimeAsync(25);
+        await rejection;
+
+        expect(order).toEqual([
+            'timeout',
+            'notify',
+        ]);
+        expect(traceWindow.__getPdfRenderTrace?.()).toEqual(expect.arrayContaining([
+            expect.objectContaining({event: 'pdf-render-supervisor-watchdog'}),
+            expect.objectContaining({
+                event: 'pdf-page-stage-deadline-callback-failed',
+                payload: expect.objectContaining({callback: 'on-timeout'}),
+            }),
+            expect.objectContaining({
+                event: 'pdf-page-stage-deadline-callback-failed',
+                payload: expect.objectContaining({callback: 'render-stall-recovery'}),
+            }),
+        ]));
     });
 
     it('reports explicit annotation editor layer events without arming timers', () => {

@@ -1,4 +1,5 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -9,10 +10,21 @@ import {
     runCoordinatedPdfPageOperation,
     runCoordinatedPdfPageRender,
 } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
+import {
+    createPdfRenderSupervisor,
+    type IPdfRenderSupervisorEvent,
+} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import { cast } from '@tests/helpers/cast';
 
 async function flushAsync() {
     await new Promise<void>(resolve => setImmediate(resolve));
+}
+
+async function flushMicrotasks() {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
 }
 
 function createCancelledRenderError() {
@@ -42,6 +54,7 @@ function createRenderTask(options: { settleOnCancel?: boolean } = {}) {
                 rejectTask(createCancelledRenderError());
             }
         }),
+        reject: rejectTask,
         resolve: resolveTask,
     };
 }
@@ -62,6 +75,11 @@ function createDeferred<T = void>() {
 }
 
 describe('runCoordinatedPdfPageRender', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
     it.each([
         {
             waitingPriority: 100,
@@ -239,6 +257,276 @@ describe('runCoordinatedPdfPageRender', () => {
             firstRun,
             secondRun,
         ]);
+    });
+
+    it('reports and cancels a wedged canvas task without releasing its page ownership', async () => {
+        vi.useFakeTimers();
+        const page = cast<PDFPageProxy>({pageNumber: 7});
+        const task = createRenderTask({settleOnCancel: false});
+        const nextTask = createRenderTask();
+        const events: IPdfRenderSupervisorEvent[] = [];
+        const onRenderStall = vi.fn();
+        const capturedSettlements: Array<Promise<void>> = [];
+        const capturedSettlementResolved = vi.fn();
+        const supervisor = createPdfRenderSupervisor({onEvent: event => events.push(event)});
+        const run = runCoordinatedPdfPageRender({
+            owner: 'viewport',
+            pageNumber: 7,
+            pdfPage: page,
+            priority: 100,
+            startRender: () => task,
+            captureSettlement: settlement => capturedSettlements.push(settlement),
+            watchdog: {
+                key: 'canvas:7:attempt-1',
+                metadata: {renderKey: '7:1'},
+                onRenderStall,
+                payload: {
+                    pageNumber: 7,
+                    stage: 'canvas-render',
+                    timeoutMs: 15_000,
+                },
+                renderSupervisor: supervisor,
+            },
+        }).catch(error => error as Error);
+        await flushMicrotasks();
+        expect(capturedSettlements).toHaveLength(1);
+        void capturedSettlements[0]!.then(capturedSettlementResolved);
+
+        await vi.advanceTimersByTimeAsync(15_000);
+
+        expect(task.cancel).toHaveBeenCalledOnce();
+        expect(onRenderStall).toHaveBeenCalledExactlyOnceWith({
+            pageNumber: 7,
+            stage: 'canvas-render',
+            timeoutMs: 15_000,
+        });
+        expect(events).toEqual([expect.objectContaining({
+            cause: 'page-stage-timeout',
+            delayMs: 15_000,
+            elapsedMs: 15_000,
+            metadata: expect.objectContaining({
+                pageNumber: 7,
+                renderKey: '7:1',
+                stage: 'canvas-render',
+            }),
+        })]);
+        expect(capturedSettlementResolved).not.toHaveBeenCalled();
+
+        const nextStart = vi.fn(() => nextTask);
+        const nextRun = runCoordinatedPdfPageRender({
+            owner: 'next',
+            pageNumber: 7,
+            pdfPage: page,
+            priority: 100,
+            startRender: nextStart,
+        });
+        await flushMicrotasks();
+        expect(nextStart).not.toHaveBeenCalled();
+
+        task.reject(createCancelledRenderError());
+        const error = await run;
+        expect(error).toMatchObject({
+            name: 'PdfPageRenderTimeoutError',
+            pageNumber: 7,
+            stage: 'canvas-render',
+        });
+        await capturedSettlements[0];
+        expect(capturedSettlementResolved).toHaveBeenCalledOnce();
+        await flushMicrotasks();
+        expect(nextStart).toHaveBeenCalledOnce();
+
+        nextTask.resolve();
+        await nextRun;
+    });
+
+    it.each([
+        'resolve',
+        'reject',
+    ] as const)('clears the canvas watchdog when the task settles by %s', async (settlement) => {
+        vi.useFakeTimers();
+        const task = createRenderTask({settleOnCancel: false});
+        const events: IPdfRenderSupervisorEvent[] = [];
+        const run = runCoordinatedPdfPageRender({
+            owner: 'viewport',
+            pageNumber: 1,
+            pdfPage: cast<PDFPageProxy>({pageNumber: 1}),
+            priority: 100,
+            startRender: () => task,
+            watchdog: {
+                key: `canvas-settle:${settlement}`,
+                payload: {
+                    pageNumber: 1,
+                    stage: 'canvas-render',
+                    timeoutMs: 15_000,
+                },
+                renderSupervisor: createPdfRenderSupervisor({onEvent: event => events.push(event)}),
+            },
+        }).catch(error => error as Error);
+        await flushMicrotasks();
+
+        if (settlement === 'resolve') {
+            task.resolve();
+            expect(await run).toBeUndefined();
+        } else {
+            const rejection = new Error('render failed');
+            task.reject(rejection);
+            expect(await run).toBe(rejection);
+        }
+        await vi.advanceTimersByTimeAsync(15_000);
+
+        expect(events).toEqual([]);
+        expect(task.cancel).not.toHaveBeenCalled();
+    });
+
+    it('clears an armed watchdog when the render is aborted and keeps ownership until settlement', async () => {
+        vi.useFakeTimers();
+        const task = createRenderTask({settleOnCancel: false});
+        const controller = new AbortController();
+        const events: IPdfRenderSupervisorEvent[] = [];
+        const run = runCoordinatedPdfPageRender({
+            owner: 'stale-viewport',
+            pageNumber: 1,
+            pdfPage: cast<PDFPageProxy>({pageNumber: 1}),
+            priority: 100,
+            signal: controller.signal,
+            startRender: () => task,
+            watchdog: {
+                key: 'canvas-abort',
+                payload: {
+                    pageNumber: 1,
+                    stage: 'canvas-render',
+                    timeoutMs: 15_000,
+                },
+                renderSupervisor: createPdfRenderSupervisor({onEvent: event => events.push(event)}),
+            },
+        }).catch(error => error as Error);
+        await flushMicrotasks();
+
+        controller.abort();
+        expect(task.cancel).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(events).toEqual([]);
+
+        task.resolve();
+        expect(await run).toMatchObject({name: 'RenderingCancelledException'});
+    });
+
+    it('does not arm a watchdog after synchronous preemption already cancelled the captured task', async () => {
+        vi.useFakeTimers();
+        const page = cast<PDFPageProxy>({pageNumber: 1});
+        const firstTask = createRenderTask({settleOnCancel: false});
+        const secondTask = createRenderTask();
+        const events: IPdfRenderSupervisorEvent[] = [];
+        const secondStart = vi.fn(() => secondTask);
+        let secondRun: Promise<void> | null = null;
+        const firstRun = runCoordinatedPdfPageRender({
+            owner: 'thumbnail',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: 10,
+            startRender: () => {
+                secondRun = runCoordinatedPdfPageRender({
+                    owner: 'viewport',
+                    pageNumber: 1,
+                    pdfPage: page,
+                    priority: 100,
+                    startRender: secondStart,
+                });
+                return firstTask;
+            },
+            watchdog: {
+                key: 'canvas-preempted-before-arm',
+                payload: {
+                    pageNumber: 1,
+                    stage: 'canvas-render',
+                    timeoutMs: 15_000,
+                },
+                renderSupervisor: createPdfRenderSupervisor({onEvent: event => events.push(event)}),
+            },
+        });
+        await flushMicrotasks();
+        expect(firstTask.cancel).toHaveBeenCalledOnce();
+
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(events).toEqual([]);
+        expect(firstTask.cancel).toHaveBeenCalledOnce();
+        expect(secondStart).not.toHaveBeenCalled();
+
+        firstTask.resolve();
+        await firstRun;
+        await flushMicrotasks();
+        expect(secondStart).toHaveBeenCalledOnce();
+        secondTask.resolve();
+        await secondRun;
+    });
+
+    it('lets a task timer registered before the watchdog win when both share a deadline', async () => {
+        vi.useFakeTimers();
+        const task = createRenderTask({settleOnCancel: false});
+        const events: IPdfRenderSupervisorEvent[] = [];
+        setTimeout(task.resolve, 15_000);
+        const run = runCoordinatedPdfPageRender({
+            owner: 'viewport',
+            pageNumber: 1,
+            pdfPage: cast<PDFPageProxy>({pageNumber: 1}),
+            priority: 100,
+            startRender: () => task,
+            watchdog: {
+                key: 'canvas-settlement-race',
+                payload: {
+                    pageNumber: 1,
+                    stage: 'canvas-render',
+                    timeoutMs: 15_000,
+                },
+                renderSupervisor: createPdfRenderSupervisor({onEvent: event => events.push(event)}),
+            },
+        });
+        await flushMicrotasks();
+
+        await vi.advanceTimersByTimeAsync(15_000);
+        await run;
+
+        expect(events).toEqual([]);
+        expect(task.cancel).not.toHaveBeenCalled();
+    });
+
+    it('keeps cancellation authoritative when stall recovery throws and buffers the callback failure', async () => {
+        vi.useFakeTimers();
+        const traceWindow: {
+            __pdfRenderTrace: boolean;
+            __getPdfRenderTrace?: (() => Array<{event: string}>) | undefined;
+        } = {__pdfRenderTrace: true};
+        vi.stubGlobal('window', traceWindow);
+        const task = createRenderTask();
+        const run = runCoordinatedPdfPageRender({
+            owner: 'viewport',
+            pageNumber: 4,
+            pdfPage: cast<PDFPageProxy>({pageNumber: 4}),
+            priority: 100,
+            startRender: () => task,
+            watchdog: {
+                key: 'canvas-recovery-throws',
+                onRenderStall: () => {
+                    throw new Error('recovery failed');
+                },
+                payload: {
+                    pageNumber: 4,
+                    stage: 'canvas-render',
+                    timeoutMs: 15_000,
+                },
+                renderSupervisor: createPdfRenderSupervisor(),
+            },
+        }).catch(error => error as Error);
+        await flushMicrotasks();
+
+        await vi.advanceTimersByTimeAsync(15_000);
+        await run;
+
+        expect(task.cancel).toHaveBeenCalledOnce();
+        expect(traceWindow.__getPdfRenderTrace?.()).toEqual(expect.arrayContaining([
+            expect.objectContaining({event: 'pdf-render-supervisor-watchdog'}),
+            expect.objectContaining({event: 'pdf-page-stage-deadline-callback-failed'}),
+        ]));
     });
 
     it('releases same-page ownership when shouldStart rejects a render', async () => {

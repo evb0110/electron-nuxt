@@ -21,6 +21,11 @@ import {
     runCoordinatedPdfPageOperation,
 } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { createWorkspaceSurfaceBudgetController } from '@app/utils/document-viewer/workspaceSurfaceBudget';
+import {
+    createPdfRenderSupervisor,
+    type IPdfRenderSupervisorEvent,
+} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
+import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { cast } from '@tests/helpers/cast';
 
 const documentFence = {
@@ -921,6 +926,157 @@ describe('PdfPageRasterScheduler', () => {
         expect(leaseCalls).toBe(2);
         expect(prepareCalls).toBe(2);
         expect(leaseReleases[1]).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        {
+            expectedStallCalls: 1,
+            lane: 'viewport-visible' as const,
+        },
+        {
+            expectedStallCalls: 0,
+            lane: 'prefetch' as const,
+        },
+    ])('cancels a wedged $lane task and uses the bounded retry path', async ({
+        expectedStallCalls,
+        lane,
+    }) => {
+        vi.useFakeTimers();
+        const budget = createWorkspaceSurfaceBudgetController(1_000);
+        const events: IPdfRenderSupervisorEvent[] = [];
+        const leaseRelease = vi.fn();
+        const onRenderStall = vi.fn();
+        const firstRender = Promise.withResolvers<undefined>();
+        const firstCancel = vi.fn(() => {
+            const error = new Error('watchdog cancellation');
+            error.name = 'RenderingCancelledException';
+            firstRender.reject(error);
+        });
+        let startCount = 0;
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            leasePage: async pageNumber => ({
+                page: {pageNumber} as PDFPageProxy,
+                release: leaseRelease,
+            }),
+            renderSupervisor: createPdfRenderSupervisor({onEvent: event => events.push(event)}),
+            surfaceBudget: budget,
+        });
+        const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
+            id: `watchdog-${lane}`,
+            prepare: async demand => ({pageNumber: demand.pageNumber}),
+            start: () => {
+                startCount += 1;
+                return startCount === 1
+                    ? cast<RenderTask>({
+                        cancel: firstCancel,
+                        promise: firstRender.promise,
+                    })
+                    : createTask();
+            },
+            commit: () => true,
+            discard: vi.fn(),
+            onRenderStall,
+            release: vi.fn(),
+        };
+        scheduler.setDemand({
+            sourceId: 'viewport',
+            input: [createDemand(1, lane)],
+            policy: {
+                expand: input => input,
+                compareWithinLane: () => 0,
+            },
+            target,
+        });
+        await flush();
+        expect(startCount).toBe(1);
+
+        await vi.advanceTimersByTimeAsync(PDF_PAGE_RENDER_TIMEOUT_MS);
+        await flush();
+
+        expect(firstCancel).toHaveBeenCalledOnce();
+        expect(onRenderStall).toHaveBeenCalledTimes(expectedStallCalls);
+        expect(leaseRelease).toHaveBeenCalledOnce();
+        expect(budget.getSnapshot().reservedBytes).toBe(0);
+        expect(events).toContainEqual(expect.objectContaining({
+            cause: 'page-stage-timeout',
+            metadata: expect.objectContaining({
+                lane,
+                pageNumber: 1,
+                renderKey: '1:1',
+                stage: 'canvas-render',
+            }),
+        }));
+
+        await vi.advanceTimersByTimeAsync(16);
+        await flush();
+        expect(startCount).toBe(2);
+        expect(scheduler.snapshot().residentPages).toHaveLength(1);
+        expect(leaseRelease).toHaveBeenCalledTimes(2);
+
+        await scheduler.dispose();
+    });
+
+    it('holds lease and reservation through timeout, replacement, and exact task settlement', async () => {
+        vi.useFakeTimers();
+        const budget = createWorkspaceSurfaceBudgetController(1_000);
+        const leaseRelease = vi.fn();
+        const render = Promise.withResolvers<undefined>();
+        const cancel = vi.fn();
+        const onRenderStall = vi.fn();
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            leasePage: async pageNumber => ({
+                page: {pageNumber} as PDFPageProxy,
+                release: leaseRelease,
+            }),
+            surfaceBudget: budget,
+        });
+        const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
+            id: 'watchdog-resource-ownership',
+            prepare: async demand => ({pageNumber: demand.pageNumber}),
+            start: () => cast<RenderTask>({
+                cancel,
+                promise: render.promise,
+            }),
+            commit: () => true,
+            discard: vi.fn(),
+            onRenderStall,
+            release: vi.fn(),
+        };
+        const setDemand = (demands: IPdfRasterDemand[]) => scheduler.setDemand({
+            sourceId: 'viewport',
+            input: demands,
+            policy: {
+                expand: input => input,
+                compareWithinLane: () => 0,
+            },
+            target,
+        });
+        setDemand([createDemand(1, 'viewport-visible')]);
+        await flush();
+
+        await vi.advanceTimersByTimeAsync(PDF_PAGE_RENDER_TIMEOUT_MS);
+        await flush();
+        expect(cancel).toHaveBeenCalledOnce();
+        expect(onRenderStall).toHaveBeenCalledOnce();
+        expect(leaseRelease).not.toHaveBeenCalled();
+        expect(budget.getSnapshot().reservedBytes).toBe(400);
+
+        setDemand([]);
+        await flush();
+        expect(cancel).toHaveBeenCalledOnce();
+        expect(leaseRelease).not.toHaveBeenCalled();
+        expect(budget.getSnapshot().reservedBytes).toBe(400);
+
+        const cancellation = new Error('late cancellation settlement');
+        cancellation.name = 'RenderingCancelledException';
+        render.reject(cancellation);
+        await flush();
+        expect(leaseRelease).toHaveBeenCalledOnce();
+        expect(budget.getSnapshot().reservedBytes).toBe(0);
+
+        await scheduler.dispose();
     });
 
     it('awaits a retry execution admitted as its timer fires during source cancellation', async () => {

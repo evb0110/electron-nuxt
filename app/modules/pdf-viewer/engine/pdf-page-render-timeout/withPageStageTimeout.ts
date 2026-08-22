@@ -4,9 +4,75 @@ import {
     createPdfRenderSupervisor,
     type IPdfRenderSupervisor,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 const defaultPdfPageStageRenderSupervisor = createPdfRenderSupervisor();
 let pageStageTimeoutSequence = 0;
+
+interface IArmPageStageDeadlineOptions {
+    key: string;
+    metadata?: Record<string, unknown> | undefined;
+    onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
+    onTimeout?: (() => void) | undefined;
+    payload: IPageRenderStallPayload;
+    renderSupervisor: IPdfRenderSupervisor;
+    shouldNotify: () => boolean;
+}
+
+function logPageStageDeadlineCallbackFailure(
+    callback: 'on-timeout' | 'render-stall-recovery',
+    error: unknown,
+    options: IArmPageStageDeadlineOptions,
+) {
+    logPdfRenderTrace('pdf-page-stage-deadline-callback-failed', {
+        callback,
+        error: error instanceof Error ? error.message : String(error),
+        key: options.key,
+        pageNumber: options.payload.pageNumber,
+        stage: options.payload.stage,
+    });
+}
+
+export function armPageStageDeadline(options: IArmPageStageDeadlineOptions) {
+    let rejectDeadline!: (error: unknown) => void;
+    const promise = new Promise<never>((_resolve, reject) => {
+        rejectDeadline = reject;
+    });
+    const timer = options.renderSupervisor.armTimer({
+        cause: 'page-stage-timeout',
+        delayMs: options.payload.timeoutMs,
+        key: options.key,
+        metadata: {
+            ...options.metadata,
+            pageNumber: options.payload.pageNumber,
+            stage: options.payload.stage,
+            timeoutMs: options.payload.timeoutMs,
+        },
+        onFire: () => {
+            rejectDeadline(createPageRenderTimeoutError(
+                options.payload.pageNumber,
+                options.payload.stage,
+                options.payload.timeoutMs,
+            ));
+            try {
+                options.onTimeout?.();
+            } catch (error) {
+                logPageStageDeadlineCallbackFailure('on-timeout', error, options);
+            }
+            try {
+                if (options.shouldNotify()) {
+                    options.onRenderStall?.(options.payload);
+                }
+            } catch (error) {
+                logPageStageDeadlineCallbackFailure('render-stall-recovery', error, options);
+            }
+        },
+    });
+    return {
+        clear: () => timer.clear(),
+        promise,
+    };
+}
 
 export async function withPageStageTimeout<T>(
     promise: Promise<T>,
@@ -29,40 +95,31 @@ export async function withPageStageTimeout<T>(
             return;
         }
         pageStageTimeoutSequence += 1;
-        const timeoutHandle = renderSupervisor.armTimer({
-            cause: 'page-stage-timeout',
-            delayMs: payload.timeoutMs,
+        const deadline = armPageStageDeadline({
             key: `page-stage-timeout:${payload.pageNumber}:${payload.stage}:${pageStageTimeoutSequence}`,
-            metadata: {
-                pageNumber: payload.pageNumber,
-                stage: payload.stage,
-                timeoutMs: payload.timeoutMs,
-            },
-            onFire: () => {
-                if (settled) {
-                    return;
-                }
-                settled = true;
+            onRenderStall,
+            onTimeout: () => {
                 signal?.removeEventListener('abort', handleAbort);
                 onTimeout?.();
-                if (shouldNotify()) {
-                    onRenderStall?.(payload);
-                }
-                reject(
-                    createPageRenderTimeoutError(
-                        payload.pageNumber,
-                        payload.stage,
-                        payload.timeoutMs,
-                    ),
-                );
             },
+            payload,
+            renderSupervisor,
+            shouldNotify,
+        });
+        void deadline.promise.catch((error: unknown) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            signal?.removeEventListener('abort', handleAbort);
+            reject(error);
         });
         const handleAbort = () => {
             if (settled) {
                 return;
             }
             settled = true;
-            timeoutHandle.clear();
+            deadline.clear();
             signal?.removeEventListener('abort', handleAbort);
             reject(createAbortError());
         };
@@ -74,8 +131,8 @@ export async function withPageStageTimeout<T>(
                     return;
                 }
                 settled = true;
-                timeoutHandle.clear();
                 signal?.removeEventListener('abort', handleAbort);
+                deadline.clear();
                 resolve(value);
             },
             (error) => {
@@ -83,8 +140,8 @@ export async function withPageStageTimeout<T>(
                     return;
                 }
                 settled = true;
-                timeoutHandle.clear();
                 signal?.removeEventListener('abort', handleAbort);
+                deadline.clear();
                 reject(error);
             },
         );

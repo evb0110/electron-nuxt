@@ -18,6 +18,8 @@ import {
     type IWorkspaceSurfaceBudgetController,
     type IWorkspaceSurfaceLease,
 } from '@app/utils/document-viewer/workspaceSurfaceBudget';
+import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
+import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 
 export type TPdfRasterLane =
     | 'navigation-target'
@@ -67,6 +69,7 @@ export interface IPdfRasterRenderTarget<TPrepared> {
     start(prepared: TPrepared, page: PDFPageProxy): RenderTask;
     commit(prepared: TPrepared, demand: IPdfRasterDemand): boolean;
     discard(prepared: TPrepared): void;
+    onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
     release(pageNumber: number, reason: string): void;
 }
 
@@ -569,6 +572,26 @@ export function createPdfPageRasterScheduler(
                 signal: work.controller.signal,
                 shouldStart: () => isDemandCurrent(work),
                 startRender: () => work.target.start(work.prepared, work.pageLease!.page),
+                watchdog: {
+                    key: `raster-canvas-render:${surfaceScopeId}:${String(work.sequence)}:${String(work.retryCount)}`,
+                    metadata: {
+                        lane: work.demand.lane,
+                        renderKey: work.demand.renderKey,
+                        sourceId: work.sourceId,
+                        targetId: work.target.id,
+                    },
+                    onRenderStall: payload => work.target.onRenderStall?.(payload),
+                    payload: {
+                        pageNumber: work.demand.pageNumber,
+                        stage: 'canvas-render',
+                        timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
+                    },
+                    renderSupervisor,
+                    shouldNotify: () => isDemandCurrent(work) && (
+                        work.demand.lane === 'navigation-target'
+                        || work.demand.lane === 'viewport-visible'
+                    ),
+                },
                 captureSettlement: settlement => captureWorkSettlement(work, settlement),
             });
             if (!isDemandCurrent(work)) {

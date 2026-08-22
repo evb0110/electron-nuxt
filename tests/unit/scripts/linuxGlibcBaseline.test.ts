@@ -37,16 +37,25 @@ describe('Linux glibc release baseline', () => {
 
     it('fails closed when readelf cannot inspect a file with ELF magic', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-glibc-malformed-elf-'));
-        await writeFile(join(directory, 'broken'), Buffer.from([
+        const malformedElfPath = join(directory, 'broken');
+        await writeFile(malformedElfPath, Buffer.from([
             0x7f,
             0x45,
             0x4c,
             0x46,
             0x00,
         ]));
+        const runReadelf = (args: string[]) => {
+            if (args[0] === '--version') {
+                return '';
+            }
+            const error = new Error('fake readelf rejected malformed ELF');
+            Object.assign(error, {stderr: 'malformed ELF fixture'});
+            throw error;
+        };
 
-        await expect(assertLinuxGlibcBaseline(directory, '2.35')).rejects.toThrow(
-            'readelf could not inspect ELF file',
+        await expect(assertLinuxGlibcBaseline(directory, '2.35', {runReadelf})).rejects.toThrow(
+            `readelf could not inspect ELF file ${malformedElfPath}: malformed ELF fixture`,
         );
     });
 });

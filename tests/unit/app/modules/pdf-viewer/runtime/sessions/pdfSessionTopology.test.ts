@@ -74,7 +74,7 @@ describe('PDF viewer session topology', () => {
         expect(viewport).not.toContain('notifyRenderStateChanged');
         expect(rendering).toContain('const viewportRasterTarget');
         expect(rendering).toContain('clearAuthoritativePage');
-        expect(rendering).toContain('return prepared.render.startRender()');
+        expect(rendering).toContain('start: prepared => prepared.render.startRender() as RenderTask,');
         expect(renderer).not.toContain('rasterScheduler');
         expect(renderer).not.toContain('getPdfPageRasterScheduler');
         expect(renderer).not.toContain('pageCanvases');

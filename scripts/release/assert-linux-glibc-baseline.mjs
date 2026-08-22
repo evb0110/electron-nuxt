@@ -54,8 +54,12 @@ async function isElfFile(filePath) {
     }
 }
 
-export async function assertLinuxGlibcBaseline(rootDirectory, maximumVersion) {
-    execFileSync('readelf', ['--version'], {stdio: 'ignore'});
+export async function assertLinuxGlibcBaseline(
+    rootDirectory,
+    maximumVersion,
+    {runReadelf = (args, options) => execFileSync('readelf', args, options)} = {},
+) {
+    runReadelf(['--version'], {stdio: 'ignore'});
     const failures = [];
     let elfFileCount = 0;
     for (const filePath of await collectFiles(resolve(rootDirectory))) {
@@ -65,7 +69,7 @@ export async function assertLinuxGlibcBaseline(rootDirectory, maximumVersion) {
         elfFileCount += 1;
         let versionInfo;
         try {
-            versionInfo = execFileSync('readelf', [
+            versionInfo = runReadelf([
                 '--version-info',
                 filePath,
             ], {

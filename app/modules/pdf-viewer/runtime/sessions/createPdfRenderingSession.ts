@@ -304,9 +304,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 render,
             };
         },
-        start(prepared) {
-            return prepared.render.startRender() as RenderTask;
-        },
+        start: prepared => prepared.render.startRender() as RenderTask,
+        onRenderStall: payload => handlePageRenderStall(payload),
         commit(prepared, demand) {
             if (!isPreparedRasterCurrent(prepared) || prepared.job.demand !== demand) {
                 return false;

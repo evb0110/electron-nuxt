@@ -101,15 +101,23 @@ export function parseChecksumManifest(contents) {
 async function releaseAssetNames(artifactDirectory) {
     const entries = await readdir(artifactDirectory, {withFileTypes: true});
     const names = [];
-    const portableNames = new Set();
     for (const entry of entries) {
         if (entry.name === CHECKSUM_FILENAME) {
             continue;
         }
-        const name = validateAssetBasename(entry.name);
         if (!entry.isFile()) {
-            throw new Error(`Release artifact must be a regular file: ${name}`);
+            throw new Error(`Release artifact must be a regular file: ${JSON.stringify(entry.name)}`);
         }
+        names.push(entry.name);
+    }
+    return validateReleaseAssetNames(names);
+}
+
+export function validateReleaseAssetNames(assetNames) {
+    const names = [];
+    const portableNames = new Set();
+    for (const assetName of assetNames) {
+        const name = validateAssetBasename(assetName);
         const portableName = portableAssetName(name);
         if (portableNames.has(portableName)) {
             throw new Error(`Release asset basenames are not portable and unique: ${name}`);
@@ -118,7 +126,7 @@ async function releaseAssetNames(artifactDirectory) {
         names.push(name);
     }
     if (names.length === 0) {
-        throw new Error('Release artifact directory contains no assets');
+        throw new Error('Release asset names must not be empty');
     }
     return names.sort();
 }

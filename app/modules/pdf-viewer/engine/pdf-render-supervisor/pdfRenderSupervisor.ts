@@ -28,6 +28,7 @@ export type TPdfRenderSupervisorCause =
 export interface IPdfRenderSupervisorEvent {
     cause: TPdfRenderSupervisorCause;
     delayMs: number;
+    elapsedMs: number;
     firedAtMs: number;
     metadata?: Record<string, unknown> | undefined;
     ownerKey: string;
@@ -73,6 +74,7 @@ interface ICreatePdfRenderSupervisorOptions {
 }
 
 interface IActivePdfRenderSupervisorTimer {
+    armedAtMs: number;
     cause: TPdfRenderSupervisorWatchdogCause;
     delayMs: number;
     handle: ReturnType<typeof setTimeout> | null;
@@ -93,10 +95,12 @@ function buildEvent(
     cause: TPdfRenderSupervisorCause,
     now: () => number,
 ): IPdfRenderSupervisorEvent {
+    const firedAtMs = now();
     return {
         cause,
         delayMs: activeTimer.delayMs,
-        firedAtMs: now(),
+        elapsedMs: Math.max(0, firedAtMs - activeTimer.armedAtMs),
+        firedAtMs,
         metadata: activeTimer.metadata,
         ownerKey: activeTimer.key,
         sourceCause: cause === 'stale-superseded'
@@ -114,6 +118,7 @@ function buildExplicitEvent(
     return {
         cause: options.cause,
         delayMs: 0,
+        elapsedMs: 0,
         firedAtMs: now(),
         metadata: options.metadata,
         ownerKey: options.key,
@@ -174,6 +179,7 @@ export function createPdfRenderSupervisor(
 
         const token = getNextToken(tokensByKey, armOptions.key);
         const activeTimer: IActivePdfRenderSupervisorTimer = {
+            armedAtMs: now(),
             cause: armOptions.cause,
             delayMs: armOptions.delayMs,
             handle: null,
