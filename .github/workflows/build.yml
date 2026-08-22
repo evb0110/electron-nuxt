@@ -385,17 +385,13 @@ jobs:
             "release/${unpacked_dir}/resources/app.asar" \
             "release/EVB-Viewer-${version}-win-${{ matrix.arch }}-provenance.json"
 
-      - name: Verify packaged Linux core PDF journey
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          executable="$(find release -type f -path '*/linux*-unpacked/evb-viewer' -print -quit)"
-          test -n "$executable"
-          xvfb-run -a pnpm run test:packaged-core-pdf-smoke -- --executable "$executable"
-
       - name: Verify installed Linux AppImage and DEB journeys
         if: runner.os == 'Linux'
         shell: bash
+        # One core-PDF proof per shipped artifact (design charter: one
+        # real-app proof per scenario): the AppImage and the installed DEB
+        # each get one smoke. The unpacked-directory run was a third proof of
+        # the same binary and was removed.
         run: |
           set -euo pipefail
           appimage="$(find release -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
@@ -427,6 +423,9 @@ jobs:
       - name: Verify packaged Windows core PDF journey
         if: runner.os == 'Windows'
         shell: bash
+        # One proof per invariant: this covers the packaged (unpacked) app and
+        # stays blocking on both arches; the NSIS journey below covers the
+        # installed app and is advisory on arm64.
         run: |
           executable="$(find release -type f -path '*/win*-unpacked/EVB Viewer.exe' -print -quit)"
           test -n "$executable"

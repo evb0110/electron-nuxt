@@ -630,9 +630,11 @@ describe('CI topology policy', () => {
         expect(dmgNotarizationStep).toContain('bash scripts/release/import-macos-codesign-certificate.sh');
         expect(dmgNotarizationStep).toContain('node scripts/release/notarize-macos-dmgs.mjs release');
         expect(workflow).toContain('::error::Partial WIN_CSC_* secrets detected; set both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD or neither');
-        expect(workflow).toContain('name: Verify packaged Linux core PDF journey');
+        // One core-PDF proof per shipped artifact: the Linux unpacked-dir
+        // smoke duplicated the AppImage proof of the same binary and is gone.
+        expect(workflow).not.toContain('name: Verify packaged Linux core PDF journey');
+        expect(workflow).not.toContain('find release -type f -path \'*/linux*-unpacked/evb-viewer\'');
         expect(workflow).toContain('if: runner.os == \'Linux\'');
-        expect(workflow).toContain('find release -type f -path \'*/linux*-unpacked/evb-viewer\'');
         expect(workflow).toContain('name: Verify packaged Windows core PDF journey');
         expect(workflow).toContain('find release -type f -path \'*/win*-unpacked/EVB Viewer.exe\'');
         expect(workflow).toContain('name: Verify installed Linux AppImage and DEB journeys');
@@ -771,7 +773,6 @@ describe('CI topology policy', () => {
     it('keeps release quality gates from requiring pre-bundle host Linux resources', async () => {
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
         const prepareJob = workflowJob(releaseWorkflow, 'prepare');
-        const qualityJob = workflowJob(releaseWorkflow, 'quality');
 
         expect(releaseWorkflow).not.toContain('tags:');
         expect(releaseWorkflow).toContain('workflow_dispatch:');
@@ -788,16 +789,16 @@ describe('CI topology policy', () => {
         expect(prepareJob).toContain('actions/workflows/ci.yml/runs?head_sha=${TARGET_SHA}&event=push');
         expect(prepareJob).toContain('--paginate');
         expect(prepareJob).toContain('select(.name == "gates_ok")');
-        expect(releaseWorkflow.indexOf('name: Verify protected-main ancestry and exact-SHA CI'))
-            .toBeLessThan(releaseWorkflow.indexOf('run: pnpm run release:verify:checks'));
+        // Push CI's gates_ok (hard-required by prepare) is the single
+        // validation authority; the release workflow never reruns the
+        // release:verify:checks list.
+        expect(releaseWorkflow).not.toContain('run: pnpm run release:verify:checks');
+        expect(releaseWorkflow).not.toContain('\n  quality:\n');
+        expect(prepareJob).toContain('for attempt in $(seq 1 90)');
+        expect(prepareJob).toContain('within 45 minutes');
         expect(releaseWorkflow).not.toContain('secrets: inherit');
         expect(releaseWorkflow).not.toContain('build_win7_legacy:');
         expect(releaseWorkflow).not.toContain('publish_win7_legacy:');
-        expect(qualityJob).toContain('run: rustup target add wasm32-unknown-unknown');
-        expect(qualityJob).toContain('EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: \'1\'');
-        expect(qualityJob).not.toContain('pnpm --dir landing install');
-        expect(qualityJob).toContain('run: pnpm exec playwright install --with-deps chromium');
-        expect(qualityJob).toContain('run: pnpm run release:verify:checks');
         const publishJob = workflowJob(releaseWorkflow, 'publish');
         expect(publishJob).toContain('environment: release');
         expect(publishJob).toContain(
@@ -1024,6 +1025,16 @@ describe('CI topology policy', () => {
         expect(qualityJob).toContain('run: pnpm run release:verify:checks');
         expect(qualityJob).not.toContain('pnpm --dir landing install');
         expect(qualityJob).toContain('run: pnpm exec playwright install --with-deps chromium');
+        // Quality reruns the release checks only for commits push CI never
+        // vouched for; a green exact-SHA gates_ok run skips it.
+        expect(qualityJob).toContain('if: ${{ needs.prepare.outputs.require_quality == \'true\' }}');
+        expect(workflowJob(workflow, 'prepare')).toContain('name: Resolve validation authority');
+        expect(workflowJob(workflow, 'prepare')).toContain('select(.name == "gates_ok")');
+        // The runs/jobs API lookup needs this scope; without it the lookup
+        // always falls back to running the quality job.
+        expect(workflowJob(workflow, 'prepare')).toContain('actions: read');
+        expect(workflowJob(workflow, 'build_artifacts'))
+            .toContain('needs.quality.result != \'failure\' && needs.quality.result != \'cancelled\'');
         expect(workflowJob(workflow, 'build_artifacts')).toContain('uses: ./.github/workflows/build.yml');
         expect(workflowJob(workflow, 'build_mac_intel')).toContain('uses: ./.github/workflows/build-mac-intel.yml');
         expect(workflowJob(workflow, 'build_win7_legacy')).toContain('uses: ./.github/workflows/build-win7-legacy.yml');

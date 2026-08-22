@@ -2,6 +2,7 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import { formatArtifactGroupList } from './artifact-groups.mjs';
 import {
+    findSuccessfulExactShaCiRun,
     getRepositoryUrlFromRunUrl,
     getRunArtifactsUrl,
     readWorkflowStartTimeoutMs,
@@ -29,20 +30,29 @@ import {
 const WORKFLOW_HANDOFF_POLL_INTERVAL_MS = 5_000;
 
 export function parseCutReleaseArgs(argv) {
-    const unknownFlags = argv.filter(arg => arg.startsWith('--') && arg !== '--resume');
+    const knownFlags = new Set([
+        '--resume',
+        '--full-verify',
+    ]);
+    const unknownFlags = argv.filter(arg => arg.startsWith('--') && !knownFlags.has(arg));
     if (unknownFlags.length > 0) {
         throw new Error(`Unknown release option(s): ${unknownFlags.join(', ')}`);
     }
 
     const resume = argv.includes('--resume');
+    const fullVerify = argv.includes('--full-verify');
     const positional = argv.filter(arg => !arg.startsWith('--'));
 
     if (resume) {
         if (positional.length > 0) {
             throw new Error('Release resume does not accept a release level. Run `pnpm run release:resume`.');
         }
+        if (fullVerify) {
+            throw new Error('Release resume never verifies locally; --full-verify only applies to a fresh cut.');
+        }
 
         return {
+            fullVerify: false,
             level: null,
             resume,
         };
@@ -64,8 +74,70 @@ export function parseCutReleaseArgs(argv) {
     }
 
     return {
+        fullVerify,
         level,
         resume,
+    };
+}
+
+/**
+ * Decides whether the local `release:verify` gate can be skipped. It can only
+ * when the pre-bump HEAD is exactly what the remote already advertises for
+ * main AND that SHA has a successful push-CI run with a green `gates_ok`
+ * aggregate — the same authority the release workflow's `prepare` enforces
+ * before any release job runs. Everything the fast path skips is then a
+ * literal re-execution of what that CI run (and the release build matrix)
+ * already performs; the version bump itself only touches package.json.
+ */
+export function resolveLocalVerificationPlan({
+    fullVerify,
+    headSha,
+    upstream,
+}, {
+    findCiRun = findSuccessfulExactShaCiRun,
+    runCommand = run,
+} = {}) {
+    if (fullVerify) {
+        return {
+            reason: '--full-verify was requested',
+            skipLocalVerify: false,
+        };
+    }
+
+    let remoteSha = '';
+    try {
+        remoteSha = runCommand('git', [
+            'ls-remote',
+            upstream.remote,
+            `refs/heads/${upstream.branch}`,
+        ]).split('\n')[0]?.split(/\s+/u)[0]?.trim() ?? '';
+    } catch {
+        // Fail closed into the full local gate on any remote-lookup error.
+    }
+    if (!remoteSha || remoteSha !== headSha) {
+        return {
+            reason: `HEAD ${headSha} is not the advertised ${upstream.ref} tip (${remoteSha || 'unknown'})`,
+            skipLocalVerify: false,
+        };
+    }
+
+    let ciRun = null;
+    try {
+        ciRun = findCiRun(headSha, {runCommand});
+    } catch {
+        // Fail closed into the full local gate on any CI-lookup error.
+    }
+    if (!ciRun) {
+        return {
+            reason: `no successful exact-SHA push CI run with green gates_ok covers ${headSha}`,
+            skipLocalVerify: false,
+        };
+    }
+
+    return {
+        ciRun,
+        reason: `exact-SHA push CI already passed gates_ok for ${headSha}: ${ciRun.url}`,
+        skipLocalVerify: true,
     };
 }
 
@@ -225,7 +297,7 @@ async function resumeRelease() {
     });
 }
 
-async function cutRelease(level) {
+async function cutRelease(level, {fullVerify = false} = {}) {
     const upstream = getReleaseMainUpstream();
     assertNodeProjectBaseline();
     await assertGitHubCliReady();
@@ -237,6 +309,21 @@ async function cutRelease(level) {
 
     await assertTagAbsent(tag, upstream.remote);
 
+    // HEAD is the pre-bump tree by construction: writeVersion below only
+    // edits package.json in the worktree, and the release commit is created
+    // much later, so this SHA is exactly the commit the remote advertises
+    // whenever the fast path is legal. Resolve the plan before touching
+    // anything so a failed lookup leaves the worktree untouched.
+    const headSha = run('git', [
+        'rev-parse',
+        'HEAD',
+    ]);
+    const verificationPlan = resolveLocalVerificationPlan({
+        fullVerify,
+        headSha,
+        upstream,
+    });
+
     writeVersion(nextVersion);
 
     try {
@@ -245,10 +332,18 @@ async function cutRelease(level) {
             throw new Error(`Expected bumped version to be ${nextVersion}, received ${version}`);
         }
 
-        run('pnpm', [
-            'run',
-            'release:verify',
-        ], {stdio: 'inherit'});
+        if (verificationPlan.skipLocalVerify) {
+            process.stdout.write(
+                `Skipping the local release gate: ${verificationPlan.reason}.\n`
+                + 'CI packages and verifies every release target; pass --full-verify to force the local gate.\n',
+            );
+        } else {
+            process.stdout.write(`Running the full local release gate: ${verificationPlan.reason}.\n`);
+            run('pnpm', [
+                'run',
+                'release:verify',
+            ], {stdio: 'inherit'});
+        }
 
         restoreVersionIfChanged(nextVersion);
 
@@ -287,7 +382,7 @@ async function main() {
         return;
     }
 
-    await cutRelease(args.level);
+    await cutRelease(args.level, {fullVerify: args.fullVerify});
 }
 
 const isDirectCliRun = process.argv[1]

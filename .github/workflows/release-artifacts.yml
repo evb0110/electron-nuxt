@@ -25,9 +25,13 @@ jobs:
   prepare:
     name: Resolve Target
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
       target_sha: ${{ steps.validate.outputs.target_sha }}
       version: ${{ steps.validate.outputs.version }}
+      require_quality: ${{ steps.validation.outputs.require_quality }}
 
     steps:
       - name: Checkout repository
@@ -81,9 +85,49 @@ jobs:
           echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve validation authority
+        id: validation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.validate.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+
+          # Green exact-SHA push CI (gates_ok) is the validation authority.
+          # Rerunning the same release:verify:checks list here would validate
+          # the commit a second time; keep the quality job only for commits
+          # push CI never saw (for example branch builds).
+          # This lookup is an optimization; any API or parse failure must fall
+          # back to running the quality job, never fail the workflow.
+          require_quality=true
+          runs="$(gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${TARGET_SHA}&event=push&per_page=20" \
+            || echo '{}')"
+          run_id="$(jq -r --arg sha "$TARGET_SHA" \
+            '[.workflow_runs[]? | select(.head_sha == $sha and .event == "push" and .status == "completed" and .conclusion == "success")] | sort_by(.run_number) | last | .id // empty' \
+            <<< "$runs" || true)"
+          if [ -n "$run_id" ]; then
+            gates_conclusion="$(gh api \
+              --paginate \
+              -H 'Accept: application/vnd.github+json' \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" \
+              --jq '.jobs[] | select(.name == "gates_ok") | .conclusion' 2>/dev/null | tail -n 1 || true)"
+            if [ "$gates_conclusion" = 'success' ]; then
+              require_quality=false
+              echo "::notice::Exact-SHA push CI run $run_id already passed gates_ok for $TARGET_SHA; skipping the redundant Shared Quality Gates job."
+            fi
+          fi
+          if [ "$require_quality" = 'true' ]; then
+            echo "::notice::No successful exact-SHA push CI covers $TARGET_SHA; running Shared Quality Gates in this workflow."
+          fi
+          echo "require_quality=$require_quality" >> "$GITHUB_OUTPUT"
+
   quality:
     name: Shared Quality Gates
     needs: prepare
+    if: ${{ needs.prepare.outputs.require_quality == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -128,6 +172,9 @@ jobs:
     needs:
       - prepare
       - quality
+    # Quality is skipped when exact-SHA push CI already vouched for the
+    # commit; only a failed quality run blocks the builds.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.quality.result != 'failure' && needs.quality.result != 'cancelled' }}
     uses: ./.github/workflows/build.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
@@ -137,6 +184,7 @@ jobs:
     needs:
       - prepare
       - quality
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.quality.result != 'failure' && needs.quality.result != 'cancelled' }}
     uses: ./.github/workflows/build-mac-intel.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
@@ -146,6 +194,7 @@ jobs:
     needs:
       - prepare
       - quality
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.quality.result != 'failure' && needs.quality.result != 'cancelled' }}
     uses: ./.github/workflows/build-win7-legacy.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
@@ -155,6 +204,7 @@ jobs:
     needs:
       - prepare
       - quality
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.quality.result != 'failure' && needs.quality.result != 'cancelled' }}
     uses: ./.github/workflows/store-appx.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}

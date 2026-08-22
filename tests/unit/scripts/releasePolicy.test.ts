@@ -252,8 +252,18 @@ interface IReleaseSharedModule {
 }
 
 interface ICutReleaseArgs {
+    fullVerify: boolean;
     level: string | null;
     resume: boolean;
+}
+
+interface IVerificationPlan {
+    ciRun?: {
+        id: number;
+        url: string;
+    };
+    reason: string;
+    skipLocalVerify: boolean;
 }
 
 interface IUpstream {
@@ -281,6 +291,20 @@ interface ICutReleaseModule {
         },
         dependencies: IPublishDependencies,
     ) => Promise<string>;
+    resolveLocalVerificationPlan: (
+        options: {
+            fullVerify: boolean;
+            headSha: string;
+            upstream: IUpstream & {ref: string};
+        },
+        dependencies?: {
+            findCiRun?: (sha: string, options?: unknown) => {
+                id: number;
+                url: string
+            } | null;
+            runCommand?: (command: string, args: string[], options?: unknown) => string;
+        },
+    ) => IVerificationPlan;
 }
 
 interface IReleaseArtifactsDispatchOptions {
@@ -355,6 +379,7 @@ const {
     getReleaseWorkflowDispatchArgs,
     parseCutReleaseArgs,
     publishReleaseCommit,
+    resolveLocalVerificationPlan,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/cut-release.mjs')).href) as ICutReleaseModule;
 const {
     getReleaseArtifactsWorkflowDispatchArgs,
@@ -449,9 +474,12 @@ describe('release policy', () => {
         expect(isSupplementalReleaseAsset('SHA256SUMS')).toBe(false);
 
         // With a release version, only that release's exact asset name is
-        // supplemental; other versions stop being exempt.
+        // supplemental; other versions stop being exempt, and an explicitly
+        // supplied empty version is a caller bug, not a pattern fallback.
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64.zip', '0.1.427')).toBe(true);
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.426-x64.zip', '0.1.427')).toBe(false);
+        expect(() => isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64.zip', ''))
+            .toThrow('non-empty release version');
     });
 
     it('derives local release targets from host platform and arch', () => {
@@ -1246,10 +1274,20 @@ describe('release policy', () => {
 
     it('supports release resume without requiring a new version bump level', () => {
         expect(parseCutReleaseArgs(['patch'])).toEqual({
+            fullVerify: false,
+            level: 'patch',
+            resume: false,
+        });
+        expect(parseCutReleaseArgs([
+            'patch',
+            '--full-verify',
+        ])).toEqual({
+            fullVerify: true,
             level: 'patch',
             resume: false,
         });
         expect(parseCutReleaseArgs(['--resume'])).toEqual({
+            fullVerify: false,
             level: null,
             resume: true,
         });
@@ -1257,6 +1295,115 @@ describe('release policy', () => {
             'patch',
             '--resume',
         ])).toThrow('does not accept a release level');
+        expect(() => parseCutReleaseArgs([
+            '--resume',
+            '--full-verify',
+        ])).toThrow('--full-verify only applies to a fresh cut');
+    });
+
+    it('skips the local release gate only for the advertised main tip with green exact-SHA CI', () => {
+        const upstream = {
+            branch: 'main',
+            ref: 'origin/main',
+            remote: 'origin',
+        };
+        const headSha = 'a'.repeat(40);
+        const ciRun = {
+            id: 42,
+            url: 'https://github.com/evb0110/evb-viewer/actions/runs/42',
+        };
+        const remoteAt = (sha: string) => (command: string, args: string[]) => {
+            expect(command).toBe('git');
+            expect(args).toEqual([
+                'ls-remote',
+                'origin',
+                'refs/heads/main',
+            ]);
+            return `${sha}\trefs/heads/main`;
+        };
+
+        const requestedShas: string[] = [];
+        expect(resolveLocalVerificationPlan({
+            fullVerify: false,
+            headSha,
+            upstream,
+        }, {
+            findCiRun: (sha) => {
+                requestedShas.push(sha);
+                return ciRun;
+            },
+            runCommand: remoteAt(headSha),
+        })).toEqual({
+            ciRun,
+            reason: expect.stringContaining(ciRun.url) as string,
+            skipLocalVerify: true,
+        });
+        expect(requestedShas).toEqual([ headSha ]);
+
+        // --full-verify always forces the full local gate.
+        expect(resolveLocalVerificationPlan({
+            fullVerify: true,
+            headSha,
+            upstream,
+        }, {
+            findCiRun: () => ciRun,
+            runCommand: remoteAt(headSha),
+        }).skipLocalVerify).toBe(false);
+
+        // A stale or diverged remote tip forces the full local gate.
+        expect(resolveLocalVerificationPlan({
+            fullVerify: false,
+            headSha,
+            upstream,
+        }, {
+            findCiRun: () => ciRun,
+            runCommand: remoteAt('b'.repeat(40)),
+        }).skipLocalVerify).toBe(false);
+
+        // Missing green CI, and CI-lookup failures, fail closed.
+        expect(resolveLocalVerificationPlan({
+            fullVerify: false,
+            headSha,
+            upstream,
+        }, {
+            findCiRun: () => null,
+            runCommand: remoteAt(headSha),
+        }).skipLocalVerify).toBe(false);
+        expect(resolveLocalVerificationPlan({
+            fullVerify: false,
+            headSha,
+            upstream,
+        }, {
+            findCiRun: () => {
+                throw new Error('api unavailable');
+            },
+            runCommand: remoteAt(headSha),
+        }).skipLocalVerify).toBe(false);
+
+        // A failing `git ls-remote` must also fail closed, and --full-verify
+        // must decide before any remote lookup happens.
+        expect(resolveLocalVerificationPlan({
+            fullVerify: false,
+            headSha,
+            upstream,
+        }, {
+            findCiRun: () => ciRun,
+            runCommand: () => {
+                throw new Error('remote unreachable');
+            },
+        }).skipLocalVerify).toBe(false);
+        expect(resolveLocalVerificationPlan({
+            fullVerify: true,
+            headSha,
+            upstream,
+        }, {
+            findCiRun: () => {
+                throw new Error('must not be called');
+            },
+            runCommand: () => {
+                throw new Error('must not be called');
+            },
+        }).skipLocalVerify).toBe(false);
         expect(getReleaseWorkflowDispatchArgs({
             branch: 'main',
             tag: 'v1.2.3',

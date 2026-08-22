@@ -134,8 +134,12 @@ jobs:
             exit 1
           fi
 
+          # Push CI for a release commit measures ~33-34 minutes, and the cut
+          # dispatches this workflow seconds after the push. Poll for up to 45
+          # minutes so the dispatch never has to be manually re-timed around
+          # the CI run; a completed failing run still fails fast below.
           run_id=''
-          for attempt in $(seq 1 40); do
+          for attempt in $(seq 1 90); do
             runs="$(gh api \
               -H 'Accept: application/vnd.github+json' \
               "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${TARGET_SHA}&event=push&per_page=20")"
@@ -154,11 +158,11 @@ jobs:
               fi
               break
             fi
-            if [ "$attempt" = 40 ]; then
-              echo "::error::No successful completed push CI run appeared for exact target $TARGET_SHA within 20 minutes."
+            if [ "$attempt" = 90 ]; then
+              echo "::error::No successful completed push CI run appeared for exact target $TARGET_SHA within 45 minutes."
               exit 1
             fi
-            echo "Waiting for exact-SHA push CI for $TARGET_SHA (attempt $attempt/40)."
+            echo "Waiting for exact-SHA push CI for $TARGET_SHA (attempt $attempt/90)."
             sleep 30
           done
 
@@ -204,49 +208,6 @@ jobs:
           fi
 
           echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
-
-  quality:
-    name: Shared Quality Gates
-    needs: prepare
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout target
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-          ref: ${{ needs.prepare.outputs.target_sha }}
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install dependencies
-        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-      - name: Install PDF text test tools
-        timeout-minutes: 15
-        run: scripts/ci/apt-install.sh poppler-utils
-
-      - name: Install scan-cleanup audit tools
-        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
-
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Install Rust WASM target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Release checks
-        env:
-          EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: '1'
-        run: pnpm run release:verify:checks
 
   release_credentials:
     name: Resolve Public Release Channels
@@ -297,10 +258,12 @@ jobs:
           echo "submit_store=$submit_store" >> "$GITHUB_OUTPUT"
 
   build_artifacts:
+    # Validation authority is the exact-SHA push CI gate that prepare already
+    # hard-requires (gates_ok); the release workflow does not rerun the
+    # release:verify:checks list a second time.
     name: Package Release Artifacts
     needs:
       - prepare
-      - quality
       - release_credentials
     uses: ./.github/workflows/build.yml
     with:
@@ -423,7 +386,6 @@ jobs:
     name: Package Release Artifacts / build (macos-15-intel, mac, x64)
     needs:
       - prepare
-      - quality
       - release_credentials
     uses: ./.github/workflows/build-mac-intel.yml
     with:
