@@ -7,7 +7,16 @@ import {
     vi,
 } from 'vitest';
 
-const mocks = vi.hoisted(() => ({appended: [] as string[]}));
+const mocks = vi.hoisted(() => ({
+    appended: [] as string[],
+    broadcasts: [] as unknown[][],
+}));
+
+vi.mock('electron', () => ({BrowserWindow: {getAllWindows: () => [{
+    isDestroyed: () => false,
+    webContents: {send: (...args: unknown[]) => mocks.broadcasts.push(args)},
+}]}}));
+vi.mock('worker_threads', () => ({isMainThread: true}));
 
 vi.mock('fs', () => ({
     mkdirSync: vi.fn(),
@@ -41,12 +50,15 @@ describe('file logger write buffering', () => {
         vi.resetModules();
         vi.useFakeTimers();
         mocks.appended = [];
+        mocks.broadcasts = [];
         process.env.ELECTRON_FILE_LOG_LEVEL = 'DEBUG';
+        process.env.ELECTRON_RENDER_LOG_LEVEL = 'INFO';
     });
 
     afterEach(() => {
         vi.useRealTimers();
         delete process.env.ELECTRON_FILE_LOG_LEVEL;
+        delete process.env.ELECTRON_RENDER_LOG_LEVEL;
     });
 
     it('coalesces a burst of lines into a single append', async () => {
@@ -87,5 +99,40 @@ describe('file logger write buffering', () => {
         await flushPendingLogWrites();
         expect(countWrittenLines()).toBe(1);
         expect(mocks.appended.join('')).toContain('pending on quit');
+    });
+
+    it('redacts once before file writes and renderer broadcasts', async () => {
+        const {
+            createLogger,
+            flushPendingLogWrites,
+        } = await import('@electron/utils/createLogger');
+        const logger = createLogger('redaction-test');
+        logger.info('GET https://user:pass@updates.example.test:8443/latest?channel=stable&token=secret#private');
+
+        await flushPendingLogWrites();
+        await vi.dynamicImportSettled();
+
+        const expectedUrl = 'https://[redacted]@updates.example.test:8443/latest?channel=[redacted]&token=[redacted]#[redacted]';
+        expect(mocks.appended.join('')).toContain(expectedUrl);
+        expect(mocks.broadcasts.at(-1)?.[0]).toBe('debug:log');
+        expect(mocks.broadcasts.at(-1)?.[1]).toMatchObject({message: `[INFO] GET ${expectedUrl}`});
+        expect(JSON.stringify(mocks.broadcasts)).not.toContain('user:pass');
+        expect(mocks.appended.join('')).not.toContain('token=secret');
+    });
+
+    it('redacts composite JSON credentials without deleting sibling log fields', async () => {
+        const {
+            createLogger,
+            flushPendingLogWrites,
+        } = await import('@electron/utils/createLogger');
+        const logger = createLogger('composite-redaction-test', {broadcastToRenderers: false});
+        logger.warn('event={"authorization":{"scheme":"Basic","credentials":"abc def"},"next":"useful"}');
+
+        await flushPendingLogWrites();
+
+        expect(mocks.appended.join('')).toContain(
+            'event={"authorization":"[redacted-secret]","next":"useful"}',
+        );
+        expect(mocks.appended.join('')).not.toContain('abc def');
     });
 });

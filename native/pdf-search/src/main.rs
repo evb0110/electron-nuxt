@@ -28,6 +28,14 @@ const PAGE_RECORD_SIZE: usize = 24;
 const MAX_SERVICE_WORKERS: usize = 4;
 const MAX_SERVICE_CACHED_INDEXES: usize = 8;
 const MAX_SERVICE_CACHED_INDEX_BYTES: usize = 512 * 1024 * 1024;
+const MAX_SERVICE_FRAME_BYTES: usize = 4 * 1024 * 1024;
+const MAX_SEARCH_REQUEST_ID_CHARS: usize = 128;
+const MAX_SEARCH_INDEX_PATH_CHARS: usize = 4_096;
+const MAX_SEARCH_QUERY_CHARS: usize = 2_048;
+const MAX_SEARCH_DOCUMENT_REVISION_CHARS: usize = 8_192;
+const MAX_SEARCH_RESULT_LIMIT: usize = 500;
+const MAX_SEARCH_CONTEXT_CHARS: usize = 56;
+const MAX_SEARCH_PAGE_COUNT: u32 = 1_000_000;
 const MAX_SEARCH_INDEX_BYTES: usize = 320 * 1024 * 1024;
 const MAX_SEARCH_INDEX_PAGE_RECORDS: usize = 1_000_000;
 const MAX_SEARCH_INDEX_PAGE_TEXT_BYTES: usize = 32 * 1024 * 1024;
@@ -943,6 +951,142 @@ enum ServiceRequest {
     Shutdown,
 }
 
+enum ServiceFrame {
+    Eof,
+    Frame(Vec<u8>),
+    TooLarge,
+}
+
+fn drain_service_frame(reader: &mut impl BufRead) -> io::Result<()> {
+    loop {
+        let buffered = reader.fill_buf()?;
+        if buffered.is_empty() {
+            return Ok(());
+        }
+        let newline = buffered.iter().position(|byte| *byte == b'\n');
+        let consumed = newline.map_or(buffered.len(), |position| position + 1);
+        reader.consume(consumed);
+        if newline.is_some() {
+            return Ok(());
+        }
+    }
+}
+
+fn read_service_frame(reader: &mut impl BufRead) -> io::Result<ServiceFrame> {
+    let mut frame = Vec::new();
+    loop {
+        let buffered = reader.fill_buf()?;
+        if buffered.is_empty() {
+            return if frame.is_empty() {
+                Ok(ServiceFrame::Eof)
+            } else {
+                Ok(ServiceFrame::Frame(frame))
+            };
+        }
+
+        let newline = buffered.iter().position(|byte| *byte == b'\n');
+        let frame_part_len = newline.unwrap_or(buffered.len());
+        let remaining = MAX_SERVICE_FRAME_BYTES - frame.len();
+        if frame_part_len > remaining {
+            let consumed = newline.map_or(buffered.len(), |position| position + 1);
+            reader.consume(consumed);
+            if newline.is_none() {
+                drain_service_frame(reader)?;
+            }
+            return Ok(ServiceFrame::TooLarge);
+        }
+
+        frame.extend_from_slice(&buffered[..frame_part_len]);
+        let consumed = newline.map_or(buffered.len(), |position| position + 1);
+        reader.consume(consumed);
+        if newline.is_some() {
+            return Ok(ServiceFrame::Frame(frame));
+        }
+    }
+}
+
+fn request_id_for_error(request: &ServiceRequest) -> &str {
+    match request {
+        ServiceRequest::Search { request_id, .. } | ServiceRequest::Cancel { request_id } => {
+            request_id
+        }
+        ServiceRequest::ResetCache | ServiceRequest::Shutdown => "",
+    }
+}
+
+fn validate_bounded_string(value: &str, label: &str, max_chars: usize) -> Result<(), NativeError> {
+    if value.trim().is_empty() {
+        return Err(invalid_request(format!("{label} must not be empty")));
+    }
+    validate_string_length(value, label, max_chars)
+}
+
+fn validate_string_length(value: &str, label: &str, max_chars: usize) -> Result<(), NativeError> {
+    if value.encode_utf16().count() > max_chars {
+        return Err(too_large(format!(
+            "{label} exceeds the {max_chars}-character admission ceiling"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_service_request(request: &ServiceRequest) -> Result<(), NativeError> {
+    match request {
+        ServiceRequest::Search {
+            request_id,
+            index_path,
+            query,
+            document_revision,
+            limit,
+            context_chars,
+            page_count,
+            ..
+        } => {
+            validate_bounded_string(request_id, "Search request id", MAX_SEARCH_REQUEST_ID_CHARS)?;
+            validate_bounded_string(
+                &index_path.to_string_lossy(),
+                "Search index path",
+                MAX_SEARCH_INDEX_PATH_CHARS,
+            )?;
+            // Whitespace-only queries are valid literal PDF text searches.
+            if query.is_empty() {
+                return Err(invalid_request("Search query must not be empty"));
+            }
+            validate_string_length(query, "Search query", MAX_SEARCH_QUERY_CHARS)?;
+            validate_bounded_string(
+                document_revision,
+                "Search document revision",
+                MAX_SEARCH_DOCUMENT_REVISION_CHARS,
+            )?;
+            if *limit > MAX_SEARCH_RESULT_LIMIT {
+                return Err(too_large(format!(
+                    "Search result limit exceeds the {MAX_SEARCH_RESULT_LIMIT}-result admission ceiling"
+                )));
+            }
+            if *context_chars > MAX_SEARCH_CONTEXT_CHARS {
+                return Err(too_large(format!(
+                    "Search context exceeds the {MAX_SEARCH_CONTEXT_CHARS}-character admission ceiling"
+                )));
+            }
+            if let Some(page_count) = page_count {
+                if *page_count == 0 {
+                    return Err(invalid_request("Search page count must be at least 1"));
+                }
+                if *page_count > MAX_SEARCH_PAGE_COUNT {
+                    return Err(too_large(format!(
+                        "Search page count exceeds the {MAX_SEARCH_PAGE_COUNT}-page admission ceiling"
+                    )));
+                }
+            }
+        }
+        ServiceRequest::Cancel { request_id } => {
+            validate_bounded_string(request_id, "Search request id", MAX_SEARCH_REQUEST_ID_CHARS)?
+        }
+        ServiceRequest::ResetCache | ServiceRequest::Shutdown => {}
+    }
+    Ok(())
+}
+
 fn default_search_limit() -> usize {
     500
 }
@@ -1108,10 +1252,14 @@ fn stop_service_workers(
     workers: Vec<thread::JoinHandle<()>>,
 ) -> Result<(), Box<dyn Error>> {
     cancel_all_service_requests(cancellations)?;
+    join_service_workers(workers);
+    Ok(())
+}
+
+fn join_service_workers(workers: Vec<thread::JoinHandle<()>>) {
     for worker in workers {
         let _ = worker.join();
     }
-    Ok(())
 }
 
 fn run_service() -> Result<(), Box<dyn Error>> {
@@ -1126,12 +1274,35 @@ fn run_service() -> Result<(), Box<dyn Error>> {
     )?;
     let mut workers: Vec<thread::JoinHandle<()>> = Vec::new();
 
-    for line in BufReader::new(io::stdin()).lines() {
-        let line = line?;
-        if line.trim().is_empty() {
+    let mut input = BufReader::new(io::stdin());
+    loop {
+        let frame = match read_service_frame(&mut input) {
+            Err(error) => {
+                stop_service_workers(&cancellations, workers)?;
+                return Err(Box::new(error));
+            }
+            Ok(ServiceFrame::Eof) => break,
+            Ok(ServiceFrame::Frame(frame)) => frame,
+            Ok(ServiceFrame::TooLarge) => {
+                write_service_response(
+                    &output,
+                    &ServiceResponse::Error {
+                        request_id: "",
+                        error: ErrorEnvelope {
+                            code: NativeErrorCode::TooLarge,
+                            message: format!(
+                                "Search service frame exceeds the {MAX_SERVICE_FRAME_BYTES}-byte admission ceiling"
+                            ),
+                        },
+                    },
+                )?;
+                continue;
+            }
+        };
+        if frame.iter().all(|byte| byte.is_ascii_whitespace()) {
             continue;
         }
-        let request = match serde_json::from_str::<ServiceRequest>(&line) {
+        let request = match serde_json::from_slice::<ServiceRequest>(&frame) {
             Ok(request) => request,
             Err(error) => {
                 write_service_response(
@@ -1147,6 +1318,26 @@ fn run_service() -> Result<(), Box<dyn Error>> {
                 continue;
             }
         };
+        if let Err(error) = validate_service_request(&request) {
+            let request_id = if request_id_for_error(&request).encode_utf16().count()
+                <= MAX_SEARCH_REQUEST_ID_CHARS
+            {
+                request_id_for_error(&request)
+            } else {
+                ""
+            };
+            write_service_response(
+                &output,
+                &ServiceResponse::Error {
+                    request_id,
+                    error: ErrorEnvelope {
+                        code: error.code,
+                        message: error.message,
+                    },
+                },
+            )?;
+            continue;
+        }
         match request {
             ServiceRequest::ResetCache => {
                 cache

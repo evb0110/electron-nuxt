@@ -500,4 +500,36 @@ describe('runCoordinatedPdfPageRender', () => {
         await renderRun;
         await flushAsync();
     });
+
+    it('exposes the exact operation settlement independently of its aborted caller', async () => {
+        const page = cast<PDFPageProxy>({pageNumber: 1});
+        const operation = createDeferred<string>();
+        const controller = new AbortController();
+        const capturedSettlements: Array<Promise<void>> = [];
+        const settled = vi.fn();
+
+        const operationRun = runCoordinatedPdfPageOperation({
+            owner: 'captured-filter',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: 100,
+            signal: controller.signal,
+            captureSettlement: settlement => capturedSettlements.push(settlement),
+            operation: () => operation.promise,
+        }).catch(error => error as Error);
+        await flushAsync();
+
+        expect(capturedSettlements).toHaveLength(1);
+        void capturedSettlements[0]!.then(settled);
+        controller.abort();
+        const operationError = await operationRun;
+        expect(operationError).toBeInstanceOf(Error);
+        expect((operationError as Error).name).toBe('RenderingCancelledException');
+        await flushAsync();
+        expect(settled).not.toHaveBeenCalled();
+
+        operation.resolve('late');
+        await capturedSettlements[0];
+        expect(settled).toHaveBeenCalledOnce();
+    });
 });

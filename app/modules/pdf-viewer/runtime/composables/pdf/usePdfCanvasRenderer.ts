@@ -9,6 +9,7 @@ import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
+import type { TPdfPageOperationSettlementCapture } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 
 interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;
@@ -46,6 +47,7 @@ interface IRenderCanvasOptions {
         signal?: AbortSignal | undefined;
         shouldStart?: (() => boolean) | undefined;
         shouldContinue?: (() => boolean) | undefined;
+        captureSettlement?: TPdfPageOperationSettlementCapture | undefined;
     };
 }
 

@@ -242,7 +242,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }
     const viewportRasterTarget: IPdfRasterRenderTarget<IPreparedViewportRaster> = {
         id: 'pdf-viewport',
-        async prepare(demand, page, signal) {
+        async prepare(demand, page, signal, captureSettlement) {
             const job = viewportRasterJobs.get(demand.renderKey);
             const target = getMountedRasterTarget(demand.pageNumber);
             if (
@@ -254,28 +254,27 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             ) {
                 return null;
             }
-            const pageNumber = demand.pageNumber;
             const version = demand.consumerGeneration;
             const scale = job.targetScale;
             const requestId = ++visibleRenderRequestId;
             pageRenderState.beginRender(
-                pageNumber,
+                demand.pageNumber,
                 version,
                 requestId,
                 getRenderDocumentToken(),
                 scale,
                 job.targetOutputScale,
                 target.container,
-                {preserveCommittedVisual: pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready'},
+                {preserveCommittedVisual: pageRenderState.getSlot(demand.pageNumber).canvasReadiness === 'ready'},
             );
             const shouldContinue = () => (
                 !signal.aborted && version === renderVersion
                 && viewportRasterJobs.get(demand.renderKey) === job
                 && isViewportRasterJobScaleCurrent(job)
-                && isViewportRasterDemanded(pageNumber, job.demand.lane)
+                && isViewportRasterDemanded(demand.pageNumber, job.demand.lane)
             );
             const intent = job.renderOptions.contentIntent;
-            const sourceMaxPixels = resolvePdfRasterSourceMaxPixels(options.rasterDisplayProfile.value, pageNumber);
+            const sourceMaxPixels = resolvePdfRasterSourceMaxPixels(options.rasterDisplayProfile.value, demand.pageNumber);
             const render = await canvasRenderer.prepareCanvasRender(page, scale, {
                 ...(intent ? {contentIntent: intent} : {}),
                 hiddenAnnotationIds: pageRenderer.canvasHiddenAnnotationIds.value,
@@ -290,11 +289,12 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     signal,
                     shouldStart: shouldContinue,
                     shouldContinue,
+                    captureSettlement,
                 },
             });
             if (!render || !shouldContinue()) {
                 if (render) canvasRenderer.cleanupCanvasRenderResult(render);
-                pageRenderState.completeRender(pageNumber, version, requestId);
+                pageRenderState.completeRender(demand.pageNumber, version, requestId);
                 return null;
             }
             return {

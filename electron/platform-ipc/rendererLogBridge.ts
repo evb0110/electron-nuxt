@@ -7,6 +7,7 @@ import type {
 import { isRecord } from '@contracts/runtimeGuards';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { createLogger } from '@electron/utils/createLogger';
+import { redactElectronLogText } from '@electron/utils/redactElectronLogText';
 
 interface IRendererLogRateState {
     tokens: number;
@@ -81,53 +82,12 @@ const RENDERER_LOG_DROP_NOTICE_INTERVAL_MS = (() => {
 })();
 const rendererLogRateStateBySender = new Map<number, IRendererLogRateState>();
 const rendererLogCleanupRegisteredBySender = new Set<number>();
-const RENDERER_LOG_REDACTION_PATTERNS: Array<{
-    pattern: RegExp;
-    replacement: string;
-}> = [
-    {
-        pattern: /\b(?:authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|token)\s*[:=]\s*["']?[^"',}\]\s]+/giu,
-        replacement: '[redacted-secret]',
-    },
-    {
-        pattern: /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gu,
-        replacement: 'Bearer [redacted]',
-    },
-    {
-        pattern: /data:[^\s"',)]+/giu,
-        replacement: 'data:[redacted]',
-    },
-    {
-        pattern: /file:\/\/[^\s"',)]+/giu,
-        replacement: 'file://[redacted]',
-    },
-    {
-        pattern: /\/Users\/[^/\s"',)]+(?:\/[^\s"',)]+)*/gu,
-        replacement: '/Users/[redacted]',
-    },
-    {
-        pattern: /[A-Za-z]:\\Users\\[^\\\s"',)]+(?:\\[^\s"',)]+)*/gu,
-        replacement: 'C:\\Users\\[redacted]',
-    },
-];
-
-function redactRendererLogText(value: string) {
-    let redacted = value;
-    for (const {
-        pattern,
-        replacement,
-    } of RENDERER_LOG_REDACTION_PATTERNS) {
-        redacted = redacted.replace(pattern, replacement);
-    }
-    return redacted;
-}
-
 function clampString(value: unknown, maxChars: number, fallback = '') {
     if (typeof value !== 'string') {
         return fallback;
     }
 
-    const trimmed = redactRendererLogText(value).trim();
+    const trimmed = redactElectronLogText(value).trim();
     if (trimmed.length <= maxChars) {
         return trimmed;
     }
@@ -301,6 +261,7 @@ function stringifyRendererLogData(data: unknown) {
     if (!serialized) {
         serialized = '';
     }
+    serialized = redactElectronLogText(serialized);
 
     if (serialized.length > RENDERER_LOG_MAX_DATA_CHARS) {
         const originalLength = serialized.length;

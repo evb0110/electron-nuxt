@@ -404,4 +404,33 @@ describe('normalizeRendererLogEntry', () => {
         expect(entry.serializedData).not.toContain('abc.def.ghi');
         expect(entry.serializedData).not.toContain('/Users/evb/private/report.pdf');
     });
+
+    it('redacts URL secrets while preserving renderer log routing details', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const entry = normalizeRendererLogEntry({
+            level: 'error',
+            section: 'updates',
+            message: 'GET https://user:pass@updates.example.test:8443/releases/latest?channel=stable&channel=beta&token=secret#private failed',
+        });
+
+        expect(entry.message).toBe(
+            'GET https://[redacted]@updates.example.test:8443/releases/latest?channel=[redacted]&channel=[redacted]&token=[redacted]#[redacted] failed',
+        );
+    });
+
+    it('redacts secret-named properties in structured renderer data', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const entry = normalizeRendererLogEntry({
+            message: 'failed',
+            data: {
+                authorization: 'super-secret',
+                apiKey: 'api-secret',
+            },
+        });
+
+        expect(entry.serializedData).not.toContain('super-secret');
+        expect(entry.serializedData).not.toContain('api-secret');
+        expect(entry.serializedData).toContain('"authorization":"[redacted-secret]"');
+        expect(entry.serializedData).toContain('"apiKey":"[redacted-secret]"');
+    });
 });

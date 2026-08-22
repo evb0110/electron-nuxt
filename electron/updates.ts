@@ -18,6 +18,7 @@ import {
 import { isAbortError } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { redactElectronLogText } from '@electron/utils/redactElectronLogText';
 import {
     compareVersions,
     normalizeVersion,
@@ -123,9 +124,15 @@ function broadcastProgressStatus() {
 }
 
 function updateStatus(next: Partial<IAppUpdateStatus>) {
+    const message = next.message === undefined
+        ? status.message
+        : typeof next.message === 'string'
+            ? redactElectronLogText(next.message)
+            : next.message;
     status = {
         ...status,
         ...next,
+        message,
     };
 
     if (status.phase !== 'downloading') {

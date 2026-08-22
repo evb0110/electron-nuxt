@@ -17,6 +17,7 @@ import {
 import { sortBy } from 'es-toolkit/array';
 import { sumBy } from 'es-toolkit/math';
 import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
+import { redactElectronLogText } from '@electron/utils/redactElectronLogText';
 
 interface ILogMessage {
     source: string;
@@ -391,7 +392,8 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
 
     function log(level: TLogLevel, msg: string) {
         const ts = new Date().toISOString();
-        const formattedMsg = `[${ts}] [${source}] [${level}] ${msg}`;
+        const redactedMsg = redactElectronLogText(msg);
+        const formattedMsg = `[${ts}] [${source}] [${level}] ${redactedMsg}`;
 
         if (shouldLog(level, FILE_LOG_LEVEL)) {
             enqueueWrite(source, logFile, formattedMsg, level);
@@ -400,7 +402,7 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
         if (broadcastToRenderersEnabled && shouldLog(level, RENDER_LOG_LEVEL)) {
             void broadcastToRenderers({
                 source,
-                message: `[${level}] ${msg}`,
+                message: `[${level}] ${redactedMsg}`,
                 timestamp: ts,
                 level,
             });

@@ -414,12 +414,13 @@ describe('PdfPageRasterScheduler', () => {
             },
             target: {
                 id: 'cancelled-prepare',
-                prepare: async (_demand, leasedPage, signal) => runCoordinatedPdfPageOperation({
+                prepare: async (_demand, leasedPage, signal, captureSettlement) => runCoordinatedPdfPageOperation({
                     owner: 'cancelled-prepare',
                     pageNumber: leasedPage.pageNumber,
                     pdfPage: leasedPage,
                     priority: 100,
                     signal,
+                    captureSettlement,
                     operation: async () => {
                         prepareStarted();
                         return leasedPage.getOperatorList();
@@ -448,6 +449,96 @@ describe('PdfPageRasterScheduler', () => {
 
         expect(release).toHaveBeenCalledOnce();
         expect(disposeSettled).toHaveBeenCalledOnce();
+    });
+
+    it('cancels source A without waiting for an active same-page successor from source B', async () => {
+        const page = cast<PDFPageProxy>({pageNumber: 1});
+        const operationA = Promise.withResolvers<string>();
+        const operationB = Promise.withResolvers<string>();
+        const operationAStarted = vi.fn();
+        const operationBStarted = vi.fn();
+        const leaseReleases = [
+            vi.fn(),
+            vi.fn(),
+        ];
+        let leaseIndex = 0;
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            leasePage: async () => ({
+                page,
+                release: leaseReleases[leaseIndex++]!,
+            }),
+            maxConcurrency: 2,
+            surfaceBudget: createWorkspaceSurfaceBudgetController(1_000),
+        });
+        const createPreparingTarget = (
+            id: string,
+            started: () => void,
+            operation: Promise<string>,
+        ): IPdfRasterRenderTarget<Record<string, never>> => ({
+            id,
+            prepare: async (_demand, leasedPage, signal, captureSettlement) => runCoordinatedPdfPageOperation({
+                owner: id,
+                pageNumber: leasedPage.pageNumber,
+                pdfPage: leasedPage,
+                priority: 100,
+                signal,
+                captureSettlement,
+                operation: async () => {
+                    started();
+                    await operation;
+                    return {};
+                },
+            }).catch(() => null),
+            start: () => createTask(),
+            commit: () => true,
+            discard: vi.fn(),
+            release: vi.fn(),
+        });
+        const targetA = createPreparingTarget('source-a-target', operationAStarted, operationA.promise);
+        const targetB = createPreparingTarget('source-b-target', operationBStarted, operationB.promise);
+        const policy = {
+            expand: (input: readonly IPdfRasterDemand[]) => input,
+            compareWithinLane: () => 0,
+        };
+
+        scheduler.setDemand({
+            sourceId: 'source-a',
+            input: [createDemand(1, 'viewport-visible')],
+            policy,
+            target: targetA,
+        });
+        await vi.waitFor(() => expect(operationAStarted).toHaveBeenCalledOnce());
+        scheduler.setDemand({
+            sourceId: 'source-b',
+            input: [{
+                ...createDemand(1, 'viewport-visible'),
+                renderKey: 'source-b:1',
+            }],
+            policy,
+            target: targetB,
+        });
+        await vi.waitFor(() => expect(scheduler.snapshot().inFlightPages).toHaveLength(2));
+
+        const sourceACancellation = scheduler.cancelSource('source-a');
+        operationA.resolve('source-a-settled');
+        await vi.waitFor(() => expect(operationBStarted).toHaveBeenCalledOnce());
+        await sourceACancellation;
+
+        expect(leaseReleases[0]).toHaveBeenCalledOnce();
+        expect(leaseReleases[1]).not.toHaveBeenCalled();
+
+        const disposalSettled = vi.fn();
+        const disposal = scheduler.dispose();
+        void disposal.then(disposalSettled);
+        await flush();
+        expect(disposalSettled).not.toHaveBeenCalled();
+        expect(leaseReleases[1]).not.toHaveBeenCalled();
+
+        operationB.resolve('source-b-settled');
+        await disposal;
+        expect(leaseReleases[1]).toHaveBeenCalledOnce();
+        expect(disposalSettled).toHaveBeenCalledOnce();
     });
 
     it('discards a stale consumer generation without committing it', async () => {

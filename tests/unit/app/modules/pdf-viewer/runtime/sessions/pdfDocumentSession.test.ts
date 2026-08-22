@@ -1357,12 +1357,13 @@ describe('PdfDocumentSession range loading', () => {
             },
             target: {
                 id: 'viewport',
-                prepare: async (_demand, leasedPage, signal) => runCoordinatedPdfPageOperation({
+                prepare: async (_demand, leasedPage, signal, captureSettlement) => runCoordinatedPdfPageOperation({
                     owner: 'viewport',
                     pageNumber: leasedPage.pageNumber,
                     pdfPage: leasedPage,
                     priority: 100,
                     signal,
+                    captureSettlement,
                     operation: async () => {
                         prepareStarted();
                         events.push('preparation-start');

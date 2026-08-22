@@ -36,6 +36,7 @@ interface IRunCoordinatedPdfPageRenderOptions<TTask extends ICoordinatedPdfPageR
         key: string;
         priority: TPdfRenderContinuationPriority;
     } | undefined;
+    captureSettlement?: TPdfPageOperationSettlementCapture | undefined;
 }
 
 interface IRunCoordinatedPdfPageOperationOptions<TResult> {
@@ -47,27 +48,13 @@ interface IRunCoordinatedPdfPageOperationOptions<TResult> {
     shouldStart?: (() => boolean) | undefined;
     shouldContinue?: (() => boolean) | undefined;
     operation: () => Promise<TResult>;
+    captureSettlement?: TPdfPageOperationSettlementCapture | undefined;
 }
+
+export type TPdfPageOperationSettlementCapture = (settlement: Promise<void>) => void;
 
 const activePageOperations = new WeakMap<PDFPageProxy, IActivePdfPageOperation>();
 let nextRenderId = 0;
-
-export function hasActiveCoordinatedPdfPageOperation(pdfPage: PDFPageProxy) {
-    return activePageOperations.has(pdfPage);
-}
-
-export async function waitForCoordinatedPdfPageOperations(pdfPage: PDFPageProxy) {
-    while (true) {
-        const activeOperation = activePageOperations.get(pdfPage);
-        if (!activeOperation) {
-            return;
-        }
-        await activeOperation.settled;
-        if (activePageOperations.get(pdfPage)?.id === activeOperation.id) {
-            activePageOperations.delete(pdfPage);
-        }
-    }
-}
 
 function createCoordinatedRenderCancelledError(pageNumber: number, owner: string) {
     const error = new Error(`Rendering cancelled before coordinated PDF page render for page ${pageNumber} (${owner})`);
@@ -204,7 +191,7 @@ async function waitForCoordinatedTurn(
             activePageOperations.set(pdfPage, operation);
 
             let released = false;
-            return () => {
+            const release = () => {
                 if (released) {
                     return;
                 }
@@ -213,6 +200,10 @@ async function waitForCoordinatedTurn(
                 if (activePageOperations.get(pdfPage)?.id === id) {
                     activePageOperations.delete(pdfPage);
                 }
+            };
+            return {
+                release,
+                settled,
             };
         }
 
@@ -232,16 +223,19 @@ export async function runCoordinatedPdfPageOperation<TResult>(
         signal,
         shouldContinue,
         shouldStart,
+        captureSettlement,
     } = options;
 
-    const releaseOwnership = await waitForCoordinatedTurn(
+    const ownership = await waitForCoordinatedTurn(
         pdfPage,
         owner,
         pageNumber,
         priority,
         signal,
     );
+    const releaseOwnership = ownership.release;
     try {
+        captureSettlement?.(ownership.settled);
         throwIfCoordinatedOperationCancelled(signal, pageNumber, owner);
 
         if (shouldStart?.() === false) {
@@ -293,6 +287,7 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
         shouldStart,
         startRender,
         continuation,
+        captureSettlement,
     } = options;
 
     let cancelTask: (() => void) | undefined = undefined;
@@ -304,7 +299,7 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
         }
         cancelTask();
     };
-    const releaseOwnership = await waitForCoordinatedTurn(
+    const ownership = await waitForCoordinatedTurn(
         pdfPage,
         owner,
         pageNumber,
@@ -312,8 +307,10 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
         signal,
         requestCancel,
     );
+    const releaseOwnership = ownership.release;
     let task: TTask;
     try {
+        captureSettlement?.(ownership.settled);
         throwIfCoordinatedOperationCancelled(signal, pageNumber, owner);
 
         if (shouldStart?.() === false) {

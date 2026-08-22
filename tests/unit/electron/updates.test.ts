@@ -238,6 +238,25 @@ describe('updates robustness', () => {
         });
     });
 
+    it('redacts endpoint credentials and URL values from updater status messages', async () => {
+        const endpointError = new Error(
+            'GET https://user:pass@updates.example.test:8443/latest?channel=stable&token=secret#private failed',
+        );
+        mocks.fetch.mockRejectedValue(endpointError);
+        mocks.autoUpdater.checkForUpdates.mockRejectedValue(endpointError);
+
+        const updates = await loadUpdatesModule();
+        const statuses: Array<Record<string, unknown>> = [];
+        updates.initializeUpdates(status => statuses.push({...status}));
+
+        await updates.triggerManualUpdateCheck();
+
+        expect(statuses.at(-1)).toMatchObject({
+            phase: 'error',
+            message: 'GET https://[redacted]@updates.example.test:8443/latest?channel=[redacted]&token=[redacted]#[redacted] failed',
+        });
+    });
+
     it('surfaces a failed install when the old application version is relaunched', async () => {
         mocks.recordPendingUpdateStartup.mockResolvedValue({
             installationApplied: false,

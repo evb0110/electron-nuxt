@@ -4,9 +4,8 @@ import type {
     RenderTask,
 } from 'pdfjs-dist';
 import {
-    hasActiveCoordinatedPdfPageOperation,
     runCoordinatedPdfPageRender,
-    waitForCoordinatedPdfPageOperations,
+    type TPdfPageOperationSettlementCapture,
 } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import type { TPdfRenderContinuationPriority } from '@app/modules/pdf-viewer/engine/pdf-render-continuation-scheduler/pdfRenderContinuationScheduler';
 import {
@@ -63,6 +62,7 @@ export interface IPdfRasterRenderTarget<TPrepared> {
         demand: IPdfRasterDemand,
         page: PDFPageProxy,
         signal: AbortSignal,
+        captureSettlement: TPdfPageOperationSettlementCapture,
     ): Promise<TPrepared | null>;
     start(prepared: TPrepared, page: PDFPageProxy): RenderTask;
     commit(prepared: TPrepared, demand: IPdfRasterDemand): boolean;
@@ -144,6 +144,7 @@ interface ICreatePdfPageRasterSchedulerOptions {
 
 interface IRasterWork<TPrepared = unknown> {
     controller: AbortController;
+    coordinatedOperationSettlements: Set<Promise<void>>;
     demand: IPdfRasterDemand;
     execution: Promise<void> | null;
     key: string;
@@ -262,13 +263,18 @@ export function createPdfPageRasterScheduler(
         work.reservation = null;
     }
 
+    function captureWorkSettlement(work: IRasterWork, settlement: Promise<void>) {
+        work.coordinatedOperationSettlements.add(settlement);
+        void settlement.then(() => work.coordinatedOperationSettlements.delete(settlement));
+    }
+
     async function releasePageLease(work: IRasterWork) {
         const pageLease = work.pageLease;
         if (!pageLease) {
             return;
         }
-        if (hasActiveCoordinatedPdfPageOperation(pageLease.page)) {
-            await waitForCoordinatedPdfPageOperations(pageLease.page);
+        if (work.coordinatedOperationSettlements.size > 0) {
+            await Promise.allSettled(work.coordinatedOperationSettlements);
         }
         pageLease.release();
         work.pageLease = null;
@@ -498,6 +504,7 @@ export function createPdfPageRasterScheduler(
                 work.demand,
                 work.pageLease.page,
                 work.controller.signal,
+                settlement => captureWorkSettlement(work, settlement),
             );
             if (!work.prepared) {
                 releaseReservation(work);
@@ -529,6 +536,7 @@ export function createPdfPageRasterScheduler(
                 signal: work.controller.signal,
                 shouldStart: () => isDemandCurrent(work),
                 startRender: () => work.target.start(work.prepared, work.pageLease!.page),
+                captureSettlement: settlement => captureWorkSettlement(work, settlement),
             });
             if (!isDemandCurrent(work)) {
                 discardPrepared(work);
@@ -660,6 +668,7 @@ export function createPdfPageRasterScheduler(
         }
         const work: IRasterWork<TPrepared> = {
             controller: new AbortController(),
+            coordinatedOperationSettlements: new Set(),
             demand,
             execution: null,
             key,

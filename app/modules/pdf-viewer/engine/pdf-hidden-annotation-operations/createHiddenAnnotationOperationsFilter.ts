@@ -2,7 +2,10 @@ import type { PDFPageProxy } from 'pdfjs-dist';
 import type { PDFOperatorList } from 'pdfjs-dist/types/src/display/api';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { runCoordinatedPdfPageOperation } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
+import {
+    runCoordinatedPdfPageOperation,
+    type TPdfPageOperationSettlementCapture,
+} from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { isRenderingCancelledError } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/isRenderingCancelledError';
 
 interface IHiddenAnnotationScanState {
@@ -21,6 +24,7 @@ interface IHiddenAnnotationOperationsFilterOptions {
     signal?: AbortSignal | undefined;
     shouldStart?: (() => boolean) | undefined;
     shouldContinue?: (() => boolean) | undefined;
+    captureSettlement?: TPdfPageOperationSettlementCapture | undefined;
 }
 
 function normalizeAnnotationIdSet(annotationIds: Set<string>) {
@@ -130,6 +134,7 @@ export async function createHiddenAnnotationOperationsFilter(
                 signal: coordination.signal,
                 shouldStart: coordination.shouldStart,
                 shouldContinue: coordination.shouldContinue,
+                captureSettlement: coordination.captureSettlement,
                 operation: () => pdfPage.getOperatorList({ annotationMode }),
             })
             : await pdfPage.getOperatorList({ annotationMode });

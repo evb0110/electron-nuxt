@@ -86,6 +86,75 @@ describe('electron config runtime mode', () => {
         expect(config.renderer.trustedOrigin).toBe('http://example.com:3235');
     });
 
+    it('accepts absolute HTTP and HTTPS updater endpoint overrides', async () => {
+        vi.stubEnv('EVB_UPDATES_METADATA_URL', ' http://updates.example.test:8080/latest?channel=stable ');
+        vi.stubEnv('EVB_UPDATES_MIRROR_METADATA_URL', 'https://mirror.example.test/stable.json');
+        vi.stubEnv('EVB_UPDATES_MIRROR_RELEASE_BASE_URL', 'https://mirror.example.test/releases///');
+
+        const { config }: typeof ElectronConfigModule = await import('@electron/config');
+
+        expect(config.updates.metadataUrl).toBe('http://updates.example.test:8080/latest?channel=stable');
+        expect(config.updates.mirrorMetadataUrl).toBe('https://mirror.example.test/stable.json');
+        expect(config.updates.mirrorReleaseBaseUrl).toBe('https://mirror.example.test/releases');
+    });
+
+    it('canonicalizes accepted updater URLs before they can reach diagnostics', async () => {
+        vi.stubEnv(
+            'EVB_UPDATES_METADATA_URL',
+            'https://user:pass@host.test/path?token=sec"ret&channel=stable',
+        );
+
+        const { config }: typeof ElectronConfigModule = await import('@electron/config');
+        const { redactElectronLogText } = await import('@electron/utils/redactElectronLogText');
+
+        expect(config.updates.metadataUrl).toBe(
+            'https://user:pass@host.test/path?token=sec%22ret&channel=stable',
+        );
+        expect(redactElectronLogText(config.updates.metadataUrl)).toBe(
+            'https://[redacted]@host.test/path?token=[redacted]&channel=[redacted]',
+        );
+    });
+
+    it('falls back each invalid updater endpoint independently', async () => {
+        vi.stubEnv('EVB_UPDATES_METADATA_URL', 'http:///hostless/latest.json');
+        vi.stubEnv('EVB_UPDATES_MIRROR_METADATA_URL', 'ftp://mirror.example.test/stable.json');
+        vi.stubEnv('EVB_UPDATES_MIRROR_RELEASE_BASE_URL', 'https://');
+
+        const { config }: typeof ElectronConfigModule = await import('@electron/config');
+
+        expect(config.updates).toMatchObject({
+            metadataUrl: 'https://evb-viewer.com/api/releases/latest',
+            mirrorMetadataUrl: 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/channels/stable.json',
+            mirrorReleaseBaseUrl: 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/releases',
+        });
+    });
+
+    it('keeps valid updater endpoints when a sibling override is invalid', async () => {
+        vi.stubEnv('EVB_UPDATES_METADATA_URL', 'javascript:alert(1)');
+        vi.stubEnv('EVB_UPDATES_MIRROR_METADATA_URL', 'http://127.0.0.1:8080/stable.json');
+        vi.stubEnv('EVB_UPDATES_MIRROR_RELEASE_BASE_URL', 'https://cdn.example.test/releases');
+
+        const { config }: typeof ElectronConfigModule = await import('@electron/config');
+
+        expect(config.updates).toMatchObject({
+            metadataUrl: 'https://evb-viewer.com/api/releases/latest',
+            mirrorMetadataUrl: 'http://127.0.0.1:8080/stable.json',
+            mirrorReleaseBaseUrl: 'https://cdn.example.test/releases',
+        });
+    });
+
+    it.each([
+        './relative/latest.json',
+        '/relative/latest.json',
+        'relative/latest.json',
+    ])('falls back for relative updater endpoint %j', async (value) => {
+        vi.stubEnv('EVB_UPDATES_METADATA_URL', value);
+
+        const { config }: typeof ElectronConfigModule = await import('@electron/config');
+
+        expect(config.updates.metadataUrl).toBe('https://evb-viewer.com/api/releases/latest');
+    });
+
     it('falls back when an updater interval has a numeric prefix followed by other characters', async () => {
         vi.stubEnv('EVB_UPDATES_POLL_INTERVAL_MS', '60000ms');
 

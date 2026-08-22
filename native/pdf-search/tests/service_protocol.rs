@@ -8,6 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const HEADER_SIZE: usize = 64;
 const PAGE_RECORD_SIZE: usize = 24;
 const REVISION: &str = "service-test-revision";
+const MAX_SERVICE_FRAME_BYTES: usize = 4 * 1024 * 1024;
 
 fn write_index(path: &Path, text: &str) {
     let revision = REVISION.as_bytes();
@@ -107,7 +108,7 @@ fn search_request(request_id: &str, index_path: &Path, query: &str) -> Value {
 
 struct SearchService {
     child: Child,
-    stdin: ChildStdin,
+    stdin: Option<ChildStdin>,
     stdout: BufReader<ChildStdout>,
 }
 
@@ -128,7 +129,7 @@ impl SearchService {
         assert_eq!(ready["protocolVersion"], 1);
         Self {
             child,
-            stdin,
+            stdin: Some(stdin),
             stdout,
         }
     }
@@ -139,6 +140,10 @@ impl SearchService {
 
     fn request_raw(&mut self, request: &str) -> Value {
         self.send_raw(request);
+        self.read_response()
+    }
+
+    fn read_response(&mut self) -> Value {
         let mut line = String::new();
         self.stdout
             .read_line(&mut line)
@@ -147,8 +152,49 @@ impl SearchService {
     }
 
     fn send_raw(&mut self, request: &str) {
-        writeln!(self.stdin, "{request}").expect("write search service frame");
-        self.stdin.flush().expect("flush search service frame");
+        let stdin = self.stdin.as_mut().expect("search service stdin is open");
+        writeln!(stdin, "{request}").expect("write search service frame");
+        stdin.flush().expect("flush search service frame");
+    }
+
+    fn send_frame_bytes(&mut self, frame: &[u8]) {
+        let stdin = self.stdin.as_mut().expect("search service stdin is open");
+        stdin
+            .write_all(frame)
+            .expect("write binary search service frame");
+        stdin
+            .write_all(b"\n")
+            .expect("terminate binary search service frame");
+        stdin.flush().expect("flush binary search service frame");
+    }
+
+    fn send_oversized_frame_then_request(&mut self, request: &Value) {
+        let stdin = self.stdin.as_mut().expect("search service stdin is open");
+        stdin
+            .write_all(&vec![b'x'; MAX_SERVICE_FRAME_BYTES + 8_192])
+            .expect("write newline-free oversized search service frame");
+        writeln!(stdin, "\n{request}")
+            .expect("terminate oversized frame and write recovery request");
+        stdin.flush().expect("flush oversized and recovery frames");
+    }
+
+    fn request_raw_at_eof(mut self, request: &str) -> Value {
+        let mut stdin = self.stdin.take().expect("search service stdin is open");
+        stdin
+            .write_all(request.as_bytes())
+            .expect("write EOF-terminated search service frame");
+        stdin.flush().expect("flush EOF-terminated frame");
+        drop(stdin);
+        let response = self.read_response();
+        let status = self
+            .child
+            .wait()
+            .expect("wait after search service stdin EOF");
+        assert!(
+            status.success(),
+            "search service EOF shutdown failed: {status}"
+        );
+        response
     }
 
     fn shutdown(mut self) {
@@ -158,9 +204,10 @@ impl SearchService {
     }
 
     fn shutdown_with_active_request(mut self, request: &Value) -> Value {
-        write!(self.stdin, "{}\n{{\"type\":\"shutdown\"}}\n", request)
+        let stdin = self.stdin.as_mut().expect("search service stdin is open");
+        write!(stdin, "{}\n{{\"type\":\"shutdown\"}}\n", request)
             .expect("write active search and shutdown frames");
-        self.stdin
+        stdin
             .flush()
             .expect("flush active search and shutdown frames");
 
@@ -228,7 +275,7 @@ fn persistent_service_shutdown_cancels_and_joins_an_active_search_before_exit() 
 }
 
 #[test]
-fn malformed_corrupt_and_oversized_frames_return_exact_codes_without_panicking() {
+fn malformed_frames_and_corrupt_or_oversized_indexes_return_exact_codes_without_panicking() {
     let directory = fixture_directory("errors");
     let valid_path = directory.join("valid.search-index.bin");
     let corrupt_path = directory.join("corrupt.search-index.bin");
@@ -263,6 +310,251 @@ fn malformed_corrupt_and_oversized_frames_return_exact_codes_without_panicking()
     assert_eq!(recovery["type"], "result");
     assert_eq!(recovery["requestId"], "recovery");
 
+    drop(service);
+}
+
+fn padded_frame(request: &Value, byte_length: usize) -> Vec<u8> {
+    let mut frame = request.to_string().into_bytes();
+    assert!(
+        frame.len() <= byte_length,
+        "request does not fit padded frame"
+    );
+    frame.resize(byte_length, b' ');
+    frame
+}
+
+#[test]
+fn service_accepts_a_frame_at_the_exact_byte_limit() {
+    let directory = fixture_directory("exact-frame-limit");
+    let index_path = directory.join("document.search-index.bin");
+    write_index(&index_path, "exact limit");
+    let mut service = SearchService::spawn();
+    let request = search_request("exact-limit", &index_path, "limit");
+
+    service.send_frame_bytes(&padded_frame(&request, MAX_SERVICE_FRAME_BYTES));
+    let response = service.read_response();
+
+    assert_eq!(response["type"], "result", "{response}");
+    assert_eq!(response["requestId"], "exact-limit");
+    drop(service);
+}
+
+#[test]
+fn service_rejects_a_frame_one_byte_over_the_limit() {
+    let mut service = SearchService::spawn();
+    let request = serde_json::json!({"type": "reset-cache"});
+
+    service.send_frame_bytes(&padded_frame(&request, MAX_SERVICE_FRAME_BYTES + 1));
+    let response = service.read_response();
+
+    assert_eq!(response["type"], "error");
+    assert_eq!(response["requestId"], "");
+    assert_eq!(response["error"]["code"], "too-large");
+    assert_eq!(
+        response["error"]["message"],
+        "Search service frame exceeds the 4194304-byte admission ceiling"
+    );
+    drop(service);
+}
+
+#[test]
+fn service_drains_a_newline_free_oversized_frame_and_processes_the_next_request() {
+    let directory = fixture_directory("oversized-frame-recovery");
+    let index_path = directory.join("document.search-index.bin");
+    write_index(&index_path, "still searchable");
+    let mut service = SearchService::spawn();
+    let recovery_request = search_request("after-oversized", &index_path, "searchable");
+
+    service.send_oversized_frame_then_request(&recovery_request);
+    let rejected = service.read_response();
+    let recovered = service.read_response();
+
+    assert_eq!(rejected["type"], "error");
+    assert_eq!(rejected["error"]["code"], "too-large");
+    assert_eq!(
+        rejected["error"]["message"],
+        "Search service frame exceeds the 4194304-byte admission ceiling"
+    );
+    assert_eq!(recovered["type"], "result", "{recovered}");
+    assert_eq!(recovered["requestId"], "after-oversized");
+    drop(service);
+}
+
+#[test]
+fn service_processes_a_final_frame_terminated_by_eof() {
+    let response = SearchService::spawn().request_raw_at_eof("{not-json}");
+
+    assert_eq!(response["type"], "error");
+    assert_eq!(response["error"]["code"], "invalid-request");
+    assert!(response["error"]["message"]
+        .as_str()
+        .unwrap()
+        .starts_with("Invalid search service frame:"));
+}
+
+#[test]
+fn service_eof_cancels_and_joins_a_valid_unterminated_search() {
+    let directory = fixture_directory("active-eof-frame");
+    let index_path = directory.join("document.search-index.bin");
+    write_sparse_multi_page_index(&index_path, 8, 32 * 1024 * 1024);
+    let request = search_request("eof-search", &index_path, "needle");
+
+    let response = SearchService::spawn().request_raw_at_eof(&request.to_string());
+
+    assert_eq!(response["type"], "canceled", "{response}");
+    assert_eq!(response["requestId"], "eof-search");
+}
+
+#[test]
+fn service_rejects_empty_and_oversized_search_fields_before_dispatch() {
+    struct Case {
+        field: &'static str,
+        value: Value,
+        code: &'static str,
+        message: &'static str,
+    }
+
+    let directory = fixture_directory("request-field-limits");
+    let index_path = directory.join("document.search-index.bin");
+    write_index(&index_path, "field limits");
+    let base = search_request("field-limits", &index_path, "limits");
+    let cases = [
+        Case {
+            field: "requestId",
+            value: Value::String(String::new()),
+            code: "invalid-request",
+            message: "Search request id must not be empty",
+        },
+        Case {
+            field: "requestId",
+            value: Value::String("r".repeat(129)),
+            code: "too-large",
+            message: "Search request id exceeds the 128-character admission ceiling",
+        },
+        Case {
+            field: "indexPath",
+            value: Value::String(String::new()),
+            code: "invalid-request",
+            message: "Search index path must not be empty",
+        },
+        Case {
+            field: "indexPath",
+            value: Value::String("p".repeat(4_097)),
+            code: "too-large",
+            message: "Search index path exceeds the 4096-character admission ceiling",
+        },
+        Case {
+            field: "query",
+            value: Value::String(String::new()),
+            code: "invalid-request",
+            message: "Search query must not be empty",
+        },
+        Case {
+            field: "query",
+            value: Value::String("q".repeat(2_049)),
+            code: "too-large",
+            message: "Search query exceeds the 2048-character admission ceiling",
+        },
+        Case {
+            field: "query",
+            value: Value::String("😀".repeat(1_025)),
+            code: "too-large",
+            message: "Search query exceeds the 2048-character admission ceiling",
+        },
+        Case {
+            field: "documentRevision",
+            value: Value::String(String::new()),
+            code: "invalid-request",
+            message: "Search document revision must not be empty",
+        },
+        Case {
+            field: "documentRevision",
+            value: Value::String("d".repeat(8_193)),
+            code: "too-large",
+            message: "Search document revision exceeds the 8192-character admission ceiling",
+        },
+        Case {
+            field: "limit",
+            value: Value::from(501),
+            code: "too-large",
+            message: "Search result limit exceeds the 500-result admission ceiling",
+        },
+        Case {
+            field: "contextChars",
+            value: Value::from(57),
+            code: "too-large",
+            message: "Search context exceeds the 56-character admission ceiling",
+        },
+        Case {
+            field: "pageCount",
+            value: Value::from(0),
+            code: "invalid-request",
+            message: "Search page count must be at least 1",
+        },
+        Case {
+            field: "pageCount",
+            value: Value::from(1_000_001),
+            code: "too-large",
+            message: "Search page count exceeds the 1000000-page admission ceiling",
+        },
+    ];
+    let mut service = SearchService::spawn();
+
+    for case in cases {
+        let mut request = base.clone();
+        request[case.field] = case.value;
+        let response = service.request(&request);
+        assert_eq!(
+            response["type"], "error",
+            "field {}: {response}",
+            case.field
+        );
+        assert_eq!(response["error"]["code"], case.code, "field {}", case.field);
+        assert_eq!(
+            response["error"]["message"], case.message,
+            "field {}",
+            case.field
+        );
+    }
+
+    let recovery = service.request(&search_request("field-recovery", &index_path, "limits"));
+    assert_eq!(recovery["type"], "result", "{recovery}");
+    assert_eq!(recovery["requestId"], "field-recovery");
+
+    let whitespace_query = service.request(&search_request("whitespace-query", &index_path, " "));
+    assert_eq!(whitespace_query["type"], "result", "{whitespace_query}");
+
+    let mut configured_page_count = search_request("configured-page-count", &index_path, "limits");
+    configured_page_count["pageCount"] = Value::from(20_001);
+    let configured_page_count = service.request(&configured_page_count);
+    assert_eq!(
+        configured_page_count["type"], "result",
+        "{configured_page_count}"
+    );
+    assert_eq!(configured_page_count["result"]["pageCount"], 20_001);
+    drop(service);
+}
+
+#[test]
+fn service_validates_cancel_request_ids_before_dispatch() {
+    let mut service = SearchService::spawn();
+
+    let empty = service.request(&serde_json::json!({"type": "cancel", "requestId": ""}));
+    assert_eq!(empty["error"]["code"], "invalid-request");
+    assert_eq!(
+        empty["error"]["message"],
+        "Search request id must not be empty"
+    );
+
+    let oversized = service.request(&serde_json::json!({
+        "type": "cancel",
+        "requestId": "c".repeat(129)
+    }));
+    assert_eq!(oversized["error"]["code"], "too-large");
+    assert_eq!(
+        oversized["error"]["message"],
+        "Search request id exceeds the 128-character admission ceiling"
+    );
     drop(service);
 }
 

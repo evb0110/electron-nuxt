@@ -435,6 +435,7 @@ describe('usePdfCanvasRenderer', () => {
     it('does not allocate a canvas after hidden annotation preflight aborts', async () => {
         const { createElement } = installCanvasDocument();
         const abortController = new AbortController();
+        const captureSettlement = vi.fn();
         const pdfPage = createPdfPage({
             pageNumber: 4,
             getOperatorList: vi.fn(() => new Promise(() => undefined)),
@@ -448,10 +449,12 @@ describe('usePdfCanvasRenderer', () => {
                 priority: 100,
                 signal: abortController.signal,
                 shouldContinue: () => !abortController.signal.aborted,
+                captureSettlement,
             },
         });
 
         await Promise.resolve();
+        expect(captureSettlement).toHaveBeenCalledOnce();
         abortController.abort();
 
         await expect(preparePromise).resolves.toBeNull();

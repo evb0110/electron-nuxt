@@ -17,6 +17,9 @@ const DEFAULT_SERVER_HOST = normalizeServerHost(process.env.EVB_SERVER_HOST, '12
 const DEFAULT_SERVER_PORT = parsePositiveInt(process.env.EVB_SERVER_PORT, 3235);
 const DEFAULT_SERVER_PATH = normalizeServerPath(process.env.EVB_SERVER_PATH, '/electron');
 const APP_PROTOCOL_ORIGIN = 'evb-viewer://app';
+const DEFAULT_UPDATES_METADATA_URL = 'https://evb-viewer.com/api/releases/latest';
+const DEFAULT_UPDATES_MIRROR_METADATA_URL = 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/channels/stable.json';
+const DEFAULT_UPDATES_MIRROR_RELEASE_BASE_URL = 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/releases';
 // One week is the longest useful updater interval. It also leaves ample room
 // below Node's signed 32-bit timer limit for the scheduler's poll jitter.
 const UPDATER_INTERVAL_MAX_MS = 7 * 24 * 60 * 60 * 1000;
@@ -46,6 +49,31 @@ function parseUpdaterIntervalMs(raw: string | undefined, fallback: number) {
     return Number.isFinite(parsed) && parsed > 0 && parsed <= UPDATER_INTERVAL_MAX_MS
         ? parsed
         : fallback;
+}
+
+function normalizeUpdaterUrl(raw: string | undefined, fallback: string) {
+    const trimmed = raw?.trim();
+    const authorityMatch = trimmed?.match(/^https?:\/\/([^/?#]+)/iu);
+    const hasAsciiWhitespaceOrControl = trimmed
+        ? Array.from(trimmed).some((character) => {
+            const codePoint = character.codePointAt(0) ?? 0;
+            return codePoint <= 0x20 || codePoint === 0x7F;
+        })
+        : false;
+    if (!trimmed || !authorityMatch || hasAsciiWhitespaceOrControl) {
+        return fallback;
+    }
+
+    try {
+        const parsed = new URL(trimmed);
+        if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname.length > 0) {
+            return parsed.href;
+        }
+    } catch {
+        // Fall through to the endpoint's own default.
+    }
+
+    return fallback;
 }
 
 function normalizeServerPath(raw: string | undefined, fallback: string) {
@@ -146,15 +174,18 @@ export const config = {
     },
 
     updates: {
-        metadataUrl: process.env.EVB_UPDATES_METADATA_URL?.length
-            ? process.env.EVB_UPDATES_METADATA_URL
-            : 'https://evb-viewer.com/api/releases/latest',
-        mirrorMetadataUrl: process.env.EVB_UPDATES_MIRROR_METADATA_URL?.length
-            ? process.env.EVB_UPDATES_MIRROR_METADATA_URL
-            : 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/channels/stable.json',
-        mirrorReleaseBaseUrl: process.env.EVB_UPDATES_MIRROR_RELEASE_BASE_URL?.length
-            ? process.env.EVB_UPDATES_MIRROR_RELEASE_BASE_URL.replace(/\/+$/, '')
-            : 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/releases',
+        metadataUrl: normalizeUpdaterUrl(
+            process.env.EVB_UPDATES_METADATA_URL,
+            DEFAULT_UPDATES_METADATA_URL,
+        ),
+        mirrorMetadataUrl: normalizeUpdaterUrl(
+            process.env.EVB_UPDATES_MIRROR_METADATA_URL,
+            DEFAULT_UPDATES_MIRROR_METADATA_URL,
+        ),
+        mirrorReleaseBaseUrl: normalizeUpdaterUrl(
+            process.env.EVB_UPDATES_MIRROR_RELEASE_BASE_URL,
+            DEFAULT_UPDATES_MIRROR_RELEASE_BASE_URL,
+        ).replace(/\/+$/u, ''),
         pollIntervalMs: parseUpdaterIntervalMs(process.env.EVB_UPDATES_POLL_INTERVAL_MS, 6 * 60 * 60 * 1000),
         initialDelayMs: parseUpdaterIntervalMs(process.env.EVB_UPDATES_INITIAL_DELAY_MS, 2 * 60 * 1000),
     },

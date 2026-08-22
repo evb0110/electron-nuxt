@@ -9,6 +9,7 @@ const SEO_IMAGE_PATH = '/evb-viewer-seo.png';
 export default defineEventHandler((event) => {
     const siteUrl = resolveSiteUrl(event);
     const loc = new URL('/', siteUrl).toString();
+    const privacyLoc = new URL('/privacy', siteUrl).toString();
     const imageUrl = new URL(SEO_IMAGE_PATH, siteUrl).toString();
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -20,6 +21,9 @@ export default defineEventHandler((event) => {
       <image:loc>${imageUrl}</image:loc>
       <image:title>EVB Viewer Web — browser document workspace</image:title>
     </image:image>
+  </url>
+  <url>
+    <loc>${privacyLoc}</loc>
   </url>
 </urlset>
 `;
