@@ -374,18 +374,20 @@ async function verifyCleanupQueuedDuringDetection(
     }
 
     await page.click('.scan-cleanup-toolbar-primary-action');
+    // The redesigned run meter (#70) renders its status as child text spans
+    // instead of an aria-valuetext attribute.
     await waitForFunctionInPage(page, () => {
         const meter = document.querySelector<HTMLElement>('.scan-cleanup-run-meter');
         const action = document.querySelector<HTMLButtonElement>(
             '.scan-cleanup-toolbar-primary-action',
         );
         return meter !== null
-            && (meter.getAttribute('aria-valuetext') ?? '').trim().length > 0
+            && (meter.textContent ?? '').trim().length > 0
             && action?.disabled === false;
     }, {timeout: 10_000});
     const queuedStatusText = await evaluateInPage(page, () =>
         document.querySelector<HTMLElement>('.scan-cleanup-run-meter')
-            ?.getAttribute('aria-valuetext')?.trim() ?? '');
+            ?.textContent?.trim() ?? '');
     if (!queuedStatusText.toLowerCase().includes('pre-analyzing')) {
         throw new Error(
             `Cleanup click did not expose a queued pre-analysis state: "${queuedStatusText}"`,
