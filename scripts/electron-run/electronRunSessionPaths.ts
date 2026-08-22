@@ -64,6 +64,20 @@ export function electronUserDataPath(name = getCurrentSessionName()) {
     return join(sessionDir(name), 'electron-user-data');
 }
 
+export function electronFileLogDir(name = getCurrentSessionName()) {
+    return join(sessionDir(name), 'electron-logs');
+}
+
+export function resolveAutomationFileLogDir(
+    env: NodeJS.ProcessEnv,
+    name = getCurrentSessionName(),
+) {
+    const override = env.EVB_FILE_LOG_DIR;
+    return override === undefined || override === ''
+        ? electronFileLogDir(name)
+        : override;
+}
+
 export function screenshotDirPath(name = getCurrentSessionName()) {
     return join(sessionDir(name), 'screenshots');
 }

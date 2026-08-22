@@ -56,7 +56,15 @@ import {
     shouldUseStrictE2EIsolation,
 } from '@scripts/electron-run/electronRunRunId';
 import { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
-import { allocateAutomationPorts } from '@scripts/electron-run/electronLaunch';
+import {
+    allocateAutomationPorts,
+    buildElectronRuntimeEnv,
+} from '@scripts/electron-run/electronLaunch';
+import {
+    electronFileLogDir,
+    getCurrentSessionName,
+    setCurrentSessionName,
+} from '@scripts/electron-run/electronRunSessionPaths';
 import {
     isElectronAppPageUrl,
     isNuxtDevServerUrl,
@@ -65,6 +73,32 @@ import {
 const rootPackage = JSON.parse(await readFile('package.json', 'utf8')) as {version: string};
 
 describe('sessionManager automation launch args', () => {
+    it('passes a session-specific default log directory to Electron', () => {
+        const previousSessionName = getCurrentSessionName();
+        setCurrentSessionName('session-log-default');
+        try {
+            const launch = buildElectronRuntimeEnv(9222, '/tmp/main.js');
+            expect(launch.electronRuntimeEnv.EVB_FILE_LOG_DIR).toBe(electronFileLogDir('session-log-default'));
+        } finally {
+            setCurrentSessionName(previousSessionName);
+        }
+    });
+
+    it('preserves an explicit log directory override in the Electron environment', () => {
+        const previous = process.env.EVB_FILE_LOG_DIR;
+        process.env.EVB_FILE_LOG_DIR = '/tmp/explicit-electron-logs';
+        try {
+            const launch = buildElectronRuntimeEnv(9222, '/tmp/main.js');
+            expect(launch.electronRuntimeEnv.EVB_FILE_LOG_DIR).toBe('/tmp/explicit-electron-logs');
+        } finally {
+            if (previous === undefined) {
+                delete process.env.EVB_FILE_LOG_DIR;
+            } else {
+                process.env.EVB_FILE_LOG_DIR = previous;
+            }
+        }
+    });
+
     it('disables the Electron sandbox on Linux CI by default', () => {
         expect(shouldDisableAutomationSandbox({ CI: 'true' }, 'linux')).toBe(true);
 

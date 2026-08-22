@@ -45,6 +45,7 @@ import {
     electronUserDataPath,
     getCurrentSessionName,
     sessionDir,
+    resolveAutomationFileLogDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import {
     connectToBrowser,
@@ -109,7 +110,7 @@ function createElectronStartupLog() {
     };
 }
 
-function buildElectronRuntimeEnv(cdpPort: number, mainJs: string, initialOpenPaths: string[] = []) {
+export function buildElectronRuntimeEnv(cdpPort: number, mainJs: string, initialOpenPaths: string[] = []) {
     const automationUserDataDir = electronUserDataPath();
     const automationWindowEnv = resolveAutomationWindowEnv(process.env);
     const shouldBootstrapDevProfile = shouldBootstrapInteractiveDevProfile({
@@ -126,6 +127,7 @@ function buildElectronRuntimeEnv(cdpPort: number, mainJs: string, initialOpenPat
         ...automationWindowEnv,
         EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,
         EVB_AUTOMATION_SESSION_NAME: getCurrentSessionName(),
+        EVB_FILE_LOG_DIR: resolveAutomationFileLogDir(process.env),
         EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE: shouldBootstrapDevProfile ? '1' : '0',
         EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
         ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING ?? '1',
