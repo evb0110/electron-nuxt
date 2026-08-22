@@ -851,6 +851,11 @@ describe('CI topology policy', () => {
         const attachMacIntelJob = workflowJob(releaseWorkflow, 'attach_mac_intel');
         expect(attachMacIntelJob).toContain('- build_mac_intel');
         expect(attachMacIntelJob).toContain('- promote_release');
+        // Outside SHA256SUMS, provenance attestation is the Intel ZIP's
+        // integrity record — same mechanism finalize applies to core assets.
+        expect(attachMacIntelJob).toContain('actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a');
+        expect(attachMacIntelJob).toContain('attestations: write');
+        expect(attachMacIntelJob).toContain('id-token: write');
         expect(attachMacIntelJob).toContain('if: ${{ !cancelled() && needs.promote_release.result == \'success\' }}');
         expect(attachMacIntelJob).toContain('pattern: supplemental-mac-x64');
         expect(attachMacIntelJob).toContain('expected="artifacts/EVB-Viewer-${RELEASE_VERSION}-x64.zip"');

@@ -852,7 +852,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     permissions:
+      attestations: write
       contents: write
+      id-token: write
 
     steps:
       - name: Report unavailable Intel lane
@@ -867,18 +869,18 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Attach Intel ZIP to the published release
+      - name: Validate the expected Intel ZIP
         if: ${{ needs.build_mac_intel.result == 'success' }}
+        id: intel_asset
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          # Attach exactly the expected version-specific asset; anything else
-          # in the supplemental artifact is a lane regression, not an upload.
+          # Accept exactly the expected version-specific asset. The release is
+          # already public here, so unexpected extra files in the supplemental
+          # artifact only warn (and are never uploaded); a missing expected
+          # ZIP from a successful Intel build is a real contract break.
           expected="artifacts/EVB-Viewer-${RELEASE_VERSION}-x64.zip"
           if [ ! -f "$expected" ]; then
             echo "::error::Supplemental Intel artifact did not contain $(basename "$expected")."
@@ -886,8 +888,27 @@ jobs:
           fi
           for source in artifacts/*; do
             if [ "$source" != "$expected" ]; then
-              echo "::error::Supplemental Intel artifact contained an unexpected file: $(basename "$source")."
-              exit 1
+              echo "::warning::Supplemental Intel artifact contained an unexpected file that was not attached: $(basename "$source")."
             fi
           done
-          gh release upload "$RELEASE_TAG" "$expected" --clobber
+          echo "expected=$expected" >> "$GITHUB_OUTPUT"
+
+      - name: Attest the supplemental Intel asset
+        if: ${{ needs.build_mac_intel.result == 'success' }}
+        # The Intel ZIP stays outside SHA256SUMS, so provenance attestation is
+        # its integrity record, matching what finalize gives the core assets.
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: ${{ steps.intel_asset.outputs.expected }}
+
+      - name: Attach Intel ZIP to the published release
+        if: ${{ needs.build_mac_intel.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          EXPECTED_ASSET: ${{ steps.intel_asset.outputs.expected }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" "$EXPECTED_ASSET" --clobber
