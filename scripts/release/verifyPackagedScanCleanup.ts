@@ -285,7 +285,9 @@ async function detectionSample(page: Page): Promise<IDetectionSample | null> {
     return evaluateInPage(page, () => {
         const status = document.querySelector<HTMLElement>('.scan-cleanup-toolbar-count');
         const text = status?.getAttribute('aria-label') ?? status?.textContent ?? '';
-        const match = /(\d+)\s*\/\s*(\d+)/u.exec(text);
+        // The counter copy is localized prose ("2 of 4 pages"), not a fixed
+        // "2 / 4"; accept any non-digit separator between the two counts.
+        const match = /(\d+)\D+(\d+)/u.exec(text);
         if (!match) {
             return null;
         }
@@ -357,7 +359,9 @@ async function verifyCleanupQueuedDuringDetection(
         );
         const status = document.querySelector<HTMLElement>('.scan-cleanup-toolbar-count');
         const text = status?.getAttribute('aria-label') ?? status?.textContent ?? '';
-        const match = /(\d+)\s*\/\s*(\d+)/u.exec(text);
+        // The counter copy is localized prose ("2 of 4 pages"), not a fixed
+        // "2 / 4"; accept any non-digit separator between the two counts.
+        const match = /(\d+)\D+(\d+)/u.exec(text);
         return action?.disabled === false
             && document.querySelector('.scan-cleanup-toolbar-cancel-detection') !== null
             && match !== null
