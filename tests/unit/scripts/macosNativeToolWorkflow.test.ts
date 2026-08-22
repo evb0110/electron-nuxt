@@ -25,10 +25,21 @@ async function readProjectFile(path: string) {
     return readFile(path, 'utf8');
 }
 
-function extractBrewInstallPackages(workflow: string) {
-    return workflow
-        .match(/^.*brew install .+$/gmu)
-        ?.flatMap(command => command.replace(/^.*brew install\s+/u, '').trim().split(/\s+/u)) ?? [];
+// CI workflows declare Homebrew packages as brew-formulae inputs to the
+// setup-release-env composite action, either as a plain list or inside a
+// matrix-gated expression whose quoted formulae string contains spaces.
+function extractBrewFormulaeValues(workflow: string) {
+    const lines = workflow.match(/^.*brew-formulae:.*$/gmu) ?? [];
+    return lines.flatMap((line) => {
+        const value = line.replace(/^.*brew-formulae:\s*/u, '').trim();
+        if (!value.startsWith('${{')) {
+            return value.split(/\s+/u);
+        }
+        const quotedLists = [...value.matchAll(/'([^']+)'/gu)].map(match => match[1] ?? '');
+        return (quotedLists.find(list => list.includes(' ')) ?? '')
+            .split(/\s+/u)
+            .filter(Boolean);
+    });
 }
 
 function extractBashArrayValues(script: string, name: string) {
@@ -107,17 +118,22 @@ describe('macOS native tool workflow', () => {
             '.github/workflows/build.yml',
             '.github/workflows/build-mac-intel.yml',
         ];
+        const setupAction = await readProjectFile('.github/actions/setup-release-env/action.yml');
 
+        // The shared setup action owns the brew invocation and the sphinx-doc
+        // PATH handling; each workflow owns its formulae list.
+        expect(setupAction).toContain('brew install');
+        expect(setupAction).toContain('brew --prefix sphinx-doc');
+        expect(setupAction).not.toContain('pip3 install sphinx');
         for (const workflowPath of workflowPaths) {
             const workflow = await readProjectFile(workflowPath);
-            const brewPackages = extractBrewInstallPackages(workflow);
+            const brewPackages = extractBrewFormulaeValues(workflow);
 
             expect(brewPackages).toEqual(expect.arrayContaining([
                 'meson',
                 'pkg-config',
                 'sphinx-doc',
             ]));
-            expect(workflow).toContain('brew --prefix sphinx-doc');
             expect(workflow).not.toContain('pip3 install sphinx');
         }
     });
@@ -126,7 +142,7 @@ describe('macOS native tool workflow', () => {
         const workflow = await readProjectFile('.github/workflows/build.yml');
         const bundleAll = await readProjectFile('scripts/bundle-all-macos.sh');
         const bundleUnpaper = await readProjectFile('scripts/bundle-leptonica-unpaper-macos.sh');
-        const ciBrewPackages = extractBrewInstallPackages(workflow);
+        const ciBrewPackages = extractBrewFormulaeValues(workflow);
         const localBrewPackages = extractBashArrayValues(bundleAll, 'DEPS');
         const unpaperBuildPackages = [
             'meson',
