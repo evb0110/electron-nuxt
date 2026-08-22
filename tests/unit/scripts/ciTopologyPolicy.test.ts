@@ -608,6 +608,11 @@ describe('CI topology policy', () => {
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
         const macSigningScript = await readProjectFile('scripts/release/configure-macos-signing.sh');
         const macCertificateImportScript = await readProjectFile('scripts/release/import-macos-codesign-certificate.sh');
+        const buildJob = workflowJob(workflow, 'build');
+        const installedNsisStep = buildJob.slice(
+            buildJob.indexOf('- name: Verify installed Windows NSIS journey'),
+            buildJob.indexOf('- name: Verify packaged macOS arm64 core PDF journey'),
+        );
         const verifyStep = workflow.slice(
             workflow.indexOf('- name: Verify release artifacts'),
             workflow.indexOf('- name: Upload artifacts'),
@@ -634,26 +639,54 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a');
         expect(workflow).toContain('sudo apt-get install -y "$(realpath "$deb")"');
         expect(workflow).toContain('sudo apt-get remove -y "$package_name"');
-        expect(workflow).toContain('name: Verify installed Windows NSIS journey');
-        expect(workflow).toContain('-ArgumentList \'/S\', "/D=$installDir" -Wait -PassThru');
-        expect(workflow).toContain('$appPath = Join-Path $installDir \'EVB Viewer.exe\'');
-        expect(workflow).toContain('(Join-Path $installDir \'d3dcompiler_47.dll\')');
-        expect(workflow).toContain('(Join-Path $installDir \'ffmpeg.dll\')');
-        expect(workflow).toContain('(Join-Path $installDir \'libEGL.dll\')');
-        expect(workflow).toContain('(Join-Path $installDir \'libGLESv2.dll\')');
-        expect(workflow).toContain('$installDeadline = (Get-Date).AddMinutes(3)');
-        expect(workflow).toContain('while ($missingRuntimePaths.Count -gt 0');
-        expect(workflow).toContain('Join-Path $env:RUNNER_TEMP \'evb-viewer-nsis-');
-        expect(workflow).toContain(
+        expect(installedNsisStep).toContain('name: Verify installed Windows NSIS journey');
+        expect(installedNsisStep).toContain('-ArgumentList \'/S\', "/D=$installDir" -PassThru');
+        expect(installedNsisStep).toContain('$appPath = Join-Path $installDir \'EVB Viewer.exe\'');
+        expect(installedNsisStep).toContain('(Join-Path $installDir \'d3dcompiler_47.dll\')');
+        expect(installedNsisStep).toContain('(Join-Path $installDir \'ffmpeg.dll\')');
+        expect(installedNsisStep).toContain('(Join-Path $installDir \'libEGL.dll\')');
+        expect(installedNsisStep).toContain('(Join-Path $installDir \'libGLESv2.dll\')');
+        const installerStartIndex = installedNsisStep.indexOf('$install = Start-Process');
+        const launcherTimeoutIndex = installedNsisStep.indexOf('if (-not $install.WaitForExit(120000))');
+        const installerLaunch = installedNsisStep.slice(installerStartIndex, launcherTimeoutIndex);
+        const launcherDiagnosticsIndex = installedNsisStep.indexOf('Write-InstallerDiagnostics', launcherTimeoutIndex);
+        const launcherStopIndex = installedNsisStep.indexOf('Stop-Process -Id $install.Id', launcherTimeoutIndex);
+        const launcherErrorIndex = installedNsisStep.indexOf('NSIS installer launcher did not exit before the deadline.');
+        const runtimeTimeoutIndex = installedNsisStep.indexOf('if ($missingRuntimePaths.Count -gt 0)');
+        const runtimeDiagnosticsIndex = installedNsisStep.indexOf(
+            'Write-InstallerDiagnostics',
+            runtimeTimeoutIndex,
+        );
+        const runtimeErrorIndex = installedNsisStep.indexOf(
+            'Installed EVB Viewer runtime did not become ready before the deadline.',
+        );
+        expect(installedNsisStep.indexOf('$installStartedAt = Get-Date')).toBeLessThan(installerStartIndex);
+        expect(installerLaunch).not.toContain('-Wait');
+        expect(installerStartIndex).toBeLessThan(launcherTimeoutIndex);
+        expect(launcherTimeoutIndex).toBeLessThan(launcherDiagnosticsIndex);
+        expect(launcherDiagnosticsIndex).toBeLessThan(launcherStopIndex);
+        expect(launcherStopIndex).toBeLessThan(launcherErrorIndex);
+        expect(runtimeTimeoutIndex).toBeLessThan(runtimeDiagnosticsIndex);
+        expect(runtimeDiagnosticsIndex).toBeLessThan(runtimeErrorIndex);
+        expect(launcherErrorIndex).toBeLessThan(
+            installedNsisStep.indexOf('if ($install.ExitCode -ne 0)'),
+        );
+        expect(installedNsisStep).toContain('$installDeadline = $installStartedAt.AddMinutes(15)');
+        expect(installedNsisStep).toContain('while ($missingRuntimePaths.Count -gt 0 -and (Get-Date) -lt $installDeadline)');
+        expect(installedNsisStep).toContain('NSIS extraction progress:');
+        expect(installedNsisStep).toContain('Join-Path $env:RUNNER_TEMP \'evb-viewer-nsis-');
+        expect(installedNsisStep).toContain(
             'throw \'Installed EVB Viewer runtime did not become ready before the deadline.\'',
         );
-        expect(workflow).toContain('Get-Command Get-MpThreatDetection -ErrorAction SilentlyContinue');
-        expect(workflow).toContain('Get-MpThreatDetection -ErrorAction SilentlyContinue');
-        expect(workflow).toContain('$app = Get-Item $appPath');
-        expect(workflow).not.toContain('Get-ChildItem "$env:LOCALAPPDATA\\Programs"');
-        expect(workflow).toContain('$uninstallDeadline = (Get-Date).AddMinutes(3)');
-        expect(workflow).toContain('if (Test-Path $appPath)');
-        expect(workflow).toContain('throw \'NSIS uninstall left the EVB Viewer executable installed.\'');
+        expect(installedNsisStep).toContain('Get-Command Get-MpThreatDetection -ErrorAction SilentlyContinue');
+        expect(installedNsisStep).toContain('Get-MpThreatDetection -ErrorAction SilentlyContinue');
+        expect(installedNsisStep).toContain('Get-CimInstance Win32_Process -ErrorAction SilentlyContinue');
+        expect(installedNsisStep).toContain('LogName = \'Microsoft-Windows-Windows Defender/Operational\'');
+        expect(installedNsisStep).toContain('$app = Get-Item $appPath');
+        expect(installedNsisStep).not.toContain('Get-ChildItem "$env:LOCALAPPDATA\\Programs"');
+        expect(installedNsisStep).toContain('$uninstallDeadline = (Get-Date).AddMinutes(3)');
+        expect(installedNsisStep).toContain('if (Test-Path $appPath)');
+        expect(installedNsisStep).toContain('throw \'NSIS uninstall left the EVB Viewer executable installed.\'');
         expect(workflow).toContain('name: Enforce Linux glibc 2.35 compatibility baseline');
         expect(workflow).toContain('run: node scripts/release/assert-linux-glibc-baseline.mjs release 2.35');
         expect(workflow).toContain('ubuntu@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc');

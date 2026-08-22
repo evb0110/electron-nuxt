@@ -449,27 +449,62 @@ jobs:
             (Join-Path $installDir 'libEGL.dll'),
             (Join-Path $installDir 'libGLESv2.dll')
           )
-          $install = Start-Process -FilePath $installer.FullName `
-            -ArgumentList '/S', "/D=$installDir" -Wait -PassThru
-          if ($install.ExitCode -ne 0) { throw "NSIS installer exited with $($install.ExitCode)." }
-          # Assisted NSIS installers can leave their extraction child running
-          # after the launcher exits. The ARM64 payload is large enough that the
-          # PE files may arrive well after static resources and the uninstaller.
-          $installDeadline = (Get-Date).AddMinutes(3)
-          $missingRuntimePaths = @($runtimePaths | Where-Object { -not (Test-Path $_ -PathType Leaf) })
-          while ($missingRuntimePaths.Count -gt 0 -and (Get-Date) -lt $installDeadline) {
-            Start-Sleep -Milliseconds 500
-            $missingRuntimePaths = @($runtimePaths | Where-Object { -not (Test-Path $_ -PathType Leaf) })
-          }
-          if ($missingRuntimePaths.Count -gt 0) {
-            Get-ChildItem $installDir -Recurse -Force -ErrorAction SilentlyContinue |
+          function Write-InstallerDiagnostics {
+            param(
+              [string] $TargetDir,
+              [string[]] $MissingPaths,
+              [datetime] $Since
+            )
+            Get-ChildItem $TargetDir -Recurse -Force -ErrorAction SilentlyContinue |
               ForEach-Object { Write-Host "Installer output: $($_.FullName)" }
-            Write-Host "Missing runtime paths: $($missingRuntimePaths -join ', ')"
+            Write-Host "Missing runtime paths: $($MissingPaths -join ', ')"
+            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match '(?i)(evb|setup|install|nsis|7z)' } |
+              Select-Object Name, ProcessId, ParentProcessId, ExecutablePath, CommandLine |
+              Format-List | Out-String | Write-Host
             if (Get-Command Get-MpThreatDetection -ErrorAction SilentlyContinue) {
               Get-MpThreatDetection -ErrorAction SilentlyContinue |
                 Select-Object InitialDetectionTime, ThreatName, Resources |
                 Format-List | Out-String | Write-Host
             }
+            Get-WinEvent -FilterHashtable @{
+              LogName = 'Microsoft-Windows-Windows Defender/Operational'
+              StartTime = $Since
+            } -ErrorAction SilentlyContinue |
+              Select-Object -First 20 TimeCreated, Id, Message |
+              Format-List | Out-String | Write-Host
+          }
+
+          $installStartedAt = Get-Date
+          $install = Start-Process -FilePath $installer.FullName `
+            -ArgumentList '/S', "/D=$installDir" -PassThru
+          if (-not $install.WaitForExit(120000)) {
+            Write-InstallerDiagnostics -TargetDir $installDir -MissingPaths $runtimePaths -Since $installStartedAt
+            Stop-Process -Id $install.Id -Force -ErrorAction SilentlyContinue
+            throw 'NSIS installer launcher did not exit before the deadline.'
+          }
+          if ($install.ExitCode -ne 0) { throw "NSIS installer exited with $($install.ExitCode)." }
+          # Assisted NSIS installers can leave their extraction child running
+          # after the launcher exits. The ARM64 payload is large enough that the
+          # PE files may arrive well after static resources and the uninstaller.
+          $installDeadline = $installStartedAt.AddMinutes(15)
+          $nextProgressAt = $installStartedAt.AddSeconds(30)
+          $missingRuntimePaths = @($runtimePaths | Where-Object { -not (Test-Path $_ -PathType Leaf) })
+          while ($missingRuntimePaths.Count -gt 0 -and (Get-Date) -lt $installDeadline) {
+            Start-Sleep -Milliseconds 500
+            $missingRuntimePaths = @($runtimePaths | Where-Object { -not (Test-Path $_ -PathType Leaf) })
+            if ((Get-Date) -ge $nextProgressAt) {
+              $installedFiles = @(Get-ChildItem $installDir -Recurse -File -Force -ErrorAction SilentlyContinue)
+              $installedBytes = ($installedFiles | Measure-Object -Property Length -Sum).Sum
+              Write-Host "NSIS extraction progress: $($installedFiles.Count) files, $installedBytes bytes, $($missingRuntimePaths.Count) required runtime files missing."
+              $nextProgressAt = (Get-Date).AddSeconds(30)
+            }
+          }
+          if ($missingRuntimePaths.Count -gt 0) {
+            Write-InstallerDiagnostics `
+              -TargetDir $installDir `
+              -MissingPaths $missingRuntimePaths `
+              -Since $installStartedAt
             throw 'Installed EVB Viewer runtime did not become ready before the deadline.'
           }
           $app = Get-Item $appPath
