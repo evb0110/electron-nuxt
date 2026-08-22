@@ -1,12 +1,9 @@
 import {
     existsSync,
+    lstatSync,
+    realpathSync,
     statSync,
 } from 'fs';
-import {
-    access,
-    lstat,
-    realpath,
-} from 'fs/promises';
 import {
     extname,
     resolve,
@@ -66,7 +63,7 @@ export function normalizeNonEmptyPath(filePath: unknown) {
     return normalizedPath;
 }
 
-async function resolveDirectSourceReadPath(
+function resolveDirectSourceReadPath(
     normalizedPath: string,
     extension: string,
     senderId?: number,
@@ -84,23 +81,20 @@ async function resolveDirectSourceReadPath(
 
     const absolutePath = resolve(normalizedPath);
     try {
-        if ((await lstat(absolutePath)).isSymbolicLink()) {
+        // Sync on purpose: packaged Windows Electron mishandles fs.promises
+        // metadata calls through its ASAR fs shim (issue #82).
+        if (lstatSync(absolutePath).isSymbolicLink()) {
             return null;
         }
 
-        return await realpath(absolutePath);
+        return realpathSync(absolutePath);
     } catch {
         return null;
     }
 }
 
-async function pathExists(path: string) {
-    try {
-        await access(path);
-        return true;
-    } catch {
-        return false;
-    }
+function pathExists(path: string) {
+    return existsSync(path);
 }
 
 function isOriginalBackedManagedRef(
@@ -222,7 +216,7 @@ async function resolveExistingReadablePath(
         throw new Error(describeRejectedReadPath(normalizedPath, senderId));
     }
 
-    if (!isOriginalBackedManagedRef(resolvedPath, senderId) && !(await pathExists(resolvedPath))) {
+    if (!isOriginalBackedManagedRef(resolvedPath, senderId) && !pathExists(resolvedPath)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
@@ -241,7 +235,7 @@ export async function resolveExistingReadablePdfPath(filePath: unknown, senderId
         throw new Error(describeRejectedReadPath(normalizedPath, senderId));
     }
 
-    if (!isOriginalBackedManagedRef(resolvedPath, senderId) && !(await pathExists(resolvedPath))) {
+    if (!isOriginalBackedManagedRef(resolvedPath, senderId) && !pathExists(resolvedPath)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 

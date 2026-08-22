@@ -1,7 +1,7 @@
+import { statSync } from 'fs';
 import {
     open as openFileHandle,
     readFile,
-    stat,
 } from 'fs/promises';
 import type { FileHandle } from 'fs/promises';
 import { extname } from 'path';
@@ -234,7 +234,7 @@ async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadH
         const {
             mtimeMs,
             size,
-        } = await stat(resolvedPath);
+        } = statSync(resolvedPath);
         const epoch = getRangeReadPathEpoch(resolvedPath);
         const cachedEntry = rangeReadHandles.get(resolvedPath);
         if (cachedEntry) {
@@ -616,7 +616,7 @@ export async function handleFileRead(context: IDocumentsSenderIdContext, filePat
 
     let size: number;
     try {
-        ({size} = await stat(resolvedPath));
+        ({size} = statSync(resolvedPath));
     } catch {
         throw new Error(`File not found: ${normalizedPath}`);
     }
@@ -638,7 +638,9 @@ export async function handleFileStat(
     if (originalBacking) {
         return statOriginalBacking(originalBacking);
     }
-    const s = await stat(resolvedPath);
+    // Sync on purpose: packaged Windows Electron mishandles fs.promises
+    // metadata calls through its ASAR fs shim (issue #82).
+    const s = statSync(resolvedPath);
     return {
         size: s.size,
         modifiedAt: Math.trunc(s.mtimeMs),
@@ -714,7 +716,7 @@ export async function handleFileReadText(
 
     let size: number;
     try {
-        ({size} = await stat(resolvedPath));
+        ({size} = statSync(resolvedPath));
     } catch {
         throw new Error(`File not found: ${normalizedPath}`);
     }

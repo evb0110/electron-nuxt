@@ -855,7 +855,7 @@ describe('fileOps path security', () => {
         const result = await handleFileStat(readContext, '/Users/alice/Documents/file.pdf');
 
         expect(mocks.findWorkingCopyPathByOriginalPath).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf', 42);
-        expect(mocks.stat).toHaveBeenCalledWith('/tmp/electron-test/mapped.pdf');
+        expect(mocks.statSync).toHaveBeenCalledWith('/tmp/electron-test/mapped.pdf');
         expect(result).toEqual({
             size: 123,
             modifiedAt: 1,
@@ -986,12 +986,12 @@ describe('fileOps path security', () => {
     it('reopens cached range read handles when file metadata changes', async () => {
         const firstClose = vi.fn(async () => {});
         const secondClose = vi.fn(async () => {});
-        mocks.stat
-            .mockResolvedValueOnce({
+        mocks.statSync
+            .mockReturnValueOnce({
                 size: 123,
                 mtimeMs: 1,
             })
-            .mockResolvedValueOnce({
+            .mockReturnValueOnce({
                 size: 123,
                 mtimeMs: 2,
             });
@@ -1190,7 +1190,7 @@ describe('fileOps path security', () => {
         const result = await handleFileStat({}, '/Users/alice/Documents/file.djvu');
 
         expect(mocks.isAllowedDjvuViewingPath).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
-        expect(mocks.stat).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
+        expect(mocks.statSync).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
         expect(result).toEqual({
             size: 123,
             modifiedAt: 1,

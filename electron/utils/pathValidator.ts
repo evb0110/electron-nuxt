@@ -11,10 +11,6 @@ import {
     lstatSync,
     realpathSync,
 } from 'fs';
-import {
-    lstat,
-    realpath,
-} from 'fs/promises';
 import { getAppTempDirPath } from '@electron/utils/appTempDir';
 
 interface IPathOps {
@@ -266,7 +262,12 @@ export function isAllowedReadPath(filePath: string) {
     }
 }
 
-export async function resolveAllowedReadPath(filePath: string) {
+// Deliberately synchronous: in packaged Windows builds Electron's ASAR fs
+// shim intercepts fs.promises metadata calls (its fs.Stats construction is
+// what emits DEP0180) and rejected lstat/realpath for valid working-copy
+// paths, failing every temp-sandbox read (issue #82). The sync fs API on the
+// same paths works, as it did before the async conversion.
+function resolveAllowedReadPathSync(filePath: string) {
     const absolutePath = normalizeCandidatePath(filePath);
     if (!absolutePath) {
         return null;
@@ -278,15 +279,19 @@ export async function resolveAllowedReadPath(filePath: string) {
     }
 
     try {
-        if ((await lstat(absolutePath)).isSymbolicLink()) {
+        if (lstatSync(absolutePath).isSymbolicLink()) {
             return null;
         }
 
-        const resolvedPath = await realpath(absolutePath).catch(() => absolutePath);
+        const resolvedPath = safeRealpathSync(absolutePath);
         return isPathInsideAnyBaseDir(tempBaseDirs, resolvedPath) ? resolvedPath : null;
     } catch {
         return null;
     }
+}
+
+export function resolveAllowedReadPath(filePath: string) {
+    return Promise.resolve(resolveAllowedReadPathSync(filePath));
 }
 
 function resolveAllowedWritePathSync(filePath: string) {
