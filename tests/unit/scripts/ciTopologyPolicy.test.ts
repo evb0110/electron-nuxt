@@ -830,6 +830,9 @@ describe('CI topology policy', () => {
         expect(publishJob).not.toContain('pattern: supplemental-mac-x64');
         expect(finalizeAssetsJob).not.toContain('- publish_store');
         expect(stageMirrorJob).toContain('- finalize_release_assets');
+        // Draft assets are invisible to read-only tokens; without this the
+        // mirror stage fails with 'release not found' on every fresh cut.
+        expect(stageMirrorJob).toContain('contents: write');
         expect(publishStoreJob).toContain('- release_credentials');
         expect(publishStoreJob).toContain('- stage_mirror');
         expect(publishStoreJob).not.toContain('if:');

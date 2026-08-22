@@ -671,6 +671,11 @@ jobs:
       - finalize_release_assets
     runs-on: ubuntu-latest
     environment: release
+    permissions:
+      # Draft releases are invisible to read-only tokens, and this job
+      # downloads the still-unpublished draft's assets; it writes nothing to
+      # the repository itself.
+      contents: write
 
     steps:
       - name: Checkout target
