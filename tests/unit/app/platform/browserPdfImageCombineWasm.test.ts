@@ -1,3 +1,5 @@
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
 import {
     beforeEach,
     describe,
@@ -109,8 +111,17 @@ function createWasmExportsMock(options: {
     let capturedRequest = new Uint8Array();
     let outputPointer = 0;
     let errorPointer = 0;
+    let liveAllocation: {
+        pointer: number;
+        byteLength: number;
+    } | null = null;
+    let nextAllocationPointer: number | null = null;
     const error = new TextEncoder().encode(options.errorText ?? 'wasm failed');
-    const free = vi.fn();
+    const free = vi.fn((pointer: number, byteLength: number) => {
+        if (liveAllocation?.pointer === pointer && liveAllocation.byteLength === byteLength) {
+            liveAllocation = null;
+        }
+    });
     const buildPdf = vi.fn((requestPointer: number, requestLength: number) => {
         capturedRequest = new Uint8Array(memory.buffer, requestPointer, requestLength).slice();
         if (options.buildResultCode && options.buildResultCode !== 0) {
@@ -126,21 +137,32 @@ function createWasmExportsMock(options: {
         return 0;
     });
 
+    const alloc = vi.fn((len: number) => {
+        if (options.allocThrows) {
+            throw new Error('alloc failed');
+        }
+        if (options.allocReturnsZero || liveAllocation !== null) {
+            return 0;
+        }
+        const pointer = nextAllocationPointer ?? cursor;
+        nextAllocationPointer = null;
+        if (pointer === cursor) {
+            cursor += len + 16;
+        }
+        liveAllocation = {
+            pointer,
+            byteLength: len,
+        };
+        return pointer;
+    });
+
     return {
+        alloc,
         capturedRequest: () => capturedRequest,
         exports: {
             memory,
-            evb_pdf_image_combine_alloc: vi.fn((len: number) => {
-                if (options.allocThrows) {
-                    throw new Error('alloc failed');
-                }
-                if (options.allocReturnsZero) {
-                    return 0;
-                }
-                const pointer = cursor;
-                cursor += len + 16;
-                return pointer;
-            }),
+            evb_wasm_request_allocation_abi_version: vi.fn(() => 1),
+            evb_pdf_image_combine_alloc: alloc,
             evb_pdf_image_combine_free: free,
             evb_pdf_image_combine_build_pdf: buildPdf,
             evb_pdf_image_combine_output_ptr: vi.fn(() => outputPointer),
@@ -149,6 +171,9 @@ function createWasmExportsMock(options: {
             evb_pdf_image_combine_error_len: vi.fn(() => error.byteLength),
         },
         free,
+        setNextAllocationPointer(pointer: number) {
+            nextAllocationPointer = pointer;
+        },
     };
 }
 
@@ -158,6 +183,40 @@ describe('tryCombineImageInputsWithWasm', () => {
         vi.clearAllMocks();
         vi.unstubAllGlobals();
         vi.stubGlobal('location', {href: 'https://viewer.test/electron'});
+    });
+
+    it('keeps one exact live request allocation across repeated awkward lengths', async () => {
+        const wasmBytes = await readFile(join(process.cwd(), 'public/wasm/evb-pdf-image-combine.wasm'));
+        const module = new NativeWebAssembly.Module(wasmBytes);
+        const instance = await NativeWebAssembly.instantiate(module);
+        const memory = instance.exports.memory;
+        const allocationAbiVersion = instance.exports.evb_wasm_request_allocation_abi_version;
+        const alloc = instance.exports.evb_pdf_image_combine_alloc;
+        const free = instance.exports.evb_pdf_image_combine_free;
+        if (
+            !(memory instanceof NativeWebAssembly.Memory)
+            || typeof allocationAbiVersion !== 'function'
+            || typeof alloc !== 'function'
+            || typeof free !== 'function'
+        ) {
+            throw new Error('PDF image combine WASM allocation exports are missing');
+        }
+        expect(allocationAbiVersion()).toBe(1);
+
+        for (const length of [
+            1,
+            3,
+            17,
+            257,
+            1021,
+            4093,
+        ]) {
+            const pointer = alloc(length);
+            expect(pointer).not.toBe(0);
+            expect(alloc(1)).toBe(0);
+            new Uint8Array(memory.buffer, pointer >>> 0, length).fill(0xa5);
+            free(pointer, length);
+        }
     });
 
     it('combines supported image inputs through the WASM export', async () => {
@@ -306,6 +365,23 @@ describe('tryCombineImageInputsWithWasm', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it('reports a cached module with an incompatible allocation ABI as unavailable', async () => {
+        const wasmMock = createWasmExportsMock();
+        wasmMock.exports.evb_wasm_request_allocation_abi_version.mockReturnValue(0);
+        vi.stubGlobal('fetch', createFetchMock());
+        vi.stubGlobal('WebAssembly', {
+            ...wasmGlobalMockBase,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+
+        await expect(tryCombineImageInputsWithWasm([{
+            fileName: 'scan.png',
+            data: new Uint8Array([1]),
+        }])).resolves.toEqual({status: 'unavailable'});
+        expect(wasmMock.exports.evb_pdf_image_combine_alloc).not.toHaveBeenCalled();
+    });
+
     it('fails closed with the native error code when the WASM export rejects the image payload', async () => {
         const wasmMock = createWasmExportsMock({
             buildResultCode: -1,
@@ -384,6 +460,64 @@ describe('tryCombineImageInputsWithWasm', () => {
             error: {code: 'too-large'},
         });
         expect(wasmMock.free).not.toHaveBeenCalled();
+    });
+
+    it('rejects an out-of-bounds allocation pointer and releases ABI ownership', async () => {
+        const wasmMock = createWasmExportsMock();
+        const probePointer = wasmMock.alloc(7);
+        wasmMock.free(probePointer, 6);
+        expect(wasmMock.alloc(1)).toBe(0);
+        wasmMock.free(probePointer, 7);
+        const reusedPointer = wasmMock.alloc(1);
+        expect(reusedPointer).not.toBe(0);
+        wasmMock.free(reusedPointer, 1);
+        wasmMock.alloc.mockClear();
+        wasmMock.free.mockClear();
+        wasmMock.setNextAllocationPointer(65_520);
+        vi.stubGlobal('fetch', createFetchMock());
+        vi.stubGlobal('WebAssembly', {
+            ...wasmGlobalMockBase,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+
+        await expect(tryCombineImageInputsWithWasm([{
+            fileName: 'scan.png',
+            data: new Uint8Array([1]),
+        }])).resolves.toMatchObject({
+            status: 'fatal',
+            error: {code: 'native-failure'},
+        });
+        expect(wasmMock.exports.evb_pdf_image_combine_build_pdf).not.toHaveBeenCalled();
+        expect(wasmMock.free).toHaveBeenCalledOnce();
+
+        await expect(tryCombineImageInputsWithWasm([{
+            fileName: 'scan.png',
+            data: new Uint8Array([1]),
+        }])).resolves.toMatchObject({status: 'success'});
+        expect(wasmMock.exports.evb_pdf_image_combine_build_pdf).toHaveBeenCalledOnce();
+        expect(wasmMock.free).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects an out-of-bounds output span and frees the valid request allocation', async () => {
+        const wasmMock = createWasmExportsMock();
+        wasmMock.exports.evb_pdf_image_combine_output_ptr.mockReturnValue(65_535);
+        vi.stubGlobal('fetch', createFetchMock());
+        vi.stubGlobal('WebAssembly', {
+            ...wasmGlobalMockBase,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+
+        await expect(tryCombineImageInputsWithWasm([{
+            fileName: 'scan.png',
+            data: new Uint8Array([1]),
+        }])).resolves.toMatchObject({
+            status: 'fatal',
+            error: {code: 'native-failure'},
+        });
+        expect(wasmMock.exports.evb_pdf_image_combine_build_pdf).toHaveBeenCalledOnce();
+        expect(wasmMock.free).toHaveBeenCalledOnce();
     });
 
     it.each([

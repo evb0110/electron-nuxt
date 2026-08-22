@@ -5,7 +5,7 @@ use std::{
     fs::File,
     io::{BufReader, Cursor},
     path::Path,
-    sync::OnceLock,
+    sync::{Mutex, OnceLock},
 };
 
 use evb_native_support::bounded_io::read_open_file_bounded;
@@ -17,8 +17,8 @@ use evb_raster_io::{
 
 use crate::{
     flate::{deflate_up_filtered_rgb_grayscale, deflate_up_filtered_slices},
-    jpeg::parse_jpeg_metadata,
-    jpx::parse_jpx_metadata,
+    jpeg::{parse_jpeg_metadata, validate_jpeg_decodable},
+    jpx::{parse_jpx_metadata, validate_jpx_codestream},
     netpbm::{is_rgb_data_grayscale, parse_netpbm, read_netpbm_file, NetpbmData, OwnedNetpbm},
     pdf::{ImagePage, ImagePayload},
     tiff_io::{visit_tiff_pdf_pages_from_bytes, visit_tiff_pdf_pages_from_file},
@@ -33,6 +33,18 @@ const MAX_PNG_ICC_PROFILE_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_MAX_IMAGE_INPUT_MB: usize = 512;
 const MIN_IMAGE_INPUT_MB: usize = 16;
 const MAX_IMAGE_INPUT_MB: usize = 4_096;
+
+static IMAGE_DECODE_ADMISSION: Mutex<()> = Mutex::new(());
+
+fn with_image_decode_admission<T>(decode: impl FnOnce() -> Result<T>) -> Result<T> {
+    // PageEncoders can prepare eight pages in parallel. Full JPEG 2000 validation
+    // needs several image-sized buffers, so admit one decoder at a time instead of
+    // multiplying that peak across the worker pool.
+    let _admission = IMAGE_DECODE_ADMISSION
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    decode()
+}
 
 fn max_image_input_bytes() -> usize {
     static LIMIT: OnceLock<usize> = OnceLock::new();
@@ -343,6 +355,9 @@ fn png_flate_page(png: CompressedPng, default_dpi: Option<u32>) -> ImagePage {
 fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> Result<ImagePage> {
     let metadata = parse_jpeg_metadata(&bytes)?;
     assert_pixel_limit(metadata.width, metadata.height, max_pixels)?;
+    with_image_decode_admission(|| {
+        validate_jpeg_decodable(&bytes, metadata.width, metadata.height)
+    })?;
     let color_space = match metadata.components {
         1 => "DeviceGray",
         3 => "DeviceRGB",
@@ -366,6 +381,7 @@ fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> 
 fn read_jpx_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> Result<ImagePage> {
     let metadata = parse_jpx_metadata(&bytes)?;
     assert_pixel_limit(metadata.width, metadata.height, max_pixels)?;
+    with_image_decode_admission(|| validate_jpx_codestream(&bytes, metadata))?;
     Ok(ImagePage {
         width: metadata.width,
         height: metadata.height,
@@ -1009,6 +1025,44 @@ pub(crate) fn assert_pixel_limit(width: u32, height: u32, max_pixels: u64) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Barrier,
+        },
+        thread,
+        time::Duration,
+    };
+
+    #[test]
+    fn full_image_decode_admission_is_single_slot() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let maximum = Arc::new(AtomicUsize::new(0));
+        let start = Arc::new(Barrier::new(4));
+        let threads = (0..4)
+            .map(|_| {
+                let active = Arc::clone(&active);
+                let maximum = Arc::clone(&maximum);
+                let start = Arc::clone(&start);
+                thread::spawn(move || {
+                    start.wait();
+                    with_image_decode_admission(|| {
+                        let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                        maximum.fetch_max(now, Ordering::SeqCst);
+                        thread::sleep(Duration::from_millis(10));
+                        active.fetch_sub(1, Ordering::SeqCst);
+                        Ok(())
+                    })
+                    .unwrap();
+                })
+            })
+            .collect::<Vec<_>>();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+
+        assert_eq!(maximum.load(Ordering::SeqCst), 1);
+    }
 
     #[test]
     fn pixel_ceiling_returns_a_typed_too_large_error() {

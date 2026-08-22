@@ -30,8 +30,10 @@ interface IPdfPageSummary {
     rotation: number;
 }
 
-function toArrayBuffer(data: Uint8Array) {
-    return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+function toArrayBuffer(data: Uint8Array): ArrayBuffer {
+    const copy = new ArrayBuffer(data.byteLength);
+    new Uint8Array(copy).set(data);
+    return copy;
 }
 
 function assertSuccessfulWasmMutation(
@@ -96,7 +98,28 @@ function createFailingPageOpsWasmExports(errorText: string) {
     const memory = new NativeWebAssembly.Memory({initial: 1});
     const error = new TextEncoder().encode(errorText);
     const errorPointer = 2048;
-    const free = vi.fn();
+    let liveAllocation: {
+        pointer: number;
+        byteLength: number;
+    } | null = null;
+    let nextAllocationPointer = 1024;
+    const alloc = vi.fn((byteLength: number) => {
+        if (liveAllocation !== null) {
+            return 0;
+        }
+        const pointer = nextAllocationPointer;
+        nextAllocationPointer = 1024;
+        liveAllocation = {
+            pointer,
+            byteLength,
+        };
+        return pointer;
+    });
+    const free = vi.fn((pointer: number, byteLength: number) => {
+        if (liveAllocation?.pointer === pointer && liveAllocation.byteLength === byteLength) {
+            liveAllocation = null;
+        }
+    });
     const run = vi.fn(() => {
         new Uint8Array(memory.buffer, errorPointer, error.byteLength).set(error);
         return -7;
@@ -105,7 +128,8 @@ function createFailingPageOpsWasmExports(errorText: string) {
     return {
         exports: {
             memory,
-            evb_pdf_page_ops_alloc: vi.fn(() => 1024),
+            evb_wasm_request_allocation_abi_version: vi.fn(() => 1),
+            evb_pdf_page_ops_alloc: alloc,
             evb_pdf_page_ops_free: free,
             evb_pdf_page_ops_run: run,
             evb_pdf_page_ops_output_ptr: vi.fn(() => 0),
@@ -113,8 +137,12 @@ function createFailingPageOpsWasmExports(errorText: string) {
             evb_pdf_page_ops_error_ptr: vi.fn(() => errorPointer),
             evb_pdf_page_ops_error_len: vi.fn(() => error.byteLength),
         },
+        alloc,
         free,
         run,
+        setNextAllocationPointer(pointer: number) {
+            nextAllocationPointer = pointer;
+        },
     };
 }
 
@@ -152,6 +180,40 @@ describe('browser page-ops WASM fast path', () => {
         vi.resetModules();
         vi.clearAllMocks();
         vi.unstubAllGlobals();
+    });
+
+    it('keeps one exact live request allocation across repeated awkward lengths', async () => {
+        const wasmBytes = await readFile(join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'));
+        const module = new NativeWebAssembly.Module(toArrayBuffer(wasmBytes));
+        const instance = await NativeWebAssembly.instantiate(module);
+        const memory = instance.exports.memory;
+        const allocationAbiVersion = instance.exports.evb_wasm_request_allocation_abi_version;
+        const alloc = instance.exports.evb_pdf_page_ops_alloc;
+        const free = instance.exports.evb_pdf_page_ops_free;
+        if (
+            !(memory instanceof NativeWebAssembly.Memory)
+            || typeof allocationAbiVersion !== 'function'
+            || typeof alloc !== 'function'
+            || typeof free !== 'function'
+        ) {
+            throw new Error('Page operation WASM allocation exports are missing');
+        }
+        expect(allocationAbiVersion()).toBe(1);
+
+        for (const length of [
+            1,
+            3,
+            17,
+            257,
+            1021,
+            4093,
+        ]) {
+            const pointer = alloc(length);
+            expect(pointer).not.toBe(0);
+            expect(alloc(1)).toBe(0);
+            new Uint8Array(memory.buffer, pointer >>> 0, length).fill(0xa5);
+            free(pointer, length);
+        }
     });
 
     it('matches pdf-lib page summaries for representative operations', async () => {
@@ -315,6 +377,29 @@ describe('browser page-ops WASM fast path', () => {
         })).resolves.toBeNull();
     });
 
+    it('returns null for a cached module with an incompatible allocation ABI', async () => {
+        vi.resetModules();
+        vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true,
+            arrayBuffer: async () => new ArrayBuffer(8),
+        })));
+        const wasmMock = createFailingPageOpsWasmExports('unused');
+        wasmMock.exports.evb_wasm_request_allocation_abi_version.mockReturnValue(0);
+        vi.stubGlobal('WebAssembly', {
+            Memory: NativeWebAssembly.Memory,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+        const basePdf = await createPdf({pageWidths: [200]});
+
+        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+            data: basePdf,
+            pages: [1],
+        })).resolves.toBeNull();
+        expect(wasmMock.exports.evb_pdf_page_ops_alloc).not.toHaveBeenCalled();
+    });
+
     it('preserves native WASM error envelopes when a page operation falls back', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
@@ -382,6 +467,97 @@ describe('browser page-ops WASM fast path', () => {
         });
         expect(wasmMock.run).not.toHaveBeenCalled();
         expect(wasmMock.free).not.toHaveBeenCalled();
+    });
+
+    it('rejects an out-of-bounds allocation pointer and releases ABI ownership', async () => {
+        vi.resetModules();
+        vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true,
+            arrayBuffer: async () => new ArrayBuffer(8),
+        })));
+        const wasmMock = createFailingPageOpsWasmExports('unused');
+        const probePointer = wasmMock.alloc(7);
+        wasmMock.free(probePointer, 6);
+        expect(wasmMock.alloc(1)).toBe(0);
+        wasmMock.free(probePointer, 7);
+        const reusedPointer = wasmMock.alloc(1);
+        expect(reusedPointer).not.toBe(0);
+        wasmMock.free(reusedPointer, 1);
+        wasmMock.alloc.mockClear();
+        wasmMock.free.mockClear();
+        wasmMock.setNextAllocationPointer(65_520);
+        vi.stubGlobal('WebAssembly', {
+            Memory: NativeWebAssembly.Memory,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+        const basePdf = await createPdf({pageWidths: [200]});
+
+        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+            data: basePdf,
+            pages: [1],
+        })).resolves.toMatchObject({
+            status: 'failed',
+            error: {code: 'invalid-request'},
+        });
+        expect(wasmMock.run).not.toHaveBeenCalled();
+        expect(wasmMock.free).toHaveBeenCalledOnce();
+
+        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+            data: basePdf,
+            pages: [1],
+        })).resolves.toMatchObject({status: 'failed'});
+        expect(wasmMock.run).toHaveBeenCalledOnce();
+        expect(wasmMock.free).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects an out-of-bounds output span and frees the valid request allocation', async () => {
+        vi.resetModules();
+        vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true,
+            arrayBuffer: async () => new ArrayBuffer(8),
+        })));
+        const wasmMock = createFailingPageOpsWasmExports('unused');
+        const probePointer = wasmMock.alloc(7);
+        wasmMock.free(probePointer, 6);
+        expect(wasmMock.alloc(1)).toBe(0);
+        wasmMock.free(probePointer, 7);
+        const reusedPointer = wasmMock.alloc(1);
+        expect(reusedPointer).not.toBe(0);
+        wasmMock.free(reusedPointer, 1);
+        wasmMock.alloc.mockClear();
+        wasmMock.free.mockClear();
+        wasmMock.run.mockReturnValue(0);
+        wasmMock.exports.evb_pdf_page_ops_output_ptr.mockReturnValue(65_520);
+        wasmMock.exports.evb_pdf_page_ops_output_len.mockReturnValue(32);
+        vi.stubGlobal('WebAssembly', {
+            Memory: NativeWebAssembly.Memory,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+        const basePdf = await createPdf({pageWidths: [200]});
+
+        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+            data: basePdf,
+            pages: [1],
+        })).resolves.toMatchObject({
+            status: 'failed',
+            error: {code: 'invalid-request'},
+        });
+        expect(wasmMock.run).toHaveBeenCalledOnce();
+        expect(wasmMock.free).toHaveBeenCalledOnce();
+
+        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+            data: basePdf,
+            pages: [1],
+        })).resolves.toMatchObject({
+            status: 'failed',
+            error: {code: 'invalid-request'},
+        });
+        expect(wasmMock.run).toHaveBeenCalledTimes(2);
+        expect(wasmMock.free).toHaveBeenCalledTimes(2);
     });
 
     it.each([

@@ -1,5 +1,8 @@
-use evb_native_support::{NativeError, NativeErrorCode, NativeErrorEnvelope};
-use std::{cell::RefCell, mem, slice, str};
+use evb_native_support::{
+    wasm_request_allocation::{WasmRequestAllocation, WASM_REQUEST_ALLOCATION_ABI_VERSION},
+    NativeError, NativeErrorCode, NativeErrorEnvelope,
+};
+use std::{cell::RefCell, slice, str};
 
 use crate::{
     is_output_limit_exceeded, write_pdf, FramePolicy, ImageCompression, ImageProcessing, ImageSpec,
@@ -19,6 +22,7 @@ const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
 const MAX_OUTPUT_BYTES: usize = 512 * 1024 * 1024;
 
 thread_local! {
+    static REQUEST_ALLOCATION: WasmRequestAllocation = const { WasmRequestAllocation::new(MAX_REQUEST_BYTES) };
     static LAST_OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     static LAST_ERROR: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
@@ -29,28 +33,18 @@ struct RequestHeader {
 }
 
 #[no_mangle]
-pub extern "C" fn evb_pdf_image_combine_alloc(len: usize) -> *mut u8 {
-    if !allocation_length_is_admitted(len, MAX_REQUEST_BYTES) {
-        return std::ptr::null_mut();
-    }
-    let mut buffer = Vec::<u8>::new();
-    if buffer.try_reserve_exact(len).is_err() {
-        return std::ptr::null_mut();
-    }
-    let pointer = buffer.as_mut_ptr();
-    mem::forget(buffer);
-    pointer
-}
-
-fn allocation_length_is_admitted(len: usize, max_bytes: usize) -> bool {
-    len > 0 && len <= max_bytes
+pub extern "C" fn evb_wasm_request_allocation_abi_version() -> u32 {
+    WASM_REQUEST_ALLOCATION_ABI_VERSION
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn evb_pdf_image_combine_free(pointer: *mut u8, capacity: usize) {
-    if !pointer.is_null() {
-        drop(Vec::from_raw_parts(pointer, 0, capacity));
-    }
+pub extern "C" fn evb_pdf_image_combine_alloc(len: usize) -> *mut u8 {
+    REQUEST_ALLOCATION.with(|allocation| allocation.allocate(len))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn evb_pdf_image_combine_free(pointer: *mut u8, byte_length: usize) {
+    REQUEST_ALLOCATION.with(|allocation| allocation.free(pointer, byte_length));
 }
 
 #[no_mangle]
@@ -63,6 +57,13 @@ pub unsafe extern "C" fn evb_pdf_image_combine_build_pdf(
         set_error_envelope(NativeErrorEnvelope {
             code: NativeErrorCode::TooLarge,
             message: "Image-combine WASM request exceeds the admission ceiling".to_string(),
+        });
+        return -1;
+    }
+    if !REQUEST_ALLOCATION.with(|allocation| allocation.matches(request_pointer, request_len)) {
+        set_error_envelope(NativeErrorEnvelope {
+            code: NativeErrorCode::InvalidRequest,
+            message: "Image-combine WASM request does not match the live allocation".to_string(),
         });
         return -1;
     }
@@ -434,12 +435,27 @@ mod tests {
     const PBM: &[u8] = b"P4\n8 1\n\x80";
 
     #[test]
-    fn allocator_admits_only_nonzero_lengths_at_or_below_the_cap() {
-        assert!(!allocation_length_is_admitted(0, 8));
-        assert!(allocation_length_is_admitted(8, 8));
-        assert!(!allocation_length_is_admitted(9, 8));
+    fn allocator_requires_one_exact_live_pointer_and_length() {
         assert!(evb_pdf_image_combine_alloc(0).is_null());
         assert!(evb_pdf_image_combine_alloc(MAX_REQUEST_BYTES + 1).is_null());
+        let pointer = evb_pdf_image_combine_alloc(17);
+        assert!(!pointer.is_null());
+        assert!(evb_pdf_image_combine_alloc(1).is_null());
+
+        let status = unsafe { evb_pdf_image_combine_build_pdf(pointer, 16) };
+        assert_eq!(status, -1);
+        let envelope = LAST_ERROR.with(|slot| String::from_utf8(slot.borrow().clone()).unwrap());
+        assert_eq!(
+            envelope,
+            r#"{"code":"invalid-request","message":"Image-combine WASM request does not match the live allocation"}"#
+        );
+
+        unsafe { evb_pdf_image_combine_free(pointer, 16) };
+        assert!(evb_pdf_image_combine_alloc(1).is_null());
+        unsafe { evb_pdf_image_combine_free(pointer, 17) };
+        let next_pointer = evb_pdf_image_combine_alloc(1);
+        assert!(!next_pointer.is_null());
+        unsafe { evb_pdf_image_combine_free(next_pointer, 1) };
     }
 
     #[test]
@@ -544,6 +560,25 @@ mod tests {
             output_ceiling_error().to_json(),
             r#"{"code":"too-large","message":"Image-combine WASM output exceeds the admission ceiling"}"#
         );
+    }
+
+    #[test]
+    fn browser_wasm_request_rejects_fake_jpeg_scan_data() {
+        let mut request = request_header(REQUEST_VERSION_V1, 1);
+        push_input(
+            &mut request,
+            "fake.jpg",
+            &[
+                0xff, 0xd8, 0xff, 0xc0, 0x00, 0x0b, 8, 0, 1, 0, 1, 1, 1, 0x11, 0, 0xff, 0xda, 0, 8,
+                1, 1, 0, 0, 0x3f, 0, 0x11, 0xff, 0xd9,
+            ],
+        );
+
+        let error = build_pdf_from_request_with_limit(&request, u64::MAX).unwrap_err();
+        let envelope = NativeErrorEnvelope::from_error(error.as_ref());
+
+        assert_eq!(envelope.code, NativeErrorCode::NativeFailure);
+        assert!(envelope.message.contains("not decodable"));
     }
 
     fn image_request(version: u32, processed: bool) -> Vec<u8> {

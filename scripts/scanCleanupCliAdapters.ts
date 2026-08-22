@@ -30,6 +30,10 @@ import {
 } from '@contracts/nativeErrors';
 import {NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA} from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
+import {
+    getCheckedWasmMemoryView,
+    WASM_REQUEST_ALLOCATION_ABI_VERSION,
+} from '@contracts/getCheckedWasmMemoryView';
 import {createScanCleanupRenderers} from '@scan-cleanup-adapters/createScanCleanupRenderers';
 import {parseScanCleanupCompactManifest} from '@scan-cleanup-core/compactManifest';
 import {createScanCleanupSidecarProtocolHandler} from '@scan-cleanup-core/createScanCleanupSidecarProtocolHandler';
@@ -162,8 +166,9 @@ export function buildCliRawMaskEvidenceManifest(
 
 interface ICliPdfCombineWasmExports {
     memory: WebAssembly.Memory;
+    evb_wasm_request_allocation_abi_version: () => number;
     evb_pdf_image_combine_alloc: (length: number) => number;
-    evb_pdf_image_combine_free: (pointer: number, capacity: number) => void;
+    evb_pdf_image_combine_free: (pointer: number, byteLength: number) => void;
     evb_pdf_image_combine_build_pdf: (pointer: number, length: number) => number;
     evb_pdf_image_combine_output_ptr: () => number;
     evb_pdf_image_combine_output_len: () => number;
@@ -257,6 +262,8 @@ async function loadCliPdfCombineWasm() {
             const value = exports as Partial<ICliPdfCombineWasmExports>;
             if (
                 !(value.memory instanceof WebAssembly.Memory)
+                || typeof value.evb_wasm_request_allocation_abi_version !== 'function'
+                || value.evb_wasm_request_allocation_abi_version() !== WASM_REQUEST_ALLOCATION_ABI_VERSION
                 || typeof value.evb_pdf_image_combine_alloc !== 'function'
                 || typeof value.evb_pdf_image_combine_free !== 'function'
                 || typeof value.evb_pdf_image_combine_build_pdf !== 'function'
@@ -340,7 +347,7 @@ function buildCliWasmPageRequest(page: ICliPdfCombineWasmPage, inputs: ICliPdfCo
 }
 
 function readCliWasmBytes(exports: ICliPdfCombineWasmExports, pointer: number, length: number) {
-    return new Uint8Array(exports.memory.buffer, pointer, length).slice();
+    return getCheckedWasmMemoryView(exports.memory, pointer, length, 'CLI PDF image combine WASM').slice();
 }
 
 async function normalizeCliWasmMask(
@@ -475,7 +482,13 @@ export async function writeCliWasmPdfPage(
     const pointer = exports.evb_pdf_image_combine_alloc(request.byteLength);
     if (pointer === 0) throw new Error('CLI PDF image combine WASM allocation failed');
     try {
-        new Uint8Array(exports.memory.buffer, pointer, request.byteLength).set(request);
+        const requestMemory = getCheckedWasmMemoryView(
+            exports.memory,
+            pointer,
+            request.byteLength,
+            'CLI PDF image combine WASM allocation',
+        );
+        requestMemory.set(request);
         const resultCode = exports.evb_pdf_image_combine_build_pdf(pointer, request.byteLength);
         if (resultCode !== 0) {
             const errorPointer = exports.evb_pdf_image_combine_error_ptr();

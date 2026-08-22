@@ -156,6 +156,93 @@ describe('ExternalIdentityIndex properties', () => {
         ));
     });
 
+    it('leaves existing bindings intact when a replacement conflicts', () => {
+        const index = new ExternalIdentityIndex();
+        const firstId = asAnnotationId('first');
+        const secondId = asAnnotationId('second');
+        index.bind({
+            id: firstId,
+            pdfRef: 'first-ref',
+        });
+        index.bind({
+            id: secondId,
+            pdfRef: 'second-ref',
+        });
+
+        expect(() => index.replace([{
+            before: {
+                id: firstId,
+                pdfRef: 'first-ref',
+            },
+            after: {
+                id: firstId,
+                pdfRef: 'second-ref',
+            },
+        }])).toThrow(ExternalIdentityConflictError);
+
+        expect(index.resolve({pdfRef: 'first-ref'})).toBe(firstId);
+        expect(index.resolve({pdfRef: 'second-ref'})).toBe(secondId);
+    });
+
+    it('reuses a released binding atomically within one replacement batch', () => {
+        const index = new ExternalIdentityIndex();
+        const firstId = asAnnotationId('first');
+        const secondId = asAnnotationId('second');
+        index.bind({
+            id: firstId,
+            pdfRef: 'shared-ref',
+        });
+
+        index.replace([
+            {
+                before: {
+                    id: firstId,
+                    pdfRef: 'shared-ref',
+                },
+                after: null,
+            },
+            {
+                before: null,
+                after: {
+                    id: secondId,
+                    pdfRef: 'shared-ref',
+                },
+            },
+        ]);
+
+        expect(index.resolve({pdfRef: 'shared-ref'})).toBe(secondId);
+    });
+
+    it('reuses a binding when its addition precedes its release in the replacement batch', () => {
+        const index = new ExternalIdentityIndex();
+        const firstId = asAnnotationId('first');
+        const secondId = asAnnotationId('second');
+        index.bind({
+            id: firstId,
+            pdfRef: 'shared-ref',
+        });
+
+        index.replace([
+            {
+                before: null,
+                after: {
+                    id: secondId,
+                    pdfRef: 'shared-ref',
+                },
+            },
+            {
+                before: {
+                    id: firstId,
+                    pdfRef: 'shared-ref',
+                },
+                after: null,
+            },
+        ]);
+
+        expect(index.resolve({pdfRef: 'shared-ref'})).toBe(secondId);
+        expect(index.resolve({pdfRef: 'shared-ref'})).not.toBe(firstId);
+    });
+
     it('treats whitespace-equivalent annotation ids as the same owner', () => {
         const index = new ExternalIdentityIndex();
         index.bind({

@@ -63,6 +63,10 @@ import {
 import type { IPdfjsAnnotationEditorState } from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
 import { deriveAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
+import {
+    AnnotationHistoryIndeterminateError,
+    type IPdfAppAnnotationHistoryCommand,
+} from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
 
 type TEditorParamType = Parameters<TAnnotationEditorUIManager['updateParams']>[0];
 type TEditorParamValue = unknown;
@@ -129,10 +133,7 @@ interface IEditorBridgeDeps {
     emitAnnotationModified: () => void;
     emitAnnotationState: (patch: Partial<IPdfjsAnnotationEditorState>) => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
-    recordPdfjsExecutorCommand?: (command: {
-        cmd: () => void;
-        undo: () => void;
-    }) => void;
+    recordPdfjsExecutorCommand?: (command: IPdfAppAnnotationHistoryCommand) => void;
     isPdfjsHistoryRouted?: () => boolean;
     routeAnnotationHistoryUndo?: () => boolean;
     routeAnnotationHistoryRedo?: () => boolean;
@@ -174,6 +175,36 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         get manager() { return managerGeneration; },
         page: () => pageGeneration,
     });
+
+    function replayRecordedPdfjsCommand(
+        apply: () => void,
+    ) {
+        try {
+            apply();
+        } catch (error) {
+            // PDF.js executor callbacks are opaque. If one throws, the bridge
+            // cannot tell whether it mutated first, so retrying is unsafe.
+            throw new AnnotationHistoryIndeterminateError(error);
+        }
+        notifyAfterRecordedPdfjsReplay('emit annotation modification', emitAnnotationModified);
+        notifyAfterRecordedPdfjsReplay('schedule annotation comment synchronization', () => {
+            getCommentSync().scheduleAnnotationCommentsSync(true);
+        });
+    }
+
+    function notifyAfterRecordedPdfjsReplay(message: string, notify: () => void) {
+        try {
+            notify();
+        } catch (error) {
+            // PDF.js already applied the command. Diagnostics and notification
+            // failures must not strand it on the wrong history-stack side.
+            try {
+                BrowserLogger.warn('annotations', `Failed to ${message} after replay: ${errorToLogText(error)}`);
+            } catch {
+                // Logging is also best-effort after a successful replay.
+            }
+        }
+    }
     const unsubscribeFacadeModified = pdfjsFacade.subscribeModified(() => {
         emitAnnotationModified();
         getCommentSync().scheduleAnnotationCommentsSync();
@@ -646,16 +677,12 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 && typeof params.undo === 'function'
             ) {
                 recordPdfjsExecutorCommand?.({
-                    cmd: () => {
-                        (params.cmd as () => void)();
-                        emitAnnotationModified();
-                        commentSync.scheduleAnnotationCommentsSync(true);
-                    },
-                    undo: () => {
-                        (params.undo as () => void)();
-                        emitAnnotationModified();
-                        commentSync.scheduleAnnotationCommentsSync(true);
-                    },
+                    cmd: () => replayRecordedPdfjsCommand(
+                        params.cmd as () => void,
+                    ),
+                    undo: () => replayRecordedPdfjsCommand(
+                        params.undo as () => void,
+                    ),
                 });
             }
             commentSync.scheduleAnnotationCommentsSync();

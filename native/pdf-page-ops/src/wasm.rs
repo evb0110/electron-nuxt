@@ -1,5 +1,8 @@
-use evb_native_support::{NativeErrorCode, NativeErrorEnvelope};
-use std::{cell::RefCell, mem, slice};
+use evb_native_support::{
+    wasm_request_allocation::{WasmRequestAllocation, WASM_REQUEST_ALLOCATION_ABI_VERSION},
+    NativeErrorCode, NativeErrorEnvelope,
+};
+use std::{cell::RefCell, slice};
 
 use crate::{
     crop_browser_pdf_bytes, delete_browser_pdf_pages, extract_browser_pdf_pages,
@@ -26,6 +29,7 @@ const RESPONSE_GEOMETRY: u32 = 2;
 const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
 
 thread_local! {
+    static REQUEST_ALLOCATION: WasmRequestAllocation = const { WasmRequestAllocation::new(MAX_REQUEST_BYTES) };
     static LAST_OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     static LAST_ERROR: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
@@ -42,28 +46,18 @@ struct ParsedRequest<'a> {
 }
 
 #[no_mangle]
-pub extern "C" fn evb_pdf_page_ops_alloc(len: usize) -> *mut u8 {
-    if !allocation_length_is_admitted(len, MAX_REQUEST_BYTES) {
-        return std::ptr::null_mut();
-    }
-    let mut buffer = Vec::<u8>::new();
-    if buffer.try_reserve_exact(len).is_err() {
-        return std::ptr::null_mut();
-    }
-    let pointer = buffer.as_mut_ptr();
-    mem::forget(buffer);
-    pointer
-}
-
-fn allocation_length_is_admitted(len: usize, max_bytes: usize) -> bool {
-    len > 0 && len <= max_bytes
+pub extern "C" fn evb_wasm_request_allocation_abi_version() -> u32 {
+    WASM_REQUEST_ALLOCATION_ABI_VERSION
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn evb_pdf_page_ops_free(pointer: *mut u8, capacity: usize) {
-    if !pointer.is_null() {
-        drop(Vec::from_raw_parts(pointer, 0, capacity));
-    }
+pub extern "C" fn evb_pdf_page_ops_alloc(len: usize) -> *mut u8 {
+    REQUEST_ALLOCATION.with(|allocation| allocation.allocate(len))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn evb_pdf_page_ops_free(pointer: *mut u8, byte_length: usize) {
+    REQUEST_ALLOCATION.with(|allocation| allocation.free(pointer, byte_length));
 }
 
 #[no_mangle]
@@ -76,6 +70,13 @@ pub unsafe extern "C" fn evb_pdf_page_ops_run(
         set_error_envelope(NativeErrorEnvelope {
             code: NativeErrorCode::TooLarge,
             message: "Page-op WASM request exceeds the admission ceiling".to_string(),
+        });
+        return -1;
+    }
+    if !REQUEST_ALLOCATION.with(|allocation| allocation.matches(request_pointer, request_len)) {
+        set_error_envelope(NativeErrorEnvelope {
+            code: NativeErrorCode::InvalidRequest,
+            message: "Page-op WASM request does not match the live allocation".to_string(),
         });
         return -1;
     }
@@ -433,12 +434,27 @@ mod tests {
     }
 
     #[test]
-    fn allocator_admits_only_nonzero_lengths_at_or_below_the_cap() {
-        assert!(!allocation_length_is_admitted(0, 8));
-        assert!(allocation_length_is_admitted(8, 8));
-        assert!(!allocation_length_is_admitted(9, 8));
+    fn allocator_requires_one_exact_live_pointer_and_length() {
         assert!(evb_pdf_page_ops_alloc(0).is_null());
         assert!(evb_pdf_page_ops_alloc(MAX_REQUEST_BYTES + 1).is_null());
+        let pointer = evb_pdf_page_ops_alloc(17);
+        assert!(!pointer.is_null());
+        assert!(evb_pdf_page_ops_alloc(1).is_null());
+
+        let status = unsafe { evb_pdf_page_ops_run(pointer, 16) };
+        assert_eq!(status, -1);
+        let envelope = LAST_ERROR.with(|slot| String::from_utf8(slot.borrow().clone()).unwrap());
+        assert_eq!(
+            envelope,
+            r#"{"code":"invalid-request","message":"Page-op WASM request does not match the live allocation"}"#
+        );
+
+        unsafe { evb_pdf_page_ops_free(pointer, 16) };
+        assert!(evb_pdf_page_ops_alloc(1).is_null());
+        unsafe { evb_pdf_page_ops_free(pointer, 17) };
+        let next_pointer = evb_pdf_page_ops_alloc(1);
+        assert!(!next_pointer.is_null());
+        unsafe { evb_pdf_page_ops_free(next_pointer, 1) };
     }
 
     #[test]

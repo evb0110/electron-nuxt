@@ -208,12 +208,14 @@ dependencies = [
  "evb-raster-io",
  "fax",
  "flate2",
+ "hayro-jpeg2000",
  "jbig2-codec",
  "jpeg-encoder",
  "rayon",
  "serde",
  "serde_json",
  "tiff",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -314,6 +316,12 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[package]]
+name = "hayro-jpeg2000"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c75ab947623ef4ccaa7acf0579edf7cbb5a73838e3839a7be73335e522f433a1"
 
 [[package]]
 name = "hybrid-array"

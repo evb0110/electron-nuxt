@@ -1,3 +1,10 @@
+use std::io::Cursor;
+
+use zune_jpeg::{
+    zune_core::{colorspace::ColorSpace, options::DecoderOptions},
+    JpegDecoder,
+};
+
 use crate::{binary::read_u16_be, Result, CM_PER_INCH};
 
 const JPEG_APP0_MARKER: u8 = 0xE0;
@@ -132,6 +139,9 @@ pub(crate) fn parse_jpeg_metadata(bytes: &[u8]) -> Result<JpegMetadata> {
     }
 
     let (width, height, components) = dimensions.ok_or("Missing JPEG dimensions")?;
+    if !matches!(components, 1 | 3) {
+        return Err(format!("Unsupported JPEG component count: {components}").into());
+    }
     let icc_profile = assemble_icc_profile(icc_chunks)?;
     Ok(JpegMetadata {
         width,
@@ -140,6 +150,19 @@ pub(crate) fn parse_jpeg_metadata(bytes: &[u8]) -> Result<JpegMetadata> {
         dpi,
         icc_profile,
     })
+}
+
+pub(crate) fn validate_jpeg_decodable(bytes: &[u8], width: u32, height: u32) -> Result<()> {
+    let options = DecoderOptions::default()
+        .set_strict_mode(true)
+        .set_max_width(width as usize)
+        .set_max_height(height as usize)
+        .jpeg_set_out_colorspace(ColorSpace::Luma);
+    let mut decoder = JpegDecoder::new_with_options(Cursor::new(bytes), options);
+    decoder
+        .decode()
+        .map(|_| ())
+        .map_err(|error| format!("JPEG scan data is not decodable: {error}").into())
 }
 
 fn assemble_icc_profile(mut chunks: Vec<(u8, u8, Vec<u8>)>) -> Result<Option<Vec<u8>>> {

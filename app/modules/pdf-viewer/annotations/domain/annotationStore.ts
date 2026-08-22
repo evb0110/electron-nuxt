@@ -34,20 +34,16 @@ import {
     shapeStableRefsMatch,
 } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-identity/shapeAnnotationIdentity';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
+import {
+    LocalAnnotationHistoryAuthority,
+    type IAnnotationHistoryAuthority,
+    type TRegisterAnnotationHistoryFailureRollback,
+} from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
+export type {IAnnotationHistoryAuthority} from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
 interface IHistoryEntry {
+    readonly id: AnnotationId;
     before: AnnotationEntity | null;
     after: AnnotationEntity | null
-}
-interface IAnnotationHistoryCommand {
-    cmd: () => void;
-    undo: () => void;
-}
-export interface IAnnotationHistoryAuthority {
-    readonly canUndo: boolean;
-    readonly canRedo: boolean;
-    registerCommand: (command: IAnnotationHistoryCommand) => void;
-    undo: () => boolean;
-    redo: () => boolean;
 }
 export interface IAnnotationSaveFrontier {
     readonly documentRevisionToken: TDocumentRevisionToken | null;
@@ -83,6 +79,7 @@ type TListener = (entities: readonly AnnotationEntity[]) => void;
 function cloneEntity<T extends AnnotationEntity>(entity: T): T {
     return structuredClone(entity);
 }
+function liveIdentityOf(entity: AnnotationEntity | null | undefined) { return entity && !entity.deleted ? entity.identity : null; }
 
 interface ISavePreparationChange {
     readonly beforeIdentity: AnnotationEntity['identity'];
@@ -96,36 +93,6 @@ interface ISaveFrontierState {readonly preparedChanges: Map<AnnotationId, ISaveP
 interface IPendingMarkupSubtypeIntent {
     readonly aliases: ReadonlySet<string>;
     readonly subtype: TMarkupSubtype;
-}
-
-class LocalAnnotationHistoryAuthority implements IAnnotationHistoryAuthority {
-    readonly #undo: IAnnotationHistoryCommand[] = [];
-    readonly #redo: IAnnotationHistoryCommand[] = [];
-
-    get canUndo() { return this.#undo.length > 0; }
-    get canRedo() { return this.#redo.length > 0; }
-    registerCommand(command: IAnnotationHistoryCommand) {
-        this.#undo.push(command);
-        this.#redo.length = 0;
-    }
-    undo() {
-        const command = this.#undo.pop();
-        if (!command) {
-            return false;
-        }
-        command.undo();
-        this.#redo.push(command);
-        return true;
-    }
-    redo() {
-        const command = this.#redo.pop();
-        if (!command) {
-            return false;
-        }
-        command.cmd();
-        this.#undo.push(command);
-        return true;
-    }
 }
 
 export class AnnotationStore {
@@ -181,8 +148,11 @@ export class AnnotationStore {
                 subtype: pendingSubtype.subtype,
             }
             : entity;
-        this.#identities.bind(imported.identity);
-        this.#entities.set(imported.identity.id, cloneEntity(imported));
+        this.#replaceEntities([{
+            id: entity.identity.id,
+            before: current ?? null,
+            after: imported,
+        }]);
         if (pendingSubtype) {
             this.#forgetPendingMarkupSubtype(pendingSubtype);
         }
@@ -214,14 +184,15 @@ export class AnnotationStore {
             entities: Array.from(this.#entities.values()),
         });
         const entries: IHistoryEntry[] = plan.replacements.map(replacement => ({
+            id: replacement.before.identity.id,
             before: cloneEntity(replacement.before),
             after: cloneEntity(replacement.after),
         }));
         entries.push({
+            id: created.identity.id,
             before: null,
             after: cloneEntity(created),
         });
-        this.#identities.bind(created.identity);
         this.#commitBatch(entries);
         return plan.projection;
     }
@@ -233,19 +204,22 @@ export class AnnotationStore {
      * drops the saved baseline entry so a forgotten annotation cannot report dirty.
      */
     forget(ids: ReadonlySet<AnnotationId>) {
-        let removed = false;
+        const removedIds = new Set<AnnotationId>();
         ids.forEach((id) => {
             const entity = this.#entities.get(id);
-            removed = this.#entities.delete(id) || removed;
+            if (this.#entities.delete(id)) {
+                removedIds.add(id);
+            }
             this.#savedSemanticSnapshot.delete(id);
             this.#pdfjsObservedTransientIds.delete(id);
             if (entity) {
                 this.forgetPendingMarkupSubtypes(this.#externalIdentityKeys(entity.identity));
             }
         });
-        if (!removed) {
+        if (!removedIds.size) {
             return;
         }
+        this.#history.forgetCommands(removedIds);
         this.#rebindIdentities();
         this.#mutationEpoch += 1;
         this.#emit();
@@ -315,6 +289,7 @@ export class AnnotationStore {
             modifiedAt: Date.now(),
         };
         this.#commit({
+            id,
             before,
             after,
         });
@@ -464,11 +439,15 @@ export class AnnotationStore {
             ...entity.identity,
             ...event.bindings,
         };
-        this.#identities.bind(identity);
-        this.#entities.set(event.annotationId, {
+        const updated = {
             ...entity,
             identity,
-        });
+        };
+        this.#replaceEntities([{
+            id: entity.identity.id,
+            before: entity,
+            after: updated,
+        }]);
         this.#mutationEpoch += 1;
         this.#emit();
     }
@@ -672,6 +651,7 @@ export class AnnotationStore {
                     pageIndex: nextPageIndex,
                 });
         });
+        this.#rebindIdentities();
         this.#mutationEpoch += 1;
         this.#emit();
     }
@@ -738,13 +718,13 @@ export class AnnotationStore {
         }
         return true;
     }
-
     acknowledgeSave(
         frontier: IAnnotationSaveFrontier,
         materializedPdfRefs: ReadonlyMap<AnnotationId, string> = new Map(),
         currentDocumentRevisionToken: TDocumentRevisionToken | null = frontier.documentRevisionToken,
     ) {
         this.assertSaveFrontierCurrent(frontier, currentDocumentRevisionToken);
+        const updates: IHistoryEntry[] = [];
         frontier.revisions.forEach((revision, id) => {
             const entity = this.#entities.get(id);
             if (entity?.revision === revision) {
@@ -755,14 +735,18 @@ export class AnnotationStore {
                         pdfRef,
                     }
                     : entity.identity;
-                this.#identities.bind(identity);
-                this.#entities.set(id, {
-                    ...entity,
-                    identity,
-                    persistedRevision: revision,
+                updates.push({
+                    id,
+                    before: entity,
+                    after: {
+                        ...entity,
+                        identity,
+                        persistedRevision: revision,
+                    },
                 });
             }
         });
+        this.#replaceEntities(updates);
         this.#savedSemanticSnapshot = semanticSnapshot(this.#entities.values());
         this.#emit();
     }
@@ -849,8 +833,8 @@ export class AnnotationStore {
         if (entity.revision !== 0 || entity.persistedRevision !== -1) {
             throw new Error('New annotations must start at revision 0 with persistedRevision -1');
         }
-        this.#identities.bind(entity.identity);
         this.#commit({
+            id: entity.identity.id,
             before: null,
             after: cloneEntity(entity),
         });
@@ -870,6 +854,7 @@ export class AnnotationStore {
             modifiedAt: Date.now(),
         };
         this.#commit({
+            id,
             before: cloneEntity(before),
             after,
         });
@@ -877,42 +862,68 @@ export class AnnotationStore {
     }
 
     #commit(entry: IHistoryEntry) {
-        const id = (entry.before ?? entry.after)?.identity.id;
-        if (!id) {
-            throw new Error('History entry has no annotation identity');
-        }
-        const apply = (value: AnnotationEntity | null) => {
-            if (value) this.#entities.set(id, cloneEntity(value));
-            else this.#entities.delete(id);
-            this.#mutationEpoch += 1;
-            this.#emit();
+        const apply = (
+            value: AnnotationEntity | null,
+            registerFailureRollback?: TRegisterAnnotationHistoryFailureRollback,
+        ) => {
+            this.#applyHistoryEntries([{
+                id: entry.id,
+                before: this.#entities.get(entry.id) ?? null,
+                after: value,
+            }], registerFailureRollback);
         };
         apply(entry.after);
         this.#history.registerCommand({
-            cmd: () => apply(entry.after),
-            undo: () => apply(entry.before),
+            cmd: register => apply(entry.after, register),
+            undo: register => apply(entry.before, register),
+            annotationIds: [entry.id],
         });
     }
-
     #commitBatch(entries: readonly IHistoryEntry[]) {
-        const apply = (side: 'before' | 'after') => {
+        const apply = (
+            side: 'before' | 'after',
+            registerFailureRollback?: TRegisterAnnotationHistoryFailureRollback,
+        ) => {
             const ordered = side === 'before' ? [...entries].reverse() : entries;
-            ordered.forEach((entry) => {
-                const value = entry[side];
-                const id = (entry.before ?? entry.after)?.identity.id;
-                if (!id) {
-                    throw new Error('History entry has no annotation identity');
-                }
-                if (value) this.#entities.set(id, cloneEntity(value));
-                else this.#entities.delete(id);
-            });
-            this.#mutationEpoch += 1;
-            this.#emit();
+            this.#applyHistoryEntries(ordered.map(entry => ({
+                id: entry.id,
+                before: this.#entities.get(entry.id) ?? null,
+                after: entry[side],
+            })), registerFailureRollback);
         };
         apply('after');
         this.#history.registerCommand({
-            cmd: () => apply('after'),
-            undo: () => apply('before'),
+            cmd: register => apply('after', register),
+            undo: register => apply('before', register),
+            annotationIds: entries.map(entry => entry.id),
+        });
+    }
+    #applyHistoryEntries(
+        entries: readonly IHistoryEntry[],
+        registerFailureRollback?: TRegisterAnnotationHistoryFailureRollback,
+    ) {
+        const previousEpoch = this.#mutationEpoch;
+        this.#replaceEntities(entries);
+        this.#mutationEpoch += 1;
+        registerFailureRollback?.(() => {
+            this.#replaceEntities([...entries].reverse().map(entry => ({
+                id: entry.id,
+                before: entry.after,
+                after: entry.before,
+            })));
+            this.#mutationEpoch = previousEpoch;
+            this.#emit();
+        });
+        this.#emit();
+    }
+    #replaceEntities(entries: readonly IHistoryEntry[]) {
+        this.#identities.replace(entries.map(entry => ({
+            before: liveIdentityOf(entry.before),
+            after: liveIdentityOf(entry.after),
+        })));
+        entries.forEach((entry) => {
+            if (entry.after) this.#entities.set(entry.id, cloneEntity(entry.after));
+            else this.#entities.delete(entry.id);
         });
     }
 
@@ -1022,8 +1033,11 @@ export class AnnotationStore {
         }
         // Saved-bytes scans only carry identity for shapes the user still owns;
         // adopting their geometry here would discard edits made while the save ran.
+        this.#identities.replace([{
+            before: liveIdentityOf(entity),
+            after: entity.deleted ? null : identity,
+        }]);
         this.#writePersistedShapeIdentity(entity, identity, frontier);
-        this.#identities.bind(identity);
         this.#mutationEpoch += 1;
         this.#emit();
     }
@@ -1111,7 +1125,7 @@ export class AnnotationStore {
 
     #rebindIdentities() {
         this.#identities.clear();
-        this.#entities.forEach(entity => this.#identities.bind(entity.identity));
+        this.list().forEach(entity => this.#identities.bind(entity.identity));
     }
 
     #externalIdentityKeys(identity: AnnotationEntity['identity']) {

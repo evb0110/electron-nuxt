@@ -1,3 +1,5 @@
+use hayro_jpeg2000::{DecodeSettings, Image};
+
 use crate::Result;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -119,6 +121,27 @@ pub(crate) fn parse_jpx_metadata(bytes: &[u8]) -> Result<JpxMetadata> {
         .into());
     }
     Ok(metadata)
+}
+
+pub(crate) fn validate_jpx_codestream(bytes: &[u8], metadata: JpxMetadata) -> Result<()> {
+    let settings = DecodeSettings {
+        strict: true,
+        ..DecodeSettings::default()
+    };
+    let image = Image::new(bytes, &settings)
+        .map_err(|error| format!("JPEG 2000 payload is not decodable: {error}"))?;
+    if image.width() != metadata.width
+        || image.height() != metadata.height
+        || image.original_bit_depth() != metadata.bits_per_component
+        || image.has_alpha()
+        || u16::from(image.color_space().num_channels()) != metadata.components
+    {
+        return Err("JPEG 2000 codestream does not match its image header".into());
+    }
+    image
+        .decode()
+        .map(|_| ())
+        .map_err(|error| format!("JPEG 2000 payload is not decodable: {error}").into())
 }
 
 #[cfg(test)]

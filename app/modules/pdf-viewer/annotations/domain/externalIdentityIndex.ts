@@ -16,23 +16,56 @@ export class ExternalIdentityIndex {
     };
 
     bind(identity: IAnnotationIdentity) {
-        const staged: Array<[TBindingKey, string]> = [];
-        for (const key of Object.keys(this.#indexes) as TBindingKey[]) {
-            const value = identity[key]?.trim();
-            if (!value) continue;
-            const owner = this.#indexes[key].get(value);
-            if (owner && owner !== identity.id) {
-                throw new ExternalIdentityConflictError(`${key} ${value} is already bound to ${owner}`);
+        this.replace([{
+            before: null,
+            after: identity,
+        }]);
+    }
+
+    replace(changes: ReadonlyArray<{
+        readonly before: IAnnotationIdentity | null;
+        readonly after: IAnnotationIdentity | null;
+    }>) {
+        const staged: Record<TBindingKey, Map<string, AnnotationId | null>> = {
+            pdfRef: new Map(),
+            pdfName: new Map(),
+            pdfjsUid: new Map(),
+            elementId: new Map(),
+        };
+        const ownerOf = (key: TBindingKey, value: string) => staged[key].has(value)
+            ? staged[key].get(value) ?? null
+            : this.#indexes[key].get(value) ?? null;
+        changes.forEach(({before}) => {
+            if (!before) {
+                return;
             }
-            staged.push([
-                key,
-                value,
-            ]);
-        }
-        staged.forEach(([
-            key,
-            value,
-        ]) => this.#indexes[key].set(value, identity.id));
+            for (const key of Object.keys(this.#indexes) as TBindingKey[]) {
+                const value = before[key]?.trim();
+                if (value && ownerOf(key, value) === before.id) {
+                    staged[key].set(value, null);
+                }
+            }
+        });
+        changes.forEach(({after}) => {
+            if (!after) {
+                return;
+            }
+            for (const key of Object.keys(this.#indexes) as TBindingKey[]) {
+                const value = after[key]?.trim();
+                if (!value) continue;
+                const owner = ownerOf(key, value);
+                if (owner && owner !== after.id) {
+                    throw new ExternalIdentityConflictError(`${key} ${value} is already bound to ${owner}`);
+                }
+                staged[key].set(value, after.id);
+            }
+        });
+        (Object.keys(this.#indexes) as TBindingKey[]).forEach((key) => {
+            staged[key].forEach((id, value) => {
+                if (id) this.#indexes[key].set(value, id);
+                else this.#indexes[key].delete(value);
+            });
+        });
     }
 
     resolve(bindings: Omit<IAnnotationIdentity, 'id'>): AnnotationId | null {

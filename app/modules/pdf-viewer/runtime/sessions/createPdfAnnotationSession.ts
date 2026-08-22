@@ -176,6 +176,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             get canUndo() { return history.canUndo.value; },
             get canRedo() { return history.canRedo.value; },
             registerCommand: command => history.registerCommand(command),
+            forgetCommands: ids => history.forgetCommands(ids),
             undo: () => history.undo(),
             redo: () => history.redo(),
         }));

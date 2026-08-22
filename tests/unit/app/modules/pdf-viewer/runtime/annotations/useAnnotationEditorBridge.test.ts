@@ -24,6 +24,9 @@ import type {
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import type {IPdfjsAnnotationEditorState} from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
+import {usePdfAppAnnotationHistory} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
+import {AnnotationHistoryIndeterminateError} from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import { cast } from '@tests/helpers/cast';
 
 const {
@@ -440,6 +443,7 @@ describe('useAnnotationEditorBridge', () => {
             cmd,
             undo,
         }));
+        expect(recordPdfjsExecutorCommand).toHaveBeenCalled();
         const command = recordPdfjsExecutorCommand.mock.calls[0]?.[0];
         emitAnnotationModified.mockClear();
         scheduleAnnotationCommentsSync.mockClear();
@@ -452,6 +456,124 @@ describe('useAnnotationEditorBridge', () => {
         expect(emitAnnotationModified).toHaveBeenCalledTimes(2);
         expect(scheduleAnnotationCommentsSync).toHaveBeenNthCalledWith(1, true);
         expect(scheduleAnnotationCommentsSync).toHaveBeenNthCalledWith(2, true);
+    });
+
+    it('keeps PDF.js replay notification failures outside command execution', async () => {
+        const {
+            emitAnnotationModified,
+            recordPdfjsExecutorCommand,
+            scheduleAnnotationCommentsSync,
+            uiManager,
+        } = await createBridgeHarness('text');
+        const state = ['applied'];
+        const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
+        const cmd = vi.fn(() => state.push('applied'));
+        const undo = vi.fn(() => state.pop());
+
+        uiManager.addCommands(cast<Parameters<AnnotationEditorUIManager['addCommands']>[0]>({
+            cmd,
+            undo,
+        }));
+        expect(recordPdfjsExecutorCommand).toHaveBeenCalled();
+        const command = recordPdfjsExecutorCommand.mock.calls[0]?.[0];
+        const history = usePdfAppAnnotationHistory({
+            pdfjsAnnotationState: ref({
+                isEditing: false,
+                isEmpty: false,
+                hasSomethingToUndo: false,
+                hasSomethingToRedo: false,
+                hasSelectedEditor: false,
+            }),
+            emitAnnotationState: vi.fn(),
+            markModified: vi.fn(),
+        });
+        history.registerExecutorCommand(command);
+        emitAnnotationModified.mockClear();
+        scheduleAnnotationCommentsSync.mockClear();
+        emitAnnotationModified.mockImplementationOnce(() => {
+            throw new Error('annotation projection failed');
+        });
+        scheduleAnnotationCommentsSync.mockImplementationOnce(() => {
+            throw new Error('comment projection failed');
+        });
+
+        expect(history.undo()).toBe(true);
+        expect(state).toEqual([]);
+        expect(history.canUndo.value).toBe(false);
+        expect(history.canRedo.value).toBe(true);
+        expect(undo).toHaveBeenCalledOnce();
+        expect(emitAnnotationModified).toHaveBeenCalledOnce();
+        expect(scheduleAnnotationCommentsSync).toHaveBeenCalledOnce();
+        expect(scheduleAnnotationCommentsSync).toHaveBeenCalledWith(true);
+
+        expect(history.redo()).toBe(true);
+        expect(state).toEqual(['applied']);
+        expect(cmd).toHaveBeenCalledOnce();
+        expect(history.canUndo.value).toBe(true);
+        expect(history.canRedo.value).toBe(false);
+        expect(warn).toHaveBeenCalledTimes(2);
+        expect(warn).toHaveBeenNthCalledWith(
+            1,
+            'annotations',
+            expect.stringContaining('Failed to emit annotation modification after replay: annotation projection failed'),
+        );
+        expect(warn).toHaveBeenNthCalledWith(
+            2,
+            'annotations',
+            expect.stringContaining('Failed to schedule annotation comment synchronization after replay: comment projection failed'),
+        );
+    });
+
+    it.each([
+        'before',
+        'after',
+    ] as const)('fails closed when a PDF.js executor throws %s its mutation', async (timing) => {
+        const {
+            recordPdfjsExecutorCommand,
+            uiManager,
+        } = await createBridgeHarness('text');
+        const state = ['applied'];
+        const replayFailure = new Error(`executor failed ${timing} mutation`);
+        const undo = vi.fn(() => {
+            if (timing === 'before') {
+                throw replayFailure;
+            }
+            state.pop();
+            throw replayFailure;
+        });
+
+        uiManager.addCommands(cast<Parameters<AnnotationEditorUIManager['addCommands']>[0]>({
+            cmd: () => state.push('applied'),
+            undo,
+        }));
+        expect(recordPdfjsExecutorCommand).toHaveBeenCalled();
+        const history = usePdfAppAnnotationHistory({
+            pdfjsAnnotationState: ref({
+                isEditing: false,
+                isEmpty: false,
+                hasSomethingToUndo: false,
+                hasSomethingToRedo: false,
+                hasSelectedEditor: false,
+            }),
+            emitAnnotationState: vi.fn(),
+            markModified: vi.fn(),
+        });
+        history.registerExecutorCommand(recordPdfjsExecutorCommand.mock.calls[0]?.[0]);
+
+        let received: unknown;
+        try {
+            history.undo();
+        } catch (error) {
+            received = error;
+        }
+
+        expect(received).toBeInstanceOf(AnnotationHistoryIndeterminateError);
+        expect((received as AnnotationHistoryIndeterminateError).cause).toBe(replayFailure);
+        expect(state).toEqual(timing === 'before' ? ['applied'] : []);
+        expect(history.canUndo.value).toBe(false);
+        expect(history.canRedo.value).toBe(false);
+        expect(history.undo()).toBe(false);
+        expect(undo).toHaveBeenCalledOnce();
     });
 
 });

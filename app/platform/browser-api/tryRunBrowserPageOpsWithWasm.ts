@@ -13,11 +13,16 @@ import {
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
 import {decodeSerializableErrorEnvelope} from '@contracts/serializableError';
+import {
+    getCheckedWasmMemoryView,
+    WASM_REQUEST_ALLOCATION_ABI_VERSION,
+} from '@contracts/getCheckedWasmMemoryView';
 
 interface IPdfPageOpsWasmExports {
     memory: WebAssembly.Memory;
+    evb_wasm_request_allocation_abi_version(): number;
     evb_pdf_page_ops_alloc(len: number): number;
-    evb_pdf_page_ops_free(pointer: number, capacity: number): void;
+    evb_pdf_page_ops_free(pointer: number, byteLength: number): void;
     evb_pdf_page_ops_run(requestPointer: number, requestLen: number): number;
     evb_pdf_page_ops_output_ptr(): number;
     evb_pdf_page_ops_output_len(): number;
@@ -91,6 +96,7 @@ function isWasmNumberFunction(value: WebAssembly.ExportValue | undefined): value
 function getPdfPageOpsWasmExports(exports: WebAssembly.Exports): IPdfPageOpsWasmExports | null {
     const {
         memory,
+        evb_wasm_request_allocation_abi_version: allocationAbiVersion,
         evb_pdf_page_ops_alloc: alloc,
         evb_pdf_page_ops_free: free,
         evb_pdf_page_ops_run: run,
@@ -102,6 +108,8 @@ function getPdfPageOpsWasmExports(exports: WebAssembly.Exports): IPdfPageOpsWasm
 
     if (
         !(memory instanceof WebAssembly.Memory)
+        || !isWasmNumberFunction(allocationAbiVersion)
+        || allocationAbiVersion() !== WASM_REQUEST_ALLOCATION_ABI_VERSION
         || !isWasmNumberFunction(alloc)
         || !isWasmNumberFunction(free)
         || !isWasmNumberFunction(run)
@@ -115,6 +123,7 @@ function getPdfPageOpsWasmExports(exports: WebAssembly.Exports): IPdfPageOpsWasm
 
     return {
         memory,
+        evb_wasm_request_allocation_abi_version: allocationAbiVersion,
         evb_pdf_page_ops_alloc: alloc,
         evb_pdf_page_ops_free: free,
         evb_pdf_page_ops_run: run,
@@ -318,7 +327,7 @@ function copyWasmBytes(
     pointer: number,
     len: number,
 ) {
-    return new Uint8Array(exports.memory.buffer, pointer, len).slice();
+    return getCheckedWasmMemoryView(exports.memory, pointer, len, 'Page operation WASM').slice();
 }
 
 function readWasmError(exports: IPdfPageOpsWasmExports) {
@@ -450,12 +459,18 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
         if (requestByteLength === 0 || requestByteLength > PDF_PAGE_OPS_WASM_MAX_REQUEST_BYTES) {
             return createWasmFailure('too-large', 'Page operation WASM request exceeds the admission ceiling');
         }
-        pointer = exports.evb_pdf_page_ops_alloc(requestByteLength);
-        if (pointer === 0) {
-            pointer = null;
+        const allocatedPointer = exports.evb_pdf_page_ops_alloc(requestByteLength);
+        if (allocatedPointer === 0) {
             return createWasmFailure('too-large', 'Page operation WASM could not allocate request memory');
         }
-        new Uint8Array(exports.memory.buffer, pointer, request.byteLength).set(request);
+        pointer = allocatedPointer;
+        const requestMemory = getCheckedWasmMemoryView(
+            exports.memory,
+            pointer,
+            requestByteLength,
+            'Page operation WASM allocation',
+        );
+        requestMemory.set(request);
         const resultCode = exports.evb_pdf_page_ops_run(pointer, request.byteLength);
         if (resultCode !== 0) {
             return readWasmFailure(type, resultCode, exports);

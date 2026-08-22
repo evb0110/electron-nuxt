@@ -5,6 +5,7 @@ export const REQUIRED_WEB_WASM_ASSETS = [
         relativePath: 'wasm/evb-pdf-image-combine.wasm',
         requiredExports: [
             'memory',
+            'evb_wasm_request_allocation_abi_version',
             'evb_pdf_image_combine_alloc',
             'evb_pdf_image_combine_free',
             'evb_pdf_image_combine_build_pdf',
@@ -18,6 +19,7 @@ export const REQUIRED_WEB_WASM_ASSETS = [
         relativePath: 'wasm/evb-pdf-page-ops.wasm',
         requiredExports: [
             'memory',
+            'evb_wasm_request_allocation_abi_version',
             'evb_pdf_page_ops_alloc',
             'evb_pdf_page_ops_free',
             'evb_pdf_page_ops_run',

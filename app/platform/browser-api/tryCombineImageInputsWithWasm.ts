@@ -14,11 +14,16 @@ import {
     type INativeErrorEnvelope,
 } from '@contracts/nativeErrors';
 import {decodeSerializableErrorEnvelope} from '@contracts/serializableError';
+import {
+    getCheckedWasmMemoryView,
+    WASM_REQUEST_ALLOCATION_ABI_VERSION,
+} from '@contracts/getCheckedWasmMemoryView';
 
 interface IPdfImageCombineWasmExports {
     memory: WebAssembly.Memory;
+    evb_wasm_request_allocation_abi_version(): number;
     evb_pdf_image_combine_alloc(len: number): number;
-    evb_pdf_image_combine_free(pointer: number, capacity: number): void;
+    evb_pdf_image_combine_free(pointer: number, byteLength: number): void;
     evb_pdf_image_combine_build_pdf(requestPointer: number, requestLen: number): number;
     evb_pdf_image_combine_output_ptr(): number;
     evb_pdf_image_combine_output_len(): number;
@@ -86,6 +91,7 @@ function isWasmNumberFunction(value: WebAssembly.ExportValue | undefined): value
 function getPdfImageCombineWasmExports(exports: WebAssembly.Exports): IPdfImageCombineWasmExports | null {
     const {
         memory,
+        evb_wasm_request_allocation_abi_version: allocationAbiVersion,
         evb_pdf_image_combine_alloc: alloc,
         evb_pdf_image_combine_free: free,
         evb_pdf_image_combine_build_pdf: buildPdf,
@@ -97,6 +103,8 @@ function getPdfImageCombineWasmExports(exports: WebAssembly.Exports): IPdfImageC
 
     if (
         !(memory instanceof WebAssembly.Memory)
+        || !isWasmNumberFunction(allocationAbiVersion)
+        || allocationAbiVersion() !== WASM_REQUEST_ALLOCATION_ABI_VERSION
         || !isWasmNumberFunction(alloc)
         || !isWasmNumberFunction(free)
         || !isWasmNumberFunction(buildPdf)
@@ -110,6 +118,7 @@ function getPdfImageCombineWasmExports(exports: WebAssembly.Exports): IPdfImageC
 
     return {
         memory,
+        evb_wasm_request_allocation_abi_version: allocationAbiVersion,
         evb_pdf_image_combine_alloc: alloc,
         evb_pdf_image_combine_free: free,
         evb_pdf_image_combine_build_pdf: buildPdf,
@@ -469,7 +478,7 @@ function copyWasmBytes(
     pointer: number,
     len: number,
 ) {
-    return new Uint8Array(exports.memory.buffer, pointer, len).slice();
+    return getCheckedWasmMemoryView(exports.memory, pointer, len, 'Image combine WASM').slice();
 }
 
 function readWasmError(exports: IPdfImageCombineWasmExports) {
@@ -529,9 +538,8 @@ export async function tryCombineImageInputsWithWasm(
                 },
             };
         }
-        pointer = exports.evb_pdf_image_combine_alloc(requestLength);
-        if (pointer === 0) {
-            pointer = null;
+        const allocatedPointer = exports.evb_pdf_image_combine_alloc(requestLength);
+        if (allocatedPointer === 0) {
             return {
                 status: 'fatal',
                 error: {
@@ -540,7 +548,14 @@ export async function tryCombineImageInputsWithWasm(
                 },
             };
         }
-        new Uint8Array(exports.memory.buffer, pointer, requestLength).set(request);
+        pointer = allocatedPointer;
+        const requestMemory = getCheckedWasmMemoryView(
+            exports.memory,
+            pointer,
+            requestLength,
+            'Image combine WASM allocation',
+        );
+        requestMemory.set(request);
         const resultCode = exports.evb_pdf_image_combine_build_pdf(pointer, requestLength);
         if (resultCode !== 0) {
             return {
