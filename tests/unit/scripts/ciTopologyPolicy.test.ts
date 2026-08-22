@@ -864,8 +864,8 @@ describe('CI topology policy', () => {
         expect(finalizeAssetsJob).toContain('attestations: write');
         expect(finalizeAssetsJob).toContain('id-token: write');
         expect(finalizeAssetsJob).toContain('actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a');
-        expect(promoteJob).toContain('for attempt in 1 2 3 4 5 6 7 8 9 10; do');
-        expect(promoteJob).toContain('timeout 30s node scripts/release/publish-release-mirror.mjs');
+        expect(promoteJob).toContain('for attempt in 1 2 3; do');
+        expect(promoteJob).toContain('timeout 600s node scripts/release/publish-release-mirror.mjs');
         expect(promoteJob).toContain('sleep 30');
         expect(promoteJob).toContain('Stable mirror activation did not complete within the bounded reconciliation window.');
         expect(promoteJob).toContain('name: Activate verified mirror channel');
@@ -877,8 +877,8 @@ describe('CI topology policy', () => {
         expect(promoteJob).toContain('Release channels did not converge.');
         expect(promoteJob).toContain('exit 1');
         expect(promoteJob).toContain('GITHUB_PROMOTION_STATUS=\'already public\'');
-        const retryLoopIndex = promoteJob.indexOf('for attempt in 1 2 3 4 5 6 7 8 9 10; do');
-        const timeoutIndex = promoteJob.indexOf('timeout 30s node scripts/release/publish-release-mirror.mjs');
+        const retryLoopIndex = promoteJob.indexOf('for attempt in 1 2 3; do');
+        const timeoutIndex = promoteJob.indexOf('timeout 600s node scripts/release/publish-release-mirror.mjs');
         const retrySleepIndex = promoteJob.indexOf('sleep 30');
         expect(timeoutIndex).toBeGreaterThan(retryLoopIndex);
         expect(retrySleepIndex).toBeGreaterThan(timeoutIndex);
