@@ -64,7 +64,7 @@ describe('Electron E2E fixture source policy', () => {
         expect(fixtureSource).toContain('preserveArtifacts: preserveFailureArtifacts');
         expect(fixtureSource).toContain('await previousSession.stop');
         expect(fixtureSource).toContain('if (clean && !hard)');
-        expect(fixtureSource).toContain('await stopSingleSession(previousSession.name, {keepNuxt})');
+        expect(fixtureSource).toContain('async () => stopSingleSession(previousSession.name, {keepNuxt})');
         expect(sessionSource).toContain('page.screenshot');
         expect(sessionSource).toContain('createSessionDiagnostics(sessionName)');
         expect(sessionSource).toContain('join(FAILURE_ARTIFACTS_BASE_DIR, sessionName)');

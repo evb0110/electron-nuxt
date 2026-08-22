@@ -413,15 +413,37 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             return true;
         };
 
+        const getViewerSelectionCleanupScope = () => {
+            const container = viewerContainer.value;
+            return container?.closest<HTMLElement>('[data-pdf-viewer-host]') ?? container;
+        };
+
+        const selectionHasEndpointInScope = (selection: Selection, scope: HTMLElement) => {
+            if (
+                (selection.anchorNode && scope.contains(selection.anchorNode))
+                || (selection.focusNode && scope.contains(selection.focusNode))
+            ) {
+                return true;
+            }
+            for (let index = 0; index < selection.rangeCount; index += 1) {
+                const range = selection.getRangeAt(index);
+                if (scope.contains(range.startContainer) || scope.contains(range.endContainer)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
         const clearEditorSelectionVisuals = (editor: IPdfjsEditor | null) => {
             if (!isAnnotationUiManagerCurrent(uiManager)) {
                 return;
             }
             const editorElement = editor?.div ?? null;
+            const cleanupScope = getViewerSelectionCleanupScope();
             clearSelectedEditorState(uiManager);
 
             const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-            if (activeElement && activeElement !== document.body) {
+            if (activeElement && cleanupScope?.contains(activeElement) && activeElement !== document.body) {
                 const insidePdfViewer = activeElement.closest(
                     '.annotationEditorLayer, .annotation-editor-layer, .pdfViewer, .pdf-viewer',
                 );
@@ -431,20 +453,23 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             }
 
             const clearSelectionClasses = () => {
-                if (typeof document === 'undefined') {
+                if (typeof document === 'undefined' || !cleanupScope) {
                     return;
                 }
-                document.querySelectorAll<HTMLElement>(
+                cleanupScope.querySelectorAll<HTMLElement>(
                     '.annotationEditorLayer .selectedEditor, .annotationEditorLayer .selected, .annotation-editor-layer .selectedEditor, .annotation-editor-layer .selected',
                 ).forEach((element) => {
                     element.classList.remove('selectedEditor', 'selected');
                 });
-                document.querySelectorAll<HTMLElement>(
+                cleanupScope.querySelectorAll<HTMLElement>(
                     '.textLayer .highlight.selected, .text-layer .highlight.selected, .highlightOutline.selected',
                 ).forEach((element) => {
                     element.classList.remove('selected');
                 });
-                document.getSelection()?.removeAllRanges();
+                const selection = document.getSelection();
+                if (selection && selectionHasEndpointInScope(selection, cleanupScope)) {
+                    selection.removeAllRanges();
+                }
                 editorElement?.classList.remove('selectedEditor', 'selected');
             };
 

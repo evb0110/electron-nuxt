@@ -199,6 +199,7 @@ jobs:
       electron_smoke: ${{ steps.classify.outputs.electron_smoke }}
       landing: ${{ steps.classify.outputs.landing }}
       native_or_build: ${{ steps.classify.outputs.native_or_build }}
+      scan_cleanup_export: ${{ steps.classify.outputs.scan_cleanup_export }}
 
     steps:
       - name: Checkout
@@ -350,7 +351,8 @@ jobs:
 
   pr_scan_cleanup_oracles:
     name: Scan Cleanup Export Oracles
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.scan_cleanup_export == 'true' }}
+    needs: pr_changed_areas
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -478,6 +480,7 @@ jobs:
           ELECTRON_SMOKE_CHANGED: ${{ needs.pr_changed_areas.outputs.electron_smoke }}
           BROWSER_INTEGRATION_CHANGED: ${{ needs.pr_changed_areas.outputs.browser_integration }}
           NATIVE_OR_BUILD_CHANGED: ${{ needs.pr_changed_areas.outputs.native_or_build }}
+          SCAN_CLEANUP_EXPORT_CHANGED: ${{ needs.pr_changed_areas.outputs.scan_cleanup_export }}
           LANDING_CHANGED: ${{ needs.pr_changed_areas.outputs.landing }}
         run: |
           node <<'NODE'
@@ -487,6 +490,7 @@ jobs:
             ['pr_browser_integration', process.env.BROWSER_INTEGRATION_CHANGED],
             ['pr_native_build_safety', process.env.NATIVE_OR_BUILD_CHANGED],
             ['pr_rust_tests_arm64', process.env.NATIVE_OR_BUILD_CHANGED],
+            ['pr_scan_cleanup_oracles', process.env.SCAN_CLEANUP_EXPORT_CHANGED],
             ['pr_landing_quality', process.env.LANDING_CHANGED],
           ]);
           const rejected = [];

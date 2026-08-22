@@ -96,6 +96,60 @@ function createHarness(options: {
     };
 }
 
+function createRetryingOneShotHarness() {
+    const budget = createWorkspaceSurfaceBudgetController(1_000);
+    const discard = vi.fn();
+    const leaseRelease = vi.fn();
+    const signals: AbortSignal[] = [];
+    const prepare = vi.fn(async (
+        _demand: IPdfRasterDemand,
+        _page: PDFPageProxy,
+        signal: AbortSignal,
+    ) => {
+        signals.push(signal);
+        return {pageNumber: 1};
+    });
+    const start = vi.fn(() => createTask());
+    const targetRelease = vi.fn();
+    let commitAttempts = 0;
+    const scheduler = createPdfPageRasterScheduler({
+        documentFence,
+        leasePage: async pageNumber => ({
+            page: {pageNumber} as PDFPageProxy,
+            release: leaseRelease,
+        }),
+        surfaceBudget: budget,
+    });
+    const demand = createDemand(1, 'navigation-target');
+    const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
+        id: 'retry-pending-navigation',
+        prepare,
+        start,
+        commit: () => {
+            commitAttempts += 1;
+            return commitAttempts > 1;
+        },
+        discard,
+        release: targetRelease,
+    };
+    return {
+        budget,
+        discard,
+        getCommitAttempts: () => commitAttempts,
+        leaseRelease,
+        request: () => scheduler.request({
+            sourceId: 'navigation',
+            demand,
+            target,
+        }),
+        scheduler,
+        prepare,
+        signals,
+        start,
+        targetRelease,
+    };
+}
+
 async function flush() {
     await Promise.resolve();
     await Promise.resolve();
@@ -703,6 +757,281 @@ describe('PdfPageRasterScheduler', () => {
             sourceId: 'thumbnails',
             targetId: 'transient-reject',
         }]);
+    });
+
+    it('cancels retry-pending one-shot work before it can commit or retain surface budget', async () => {
+        vi.useFakeTimers();
+        const harness = createRetryingOneShotHarness();
+        const outcome = harness.request();
+        await flush();
+        await flush();
+        expect(harness.getCommitAttempts()).toBe(1);
+        expect(harness.leaseRelease).toHaveBeenCalledOnce();
+
+        await harness.scheduler.cancelSource('navigation');
+        await vi.advanceTimersByTimeAsync(100);
+
+        await expect(outcome).resolves.toMatchObject({status: 'cancelled'});
+        expect(harness.getCommitAttempts()).toBe(1);
+        expect(harness.discard).toHaveBeenCalledOnce();
+        expect(harness.leaseRelease).toHaveBeenCalledOnce();
+        expect(harness.signals[0]?.aborted).toBe(true);
+        expect(harness.targetRelease).toHaveBeenCalledOnce();
+        expect(harness.scheduler.snapshot()).toMatchObject({
+            inFlightPages: [],
+            queueDepth: 0,
+            reservedPixels: 0,
+            residentPages: [],
+        });
+        expect(harness.budget.getSnapshot().reservedBytes).toBe(0);
+    });
+
+    it('invalidates retry-pending one-shot work by source and page', async () => {
+        vi.useFakeTimers();
+        const harness = createRetryingOneShotHarness();
+        const outcome = harness.request();
+        await flush();
+        await flush();
+
+        harness.scheduler.invalidate({
+            pages: [1],
+            reason: 'page-replaced',
+            sourceId: 'navigation',
+        });
+        await vi.advanceTimersByTimeAsync(100);
+
+        await expect(outcome).resolves.toMatchObject({status: 'cancelled'});
+        expect(harness.getCommitAttempts()).toBe(1);
+        expect(harness.leaseRelease).toHaveBeenCalledOnce();
+        expect(harness.signals[0]?.aborted).toBe(true);
+        expect(harness.targetRelease).toHaveBeenCalledOnce();
+        expect(harness.scheduler.snapshot()).toMatchObject({
+            inFlightPages: [],
+            queueDepth: 0,
+            reservedPixels: 0,
+            residentPages: [],
+        });
+        expect(harness.budget.getSnapshot().reservedBytes).toBe(0);
+    });
+
+    it('disposes retry-pending one-shot work without leaving a timer or allocation', async () => {
+        vi.useFakeTimers();
+        const harness = createRetryingOneShotHarness();
+        const outcome = harness.request();
+        await flush();
+        await flush();
+
+        await harness.scheduler.dispose();
+        await vi.advanceTimersByTimeAsync(100);
+
+        await expect(outcome).resolves.toMatchObject({status: 'cancelled'});
+        expect(harness.getCommitAttempts()).toBe(1);
+        expect(harness.leaseRelease).toHaveBeenCalledOnce();
+        expect(harness.signals[0]?.aborted).toBe(true);
+        expect(harness.targetRelease).toHaveBeenCalledOnce();
+        expect(harness.scheduler.snapshot()).toMatchObject({
+            accepting: false,
+            inFlightPages: [],
+            queueDepth: 0,
+            reservedPixels: 0,
+            residentPages: [],
+        });
+        expect(harness.budget.getSnapshot().reservedBytes).toBe(0);
+    });
+
+    it('cancels one-shot work after its retry timer fires but before the queued retry starts', async () => {
+        vi.useFakeTimers();
+        const harness = createRetryingOneShotHarness();
+        const outcome = harness.request();
+        await flush();
+        await flush();
+
+        vi.advanceTimersByTime(16);
+        await harness.scheduler.cancelSource('navigation');
+        await flush();
+
+        await expect(outcome).resolves.toMatchObject({status: 'cancelled'});
+        expect(harness.getCommitAttempts()).toBe(1);
+        expect(harness.prepare).toHaveBeenCalledOnce();
+        expect(harness.signals[0]?.aborted).toBe(true);
+        expect(harness.start).toHaveBeenCalledOnce();
+        expect(harness.scheduler.snapshot()).toMatchObject({
+            inFlightPages: [],
+            queueDepth: 0,
+            reservedPixels: 0,
+            residentPages: [],
+        });
+        expect(harness.budget.getSnapshot().reservedBytes).toBe(0);
+    });
+
+    it('does not start a retry before the previous attempt releases its coordinated page work', async () => {
+        vi.useFakeTimers();
+        const firstSettlement = Promise.withResolvers<undefined>();
+        const leaseReleases = [
+            vi.fn(),
+            vi.fn(),
+        ];
+        let leaseCalls = 0;
+        let prepareCalls = 0;
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            leasePage: async (pageNumber) => ({
+                page: {pageNumber} as PDFPageProxy,
+                release: leaseReleases[leaseCalls++]!,
+            }),
+            maxConcurrency: 2,
+            surfaceBudget: createWorkspaceSurfaceBudgetController(1_000),
+        });
+        const outcome = scheduler.request({
+            sourceId: 'navigation',
+            demand: createDemand(1, 'navigation-target'),
+            target: {
+                id: 'retry-after-settlement',
+                prepare: async (_demand, _page, _signal, captureSettlement) => {
+                    prepareCalls += 1;
+                    if (prepareCalls === 1) {
+                        captureSettlement(firstSettlement.promise);
+                        return null;
+                    }
+                    return {pageNumber: 1};
+                },
+                start: () => createTask(),
+                commit: () => true,
+                discard: vi.fn(),
+                release: vi.fn(),
+            },
+        });
+        await flush();
+        expect(prepareCalls).toBe(1);
+
+        await vi.advanceTimersByTimeAsync(16);
+        await flush();
+
+        expect(leaseCalls).toBe(1);
+        expect(prepareCalls).toBe(1);
+        expect(leaseReleases[0]).not.toHaveBeenCalled();
+
+        firstSettlement.resolve(undefined);
+        await flush();
+        expect(leaseReleases[0]).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(16);
+        await flush();
+
+        await expect(outcome).resolves.toMatchObject({status: 'committed'});
+        expect(leaseCalls).toBe(2);
+        expect(prepareCalls).toBe(2);
+        expect(leaseReleases[1]).toHaveBeenCalledOnce();
+    });
+
+    it('awaits a retry execution admitted as its timer fires during source cancellation', async () => {
+        vi.useFakeTimers();
+        const budget = createWorkspaceSurfaceBudgetController(1_000);
+        const retryLease = Promise.withResolvers<{
+            page: PDFPageProxy;
+            release: () => void;
+        }>();
+        const firstLeaseRelease = vi.fn();
+        const retryLeaseRelease = vi.fn();
+        let leaseCalls = 0;
+        let commitAttempts = 0;
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            leasePage: (pageNumber) => {
+                leaseCalls += 1;
+                if (leaseCalls === 2) {
+                    return retryLease.promise;
+                }
+                return Promise.resolve({
+                    page: {pageNumber} as PDFPageProxy,
+                    release: firstLeaseRelease,
+                });
+            },
+            surfaceBudget: budget,
+        });
+        const outcome = scheduler.request({
+            sourceId: 'navigation',
+            demand: createDemand(1, 'navigation-target'),
+            target: {
+                id: 'retry-admission-race',
+                prepare: async () => ({pageNumber: 1}),
+                start: () => createTask(),
+                commit: () => {
+                    commitAttempts += 1;
+                    return false;
+                },
+                discard: vi.fn(),
+                release: vi.fn(),
+            },
+        });
+        await flush();
+        await flush();
+        expect(commitAttempts).toBe(1);
+
+        await vi.advanceTimersByTimeAsync(16);
+        await flush();
+        expect(leaseCalls).toBe(2);
+        const cancellationSettled = vi.fn();
+        const cancellation = scheduler.cancelSource('navigation');
+        void cancellation.then(cancellationSettled, cancellationSettled);
+        await flush();
+        expect(cancellationSettled).not.toHaveBeenCalled();
+
+        retryLease.resolve({
+            page: {pageNumber: 1} as PDFPageProxy,
+            release: retryLeaseRelease,
+        });
+        await cancellation;
+
+        await expect(outcome).resolves.toMatchObject({status: 'cancelled'});
+        expect(commitAttempts).toBe(1);
+        expect(firstLeaseRelease).toHaveBeenCalledOnce();
+        expect(retryLeaseRelease).toHaveBeenCalledOnce();
+        expect(cancellationSettled).toHaveBeenCalledOnce();
+        expect(scheduler.snapshot()).toMatchObject({
+            inFlightPages: [],
+            queueDepth: 0,
+            reservedPixels: 0,
+            residentPages: [],
+        });
+        expect(budget.getSnapshot().reservedBytes).toBe(0);
+    });
+
+    it('joins duplicate one-shot requests while their shared retry is pending', async () => {
+        vi.useFakeTimers();
+        const harness = createRetryingOneShotHarness();
+        const firstOutcome = harness.request();
+        await flush();
+        await flush();
+
+        const duplicateOutcome = harness.request();
+        await vi.advanceTimersByTimeAsync(16);
+        await flush();
+
+        await expect(Promise.all([
+            firstOutcome,
+            duplicateOutcome,
+        ])).resolves.toEqual([
+            expect.objectContaining({status: 'committed'}),
+            expect.objectContaining({status: 'committed'}),
+        ]);
+        expect(harness.getCommitAttempts()).toBe(2);
+        expect(harness.prepare).toHaveBeenCalledTimes(2);
+        expect(harness.start).toHaveBeenCalledTimes(2);
+        expect(harness.scheduler.snapshot()).toMatchObject({
+            inFlightPages: [],
+            queueDepth: 0,
+            reservedPixels: 100,
+            residentPages: [{
+                lane: 'navigation-target',
+                pageNumber: 1,
+                sourceId: 'navigation',
+                targetId: 'retry-pending-navigation',
+            }],
+        });
+        expect(harness.budget.getSnapshot().reservedBytes).toBe(400);
+
+        await harness.scheduler.dispose();
+        expect(harness.budget.getSnapshot().reservedBytes).toBe(0);
     });
 
     it('evicts prefetch residency before required viewport residency', async () => {

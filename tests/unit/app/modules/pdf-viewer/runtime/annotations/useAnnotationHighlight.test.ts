@@ -122,6 +122,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
 });
@@ -333,6 +334,180 @@ describe('useAnnotationHighlight commentAtPoint', () => {
 });
 
 describe('useAnnotationHighlight highlightSelectionInternal', () => {
+    it('keeps another viewer selection intact while clearing the owning viewer portal layer', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('PointerEvent', FakePointerEvent);
+        vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => (
+            window.setTimeout(() => callback(performance.now()), 16)
+        ));
+        vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(handle => window.clearTimeout(handle));
+
+        const ownerHost = document.createElement('div');
+        ownerHost.dataset.pdfViewerHost = '';
+        const ownerPage = createPageContainer(1, {
+            left: 0,
+            top: 0,
+            width: 200,
+            height: 200,
+        });
+        const ownerViewer = createViewerContainer([ownerPage]);
+        const ownerTextLayer = document.createElement('div');
+        ownerTextLayer.className = 'textLayer';
+        const ownerText = document.createTextNode('Owner text');
+        ownerTextLayer.append(ownerText);
+        ownerPage.append(ownerTextLayer);
+        const ownerPortalLayer = document.createElement('div');
+        ownerPortalLayer.className = 'annotationEditorLayer';
+        const ownerSelectedEditor = document.createElement('div');
+        ownerSelectedEditor.className = 'selectedEditor selected';
+        ownerPortalLayer.append(ownerSelectedEditor);
+        ownerHost.append(ownerViewer, ownerPortalLayer);
+
+        const otherHost = document.createElement('div');
+        otherHost.dataset.pdfViewerHost = '';
+        const otherViewer = createViewerContainer([]);
+        const otherPortalLayer = document.createElement('div');
+        otherPortalLayer.className = 'annotationEditorLayer';
+        const otherSelectedEditor = document.createElement('div');
+        otherSelectedEditor.className = 'selectedEditor selected';
+        const otherInput = document.createElement('input');
+        const otherSelectionText = document.createTextNode('Other viewer text');
+        const otherTextContainer = document.createElement('span');
+        otherTextContainer.append(otherSelectionText);
+        otherPortalLayer.append(otherSelectedEditor, otherInput, otherTextContainer);
+        otherHost.append(otherViewer, otherPortalLayer);
+        document.body.append(ownerHost, otherHost);
+
+        const ownerRange = document.createRange();
+        ownerRange.setStart(ownerText, 0);
+        ownerRange.setEnd(ownerText, ownerText.length);
+        const otherRange = document.createRange();
+        otherRange.setStart(otherSelectionText, 0);
+        otherRange.setEnd(otherSelectionText, otherSelectionText.length);
+        const selection = document.getSelection();
+        if (!selection) {
+            throw new Error('Browser selection is unavailable');
+        }
+
+        const createdEditor = {
+            id: 'created-editor',
+            div: ownerSelectedEditor,
+            parentPageIndex: 0,
+        };
+        const layer = {
+            div: ownerPortalLayer,
+            addCommands: vi.fn(),
+            addUndoableEditor: vi.fn(),
+            createAndAddNewEditor: vi.fn(() => {
+                selection.removeAllRanges();
+                selection.addRange(otherRange);
+                otherInput.focus();
+                return createdEditor;
+            }),
+        };
+        const uiManager = {
+            getActive: vi.fn(() => null),
+            getEditors: vi.fn(() => new Set()),
+            getLayer: vi.fn(() => layer),
+            getMode: vi.fn(() => 0),
+            getSelectionBoxes: vi.fn(() => [{
+                x: 0.1,
+                y: 0.1,
+                width: 0.2,
+                height: 0.03,
+            }]),
+            waitForEditorsRendered: vi.fn(async () => undefined),
+        };
+
+        const highlight = useAnnotationHighlight({
+            viewerContainer: ref(ownerViewer),
+            isActive: ref(true),
+            annotationUiManager: shallowRef(uiManager as never),
+            numPages: ref(1),
+            currentPage: ref(1),
+            annotationTool: ref('none'),
+            getIdentity: () => ({getEditorIdentity: editor => String(editor.id)}),
+            getMarkupSubtype: () => ({
+                toolToMarkupSubtype: {},
+                isSelectionMarkupTool: () => false,
+                setEditorMarkupSubtypeOverride: () => {},
+                resolveEditorMarkupSubtypeOverride: () => null,
+                resolveEditorSubtypeFromPresentation: () => null,
+            }),
+            getSync: () => ({
+                scheduleAnnotationCommentsSync: () => {},
+                toEditorSummary: (_editor, pageIndex) => ({
+                    id: 'created-editor',
+                    stableKey: `src:editor:${pageIndex}:created-editor`,
+                    pageIndex,
+                    pageNumber: pageIndex + 1,
+                    text: '',
+                    author: null,
+                    modifiedAt: null,
+                    color: null,
+                    uid: null,
+                    annotationId: null,
+                    source: 'editor',
+                    hasNote: false,
+                    markerRect: null,
+                }),
+            }),
+            getToolManager: () => ({
+                updateModeWithRetry: async () => null,
+                maybeAutoResetAnnotationTool: () => {},
+            }),
+            textMarkupPresentation: {notify: vi.fn()},
+            annotationIntentSink: {
+                submitSelectionMarkupIntent: () => ({
+                    annotationId: 'canonical-highlight',
+                    subtype: 'Highlight',
+                    comment: {
+                        appAnnotationId: 'canonical-highlight',
+                        id: 'canonical-highlight',
+                        stableKey: 'src:editor:0:canonical-highlight',
+                        pageIndex: 0,
+                        pageNumber: 1,
+                        text: '',
+                        author: null,
+                        modifiedAt: null,
+                        color: null,
+                        uid: null,
+                        annotationId: null,
+                        source: 'editor',
+                        hasNote: false,
+                        markerRect: null,
+                    },
+                    replacements: [],
+                }),
+                submitStickyNoteIntent: () => {
+                    throw new Error('not used in highlight selection test');
+                },
+                bindProjectedEditorIdentity: () => {},
+            },
+            stopDrag: () => {},
+            emitAnnotationOpenNote: () => {},
+            emitAnnotationNotePlacementChange: () => {},
+        });
+
+        await expect(highlight.highlightSelectionInternal(false, ownerRange)).resolves.toBe(true);
+
+        expect(ownerSelectedEditor.classList.contains('selectedEditor')).toBe(false);
+        expect(ownerSelectedEditor.classList.contains('selected')).toBe(false);
+        expect(otherSelectedEditor.classList.contains('selectedEditor')).toBe(true);
+        expect(otherSelectedEditor.classList.contains('selected')).toBe(true);
+        expect(document.activeElement).toBe(otherInput);
+        expect(selection.rangeCount).toBe(1);
+        expect(selection.getRangeAt(0).toString()).toBe('Other viewer text');
+
+        await vi.advanceTimersByTimeAsync(80);
+
+        expect(otherSelectedEditor.classList.contains('selectedEditor')).toBe(true);
+        expect(otherSelectedEditor.classList.contains('selected')).toBe(true);
+        expect(document.activeElement).toBe(otherInput);
+        expect(selection.rangeCount).toBe(1);
+        expect(selection.getRangeAt(0).toString()).toBe('Other viewer text');
+    });
+
     it('registers a created text markup editor with PDF.js undo history', async () => {
         vi.stubGlobal('PointerEvent', FakePointerEvent);
 

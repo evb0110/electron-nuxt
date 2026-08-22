@@ -49,6 +49,7 @@ describe('balanced scrollbar-gutter architecture', () => {
         const locallyBalanced = [
             'app/app.vue',
             'app/assets/css/main.css',
+            'app/components/AppFatalRuntimeDialog.vue',
             'app/components/AppToolPageShell.vue',
             'app/components/combine/CombinePdfPage.vue',
             'app/components/document-viewer/DocumentBookmarkTree.vue',

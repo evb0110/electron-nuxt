@@ -3,7 +3,10 @@ import {
     mkdirSync,
     openSync,
 } from 'node:fs';
-import { spawn } from 'node:child_process';
+import {
+    spawn,
+    type ChildProcess,
+} from 'node:child_process';
 import { delay } from 'es-toolkit/promise';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
 import { DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV } from '@scripts/electron-run/devServerOutputTee';
@@ -57,6 +60,42 @@ export function resolveDetachedSessionLaunch(
         };
 }
 
+export function waitForDetachedChildSpawn(child: ChildProcess) {
+    return new Promise<void>((resolve, reject) => {
+        function cleanup() {
+            child.off('error', onError);
+            child.off('spawn', onSpawn);
+        }
+        function onError(error: Error) {
+            cleanup();
+            reject(error);
+        }
+        function onSpawn() {
+            cleanup();
+            resolve();
+        }
+
+        child.once('error', onError);
+        child.once('spawn', onSpawn);
+    });
+}
+
+export function createDetachedSessionReadinessFailure(
+    message: string,
+    cleanupErrors: unknown[],
+) {
+    const readinessFailure = new Error(message);
+    return cleanupErrors.length === 0
+        ? readinessFailure
+        : new AggregateError(
+            [
+                readinessFailure,
+                ...cleanupErrors,
+            ],
+            message,
+        );
+}
+
 export async function startSessionDetached(options: {
     env?: NodeJS.ProcessEnv;
     owner?: 'dev' | 'e2e';
@@ -87,29 +126,34 @@ export async function startSessionDetached(options: {
         options.owner ?? 'dev',
         getCurrentSessionName(),
     );
-    const child = spawn(command, args, {
-        cwd: projectRoot,
-        detached: true,
-        shell: false,
-        stdio: [
-            'ignore',
-            logFd,
-            logFd,
-        ],
-        env: {
-            ...process.env,
-            ...options.env,
-            // This process already redirects its complete stdout/stderr stream
-            // to the stable session log. The nested output tee still writes
-            // timestamped per-source files and the discovery manifest, but it
-            // must not append the same lines to session.log a second time.
-            [DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV]: '1',
-            ...(options.initialOpenPaths
-                ? { [INITIAL_OPEN_PATHS_ENV]: JSON.stringify(normalizeInitialOpenPaths(options.initialOpenPaths)) }
-                : {}),
-        },
-    });
-    closeSync(logFd);
+    let child: ChildProcess;
+    try {
+        child = spawn(command, args, {
+            cwd: projectRoot,
+            detached: true,
+            shell: false,
+            stdio: [
+                'ignore',
+                logFd,
+                logFd,
+            ],
+            env: {
+                ...process.env,
+                ...options.env,
+                // This process already redirects its complete stdout/stderr stream
+                // to the stable session log. The nested output tee still writes
+                // timestamped per-source files and the discovery manifest, but it
+                // must not append the same lines to session.log a second time.
+                [DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV]: '1',
+                ...(options.initialOpenPaths
+                    ? { [INITIAL_OPEN_PATHS_ENV]: JSON.stringify(normalizeInitialOpenPaths(options.initialOpenPaths)) }
+                    : {}),
+            },
+        });
+    } finally {
+        closeSync(logFd);
+    }
+    await waitForDetachedChildSpawn(child);
     child.unref();
 
     const timeoutMs = 120_000;
@@ -126,13 +170,25 @@ export async function startSessionDetached(options: {
         await delay(300);
     }
     if (!ready) {
-        if (child.pid && isProcessAlive(child.pid)) {
-            await killProcessTree(child.pid, 1500);
+        const cleanupErrors: unknown[] = [];
+        try {
+            if (child.pid && isProcessAlive(child.pid)) {
+                await killProcessTree(child.pid, 1500);
+            }
+        } catch (error) {
+            cleanupErrors.push(error);
         }
-        await cleanupSessionStartingAttempt();
+        try {
+            await cleanupSessionStartingAttempt();
+        } catch (error) {
+            cleanupErrors.push(error);
+        }
         const tail = readSessionLogTail();
         const details = tail ? `\n\n--- Recent session log ---\n${tail}` : '';
-        throw new Error(`Detached session failed to become ready in ${Math.round(timeoutMs / 1000)}s. Check logs: ${sessionLogFilePath()}${details}`);
+        throw createDetachedSessionReadinessFailure(
+            `Detached session failed to become ready in ${Math.round(timeoutMs / 1000)}s. Check logs: ${sessionLogFilePath()}${details}`,
+            cleanupErrors,
+        );
     }
 
     console.log(`Session '${getCurrentSessionName()}' started in background (pid: ${child.pid ?? 'unknown'}).`);

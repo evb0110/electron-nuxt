@@ -4,9 +4,7 @@ import {
     spawnSync,
 } from 'node:child_process';
 import {
-    chmodSync,
     existsSync,
-    mkdirSync,
     mkdtempSync,
     readFileSync,
     rmSync,
@@ -127,6 +125,7 @@ const requiredPrPushConditions = new Set([
     '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.electron_smoke == \'true\' }}',
     '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.browser_integration == \'true\' }}',
     '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.native_or_build == \'true\' }}',
+    '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.scan_cleanup_export == \'true\' }}',
     '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.landing == \'true\' }}',
     '${{ always() && (github.event_name == \'pull_request\' || github.event_name == \'push\') }}',
 ]);
@@ -225,47 +224,51 @@ interface IPrePushScenario {
     probeExit: number;
 }
 
-// Runs the real pre-push branch with every external command replaced by a
-// logging stub. Shell indentation carries no meaning, so which build an ordinary
-// push reaches can only be established by what the script actually does.
+// Runs the real pre-push case branch after replacing the already-tested command
+// functions with in-process recorders. Keeping the branch in the shell preserves
+// its control flow without spawning dozens of stub executables per scenario.
 function runPrePushBranch({
     nativeChanged,
     probeExit,
 }: IPrePushScenario) {
     const workdir = mkdtempSync(path.join(tmpdir(), 'scan-cleanup-pre-push-'));
-    const binDir = path.join(workdir, 'bin');
     const logPath = path.join(workdir, 'calls.log');
-    mkdirSync(binDir, {recursive: true});
-    mkdirSync(path.join(workdir, 'native/target/release'), {recursive: true});
-
-    function stub(commandPath: string, body: string) {
-        writeFileSync(commandPath, `#!/bin/sh\n${body}\n`);
-        chmodSync(commandPath, 0o755);
+    const harnessPath = path.join(workdir, 'scan-cleanup-oracles-harness.sh');
+    const source = readFileSync(
+        path.resolve(process.cwd(), 'scripts/ci/scan-cleanup-oracles.sh'),
+        'utf8',
+    );
+    const caseMarker = 'case "$mode" in\n';
+    if (!source.includes(caseMarker)) {
+        throw new Error('Scan-cleanup oracle script is missing its mode case branch.');
     }
-
-    function record(label: string) {
-        return `printf '%s\\n' ${label} >> '${logPath}'`;
-    }
-
-    stub(path.join(binDir, 'git'), 'case "$*" in *--abbrev-ref*) printf \'%s\\n\' origin/main ;; esac\nexit 0');
-    stub(path.join(binDir, 'cargo'), `${record('catastrophe-oracle')}`);
-    stub(path.join(binDir, 'pnpm'), `${record('build')}`);
-    stub(path.join(workdir, 'native/target/release/evb-scan-cleanup'), `${record('stroke-weight-oracle')}`);
-    stub(path.join(binDir, 'node'), [
-        'case "$*" in',
-        `  *classify-changed-areas.mjs*) printf 'native_or_build=%s\\n' '${nativeChanged}' > "$GITHUB_OUTPUT" ;;`,
-        `  *--input-type=module*) ${record('tool-probe')}; exit ${probeExit} ;;`,
-        `  *stroke-weight-oracle*|*assert-calibration*) ${record('stroke-weight-oracle')} ;;`,
-        `  *scan-cleanup-preview-harness.mjs*|*scan-cleanup-word-loss-audit.mjs*) ${record('export-oracles')} ;;`,
-        'esac',
-    ].join('\n'));
+    const recorders = [
+        'record_call() { printf \'%s\\n\' "$1" >> "$EVB_TEST_CALL_LOG"; }',
+        'run_catastrophe_oracle() { record_call catastrophe-oracle; }',
+        'build_scan_cleanup_tool() { record_call build; }',
+        'run_stroke_weight_oracle() { record_call stroke-weight-oracle; }',
+        'run_export_oracles() { record_call export-oracles; }',
+        'supports_type_stripping() { return 0; }',
+        'native_or_build_changed() { [ "$EVB_TEST_NATIVE_CHANGED" = true ]; }',
+        'scan_cleanup_tool_is_available() {',
+        '  record_call tool-probe',
+        '  case "$EVB_TEST_PROBE_EXIT" in',
+        '    0) return 0 ;;',
+        '    20) return 1 ;;',
+        '  esac',
+        '  printf \'%s\\n\' \'error: cannot tell whether the scan-cleanup tool is present\' >&2',
+        '  exit 1',
+        '}',
+        '',
+    ].join('\n');
+    writeFileSync(harnessPath, source.replace(caseMarker, () => `${recorders}${caseMarker}`));
 
     let failed = false;
     let stderr = '';
     try {
         try {
             execFileSync('/bin/sh', [
-                path.resolve(process.cwd(), 'scripts/ci/scan-cleanup-oracles.sh'),
+                harnessPath,
                 'pre-push',
                 '.devkit/scratch/pre-push-oracles',
                 'origin',
@@ -274,7 +277,9 @@ function runPrePushBranch({
                 encoding: 'utf8',
                 env: {
                     ...process.env,
-                    PATH: `${binDir}:${process.env.PATH ?? ''}`,
+                    EVB_TEST_CALL_LOG: logPath,
+                    EVB_TEST_NATIVE_CHANGED: String(nativeChanged),
+                    EVB_TEST_PROBE_EXIT: String(probeExit),
                 },
                 // execFileSync forwards stderr to the parent unless it is captured,
                 // and one scenario here deliberately makes the script complain.
@@ -289,10 +294,8 @@ function runPrePushBranch({
             stderr = isRecord(error) && typeof error.stderr === 'string' ? error.stderr : '';
         }
 
-        // Duplicates collapse so the log reads as the sequence of decisions taken,
-        // not the number of commands each one happens to run.
         const calls = existsSync(logPath)
-            ? [...new Set(readFileSync(logPath, 'utf8').split('\n').filter(Boolean))]
+            ? readFileSync(logPath, 'utf8').split('\n').filter(Boolean)
             : [];
 
         return {
@@ -301,8 +304,6 @@ function runPrePushBranch({
             stderr,
         };
     } finally {
-        // Each scenario stages stub executables and a native target tree; leaving
-        // them behind would grow the system temporary directory every test run.
         rmSync(workdir, {
             recursive: true,
             force: true,
@@ -469,6 +470,9 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'pr_browser_integration')).toContain('needs.pr_changed_areas.outputs.browser_integration == \'true\'');
         expect(workflowJob(workflow, 'pr_browser_integration')).toContain('run: pnpm run test:integration:browser');
         expect(workflowJob(workflow, 'pr_browser_integration')).toContain('playwright install --with-deps chromium');
+        expect(workflowJob(workflow, 'pr_scan_cleanup_oracles')).toContain('needs: pr_changed_areas');
+        expect(workflowJob(workflow, 'pr_scan_cleanup_oracles'))
+            .toContain('needs.pr_changed_areas.outputs.scan_cleanup_export == \'true\'');
         expect(workflow).toContain('name: Native And Build Safety');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs: pr_changed_areas');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs.pr_changed_areas.outputs.native_or_build == \'true\'');
@@ -491,6 +495,9 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'pr_landing_quality')).not.toContain('continue-on-error: true');
         expect(workflowJob(workflow, 'manual_landing')).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
         expect(workflowJob(workflow, 'manual_landing')).not.toContain('continue-on-error: true');
+        const gatesOk = workflowJob(workflow, 'gates_ok');
+        expect(gatesOk).toContain('SCAN_CLEANUP_EXPORT_CHANGED: ${{ needs.pr_changed_areas.outputs.scan_cleanup_export }}');
+        expect(gatesOk).toContain('[\'pr_scan_cleanup_oracles\', process.env.SCAN_CLEANUP_EXPORT_CHANGED]');
         expect(sharedVitestConfig).toContain('tests/unit/landing/**/*.test.ts');
         expect(testsTsconfig.exclude).toContain('./unit/landing/**/*.ts');
     });

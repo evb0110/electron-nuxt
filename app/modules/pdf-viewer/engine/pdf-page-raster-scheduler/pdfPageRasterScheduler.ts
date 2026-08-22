@@ -228,6 +228,7 @@ export function createPdfPageRasterScheduler(
     const surfaceScopeId = `pdf-raster-scheduler:${++nextSchedulerScopeId}`;
     const queued = new Map<string, IRasterWork>();
     const inFlight = new Map<string, IRasterWork>();
+    const retryPending = new Map<string, IRasterWork>();
     const residents = new Map<string, IResidentRaster>();
     const demandKeysBySource = new Map<string, Set<string>>();
     const currentDemandByIdentity = new Map<string, IPdfRasterDemand>();
@@ -235,6 +236,10 @@ export function createPdfPageRasterScheduler(
     let disposal: Promise<void> | null = null;
     let nextSequence = 0;
     let pumpScheduled = false;
+
+    function getIndexedWork(key: string) {
+        return queued.get(key) ?? inFlight.get(key) ?? retryPending.get(key);
+    }
 
     function isDemandCurrent(work: IRasterWork) {
         if (
@@ -292,6 +297,11 @@ export function createPdfPageRasterScheduler(
                 return true;
             }
         }
+        for (const key of retryPending.keys()) {
+            if (key.startsWith(prefix)) {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -331,6 +341,9 @@ export function createPdfPageRasterScheduler(
     function settleWork(work: IRasterWork, outcome: TPdfRasterOutcome) {
         work.retryTimer?.clear();
         work.retryTimer = null;
+        if (retryPending.get(work.key) === work) {
+            retryPending.delete(work.key);
+        }
         work.resolve?.(outcome);
         work.resolve = null;
     }
@@ -408,14 +421,15 @@ export function createPdfPageRasterScheduler(
     // republish. Every such ending — a thrown render, a target that declines to
     // prepare, a target that rejects the commit — reattempts here, so the
     // scheduler's own contract does not depend on an external nudge.
-    function scheduleReattempt(work: IRasterWork, exhausted: TPdfRasterOutcome) {
-        if (!isDemandCurrent(work) || work.retryCount >= MAX_RETRIES) {
-            settleWork(work, exhausted);
+    function armPendingReattempt(work: IRasterWork) {
+        if (
+            retryPending.get(work.key) !== work
+            || work.retryTimer !== null
+            || inFlight.get(work.key) === work
+        ) {
             return;
         }
-        work.retryCount += 1;
-        work.stage = 'queued';
-        work.retryTimer = renderSupervisor.armTimer({
+        const retryTimer = renderSupervisor.armTimer({
             cause: 'render-cancelled-retry',
             // Backed off, because the conditions a target declines on — a canvas
             // swapped by a re-render, a debounced remeasure, a resize settling —
@@ -431,6 +445,10 @@ export function createPdfPageRasterScheduler(
                 targetId: work.target.id,
             },
             onFire: () => {
+                if (retryPending.get(work.key) !== work) {
+                    return;
+                }
+                retryPending.delete(work.key);
                 work.retryTimer = null;
                 if (!isDemandCurrent(work)) {
                     settleWork(work, {
@@ -443,6 +461,21 @@ export function createPdfPageRasterScheduler(
                 schedulePump();
             },
         });
+        if (retryPending.get(work.key) === work) {
+            work.retryTimer = retryTimer;
+        } else {
+            retryTimer.clear();
+        }
+    }
+
+    function scheduleReattempt(work: IRasterWork, exhausted: TPdfRasterOutcome) {
+        if (!isDemandCurrent(work) || work.retryCount >= MAX_RETRIES) {
+            settleWork(work, exhausted);
+            return;
+        }
+        work.retryCount += 1;
+        work.stage = 'queued';
+        retryPending.set(work.key, work);
     }
 
     async function executeWork(work: IRasterWork) {
@@ -600,6 +633,7 @@ export function createPdfPageRasterScheduler(
             if (inFlight.get(work.key) === work) {
                 inFlight.delete(work.key);
             }
+            armPendingReattempt(work);
             if (!committed && work.retryTimer === null && queued.get(work.key) !== work) {
                 releaseTarget(work, 'raster-not-committed');
             }
@@ -651,7 +685,7 @@ export function createPdfPageRasterScheduler(
             });
             return key;
         }
-        const existing = queued.get(key) ?? inFlight.get(key);
+        const existing = getIndexedWork(key);
         if (existing) {
             // Republished authoritative demand with the same render key is
             // still the same work. Advance its generation in place so the
@@ -726,7 +760,7 @@ export function createPdfPageRasterScheduler(
             if (nextKeys.has(key)) {
                 continue;
             }
-            const work = queued.get(key) ?? inFlight.get(key);
+            const work = getIndexedWork(key);
             if (work?.sourceId === request.sourceId) {
                 cancelWork(work, 'demand-replaced');
             }
@@ -796,10 +830,11 @@ export function createPdfPageRasterScheduler(
         if (invalidatesDocument) {
             accepting = false;
         }
-        for (const work of [
+        for (const work of new Set([
             ...queued.values(),
             ...inFlight.values(),
-        ]) {
+            ...retryPending.values(),
+        ])) {
             if (matches(work.sourceId, work.demand)) {
                 cancelWork(work, scope.reason);
             }
@@ -815,7 +850,7 @@ export function createPdfPageRasterScheduler(
         ] of demandKeysBySource) {
             if (!scope.sourceId || sourceId === scope.sourceId) {
                 for (const key of [...keys]) {
-                    const work = queued.get(key) ?? inFlight.get(key);
+                    const work = getIndexedWork(key);
                     const resident = residents.get(key);
                     const demand = work?.demand ?? resident?.demand;
                     if (demand && (!pages || pages.has(demand.pageNumber))) {

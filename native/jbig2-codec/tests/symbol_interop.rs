@@ -1,4 +1,8 @@
-use std::{fs, process::Command};
+use std::{
+    fs,
+    panic::{catch_unwind, AssertUnwindSafe},
+    process::Command,
+};
 
 use jbig2_codec::{
     decode_pdf_symbol_page, encode_pdf_generic_verified, encode_pdf_symbol_pages_verified,
@@ -288,6 +292,113 @@ fn rejects_symbol_dictionary_whose_cumulative_pixels_exceed_the_budget() {
         ),
         "unexpected error: {error:?}"
     );
+}
+
+#[derive(Clone, Copy)]
+struct SegmentBounds {
+    length_offset: usize,
+    data_start: usize,
+    data_end: usize,
+}
+
+fn segment_bounds(stream: &[u8], start: usize) -> SegmentBounds {
+    let number = u32::from_be_bytes(stream[start..start + 4].try_into().unwrap());
+    let referred_count = usize::from(stream[start + 5] >> 5);
+    let reference_size = if number <= 256 {
+        1
+    } else if number <= 65_536 {
+        2
+    } else {
+        4
+    };
+    let length_offset = start + 6 + referred_count * reference_size + 1;
+    let data_start = length_offset + 4;
+    let length = u32::from_be_bytes(stream[length_offset..data_start].try_into().unwrap()) as usize;
+    SegmentBounds {
+        length_offset,
+        data_start,
+        data_end: data_start + length,
+    }
+}
+
+fn assert_symbol_decode_error(label: &str, globals: &[u8], page: &[u8]) {
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        decode_pdf_symbol_page(globals, page, DecodeLimits::default())
+    }));
+    let result = outcome.unwrap_or_else(|_| panic!("{label} panicked"));
+    assert!(result.is_err(), "{label} decoded successfully");
+}
+
+fn terminated_prefix(stream: &[u8], segment: SegmentBounds, end: usize) -> Vec<u8> {
+    let mut truncated = stream[..end].to_vec();
+    truncated.extend_from_slice(&[0xff, 0xac]);
+    let repaired_length = u32::try_from(truncated.len() - segment.data_start).unwrap();
+    truncated[segment.length_offset..segment.data_start]
+        .copy_from_slice(&repaired_length.to_be_bytes());
+    truncated
+}
+
+#[test]
+fn rejects_every_premature_symbol_global_end_without_panicking() {
+    let document = two_symbol_document();
+    let page = &document.pages[0].as_ref().unwrap().data;
+    for end in 0..document.globals.len() {
+        assert_symbol_decode_error(
+            &format!("symbol globals truncated at {end}"),
+            &document.globals[..end],
+            page,
+        );
+    }
+}
+
+#[test]
+fn rejects_every_terminated_symbol_global_arithmetic_prefix_without_panicking() {
+    let document = two_symbol_document();
+    let page = &document.pages[0].as_ref().unwrap().data;
+    let dictionary = segment_bounds(&document.globals, 0);
+    assert_eq!(dictionary.data_end, document.globals.len());
+    const SYMBOL_DICTIONARY_HEADER_LENGTH: usize = 18;
+    let arithmetic_start = dictionary.data_start + SYMBOL_DICTIONARY_HEADER_LENGTH;
+    for end in arithmetic_start..dictionary.data_end - 2 {
+        let truncated = terminated_prefix(&document.globals, dictionary, end);
+        assert_symbol_decode_error(
+            &format!("symbol globals terminated at {end}"),
+            &truncated,
+            page,
+        );
+    }
+}
+
+#[test]
+fn rejects_every_premature_symbol_page_end_without_panicking() {
+    let document = two_symbol_document();
+    let page = &document.pages[0].as_ref().unwrap().data;
+    for end in 0..page.len() {
+        assert_symbol_decode_error(
+            &format!("symbol page truncated at {end}"),
+            &document.globals,
+            &page[..end],
+        );
+    }
+}
+
+#[test]
+fn rejects_every_terminated_symbol_page_arithmetic_prefix_without_panicking() {
+    let document = two_symbol_document();
+    let page = &document.pages[0].as_ref().unwrap().data;
+    let page_information = segment_bounds(page, 0);
+    let text_region = segment_bounds(page, page_information.data_end);
+    assert_eq!(text_region.data_end, page.len());
+    const TEXT_REGION_HEADER_LENGTH: usize = 23;
+    let arithmetic_start = text_region.data_start + TEXT_REGION_HEADER_LENGTH;
+    for end in arithmetic_start..text_region.data_end - 2 {
+        let truncated = terminated_prefix(page, text_region, end);
+        assert_symbol_decode_error(
+            &format!("symbol page terminated at {end}"),
+            &document.globals,
+            &truncated,
+        );
+    }
 }
 
 fn parse_p4(data: &[u8]) -> (u32, u32, &[u8]) {

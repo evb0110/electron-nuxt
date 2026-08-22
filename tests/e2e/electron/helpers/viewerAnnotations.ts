@@ -771,10 +771,8 @@ async function collectFreeTextCreationDebugState(page: Page, pageNumber?: number
             ?? uiManagerLayerAccess?.currentLayer
             ?? null;
         const programmaticLayerEditorAccess: { createAndAddNewEditor?: unknown; } | null = programmaticLayer;
-        const fatalDialog = Array.from(document.querySelectorAll<HTMLElement>('div.fixed.inset-0'))
-            .find((candidate) => candidate.textContent?.includes('Reload') && candidate.textContent?.includes('runtime') !== false)
-            ?? null;
-        const detailBlock = fatalDialog?.querySelector('p.mt-2') ?? null;
+        const fatalDialog = document.querySelector<HTMLElement>('[role="alertdialog"][aria-modal="true"]');
+        const detailBlock = fatalDialog?.querySelector('#fatal-runtime-detail') ?? null;
 
         return {
             activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? '',

@@ -1,163 +1,134 @@
 <template>
     <UApp>
-        <NuxtPage />
-        <div
-            v-if="fatalRuntimeError"
-            class="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--app-window-bg)]/96 p-6 backdrop-blur-sm"
+        <AppFatalRuntimeDialog
+            :open="Boolean(fatalRuntimeError)"
+            :title="fatalRuntimeTitle"
+            :description="fatalRuntimeDescription"
+            :detail="fatalRuntimeError?.detail ?? null"
+            :detail-label="t('errors.runtime.details')"
+            :reload-label="t('errors.runtime.reload')"
+            :copy-label="t('errors.runtime.copy')"
+            :copied="recentlyCopiedFatalDetail"
+            @reload="reloadAfterFatalRuntimeError"
+            @copy="handleCopyFatalRuntimeDetail"
         >
-            <div class="app-scrollbar app-scroll-region--balanced max-h-[calc(100dvh-3rem)] w-full max-w-xl overflow-y-auto rounded-2xl border border-default bg-default p-6 shadow-[var(--shadow-popup)]">
-                <UAlert
-                    color="error"
-                    variant="soft"
-                    icon="i-ph-warning"
-                    :title="fatalRuntimeTitle"
-                    :description="fatalRuntimeDescription"
-                />
-                <div
-                    v-if="fatalRuntimeError.detail"
-                    class="mt-4 rounded-xl border border-default bg-elevated p-4 text-sm text-dimmed"
-                >
-                    <p class="font-medium text-default">
-                        {{ t('errors.runtime.details') }}
-                    </p>
-                    <p class="mt-2 break-words">
-                        {{ fatalRuntimeError.detail }}
-                    </p>
-                </div>
-                <div class="mt-5 flex flex-wrap gap-3">
-                    <UButton
-                        color="error"
-                        icon="i-ph-arrows-clockwise"
-                        @click="reloadAfterFatalRuntimeError"
-                    >
-                        {{ t('errors.runtime.reload') }}
-                    </UButton>
-                    <UButton
-                        v-if="fatalRuntimeError.detail"
-                        color="neutral"
-                        variant="soft"
-                        :icon="recentlyCopiedFatalDetail ? 'i-ph-check' : 'i-ph-copy'"
-                        @click="handleCopyFatalRuntimeDetail"
-                    >
-                        {{ t('errors.runtime.copy') }}
-                    </UButton>
-                </div>
-            </div>
-        </div>
-        <div
-            v-if="runtimeErrorReports.length > 0"
-            class="runtime-error-reports fixed bottom-4 right-4 z-40"
-        >
+            <NuxtPage />
             <div
-                class="runtime-error-reports-card overflow-hidden rounded-lg border border-default bg-default p-4 shadow-[var(--shadow-popup)]"
+                v-if="runtimeErrorReports.length > 0"
+                class="runtime-error-reports fixed bottom-4 right-4 z-40"
             >
-                <div class="flex items-start gap-3">
-                    <UIcon name="i-ph-x-circle" class="mt-0.5 size-5 shrink-0 text-[color:var(--ui-error)]" />
-                    <div class="min-w-0 flex-1">
-                        <div class="flex items-center gap-2">
-                            <p class="truncate text-sm font-medium text-default">
-                                {{ t('errors.runtime.reportReady') }}
-                            </p>
-                            <UBadge
-                                color="error"
-                                variant="soft"
-                                size="sm"
-                            >
-                                {{ runtimeErrorReportCount }}
-                            </UBadge>
-                        </div>
-                        <p class="mt-1 text-xs text-dimmed">
-                            {{ t('errors.runtime.reportDescription') }}
-                        </p>
-                        <div
-                            v-if="showRuntimeErrorDetails"
-                            class="runtime-error-report-details app-scrollbar app-scroll-region--balanced mt-3 space-y-3 overflow-y-auto"
-                        >
-                            <div
-                                v-for="report in runtimeErrorReports"
-                                :key="report.id"
-                                class="rounded-md bg-elevated p-3"
-                            >
-                                <div class="flex items-center gap-2">
-                                    <p class="min-w-0 flex-1 truncate text-xs font-medium text-default">
-                                        {{ report.title }}
-                                    </p>
-                                    <UBadge
-                                        v-if="report.count > 1"
-                                        color="error"
-                                        variant="soft"
-                                        size="sm"
-                                    >
-                                        {{ report.count }}
-                                    </UBadge>
-                                    <AppTooltip :text="t('errors.runtime.dismiss')" :delay-duration="400">
-                                        <UButton
-                                            color="neutral"
-                                            variant="ghost"
-                                            size="xs"
-                                            icon="i-ph-x"
-                                            :aria-label="t('errors.runtime.dismiss')"
-                                            @click="dismissRuntimeErrorReport(report.id)"
-                                        />
-                                    </AppTooltip>
-                                </div>
-                                <p class="mt-1 text-xs text-dimmed">
-                                    {{ report.source }}
+                <div
+                    class="runtime-error-reports-card overflow-hidden rounded-lg border border-default bg-default p-4 shadow-[var(--shadow-popup)]"
+                >
+                    <div class="flex items-start gap-3">
+                        <UIcon name="i-ph-x-circle" class="mt-0.5 size-5 shrink-0 text-[color:var(--ui-error)]" />
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-2">
+                                <p class="truncate text-sm font-medium text-default">
+                                    {{ t('errors.runtime.reportReady') }}
                                 </p>
-                                <pre class="app-scrollbar app-scroll-region--balanced mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words text-xs text-muted">{{ report.detail }}</pre>
+                                <UBadge
+                                    color="error"
+                                    variant="soft"
+                                    size="sm"
+                                >
+                                    {{ runtimeErrorReportCount }}
+                                </UBadge>
+                            </div>
+                            <p class="mt-1 text-xs text-dimmed">
+                                {{ t('errors.runtime.reportDescription') }}
+                            </p>
+                            <div
+                                v-if="showRuntimeErrorDetails"
+                                class="runtime-error-report-details app-scrollbar app-scroll-region--balanced mt-3 space-y-3 overflow-y-auto"
+                            >
+                                <div
+                                    v-for="report in runtimeErrorReports"
+                                    :key="report.id"
+                                    class="rounded-md bg-elevated p-3"
+                                >
+                                    <div class="flex items-center gap-2">
+                                        <p class="min-w-0 flex-1 truncate text-xs font-medium text-default">
+                                            {{ report.title }}
+                                        </p>
+                                        <UBadge
+                                            v-if="report.count > 1"
+                                            color="error"
+                                            variant="soft"
+                                            size="sm"
+                                        >
+                                            {{ report.count }}
+                                        </UBadge>
+                                        <AppTooltip :text="t('errors.runtime.dismiss')" :delay-duration="400">
+                                            <UButton
+                                                color="neutral"
+                                                variant="ghost"
+                                                size="xs"
+                                                icon="i-ph-x"
+                                                :aria-label="t('errors.runtime.dismiss')"
+                                                @click="dismissRuntimeErrorReport(report.id)"
+                                            />
+                                        </AppTooltip>
+                                    </div>
+                                    <p class="mt-1 text-xs text-dimmed">
+                                        {{ report.source }}
+                                    </p>
+                                    <pre class="app-scrollbar app-scroll-region--balanced mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words text-xs text-muted">{{ report.detail }}</pre>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <div class="flex shrink-0 gap-1">
-                        <AppTooltip :text="t('errors.runtime.copy')" :delay-duration="400">
-                            <UButton
-                                color="neutral"
-                                variant="ghost"
-                                size="xs"
-                                :icon="recentlyCopiedReports ? 'i-ph-check' : 'i-ph-copy'"
-                                :class="[
-                                    'copy-report-button transition-transform duration-150 ease-out hover:scale-110 active:scale-90',
-                                    recentlyCopiedReports && 'copy-report-button--success',
-                                ]"
-                                :aria-label="t('errors.runtime.copy')"
-                                @click="handleCopyReports"
-                            />
-                        </AppTooltip>
-                        <AppTooltip :text="t('errors.runtime.details')" :delay-duration="400">
-                            <UButton
-                                color="neutral"
-                                variant="ghost"
-                                size="xs"
-                                :icon="showRuntimeErrorDetails ? 'i-ph-caret-down' : 'i-ph-caret-up'"
-                                :aria-label="t('errors.runtime.details')"
-                                @click="showRuntimeErrorDetails = !showRuntimeErrorDetails"
-                            />
-                        </AppTooltip>
-                        <AppTooltip :text="t('errors.runtime.dismiss')" :delay-duration="400">
-                            <UButton
-                                color="neutral"
-                                variant="ghost"
-                                size="xs"
-                                icon="i-ph-x"
-                                :aria-label="t('errors.runtime.dismiss')"
-                                @click="clearRuntimeErrorReports"
-                            />
-                        </AppTooltip>
+                        <div class="flex shrink-0 gap-1">
+                            <AppTooltip :text="t('errors.runtime.copy')" :delay-duration="400">
+                                <UButton
+                                    color="neutral"
+                                    variant="ghost"
+                                    size="xs"
+                                    :icon="recentlyCopiedReports ? 'i-ph-check' : 'i-ph-copy'"
+                                    :class="[
+                                        'copy-report-button transition-transform duration-150 ease-out hover:scale-110 active:scale-90',
+                                        recentlyCopiedReports && 'copy-report-button--success',
+                                    ]"
+                                    :aria-label="t('errors.runtime.copy')"
+                                    @click="handleCopyReports"
+                                />
+                            </AppTooltip>
+                            <AppTooltip :text="t('errors.runtime.details')" :delay-duration="400">
+                                <UButton
+                                    color="neutral"
+                                    variant="ghost"
+                                    size="xs"
+                                    :icon="showRuntimeErrorDetails ? 'i-ph-caret-down' : 'i-ph-caret-up'"
+                                    :aria-label="t('errors.runtime.details')"
+                                    @click="showRuntimeErrorDetails = !showRuntimeErrorDetails"
+                                />
+                            </AppTooltip>
+                            <AppTooltip :text="t('errors.runtime.dismiss')" :delay-duration="400">
+                                <UButton
+                                    color="neutral"
+                                    variant="ghost"
+                                    size="xs"
+                                    icon="i-ph-x"
+                                    :aria-label="t('errors.runtime.dismiss')"
+                                    @click="clearRuntimeErrorReports"
+                                />
+                            </AppTooltip>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-        <DevOnly>
-            <ClientOnly>
-                <component :is="AgentationWidget" v-if="AgentationWidget" />
-            </ClientOnly>
-        </DevOnly>
+            <DevOnly>
+                <ClientOnly>
+                    <component :is="AgentationWidget" v-if="AgentationWidget" />
+                </ClientOnly>
+            </DevOnly>
+        </AppFatalRuntimeDialog>
     </UApp>
 </template>
 
 <script setup lang="ts">
 import { useClipboard } from '@vueuse/core';
 import { sumBy } from 'es-toolkit/math';
+import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';

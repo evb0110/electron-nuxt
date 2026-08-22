@@ -7,6 +7,10 @@ import { stopSingleSession } from '@scripts/electron-run/stopSession';
 import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { TElectronE2EWindowMode } from '@scripts/electron-run/electronRunLaunchConfig';
+import {
+    formatElectronE2ESessionFailure,
+    runElectronE2EInfrastructureStage,
+} from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 
 type TSessionNameFactory = string | (() => string);
 
@@ -36,19 +40,6 @@ interface IElectronE2ESessionFixtureOptions {
 
 function resolveSessionName(sessionName: TSessionNameFactory) {
     return typeof sessionName === 'function' ? sessionName() : sessionName;
-}
-
-function createInfraError(label: string, error: unknown) {
-    if (error instanceof Error && error.message.startsWith('[INFRA]')) {
-        return error;
-    }
-
-    const source = error instanceof Error ? error : new Error(String(error));
-    const infraError = new Error(`[INFRA] ${label}\n${source.message}`);
-    if (source.stack) {
-        infraError.stack = `${infraError.name}: ${infraError.message}\nCaused by: ${source.stack}`;
-    }
-    return infraError;
 }
 
 export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixtureOptions) {
@@ -82,7 +73,7 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
                 bootFailure = null;
                 return session;
             } catch (error) {
-                bootFailure = createInfraError('Electron E2E session boot failed.', error);
+                bootFailure = formatElectronE2ESessionFailure('Electron E2E session boot failed.', error);
                 throw bootFailure;
             }
         },
@@ -100,14 +91,22 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
                     return previousSession;
                 }
                 const keepNuxt = restartOptions.keepNuxt ?? false;
-                await previousSession.browser.disconnect();
+                await runElectronE2EInfrastructureStage(
+                    'transport',
+                    `Disconnecting Electron E2E session '${previousSession.name}' browser transport`,
+                    async () => previousSession.browser.disconnect(),
+                );
                 if (hard) {
                     await previousSession.stop({
                         keepNuxt,
                         preserveArtifacts: preserveFailureArtifacts,
                     });
                 } else {
-                    await stopSingleSession(previousSession.name, {keepNuxt});
+                    await runElectronE2EInfrastructureStage(
+                        'session-runner',
+                        `Stopping Electron E2E session '${previousSession.name}' for restart`,
+                        async () => stopSingleSession(previousSession.name, {keepNuxt}),
+                    );
                 }
                 session = null;
                 sessionName = restartOptions.sessionName
@@ -121,7 +120,7 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
                 });
                 return session;
             } catch (error) {
-                bootFailure = createInfraError('Electron E2E session restart failed.', error);
+                bootFailure = formatElectronE2ESessionFailure('Electron E2E session restart failed.', error);
                 throw bootFailure;
             }
         },
@@ -149,7 +148,7 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
             });
             bootFailure = null;
         } catch (error) {
-            bootFailure = createInfraError('Electron E2E session boot failed.', error);
+            bootFailure = formatElectronE2ESessionFailure('Electron E2E session boot failed.', error);
             throw bootFailure;
         }
     }, options.timeoutMs);

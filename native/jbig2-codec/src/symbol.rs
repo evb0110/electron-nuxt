@@ -1184,10 +1184,10 @@ fn decode_symbol_dictionary(data: &[u8], limits: DecodeLimits) -> Result<Vec<Sym
             "symbol dictionary does not export every new symbol",
         ));
     }
-    // The declared symbol count is attacker-controlled and reaches
-    // `Vec::with_capacity` before any bitmap is decoded, so cap it before
-    // reserving. A dictionary claiming millions of symbols cannot be produced
-    // by the bounded encoder and would only serve to exhaust memory.
+    // The declared symbol count is attacker-controlled and reaches allocation
+    // before any bitmap is decoded, so cap it before reserving. A dictionary
+    // claiming millions of symbols cannot be produced by the bounded encoder
+    // and would only serve to exhaust memory.
     if new > MAX_DICTIONARY_SYMBOLS {
         return Err(Jbig2Error::Unsupported(
             "symbol dictionary exports more symbols than the decoder allows",
@@ -1200,12 +1200,15 @@ fn decode_symbol_dictionary(data: &[u8], limits: DecodeLimits) -> Result<Vec<Sym
     let mut decoder = Decoder::new(arithmetic).ok_or(Jbig2Error::InvalidArithmeticData)?;
     let mut integers = IntegerContexts::new();
     let mut bitmap_contexts = vec![0; generic::CONTEXT_COUNT];
-    let mut symbols = Vec::with_capacity(new);
+    let mut symbols = Vec::new();
+    symbols
+        .try_reserve_exact(new)
+        .map_err(|_| Jbig2Error::AllocationFailed)?;
     let mut height = 0i64;
-    // The per-symbol dimension cap bounds one bitmap, but MAX_DICTIONARY_SYMBOLS
-    // of them can still aggregate to an enormous allocation. Track the running
-    // pixel total and reject the dictionary once it exceeds the same ceiling the
-    // page bitmap is held to.
+    // The count ceiling bounds the symbol metadata vector. The aggregate pixel
+    // ceiling bounds all bitmap row storage because a one-bit bitmap never uses
+    // more bytes than pixels. Together they bound every allocation retained by
+    // the decoded dictionary.
     let mut total_pixels = 0u64;
     let pixel_ceiling = limits.max_pixels.min(DecodeLimits::HARD_MAX_PIXELS);
     while symbols.len() < new {

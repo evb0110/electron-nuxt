@@ -683,6 +683,130 @@ describe('PdfDocumentSession range loading', () => {
         expect(range?.onDataRange).not.toHaveBeenCalled();
     });
 
+    it.each([
+        { staleReadOutcome: 'resolves' },
+        { staleReadOutcome: 'rejects' },
+    ] as const)(
+        'lets load B finish before stale load A $staleReadOutcome its pending range read',
+        async ({staleReadOutcome}) => {
+            const chunkLength = 1024 * 1024;
+            const requestedStart = chunkLength;
+            const requestedEnd = requestedStart + chunkLength;
+            const fileSize = 4 * chunkLength;
+            const staleRead = Promise.withResolvers<Uint8Array>();
+            const stalePlatformReadSettled = Promise.withResolvers<undefined>();
+            const createDocument = (id: string) => ({
+                id,
+                numPages: 1,
+                getPage: vi.fn(async () => ({
+                    cleanup: vi.fn(),
+                    getViewport: vi.fn(() => ({
+                        width: 100,
+                        height: 200,
+                    })),
+                })),
+                destroy: vi.fn(() => Promise.resolve()),
+            });
+            const documentA = createDocument('a');
+            const documentB = createDocument('b');
+            const loadBResult = Promise.withResolvers<typeof documentB>();
+
+            pdfjsState.getDocument
+                .mockReturnValueOnce({
+                    promise: Promise.resolve(documentA),
+                    destroy: vi.fn(() => Promise.resolve()),
+                })
+                .mockReturnValueOnce({
+                    promise: loadBResult.promise,
+                    destroy: vi.fn(() => Promise.resolve()),
+                });
+            electronApi.documentFiles.readFileRange.mockImplementation(async (
+                path: string,
+                offset: number,
+                length: number,
+            ) => {
+                if (path === '/tmp/range-session-a.pdf' && offset === requestedStart) {
+                    return staleRead.promise.then(
+                        (data) => {
+                            stalePlatformReadSettled.resolve(undefined);
+                            return data;
+                        },
+                        (error: unknown) => {
+                            stalePlatformReadSettled.resolve(undefined);
+                            throw error;
+                        },
+                    );
+                }
+                return new Uint8Array(length);
+            });
+
+            const documentState = createPdfDocumentSession();
+            const sourceA = {
+                kind: 'path',
+                path: '/tmp/range-session-a.pdf',
+                size: fileSize,
+            } as const;
+            const sourceB = {
+                kind: 'path',
+                path: '/tmp/range-session-b.pdf',
+                size: fileSize,
+            } as const;
+
+            await expect(documentState.loadPdf(sourceA)).resolves.toEqual(expect.objectContaining({ document: documentA }));
+            const rangeA = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
+            expect(rangeA).toBeInstanceOf(MockPdfDataRangeTransport);
+            rangeA?.onDataRange.mockClear();
+            rangeA?.requestDataRange?.(requestedStart, requestedEnd);
+            await vi.waitFor(() => {
+                expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith(
+                    sourceA.path,
+                    requestedStart,
+                    chunkLength,
+                );
+            });
+
+            const loadB = documentState.loadPdf(sourceB);
+            await vi.waitFor(() => {
+                expect(pdfjsState.getDocument).toHaveBeenCalledTimes(2);
+            });
+            const rangeB = (pdfjsState.getDocument.mock.calls[1]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
+            expect(rangeB).toBeInstanceOf(MockPdfDataRangeTransport);
+            rangeB?.onDataRange.mockClear();
+            rangeB?.requestDataRange?.(requestedStart, requestedEnd);
+
+            await vi.waitFor(() => {
+                expect(rangeB?.onDataRange).toHaveBeenCalledOnce();
+            });
+            loadBResult.resolve(documentB);
+            await expect(loadB).resolves.toEqual(expect.objectContaining({ document: documentB }));
+            expect(documentState.pdfDocument.value).toBe(documentB);
+            expect(documentState.acceptedSource.value).toBe(sourceB);
+
+            if (staleReadOutcome === 'resolves') {
+                staleRead.resolve(new Uint8Array(chunkLength));
+            } else {
+                staleRead.reject(new Error('stale range A failed'));
+            }
+            await stalePlatformReadSettled.promise;
+            await new Promise<void>((resolve) => {
+                setTimeout(resolve, 0);
+            });
+
+            expect(rangeA?.onDataRange).not.toHaveBeenCalled();
+            expect(rangeB?.onDataRange).toHaveBeenCalledOnce();
+            expect(rangeB?.abort).not.toHaveBeenCalled();
+            expect(documentB.destroy).not.toHaveBeenCalled();
+            expect(documentState.pdfDocument.value).toBe(documentB);
+            expect(documentState.acceptedSource.value).toBe(sourceB);
+            expect(documentState.loadError.value).toBeNull();
+            expect(loggerError).not.toHaveBeenCalledWith(
+                'pdf-document',
+                'Failed to read PDF range chunk',
+                expect.anything(),
+            );
+        },
+    );
+
     it('fulfills a PDF.js range request with multiple platform reads when a read is short', async () => {
         const deferred = Promise.withResolvers<{
             numPages: number;

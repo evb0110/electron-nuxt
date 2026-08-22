@@ -28,7 +28,7 @@ interface IChangedAreaDefinition {
     paths: string[];
 }
 
-interface IChangedAreaClassifierModule { classifyChangedFiles: (files: string[]) => Record<string, IChangedAreaClassification> }
+interface IChangedAreaClassifierModule { classifyChangedFiles: (files: string[] | null) => Record<string, IChangedAreaClassification> }
 
 interface IReleasePolicyModule { getCiChangedAreaPolicy: () => Record<string, IChangedAreaDefinition> }
 
@@ -138,11 +138,84 @@ describe('changed-area classifier', () => {
         });
     });
 
+    it('runs browser journeys for their production graph without claiming unrelated platforms', () => {
+        for (const file of [
+            'app/app.vue',
+            'app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale.ts',
+            'drizzle/schema.ts',
+            'nuxt.config.ts',
+            'packages/pdf-core/index.ts',
+            'public/pdfjs/pdf.worker.min.mjs',
+            'scan-cleanup-adapters/createScanCleanupRenderers.ts',
+            'scan-cleanup-core/detection.ts',
+            'server/api/releases.get.ts',
+            'tests/fixtures/electron/generated-text.pdf',
+            'tsconfig.workspace-paths.json',
+        ]) {
+            expect(classifyChangedFiles([file]).browser_integration?.matched, file).toBe(true);
+        }
+
+        for (const file of [
+            'docs/releasing.md',
+            'electron/main.ts',
+            'landing/app/pages/index.vue',
+            'native/pdf-search/src/main.rs',
+        ]) {
+            expect(classifyChangedFiles([file]).browser_integration?.matched, file).toBe(false);
+        }
+        expect(classifyChangedFiles(null).browser_integration?.matched).toBe(true);
+    });
+
+    it('owns scan-cleanup export dependencies and fails closed when the diff is unknown', () => {
+        for (const file of [
+            'app/modules/scan-cleanup/geometry/placement.ts',
+            'native/pdf-image-combine/src/lib.rs',
+            'native/scan-cleanup/src/mrc.rs',
+            'packages/contracts/scan-cleanup/domain.ts',
+            'public/wasm/evb-pdf-image-combine.wasm',
+            'scan-cleanup-adapters/createScanCleanupRenderers.ts',
+            'scan-cleanup-core/detection.ts',
+            'scripts/ci-install-dependencies.mjs',
+            'scripts/ci/apt-install.sh',
+            'scripts/ci/scan-cleanup-oracles.sh',
+            'scripts/diagnostics/scan-cleanup-preview-harness.mjs',
+            'scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.mjs',
+            'scripts/flattenLayeredManifestPage.ts',
+            'scripts/scan-cleanup-convert.ts',
+            'scripts/scanCleanupCliAdapters.ts',
+            'tests/fixtures/electron/test-scanned.pdf',
+            'tsconfig.json',
+        ]) {
+            expect(classifyChangedFiles([file]).scan_cleanup_export?.matched, file).toBe(true);
+        }
+
+        for (const file of [
+            'docs/releasing.md',
+            'electron/updater.ts',
+            'landing/app/pages/index.vue',
+            'native/pdf-search/src/main.rs',
+        ]) {
+            expect(classifyChangedFiles([file]).scan_cleanup_export?.matched, file).toBe(false);
+        }
+        expect(classifyChangedFiles(null).scan_cleanup_export?.matched).toBe(true);
+    });
+
     it('keeps workflow outputs and job owners aligned with the canonical policy', () => {
         const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/ci.yml'), 'utf8');
+        const changedAreasStart = workflow.indexOf('  pr_changed_areas:');
+        const browserIntegrationStart = workflow.indexOf('  pr_browser_integration:');
+        if (changedAreasStart === -1) {
+            throw new Error('CI workflow is missing the pr_changed_areas job.');
+        }
+        if (browserIntegrationStart === -1) {
+            throw new Error('CI workflow is missing the pr_browser_integration job.');
+        }
+        if (browserIntegrationStart <= changedAreasStart) {
+            throw new Error('pr_browser_integration must follow pr_changed_areas in the CI workflow.');
+        }
         const changedAreaJob = workflow.slice(
-            workflow.indexOf('  pr_changed_areas:'),
-            workflow.indexOf('  pr_native_build_safety:'),
+            changedAreasStart,
+            browserIntegrationStart,
         );
 
         for (const definition of Object.values(getCiChangedAreaPolicy())) {
@@ -179,6 +252,7 @@ describe('changed-area classifier', () => {
                 'electron_smoke=false',
                 'landing=true',
                 'native_or_build=true',
+                'scan_cleanup_export=false',
             ]);
         } finally {
             rmSync(tempDir, {
