@@ -812,6 +812,28 @@ jobs:
           mkdir artifacts
           gh release download "$RELEASE_TAG" --dir artifacts
 
+      - name: Activate verified mirror channel
+        id: mirror_activation
+        env:
+          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
+          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
+          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if timeout 30s node scripts/release/publish-release-mirror.mjs artifacts "${{ needs.prepare.outputs.tag }}"; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 10 ]; then
+              echo '::error::Stable mirror activation did not complete within the bounded reconciliation window.'
+              exit 1
+            fi
+            echo "Mirror activation attempt $attempt failed. Retrying in 30 seconds."
+            sleep 30
+          done
+
       - name: Promote verified GitHub draft
         id: github_promotion
         if: ${{ needs.publish.outputs.already_public != 'true' }}
@@ -822,20 +844,12 @@ jobs:
         shell: bash
         run: gh release edit "$RELEASE_TAG" --draft=false
 
-      - name: Activate verified mirror channel
-        id: mirror_activation
-        env:
-          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
-          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
-          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
-          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
-        run: node scripts/release/publish-release-mirror.mjs artifacts "${{ needs.prepare.outputs.tag }}"
-
       - name: Report verified promotion outcomes
         if: ${{ always() }}
         shell: bash
         env:
           GITHUB_PROMOTION_OUTCOME: ${{ steps.github_promotion.outcome }}
+          GITHUB_ALREADY_PUBLIC: ${{ needs.publish.outputs.already_public }}
           MIRROR_ACTIVATION_OUTCOME: ${{ steps.mirror_activation.outcome }}
           STORE_RECONCILIATION_OUTCOME: ${{ needs.publish_store.result }}
         run: |
@@ -844,7 +858,19 @@ jobs:
             echo
             echo '| Channel | Outcome |'
             echo '| --- | --- |'
-            echo "| GitHub release promotion | $GITHUB_PROMOTION_OUTCOME |"
+            if [ "$GITHUB_ALREADY_PUBLIC" = 'true' ]; then
+              GITHUB_PROMOTION_STATUS='already public'
+            else
+              GITHUB_PROMOTION_STATUS="$GITHUB_PROMOTION_OUTCOME"
+            fi
+            echo "| GitHub release promotion | $GITHUB_PROMOTION_STATUS |"
             echo "| Regional mirror activation | $MIRROR_ACTIVATION_OUTCOME |"
             echo "| Microsoft Store reconciliation | $STORE_RECONCILIATION_OUTCOME |"
           } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$MIRROR_ACTIVATION_OUTCOME" != 'success' ] || {
+            [ "$GITHUB_PROMOTION_OUTCOME" != 'success' ] &&
+            [ "$GITHUB_ALREADY_PUBLIC" != 'true' ]
+          }; then
+            echo '::error::Release channels did not converge. Reconcile the stable mirror and GitHub release before announcing this version.'
+            exit 1
+          fi

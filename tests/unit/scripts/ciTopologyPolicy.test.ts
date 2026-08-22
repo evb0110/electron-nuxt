@@ -854,8 +854,29 @@ describe('CI topology policy', () => {
         expect(finalizeAssetsJob).toContain('attestations: write');
         expect(finalizeAssetsJob).toContain('id-token: write');
         expect(finalizeAssetsJob).toContain('actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a');
-        expect(promoteJob.indexOf('gh release edit "$RELEASE_TAG" --draft=false'))
-            .toBeLessThan(promoteJob.indexOf('name: Activate verified mirror channel'));
+        expect(promoteJob).toContain('for attempt in 1 2 3 4 5 6 7 8 9 10; do');
+        expect(promoteJob).toContain('timeout 30s node scripts/release/publish-release-mirror.mjs');
+        expect(promoteJob).toContain('sleep 30');
+        expect(promoteJob).toContain('Stable mirror activation did not complete within the bounded reconciliation window.');
+        expect(promoteJob).toContain('name: Activate verified mirror channel');
+        expect(promoteJob).toContain('gh release edit "$RELEASE_TAG" --draft=false');
+        const activationIndex = promoteJob.indexOf('name: Activate verified mirror channel');
+        const promotionIndex = promoteJob.indexOf('gh release edit "$RELEASE_TAG" --draft=false');
+        expect(activationIndex).toBeGreaterThanOrEqual(0);
+        expect(promotionIndex).toBeGreaterThan(activationIndex);
+        expect(promoteJob).toContain('Release channels did not converge.');
+        expect(promoteJob).toContain('exit 1');
+        expect(promoteJob).toContain('GITHUB_PROMOTION_STATUS=\'already public\'');
+        const retryLoopIndex = promoteJob.indexOf('for attempt in 1 2 3 4 5 6 7 8 9 10; do');
+        const timeoutIndex = promoteJob.indexOf('timeout 30s node scripts/release/publish-release-mirror.mjs');
+        const retrySleepIndex = promoteJob.indexOf('sleep 30');
+        expect(timeoutIndex).toBeGreaterThan(retryLoopIndex);
+        expect(retrySleepIndex).toBeGreaterThan(timeoutIndex);
+        const convergenceConditionIndex = promoteJob.indexOf('if [ "$MIRROR_ACTIVATION_OUTCOME" != \'success\' ]');
+        const convergenceExitIndex = promoteJob.indexOf('exit 1', convergenceConditionIndex);
+        expect(convergenceConditionIndex).toBeGreaterThanOrEqual(0);
+        expect(convergenceExitIndex).toBeGreaterThan(convergenceConditionIndex);
+        expect(promoteJob.indexOf('GITHUB_ALREADY_PUBLIC')).toBeGreaterThanOrEqual(0);
     });
 
     it('resolves optional release channels across the credential matrix', async () => {
