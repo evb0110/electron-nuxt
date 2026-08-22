@@ -168,6 +168,41 @@ export function resetPathValidatorCachesForTests() {
     cachedTempBaseDirs = null;
 }
 
+/**
+ * Compact validator-state description for read-rejection errors. Rejections
+ * proved undiagnosable from renderer-visible state alone (issue #82), so the
+ * error must carry what the validator actually computed and observed.
+ */
+export function describeReadPathValidationForDiagnostics(filePath: string) {
+    const absolutePath = normalizeCandidatePath(filePath);
+    if (!absolutePath) {
+        return 'candidate=unnormalizable';
+    }
+    let baseDirs: string[];
+    try {
+        baseDirs = getTempBaseDirsSync();
+    } catch (error) {
+        return `baseDirs=error:${error instanceof Error ? error.message : String(error)}`;
+    }
+    let lstatOutcome = 'ok';
+    try {
+        if (lstatSync(absolutePath).isSymbolicLink()) {
+            lstatOutcome = 'symlink';
+        }
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code ?? 'unknown';
+        lstatOutcome = `error:${code}`;
+    }
+    let realpathOutcome: string;
+    try {
+        realpathOutcome = realpathSync(absolutePath);
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code ?? 'unknown';
+        realpathOutcome = `error:${code}`;
+    }
+    return `baseDirs=[${baseDirs.join(' | ')}]; lstat=${lstatOutcome}; realpath=${realpathOutcome}`;
+}
+
 function isSymlinkPathSync(path: string) {
     try {
         return lstatSync(path).isSymbolicLink();

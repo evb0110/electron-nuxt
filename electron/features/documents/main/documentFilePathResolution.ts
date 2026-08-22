@@ -12,6 +12,7 @@ import {
     resolve,
 } from 'path';
 import {
+    describeReadPathValidationForDiagnostics,
     isAllowedReadPath,
     resolveAllowedReadPath,
 } from '@electron/utils/pathValidator';
@@ -173,8 +174,12 @@ function resolveGrantedReadablePathSync(normalizedPath: string, senderId?: numbe
  */
 export function describeRejectedReadPath(normalizedPath: string, senderId?: number) {
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
+    const scopedBacking = getWorkingCopyBackingEntry(normalizedPath, senderId)?.backingState ?? 'none';
+    const unscopedBacking = getWorkingCopyBackingEntry(normalizedPath)?.backingState ?? 'none';
     return 'Invalid file path: reads only allowed within temp directory '
-        + `(rejected: ${normalizedPath}; mapped working copy: ${mappedWorkingCopyPath ?? 'none'})`;
+        + `(rejected: ${normalizedPath}; mapped working copy: ${mappedWorkingCopyPath ?? 'none'}; `
+        + `backing[sender=${senderId ?? 'none'}]=${scopedBacking}; backing[any]=${unscopedBacking}; `
+        + `${describeReadPathValidationForDiagnostics(normalizedPath)})`;
 }
 
 export async function resolveExistingReadableBinaryPath(

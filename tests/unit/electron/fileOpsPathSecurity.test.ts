@@ -83,6 +83,7 @@ vi.mock('fs/promises', () => ({
 }));
 
 vi.mock('@electron/utils/pathValidator', () => ({
+    describeReadPathValidationForDiagnostics: () => 'validator-diagnostics-stub',
     isAllowedReadPath: mocks.isAllowedReadPath,
     isAllowedWritePath: mocks.isAllowedWritePath,
     resolveAllowedReadPath: mocks.resolveAllowedReadPath,
