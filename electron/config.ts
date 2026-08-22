@@ -17,6 +17,9 @@ const DEFAULT_SERVER_HOST = normalizeServerHost(process.env.EVB_SERVER_HOST, '12
 const DEFAULT_SERVER_PORT = parsePositiveInt(process.env.EVB_SERVER_PORT, 3235);
 const DEFAULT_SERVER_PATH = normalizeServerPath(process.env.EVB_SERVER_PATH, '/electron');
 const APP_PROTOCOL_ORIGIN = 'evb-viewer://app';
+// One week is the longest useful updater interval. It also leaves ample room
+// below Node's signed 32-bit timer limit for the scheduler's poll jitter.
+const UPDATER_INTERVAL_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 let runtimeServerHost = DEFAULT_SERVER_HOST;
 let runtimeServerPort = DEFAULT_SERVER_PORT;
 let runtimeServerPath = DEFAULT_SERVER_PATH;
@@ -32,6 +35,17 @@ function parsePositiveInt(raw: string | undefined, fallback: number) {
     }
 
     return parsed;
+}
+
+function parseUpdaterIntervalMs(raw: string | undefined, fallback: number) {
+    if (!raw || !/^\d+$/.test(raw)) {
+        return fallback;
+    }
+
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 && parsed <= UPDATER_INTERVAL_MAX_MS
+        ? parsed
+        : fallback;
 }
 
 function normalizeServerPath(raw: string | undefined, fallback: string) {
@@ -141,8 +155,8 @@ export const config = {
         mirrorReleaseBaseUrl: process.env.EVB_UPDATES_MIRROR_RELEASE_BASE_URL?.length
             ? process.env.EVB_UPDATES_MIRROR_RELEASE_BASE_URL.replace(/\/+$/, '')
             : 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/releases',
-        pollIntervalMs: parsePositiveInt(process.env.EVB_UPDATES_POLL_INTERVAL_MS, 6 * 60 * 60 * 1000),
-        initialDelayMs: parsePositiveInt(process.env.EVB_UPDATES_INITIAL_DELAY_MS, 2 * 60 * 1000),
+        pollIntervalMs: parseUpdaterIntervalMs(process.env.EVB_UPDATES_POLL_INTERVAL_MS, 6 * 60 * 60 * 1000),
+        initialDelayMs: parseUpdaterIntervalMs(process.env.EVB_UPDATES_INITIAL_DELAY_MS, 2 * 60 * 1000),
     },
 
     automation: {

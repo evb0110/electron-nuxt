@@ -203,7 +203,7 @@ let pendingInitialVisualGeneration: number | null = null;
 let readyInitialVisualGeneration: number | null = null;
 let initialVisualSettlePromise: Promise<void> | null = null;
 let resolveInitialVisualSettlePromise: (() => void) | null = null;
-const activeRenderPageNumbers = new Set<number>();
+const activeRenderOwners = new Set<string>();
 const retainedPageNumbers = new Set<number>();
 const paintedPageObjectUrls = reactive(new Map<number, string>());
 const invalidatedPageVisuals = reactive(new Set<number>());
@@ -544,7 +544,6 @@ function cleanupRenderedPages() {
 function stopSource() {
     resolveInitialVisualSettle();
     cleanupRenderedPages();
-    activeRenderPageNumbers.clear();
     if (chassisAuthority?.source.value === boundPageSource) {
         chassisAuthority.bindSource(null);
     }
@@ -891,16 +890,17 @@ function syncLoadedPages() {
         deferAdjacentPages,
     });
     for (const pageNumber of renderQueue) {
-        if (activeRenderPageNumbers.size >= NATIVE_PDF_RENDER_CONCURRENCY) {
+        const renderOwner = `${String(loadGeneration)}:${String(pageNumber)}`;
+        if (activeRenderOwners.size >= NATIVE_PDF_RENDER_CONCURRENCY) {
             break;
         }
-        if (!shouldRenderPage(pageNumber) || activeRenderPageNumbers.has(pageNumber)) {
+        if (!shouldRenderPage(pageNumber) || activeRenderOwners.has(renderOwner)) {
             continue;
         }
-        activeRenderPageNumbers.add(pageNumber);
+        activeRenderOwners.add(renderOwner);
         void ensurePageLoaded(pageNumber, loadGeneration)
             .finally(() => {
-                activeRenderPageNumbers.delete(pageNumber);
+                activeRenderOwners.delete(renderOwner);
                 syncLoadedPages();
             })
             .catch((error: unknown) => {

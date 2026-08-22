@@ -4,6 +4,7 @@ import { formatArtifactGroupList } from './artifact-groups.mjs';
 import {
     getRepositoryUrlFromRunUrl,
     getRunArtifactsUrl,
+    readWorkflowStartTimeoutMs,
     waitForWorkflowRunStart,
 } from './github-workflow-run.mjs';
 import {
@@ -13,17 +14,19 @@ import {
     assertNodeProjectBaseline,
     assertTagAbsent,
     bumpVersion,
-    getUpstream,
+    getReleaseMainUpstream,
     MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES,
     pushReleaseBranch,
     readVersion,
-    requireNamedBranch,
     restoreVersionIfChanged,
     run,
+    sleep,
     stageFiles,
     VALID_RELEASE_LEVELS,
     writeVersion,
 } from './shared.mjs';
+
+const WORKFLOW_HANDOFF_POLL_INTERVAL_MS = 5_000;
 
 export function parseCutReleaseArgs(argv) {
     const unknownFlags = argv.filter(arg => arg.startsWith('--') && arg !== '--resume');
@@ -150,38 +153,68 @@ function getReleaseUrl({
     return `${repositoryUrl}/releases/tag/${encodeURIComponent(tag)}`;
 }
 
-async function printReleaseWorkflowHandoff({
+export async function printReleaseWorkflowHandoff({
     dispatchStartedAt,
     tag,
     targetSha,
-}) {
-    const runInfo = await waitForWorkflowRunStart({
-        createdAfter: dispatchStartedAt,
-        displayTitles: getReleaseWorkflowDisplayTitles(tag),
-        label: `Release workflow for ${tag}`,
-        targetSha,
-        workflow: 'Release',
-    });
+}, {
+    nowFn = Date.now,
+    readHandoffTimeoutMs = readWorkflowStartTimeoutMs,
+    sleepFn = sleep,
+    stdout = process.stdout,
+    waitForRun = waitForWorkflowRunStart,
+} = {}) {
+    const handoffDeadline = nowFn() + readHandoffTimeoutMs();
+    let runInfo;
+
+    while (true) {
+        runInfo = await waitForRun({
+            createdAfter: dispatchStartedAt,
+            displayTitles: getReleaseWorkflowDisplayTitles(tag),
+            label: `Release workflow for ${tag}`,
+            targetSha,
+            workflow: 'Release',
+        });
+        if (runInfo.status === 'completed' && runInfo.conclusion != null) {
+            if (runInfo.conclusion !== 'success') {
+                throw new Error(
+                    `Release workflow for ${tag} concluded as ${runInfo.conclusion} before handoff: ${runInfo.url}`,
+                );
+            }
+
+            break;
+        }
+        if (runInfo.status === 'in_progress') {
+            break;
+        }
+        if (nowFn() >= handoffDeadline) {
+            throw new Error(
+                `Timed out while waiting for release workflow ${tag} to start or conclude.`,
+            );
+        }
+
+        await sleepFn(WORKFLOW_HANDOFF_POLL_INTERVAL_MS);
+    }
+
     const releaseUrl = getReleaseUrl({
         runUrl: runInfo.url,
         tag,
     });
 
-    process.stdout.write(`Release ${tag} queued for commit ${targetSha}.\n`);
-    process.stdout.write(`GitHub Actions run: ${runInfo.url}\n`);
-    process.stdout.write(`Actions artifacts, as they upload: ${getRunArtifactsUrl(runInfo.url)}\n`);
+    stdout.write(`Release ${tag} queued for commit ${targetSha}.\n`);
+    stdout.write(`GitHub Actions run: ${runInfo.url}\n`);
+    stdout.write(`Actions artifacts, as they upload: ${getRunArtifactsUrl(runInfo.url)}\n`);
     if (releaseUrl) {
-        process.stdout.write(`GitHub Release, after publish: ${releaseUrl}\n`);
+        stdout.write(`GitHub Release, after publish: ${releaseUrl}\n`);
     }
-    process.stdout.write(`Expected artifact groups: ${formatArtifactGroupList()}\n`);
+    stdout.write(`Expected artifact groups: ${formatArtifactGroupList()}\n`);
 }
 
 async function resumeRelease() {
+    const upstream = getReleaseMainUpstream();
     assertNodeProjectBaseline();
     await assertGitHubCliReady();
     assertCleanWorktree({ ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES });
-    requireNamedBranch();
-    const upstream = getUpstream();
     const currentVersion = readVersion();
     const tag = `v${currentVersion}`;
 
@@ -193,11 +226,10 @@ async function resumeRelease() {
 }
 
 async function cutRelease(level) {
+    const upstream = getReleaseMainUpstream();
     assertNodeProjectBaseline();
     await assertGitHubCliReady();
     assertCleanWorktree({ ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES });
-    requireNamedBranch();
-    const upstream = getUpstream();
     const currentVersion = readVersion();
     const nextVersion = bumpVersion(currentVersion, level);
     const tag = `v${nextVersion}`;

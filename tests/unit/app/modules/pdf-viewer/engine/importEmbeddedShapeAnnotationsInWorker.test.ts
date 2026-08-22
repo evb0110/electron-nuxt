@@ -28,6 +28,7 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         vi.unstubAllGlobals();
     });
 
@@ -158,6 +159,31 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         expect(postedData!.buffer).not.toBe(backing.buffer);
     });
 
+    it('terminates the worker when request dispatch fails synchronously', async () => {
+        const terminate = vi.fn();
+
+        class RejectingWorker {
+            onmessage: ((event: MessageEvent) => void) | null = null;
+            onerror: ((event: ErrorEvent) => void) | null = null;
+
+            postMessage() {
+                throw new Error('Worker request could not be cloned');
+            }
+
+            terminate() {
+                terminate();
+            }
+        }
+
+        vi.stubGlobal('window', {});
+        vi.stubGlobal('Worker', RejectingWorker);
+
+        await expect(importEmbeddedShapeAnnotationsUsingWorker(new Uint8Array([1])))
+            .rejects.toThrow('Worker request could not be cloned');
+
+        expect(terminate).toHaveBeenCalledOnce();
+    });
+
     it('streams path-backed PDFs to the worker in bounded chunks', async () => {
         const posted: Array<{
             message: Record<string, unknown>;
@@ -202,6 +228,50 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         ]);
     });
 
+    it('stops path streaming when the worker deadline expires during a range read', async () => {
+        vi.useFakeTimers();
+        let finishRangeRead!: (data: Uint8Array) => void;
+        const pendingRangeRead = new Promise<Uint8Array>((resolve) => {
+            finishRangeRead = resolve;
+        });
+        documentMocks.statFile.mockResolvedValue({size: 5 * 1024 * 1024});
+        documentMocks.readFileRange.mockReturnValue(pendingRangeRead);
+        const postedTypes: unknown[] = [];
+        const terminate = vi.fn();
+
+        class PendingWorker {
+            onmessage: ((event: MessageEvent) => void) | null = null;
+            onerror: ((event: ErrorEvent) => void) | null = null;
+
+            postMessage(message: Record<string, unknown>) {
+                postedTypes.push(message.type);
+            }
+
+            terminate() {
+                terminate();
+            }
+        }
+
+        vi.stubGlobal('window', {});
+        vi.stubGlobal('Worker', PendingWorker);
+
+        const importPromise = importEmbeddedShapeAnnotationsFromPathInWorker('/tmp/slow.pdf');
+        const timeoutExpectation = expect(importPromise)
+            .rejects.toThrow('Embedded PDF shape import worker timed out');
+        await vi.waitFor(() => expect(documentMocks.readFileRange).toHaveBeenCalledOnce());
+
+        await vi.advanceTimersByTimeAsync(90_000);
+        await timeoutExpectation;
+
+        finishRangeRead(new Uint8Array(4 * 1024 * 1024));
+        await vi.runAllTimersAsync();
+        await Promise.resolve();
+
+        expect(documentMocks.readFileRange).toHaveBeenCalledOnce();
+        expect(postedTypes).toEqual(['path-start']);
+        expect(terminate).toHaveBeenCalledOnce();
+    });
+
     it('refuses an oversized document before any worker work starts', async () => {
         const documentSize = 96 * 1024 * 1024 + 1;
         documentMocks.statFile.mockResolvedValue({size: documentSize});
@@ -239,10 +309,11 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
 
     it('terminates superseded worker parsing immediately', async () => {
         const terminate = vi.fn();
+        const postMessage = vi.fn();
         class PendingWorker {
             onmessage: ((event: MessageEvent) => void) | null = null;
             onerror: ((event: ErrorEvent) => void) | null = null;
-            postMessage() {}
+            postMessage() { postMessage(); }
             terminate() { terminate(); }
         }
         vi.stubGlobal('window', {});
@@ -256,6 +327,8 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         controller.abort(new DOMException('Superseded source', 'AbortError'));
 
         await expect(importPromise).rejects.toMatchObject({name: 'AbortError'});
+        await Promise.resolve();
         expect(terminate).toHaveBeenCalledOnce();
+        expect(postMessage).not.toHaveBeenCalled();
     });
 });

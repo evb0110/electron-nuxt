@@ -463,6 +463,181 @@ describe('NativePdfViewer revision lifecycle', () => {
         expect(host.querySelector('img[src="blob:r2:page-1"]')).not.toBeNull();
     });
 
+    it('keeps render ownership generation-qualified across a revision reload', async () => {
+        vi.useFakeTimers();
+        class PreloadImage {
+            onload: (() => void) | null = null;
+
+            set src(_value: string) {
+                queueMicrotask(() => this.onload?.());
+            }
+        }
+        vi.stubGlobal('Image', PreloadImage);
+
+        const firstRevision = requireDocumentRevisionToken('drt1:test:native-owner-r1');
+        const secondRevision = requireDocumentRevisionToken('drt1:test:native-owner-r2');
+        const documentPath = '/managed/render-owner-reload.pdf';
+        const pageSizes = Array.from({length: 4}, () => ({
+            width: 400,
+            height: 800,
+        }));
+        const pendingRenders = new Map<string, PromiseWithResolvers<IPagePreviewRenderedObjectUrl>>();
+        const renderCounts = new Map<string, number>();
+        let activeRenders = 0;
+        let maximumActiveRenders = 0;
+        function createControlledSource(revision: string, immediatePageOne: boolean): ITestSource {
+            return {
+                getPageSizes: vi.fn(async () => pageSizes),
+                renderPageObjectUrl: vi.fn<IPagePreviewSource['renderPageObjectUrl']>(pageNumber => {
+                    activeRenders += 1;
+                    maximumActiveRenders = Math.max(maximumActiveRenders, activeRenders);
+                    const key = `${revision}:${String(pageNumber)}`;
+                    const renderCount = (renderCounts.get(key) ?? 0) + 1;
+                    renderCounts.set(key, renderCount);
+                    const render = Promise.withResolvers<IPagePreviewRenderedObjectUrl>();
+                    pendingRenders.set(key, render);
+                    if (immediatePageOne && pageNumber === 1 && renderCount === 1) {
+                        render.resolve({
+                            objectUrl: `blob:${key}`,
+                            renderedPx: 2_048,
+                        });
+                    }
+                    return render.promise.finally(() => {
+                        activeRenders -= 1;
+                    });
+                }),
+                revokeObjectURL: vi.fn<IPagePreviewSource['revokeObjectURL']>(),
+                terminate: vi.fn<IPagePreviewSource['terminate']>(),
+            };
+        }
+        function resolveRender(revision: string, pageNumber: number) {
+            const key = `${revision}:${String(pageNumber)}`;
+            const render = pendingRenders.get(key);
+            if (!render) {
+                throw new Error(`Expected pending render ${key}`);
+            }
+            render.resolve({
+                objectUrl: `blob:${key}`,
+                renderedPx: 2_048,
+            });
+        }
+        const firstSource = createControlledSource('owner-r1', true);
+        const secondSource = createControlledSource('owner-r2', false);
+        nativePdfMocks.createSource
+            .mockReturnValueOnce(firstSource)
+            .mockReturnValueOnce(secondSource);
+
+        const host = document.createElement('div');
+        const viewport = document.createElement('div');
+        document.body.append(host, viewport);
+        Object.defineProperties(viewport, {
+            clientHeight: {
+                configurable: true,
+                value: 600,
+            },
+            clientWidth: {
+                configurable: true,
+                value: 800,
+            },
+        });
+        const revision = ref(firstRevision);
+        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        authority.bindViewportElement(viewport);
+        authority.openSurface.begin({
+            documentId: documentPath,
+            documentRevision: firstRevision,
+        });
+        const Root = defineComponent({setup() {
+            provide(documentViewerChassisAuthorityKey, authority);
+            return () => h(NativePdfViewer, {
+                src: documentPath,
+                documentRevisionToken: revision.value,
+                isActive: true,
+                currentPage: 1,
+            });
+        }});
+        const app = createApp(Root);
+        const ElementStub = defineComponent({setup: () => () => h('span')});
+        app.component('UButton', ElementStub);
+        app.component('UIcon', ElementStub);
+        app.component('USkeleton', ElementStub);
+        app.mount(host);
+        const unmount = () => {
+            app.unmount();
+            host.remove();
+            viewport.remove();
+            activeUnmounts.delete(unmount);
+        };
+        activeUnmounts.add(unmount);
+
+        await settlePendingWork();
+        await settleImagePaint(requireElement<HTMLImageElement>(host, 'img[src="blob:owner-r1:1"]'));
+        await settlePendingWork();
+        expect(firstSource.renderPageObjectUrl.mock.calls.map(([pageNumber]) => pageNumber))
+            .toEqual([
+                1,
+                2,
+                3,
+            ]);
+        expect(maximumActiveRenders).toBe(2);
+
+        resolveRender('owner-r1', 2);
+        await settlePendingWork();
+        expect(firstSource.renderPageObjectUrl).toHaveBeenCalledWith(4, expect.anything());
+        if (!vueUseMocks.pixelRatio) throw new Error('Device pixel ratio mock was not initialized');
+        vueUseMocks.pixelRatio.value = 2;
+        await settlePendingWork();
+        resolveRender('owner-r1', 4);
+        await settlePendingWork();
+        expect(firstSource.renderPageObjectUrl.mock.calls.map(([pageNumber]) => pageNumber))
+            .toEqual([
+                1,
+                2,
+                3,
+                4,
+                1,
+            ]);
+
+        authority.openSurface.begin({
+            documentId: documentPath,
+            documentRevision: secondRevision,
+        });
+        revision.value = secondRevision;
+        await settlePendingWork();
+        expect(secondSource.renderPageObjectUrl).not.toHaveBeenCalled();
+
+        resolveRender('owner-r1', 3);
+        await settlePendingWork();
+        expect(secondSource.renderPageObjectUrl.mock.calls.map(([pageNumber]) => pageNumber))
+            .toEqual([1]);
+        expect(activeRenders).toBe(2);
+
+        resolveRender('owner-r1', 1);
+        await settlePendingWork();
+        expect(secondSource.renderPageObjectUrl.mock.calls.map(([pageNumber]) => pageNumber))
+            .toEqual([1]);
+        expect(activeRenders).toBe(1);
+        expect(maximumActiveRenders).toBe(2);
+
+        resolveRender('owner-r2', 1);
+        await settlePendingWork();
+        await settleImagePaint(requireElement<HTMLImageElement>(host, 'img[src="blob:owner-r2:1"]'));
+        await settlePendingWork();
+        expect(secondSource.renderPageObjectUrl.mock.calls.map(([pageNumber]) => pageNumber))
+            .toEqual([
+                1,
+                2,
+                3,
+            ]);
+
+        resolveRender('owner-r2', 2);
+        resolveRender('owner-r2', 3);
+        await settlePendingWork();
+        resolveRender('owner-r2', 4);
+        await settlePendingWork();
+        expect(maximumActiveRenders).toBe(2);
+    });
+
     it('retries an initial raster evicted before preload instead of failing the document', async () => {
         vi.useFakeTimers();
         class PreloadImage {

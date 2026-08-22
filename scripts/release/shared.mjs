@@ -304,6 +304,36 @@ export function getUpstream(context = 'Release') {
     }
 }
 
+function assertReleaseMainBranchName(branch, context) {
+    if (branch !== 'main') {
+        throw new Error(`${context} requires the current branch to be main, received "${branch}"`);
+    }
+}
+
+function assertReleaseMainUpstream(upstream, context) {
+    if (
+        upstream.branch !== 'main'
+        || upstream.ref !== 'origin/main'
+        || upstream.remote !== 'origin'
+    ) {
+        throw new Error(
+            `${context} requires main to track origin/main, received "${upstream.ref}"`,
+        );
+    }
+
+    return upstream;
+}
+
+export function getReleaseMainUpstream(context = 'Release', {
+    readBranch = requireNamedBranch,
+    readUpstream = getUpstream,
+} = {}) {
+    const branch = readBranch(context);
+    assertReleaseMainBranchName(branch, context);
+
+    return assertReleaseMainUpstream(readUpstream(context), context);
+}
+
 // Resolved from this module, so the gate does not depend on the caller's cwd.
 export const PUBLICATION_POLICY_SCRIPT = fileURLToPath(
     new URL('../check-commit-attribution.mjs', import.meta.url),

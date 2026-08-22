@@ -31,7 +31,7 @@ function createTransferableView(data: Uint8Array, transferOwnership: boolean) {
 
 function createEmbeddedShapeImportWorker(
     signal: AbortSignal | undefined,
-    dispatch: (worker: Worker) => void | Promise<void>,
+    dispatch: (worker: Worker, operationSignal: AbortSignal) => void | Promise<void>,
 ) {
     const worker = new Worker(
         new URL('./importEmbeddedShapeAnnotations.worker.ts', import.meta.url),
@@ -39,23 +39,32 @@ function createEmbeddedShapeImportWorker(
     );
 
     return new Promise<IShapeAnnotation[]>((resolve, reject) => {
-        const abort = () => {
-            clearTimeout(timeout);
-            worker.terminate();
-            reject(signal?.reason instanceof Error
+        const timeoutError = new Error('Embedded PDF shape import worker timed out');
+        const operationController = new AbortController();
+        let settled = false;
+        const abortFromCaller = () => {
+            operationController.abort(signal?.reason instanceof Error
                 ? signal.reason
                 : new DOMException('Embedded PDF shape import aborted', 'AbortError'));
         };
         const timeout = setTimeout(() => {
-            signal?.removeEventListener('abort', abort);
-            worker.terminate();
-            reject(new Error('Embedded PDF shape import worker timed out'));
+            operationController.abort(timeoutError);
         }, EMBEDDED_SHAPE_IMPORT_TIMEOUT_MS);
         const settle = (callback: () => void) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
             clearTimeout(timeout);
-            signal?.removeEventListener('abort', abort);
+            operationController.signal.removeEventListener('abort', abort);
+            signal?.removeEventListener('abort', abortFromCaller);
             worker.terminate();
             callback();
+        };
+        const abort = () => {
+            settle(() => reject(operationController.signal.reason instanceof Error
+                ? operationController.signal.reason
+                : new DOMException('Embedded PDF shape import aborted', 'AbortError')));
         };
 
         worker.onmessage = (event: MessageEvent<IEmbeddedShapeImportWorkerResponse>) => {
@@ -69,8 +78,18 @@ function createEmbeddedShapeImportWorker(
         worker.onerror = event => {
             settle(() => reject(new Error(event.message || 'Embedded PDF shape import worker failed')));
         };
-        signal?.addEventListener('abort', abort, { once: true });
-        Promise.resolve(dispatch(worker)).catch(error => settle(() => reject(error)));
+        operationController.signal.addEventListener('abort', abort, { once: true });
+        signal?.addEventListener('abort', abortFromCaller, { once: true });
+        if (signal?.aborted) {
+            abortFromCaller();
+            return;
+        }
+        Promise.resolve()
+            .then(() => {
+                operationController.signal.throwIfAborted();
+                return dispatch(worker, operationController.signal);
+            })
+            .catch(error => settle(() => reject(error)));
     });
 }
 
@@ -116,15 +135,16 @@ export async function importEmbeddedShapeAnnotationsFromPathInWorker(
     const {size} = await files.statFile(path);
     assertEmbeddedShapeImportSize(size);
     options.signal?.throwIfAborted();
-    return createEmbeddedShapeImportWorker(options.signal, async worker => {
+    return createEmbeddedShapeImportWorker(options.signal, async (worker, operationSignal) => {
         worker.postMessage({
             type: 'path-start',
             size,
         });
         for (let offset = 0; offset < size; offset += EMBEDDED_SHAPE_IMPORT_PATH_CHUNK_BYTES) {
-            options.signal?.throwIfAborted();
+            operationSignal.throwIfAborted();
             const length = Math.min(EMBEDDED_SHAPE_IMPORT_PATH_CHUNK_BYTES, size - offset);
             const chunk = await files.readFileRange(path, offset, length);
+            operationSignal.throwIfAborted();
             if (chunk.byteLength !== length) {
                 throw new Error(`Document changed while importing embedded shapes: expected ${length} bytes, read ${chunk.byteLength} bytes`);
             }
@@ -135,7 +155,7 @@ export async function importEmbeddedShapeAnnotationsFromPathInWorker(
                 data: transferableChunk,
             }, [transferableChunk.buffer]);
         }
-        options.signal?.throwIfAborted();
+        operationSignal.throwIfAborted();
         worker.postMessage({type: 'path-finish'});
     });
 }

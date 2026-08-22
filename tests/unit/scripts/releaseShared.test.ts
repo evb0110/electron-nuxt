@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 const {
+    getReleaseMainUpstream,
     parsePinnedNodeMajor,
     restoreVersionIfChanged,
 } = await import(
@@ -14,6 +15,41 @@ const {
 );
 
 describe('release shared helpers', () => {
+    it('accepts only main configured to publish to origin/main', () => {
+        const canonicalUpstream = {
+            branch: 'main',
+            ref: 'origin/main',
+            remote: 'origin',
+        };
+        expect(getReleaseMainUpstream('Release test', {
+            readBranch: () => 'main',
+            readUpstream: () => canonicalUpstream,
+        })).toEqual(canonicalUpstream);
+
+        expect(() => getReleaseMainUpstream('Release test', {
+            readBranch: () => 'feature/release',
+            readUpstream: () => {
+                throw new Error('upstream must not be read');
+            },
+        })).toThrow('current branch to be main');
+        expect(() => getReleaseMainUpstream('Release test', {
+            readBranch: () => 'main',
+            readUpstream: () => ({
+                branch: 'release',
+                ref: 'origin/release',
+                remote: 'origin',
+            }),
+        })).toThrow('track origin/main');
+        expect(() => getReleaseMainUpstream('Release test', {
+            readBranch: () => 'main',
+            readUpstream: () => ({
+                branch: 'main',
+                ref: 'fork/main',
+                remote: 'fork',
+            }),
+        })).toThrow('track origin/main');
+    });
+
     it('parses the project node baseline from a pinned major range', () => {
         expect(parsePinnedNodeMajor('24.x')).toBe(24);
         expect(parsePinnedNodeMajor('26.x')).toBe(26);
