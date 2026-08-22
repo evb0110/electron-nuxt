@@ -86,6 +86,7 @@ const electronE2ESmokeTestFiles = [
 const electronE2EBlockingSmokeTestFiles = [
     'tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts',
     'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
+    'tests/e2e/electron/scanCleanupToolbarContract.e2e.test.ts',
 ];
 const electronE2EDrawShapeTestFiles = [
     'tests/e2e/electron/annotationStrokeParity.e2e.test.ts',

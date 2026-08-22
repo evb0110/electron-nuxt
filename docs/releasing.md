@@ -97,6 +97,7 @@ gate to push such a branch.
 - The supplemental Windows 7 legacy lane is best-effort only. It packages a renamed legacy installer when available and must not block the main release.
 - Store AppX packaging and Partner Center reconciliation run in parallel with promotion. Nothing in the publish or promote chain `needs` them.
 - The Windows ARM64 NSIS installed-app journey in the build matrix is advisory (`continue-on-error`): it verifies hosted-runner installer behavior, not the product build, and repeatedly killed releases 28-30 minutes in on extraction races. A failure emits a warning annotation and uploads diagnostics. The same journey stays fully blocking on Windows x64.
+- The packaged scan-cleanup verifier is advisory on release for the same reason: as a blocking gate it caught zero real packaged defects while its UI pins drifted silently between releases and killed campaigns. The toolbar contract it exercised is pinned continuously and cheaply by the blocking electron smoke lane in push CI (`scanCleanupToolbarContract.e2e.test.ts`), which also runs locally in minutes. The packaged job still runs on every release and uploads its scale evidence.
 - Do not move the `macos-15-intel`, Windows 7 legacy, or Store builds back onto the blocking chain (`publish` or `promote_release` `needs`). If that happens, supplemental runner slowness or flakes will delay the whole release again.
 
 ## Recovery flow

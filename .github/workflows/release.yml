@@ -279,10 +279,18 @@ jobs:
       WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
   verify_packaged_scan_cleanup:
+    # Advisory evidence, not a publish gate. Its record as a blocking gate:
+    # zero real packaged defects caught at release time, and repeated
+    # campaign kills from its own UI pins drifting while it sat dormant
+    # between releases (issue #82's tail). The toolbar contract it exercised
+    # is pinned continuously by the blocking electron smoke lane in push CI
+    # (scanCleanupToolbarContract.e2e.test.ts); this job still uploads scale
+    # evidence for every release and a failure annotates the run.
     name: Verify packaged scan-cleanup (macOS arm64)
     needs:
       - prepare
       - build_artifacts
+    continue-on-error: true
     runs-on: macos-14
 
     env:
@@ -396,7 +404,6 @@ jobs:
     needs:
       - prepare
       - build_artifacts
-      - verify_packaged_scan_cleanup
     runs-on: ubuntu-latest
     environment: release
     permissions:

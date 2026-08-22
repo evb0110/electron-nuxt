@@ -760,7 +760,11 @@ describe('CI topology policy', () => {
         expect(packagedScanCleanupVerifier).toContain('--scale-only');
         expect(packagedScanCleanupVerifier).toContain('name: Upload packaged scan-cleanup verifier evidence');
         const publishNeeds = /\n {4}needs:\n((?: {6}- .+\n)+)/u.exec(publish)?.[1] ?? '';
-        expect(publishNeeds).toContain('- verify_packaged_scan_cleanup');
+        // Advisory evidence, not a publish gate: the toolbar contract it
+        // exercised is pinned continuously by the blocking electron smoke
+        // lane, and this packaged job only annotates and uploads evidence.
+        expect(publishNeeds).not.toContain('- verify_packaged_scan_cleanup');
+        expect(packagedScanCleanupVerifier).toContain('continue-on-error: true');
     });
 
     it('keeps release quality gates from requiring pre-bundle host Linux resources', async () => {

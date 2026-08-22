@@ -94,6 +94,10 @@ const electronE2ERegressionTestFiles = [
 const electronE2EBlockingSmokeTestFiles = [
     'tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts',
     'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
+    // Pins the scan-cleanup toolbar contract the packaged release verifier
+    // relies on, so UI drift fails the change that introduces it instead of
+    // a later release campaign.
+    'tests/e2e/electron/scanCleanupToolbarContract.e2e.test.ts',
 ];
 const electronE2EDrawShapeTestFiles = [
     'tests/e2e/electron/annotationStrokeParity.e2e.test.ts',
