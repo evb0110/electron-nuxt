@@ -169,6 +169,36 @@ describe('resolveAllowedReadPath', () => {
         await expect(resolveAllowedReadPath('/var/folders/abc/T/evb-viewer-test-profile/file.pdf')).resolves.toBe('/private/var/folders/abc/T/evb-viewer-test-profile/file.pdf');
     });
 
+    it('recovers when the temp directory becomes canonicalizable only after the first validation', async () => {
+        // Windows 8.3 short names: the configured temp path and the canonical
+        // one differ, and the app temp dir is created lazily, so the first
+        // validation can run before realpath can resolve the base dir. That
+        // transient state must not poison later validations (the regression
+        // pinned here cached the uncanonicalized base dirs for the process
+        // lifetime, rejecting every packaged file read on Windows).
+        mocks.tempDir = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp';
+        const configuredBase = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\evb-viewer-test-profile';
+        const canonicalBase = 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\evb-viewer-test-profile';
+        let tempDirExists = false;
+        mocks.realpathSync.mockImplementation((path: string) => {
+            if (path.toLowerCase().startsWith(configuredBase.toLowerCase())) {
+                if (!tempDirExists) {
+                    throw Object.assign(new Error('ENOENT'), {code: 'ENOENT'});
+                }
+                return `${canonicalBase}${path.slice(configuredBase.length)}`;
+            }
+            return path;
+        });
+
+        // First validation before anything created the app temp dir: the
+        // containment answer for the configured form is still correct.
+        expect(isAllowedWritePath(`${configuredBase}\\early-log.txt`)).toBe(true);
+
+        tempDirExists = true;
+        await expect(resolveAllowedReadPath(`${configuredBase}\\pdf-work-1\\work.pdf`))
+            .resolves.toBe(`${canonicalBase}\\pdf-work-1\\work.pdf`);
+    });
+
     it('allows Windows paths when realpath returns native namespaced paths', async () => {
         mocks.tempDir = 'C:\\Users\\Alice\\AppData\\Local\\Temp';
         mocks.realpathSync.mockImplementation((path: string) => {

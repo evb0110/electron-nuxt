@@ -136,17 +136,31 @@ function getTempBaseDirsSync() {
         return cachedTempBaseDirs.baseDirs;
     }
     const tempDir = normalizeCandidatePath(configuredTempDir) ?? resolve(configuredTempDir);
-    const canonicalTempDir = safeRealpathSync(tempDir);
+    let canonicalTempDir = tempDir;
+    let canonicalized = false;
+    try {
+        canonicalTempDir = realpathSync(tempDir);
+        canonicalized = true;
+    } catch {
+        // The app temp dir is created lazily; before it exists realpath
+        // cannot resolve it and the canonical form is unknown.
+    }
     const baseDirs = isSamePath(canonicalTempDir, tempDir)
         ? [tempDir]
         : [
             tempDir,
             canonicalTempDir,
         ];
-    cachedTempBaseDirs = {
-        configuredTempDir,
-        baseDirs,
-    };
+    // Cache only a successful canonicalization. Caching the pre-existence
+    // fallback pinned an uncanonicalized base set for the process lifetime,
+    // which rejected every temp read on hosts where the configured and
+    // canonical forms differ (Windows 8.3 short names, macOS /var symlinks).
+    if (canonicalized) {
+        cachedTempBaseDirs = {
+            configuredTempDir,
+            baseDirs,
+        };
+    }
     return baseDirs;
 }
 
