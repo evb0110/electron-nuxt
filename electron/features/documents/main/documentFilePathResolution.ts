@@ -164,6 +164,19 @@ function resolveGrantedReadablePathSync(normalizedPath: string, senderId?: numbe
     }
 }
 
+/**
+ * Read rejections must name what was rejected and whether a working-copy
+ * mapping existed, or the failure stage cannot be localized from the
+ * renderer-visible error (issue #82 took two release attempts to even find
+ * the failing path). Paths already appear in sibling errors ("File not
+ * found: ..."), so this leaks nothing new.
+ */
+export function describeRejectedReadPath(normalizedPath: string, senderId?: number) {
+    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
+    return 'Invalid file path: reads only allowed within temp directory '
+        + `(rejected: ${normalizedPath}; mapped working copy: ${mappedWorkingCopyPath ?? 'none'})`;
+}
+
 export async function resolveExistingReadableBinaryPath(
     filePath: unknown,
     senderId?: number,
@@ -201,7 +214,7 @@ async function resolveExistingReadablePath(
         senderId,
     );
     if (!resolvedPath) {
-        throw new Error('Invalid file path: reads only allowed within temp directory');
+        throw new Error(describeRejectedReadPath(normalizedPath, senderId));
     }
 
     if (!isOriginalBackedManagedRef(resolvedPath, senderId) && !(await pathExists(resolvedPath))) {
@@ -220,7 +233,7 @@ export async function resolveExistingReadablePdfPath(filePath: unknown, senderId
 
     const resolvedPath = await resolveReadablePath(normalizedPath, extension, senderId);
     if (!resolvedPath) {
-        throw new Error('Invalid file path: reads only allowed within temp directory');
+        throw new Error(describeRejectedReadPath(normalizedPath, senderId));
     }
 
     if (!isOriginalBackedManagedRef(resolvedPath, senderId) && !(await pathExists(resolvedPath))) {

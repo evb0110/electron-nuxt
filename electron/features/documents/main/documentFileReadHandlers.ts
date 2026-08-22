@@ -20,6 +20,7 @@ import {
 } from '@electron/file-access/workingCopyMaterialization';
 import {
     assertWithinIpcReadBudget,
+    describeRejectedReadPath,
     isAllowedBinaryReadExtension,
     normalizeNonEmptyPath,
     resolveExistingReadableDocumentOrImagePath,
@@ -605,7 +606,7 @@ export async function handleFileRead(context: IDocumentsSenderIdContext, filePat
 
     const resolvedPath = await resolveReadablePath(normalizedPath, extension, context.senderId);
     if (!resolvedPath) {
-        throw new Error('Invalid file path: reads only allowed within temp directory');
+        throw new Error(describeRejectedReadPath(normalizedPath, context.senderId));
     }
 
     const originalBacking = resolveOriginalBackedRead(resolvedPath, context.senderId);
@@ -708,7 +709,7 @@ export async function handleFileReadText(
 
     const resolvedPath = await resolveReadablePath(normalizedPath, extension, context.senderId);
     if (!resolvedPath) {
-        throw new Error('Invalid file path: reads only allowed within temp directory');
+        throw new Error(describeRejectedReadPath(normalizedPath, context.senderId));
     }
 
     let size: number;
