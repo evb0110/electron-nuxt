@@ -35,9 +35,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Resolve requested artifact build
         id: target
@@ -132,35 +133,20 @@ jobs:
 
     steps:
       - name: Checkout target
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           ref: ${{ needs.prepare.outputs.target_sha }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install dependencies
-        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-      - name: Install PDF text test tools
-        timeout-minutes: 15
-        run: scripts/ci/apt-install.sh poppler-utils
-
-      - name: Install scan-cleanup audit tools
-        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
-
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Install Rust WASM target
-        run: rustup target add wasm32-unknown-unknown
+          verify-electron: 'false'
+          apt-packages: poppler-utils
+          pip-packages: Pillow==11.3.0
+          needs-playwright-chromium: 'true'
+          rust-targets: wasm32-unknown-unknown
 
       - name: Release checks
         env:

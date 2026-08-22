@@ -47,47 +47,18 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-
-      # Windows: pnpm postinstall uses Unix commands (mkdir -p, cp) that
-      # require bash. Configure pnpm to use Git Bash for lifecycle scripts.
-      - name: Configure pnpm script shell
-        shell: pwsh
-        run: pnpm config set script-shell "C:\Program Files\Git\bin\bash.exe"
-
-      - name: Cache Windows native tool archives
-        # Optional accelerator only: the bundling script downloads on cache miss.
-        continue-on-error: true
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
-        with:
-          path: ${{ runner.temp }}/win-bundle-cache
-          key: store-win-native-tools-${{ matrix.arch }}-${{ hashFiles('scripts/bundle-tools-windows.sh') }}
-
-      - name: Install dependencies
-        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-      - name: Verify Electron install
-        run: pnpm run check:electron:install
+          windows-bundle-cache-key: store-win-native-tools-${{ matrix.arch }}
+          rust-targets: ${{ matrix.arch == 'arm64' && 'wasm32-unknown-unknown aarch64-pc-windows-msvc' || 'wasm32-unknown-unknown' }}
 
       - name: Bundle native tools
         shell: bash
         env:
           WIN_BUNDLE_CACHE_DIR: ${{ runner.temp }}/win-bundle-cache
         run: TARGET_ARCH=${{ matrix.arch }} bash scripts/bundle-tools-windows.sh
-
-      - name: Install Rust target (arm64)
-        if: matrix.arch == 'arm64'
-        run: rustup target add aarch64-pc-windows-msvc
-
-      - name: Install Rust WASM target
-        run: rustup target add wasm32-unknown-unknown
 
       - name: Build (Nuxt + Electron)
         env:

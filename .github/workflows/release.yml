@@ -296,18 +296,11 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.prepare.outputs.target_sha }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install dependencies
-        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+          verify-electron: 'false'
 
       - name: Resolve required packaged scan-cleanup fixture
         id: fixture
@@ -419,18 +412,11 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.prepare.outputs.target_sha }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install release validation dependencies
-        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+          verify-electron: 'false'
 
       - name: Download release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -688,14 +674,11 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.prepare.outputs.workflow_sha }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
+          install-dependencies: 'false'
 
       - name: Install mirror publisher dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -752,14 +735,11 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.prepare.outputs.workflow_sha }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
+          install-dependencies: 'false'
 
       - name: Install mirror publisher dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts

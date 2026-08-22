@@ -82,6 +82,12 @@ download() {
   fi
 
   echo "  Downloading: $cache_key"
+  if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+    # The archive cache is the primary source on CI; a download means the
+    # cache missed or the cache service failed. Surface that instead of
+    # silently depending on upstream availability.
+    echo "::warning::Windows native-tool cache miss for $cache_key; downloading from upstream with pinned checksum verification."
+  fi
   local temp_cache="${cache_path}.part-$$"
   curl -fSL --retry 3 --retry-delay 5 -o "$temp_cache" "$url"
   verify_sha256 "$temp_cache" "$cache_key"

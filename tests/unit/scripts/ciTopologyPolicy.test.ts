@@ -704,30 +704,23 @@ describe('CI topology policy', () => {
         expect(macIntelWorkflow).toContain('name: Verify packaged macOS Intel core PDF journey');
         expect(win7Workflow).toContain('name: Verify packaged Windows 7 core PDF journey');
         expect(workflow).toContain('os: windows-11-arm\n            platform: win\n            arch: arm64');
-        expect(workflow).toContain(
+        // Runner provisioning has one owner: the setup-release-env composite
+        // action. MSYS2 install, export, and tool verification live there and
+        // must have completed before the Windows bundle step runs.
+        const setupAction = await readProjectFile('.github/actions/setup-release-env/action.yml');
+        expect(setupAction).toContain(
             'uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884',
         );
-        expect(workflow).toContain('msystem: CLANGARM64');
-        expect(workflow).toContain('msys2_root="$(cygpath -u "$MSYS2_LOCATION")"');
-        expect(workflow).toContain('name: Verify Windows ARM64 MSYS2 toolchain');
-        expect(workflow).toContain('"$MSYS2_ROOT/usr/bin/pacman.exe" --version');
-        expect(workflow).toContain('"$MSYS2_ROOT/usr/bin/zstd.exe" --version');
-        expect(workflow).toContain('"$MSYS2_ROOT/usr/bin/tar.exe" --version');
-        const msys2SetupIndex = workflow.indexOf(
-            'uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884',
-        );
-        const msys2ExportIndex = workflow.indexOf('name: Export MSYS2 root for Windows ARM64 bundling');
-        const msys2VerifyIndex = workflow.indexOf('name: Verify Windows ARM64 MSYS2 toolchain');
+        expect(setupAction).toContain('msystem: CLANGARM64');
+        expect(setupAction).toContain('msys2_root="$(cygpath -u "$MSYS2_LOCATION")"');
+        expect(setupAction).toContain('"$tool_path" --version');
+        expect(workflow).toContain('uses: ./.github/actions/setup-release-env');
+        expect(workflow).toContain('needs-msys2: ${{ matrix.platform == \'win\' && matrix.arch == \'arm64\' }}');
+        const setupEnvIndex = workflow.indexOf('uses: ./.github/actions/setup-release-env');
         const windowsBundleIndex = workflow.indexOf('name: Bundle native tools (Windows)');
-        expect(msys2SetupIndex).toBeGreaterThanOrEqual(0);
-        expect(msys2ExportIndex).toBeGreaterThanOrEqual(0);
-        expect(msys2VerifyIndex).toBeGreaterThanOrEqual(0);
+        expect(setupEnvIndex).toBeGreaterThanOrEqual(0);
         expect(windowsBundleIndex).toBeGreaterThanOrEqual(0);
-        expect(msys2SetupIndex).toBeLessThan(msys2ExportIndex);
-        expect(msys2ExportIndex).toBeLessThan(msys2VerifyIndex);
-        expect(msys2VerifyIndex).toBeLessThan(
-            windowsBundleIndex,
-        );
+        expect(setupEnvIndex).toBeLessThan(windowsBundleIndex);
         expect(workflow).toContain('run: bash scripts/verify-packaged-native-tools.sh "${{ matrix.platform }}" "${{ matrix.arch }}"');
         expect(workflow).toContain('name: Verify packaged app contents');
         expect(workflow).toContain('unpacked_dir="win-arm64-unpacked"');
@@ -801,15 +794,9 @@ describe('CI topology policy', () => {
         expect(releaseWorkflow).not.toContain('publish_win7_legacy:');
         const publishJob = workflowJob(releaseWorkflow, 'publish');
         expect(publishJob).toContain('environment: release');
-        expect(publishJob).toContain(
-            'uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320',
-        );
-        expect(publishJob).toContain(
-            'uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38',
-        );
-        expect(publishJob).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
+        expect(publishJob).toContain('uses: ./.github/actions/setup-release-env');
         const releaseDependencyInstallIndex = publishJob.indexOf(
-            'name: Install release validation dependencies',
+            'name: Setup release environment',
         );
         const releaseArtifactDownloadIndex = publishJob.indexOf(
             'name: Download release artifacts',
@@ -1002,10 +989,12 @@ describe('CI topology policy', () => {
     it('pins every external action in privileged release workflows to an immutable commit', async () => {
         for (const workflowPath of [
             '.github/workflows/release.yml',
+            '.github/workflows/release-artifacts.yml',
             '.github/workflows/build.yml',
             '.github/workflows/build-mac-intel.yml',
             '.github/workflows/build-win7-legacy.yml',
             '.github/workflows/store-appx.yml',
+            '.github/actions/setup-release-env/action.yml',
         ]) {
             const workflow = await readProjectFile(workflowPath);
             const externalUses = [...workflow.matchAll(/^\s*uses:\s+([^./][^@\s]+)@([^\s#]+)/gmu)];
@@ -1029,7 +1018,12 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('"repos/${GITHUB_REPOSITORY}/commits/${DISPATCH_TARGET_REF}"');
         expect(qualityJob).toContain('run: pnpm run release:verify:checks');
         expect(qualityJob).not.toContain('pnpm --dir landing install');
-        expect(qualityJob).toContain('run: pnpm exec playwright install --with-deps chromium');
+        expect(qualityJob).toContain('persist-credentials: false');
+        expect(workflowJob(workflow, 'prepare')).toContain('persist-credentials: false');
+        expect(qualityJob).toContain('uses: ./.github/actions/setup-release-env');
+        expect(qualityJob).toContain('needs-playwright-chromium: \'true\'');
+        expect(qualityJob).toContain('apt-packages: poppler-utils');
+        expect(qualityJob).toContain('pip-packages: Pillow==11.3.0');
         // Quality reruns the release checks only for commits push CI never
         // vouched for; a green exact-SHA gates_ok run skips it.
         expect(qualityJob).toContain('if: ${{ needs.prepare.outputs.require_quality == \'true\' }}');
@@ -1121,7 +1115,11 @@ describe('CI topology policy', () => {
         expect(buildWorkflow).toContain('NODE_VERSION: \'24.11.1\'');
         expect(rustToolchain).toContain('channel = "1.89.0"');
         expect(rustToolchain).toContain('profile = "minimal"');
-        expect(buildWorkflow).toContain('run: rustup target add wasm32-unknown-unknown');
+        // Rust target provisioning moved into the shared setup action; the
+        // build matrix passes the wasm target through its inputs.
+        expect(buildWorkflow).toContain('wasm32-unknown-unknown');
+        expect(await readProjectFile('.github/actions/setup-release-env/action.yml'))
+            .toContain('run: rustup target add ${{ inputs.rust-targets }}');
     });
 
     it('reports every quality gate even after an earlier gate fails', async () => {

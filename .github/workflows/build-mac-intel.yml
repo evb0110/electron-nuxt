@@ -45,35 +45,20 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-
-      - name: Install dependencies
-        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-      - name: Verify Electron install
-        run: pnpm run check:electron:install
+          rust-targets: wasm32-unknown-unknown
+          brew-formulae: tesseract poppler qpdf djvulibre meson pkg-config sphinx-doc
 
       - name: Bundle native tools (macOS Intel)
         timeout-minutes: 30
         run: |
-          brew install tesseract poppler qpdf djvulibre meson pkg-config sphinx-doc
-          SPHINX_BIN="$(brew --prefix sphinx-doc)/bin"
-          echo "$SPHINX_BIN" >> "$GITHUB_PATH"
-          export PATH="$SPHINX_BIN:$PATH"
           bash scripts/bundle-tesseract-macos.sh
           bash scripts/bundle-leptonica-unpaper-macos.sh
           bash scripts/bundle-pdf-tools-macos.sh
           bash scripts/bundle-djvu-macos.sh
-
-      - name: Install Rust WASM target
-        run: rustup target add wasm32-unknown-unknown
 
       - name: Build (Nuxt + Electron)
         env:
