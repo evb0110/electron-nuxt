@@ -1,13 +1,23 @@
 import { getErrorMessage } from '@electron/utils/error';
+import { isAbortError } from '@electron/utils/abort';
 
 export type TMainSubsystem = 'agent' | 'djvu' | 'documents' | 'ocr' | 'search' | 'unknown';
+type TRecoverableMainSubsystem = Exclude<TMainSubsystem, 'unknown'>;
 
 interface IUnhandledRejectionRecoveryOptions {
     threshold?: number;
     windowMs?: number;
     now?: () => number;
-    recover(subsystem: TMainSubsystem, reason: unknown): Promise<void> | void;
+    recover(subsystem: TRecoverableMainSubsystem, reason: unknown): Promise<void> | void;
 }
+
+export type TUnhandledRejectionDecision =
+    | {action: 'fatal'}
+    | {action: 'ignore'}
+    | {
+        action: 'recover';
+        subsystem: TRecoverableMainSubsystem;
+    };
 
 const SUBSYSTEM_PATTERNS: Array<[TMainSubsystem, RegExp]> = [
     [
@@ -41,22 +51,28 @@ export function classifyUnhandledRejectionSubsystem(reason: unknown): TMainSubsy
     ]) => pattern.test(details))?.[0] ?? 'unknown';
 }
 
+export function decideUnhandledRejection(reason: unknown): TUnhandledRejectionDecision {
+    if (isAbortError(reason)) {
+        return {action: 'ignore'};
+    }
+
+    const subsystem = classifyUnhandledRejectionSubsystem(reason);
+    return subsystem === 'unknown'
+        ? {action: 'fatal'}
+        : {
+            action: 'recover',
+            subsystem,
+        };
+}
+
 export function createUnhandledRejectionRecovery(options: IUnhandledRejectionRecoveryOptions) {
     const threshold = Math.max(2, options.threshold ?? 3);
     const windowMs = Math.max(1_000, options.windowMs ?? 60_000);
     const now = options.now ?? Date.now;
-    const failures = new Map<TMainSubsystem, number[]>();
-    const recovering = new Set<TMainSubsystem>();
+    const failures = new Map<TRecoverableMainSubsystem, number[]>();
+    const recovering = new Set<TRecoverableMainSubsystem>();
 
-    return async (reason: unknown) => {
-        const subsystem = classifyUnhandledRejectionSubsystem(reason);
-        if (subsystem === 'unknown') {
-            return {
-                subsystem,
-                recovered: false,
-                count: 1,
-            };
-        }
+    return async (subsystem: TRecoverableMainSubsystem, reason: unknown) => {
         const cutoff = now() - windowMs;
         const recent = (failures.get(subsystem) ?? []).filter(timestamp => timestamp >= cutoff);
         recent.push(now());

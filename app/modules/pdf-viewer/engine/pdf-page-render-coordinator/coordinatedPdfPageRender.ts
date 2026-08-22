@@ -52,6 +52,23 @@ interface IRunCoordinatedPdfPageOperationOptions<TResult> {
 const activePageOperations = new WeakMap<PDFPageProxy, IActivePdfPageOperation>();
 let nextRenderId = 0;
 
+export function hasActiveCoordinatedPdfPageOperation(pdfPage: PDFPageProxy) {
+    return activePageOperations.has(pdfPage);
+}
+
+export async function waitForCoordinatedPdfPageOperations(pdfPage: PDFPageProxy) {
+    while (true) {
+        const activeOperation = activePageOperations.get(pdfPage);
+        if (!activeOperation) {
+            return;
+        }
+        await activeOperation.settled;
+        if (activePageOperations.get(pdfPage)?.id === activeOperation.id) {
+            activePageOperations.delete(pdfPage);
+        }
+    }
+}
+
 function createCoordinatedRenderCancelledError(pageNumber: number, owner: string) {
     const error = new Error(`Rendering cancelled before coordinated PDF page render for page ${pageNumber} (${owner})`);
     error.name = 'RenderingCancelledException';

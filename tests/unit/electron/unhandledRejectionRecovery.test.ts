@@ -7,7 +7,9 @@ import {
 import {
     classifyUnhandledRejectionSubsystem,
     createUnhandledRejectionRecovery,
+    decideUnhandledRejection,
 } from '@electron/unhandledRejectionRecovery';
+import { createAbortError } from '@electron/utils/abort';
 
 describe('unhandled rejection recovery', () => {
     it('classifies subsystem failures from stack and message evidence', () => {
@@ -28,21 +30,67 @@ describe('unhandled rejection recovery', () => {
         });
         const failure = new Error('search worker rejected');
 
-        await expect(handle(failure)).resolves.toMatchObject({
+        await expect(handle('search', failure)).resolves.toMatchObject({
             count: 1,
             recovered: false,
             subsystem: 'search',
         });
         timestamp += 1_000;
-        await expect(handle(failure)).resolves.toMatchObject({
+        await expect(handle('search', failure)).resolves.toMatchObject({
             count: 2,
             recovered: false,
         });
         timestamp += 1_000;
-        await expect(handle(failure)).resolves.toMatchObject({
+        await expect(handle('search', failure)).resolves.toMatchObject({
             count: 3,
             recovered: true,
         });
         expect(recover).toHaveBeenCalledOnce();
+    });
+
+    it('propagates a subsystem recovery rejection so the caller can escalate it', async () => {
+        const recoveryFailure = new Error('native cleanup rejected');
+        const handle = createUnhandledRejectionRecovery({
+            threshold: 2,
+            recover: vi.fn().mockRejectedValue(recoveryFailure),
+        });
+        const failure = new Error('search worker rejected');
+
+        await expect(handle('search', failure)).resolves.toMatchObject({
+            count: 1,
+            recovered: false,
+        });
+        await expect(handle('search', failure)).rejects.toBe(recoveryFailure);
+    });
+
+    it.each([
+        'Persistence commit aborted after durable write',
+        'Persistence commit canceled after durable write',
+        'Persistence commit cancelled after durable write',
+    ])('does not treat cancellation words in an unknown invariant failure as an abort: %s', (message) => {
+        expect(decideUnhandledRejection(new Error(message))).toEqual({action: 'fatal'});
+    });
+
+    it.each([
+        createAbortError('Search request canceled'),
+        new DOMException('Search request canceled', 'AbortError'),
+        Object.assign(new Error('Search request canceled'), {code: 'ABORT_ERR'}),
+    ])('ignores a typed abort rejection', (abort) => {
+        expect(decideUnhandledRejection(abort)).toEqual({action: 'ignore'});
+    });
+
+    it('keeps classified subsystem failures on the bounded recovery path', () => {
+        const failure = new Error('Search worker failed');
+
+        expect(decideUnhandledRejection(failure)).toEqual({
+            action: 'recover',
+            subsystem: 'search',
+        });
+    });
+
+    it('routes an unknown unhandled rejection into fatal shutdown instead of continuing', () => {
+        expect(
+            decideUnhandledRejection(new Error('Unexpected persistence invariant failure')),
+        ).toEqual({action: 'fatal'});
     });
 });

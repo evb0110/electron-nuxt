@@ -11,11 +11,35 @@ import {
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
 import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
+import { getErrorMessage } from '@electron/utils/error';
+import {
+    createDetachedChildProcessSpawnOptions,
+    terminateDetachedChildProcess,
+} from '@electron/utils/nativeChildProcess';
 
 const SEARCH_SERVICE_READY_TIMEOUT_MS = 5_000;
 const SEARCH_SERVICE_IDLE_TIMEOUT_MS = 5 * 60_000;
 const SEARCH_SERVICE_MAX_FRAME_BYTES = 4 * 1024 * 1024;
 const SEARCH_SERVICE_MAX_STDERR_BYTES = 64 * 1024;
+const SEARCH_SERVICE_SHUTDOWN_GRACE_MS = 1_500;
+
+export const persistentNativeSearchRuntime = {terminateDetachedChildProcess};
+
+const stoppingServiceTerminations = new Set<Promise<void>>();
+const stoppingServiceFailures: unknown[] = [];
+
+function trackStoppingServiceTermination(termination: Promise<void>) {
+    const tracked = termination
+        .catch((error: unknown) => {
+            stoppingServiceFailures.push(error);
+            throw error;
+        })
+        .finally(() => stoppingServiceTerminations.delete(tracked));
+    stoppingServiceTerminations.add(tracked);
+    void tracked.catch(() => {
+        // Coordinated shutdown reads the rejection from stoppingServiceTerminations.
+    });
+}
 
 class NativeSearchServiceError extends Error {
     constructor(readonly code: TNativeErrorCode, message: string) {
@@ -51,21 +75,24 @@ class PersistentNativeSearchService {
     private stopped = false;
     private stderr = '';
     private stderrTruncated = false;
+    private shutdownPromise: Promise<void> | null = null;
+    private readonly exited: Promise<void>;
 
     constructor(
         binaryPath: string,
         private readonly idleTimeoutMs: number,
         private readonly onStopped: () => void,
     ) {
-        this.child = spawn(binaryPath, ['serve'], {
+        this.child = spawn(binaryPath, ['serve'], createDetachedChildProcessSpawnOptions({
             stdio: [
                 'pipe',
                 'pipe',
                 'pipe',
             ],
             windowsHide: true,
-        });
+        })) as ChildProcessWithoutNullStreams;
         this.child.unref();
+        this.exited = new Promise(resolve => this.child.once('exit', () => resolve()));
         this.ready = new Promise<void>((resolve, reject) => {
             this.resolveReady = resolve;
             this.rejectReady = reject;
@@ -175,6 +202,44 @@ class PersistentNativeSearchService {
 
     resetCache() {
         this.writeFrame({type: 'reset-cache'});
+    }
+
+    shutdown(reason: string) {
+        this.shutdownPromise ??= this.performShutdown(reason);
+        return this.shutdownPromise;
+    }
+
+    private async performShutdown(reason: string) {
+        if (this.stopped) {
+            await this.ensureProcessTreeStopped();
+            return;
+        }
+        try {
+            this.writeFrame({type: 'shutdown'});
+        } catch {
+            // The process-tree fallback still owns daemon cleanup.
+        }
+        this.markStopped(new Error(reason));
+        const exitedCooperatively = await Promise.race([
+            this.exited.then(() => true),
+            new Promise<false>(resolve => {
+                const timer = setTimeout(() => resolve(false), SEARCH_SERVICE_SHUTDOWN_GRACE_MS);
+                timer.unref();
+            }),
+        ]);
+        if (!exitedCooperatively) {
+            await this.ensureProcessTreeStopped();
+        }
+    }
+
+    private async ensureProcessTreeStopped() {
+        const stopped = await persistentNativeSearchRuntime.terminateDetachedChildProcess(
+            this.child,
+            SEARCH_SERVICE_SHUTDOWN_GRACE_MS,
+        );
+        if (!stopped) {
+            throw new Error(`Persistent native search process tree ${this.child.pid ?? '<unknown>'} did not stop`);
+        }
     }
 
     private tryWriteCancelFrame(requestId: string) {
@@ -305,9 +370,9 @@ class PersistentNativeSearchService {
         this.resolveReady = null;
     }
 
-    private stop(error: Error) {
+    private markStopped(error: Error) {
         if (this.stopped) {
-            return;
+            return false;
         }
         this.stopped = true;
         if (this.idleTimer) {
@@ -326,8 +391,15 @@ class PersistentNativeSearchService {
             pending.reject(error);
         }
         this.pending.clear();
-        this.child.kill();
         this.onStopped();
+        return true;
+    }
+
+    private stop(error: Error) {
+        if (!this.markStopped(error)) {
+            return;
+        }
+        trackStoppingServiceTermination(this.ensureProcessTreeStopped());
     }
 }
 
@@ -340,6 +412,32 @@ export function resetPersistentNativeSearchServiceCaches() {
         } catch {
             // A stopped daemon is evicted by its lifecycle handlers.
         }
+    }
+}
+
+export async function shutdownPersistentNativeSearchServices(reason: string) {
+    const activeServices = Array.from(services.values());
+    const shutdownAttempts = [
+        ...activeServices.map(service => service.shutdown(reason)),
+        ...stoppingServiceTerminations,
+    ];
+    const results = await Promise.allSettled(shutdownAttempts);
+    const failures: unknown[] = [];
+    for (const result of results) {
+        if (result.status === 'rejected') {
+            failures.push(result.reason as unknown);
+        }
+    }
+    for (const failure of stoppingServiceFailures.splice(0)) {
+        if (!failures.includes(failure)) {
+            failures.push(failure);
+        }
+    }
+    if (failures.length > 0) {
+        throw new AggregateError(
+            failures,
+            `Persistent native search shutdown failed: ${failures.map(getErrorMessage).join('; ')}`,
+        );
     }
 }
 

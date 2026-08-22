@@ -66,6 +66,13 @@ export function parseSearchWorkerInboundMessage(value: unknown): TSearchWorkerIn
             return {type: 'reset-cache'};
         case 'reset-state':
             return {type: 'reset-state'};
+        case 'shutdown':
+            return typeof value.reason === 'string' && value.reason.trim().length > 0
+                ? {
+                    type: 'shutdown',
+                    reason: value.reason,
+                }
+                : null;
         case 'search': {
             const payload = parseSearchWorkerRequest(value.payload);
             return payload

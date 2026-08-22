@@ -368,7 +368,10 @@ export const usePdfThumbnailRenderRuntime = (
 
     const thumbnailRenderTarget: IPdfRasterRenderTarget<IPreparedThumbnailRaster> = {
         id: 'pdf-thumbnail',
-        prepare(demand, page) {
+        prepare(demand, page, signal) {
+            if (signal.aborted) {
+                return Promise.resolve(null);
+            }
             const canvas = dom.getCanvas(demand.pageNumber);
             const renderKey = getThumbnailRenderKey(demand.pageNumber);
             if (

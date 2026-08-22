@@ -30,6 +30,7 @@ import {
     getPdfDictContents,
     getPdfStringValue,
 } from '@app/utils/pdfDict';
+import { createEmbeddedShapeColorPdf } from '@tests/unit/app/fixtures/createEmbeddedShapeColorPdf';
 
 function createEmptyPayload(): IPdfSerializationSavePayload {
     return {
@@ -320,6 +321,30 @@ describe('serializePdfEdits force rewrite', () => {
 });
 
 describe('serializePdfEdits embedded geometric shapes', () => {
+    it('preserves decoded embedded shape colors and zero width through save and reopen', async () => {
+        const bytes = await createEmbeddedShapeColorPdf();
+        const importedShapes = await importEmbeddedShapeAnnotations(bytes);
+        const payload = createEmptyPayload();
+        payload.rewriteShapeState = true;
+        payload.shapes = importedShapes;
+
+        const saved = await serializePdfEdits(bytes, payload);
+        const reopenedShapes = await importEmbeddedShapeAnnotations(saved);
+
+        expect(reopenedShapes).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                stableKey: 'evb-shape:gray-cmyk-square',
+                color: '#808080',
+                fillColor: '#ff0000',
+                strokeWidth: 0,
+            }),
+            expect.objectContaining({
+                stableKey: 'evb-shape:rgb-circle',
+                color: '#336699',
+            }),
+        ]));
+    });
+
     it('preserves a managed shape through object-stream reopen and a second save', async () => {
         const { bytes: firstSave } = await createPdfWithManagedSquareAnnotation();
 

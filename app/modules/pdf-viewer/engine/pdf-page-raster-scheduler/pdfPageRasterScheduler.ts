@@ -3,7 +3,11 @@ import type {
     PDFPageProxy,
     RenderTask,
 } from 'pdfjs-dist';
-import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
+import {
+    hasActiveCoordinatedPdfPageOperation,
+    runCoordinatedPdfPageRender,
+    waitForCoordinatedPdfPageOperations,
+} from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import type { TPdfRenderContinuationPriority } from '@app/modules/pdf-viewer/engine/pdf-render-continuation-scheduler/pdfRenderContinuationScheduler';
 import {
     createPdfRenderSupervisor,
@@ -55,7 +59,11 @@ export interface IPdfRasterDemandPolicy<TInput> {
 
 export interface IPdfRasterRenderTarget<TPrepared> {
     readonly id: string;
-    prepare(demand: IPdfRasterDemand, page: PDFPageProxy): Promise<TPrepared | null>;
+    prepare(
+        demand: IPdfRasterDemand,
+        page: PDFPageProxy,
+        signal: AbortSignal,
+    ): Promise<TPrepared | null>;
     start(prepared: TPrepared, page: PDFPageProxy): RenderTask;
     commit(prepared: TPrepared, demand: IPdfRasterDemand): boolean;
     discard(prepared: TPrepared): void;
@@ -254,8 +262,15 @@ export function createPdfPageRasterScheduler(
         work.reservation = null;
     }
 
-    function releasePageLease(work: IRasterWork) {
-        work.pageLease?.release();
+    async function releasePageLease(work: IRasterWork) {
+        const pageLease = work.pageLease;
+        if (!pageLease) {
+            return;
+        }
+        if (hasActiveCoordinatedPdfPageOperation(pageLease.page)) {
+            await waitForCoordinatedPdfPageOperations(pageLease.page);
+        }
+        pageLease.release();
         work.pageLease = null;
     }
 
@@ -320,7 +335,6 @@ export function createPdfPageRasterScheduler(
         work.controller.abort();
         if (work.stage !== 'rendering') {
             releaseReservation(work);
-            releasePageLease(work);
         }
         queued.delete(work.key);
         settleWork(work, {
@@ -480,7 +494,11 @@ export function createPdfPageRasterScheduler(
                 throw new Error(`PDF raster surface budget unavailable for page ${String(work.demand.pageNumber)}`);
             }
             work.stage = 'preparing';
-            work.prepared = await work.target.prepare(work.demand, work.pageLease.page);
+            work.prepared = await work.target.prepare(
+                work.demand,
+                work.pageLease.page,
+                work.controller.signal,
+            );
             if (!work.prepared) {
                 releaseReservation(work);
                 scheduleReattempt(work, {
@@ -570,7 +588,7 @@ export function createPdfPageRasterScheduler(
                 });
             }
         } finally {
-            releasePageLease(work);
+            await releasePageLease(work);
             if (inFlight.get(work.key) === work) {
                 inFlight.delete(work.key);
             }
@@ -800,11 +818,8 @@ export function createPdfPageRasterScheduler(
     }
 
     async function cancelSource(sourceId: string) {
-        const renderingSettlements = [...inFlight.values()]
-            .filter(work => (
-                work.sourceId === sourceId
-                && (work.stage === 'rendering' || work.stage === 'committing')
-            ))
+        const workSettlements = [...inFlight.values()]
+            .filter(work => work.sourceId === sourceId)
             .map(work => work.execution)
             .filter((execution): execution is Promise<void> => execution !== null);
         invalidate({
@@ -817,7 +832,7 @@ export function createPdfPageRasterScheduler(
                 currentDemandByIdentity.delete(identity);
             }
         }
-        await Promise.allSettled(renderingSettlements);
+        await Promise.allSettled(workSettlements);
     }
 
     function snapshot(): IPdfRasterSchedulerSnapshot {
@@ -857,15 +872,14 @@ export function createPdfPageRasterScheduler(
     }
 
     async function runDisposal() {
-        const renderingSettlements = [...inFlight.values()]
-            .filter(work => work.stage === 'rendering' || work.stage === 'committing')
+        const workSettlements = [...inFlight.values()]
             .map(work => work.execution)
             .filter((execution): execution is Promise<void> => execution !== null);
         invalidate({
             documentFence: options.documentFence,
             reason: 'scheduler-disposed',
         });
-        await Promise.allSettled(renderingSettlements);
+        await Promise.allSettled(workSettlements);
         surfaceBudget.releaseScope(surfaceScopeId);
     }
 

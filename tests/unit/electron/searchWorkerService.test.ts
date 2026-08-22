@@ -177,7 +177,10 @@ describe('SearchWorkerService', () => {
             requestId: 'search-1',
         });
 
-        service.cleanupAll('test cleanup');
+        const cleanupPromise = service.cleanupAll('test cleanup');
+        workerMocks.instances[0]?.emit('message', {type: 'shutdown-complete'});
+        workerMocks.instances[0]?.emit('exit', 0);
+        await cleanupPromise;
     });
 
     it('passes the resolved worker resource and native idle policies in workerData', async () => {
@@ -233,38 +236,208 @@ describe('SearchWorkerService', () => {
         });
     });
 
-    it('sends cooperative cancel messages before hard worker termination during cleanup', async () => {
-        vi.useFakeTimers();
-        process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = '1000';
+    it('does not finish recoverable cleanup before worker and native daemon shutdown settle', async () => {
         const service = await createSearchService();
         const sender = createSender(42);
 
         const searchPromise = dispatchSearch(service, sender, 'search-1', {senderId: 42});
-        service.cleanupAll('test shutdown');
+        const cleanupPromise = service.cleanupAll('test recovery');
+        const cleanupSettled = vi.fn();
+        void cleanupPromise.then(cleanupSettled, cleanupSettled);
 
         expect(workerMocks.instances[0]?.postMessage).toHaveBeenCalledWith({
-            type: 'cancel',
-            requestId: 'search-1',
+            type: 'shutdown',
+            reason: 'test recovery',
         });
         expect(workerMocks.instances[0]?.terminate).not.toHaveBeenCalled();
-        await expect(searchPromise).rejects.toThrow('test shutdown');
+        await expect(searchPromise).rejects.toThrow('test recovery');
+        await Promise.resolve();
+        expect(cleanupSettled).not.toHaveBeenCalled();
 
-        await vi.advanceTimersByTimeAsync(999);
+        workerMocks.instances[0]?.emit('message', {type: 'shutdown-complete'});
+        workerMocks.instances[0]?.emit('exit', 0);
+
+        await expect(cleanupPromise).resolves.toBeUndefined();
+        expect(cleanupSettled).toHaveBeenCalledOnce();
         expect(workerMocks.instances[0]?.terminate).not.toHaveBeenCalled();
-        await vi.advanceTimersByTimeAsync(1);
-        expect(workerMocks.instances[0]?.terminate).toHaveBeenCalledTimes(1);
     });
 
-    it('forces and awaits worker termination during application shutdown', async () => {
+    it('asks active workers to shut down and awaits cooperative exit', async () => {
         const service = await createSearchService();
         const sender = createSender(42);
 
         const searchPromise = dispatchSearch(service, sender, 'search-1', {senderId: 42});
         const shutdownPromise = service.shutdown('app shutdown');
         await expect(searchPromise).rejects.toThrow('app shutdown');
+        expect(workerMocks.instances[0]?.postMessage).toHaveBeenCalledWith({
+            type: 'shutdown',
+            reason: 'app shutdown',
+        });
+        expect(workerMocks.instances[0]?.terminate).not.toHaveBeenCalled();
+
+        workerMocks.instances[0]?.emit('message', {type: 'shutdown-complete'});
+        workerMocks.instances[0]?.emit('exit', 0);
+
+        await expect(shutdownPromise).resolves.toBeUndefined();
+        expect(workerMocks.instances[0]?.terminate).not.toHaveBeenCalled();
+    });
+
+    it('asks idle workers to stop before falling back to forced termination', async () => {
+        vi.useFakeTimers();
+        process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = '1000';
+        const service = await createSearchService();
+        const sender = createSender(42);
+        const searchPromise = dispatchSearch(service, sender, 'search-1', {senderId: 42});
+        emitWorkerComplete(0, 'search-1');
+        await expect(searchPromise).resolves.toEqual(EMPTY_SEARCH_RESULT);
+
+        const shutdownPromise = service.shutdown('app shutdown');
+
+        expect(workerMocks.instances[0]?.postMessage).toHaveBeenCalledWith({
+            type: 'shutdown',
+            reason: 'app shutdown',
+        });
+        workerMocks.instances[0]?.emit('message', {type: 'shutdown-complete'});
+        await vi.advanceTimersByTimeAsync(499);
+        expect(workerMocks.instances[0]?.terminate).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+
         await expect(shutdownPromise).resolves.toBeUndefined();
         expect(workerMocks.instances[0]?.terminate).toHaveBeenCalledOnce();
-        expect(workerMocks.instances[0]?.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({type: 'cancel'}));
+    });
+
+    it('rejects worker exit without native daemon shutdown acknowledgement', async () => {
+        const service = await createSearchService();
+        const searchPromise = dispatchSearch(service, createSender(42), 'search-1', {senderId: 42});
+        emitWorkerComplete(0, 'search-1');
+        await expect(searchPromise).resolves.toEqual(EMPTY_SEARCH_RESULT);
+
+        const shutdownPromise = service.shutdown('app shutdown');
+        workerMocks.instances[0]?.emit('exit', 0);
+
+        await expect(shutdownPromise).rejects.toThrow('without confirming native daemon shutdown');
+    });
+
+    it('keeps cooperative and forced worker termination inside one total deadline', async () => {
+        vi.useFakeTimers();
+        process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = '1000';
+        const service = await createSearchService();
+        const searchPromise = dispatchSearch(service, createSender(42), 'search-1', {senderId: 42});
+        emitWorkerComplete(0, 'search-1');
+        await expect(searchPromise).resolves.toEqual(EMPTY_SEARCH_RESULT);
+        workerMocks.instances[0]?.terminate.mockReturnValueOnce(new Promise(() => undefined));
+        const shutdownPromise = service.shutdown('app shutdown');
+        const settled = vi.fn();
+        void shutdownPromise.then(settled, settled);
+
+        await vi.advanceTimersByTimeAsync(499);
+        expect(workerMocks.instances[0]?.terminate).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(workerMocks.instances[0]?.terminate).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(499);
+        expect(settled).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+
+        await expect(shutdownPromise).rejects.toThrow('Search worker shutdown failed');
+    });
+
+    it('surfaces native daemon shutdown failures from a worker', async () => {
+        const service = await createSearchService();
+        const searchPromise = dispatchSearch(service, createSender(42), 'search-1', {senderId: 42});
+        emitWorkerComplete(0, 'search-1');
+        await expect(searchPromise).resolves.toEqual(EMPTY_SEARCH_RESULT);
+
+        const shutdownPromise = service.shutdown('app shutdown');
+        workerMocks.instances[0]?.emit('message', {
+            type: 'shutdown-complete',
+            error: 'Persistent native search process tree 4242 did not stop',
+        });
+        workerMocks.instances[0]?.emit('exit', 0);
+
+        await expect(shutdownPromise).rejects.toThrow('Search worker shutdown failed');
+    });
+
+    it('preserves a native daemon shutdown failure across forced worker termination', async () => {
+        vi.useFakeTimers();
+        process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = '1000';
+        const service = await createSearchService();
+        const searchPromise = dispatchSearch(service, createSender(42), 'search-1', {senderId: 42});
+        emitWorkerComplete(0, 'search-1');
+        await expect(searchPromise).resolves.toEqual(EMPTY_SEARCH_RESULT);
+
+        const shutdownPromise = service.shutdown('app shutdown');
+        workerMocks.instances[0]?.emit('message', {
+            type: 'shutdown-complete',
+            error: 'Persistent native search process tree 4242 did not stop',
+        });
+        const shutdownExpectation = expect(shutdownPromise)
+            .rejects.toThrow('Persistent native search process tree 4242 did not stop');
+        await vi.advanceTimersByTimeAsync(500);
+
+        await shutdownExpectation;
+        expect(workerMocks.instances[0]?.terminate).toHaveBeenCalledOnce();
+    });
+
+    it('surfaces native daemon failures during recoverable cleanup', async () => {
+        const service = await createSearchService();
+        const searchPromise = dispatchSearch(service, createSender(42), 'search-1', {senderId: 42});
+        emitWorkerComplete(0, 'search-1');
+        await expect(searchPromise).resolves.toEqual(EMPTY_SEARCH_RESULT);
+
+        const cleanupPromise = service.cleanupAll('test recovery');
+        workerMocks.instances[0]?.emit('message', {
+            type: 'shutdown-complete',
+            error: 'Persistent native search process tree 4242 did not stop',
+        });
+        workerMocks.instances[0]?.emit('exit', 0);
+
+        await expect(cleanupPromise).rejects.toThrow('Persistent native search process tree 4242 did not stop');
+    });
+
+    it('shares one cleanup flight and termination failure with concurrent terminal shutdown', async () => {
+        vi.useFakeTimers();
+        process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = '1000';
+        const service = await createSearchService();
+        const firstSearch = dispatchSearch(service, createSender(41), 'search-1', {senderId: 41});
+        const secondSearch = dispatchSearch(service, createSender(42), 'search-2', {senderId: 42});
+        emitWorkerComplete(0, 'search-1');
+        emitWorkerComplete(1, 'search-2');
+        await expect(firstSearch).resolves.toEqual(EMPTY_SEARCH_RESULT);
+        await expect(secondSearch).resolves.toEqual(EMPTY_SEARCH_RESULT);
+
+        const firstTerminationError = new Error('first worker termination failed');
+        workerMocks.instances[0]?.terminate.mockRejectedValueOnce(firstTerminationError);
+        let finishSecondTermination!: () => void;
+        workerMocks.instances[1]?.terminate.mockReturnValueOnce(new Promise<void>(resolve => {
+            finishSecondTermination = resolve;
+        }));
+        const cleanupPromise = service.cleanupAll('test recovery');
+        const cleanupResult = cleanupPromise.catch((error: unknown) => error);
+        workerMocks.instances[0]?.emit('message', {type: 'shutdown-complete'});
+        workerMocks.instances[1]?.emit('message', {type: 'shutdown-complete'});
+        const lateSearch = dispatchSearch(service, createSender(43), 'search-3', {senderId: 43});
+        const lateSearchResult = lateSearch.catch((error: unknown) => error);
+        await Promise.resolve();
+
+        expect(workerMocks.instances).toHaveLength(2);
+        await expect(lateSearchResult).resolves.toMatchObject({message: 'Search worker service is cleaning up'});
+
+        await vi.advanceTimersByTimeAsync(500);
+
+        expect(workerMocks.instances[0]?.terminate).toHaveBeenCalledOnce();
+        expect(workerMocks.instances[1]?.terminate).toHaveBeenCalledOnce();
+        const shutdownPromise = service.shutdown('app shutdown');
+        const shutdownResult = shutdownPromise.catch((error: unknown) => error);
+        expect(shutdownPromise).toBe(cleanupPromise);
+
+        finishSecondTermination();
+        const cleanupError = await cleanupResult;
+        const shutdownError = await shutdownResult;
+        expect(cleanupError).toBe(shutdownError);
+        expect(cleanupError).toBeInstanceOf(AggregateError);
+        expect(cleanupError).toMatchObject({errors: [firstTerminationError]});
     });
 
     it('does not let stale worker errors clean up a newer sender state', async () => {
@@ -275,7 +448,10 @@ describe('SearchWorkerService', () => {
         emitWorkerComplete(0, 'search-1');
         await expect(firstSearch).resolves.toEqual(EMPTY_SEARCH_RESULT);
 
-        service.cleanupAll('retire old worker');
+        const cleanupPromise = service.cleanupAll('retire old worker');
+        workerMocks.instances[0]?.emit('message', {type: 'shutdown-complete'});
+        workerMocks.instances[0]?.emit('exit', 0);
+        await cleanupPromise;
         const secondSearch = dispatchSearch(service, sender, 'search-2', {senderId: 42});
         expect(workerMocks.instances).toHaveLength(2);
 

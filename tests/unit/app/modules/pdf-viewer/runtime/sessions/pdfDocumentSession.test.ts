@@ -67,6 +67,7 @@ vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 const {leasePdfDocumentPage} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
 const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession');
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/maxCachedPdfPages');
+const {runCoordinatedPdfPageOperation} = await import('@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender');
 
 // This test copies two 1 MiB ranges and runs alongside the complete six-project
 // unit matrix. Keep the behavioral assertions strict without making host load
@@ -1300,6 +1301,104 @@ describe('PdfDocumentSession range loading', () => {
         expect(events).toEqual([
             'render-cancel',
             'invalidation-settled',
+            'page-cleanup',
+            'document-destroy',
+        ]);
+    });
+
+    it('does not destroy PDF.js while cancelled page preparation is still running', async () => {
+        const events: string[] = [];
+        const operatorList = Promise.withResolvers<{
+            fnArray: number[];
+            argsArray: unknown[][];
+        }>();
+        const prepareStarted = vi.fn();
+        const startCalled = vi.fn();
+        const page = {
+            cleanup: vi.fn(() => events.push('page-cleanup')),
+            getOperatorList: vi.fn(() => operatorList.promise),
+            getViewport: vi.fn(() => ({
+                width: 100,
+                height: 200,
+            })),
+            pageNumber: 1,
+        };
+        const documentDestroy = vi.fn(async () => {
+            events.push('document-destroy');
+        });
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 1,
+                getPage: vi.fn(async () => page),
+                destroy: documentDestroy,
+            }),
+            destroy: vi.fn(() => Promise.resolve()),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
+        const source = new Blob([Uint8Array.of(1)]);
+        const documentState = createPdfDocumentSession({src: computed(() => source)});
+        await documentState.loadPdf(source);
+        const scheduler = documentState.rasterScheduler!;
+        scheduler.setDemand({
+            sourceId: 'viewport',
+            input: [{
+                consumerGeneration: 1,
+                documentFence: scheduler.documentFence,
+                estimatedPixels: 100,
+                lane: 'viewport-visible',
+                ordinal: 1,
+                pageNumber: 1,
+                renderKey: 'preparing',
+                retention: 'render-cache',
+            } as const],
+            policy: {
+                expand: input => input,
+                compareWithinLane: () => 0,
+            },
+            target: {
+                id: 'viewport',
+                prepare: async (_demand, leasedPage, signal) => runCoordinatedPdfPageOperation({
+                    owner: 'viewport',
+                    pageNumber: leasedPage.pageNumber,
+                    pdfPage: leasedPage,
+                    priority: 100,
+                    signal,
+                    operation: async () => {
+                        prepareStarted();
+                        events.push('preparation-start');
+                        const result = await leasedPage.getOperatorList();
+                        events.push('preparation-settled');
+                        return result;
+                    },
+                }).then(() => signal.aborted ? null : {}, () => null),
+                start: () => {
+                    startCalled();
+                    throw new Error('Cancelled preparation must not start a render');
+                },
+                commit: () => true,
+                discard: vi.fn(),
+                release: vi.fn(),
+            },
+        });
+        await vi.waitFor(() => expect(prepareStarted).toHaveBeenCalledOnce());
+
+        documentState.cleanup();
+        await vi.waitFor(() => expect(scheduler.snapshot().accepting).toBe(false));
+
+        expect(documentDestroy).not.toHaveBeenCalled();
+        expect(page.cleanup).not.toHaveBeenCalled();
+        expect(startCalled).not.toHaveBeenCalled();
+
+        operatorList.resolve({
+            fnArray: [],
+            argsArray: [],
+        });
+        await vi.waitFor(() => expect(documentDestroy).toHaveBeenCalledOnce());
+
+        expect(startCalled).not.toHaveBeenCalled();
+        expect(events).toEqual([
+            'preparation-start',
+            'preparation-settled',
             'page-cleanup',
             'document-destroy',
         ]);

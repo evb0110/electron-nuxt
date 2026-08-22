@@ -79,7 +79,6 @@ export async function resolveSearchablePdfPath(pdfPath: string, senderWebContent
 }
 
 const log = createLogger('search-ipc');
-let appCleanupRegistered = false;
 let activeSearchWorkerService: SearchWorkerService | null = null;
 
 function getSearchWorkerService() {
@@ -94,8 +93,8 @@ export const searchWorkerService = {
     cancelRequestsForPdfPath(pdfPath: string, reason: string) {
         return activeSearchWorkerService?.cancelRequestsForPdfPath(pdfPath, reason) ?? 0;
     },
-    cleanupAll(reason: string) {
-        activeSearchWorkerService?.cleanupAll(reason);
+    async cleanupAll(reason: string) {
+        await activeSearchWorkerService?.cleanupAll(reason);
     },
     async shutdown(reason: string) {
         await activeSearchWorkerService?.shutdown(reason);
@@ -222,11 +221,5 @@ export function prepareSearchMainBindings() {
         'Registering search IPC handlers '
         + `(requestTimeoutMs=${serviceConfig.requestTimeoutMs}, idleTtlMs=${serviceConfig.idleTtlMs}, maxActive=${serviceConfig.maxActive})`,
     );
-    if (!appCleanupRegistered) {
-        appCleanupRegistered = true;
-        app.on('before-quit', () => {
-            activeSearchWorkerService?.cleanupAll('App shutting down');
-        });
-    }
     return searchMainBindings;
 }

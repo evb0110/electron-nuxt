@@ -2,6 +2,7 @@ import { SEARCH_RESULT_LIMIT } from '@electron/config/constants';
 import { SEARCH_WIRE_CODEC } from '@contracts/search';
 import type {
     ISearchResponse,
+    ISearchWorkerShutdownResult,
     TSearchWorkerOutboundMessage,
 } from '@electron/features/search/protocol';
 import {
@@ -219,4 +220,17 @@ export function getSearchWorkerOutboundRequestId(value: unknown) {
     return isWorkerMessageRecord(value) && typeof value.requestId === 'string'
         ? value.requestId
         : null;
+}
+
+export function parseSearchWorkerShutdownResult(value: unknown): ISearchWorkerShutdownResult | null {
+    if (!isWorkerMessageRecord(value) || value.type !== 'shutdown-complete') {
+        return null;
+    }
+    if (value.error !== undefined && (typeof value.error !== 'string' || value.error.trim().length === 0)) {
+        return null;
+    }
+    return {
+        type: 'shutdown-complete',
+        ...(typeof value.error === 'string' ? {error: value.error} : {}),
+    };
 }

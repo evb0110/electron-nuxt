@@ -34,7 +34,51 @@ fn write_index(path: &Path, text: &str) {
     fs::write(path, bytes).expect("write search service index");
 }
 
-fn fixture_directory(label: &str) -> PathBuf {
+fn write_sparse_multi_page_index(path: &Path, page_count: u32, page_bytes: usize) {
+    let revision = REVISION.as_bytes();
+    let page_table_offset = HEADER_SIZE + revision.len();
+    let text_offset = page_table_offset + (page_count as usize * PAGE_RECORD_SIZE);
+    let mut file = File::create(path).expect("create sparse search service index");
+    file.write_all(b"EVBSIDX2").unwrap();
+    file.write_all(&2u32.to_le_bytes()).unwrap();
+    file.write_all(&(HEADER_SIZE as u32).to_le_bytes()).unwrap();
+    file.write_all(&page_count.to_le_bytes()).unwrap();
+    file.write_all(&page_count.to_le_bytes()).unwrap();
+    file.write_all(&0u32.to_le_bytes()).unwrap();
+    file.write_all(&(revision.len() as u32).to_le_bytes())
+        .unwrap();
+    file.write_all(&(HEADER_SIZE as u64).to_le_bytes()).unwrap();
+    file.write_all(&(page_table_offset as u64).to_le_bytes())
+        .unwrap();
+    file.write_all(&(text_offset as u64).to_le_bytes()).unwrap();
+    file.write_all(&0u64.to_le_bytes()).unwrap();
+    file.write_all(revision).unwrap();
+    for page_index in 0..page_count {
+        let byte_offset = text_offset + page_index as usize * page_bytes;
+        file.write_all(&(page_index + 1).to_le_bytes()).unwrap();
+        file.write_all(&0u32.to_le_bytes()).unwrap();
+        file.write_all(&(byte_offset as u64).to_le_bytes()).unwrap();
+        file.write_all(&(page_bytes as u64).to_le_bytes()).unwrap();
+    }
+    file.set_len((text_offset + page_count as usize * page_bytes) as u64)
+        .expect("size sparse search service index");
+}
+
+struct FixtureDirectory(PathBuf);
+
+impl FixtureDirectory {
+    fn join(&self, path: impl AsRef<Path>) -> PathBuf {
+        self.0.join(path)
+    }
+}
+
+impl Drop for FixtureDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn fixture_directory(label: &str) -> FixtureDirectory {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -44,7 +88,7 @@ fn fixture_directory(label: &str) -> PathBuf {
         std::process::id()
     ));
     fs::create_dir_all(&directory).expect("create service fixture directory");
-    directory
+    FixtureDirectory(directory)
 }
 
 fn search_request(request_id: &str, index_path: &Path, query: &str) -> Value {
@@ -106,6 +150,39 @@ impl SearchService {
         writeln!(self.stdin, "{request}").expect("write search service frame");
         self.stdin.flush().expect("flush search service frame");
     }
+
+    fn shutdown(mut self) {
+        self.send_raw(r#"{"type":"shutdown"}"#);
+        let status = self.child.wait().expect("wait for search service shutdown");
+        assert!(status.success(), "search service shutdown failed: {status}");
+    }
+
+    fn shutdown_with_active_request(mut self, request: &Value) -> Value {
+        write!(self.stdin, "{}\n{{\"type\":\"shutdown\"}}\n", request)
+            .expect("write active search and shutdown frames");
+        self.stdin
+            .flush()
+            .expect("flush active search and shutdown frames");
+
+        let mut response_line = String::new();
+        self.stdout
+            .read_line(&mut response_line)
+            .expect("read active search cancellation frame");
+        let response =
+            serde_json::from_str(&response_line).expect("parse active search cancellation frame");
+
+        let mut trailing_output = String::new();
+        assert_eq!(
+            self.stdout
+                .read_line(&mut trailing_output)
+                .expect("read search service stdout EOF"),
+            0,
+            "search service emitted output after active request cancellation"
+        );
+        let status = self.child.wait().expect("wait for search service shutdown");
+        assert!(status.success(), "search service shutdown failed: {status}");
+        response
+    }
 }
 
 impl Drop for SearchService {
@@ -128,7 +205,26 @@ fn persistent_service_searches_over_framed_stdio() {
     assert_eq!(result["result"]["results"].as_array().unwrap().len(), 2);
 
     drop(service);
-    fs::remove_dir_all(directory).expect("remove service fixture directory");
+}
+
+#[test]
+fn persistent_service_accepts_an_explicit_idle_shutdown() {
+    SearchService::spawn().shutdown();
+}
+
+#[test]
+fn persistent_service_shutdown_cancels_and_joins_an_active_search_before_exit() {
+    let directory = fixture_directory("active-shutdown");
+    let index_path = directory.join("active.search-index.bin");
+    write_sparse_multi_page_index(&index_path, 8, 32 * 1024 * 1024);
+    let response = SearchService::spawn().shutdown_with_active_request(&search_request(
+        "active-request",
+        &index_path,
+        "needle",
+    ));
+
+    assert_eq!(response["type"], "canceled");
+    assert_eq!(response["requestId"], "active-request");
 }
 
 #[test]
@@ -168,7 +264,6 @@ fn malformed_corrupt_and_oversized_frames_return_exact_codes_without_panicking()
     assert_eq!(recovery["requestId"], "recovery");
 
     drop(service);
-    fs::remove_dir_all(directory).expect("remove service fixture directory");
 }
 
 #[test]
@@ -197,7 +292,6 @@ fn service_cache_evicts_the_least_recently_used_index_and_reloads_it() {
     assert_eq!(reloaded["result"]["results"].as_array().unwrap().len(), 1);
 
     drop(service);
-    fs::remove_dir_all(directory).expect("remove service fixture directory");
 }
 
 #[test]
@@ -224,5 +318,4 @@ fn reset_cache_reloads_an_atomic_same_revision_replacement() {
     );
 
     drop(service);
-    fs::remove_dir_all(directory).expect("remove service fixture directory");
 }

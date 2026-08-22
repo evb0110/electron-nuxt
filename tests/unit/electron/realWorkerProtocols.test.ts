@@ -37,13 +37,20 @@ describe('real search worker protocol', () => {
         await harness.close();
     });
 
-    it('decodes cancellation and a complete search request across a real worker boundary', async () => {
+    it('decodes cancellation, shutdown, and a complete search request across a real worker boundary', async () => {
         await expect(harness.decode('parseSearchWorkerInboundMessage', {
             type: 'cancel',
             requestId: 'search-1',
         })).resolves.toEqual({
             type: 'cancel',
             requestId: 'search-1',
+        });
+        await expect(harness.decode('parseSearchWorkerInboundMessage', {
+            type: 'shutdown',
+            reason: 'app shutdown',
+        })).resolves.toEqual({
+            type: 'shutdown',
+            reason: 'app shutdown',
         });
         await expect(harness.decode('parseSearchWorkerInboundMessage', {
             type: 'search',
@@ -74,6 +81,10 @@ describe('real search worker protocol', () => {
         {
             type: 'cancel',
             requestId: '',
+        },
+        {
+            type: 'shutdown',
+            reason: '',
         },
         {
             type: 'search',

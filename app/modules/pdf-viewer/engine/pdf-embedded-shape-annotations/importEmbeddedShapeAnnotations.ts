@@ -54,6 +54,10 @@ const MODIFIED_AT_NAME = PDFName.of('M');
 
 const CREATED_AT_NAME = PDFName.of('CreationDate');
 
+const UNSUPPORTED_STROKE_COLOR_FALLBACK = '#ff0000';
+
+const UNSUPPORTED_FILL_COLOR_FALLBACK = '';
+
 function normalizeImportedShapeSubtype(
     subtype: string | null | undefined,
 ): TEmbeddedPdfShapeSubtype | null {
@@ -111,16 +115,48 @@ function rgbComponentToHex(value: number) {
     return clamp(Math.round(value), 0, 255).toString(16).padStart(2, '0');
 }
 
+function rgbComponentsToHex(red: number, green: number, blue: number) {
+    return `#${rgbComponentToHex(red)}${rgbComponentToHex(green)}${rgbComponentToHex(blue)}`;
+}
+
+function normalizedPdfComponent(value: number) {
+    return clamp(value, 0, 1);
+}
+
 function toHexColor(
     color: number[] | null | undefined,
     fallback: string,
 ) {
-    if (!Array.isArray(color) || color.length < 3) {
+    if (!Array.isArray(color) || color.some(component => !Number.isFinite(component))) {
         return fallback;
     }
 
-    const scale = color.every(component => component >= 0 && component <= 1) ? 255 : 1;
-    return `#${rgbComponentToHex((color[0] ?? 0) * scale)}${rgbComponentToHex((color[1] ?? 0) * scale)}${rgbComponentToHex((color[2] ?? 0) * scale)}`;
+    switch (color.length) {
+        case 1: {
+            const gray = normalizedPdfComponent(color[0]!) * 255;
+            return rgbComponentsToHex(gray, gray, gray);
+        }
+        case 3:
+            return rgbComponentsToHex(
+                normalizedPdfComponent(color[0]!) * 255,
+                normalizedPdfComponent(color[1]!) * 255,
+                normalizedPdfComponent(color[2]!) * 255,
+            );
+        case 4: {
+            // Annotation colors have no ICC profile here, so use a deterministic DeviceCMYK approximation.
+            const cyan = normalizedPdfComponent(color[0]!);
+            const magenta = normalizedPdfComponent(color[1]!);
+            const yellow = normalizedPdfComponent(color[2]!);
+            const black = normalizedPdfComponent(color[3]!);
+            return rgbComponentsToHex(
+                (1 - Math.min(1, cyan + black)) * 255,
+                (1 - Math.min(1, magenta + black)) * 255,
+                (1 - Math.min(1, yellow + black)) * 255,
+            );
+        }
+        default:
+            return fallback;
+    }
 }
 
 function readColor(dict: PDFDict, key: PDFName) {
@@ -143,7 +179,7 @@ function readBorderWidth(dict: PDFDict) {
     const border = dict.lookupMaybe(BORDER_NAME, PDFArray);
     if (border instanceof PDFArray && border.size() >= 3) {
         const width = numberFromPdfArray(border, 2);
-        if (width !== null && width > 0) {
+        if (width !== null && width >= 0) {
             return width;
         }
     }
@@ -151,7 +187,7 @@ function readBorderWidth(dict: PDFDict) {
     const borderStyle = dict.lookupMaybe(BORDER_STYLE_NAME, PDFDict);
     if (borderStyle instanceof PDFDict) {
         const width = borderStyle.lookupMaybe(WIDTH_NAME, PDFNumber);
-        if (width instanceof PDFNumber && width.asNumber() > 0) {
+        if (width instanceof PDFNumber && width.asNumber() >= 0) {
             return width.asNumber();
         }
     }
@@ -277,7 +313,7 @@ function importRectShape(
 
     const annotationId = formatPdfJsAnnotationRef(ref);
     const stableKey = readManagedShapeStableKey(dict) ?? generateManagedShapeStableKey();
-    const fillColor = toHexColor(readColor(dict, INTERIOR_COLOR_NAME), '');
+    const fillColor = toHexColor(readColor(dict, INTERIOR_COLOR_NAME), UNSUPPORTED_FILL_COLOR_FALLBACK);
     const dates = readShapeDates(dict);
     return {
         id: createImportedShapeId(pageIndex, annotationId, stableKey, subtype),
@@ -287,7 +323,7 @@ function importRectShape(
         y: markerRect.top,
         width: markerRect.width,
         height: markerRect.height,
-        color: toHexColor(readColor(dict, COLOR_NAME), '#ff0000'),
+        color: toHexColor(readColor(dict, COLOR_NAME), UNSUPPORTED_STROKE_COLOR_FALLBACK),
         fillColor: fillColor || undefined,
         opacity: readOpacity(dict),
         strokeWidth: readBorderWidth(dict),
@@ -350,7 +386,7 @@ function importLineShape(
         y2: end.y,
         width: Math.abs(end.x - start.x),
         height: Math.abs(end.y - start.y),
-        color: toHexColor(readColor(dict, COLOR_NAME), '#ff0000'),
+        color: toHexColor(readColor(dict, COLOR_NAME), UNSUPPORTED_STROKE_COLOR_FALLBACK),
         opacity: readOpacity(dict),
         strokeWidth: readBorderWidth(dict),
         source: 'embedded',
@@ -399,8 +435,8 @@ function importVerticesShape(
         lineEndStyle,
     } = readLineEndingStyles(dict);
     const fillColor = subtype === 'Polygon'
-        ? toHexColor(readColor(dict, INTERIOR_COLOR_NAME), '')
-        : '';
+        ? toHexColor(readColor(dict, INTERIOR_COLOR_NAME), UNSUPPORTED_FILL_COLOR_FALLBACK)
+        : UNSUPPORTED_FILL_COLOR_FALLBACK;
     const dates = readShapeDates(dict);
 
     return {
@@ -411,7 +447,7 @@ function importVerticesShape(
         y: bounds.y,
         width: bounds.width,
         height: bounds.height,
-        color: toHexColor(readColor(dict, COLOR_NAME), '#ff0000'),
+        color: toHexColor(readColor(dict, COLOR_NAME), UNSUPPORTED_STROKE_COLOR_FALLBACK),
         fillColor: fillColor || undefined,
         opacity: readOpacity(dict),
         strokeWidth: readBorderWidth(dict),
@@ -487,7 +523,7 @@ function importInkShape(
         y: bounds.y,
         width: bounds.width,
         height: bounds.height,
-        color: toHexColor(readColor(dict, COLOR_NAME), '#ff0000'),
+        color: toHexColor(readColor(dict, COLOR_NAME), UNSUPPORTED_STROKE_COLOR_FALLBACK),
         opacity: readOpacity(dict),
         strokeWidth: readBorderWidth(dict),
         points,

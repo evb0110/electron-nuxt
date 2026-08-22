@@ -8,6 +8,11 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 export type ISearchMatch = IPdfSearchResult;
 export type ISearchResponse = IPdfSearchResponse;
 
+export interface ISearchWorkerShutdownResult {
+    type: 'shutdown-complete';
+    error?: string;
+}
+
 export interface ISearchWorkerRequest {
     requestId: string;
     pdfPath: string;
@@ -25,6 +30,7 @@ interface ISearchWorkerInboundByType {
     cancel: {requestId: string;};
     'reset-cache': Record<never, never>;
     'reset-state': Record<never, never>;
+    shutdown: {reason: string;};
 }
 
 interface ISearchWorkerOutboundByType {

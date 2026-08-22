@@ -16,7 +16,10 @@ import {
     type IPdfRasterRenderTarget,
     type TPdfRasterLane,
 } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
-import { resetCoordinatedPdfPageRendersForTest } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
+import {
+    resetCoordinatedPdfPageRendersForTest,
+    runCoordinatedPdfPageOperation,
+} from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { createWorkspaceSurfaceBudgetController } from '@app/utils/document-viewer/workspaceSurfaceBudget';
 import { cast } from '@tests/helpers/cast';
 
@@ -380,6 +383,71 @@ describe('PdfPageRasterScheduler', () => {
         expect(cancel).toHaveBeenCalledOnce();
         expect(commit).not.toHaveBeenCalled();
         expect(release).toHaveBeenCalledOnce();
+    });
+
+    it('retains the page lease and blocks disposal until cancelled preparation settles', async () => {
+        const operatorList = Promise.withResolvers<{
+            fnArray: number[];
+            argsArray: unknown[][];
+        }>();
+        const release = vi.fn();
+        const prepareStarted = vi.fn();
+        const disposeSettled = vi.fn();
+        const page = cast<PDFPageProxy>({
+            pageNumber: 1,
+            getOperatorList: vi.fn(() => operatorList.promise),
+        });
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            leasePage: async () => ({
+                page,
+                release,
+            }),
+            surfaceBudget: createWorkspaceSurfaceBudgetController(1_000),
+        });
+        scheduler.setDemand({
+            sourceId: 'viewport',
+            input: [createDemand(1, 'viewport-visible')],
+            policy: {
+                expand: input => input,
+                compareWithinLane: () => 0,
+            },
+            target: {
+                id: 'cancelled-prepare',
+                prepare: async (_demand, leasedPage, signal) => runCoordinatedPdfPageOperation({
+                    owner: 'cancelled-prepare',
+                    pageNumber: leasedPage.pageNumber,
+                    pdfPage: leasedPage,
+                    priority: 100,
+                    signal,
+                    operation: async () => {
+                        prepareStarted();
+                        return leasedPage.getOperatorList();
+                    },
+                }).then(() => null, () => null),
+                start: () => createTask(),
+                commit: () => true,
+                discard: vi.fn(),
+                release: vi.fn(),
+            },
+        });
+        await vi.waitFor(() => expect(prepareStarted).toHaveBeenCalledOnce());
+
+        const disposal = scheduler.dispose();
+        void disposal.then(disposeSettled);
+        await flush();
+
+        expect(release).not.toHaveBeenCalled();
+        expect(disposeSettled).not.toHaveBeenCalled();
+
+        operatorList.resolve({
+            fnArray: [],
+            argsArray: [],
+        });
+        await disposal;
+
+        expect(release).toHaveBeenCalledOnce();
+        expect(disposeSettled).toHaveBeenCalledOnce();
     });
 
     it('discards a stale consumer generation without committing it', async () => {
@@ -779,9 +847,9 @@ describe('PdfPageRasterScheduler', () => {
         });
     });
 
-    it('isolates a new document from a predecessor wedged in prepare and reclaims its budget', async () => {
+    it('reclaims a cancelled preparation budget without releasing its page lease', async () => {
         const budget = createWorkspaceSurfaceBudgetController(800);
-        const wedgedPrepare = new Promise<never>(() => {});
+        const wedgedPrepare = Promise.withResolvers<{pageNumber: number} | null>();
         const releaseA = vi.fn();
         const schedulerA = createPdfPageRasterScheduler({
             documentFence,
@@ -792,9 +860,9 @@ describe('PdfPageRasterScheduler', () => {
             maxConcurrency: 1,
             surfaceBudget: budget,
         });
-        const targetA: IPdfRasterRenderTarget<never> = {
+        const targetA: IPdfRasterRenderTarget<{pageNumber: number}> = {
             id: 'a',
-            prepare: () => wedgedPrepare,
+            prepare: () => wedgedPrepare.promise,
             start: () => createTask(),
             commit: () => true,
             discard: vi.fn(),
@@ -817,7 +885,7 @@ describe('PdfPageRasterScheduler', () => {
             reason: 'document-a-invalidated',
         });
         expect(budget.getSnapshot().reservedBytes).toBe(0);
-        expect(releaseA).toHaveBeenCalledOnce();
+        expect(releaseA).not.toHaveBeenCalled();
 
         const fenceB = {
             ...documentFence,
@@ -863,5 +931,10 @@ describe('PdfPageRasterScheduler', () => {
                 sourceId: 'viewport-b',
             }],
         });
+
+        wedgedPrepare.resolve(null);
+        await schedulerA.dispose();
+        expect(releaseA).toHaveBeenCalledOnce();
+        await schedulerB.dispose();
     });
 });

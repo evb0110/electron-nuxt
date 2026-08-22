@@ -117,7 +117,10 @@ import {
 import { markPendingUpdateHealthy } from '@electron/updateHealthMarker';
 import { runDetached } from '@electron/utils/runDetached';
 import { resolveApplicationVersion } from '@electron/appVersion';
-import { createUnhandledRejectionRecovery } from '@electron/unhandledRejectionRecovery';
+import {
+    createUnhandledRejectionRecovery,
+    decideUnhandledRejection,
+} from '@electron/unhandledRejectionRecovery';
 import {
     clearWorkspaceCheckpoint,
     flushPendingWorkspaceCheckpointSave,
@@ -181,9 +184,6 @@ app.on('child-process-gone', (_event, details) => {
     processDeathRecovery.handleChildProcessGone(details);
 });
 const macOpenFileRouter = createMacOpenFileRouter({ logger });
-// Keep fatal shutdown opt-in for unhandled rejections: many promise failures are
-// feature-local and should not crash the entire public app.
-const FATAL_UNHANDLED_REJECTION_ENABLED = process.env.EVB_MAIN_FATAL_UNHANDLED_REJECTION === '1';
 const startupTrace = createStartupTrace(logger);
 
 function requestFatalShutdown(reason: string) {
@@ -202,30 +202,12 @@ app.on('open-file', (event, filePath) => {
     macOpenFileRouter.handleOpenFile(filePath);
 });
 
-function isIgnorableUnhandledRejection(reason: unknown) {
-    if (!(reason instanceof Error)) {
-        return false;
-    }
-    if (reason.name === 'AbortError') {
-        return true;
-    }
-
-    const normalizedMessage = reason.message.toLowerCase();
-    if (normalizedMessage.includes('aborted')) {
-        return true;
-    }
-    if (normalizedMessage.includes('cancelled') || normalizedMessage.includes('canceled')) {
-        return true;
-    }
-    return false;
-}
-
 const recoverUnhandledRejectionSubsystem = createUnhandledRejectionRecovery({async recover(subsystem) {
     logger.error(`Restarting ${subsystem} subsystem after repeated unhandled promise rejections`);
     if (subsystem === 'ocr') {
         await recoverOcrJobManager();
     } else if (subsystem === 'search') {
-        searchWorkerService.cleanupAll('unhandled rejection threshold');
+        await searchWorkerService.cleanupAll('unhandled rejection threshold');
     } else if (subsystem === 'agent') {
         await shutdownAgentAssistantIfLoaded();
     } else if (subsystem === 'djvu') {
@@ -236,26 +218,10 @@ const recoverUnhandledRejectionSubsystem = createUnhandledRejectionRecovery({asy
     }
 }});
 
-process.on('unhandledRejection', (reason) => {
-    logger.error(`Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
-    if (isIgnorableUnhandledRejection(reason)) {
-        return;
-    }
-    if (FATAL_UNHANDLED_REJECTION_ENABLED) {
-        requestFatalShutdown('Unhandled promise rejection requires fatal shutdown');
-        return;
-    }
-    runDetached(
-        () => recoverUnhandledRejectionSubsystem(reason),
-        {
-            label: 'recover subsystem after unhandled rejection threshold',
-            logger,
-        },
-    );
-});
-process.on('uncaughtException', (error) => {
-    requestFatalShutdown(`Uncaught exception in main process: ${error.stack ?? error.message}`);
-});
+// Expected third-party cancellations already settle at their owning boundary.
+// Electron dialogs return canceled results, updater requests catch typed aborts,
+// and PDF.js or worker cancellations are translated from their local signals.
+// No untyped message adapter belongs at this process-wide boundary.
 
 if (process.platform === 'darwin' && config.automation.noFocus) {
     try {
@@ -502,6 +468,32 @@ shutdownCoordinator = createShutdownCoordinator({
         await shutdownPhaseRunners.runPreservationSteps(context);
     },
     runBestEffortCleanupSteps: shutdownPhaseRunners.runBestEffortCleanupSteps,
+});
+// Install fatal process handlers only after the coordinator exists. A synchronous
+// startup exception before this point keeps Node's default fail-fast behavior.
+process.on('unhandledRejection', (reason) => {
+    logger.error(`Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
+    const decision = decideUnhandledRejection(reason);
+    if (decision.action === 'ignore') {
+        return;
+    }
+    if (decision.action === 'fatal') {
+        requestFatalShutdown('Unhandled promise rejection requires fatal shutdown');
+        return;
+    }
+    runDetached(
+        () => recoverUnhandledRejectionSubsystem(decision.subsystem, reason),
+        {
+            label: 'recover subsystem after unhandled rejection threshold',
+            logger,
+            onError: error => requestFatalShutdown(
+                `Unhandled rejection subsystem recovery failed (${decision.subsystem}): ${getErrorMessage(error)}`,
+            ),
+        },
+    );
+});
+process.on('uncaughtException', (error) => {
+    requestFatalShutdown(`Uncaught exception in main process: ${error.stack ?? error.message}`);
 });
 function requestSystemShutdown(event?: {preventDefault(): void}) {
     if (shutdownCoordinator?.isQuittingAfterCleanup()) {

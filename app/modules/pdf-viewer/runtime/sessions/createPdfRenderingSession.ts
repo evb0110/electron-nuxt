@@ -242,7 +242,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }
     const viewportRasterTarget: IPdfRasterRenderTarget<IPreparedViewportRaster> = {
         id: 'pdf-viewport',
-        async prepare(demand, page) {
+        async prepare(demand, page, signal) {
             const job = viewportRasterJobs.get(demand.renderKey);
             const target = getMountedRasterTarget(demand.pageNumber);
             if (
@@ -269,7 +269,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 {preserveCommittedVisual: pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready'},
             );
             const shouldContinue = () => (
-                version === renderVersion
+                !signal.aborted && version === renderVersion
                 && viewportRasterJobs.get(demand.renderKey) === job
                 && isViewportRasterJobScaleCurrent(job)
                 && isViewportRasterDemanded(pageNumber, job.demand.lane)
@@ -287,6 +287,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 pageRenderCoordination: {
                     owner: 'pdf-viewport',
                     priority: 100,
+                    signal,
                     shouldStart: shouldContinue,
                     shouldContinue,
                 },
@@ -626,8 +627,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         await cancellation;
     }
     // Persist-only revisions reauthorize pixels; replacement documents do not.
-    // The load path nulls the document first, so authority tracks the last loaded
-    // document rather than the watcher's previous value.
+    // The load path nulls the document first, so authority tracks the last loaded document instead of the watcher's previous value.
     let canvasAuthority = {
         document: documentSession.pdfDocument.value,
         token: getRenderDocumentToken(),

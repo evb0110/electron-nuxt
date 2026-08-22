@@ -8,6 +8,7 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     ISearchMatch,
     ISearchWorkerRequest,
+    ISearchWorkerShutdownResult,
     TSearchWorkerOutboundMessage,
 } from '@electron/search/protocol';
 import { SEARCH_RESULT_LIMIT } from '@electron/config/constants';
@@ -18,7 +19,10 @@ import {
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseSearchWorkerInboundMessage } from '@electron/search/parseSearchWorkerInboundMessage';
-import { resetPersistentNativeSearchServiceCaches } from '@electron/search/tryRunPersistentNativeSearch';
+import {
+    resetPersistentNativeSearchServiceCaches,
+    shutdownPersistentNativeSearchServices,
+} from '@electron/search/tryRunPersistentNativeSearch';
 import {
     buildExcerpt,
     iteratePageMatches,
@@ -98,7 +102,9 @@ const retainedTextBytesByIndex = new WeakMap<IPdfSearchIndex, number>();
 const cancelledRequests = new Map<string, number>();
 const requestAbortControllers = new Map<string, AbortController>();
 const progressSentAt = new Map<string, number>();
+const activeSearchRequests = new Set<Promise<void>>();
 const log = createLogger('search-worker');
+let shutdownStarted = false;
 
 function assertNever(value: never) {
     throw new Error(`Unhandled search worker inbound message: ${JSON.stringify(value)}`);
@@ -647,6 +653,35 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
     }
 }
 
+function startSearchRequest(request: ISearchWorkerRequest) {
+    const operation = processSearchRequest(request);
+    activeSearchRequests.add(operation);
+    void operation.finally(() => activeSearchRequests.delete(operation));
+}
+
+async function shutdownSearchWorker(reason: string) {
+    if (shutdownStarted) {
+        return;
+    }
+    shutdownStarted = true;
+    for (const controller of requestAbortControllers.values()) {
+        controller.abort();
+    }
+    let shutdownError: string | undefined;
+    try {
+        await shutdownPersistentNativeSearchServices(reason);
+    } catch (error) {
+        shutdownError = getErrorMessage(error);
+    }
+    await Promise.allSettled(activeSearchRequests);
+    const shutdownResult = {
+        type: 'shutdown-complete',
+        ...(shutdownError ? {error: shutdownError} : {}),
+    } satisfies ISearchWorkerShutdownResult;
+    parentPort?.postMessage(shutdownResult);
+    parentPort?.close();
+}
+
 parentPort?.on('message', (rawMessage: unknown) => {
     const message = parseSearchWorkerInboundMessage(rawMessage);
     if (!message) {
@@ -670,7 +705,21 @@ parentPort?.on('message', (rawMessage: unknown) => {
             cancelledRequests.clear();
             progressSentAt.clear();
             return;
+        case 'shutdown':
+            void shutdownSearchWorker(message.reason).catch((error: unknown) => {
+                log.warn(`Search worker shutdown sequence failed: ${getErrorMessage(error)}`);
+                parentPort?.close();
+            });
+            return;
         case 'search':
+            if (shutdownStarted) {
+                postMessage({
+                    type: 'error',
+                    requestId: message.payload.requestId,
+                    error: 'Search worker is shutting down',
+                });
+                return;
+            }
             if (requestAbortControllers.has(message.payload.requestId)) {
                 postMessage({
                     type: 'error',
@@ -679,7 +728,7 @@ parentPort?.on('message', (rawMessage: unknown) => {
                 });
                 return;
             }
-            void processSearchRequest(message.payload);
+            startSearchRequest(message.payload);
             return;
         default:
             assertNever(message);

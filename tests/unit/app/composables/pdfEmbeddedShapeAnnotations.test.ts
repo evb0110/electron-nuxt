@@ -13,6 +13,7 @@ import { collectEmbeddedShapeAnnotationIds } from '@app/modules/pdf-viewer/engin
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import type { IShapeAnnotation } from '@app/types/annotations';
+import { createEmbeddedShapeColorPdf } from '@tests/unit/app/fixtures/createEmbeddedShapeColorPdf';
 
 async function createPdfWithEmbeddedShapes(options: { managedInk?: boolean } = {}) {
     const { managedInk = true } = options;
@@ -242,6 +243,49 @@ async function createPdfWithEmbeddedShapes(options: { managedInk?: boolean } = {
 }
 
 describe('importEmbeddedShapeAnnotations', () => {
+    it('decodes PDF Gray, RGB, and CMYK shape colors while preserving a zero border width', async () => {
+        const shapes = await importEmbeddedShapeAnnotations(await createEmbeddedShapeColorPdf());
+
+        expect(shapes).toEqual([
+            expect.objectContaining({
+                stableKey: 'evb-shape:gray-cmyk-square',
+                color: '#808080',
+                fillColor: '#ff0000',
+                strokeWidth: 0,
+            }),
+            expect.objectContaining({
+                stableKey: 'evb-shape:rgb-circle',
+                color: '#336699',
+            }),
+            expect.objectContaining({stableKey: 'evb-shape:unsupported-color-polygon'}),
+        ]);
+    });
+
+    it('keeps the existing stroke and fill fallbacks for unsupported color array shapes', async () => {
+        const shapes = await importEmbeddedShapeAnnotations(await createEmbeddedShapeColorPdf());
+        const unsupported = shapes.find(shape => shape.stableKey === 'evb-shape:unsupported-color-polygon');
+
+        expect(unsupported).toMatchObject({
+            color: '#ff0000',
+            fillColor: undefined,
+        });
+    });
+
+    it('clamps out-of-range Gray and mixed-range RGB components independently', async () => {
+        const shapes = await importEmbeddedShapeAnnotations(await createEmbeddedShapeColorPdf({includeOutOfRangeColors: true}));
+
+        expect(shapes).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                stableKey: 'evb-shape:out-of-range-gray',
+                color: '#ffffff',
+            }),
+            expect.objectContaining({
+                stableKey: 'evb-shape:mixed-range-rgb',
+                color: '#80ff00',
+            }),
+        ]));
+    });
+
     it('imports geometric PDF annotations from bytes with editable metadata intact', async () => {
         const {
             bytes,

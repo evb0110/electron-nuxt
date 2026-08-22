@@ -940,6 +940,7 @@ enum ServiceRequest {
         request_id: String,
     },
     ResetCache,
+    Shutdown,
 }
 
 fn default_search_limit() -> usize {
@@ -1090,6 +1091,29 @@ fn reap_finished_service_workers(workers: &mut Vec<thread::JoinHandle<()>>) {
     }
 }
 
+fn cancel_all_service_requests(
+    cancellations: &ServiceCancellationMap,
+) -> Result<(), Box<dyn Error>> {
+    let cancellations = cancellations
+        .lock()
+        .map_err(|_| native_failure("Search cancellation lock poisoned".to_string()))?;
+    for cancellation in cancellations.values() {
+        cancellation.store(true, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+fn stop_service_workers(
+    cancellations: &ServiceCancellationMap,
+    workers: Vec<thread::JoinHandle<()>>,
+) -> Result<(), Box<dyn Error>> {
+    cancel_all_service_requests(cancellations)?;
+    for worker in workers {
+        let _ = worker.join();
+    }
+    Ok(())
+}
+
 fn run_service() -> Result<(), Box<dyn Error>> {
     let cache: ServiceIndexCache = Arc::new(Mutex::new(ServiceIndexCacheState::default()));
     let cancellations: ServiceCancellationMap = Arc::new(Mutex::new(HashMap::new()));
@@ -1138,6 +1162,9 @@ fn run_service() -> Result<(), Box<dyn Error>> {
                 {
                     flag.store(true, Ordering::Relaxed);
                 }
+            }
+            ServiceRequest::Shutdown => {
+                break;
             }
             ServiceRequest::Search {
                 request_id,
@@ -1242,10 +1269,7 @@ fn run_service() -> Result<(), Box<dyn Error>> {
             }
         }
     }
-    for worker in workers {
-        let _ = worker.join();
-    }
-    Ok(())
+    stop_service_workers(&cancellations, workers)
 }
 
 fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>> {
@@ -1282,6 +1306,40 @@ fn main() {
 mod tests {
     use super::*;
     use serde::Deserialize;
+
+    #[test]
+    fn service_shutdown_cancels_and_joins_every_active_request() {
+        let first = Arc::new(AtomicBool::new(false));
+        let second = Arc::new(AtomicBool::new(false));
+        let cancellations: ServiceCancellationMap = Arc::new(Mutex::new(HashMap::from([
+            ("first".to_string(), Arc::clone(&first)),
+            ("second".to_string(), Arc::clone(&second)),
+        ])));
+
+        let first_completed = Arc::new(AtomicBool::new(false));
+        let second_completed = Arc::new(AtomicBool::new(false));
+        let workers = [
+            (Arc::clone(&first), Arc::clone(&first_completed)),
+            (Arc::clone(&second), Arc::clone(&second_completed)),
+        ]
+        .map(|(canceled, completed)| {
+            thread::spawn(move || {
+                while !canceled.load(Ordering::Relaxed) {
+                    thread::yield_now();
+                }
+                completed.store(true, Ordering::Relaxed);
+            })
+        })
+        .into_iter()
+        .collect();
+
+        stop_service_workers(&cancellations, workers).expect("stop active service workers");
+
+        assert!(first.load(Ordering::Relaxed));
+        assert!(second.load(Ordering::Relaxed));
+        assert!(first_completed.load(Ordering::Relaxed));
+        assert!(second_completed.load(Ordering::Relaxed));
+    }
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]

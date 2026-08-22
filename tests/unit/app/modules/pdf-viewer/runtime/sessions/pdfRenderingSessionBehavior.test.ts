@@ -699,6 +699,11 @@ describe('PdfRenderingSession behavior', () => {
         const fixture = createRenderingFixture({autoResolve: false});
         try {
             await vi.waitFor(() => expect(fixture.pdfPage.render).toHaveBeenCalledOnce());
+            expect(canvasFixture.prepare).toHaveBeenCalledWith(
+                fixture.pdfPage,
+                expect.any(Number),
+                expect.objectContaining({pageRenderCoordination: expect.objectContaining({signal: expect.any(AbortSignal)})}),
+            );
             expect(fixture.canvasHost.querySelector('canvas')).toBeNull();
             expect(rendererFixture.api.renderCommittedPageLayers).not.toHaveBeenCalled();
 

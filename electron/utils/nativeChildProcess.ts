@@ -28,6 +28,7 @@ export async function terminateDetachedChildProcess(
         return terminateProcessTree(pid, {
             graceMs,
             isTargetAlive: () => proc.exitCode === null && proc.signalCode === null,
+            platform,
             preferProcessGroup: shouldUseDetachedProcessGroup(platform),
         });
     }

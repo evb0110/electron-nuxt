@@ -27,6 +27,7 @@ import {
     capSearchResponse,
     getSearchWorkerOutboundRequestId,
     parseSearchWorkerOutboundMessage,
+    parseSearchWorkerShutdownResult,
 } from '@electron/features/search/main/searchWorkerMessageCodec';
 import {
     createMainJobRegistry,
@@ -74,6 +75,8 @@ interface ISenderSearchState {
     requests: Map<string, IWorkerSearchRequest>;
     idleCleanupTimer: NodeJS.Timeout | null;
     lastActivityAtMs: number;
+    shutdownAcknowledged: boolean;
+    shutdownError: Error | null;
 }
 
 interface IWarmupSingleflight {
@@ -204,6 +207,7 @@ const DEFAULT_SEARCH_REQUEST_TIMEOUT_MS = SEARCH_PLATFORM_FEATURE.methods.run.ip
 const MIN_SEARCH_REQUEST_TIMEOUT_MS = 5_000;
 const DEFAULT_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = 10_000;
 const MIN_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = 1_000;
+const SEARCH_WORKER_FORCED_TERMINATION_RESERVE_MS = 1_000;
 const DEFAULT_SEARCH_CANCEL_ACK_TIMEOUT_MS = 5_000;
 const MIN_SEARCH_CANCEL_ACK_TIMEOUT_MS = 100;
 
@@ -242,6 +246,8 @@ export class SearchWorkerService {
     private readonly warmupSingleflightsByDocument = new Map<string, IWarmupSingleflight>();
     private resourcePolicy: ISearchResourcePolicy | null;
     private readonly resolveResourcePolicy: (() => ISearchResourcePolicy) | null;
+    private cleanupPromise: Promise<void> | null = null;
+    private shutdownPromise: Promise<void> | null = null;
 
     constructor(
         private readonly resolveWorkerPath: () => string,
@@ -295,6 +301,12 @@ export class SearchWorkerService {
         context: ISearchSenderContext,
         payload: IDispatchSearchRequestPayload,
     ): Promise<ISearchResponse> {
+        if (this.shutdownPromise) {
+            return Promise.reject(new Error('Search worker service is shutting down'));
+        }
+        if (this.cleanupPromise) {
+            return Promise.reject(new Error('Search worker service is cleaning up'));
+        }
         const operationContext = this.normalizeOperationContext(context);
         const requestId = payload.requestId && payload.requestId.length > 0
             ? payload.requestId
@@ -416,26 +428,52 @@ export class SearchWorkerService {
         return true;
     }
 
-    cleanupAll(reason: string, options: { cooperativeStop?: boolean } = {}) {
+    cleanupAll(reason: string): Promise<void> {
+        if (this.shutdownPromise) {
+            return this.shutdownPromise;
+        }
+        if (!this.cleanupPromise) {
+            const cleanupPromise = this.stopAllWorkers(reason);
+            this.cleanupPromise = cleanupPromise;
+            const clearCleanupPromise = () => {
+                if (this.cleanupPromise === cleanupPromise) {
+                    this.cleanupPromise = null;
+                }
+            };
+            void cleanupPromise.then(clearCleanupPromise, clearCleanupPromise);
+        }
+        return this.cleanupPromise;
+    }
+
+    shutdown(reason: string): Promise<void> {
+        this.shutdownPromise ??= this.cleanupPromise ?? this.stopAllWorkers(reason);
+        return this.shutdownPromise;
+    }
+
+    private async stopAllWorkers(reason: string) {
+        const settlements = [...this.senderSearchStates.values()]
+            .flatMap(state => [...state.requests.values()])
+            .flatMap(request => request.handle ? [request.handle.settled] : []);
         for (const senderId of [...this.senderSearchStates.keys()]) {
             this.cleanupSenderState(senderId, {
                 terminateWorker: true,
                 reason,
-                ...(options.cooperativeStop === undefined
-                    ? {}
-                    : {cooperativeStop: options.cooperativeStop}),
+                shutdownWorker: true,
             });
         }
-    }
-
-    async shutdown(reason: string) {
-        const settlements = [...this.senderSearchStates.values()]
-            .flatMap(state => [...state.requests.values()])
-            .flatMap(request => request.handle ? [request.handle.settled] : []);
-        this.cleanupAll(reason, {cooperativeStop: false});
+        const workerTerminations = Promise.allSettled(Array.from(this.workerTerminationPromises.values()));
         await Promise.allSettled(settlements);
-        while (this.workerTerminationPromises.size > 0) {
-            await Promise.all(Array.from(this.workerTerminationPromises.values()));
+        const terminationErrors: unknown[] = [];
+        for (const result of await workerTerminations) {
+            if (result.status === 'rejected') {
+                terminationErrors.push(result.reason as unknown);
+            }
+        }
+        if (terminationErrors.length > 0) {
+            throw new AggregateError(
+                terminationErrors,
+                `Search worker shutdown failed: ${terminationErrors.map(getErrorMessage).join('; ')}`,
+            );
         }
     }
 
@@ -624,6 +662,18 @@ export class SearchWorkerService {
         return sentAny;
     }
 
+    private postShutdownMessage(state: ISenderSearchState, reason: string) {
+        try {
+            state.worker.postMessage({
+                type: 'shutdown',
+                reason,
+            } satisfies TSearchWorkerInboundMessage);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     private waitForWorkerExit(worker: Worker, timeoutMs: number) {
         return new Promise<boolean>((resolve) => {
             let timeout: NodeJS.Timeout | null = null;
@@ -647,19 +697,40 @@ export class SearchWorkerService {
         state: ISenderSearchState,
         reason: string,
         cooperativeStopRequested: boolean,
+        surfaceWorkerShutdownError: boolean,
     ) {
         if (this.workerTerminationPromises.has(state.worker)) {
             return;
         }
+        const assertWorkerShutdownSucceeded = () => {
+            if (!surfaceWorkerShutdownError) {
+                return;
+            }
+            if (!state.shutdownAcknowledged) {
+                throw new Error(`Search worker ${senderId} exited without confirming native daemon shutdown`);
+            }
+            if (state.shutdownError) {
+                throw state.shutdownError;
+            }
+        };
         const terminationPromise = (async () => {
-            if (cooperativeStopRequested && await this.waitForWorkerExit(state.worker, SEARCH_WORKER_TERMINATE_TIMEOUT_MS)) {
+            const forcedTerminationReserveMs = Math.min(
+                SEARCH_WORKER_FORCED_TERMINATION_RESERVE_MS,
+                Math.max(1, Math.floor(SEARCH_WORKER_TERMINATE_TIMEOUT_MS / 2)),
+            );
+            const cooperativeStopTimeoutMs = SEARCH_WORKER_TERMINATE_TIMEOUT_MS - forcedTerminationReserveMs;
+            if (cooperativeStopRequested && await this.waitForWorkerExit(state.worker, cooperativeStopTimeoutMs)) {
+                assertWorkerShutdownSucceeded();
                 log.debug(`Search worker lifecycle: sender ${senderId} worker exited after cooperative stop`);
                 return;
             }
             await withTimeout(
                 () => state.worker.terminate(),
-                SEARCH_WORKER_TERMINATE_TIMEOUT_MS,
+                cooperativeStopRequested
+                    ? forcedTerminationReserveMs
+                    : SEARCH_WORKER_TERMINATE_TIMEOUT_MS,
             );
+            assertWorkerShutdownSucceeded();
             log.debug(`Search worker lifecycle: sender ${senderId} worker terminated`);
         })()
             .catch((error) => {
@@ -668,6 +739,9 @@ export class SearchWorkerService {
                         getErrorMessage(error)
                     }`,
                 );
+                if (surfaceWorkerShutdownError) {
+                    throw error;
+                }
             })
             .finally(() => {
                 this.workerTerminationPromises.delete(state.worker);
@@ -684,6 +758,7 @@ export class SearchWorkerService {
             reason?: string;
             rejectionError?: Error;
             expectedState?: ISenderSearchState;
+            shutdownWorker?: boolean;
         } = {},
     ) {
         const state = this.senderSearchStates.get(senderId);
@@ -702,9 +777,11 @@ export class SearchWorkerService {
                 this.warmupSingleflightsByDocument.delete(documentBuildKey);
             }
         }
-        const cooperativeStopRequested = options.cooperativeStop !== false
-            && options.terminateWorker !== false
-            && this.postCancelMessagesForRequests(state);
+        const cooperativeStopRequested = options.terminateWorker !== false && (
+            options.shutdownWorker
+                ? this.postShutdownMessage(state, reason)
+                : options.cooperativeStop !== false && this.postCancelMessagesForRequests(state)
+        );
         const error = options.rejectionError ?? new Error(reason);
         for (const request of state.requests.values()) {
             this.clearCancellationFallbackTimeout(request);
@@ -714,7 +791,13 @@ export class SearchWorkerService {
         state.requests.clear();
         state.activeRequestId = null;
         if (options.terminateWorker !== false) {
-            this.terminateWorkerAfterCooperativeStop(senderId, state, reason, cooperativeStopRequested);
+            this.terminateWorkerAfterCooperativeStop(
+                senderId,
+                state,
+                reason,
+                cooperativeStopRequested,
+                options.shutdownWorker === true,
+            );
         }
     }
 
@@ -819,9 +902,19 @@ export class SearchWorkerService {
             requests: new Map(),
             idleCleanupTimer: null,
             lastActivityAtMs: Date.now(),
+            shutdownAcknowledged: false,
+            shutdownError: null,
         };
         log.info(`Search worker lifecycle: created worker for sender ${senderId}`);
         worker.on('message', (message: unknown) => {
+            const shutdownResult = parseSearchWorkerShutdownResult(message);
+            if (shutdownResult) {
+                state.shutdownAcknowledged = true;
+                state.shutdownError = shutdownResult.error
+                    ? new Error(shutdownResult.error)
+                    : null;
+                return;
+            }
             const requestId = getSearchWorkerOutboundRequestId(message);
             if (requestId !== null && !state.requests.has(requestId)) {
                 return;
