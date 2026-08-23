@@ -6,14 +6,16 @@ import type {
     TAgentCapabilityDomain,
 } from '@contracts/agent';
 import { AGENT_CAPABILITY_DOMAINS } from '@contracts/agent';
-import {
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import { isOneOf } from '@contracts/runtimeGuards';
 import {
     AGENT_CAPABILITY_TEMPLATES,
     type IAgentCapabilityTemplate,
 } from '@electron/features/agent/mcp/mcpDefinitions';
+import {
+    getOptionalTabId,
+    getOptionalWindowId,
+    getParamsObject,
+} from '@electron/features/agent/mcp/mcpRequestParams';
 
 const AGENT_CAPABILITY_ALIASES: Record<string, string> = {
     'document.screenshot_page': 'document.capture_page_image',
@@ -40,24 +42,6 @@ const AGENT_CAPABILITY_ALIASES: Record<string, string> = {
 };
 
 interface ICapabilitySnapshotOptions { getWorkspaceSnapshot(windowId?: number): Promise<IAgentWorkspaceSnapshot>; }
-
-function getParamsObject(params: unknown) {
-    return isRecord(params) ? params : {};
-}
-
-function getOptionalWindowId(params: unknown) {
-    const paramsObject = getParamsObject(params);
-    return typeof paramsObject.windowId === 'number' && Number.isFinite(paramsObject.windowId)
-        ? paramsObject.windowId
-        : undefined;
-}
-
-function getOptionalTabId(params: unknown) {
-    const paramsObject = getParamsObject(params);
-    return typeof paramsObject.tabId === 'string' && paramsObject.tabId.trim().length > 0
-        ? paramsObject.tabId.trim()
-        : undefined;
-}
 
 function getOptionalCapabilityDomain(params: unknown): TAgentCapabilityDomain | undefined {
     const value = getParamsObject(params).domain;

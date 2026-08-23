@@ -10,6 +10,7 @@ import {
     annotationIdForSummary,
 } from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
+import { parseAgentResourceUri } from '@contracts/agentResourceUri';
 
 interface ICreateDocumentAgentResourcesOptions {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
@@ -53,26 +54,6 @@ function toAgentInventoryFields(completeness: IAnnotationInventoryCompleteness |
         inventoryScannedPageCount: completeness.scannedPageCount,
         inventoryTotalPageCount: completeness.totalPageCount,
         inventoryFailedPageCount: completeness.failedPageCount,
-    };
-}
-
-function parseAgentResourceUri(uri: string) {
-    let parsed: URL;
-    try {
-        parsed = new URL(uri);
-    } catch {
-        throw new Error(`Invalid EVB resource URI: ${uri}`);
-    }
-    if (parsed.protocol !== 'evb:') {
-        throw new Error(`Unsupported EVB resource URI protocol: ${parsed.protocol}`);
-    }
-    const parts = parsed.pathname
-        .split('/')
-        .filter(Boolean)
-        .map(part => decodeURIComponent(part));
-    return {
-        host: parsed.hostname,
-        parts,
     };
 }
 

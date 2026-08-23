@@ -3,6 +3,7 @@ import type {
     IAgentWorkspaceSnapshot,
     TAgentCommand,
 } from '@contracts/agent';
+import { parseAgentResourceUri } from '@contracts/agentResourceUri';
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
     IAgentDocumentPageReadOptions,
@@ -21,6 +22,11 @@ import {
     getJsonRpcId,
     type IJsonRpcResponse,
 } from '@electron/features/agent/mcp/mcpJsonRpc';
+import {
+    getOptionalTabId,
+    getOptionalWindowId,
+    getParamsObject,
+} from '@electron/features/agent/mcp/mcpRequestParams';
 import {
     describeAgentCapability,
     getCapabilityTemplate,
@@ -127,24 +133,6 @@ function getRequiredCapability<TCapability>(
         throw new Error(`${name} is not available in this EVB Viewer MCP session.`);
     }
     return capability;
-}
-
-function getParamsObject(params: unknown) {
-    return isRecord(params) ? params : {};
-}
-
-function getOptionalWindowId(params: unknown) {
-    const paramsObject = getParamsObject(params);
-    return typeof paramsObject.windowId === 'number' && Number.isFinite(paramsObject.windowId)
-        ? paramsObject.windowId
-        : undefined;
-}
-
-function getOptionalTabId(params: unknown) {
-    const paramsObject = getParamsObject(params);
-    return typeof paramsObject.tabId === 'string' && paramsObject.tabId.trim().length > 0
-        ? paramsObject.tabId.trim()
-        : undefined;
 }
 
 function getRequiredTabId(params: unknown) {
@@ -693,26 +681,7 @@ function parseResourceUri(uri: unknown) {
         throw new Error('resources/read requires params.uri.');
     }
 
-    let parsed: URL;
-    try {
-        parsed = new URL(uri);
-    } catch {
-        throw new Error(`Invalid EVB resource URI: ${uri}`);
-    }
-
-    if (parsed.protocol !== 'evb:') {
-        throw new Error(`Unsupported resource URI protocol: ${parsed.protocol}`);
-    }
-
-    const parts = parsed.pathname
-        .split('/')
-        .filter(Boolean)
-        .map(part => decodeURIComponent(part));
-    return {
-        uri,
-        host: parsed.hostname,
-        parts,
-    };
+    return parseAgentResourceUri(uri);
 }
 
 function createTextResourceContent(uri: string, text: string, mimeType: string) {
