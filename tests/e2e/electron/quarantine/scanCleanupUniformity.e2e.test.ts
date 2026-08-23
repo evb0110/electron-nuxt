@@ -10,6 +10,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import {
+    dirname,
     join,
     resolve,
 } from 'node:path';
@@ -18,17 +19,51 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
+import type {
+    IScanCleanupOptions,
+    TScanCleanupLayoutByPage,
+} from '@contracts/electronApiScanCleanup';
+import {
+    decodeNativeScanCleanupOutputMetadataJson,
+    decodeNativeScanCleanupPageMetadataJson,
+} from '@contracts/scan-cleanup/nativeArtifactCodecs';
+import type {TScanCleanupWarningEvent} from '@contracts/scan-cleanup/nativeProtocolV3';
+import type * as TScanCleanupWarningEventsModule from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 import {
     SCAN_CLEANUP_SETTINGS_FILE_NAME,
     createDefaultScanCleanupSettingsFile,
 } from '@contracts/scanCleanupSettings';
+import {
+    createScanCleanupPreviewService,
+    type IScanCleanupDetectionSubscriber,
+} from '@electron/features/scan-cleanup/createScanCleanupPreviewService';
+import {
+    forgetWorkingCopyOriginalPath,
+    setWorkingCopyOriginalPath,
+} from '@electron/file-access/workingCopyStore';
+import {readPdfPageSizes} from '@scan-cleanup-core/pdfPageSizes';
+import type {IPdfPageSize} from '@scan-cleanup-core/types';
+import {SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI} from '@scan-cleanup-core/policy/documentCanvas';
+import {
+    resolveCliNativeToolPath,
+    runCliNativeToolCommand,
+} from '@scripts/scanCleanupCliAdapters';
 import {createE2ERunScopedSessionName} from '@scripts/electron-run/electronRunRunId';
 import {
     electronUserDataPath,
     sessionDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {
+    createMixedOrientationScannedFixturePdf,
+    createRotatedScannedFixturePdf,
+    createSmallCanvasScannedFixturePdf,
+    createSpreadScannedFixturePdf,
+    createUnequalSpreadScannedFixturePdf,
+    createVariedContentScannedFixturePdf,
+} from '@tests/e2e/electron/helpers/fixtures';
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     clickVisibleToolbarButton,
@@ -37,6 +72,29 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import type {IWorkspaceExposeProbeWindow} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    SCAN_CLEANUP_PARITY_CANVAS_DPI,
+    SCAN_CLEANUP_PARITY_CASES,
+    SCAN_CLEANUP_PARITY_EXACT_BOUNDARY_PAGE_POINTS,
+    SCAN_CLEANUP_PARITY_OVER_CONSTRAINED_PAGE_POINTS,
+    assertScanCleanupParityIdentities,
+    assertScanCleanupParityReport,
+    attributeScanCleanupParityWarningEvents,
+    buildScanCleanupParityIdentities,
+    buildScanCleanupParityReport,
+    mapScanCleanupParityAnalysisRectToPdfPoints,
+    normalizeScanCleanupParityCanvasPixelObservation,
+    normalizeScanCleanupParityPointsObservation,
+    presentScanCleanupParityPageSpaceRect,
+    resolveScanCleanupParityCoverageGaps,
+    type IScanCleanupParityCapturedWarningEvent,
+    type IScanCleanupParityCase,
+    type IScanCleanupParityEngineIdentity,
+    type IScanCleanupParityFixtureIdentity,
+    type IScanCleanupParityObservation,
+    type IScanCleanupParityPathSubstitution,
+    type TScanCleanupParityFixture,
+} from '@tests/helpers/scanCleanupParityCorpus';
 
 interface IWordLossReport {
     pages?: Array<{
@@ -302,6 +360,737 @@ describe('scan cleanup app/CLI uniformity', () => {
                 }, null, 2)}\n`,
                 'utf8',
             );
+        },
+        4_500_000,
+    );
+});
+
+type TScanCleanupWarningEventFormatter
+    = typeof TScanCleanupWarningEventsModule.formatScanCleanupWarningEvent;
+
+/**
+ * SC-IMP-003 events are typed records inside the process that raises them and
+ * sentences everywhere else. Preview runs in this process, so wrapping the one
+ * formatter every preview condition passes through — the shared policy the
+ * renderer's text already comes from — reads the code and its parameters
+ * without decoding a sentence back into a condition. The wrapper delegates to
+ * the real formatter, so what preview publishes is unchanged, and each
+ * published sentence is matched back to the event that produced it by
+ * `attributeScanCleanupParityWarningEvents`.
+ */
+const {
+    previewWarningEventCapture,
+    warningEventFormatter,
+} = vi.hoisted(() => ({
+    previewWarningEventCapture: [] as IScanCleanupParityCapturedWarningEvent[],
+    // The corpus reconstructs sentences the engine already published instead of
+    // reading them, so it needs the same formatter without its own calls
+    // landing in the preview capture. The mock factory is the only place that
+    // holds the unwrapped function, so it hands it back here.
+    warningEventFormatter: {current: null as TScanCleanupWarningEventFormatter | null},
+}));
+
+vi.mock('@scan-cleanup-core/policy/scanCleanupWarningEvents', async importOriginal => {
+    const actual = await importOriginal<typeof TScanCleanupWarningEventsModule>();
+    warningEventFormatter.current = actual.formatScanCleanupWarningEvent;
+    return {
+        ...actual,
+        formatScanCleanupWarningEvent: (event: TScanCleanupWarningEvent, pageNumber?: number) => {
+            const formatted = actual.formatScanCleanupWarningEvent(event, pageNumber);
+            previewWarningEventCapture.push({
+                event,
+                formatted,
+            });
+            return formatted;
+        },
+    };
+});
+
+/**
+ * The native output artifact as written to the evidence directory: the decoded
+ * protocol record plus the applied margins the engine reports beside it.
+ */
+type TNativeOutputArtifact = ReturnType<typeof decodeNativeScanCleanupOutputMetadataJson> & {
+    sourceDpi?: number | null;
+    appliedMargins?: {
+        leftPx: number;
+        topPx: number;
+        rightPx: number;
+        bottomPx: number;
+    };
+};
+
+interface ISplitInstructionOutput {
+    cropRect: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
+    contentTransform?: {
+        scale: number;
+        translateX: number;
+        translateY: number;
+    };
+}
+
+interface ISplitInstructionsPage {
+    sourcePageIndex: number;
+    outputs: ISplitInstructionOutput[];
+}
+
+interface ISplitInstructionsFile {pages: ISplitInstructionsPage[];}
+
+interface ICorpusCliSummary {
+    conversionSummary: {warnings: string[];};
+    perPageStreamSizes: Array<{
+        sourcePageNumber: number;
+        outputOrdinal: number;
+        sourceDpi: number | null;
+    }>;
+}
+
+const corpusEnabled = process.env.EVB_SCAN_CLEANUP_PARITY_CORPUS === '1';
+/**
+ * The one path whose typed events this run cannot reach, with the blocker as
+ * measured rather than as assumed. Every other path publishes codes: the raster
+ * engine writes them into its output artifacts, and preview raises them in this
+ * process.
+ */
+const CORPUS_LOSSLESS_TYPED_WARNING_BLOCKER = {
+    path: 'lossless-final' as const,
+    reason: 'The lossless assembler raises its conditions inside the conversion child process and formats each '
+        + 'one through the shared policy before it crosses any boundary. Protocol-v3 page metadata declares no '
+        + 'warningEvents field, so the analysis artifacts the evidence directory preserves (analysis-*.json, '
+        + 'split-pages.json, lossless-analysis-manifest.json) carry none, and the run summary publishes only '
+        + 'conversionSummary.warnings as sentences. Reaching the codes would require the assembler to publish '
+        + 'them, which is a production change Stage A does not make.',
+};
+const corpusRoot = join(artifactRoot, 'parity-corpus');
+const convertScript = resolve(process.cwd(), 'scripts/scan-cleanup-convert.ts');
+
+const CORPUS_FIXTURE_PAGE_COUNTS: Record<TScanCleanupParityFixture, number> = {
+    'varied-content': 2,
+    rotated: 4,
+    spread: 1,
+    'unequal-spread': 1,
+    'mixed-orientation': 2,
+    'small-canvas-exact': 2,
+    'small-canvas-over': 2,
+};
+
+const corpusFixtureFiles: Record<TScanCleanupParityFixture, string> = {
+    'varied-content': 'parity-varied-content.pdf',
+    rotated: 'parity-rotated.pdf',
+    spread: 'parity-spread.pdf',
+    'unequal-spread': 'parity-unequal-spread.pdf',
+    'mixed-orientation': 'parity-mixed-orientation.pdf',
+    'small-canvas-exact': 'parity-small-canvas-exact.pdf',
+    'small-canvas-over': 'parity-small-canvas-over.pdf',
+};
+
+/**
+ * Every corpus fixture is scanned at the corpus canvas DPI so that detection,
+ * the preview render and the final render share one pixel grid: a content box
+ * measured on a different grid would move placement without any fitter
+ * disagreeing.
+ */
+async function provisionCorpusFixture(fixture: TScanCleanupParityFixture) {
+    const fileName = corpusFixtureFiles[fixture];
+    const dpi = SCAN_CLEANUP_PARITY_CANVAS_DPI;
+    switch (fixture) {
+        case 'varied-content':
+            return createVariedContentScannedFixturePdf(fileName, 2, dpi);
+        case 'rotated':
+            return createRotatedScannedFixturePdf(fileName, dpi);
+        case 'spread':
+            return createSpreadScannedFixturePdf(fileName, 1, dpi);
+        case 'unequal-spread':
+            return createUnequalSpreadScannedFixturePdf(fileName, 1, dpi);
+        case 'mixed-orientation':
+            return createMixedOrientationScannedFixturePdf(fileName, 2, dpi);
+        case 'small-canvas-exact':
+            return createSmallCanvasScannedFixturePdf(
+                fileName,
+                SCAN_CLEANUP_PARITY_EXACT_BOUNDARY_PAGE_POINTS.widthPoints,
+                SCAN_CLEANUP_PARITY_EXACT_BOUNDARY_PAGE_POINTS.heightPoints,
+                dpi,
+            );
+        case 'small-canvas-over':
+            return createSmallCanvasScannedFixturePdf(
+                fileName,
+                SCAN_CLEANUP_PARITY_OVER_CONSTRAINED_PAGE_POINTS.widthPoints,
+                SCAN_CLEANUP_PARITY_OVER_CONSTRAINED_PAGE_POINTS.heightPoints,
+                dpi,
+            );
+    }
+}
+
+function fileIdentity(path: string) {
+    const bytes = readFileSync(path);
+    return {
+        bytes: bytes.byteLength,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+    };
+}
+
+/**
+ * The override is stubbed rather than assigned so the opt-in run leaves the
+ * process it borrowed exactly as it found it, including when an exceedance
+ * ends the test early.
+ */
+function pinCorpusEngine(
+    binaryName: string,
+    crateName: string,
+    envVar: string,
+): IScanCleanupParityEngineIdentity {
+    const override = process.env[envVar]?.trim() ?? '';
+    const resolved = override === ''
+        ? resolveCliNativeToolPath(binaryName, crateName, process.cwd())
+        : override;
+    expect(resolved, `${binaryName} binary`).not.toBeNull();
+    vi.stubEnv(envVar, resolved!);
+    return {
+        binaryName,
+        path: resolved!,
+        ...fileIdentity(resolved!),
+    };
+}
+
+function corpusLayoutByPage(parityCase: IScanCleanupParityCase, pageCount: number) {
+    const classification = parityCase.layoutMode === 'force-two-page'
+        ? 'two-page-spread'
+        : 'single-uncut-page';
+    return Object.fromEntries(Array.from({length: pageCount}, (_value, index) => [
+        String(index + 1),
+        classification,
+    ])) as TScanCleanupLayoutByPage;
+}
+
+function corpusOptions(parityCase: IScanCleanupParityCase, preserveOriginalQuality: boolean): IScanCleanupOptions {
+    return {
+        preserveOriginalQuality,
+        layoutMode: parityCase.layoutMode,
+        outputMode: 'bw',
+        readingOrder: 'ltr',
+        thickness: 0,
+        crop: true,
+        matchPageSize: true,
+        pageAlignment: parityCase.pageAlignment,
+        marginsMm: parityCase.marginsMm,
+        despeckle: false,
+        skipBlankPages: false,
+        pageOverrides: {},
+    };
+}
+
+async function runCorpusConversion(
+    parityCase: IScanCleanupParityCase,
+    fixturePath: string,
+    quality: 'raster' | 'lossless',
+) {
+    const caseDir = join(corpusRoot, parityCase.id);
+    const evidenceDir = join(caseDir, `${quality}-evidence`);
+    const outputPath = join(caseDir, `${quality}.pdf`);
+    rmSync(evidenceDir, {
+        force: true,
+        recursive: true,
+    });
+    mkdirSync(evidenceDir, {recursive: true});
+    const {marginsMm} = parityCase;
+    await execFileAsync(process.execPath, [
+        '--import',
+        'tsx',
+        convertScript,
+        '--source',
+        fixturePath,
+        '--out',
+        outputPath,
+        '--margins-mm',
+        [
+            marginsMm.leftMm,
+            marginsMm.topMm,
+            marginsMm.rightMm,
+            marginsMm.bottomMm,
+        ].map(value => String(value)).join(','),
+        '--layout-mode',
+        parityCase.layoutMode,
+        // One representation for every page of every case: placement is what
+        // this corpus measures, and the evidence channel the run publishes it
+        // through needs a bilevel plane on the page it snapshots.
+        '--output-mode',
+        'bw',
+        // Without parity the CLI assembles with its own fallback writers, and
+        // the placement the oracle then reads is not the placement the product
+        // ships.
+        '--parity',
+        ...(quality === 'lossless' ? ['--preserve-original-quality'] : []),
+        // The evidence directory is how the run publishes the native output
+        // metadata and the lossless split instructions this oracle reads; the
+        // CLI only enables it together with a mask page.
+        '--diagnostic-evidence-dir',
+        evidenceDir,
+        '--diagnostic-mask-pages',
+        '1',
+    ], {
+        cwd: process.cwd(),
+        maxBuffer: 8 * 1024 * 1024,
+    });
+    const summary = JSON.parse(
+        readFileSync(`${outputPath}.summary.json`, 'utf8'),
+    ) as ICorpusCliSummary;
+    return {
+        evidenceDir: join(evidenceDir, 'native'),
+        outputPath,
+        summary,
+    };
+}
+
+async function readCorpusPageSizes(parityCase: IScanCleanupParityCase, fixturePath: string) {
+    const pageOpsBinary = resolveCliNativeToolPath('evb-pdf-page-ops', 'pdf-page-ops', process.cwd());
+    const pdfinfoBinary = resolveCliNativeToolPath('pdfinfo', 'poppler', process.cwd());
+    expect(pageOpsBinary ?? pdfinfoBinary, 'a tool that can read page geometry').not.toBeNull();
+    return readPdfPageSizes(fixturePath, {
+        ...(pageOpsBinary === null ? {} : {pdfPageOpsBinary: pageOpsBinary}),
+        ...(pdfinfoBinary === null ? {} : {pdfinfoBinary}),
+        tempDir: join(corpusRoot, parityCase.id),
+        log: () => undefined,
+        runCommand: runCliNativeToolCommand,
+    });
+}
+
+function readRasterObservations(
+    parityCase: IScanCleanupParityCase,
+    nativeEvidenceDir: string,
+    summary: ICorpusCliSummary,
+    pageSizes: readonly IPdfPageSize[],
+) {
+    const outputs = readdirSync(nativeEvidenceDir)
+        .map(name => /^clean-(\d+)-(\d+)\.json$/u.exec(name))
+        .filter((match): match is RegExpExecArray => match !== null)
+        .map(match => ({
+            fileName: match[0],
+            sourcePageNumber: Number(match[1]),
+            outputOrdinal: Number(match[2]),
+        }))
+        .sort((left, right) => left.sourcePageNumber - right.sourcePageNumber
+            || left.outputOrdinal - right.outputOrdinal);
+    expect(outputs.length, `${parityCase.id} raster outputs`).toBeGreaterThan(0);
+    return outputs.map(output => {
+        const metadata = decodeNativeScanCleanupOutputMetadataJson(
+            readFileSync(join(nativeEvidenceDir, output.fileName), 'utf8'),
+        ) as TNativeOutputArtifact;
+        return normalizeScanCleanupParityCanvasPixelObservation({
+            caseId: parityCase.id,
+            path: 'raster-final',
+            canvasGrid: 'raster-canvas',
+            sourcePageNumber: output.sourcePageNumber,
+            outputOrdinal: output.outputOrdinal,
+            sourceRotationDegrees: pageSizes[output.sourcePageNumber - 1]?.rotation ?? 0,
+            requestedMarginsMm: parityCase.marginsMm,
+            requestedAlignment: parityCase.pageAlignment,
+            metadata: {
+                ...metadata,
+                sourceDpi: metadata.sourceDpi ?? summary.perPageStreamSizes.find(
+                    page => page.sourcePageNumber === output.sourcePageNumber,
+                )?.sourceDpi ?? null,
+            },
+            publishesTypedWarningEvents: true,
+        });
+    });
+}
+
+/**
+ * The largest document this run rebuilds a reported page list for. The search
+ * is over the page subsets of the document, and every corpus fixture is a
+ * handful of pages, so a fixture that outgrows this has to be identified by a
+ * mechanism that scales rather than by a search that quietly stops working.
+ */
+const RESAMPLED_PAGE_LIST_SEARCH_PAGE_LIMIT = 12;
+
+/**
+ * The sentence a run published when matched page size had to re-render pages
+ * off the shared pixel grid, identified by rebuilding it rather than by reading
+ * it. The conversion summary transports its warnings as text only, and the page
+ * list inside this event is the run's own measurement, so every ascending page
+ * subset of the document is formatted through the shared policy formatter and
+ * compared for equality. The match is decided by the typed event code and the
+ * page list the run actually reported: no English is parsed and no page number
+ * is assumed. The evidence limitation this works around is the same one
+ * CORPUS_LOSSLESS_TYPED_WARNING_BLOCKER records — the run summary carries no
+ * typed warning channel for the conversion child to publish the event through.
+ */
+function findMatchedCanvasResampledWarning(
+    warnings: readonly string[],
+    pageSizes: readonly IPdfPageSize[],
+) {
+    const format = warningEventFormatter.current;
+    if (format === null) {
+        throw new Error('The scan-cleanup warning policy mock did not publish its formatter');
+    }
+    if (pageSizes.length > RESAMPLED_PAGE_LIST_SEARCH_PAGE_LIMIT) {
+        throw new Error(
+            `Rebuilding a reported page list is bounded at ${String(RESAMPLED_PAGE_LIST_SEARCH_PAGE_LIMIT)} `
+            + `pages and this document has ${String(pageSizes.length)}`,
+        );
+    }
+    const documentPageNumbers = pageSizes.map(pageSize => pageSize.pageNumber);
+    const reportable = new Set<string>();
+    for (let subset = 1; subset < 2 ** documentPageNumbers.length; subset += 1) {
+        reportable.add(format({
+            code: 'matched-canvas-pages-resampled',
+            pages: documentPageNumbers.filter((_, index) => (subset & (1 << index)) !== 0),
+        }));
+    }
+    return warnings.find(warning => reportable.has(warning)) ?? null;
+}
+
+function readLosslessObservations(
+    parityCase: IScanCleanupParityCase,
+    nativeEvidenceDir: string,
+    summary: ICorpusCliSummary,
+    pageSizes: readonly IPdfPageSize[],
+) {
+    const instructionsPath = join(nativeEvidenceDir, 'split-pages.json');
+    if (!existsSync(instructionsPath)) {
+        // Matched page size re-renders any page that cannot reach the shared
+        // pixel grid losslessly, and such a run never reaches the lossless
+        // assembler. The case keeps its other two paths and the report says
+        // why the third is absent.
+        return {
+            observations: [],
+            substitution: {
+                caseId: parityCase.id,
+                path: 'lossless-final' as const,
+                reason: findMatchedCanvasResampledWarning(
+                    summary.conversionSummary.warnings,
+                    pageSizes,
+                ) ?? 'The lossless assembler did not run for this document',
+            },
+        };
+    }
+    const instructions = JSON.parse(readFileSync(instructionsPath, 'utf8')) as ISplitInstructionsFile;
+    const observations = instructions.pages.flatMap(page => {
+        const sourcePageNumber = page.sourcePageIndex + 1;
+        const analysis = decodeNativeScanCleanupPageMetadataJson(readFileSync(
+            join(nativeEvidenceDir, `analysis-${String(sourcePageNumber)}.json`),
+            'utf8',
+        ));
+        const pageSize = pageSizes[sourcePageNumber - 1];
+        expect(pageSize, `${parityCase.id} page ${String(sourcePageNumber)} geometry`).toBeTruthy();
+        return page.outputs.map((output, outputOrdinal) => {
+            const analysisOutput = analysis.outputs?.[outputOrdinal];
+            expect(
+                analysisOutput,
+                `${parityCase.id} page ${String(sourcePageNumber)} analysis output ${String(outputOrdinal)}`,
+            ).toBeTruthy();
+            // The assembler consumes the analysed crop in the page's own user
+            // space. The oracle derives that projection itself, from the page
+            // geometry the document declares, so an assembler that projects the
+            // crop wrongly is a disagreement this corpus can report rather than
+            // one it inherits.
+            const contentPdf = mapScanCleanupParityAnalysisRectToPdfPoints(
+                analysisOutput!.cropRect,
+                analysisOutput!.inputWidthPx,
+                analysisOutput!.inputHeightPx,
+                analysis.rotationDegrees,
+                pageSize!,
+            );
+            const transform = output.contentTransform;
+            const pageSpaceContent = transform === undefined
+                ? {
+                    x: contentPdf.x - output.cropRect.x,
+                    y: contentPdf.y - output.cropRect.y,
+                    width: contentPdf.width,
+                    height: contentPdf.height,
+                }
+                : {
+                    x: (contentPdf.x * transform.scale) + transform.translateX,
+                    y: (contentPdf.y * transform.scale) + transform.translateY,
+                    width: contentPdf.width * transform.scale,
+                    height: contentPdf.height * transform.scale,
+                };
+            const presented = presentScanCleanupParityPageSpaceRect(
+                {
+                    width: output.cropRect.width,
+                    height: output.cropRect.height,
+                },
+                pageSpaceContent,
+                pageSize!.rotation + analysis.rotationDegrees,
+            );
+            return normalizeScanCleanupParityPointsObservation({
+                caseId: parityCase.id,
+                sourcePageNumber,
+                outputOrdinal,
+                half: analysisOutput!.half,
+                sourceRotationDegrees: pageSize!.rotation,
+                rotationDegrees: analysis.rotationDegrees,
+                sourceDpi: summary.perPageStreamSizes.find(
+                    entry => entry.sourcePageNumber === sourcePageNumber,
+                )?.sourceDpi ?? null,
+                canvasDpi: SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
+                requestedMarginsMm: parityCase.marginsMm,
+                requestedAlignment: parityCase.pageAlignment,
+                ...presented,
+                warningEvents: null,
+                warningMessages: summary.conversionSummary.warnings.filter(
+                    warning => warning.startsWith(`Page ${String(sourcePageNumber)}: `),
+                ),
+            });
+        });
+    });
+    return {
+        observations,
+        substitution: null,
+    };
+}
+
+async function readPreviewObservations(
+    parityCase: IScanCleanupParityCase,
+    fixturePath: string,
+    pageCount: number,
+    pageSizes: readonly IPdfPageSize[],
+    registeredWorkingCopies: Set<string>,
+) {
+    // Preview only renders documents the owner opened. The corpus registers the
+    // fixture as its own working copy, which is what an opened document is
+    // before any edit materializes a separate copy. The registration is
+    // recorded so the run can retire it again.
+    registeredWorkingCopies.add(fixturePath);
+    await setWorkingCopyOriginalPath(fixturePath, fixturePath, 1, {backingState: 'eager'});
+    const service = createScanCleanupPreviewService();
+    // The preview service only needs an identity, a destroyed check and the
+    // listener hooks it unbinds on dispose: a corpus run awaits each preview
+    // and consumes no streamed detection events.
+    const subscriber: IScanCleanupDetectionSubscriber = {
+        id: 1,
+        isDestroyed: () => false,
+        send: vi.fn(),
+        on: vi.fn(),
+        once: vi.fn(),
+        removeListener: vi.fn(),
+    };
+    try {
+        const observations: IScanCleanupParityObservation[] = [];
+        for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+            previewWarningEventCapture.length = 0;
+            const result = await service.preview(subscriber, {
+                ownerId: `parity-${parityCase.id}`,
+                documentRevision: `${parityCase.id}-revision`,
+                requestId: `${parityCase.id}-page-${String(pageNumber)}`,
+                sourcePdfPath: fixturePath,
+                pageNumber,
+                options: corpusOptions(parityCase, true),
+                layoutByPage: corpusLayoutByPage(parityCase, pageCount),
+                layoutDetectionComplete: true,
+            });
+            expect(
+                'outputs' in result,
+                `${parityCase.id} preview page ${String(pageNumber)}`,
+            ).toBe(true);
+            const outputs = 'outputs' in result ? result.outputs : [];
+            for (const [
+                outputOrdinal,
+                output,
+            ] of outputs.entries()) {
+                observations.push(normalizeScanCleanupParityCanvasPixelObservation({
+                    caseId: parityCase.id,
+                    path: 'preview',
+                    canvasGrid: 'preview-raster',
+                    sourcePageNumber: pageNumber,
+                    outputOrdinal,
+                    sourceRotationDegrees: pageSizes[pageNumber - 1]?.rotation ?? 0,
+                    requestedMarginsMm: parityCase.marginsMm,
+                    requestedAlignment: parityCase.pageAlignment,
+                    metadata: {
+                        ...output.metadata,
+                        // Preview reaches the renderer as sentences, so the
+                        // typed events come from the formatter capture. They
+                        // supersede any events the metadata carried: the
+                        // capture holds the engine's events and the ones
+                        // Electron itself raised, each taken by the sentence it
+                        // produced rather than by its place in the queue.
+                        warningEvents: attributeScanCleanupParityWarningEvents(
+                            previewWarningEventCapture,
+                            output.metadata.warnings,
+                        ),
+                    },
+                    publishesTypedWarningEvents: true,
+                }));
+            }
+            expect(
+                previewWarningEventCapture,
+                `${parityCase.id} preview page ${String(pageNumber)} unattributed warning events`,
+            ).toHaveLength(0);
+        }
+        return observations;
+    } finally {
+        await service.dispose();
+    }
+}
+
+describe('scan cleanup matched-canvas parity corpus', () => {
+    it.skipIf(!corpusEnabled)(
+        'places every fixture case within one raster canvas pixel across the three fitters',
+        async () => {
+            mkdirSync(corpusRoot, {recursive: true});
+            expect(resolveScanCleanupParityCoverageGaps()).toEqual([]);
+            const registeredWorkingCopies = new Set<string>();
+            try {
+                // One build of each engine answers for all three paths: the CLI
+                // children inherit these overrides and preview stops resolving a
+                // candidate of its own. The CLI sidecar does not verify the
+                // protocol version, so an unpinned run can compare two engine
+                // builds without saying so. An EVB_*_PATH already in the
+                // environment decides which build that is; otherwise the CLI
+                // resolver's first existing candidate is pinned, a staged .tmp
+                // build included, and the identities file records its digest.
+                const engines = [
+                    pinCorpusEngine('evb-scan-cleanup', 'scan-cleanup', 'EVB_SCAN_CLEANUP_PATH'),
+                    pinCorpusEngine('evb-pdf-page-ops', 'pdf-page-ops', 'EVB_PDF_PAGE_OPS_PATH'),
+                    pinCorpusEngine('evb-pdf-image-combine', 'pdf-image-combine', 'EVB_PDF_IMAGE_COMBINE_PATH'),
+                ];
+                const fixtures: IScanCleanupParityFixtureIdentity[] = [];
+                const cases: Array<{
+                    parityCase: IScanCleanupParityCase;
+                    fixtureSha256: string;
+                    observations: IScanCleanupParityObservation[];
+                }> = [];
+                const fixturePaths = new Map<TScanCleanupParityFixture, string>();
+                const pathSubstitutions: IScanCleanupParityPathSubstitution[] = [];
+                for (const parityCase of SCAN_CLEANUP_PARITY_CASES) {
+                    const fixturePath = fixturePaths.get(parityCase.fixture)
+                        ?? await provisionCorpusFixture(parityCase.fixture);
+                    fixturePaths.set(parityCase.fixture, fixturePath);
+                    const fixturePageCount = CORPUS_FIXTURE_PAGE_COUNTS[parityCase.fixture];
+                    const identity = fileIdentity(fixturePath);
+                    if (!fixtures.some(entry => entry.fixture === parityCase.fixture)) {
+                        fixtures.push({
+                            fixture: parityCase.fixture,
+                            fileName: corpusFixtureFiles[parityCase.fixture],
+                            pageCount: fixturePageCount,
+                            ...identity,
+                        });
+                    }
+                    const pageSizes = await readCorpusPageSizes(parityCase, fixturePath);
+                    const raster = await runCorpusConversion(parityCase, fixturePath, 'raster');
+                    const lossless = await runCorpusConversion(parityCase, fixturePath, 'lossless');
+                    const losslessResult = readLosslessObservations(
+                        parityCase,
+                        lossless.evidenceDir,
+                        lossless.summary,
+                        pageSizes,
+                    );
+                    if (losslessResult.substitution) {
+                        pathSubstitutions.push(losslessResult.substitution);
+                    }
+                    // A case that declares a substitution must produce it, and a
+                    // case that declares none must produce none: a path that
+                    // quietly stops answering is the failure this corpus exists
+                    // to catch.
+                    expect(
+                        losslessResult.substitution === null ? [] : [losslessResult.substitution.path],
+                        `${parityCase.id} path substitutions`,
+                    ).toEqual([...parityCase.expectedPathSubstitutions ?? []]);
+                    cases.push({
+                        parityCase,
+                        fixtureSha256: identity.sha256,
+                        observations: [
+                            ...readRasterObservations(
+                                parityCase,
+                                raster.evidenceDir,
+                                raster.summary,
+                                pageSizes,
+                            ),
+                            ...losslessResult.observations,
+                            ...await readPreviewObservations(
+                                parityCase,
+                                fixturePath,
+                                fixturePageCount,
+                                pageSizes,
+                                registeredWorkingCopies,
+                            ),
+                        ],
+                    });
+                }
+                const report = buildScanCleanupParityReport({
+                    cases,
+                    fixtures,
+                    pathSubstitutions,
+                    typedWarningChannelLimitations: [CORPUS_LOSSLESS_TYPED_WARNING_BLOCKER],
+                });
+                const reportPath = join(corpusRoot, 'parity-corpus-report.json');
+                writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+                assertScanCleanupParityReport(JSON.parse(readFileSync(reportPath, 'utf8')));
+                // The identities file names the evidence by its bytes, so it is
+                // written from the report as it landed on disk rather than from
+                // the object that produced it.
+                const reportIdentity = fileIdentity(reportPath);
+                // Fixture identities name a file rather than a path, so the
+                // directory holding them is stated once and proven to be the
+                // only one: fixtures drawn from two places could not be
+                // re-hashed by name.
+                const fixtureDirs = [...new Set([...fixturePaths.values()].map(path => dirname(path)))];
+                expect(fixtureDirs, 'corpus fixture directory').toHaveLength(1);
+                const fixtureDir = fixtureDirs[0]!;
+                const identities = buildScanCleanupParityIdentities({
+                    engines,
+                    report,
+                    reportPath,
+                    reportSha256: reportIdentity.sha256,
+                    reportBytes: reportIdentity.bytes,
+                    fixtureDir,
+                });
+                const identitiesPath = join(corpusRoot, 'parity-corpus-identities.json');
+                writeFileSync(identitiesPath, `${JSON.stringify(identities, null, 2)}\n`, 'utf8');
+                assertScanCleanupParityIdentities(
+                    JSON.parse(readFileSync(identitiesPath, 'utf8')),
+                    report,
+                    {fixtureDir},
+                );
+
+                // Every case is measured on the one grid the tolerance is fixed
+                // for; a run that lands on another grid invalidates the tolerance
+                // rather than the placement.
+                //
+                // The DPI is divided back out of a pixel count the run derived
+                // from a point measurement, so it is only exactly the selected
+                // DPI where that arithmetic happens to be exact in binary. The
+                // exact-boundary fixture is 142.08 pt across: 142.08 / 72 * 150
+                // is 296.00000000000006, which the canvas rounds to 296 px, and
+                // 296 / 142.08 * 72 is 149.99999999999997 — the value that case
+                // reports on every run of this corpus. Six decimals is far
+                // tighter than any grid the corpus would accept as another one
+                // — the next candidate grid is 300 DPI — and it survives the
+                // last bits of a division the run cannot avoid.
+                for (const observation of report.cases.flatMap(entry => entry.observations)) {
+                    if (observation.canvasGrid !== 'raster-canvas') continue;
+                    expect(
+                        observation.canvasDpi,
+                        `${observation.caseId} raster canvas DPI`,
+                    ).toBeCloseTo(SCAN_CLEANUP_PARITY_CANVAS_DPI, 6);
+                }
+                for (const comparison of report.comparisons) {
+                    // A path may be absent only where the run recorded why.
+                    expect(
+                        comparison.missingPaths,
+                        `${comparison.caseId} page ${String(comparison.sourcePageNumber)} ${comparison.half}`,
+                    ).toEqual(report.pathSubstitutions
+                        .filter(substitution => substitution.caseId === comparison.caseId)
+                        .map(substitution => substitution.path));
+                }
+                expect(report.exceedances).toEqual([]);
+            } finally {
+                // The opt-in corpus borrows this process: the engine overrides,
+                // the working copies it registered and the formatter capture are
+                // retired even when an exceedance ends the run early, so no later
+                // test inherits them.
+                for (const workingPath of registeredWorkingCopies) {
+                    forgetWorkingCopyOriginalPath(workingPath);
+                }
+                previewWarningEventCapture.length = 0;
+                vi.unstubAllEnvs();
+            }
         },
         4_500_000,
     );

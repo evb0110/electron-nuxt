@@ -21,6 +21,7 @@ import {
 import {
     PDFDocument,
     StandardFonts,
+    degrees,
     rgb,
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
@@ -72,6 +73,14 @@ const GENERATED_DJVU_FIXTURE_FILENAME = [
     `${GENERATED_DJVU_FIXTURE_WIDTH}x${GENERATED_DJVU_FIXTURE_HEIGHT}`,
     `${GENERATED_DJVU_FIXTURE_DPI}dpi.djvu`,
 ].join('-');
+
+/**
+ * The resolution the scanned fixtures draw their page rasters at: 1224x1584 px
+ * on Letter. Callers that need every analysis stage to land on one pixel grid
+ * pass their own DPI instead.
+ */
+const SCANNED_FIXTURE_BASE_DPI = 144;
+
 export interface IPdfAnnotationSummary {
     total: number;
     bySubtype: Record<string, number>;
@@ -633,11 +642,16 @@ export async function createMixedSizeTextFixturePdf(filename: string) {
  * page for every variant. Matching page size has nothing to prove on a fixture
  * whose pages all crop alike.
  */
-export async function createVariedContentScannedFixturePdf(filename: string, pageCount: number) {
+export async function createVariedContentScannedFixturePdf(
+    filename: string,
+    pageCount: number,
+    rasterDpi = SCANNED_FIXTURE_BASE_DPI,
+) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
+    const rasterScale = rasterDpi / SCANNED_FIXTURE_BASE_DPI;
     const cacheKey = createHash('sha256')
-        .update(`varied-content-scanned-v1:${pageCount}`)
+        .update(`varied-content-scanned-v1:${pageCount}${rasterScale === 1 ? '' : `:${rasterDpi}`}`)
         .digest('hex');
     const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
     if (existsSync(cachePath)) {
@@ -664,8 +678,9 @@ export async function createVariedContentScannedFixturePdf(filename: string, pag
     ];
     const doc = await PDFDocument.create();
     const images = await Promise.all(variants.map(async variant => {
-        const canvas = createCanvas(1224, 1584);
+        const canvas = createCanvas(Math.round(1224 * rasterScale), Math.round(1584 * rasterScale));
         const context = canvas.getContext('2d');
+        context.scale(rasterScale, rasterScale);
         context.fillStyle = '#ffffff';
         context.fillRect(0, 0, 1224, 1584);
         context.fillStyle = '#1a1a1a';
@@ -705,11 +720,16 @@ export async function createVariedContentScannedFixturePdf(filename: string, pag
  * canvas taken from the sheet leaves every output page half empty and twice as
  * wide as the book.
  */
-export async function createSpreadScannedFixturePdf(filename: string, pageCount: number) {
+export async function createSpreadScannedFixturePdf(
+    filename: string,
+    pageCount: number,
+    rasterDpi = SCANNED_FIXTURE_BASE_DPI,
+) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
+    const rasterScale = rasterDpi / SCANNED_FIXTURE_BASE_DPI;
     const cacheKey = createHash('sha256')
-        .update(`spread-scanned-v1:${pageCount}`)
+        .update(`spread-scanned-v1:${pageCount}${rasterScale === 1 ? '' : `:${rasterDpi}`}`)
         .digest('hex');
     const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
     if (existsSync(cachePath)) {
@@ -720,8 +740,12 @@ export async function createSpreadScannedFixturePdf(filename: string, pageCount:
     const sheetHeightPx = 1_584;
     const halfWidthPx = sheetWidthPx / 2;
     const doc = await PDFDocument.create();
-    const canvas = createCanvas(sheetWidthPx, sheetHeightPx);
+    const canvas = createCanvas(
+        Math.round(sheetWidthPx * rasterScale),
+        Math.round(sheetHeightPx * rasterScale),
+    );
     const context = canvas.getContext('2d');
+    context.scale(rasterScale, rasterScale);
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, sheetWidthPx, sheetHeightPx);
     context.fillStyle = '#1a1a1a';
@@ -858,6 +882,317 @@ export async function createMixedScaleScannedFixturePdf(filename: string, pageCo
     writeFileSync(cachePath, bytes);
     copyFileSync(cachePath, filePath);
     return filePath;
+}
+
+/**
+ * One scanned original presented at the same rectangle through all four source
+ * rotations. The quarter-turned pages carry a landscape MediaBox and a
+ * `/Rotate`, which is how a scanner leaves a turned sheet, so every page
+ * presents Letter portrait and the document canvas is the same rectangle for
+ * all four. Rotation is therefore the only thing that varies between them.
+ */
+export async function createRotatedScannedFixturePdf(
+    filename: string,
+    rasterDpi = SCANNED_FIXTURE_BASE_DPI,
+) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const rasterScale = rasterDpi / SCANNED_FIXTURE_BASE_DPI;
+    const cacheKey = createHash('sha256')
+        .update(`rotated-scanned-v2${rasterScale === 1 ? '' : `:${rasterDpi}`}`)
+        .digest('hex');
+    const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
+    if (existsSync(cachePath)) {
+        copyFileSync(cachePath, filePath);
+        return filePath;
+    }
+    const doc = await PDFDocument.create();
+    const ink = {
+        insetXPx: 150,
+        insetYPx: 110,
+        lines: 24,
+    };
+    // A quarter-turned sheet carries a landscape raster on a landscape
+    // MediaBox. Reusing the portrait raster would squeeze it onto the turned
+    // page and give that page two different source resolutions.
+    const [
+        portrait,
+        landscape,
+    ] = await Promise.all([
+        doc.embedJpg(drawScannedPageJpeg(1_224, 1_584, ink, rasterScale)),
+        doc.embedJpg(drawScannedPageJpeg(1_584, 1_224, ink, rasterScale)),
+    ]);
+    for (const rotation of [
+        0,
+        90,
+        180,
+        270,
+    ]) {
+        const swapsAxes = rotation === 90 || rotation === 270;
+        const page = doc.addPage(swapsAxes ? [
+            792,
+            612,
+        ] : [
+            612,
+            792,
+        ]);
+        page.drawImage(swapsAxes ? landscape : portrait, {
+            x: 0,
+            y: 0,
+            width: swapsAxes ? 792 : 612,
+            height: swapsAxes ? 612 : 792,
+        });
+        page.setRotation(degrees(rotation));
+    }
+    const bytes = await doc.save();
+    mkdirSync(FIXTURE_CACHE_DIR, {recursive: true});
+    writeFileSync(cachePath, bytes);
+    copyFileSync(cachePath, filePath);
+    return filePath;
+}
+
+/**
+ * A scan on paper small enough that a margin inside the supported 0-25 mm range
+ * can reach or exceed the canvas it is laid out on. The margin fitter's
+ * boundary cannot be reached on Letter without asking for a margin the product
+ * refuses, so the paper shrinks instead of the request growing.
+ *
+ * This is the one scanned fixture with no fixed logical raster: its pixel
+ * dimensions are the requested paper at the requested DPI, and its ink extents,
+ * font and line pitch are fractions of those dimensions. It therefore hands the
+ * draw helper an already-scaled canvas and a scale of 1, where the fixed-size
+ * fixtures hand it their logical size and `rasterDpi / SCANNED_FIXTURE_BASE_DPI`.
+ * Both reach the same raster: the helper multiplies the dimensions by the scale
+ * and scales the drawing context by it, so scaling the dimensions up front and
+ * asking for no context scale is the same image. The cache key carries the DPI,
+ * so two resolutions of one paper size are two documents.
+ */
+export async function createSmallCanvasScannedFixturePdf(
+    filename: string,
+    widthPoints: number,
+    heightPoints: number,
+    rasterDpi = SCANNED_FIXTURE_BASE_DPI,
+) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const widthPx = Math.round(widthPoints / 72 * rasterDpi);
+    const heightPx = Math.round(heightPoints / 72 * rasterDpi);
+    const cacheKey = createHash('sha256')
+        .update(`small-canvas-scanned-v1:${widthPoints}:${heightPoints}:${rasterDpi}`)
+        .digest('hex');
+    const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
+    if (existsSync(cachePath)) {
+        copyFileSync(cachePath, filePath);
+        return filePath;
+    }
+    const doc = await PDFDocument.create();
+    const images = await Promise.all([
+        {
+            insetXPx: Math.round(widthPx * 0.12),
+            insetYPx: Math.round(heightPx * 0.14),
+            lines: 6,
+        },
+        {
+            insetXPx: Math.round(widthPx * 0.2),
+            insetYPx: Math.round(heightPx * 0.22),
+            lines: 4,
+        },
+    ].map(async ink => doc.embedJpg(drawScannedPageJpeg(widthPx, heightPx, {
+        ...ink,
+        fontPx: Math.max(8, Math.round(heightPx * 0.05)),
+        linePitchPx: Math.max(10, Math.round(heightPx * 0.08)),
+        text: 'Scanned body text',
+    }, 1))));
+    for (const image of images) {
+        const page = doc.addPage([
+            widthPoints,
+            heightPoints,
+        ]);
+        page.drawImage(image, {
+            x: 0,
+            y: 0,
+            width: widthPoints,
+            height: heightPoints,
+        });
+    }
+    const bytes = await doc.save();
+    mkdirSync(FIXTURE_CACHE_DIR, {recursive: true});
+    writeFileSync(cachePath, bytes);
+    copyFileSync(cachePath, filePath);
+    return filePath;
+}
+
+/**
+ * A spread whose two leaves were printed with visibly different ink extents:
+ * the left leaf carries a wide, tall block and the right leaf a narrow, short
+ * one. Splitting it produces two pages whose crops differ, which is what makes
+ * a shared spread placement decision observable — equal crops would agree by
+ * construction.
+ */
+export async function createUnequalSpreadScannedFixturePdf(
+    filename: string,
+    pageCount: number,
+    rasterDpi = SCANNED_FIXTURE_BASE_DPI,
+) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const rasterScale = rasterDpi / SCANNED_FIXTURE_BASE_DPI;
+    const cacheKey = createHash('sha256')
+        .update(`unequal-spread-scanned-v1:${pageCount}${rasterScale === 1 ? '' : `:${rasterDpi}`}`)
+        .digest('hex');
+    const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
+    if (existsSync(cachePath)) {
+        copyFileSync(cachePath, filePath);
+        return filePath;
+    }
+    const sheetWidthPx = 2_448;
+    const sheetHeightPx = 1_584;
+    const halfWidthPx = sheetWidthPx / 2;
+    const doc = await PDFDocument.create();
+    const canvas = createCanvas(
+        Math.round(sheetWidthPx * rasterScale),
+        Math.round(sheetHeightPx * rasterScale),
+    );
+    const context = canvas.getContext('2d');
+    context.scale(rasterScale, rasterScale);
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, sheetWidthPx, sheetHeightPx);
+    context.fillStyle = '#1a1a1a';
+    context.font = '34px serif';
+    for (const leaf of [
+        {
+            left: 0,
+            insetX: 120,
+            insetY: 120,
+            lines: 26,
+        },
+        {
+            left: halfWidthPx,
+            insetX: 300,
+            insetY: 320,
+            lines: 14,
+        },
+    ]) {
+        for (let line = 0; line < leaf.lines; line += 1) {
+            context.fillText(
+                'Scanned body text on one leaf of the spread',
+                leaf.left + leaf.insetX,
+                leaf.insetY + (line * 52),
+            );
+        }
+    }
+    context.fillStyle = '#ffffff';
+    context.fillRect(halfWidthPx - 60, 0, 120, sheetHeightPx);
+    context.fillStyle = '#8a8a8a';
+    context.fillRect(halfWidthPx - 2, 0, 4, sheetHeightPx);
+    const image = await doc.embedJpg(canvas.toBuffer('image/jpeg', 0.85));
+    for (let pageNumber = 0; pageNumber < pageCount; pageNumber += 1) {
+        const page = doc.addPage([
+            1_224,
+            792,
+        ]);
+        page.drawImage(image, {
+            x: 0,
+            y: 0,
+            width: 1_224,
+            height: 792,
+        });
+    }
+    const bytes = await doc.save();
+    mkdirSync(FIXTURE_CACHE_DIR, {recursive: true});
+    writeFileSync(cachePath, bytes);
+    copyFileSync(cachePath, filePath);
+    return filePath;
+}
+
+/**
+ * Letter scanned both ways round in one session. The two rectangles have the
+ * same area, so the document canvas is decided by the width tie-break and lands
+ * on the landscape sheet; the portrait pages are then paper that is larger than
+ * the canvas they have to fit, which is the placement case a canvas measured
+ * from a different layout produces.
+ */
+export async function createMixedOrientationScannedFixturePdf(
+    filename: string,
+    pageCount: number,
+    rasterDpi = SCANNED_FIXTURE_BASE_DPI,
+) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const rasterScale = rasterDpi / SCANNED_FIXTURE_BASE_DPI;
+    const cacheKey = createHash('sha256')
+        .update(`mixed-orientation-scanned-v1:${pageCount}${rasterScale === 1 ? '' : `:${rasterDpi}`}`)
+        .digest('hex');
+    const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
+    if (existsSync(cachePath)) {
+        copyFileSync(cachePath, filePath);
+        return filePath;
+    }
+    const doc = await PDFDocument.create();
+    const variants = await Promise.all([
+        {
+            widthPoints: 792,
+            heightPoints: 612,
+            widthPx: 1_584,
+            heightPx: 1_224,
+        },
+        {
+            widthPoints: 612,
+            heightPoints: 792,
+            widthPx: 1_224,
+            heightPx: 1_584,
+        },
+    ].map(async variant => ({
+        ...variant,
+        image: await doc.embedJpg(drawScannedPageJpeg(variant.widthPx, variant.heightPx, {
+            insetXPx: 140,
+            insetYPx: 120,
+            lines: 18,
+        }, rasterScale)),
+    })));
+    for (let pageNumber = 0; pageNumber < pageCount; pageNumber += 1) {
+        const variant = variants[pageNumber % variants.length]!;
+        const page = doc.addPage([
+            variant.widthPoints,
+            variant.heightPoints,
+        ]);
+        page.drawImage(variant.image, {
+            x: 0,
+            y: 0,
+            width: variant.widthPoints,
+            height: variant.heightPoints,
+        });
+    }
+    const bytes = await doc.save();
+    mkdirSync(FIXTURE_CACHE_DIR, {recursive: true});
+    writeFileSync(cachePath, bytes);
+    copyFileSync(cachePath, filePath);
+    return filePath;
+}
+
+function drawScannedPageJpeg(widthPx: number, heightPx: number, ink: {
+    insetXPx: number;
+    insetYPx: number;
+    lines: number;
+    fontPx?: number;
+    linePitchPx?: number;
+    text?: string;
+}, rasterScale: number) {
+    const canvas = createCanvas(Math.round(widthPx * rasterScale), Math.round(heightPx * rasterScale));
+    const context = canvas.getContext('2d');
+    context.scale(rasterScale, rasterScale);
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, widthPx, heightPx);
+    context.fillStyle = '#1a1a1a';
+    context.font = `${String(ink.fontPx ?? 32)}px serif`;
+    for (let line = 0; line < ink.lines; line += 1) {
+        context.fillText(
+            ink.text ?? 'Scanned body text measured by the content detector',
+            ink.insetXPx,
+            ink.insetYPx + (line * (ink.linePitchPx ?? 46)),
+        );
+    }
+    return canvas.toBuffer('image/jpeg', 0.85);
 }
 
 export async function createLargeScannedFixturePdf(
