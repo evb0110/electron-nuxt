@@ -108,7 +108,7 @@ export async function runLosslessScanCleanup(
             raster: detected === undefined
                 ? undefined
                 : {
-                    dpi: resolveSourceDpi(detected.dpi, documentDpi),
+                    dpi,
                     width: detected.width,
                     height: detected.height,
                 },

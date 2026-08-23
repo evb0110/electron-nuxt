@@ -1856,6 +1856,115 @@ describe('scan cleanup pipeline', () => {
         );
     });
 
+    // The lossless analysis budget is measured page by page, on the resolution
+    // each page was scanned at. A detected raster whose own DPI is unusable is
+    // still budgeted, at the document resolution the plan falls back to, rather
+    // than being read at a nominal default or dropping the estimate entirely.
+    it('budgets the lossless analysis handoff on each page\'s resolved source DPI', async () => {
+        const fixture = await setup();
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (
+            _binary,
+            manifestPath,
+            _signal,
+            _log,
+            onProgress,
+        ) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
+            for (const [
+                index,
+                page,
+            ] of manifest.pages.entries()) {
+                onProgress({
+                    stage: 'page-complete',
+                    completedPages: index + 1,
+                    totalPages: manifest.pages.length,
+                    pageNumber: index + 1,
+                });
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    layoutClassification: 'single-uncut-page',
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    canvasScope: 'document',
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                    outputs: [{
+                        half: 'full',
+                        sourceRegion: {
+                            xPx: 0,
+                            yPx: 0,
+                            widthPx: 500,
+                            heightPx: 700,
+                        },
+                        cropRect: {
+                            xPx: 0,
+                            yPx: 0,
+                            widthPx: 500,
+                            heightPx: 700,
+                        },
+                        contentBox: {
+                            xPx: 0,
+                            yPx: 0,
+                            widthPx: 500,
+                            heightPx: 700,
+                        },
+                        inputWidthPx: 500,
+                        inputHeightPx: 700,
+                    }],
+                }));
+            }
+        });
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(600, [
+            [
+                1,
+                1_200,
+                {
+                    width: 10_000,
+                    height: 10_000,
+                },
+            ],
+            [
+                2,
+                0,
+                {
+                    width: 10_000,
+                    height: 10_000,
+                },
+            ],
+        ]));
+        const log = vi.fn();
+
+        await runScanCleanupPipeline(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options: {
+                    ...options,
+                    preserveOriginalQuality: true,
+                    matchPageSize: false,
+                },
+            },
+            pipelinePaths(fixture.dir),
+            new AbortController().signal,
+            vi.fn(),
+            highTierPolicy,
+            log,
+            pipelineDependencies,
+        );
+
+        // Page 1 renders 10000px of 1200 DPI source at the 150 DPI detection
+        // grid; page 2 keeps its detected pixels but is measured at the 600 DPI
+        // document fallback, so the two pages contribute different footprints.
+        expect(log).toHaveBeenCalledWith(
+            'debug',
+            'Scan cleanup lossless analysis raster handoff uses PPM'
+            + ' (23 MiB estimated simultaneous scratch footprint against a 512 MiB scratch budget)',
+        );
+        expect(pipelineDependencies.renderPagePpm).toHaveBeenCalledTimes(2);
+        expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
+    });
+
     it('reuses typed detection geometry and DPI without reopening the document for matched output', async () => {
         const fixture = await setup();
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(
