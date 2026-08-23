@@ -441,19 +441,22 @@ DOM-removal effects on hard delete), which also kills the resurrection path.
 
 ## Suggested implementation order
 
-1. **Surfacing slice**: H2 + M9 + V2, with M11's signal riding along. One
-   shared failure-surfacing primitive covers the audit's "silent failure is a
-   pattern" synthesis without inventing per-site toasts.
-2. **Sidebar shape slice**: H1 focus fix + L4, regression tests first.
-3. **Save integrity slice**: Q1's print lease. Small, isolated, and it closes
-   the only proven overlap path before any history work changes timing.
-4. **History integrity slice**: M6, then M1 with the M2/M3 pin tests, then
-   the Q2 diagnostic and conditional fix. M1 is the deepest change; its
-   failing tests define the contract before the rebase lands.
-5. **Layout slice**: L8.
-6. **P2 hardening**: M4 fixture then fix; M7+V1 completeness; M10+V5 worker
-   routing.
-7. **P3 batch** opportunistically with each slice above.
+1. **Surfacing slice** (#91): H2 + M9 + V2, with M11's signal riding along.
+   One shared failure-surfacing primitive covers the audit's "silent failure
+   is a pattern" synthesis without inventing per-site toasts.
+2. **Sidebar shape slice** (#92): H1 focus fix + L4, regression tests first.
+3. **Save integrity slice** (#93): Q1's print lease. Small, isolated, and it
+   closes the only proven overlap path before any history work changes
+   timing.
+4. **History integrity slice** (#97, #98): M6, then M1 with the M2/M3 pin
+   tests and the L1/L5/L6 fold, then the Q2 diagnostic and conditional fix
+   (#100, blocked by #98). M1 is the deepest change; its failing tests define
+   the contract before the rebase lands.
+5. **Layout slice** (#99): L8.
+6. **P2 hardening**: M4 fixture then fix (#101, with L7); M7+V1 completeness
+   (#102); M10+V5 worker routing (#103, with V3).
+7. **P3 batch**: homeless leftovers L2 + L3 in #104; the rest ride their host
+   slices above.
 
 A finding closes when the corrective change and its regression test land and
 this ledger's row is updated with the commit. Verification transcripts for
