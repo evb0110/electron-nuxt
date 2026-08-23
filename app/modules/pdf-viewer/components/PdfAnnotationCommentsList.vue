@@ -97,6 +97,7 @@
                 type="button"
                 class="note-item flex flex-col"
                 :class="{ 'is-active': activeCommentStableKey === annotationIdForSummary(virtualComment.data) }"
+                :style="noteItemStyle"
                 @click="focusComment(virtualComment.data)"
                 @dblclick.prevent.stop="openComment(virtualComment.data)"
             >
@@ -202,6 +203,7 @@ import type {
 } from '@app/types/annotations';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
+import { resolveAnnotationCommentRowMetrics } from '@app/utils/pdfAnnotationCommentRowMetrics';
 import {
     compareAnnotationCommentSummaries,
     getAnnotationCommentDisplayTimestamp,
@@ -301,14 +303,46 @@ const sortedComments = computed(() => comments.slice().sort(compareAnnotationCom
 const filteredComments = computed(() => {
     return sortedComments.value.filter(comment => matchesCommentQuery(comment, normalizedQuery.value, authorName.value));
 });
+
+// One authoritative scaled source for the row: the virtual stride, the rendered
+// row box and therefore the scroll offsets all come out of these metrics, so a
+// non-default UI scale can no longer make them disagree (rows overlapped by
+// ~11 px at 0.9 and gapped by ~11 px at 1.1 while the stride was hardcoded).
+const { rootFontSizePx } = useRootFontSize();
+const rowMetrics = computed(() => resolveAnnotationCommentRowMetrics(rootFontSizePx.value));
+const noteItemStyle = computed(() => ({
+    height: `${rowMetrics.value.rowHeightPx}px`,
+    marginBottom: `${rowMetrics.value.rowGapPx}px`,
+}));
+
 const {
     list: virtualComments,
     containerProps: commentsContainerProps,
     wrapperProps: commentsWrapperProps,
 } = useVirtualList(filteredComments, {
-    itemHeight: 112,
+    itemHeight: () => rowMetrics.value.rowStridePx,
     overscan: 6,
 });
+
+// A scale change moves the stride, and the container scrolls in pixels, so the
+// same `scrollTop` addresses a different comment afterwards. Re-express the
+// offset in the new stride first so the user keeps looking at the same row.
+// Then recompute the window. `useVirtualList` refreshes it on scroll or on a
+// container resize, and a rescale changes neither, so
+// `onScroll` is the exposed handle on that recomputation. Post-flush, because
+// the scaled offset can exceed the scrollable extent until the taller spacer has
+// actually been laid out.
+watch(() => rowMetrics.value.rowStridePx, (nextStridePx, previousStridePx) => {
+    const container = commentsContainerProps.ref.value;
+    if (container && previousStridePx > 0) {
+        // Whole pixels, like the stride itself: the sub-pixel remainder would
+        // only re-round on the next rescale anyway.
+        container.scrollTop = Math.round(container.scrollTop * (nextStridePx / previousStridePx));
+    }
+
+    commentsContainerProps.onScroll();
+}, {flush: 'post'});
+
 const showLoadingState = computed(() => status === 'loading' && filteredComments.value.length === 0);
 const showEmptyState = computed(() => status === 'ready' && filteredComments.value.length === 0);
 // A background inventory that stopped short leaves annotations off this list
@@ -653,8 +687,14 @@ function placeNote() {
         border-color 0.12s ease,
         box-shadow 0.12s ease;
     width: 100%;
-    height: var(--app-annotation-editor-height);
-    margin-bottom: var(--app-annotation-editor-margin);
+
+    /*
+     * Height and bottom margin are applied inline from the virtualization
+     * metrics (`pdfAnnotationCommentRowMetrics.ts`); border-box keeps the border
+     * and padding inside that pixel budget so the painted stride equals the
+     * virtual one.
+     */
+    box-sizing: border-box;
     overflow: hidden;
 }
 

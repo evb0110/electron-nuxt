@@ -156,6 +156,8 @@ describe('changed-area classifier', () => {
             'scan-cleanup-core/detection.ts',
             'server/api/releases.get.ts',
             'tests/fixtures/electron/generated-text.pdf',
+            'tests/helpers/pdfAnnotationCommentsListHarness.ts',
+            'tests/setup.ts',
             'tsconfig.workspace-paths.json',
         ]) {
             expect(classifyChangedFiles([file]).browser_integration?.matched, file).toBe(true);

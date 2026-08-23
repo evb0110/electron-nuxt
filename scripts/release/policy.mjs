@@ -45,6 +45,11 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'server/**',
                 'nuxt.config.ts',
                 'tests/integration/browser/**',
+                // Browser specs mount real components through the shared test
+                // helpers and the shared unit setup file, so those are part of
+                // this job's input graph too.
+                'tests/helpers/**',
+                'tests/setup.ts',
                 'tests/fixtures/electron/generated-text.pdf',
                 'tsconfig.base.json',
                 'tsconfig.json',

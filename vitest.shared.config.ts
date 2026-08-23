@@ -1,9 +1,18 @@
 import type { TestProjectConfiguration } from 'vitest/config';
+import { fileURLToPath } from 'node:url';
 import AutoImport from 'unplugin-auto-import/vite';
 import Vue from '@vitejs/plugin-vue';
 import { vitestResolveAlias } from './scripts/vitestResolveAlias';
 
 const vitestResolveConfig = { alias: vitestResolveAlias };
+
+// Mirrors `css.preprocessorOptions.scss.additionalData` in `nuxt.config.ts`, with
+// the `~` alias spelled out, so a component's `<style lang="scss">` block compiles
+// under Vitest exactly as it does in the app build. Sass reads the path out of a
+// quoted string, where a Windows separator would be an escape, so keep it posix.
+const scssPreprocessorOptions = { additionalData: `@use "${
+    fileURLToPath(new URL('app/assets/css/transitions', import.meta.url)).replaceAll('\\', '/')
+}" as *;\n` };
 
 const unitTestSetupFiles = ['tests/setup.ts'];
 export const unitSlowTestThresholdMs = 300;
@@ -121,11 +130,13 @@ function createUnitTestProject(
     {
         autoImport = false,
         vueComponents = false,
+        processCss = false,
         exclude = [],
         setupFiles,
     }: {
         autoImport?: boolean;
         vueComponents?: boolean;
+        processCss?: boolean;
         exclude?: string[];
         setupFiles?: string[];
     } = {},
@@ -136,6 +147,7 @@ function createUnitTestProject(
             ...(autoImport ? [createUnitAutoImportPlugin()] : []),
         ],
         resolve: vitestResolveConfig,
+        ...(processCss ? {css: {preprocessorOptions: {scss: scssPreprocessorOptions}}} : {}),
         ...(name === vitestProjectNames.unitCore ? {esbuild: {tsconfigRaw: '{}'}} : {}),
         test: {
             name,
@@ -146,6 +158,7 @@ function createUnitTestProject(
                 ...exclude,
             ],
             globals: false,
+            ...(processCss ? {css: true} : {}),
             ...(setupFiles ? { setupFiles } : {}),
         },
     } satisfies TestProjectConfiguration;
@@ -216,6 +229,16 @@ export const vitestProjects = [
     createUnitTestProject(
         vitestProjectNames.browserIntegration,
         browserIntegrationTestFiles,
+        {
+            // Browser-integration specs mount real SFCs in a DOM environment and
+            // hand the component's own rendered markup and its own compiled
+            // styles to Chromium, so this project needs the app unit project's
+            // Vue/auto-import/setup pipeline plus real CSS compilation.
+            autoImport: true,
+            vueComponents: true,
+            processCss: true,
+            setupFiles: unitTestSetupFiles,
+        },
     ),
     createUnitTestProject(
         vitestProjectNames.unitApp,

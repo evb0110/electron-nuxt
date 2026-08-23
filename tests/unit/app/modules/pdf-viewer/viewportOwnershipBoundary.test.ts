@@ -32,6 +32,10 @@ describe('PDF viewport ownership boundary', () => {
             'runtime/viewport/pdfViewportWritePort.ts',
             // Thumbnail navigation owns its independent sidebar viewport.
             'components/PdfThumbnails.vue',
+            // The annotation comments list owns its own virtualized sidebar
+            // viewport: its scroll offset addresses comment rows, not document
+            // pixels, and it rescales that offset when the row stride changes.
+            'components/PdfAnnotationCommentsList.vue',
         ]);
         const violations = files.flatMap((path) => {
             if (allowed.has(relativePath(path))) {
