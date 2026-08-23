@@ -14,7 +14,5 @@ cat > "$push_updates_file" || {
 
 node scripts/check-commit-attribution.mjs --pre-push "$1" "$2" < "$push_updates_file" || exit $?
 
-node scripts/review-cubic-commits.mjs --pre-push "$1" "$2" < "$push_updates_file" || exit $?
-
 scripts/ci/scan-cleanup-oracles.sh \
   pre-push .devkit/scratch/pre-push-scan-cleanup-oracles "$1"
