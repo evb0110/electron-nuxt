@@ -369,7 +369,9 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         annotationNoteWindowsCount: ref(0),
         loadRecentFiles: vi.fn(),
         markShapeStateSaved: vi.fn(),
-        preparePersistedShapeStateForSave: vi.fn(async () => null),
+        // Priming succeeds by default: the production call returns a save
+        // preparation token, and only that token lets a save mark shapes clean.
+        preparePersistedShapeStateForSave: vi.fn(async () => ({prepared: true})),
         restorePreparedPersistedShapeState: vi.fn(async () => undefined),
         adoptPersistedShapeStateForNextReload: vi.fn(),
         clearPendingPersistedShapeStateForNextReload: vi.fn(),

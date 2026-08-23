@@ -235,7 +235,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         shapes: {
             hasChanges: () => hasViewerShapeChanges(pdfViewerRef.value),
             hasManagedShapes: () => (pdfViewerRef.value?.getAllShapes().length ?? 0) > 0,
-            markSaved: () => pdfViewerRef.value?.markSavedShapeState?.(),
+            markSaved: prepared => pdfViewerRef.value?.markSavedShapeState?.(prepared),
             preparePersistedState: data => (
                 pdfViewerRef.value?.preparePersistedManagedShapesForSave?.(data)
                 ?? Promise.resolve(null)

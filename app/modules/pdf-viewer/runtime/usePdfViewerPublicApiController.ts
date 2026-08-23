@@ -149,8 +149,8 @@ export const usePdfViewerPublicApiController = (
         materializePdfJsDocumentForInternalUse: annotationSession.materializePdfJsDocumentForInternalUse,
         clearAnnotationHistory: () => annotationSession.appAnnotationHistory.clear(),
         renderLoadedPdfPagesForBrowserPrint: options.renderLoadedPdfPagesForBrowserPrint,
-        markSavedShapeState: () => {
-            shapeComposable.markSavedShapeState();
+        markSavedShapeState: (prepared?: unknown) => {
+            shapeComposable.markSavedShapeState(prepared);
             // Saving changes the clean shape baseline but must not collapse the
             // app-managed undo/redo stack; re-emit so toolbar state stays current.
             annotationSession.appAnnotationHistory.emitCombinedState();

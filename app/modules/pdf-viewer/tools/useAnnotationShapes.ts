@@ -12,6 +12,8 @@ import type {
 import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import type { IShapeEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IShapeImportSource } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import { isShapeSavePreparation } from '@app/modules/pdf-viewer/annotations/isShapeSavePreparation';
 import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -218,11 +220,13 @@ export const useAnnotationShapes = ({
     /**
      * Captures the shape save frontier bound to the store that owns it, so a
      * rollback after a failed save can never reach a store that replaced this
-     * one — a later document's structurally identical frontier included.
+     * one — a later document's structurally identical frontier included. The
+     * same binding gates the clean mark: a save whose priming ran against a
+     * retired store must not declare the current document's shapes saved.
      */
-    function beginShapeSave() {
+    function beginShapeSave(documentRevisionToken: TDocumentRevisionToken | null = null) {
         const store = annotationApplication.value.store;
-        const frontier = store.beginSave();
+        const frontier = store.beginSave(documentRevisionToken);
         return {
             primePersistedShapes(imported: IShapeAnnotation[]) {
                 const applied = annotationApplication.value.store === store
@@ -239,11 +243,28 @@ export const useAnnotationShapes = ({
                 }
                 return rolledBack;
             },
+            markSaved() {
+                if (annotationApplication.value.store !== store) {
+                    return false;
+                }
+                store.markShapesSaved();
+                return true;
+            },
         };
     }
 
-    function markSavedShapeState() {
+    /**
+     * `prepared` is the token `beginShapeSave` minted for this save. When the
+     * save primed the persisted baseline, only that token may declare the
+     * shapes clean; a save that never primed has nothing to be stale about and
+     * marks the live store directly.
+     */
+    function markSavedShapeState(prepared?: unknown) {
+        if (isShapeSavePreparation(prepared)) {
+            return prepared.markSaved();
+        }
         annotationApplication.value.store.markShapesSaved();
+        return true;
     }
 
     function clearShapes() {

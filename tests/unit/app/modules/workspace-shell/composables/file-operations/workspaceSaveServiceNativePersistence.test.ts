@@ -527,6 +527,83 @@ describe('workspaceSaveService native persistence', () => {
         expect(deps.clearPendingPersistedShapeStateForNextReload).toHaveBeenCalledOnce();
     });
 
+    it('keeps shape edits dirty when a serialized save persists but cannot confirm the shape baseline', async () => {
+        const {
+            deps,
+            resetModified,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            hasShapeChanges: vi.fn(() => true),
+            // What an oversized document does: the guard refuses the scan, so
+            // the persisted shape baseline is never established.
+            preparePersistedShapeStateForSave: vi.fn(async () => null),
+        });
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        // The bytes still reach disk; only the clean mark is withheld.
+        expect(saveFile).toHaveBeenCalledOnce();
+        expect(resetModified).toHaveBeenCalledOnce();
+        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
+        expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
+        // Nothing was primed, so nothing may be adopted on the next reload.
+        expect(deps.adoptPersistedShapeStateForNextReload).not.toHaveBeenCalled();
+        expect(deps.restorePreparedPersistedShapeState).not.toHaveBeenCalled();
+    });
+
+    it('hands the prepared token to the shape clean mark on a serialized save', async () => {
+        const prepared = { prepared: 'serialized' };
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            hasShapeChanges: vi.fn(() => true),
+            preparePersistedShapeStateForSave: vi.fn(async () => prepared),
+        });
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
+
+        await handleSave();
+
+        expect(deps.markShapeStateSaved).toHaveBeenCalledWith(prepared);
+        expect(deps.restorePreparedPersistedShapeState).not.toHaveBeenCalled();
+    });
+
+    it('hands the prepared token to the shape clean mark on a native mutation save', async () => {
+        const prepared = { prepared: 'native' };
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            totalPages: ref(2),
+            hasShapeChanges: vi.fn(() => true),
+            getAllShapes: vi.fn(() => [createShapeAnnotation()]),
+            trySavePdfNativeMutations,
+            getSourcePdfData: vi.fn(async () => new Uint8Array([
+                7,
+                8,
+                9,
+            ])),
+            preparePersistedShapeStateForSave: vi.fn(async () => prepared),
+        });
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        // A native decline falls back to the serialized route, which marks the
+        // same token clean. Only the absence of that fallback proves the token
+        // came out of the native save.
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(deps.markShapeStateSaved).toHaveBeenCalledWith(prepared);
+    });
+
     it('cancels the pending post-save reload waiter when Save As is canceled without dirty changes', async () => {
         const deferredReload = createDeferred<undefined>();
         const cancel = vi.fn();

@@ -655,6 +655,37 @@ describe('useAnnotationShapes', () => {
         expect(projection.shapes.hasShapes.value).toBe(false);
     });
 
+    it('refuses a prepared clean mark once another document owns the projection', () => {
+        const projection = createShapeProjection();
+        drawLocalShape(projection);
+        const preparation = projection.shapes.beginShapeSave();
+
+        // The save primed the previous document; the viewer has since adopted
+        // another one, whose shapes this save says nothing about.
+        projection.application.value = new AnnotationApplication('other-doc-key');
+        drawLocalShape(projection);
+
+        expect(projection.shapes.markSavedShapeState(preparation)).toBe(false);
+        expect(projection.shapes.hasShapes.value).toBe(true);
+    });
+
+    it('marks the live store clean through the token the save primed', () => {
+        const projection = createShapeProjection();
+        drawLocalShape(projection);
+        const preparation = projection.shapes.beginShapeSave();
+
+        expect(projection.shapes.markSavedShapeState(preparation)).toBe(true);
+        expect(projection.shapes.hasShapes.value).toBe(false);
+    });
+
+    it('marks the live store clean when a save had nothing to prime', () => {
+        const projection = createShapeProjection();
+        drawLocalShape(projection);
+
+        expect(projection.shapes.markSavedShapeState()).toBe(true);
+        expect(projection.shapes.hasShapes.value).toBe(false);
+    });
+
     it('replaces the projection when the authority is swapped for another document', () => {
         const projection = createShapeProjection();
         projection.shapes.importEmbeddedShapes([createEmbeddedShape()], IMPORT_SOURCE);

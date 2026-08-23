@@ -253,21 +253,73 @@ pub(crate) fn flat_pdf_points_object(points: &[(f64, f64)]) -> Object {
     )
 }
 
+/// Reads `/Rect` through the document so an indirect array — or indirect
+/// numbers inside it — still resolves; corner order is left to the caller,
+/// which normalizes. A dict read straight from `Dictionary::get` would see the
+/// reference object instead and silently report no rect at all.
+pub(crate) fn read_shape_annotation_rect(
+    document: &impl PdfObjectSource,
+    dict: &Dictionary,
+) -> Option<PdfRect> {
+    let object = dict.get(b"Rect").ok()?;
+    let values = document.resolved(object).ok()?.as_array().ok()?;
+    if values.len() != 4 {
+        return None;
+    }
+    let rect = PdfRect {
+        x1: object_to_f64(document.resolved(&values[0]).ok()?).ok()?,
+        y1: object_to_f64(document.resolved(&values[1]).ok()?).ok()?,
+        x2: object_to_f64(document.resolved(&values[2]).ok()?).ok()?,
+        y2: object_to_f64(document.resolved(&values[3]).ok()?).ok()?,
+    };
+    (rect.width().is_finite() && rect.height().is_finite()).then_some(rect)
+}
+
+/// Marker geometry is clamped into the unit page box on import because the
+/// overlay renders in that space, so a rect crossing a page edge cannot be
+/// rebuilt from it. A shape counts as untouched when replaying that projection
+/// over the rect the annotation already carries reproduces its marker geometry;
+/// then the file's own rect is what must survive the save.
+///
+/// The rect is read at the document boundary and passed in, because the caller
+/// holds the dictionary mutably by the time the fields are written.
+pub(crate) fn is_imported_shape_rect_unchanged(
+    existing_rect: Option<PdfRect>,
+    shape: &ShapeAnnotation,
+    page_view: PdfRect,
+    page_rotation: i64,
+) -> bool {
+    let Some(existing_rect) = existing_rect else {
+        return false;
+    };
+    let Some(imported) = marker_rect_from_pdf_rect(existing_rect, page_view, page_rotation) else {
+        return false;
+    };
+    const EPSILON: f64 = 1e-9;
+    (imported.left - shape.x).abs() <= EPSILON
+        && (imported.top - shape.y).abs() <= EPSILON
+        && (imported.width - shape.width).abs() <= EPSILON
+        && (imported.height - shape.height).abs() <= EPSILON
+}
+
 pub(crate) fn set_rect_shape_fields(
     dict: &mut Dictionary,
     shape: &ShapeAnnotation,
     page_view: PdfRect,
     page_rotation: i64,
+    existing_rect: Option<PdfRect>,
 ) -> Result<()> {
-    let rect = shape_rect_from_bounds(
-        shape.x,
-        shape.y,
-        shape.width,
-        shape.height,
-        page_view,
-        page_rotation,
-    )?;
-    dict.set("Rect", rect_object(rect));
+    if !is_imported_shape_rect_unchanged(existing_rect, shape, page_view, page_rotation) {
+        let rect = shape_rect_from_bounds(
+            shape.x,
+            shape.y,
+            shape.width,
+            shape.height,
+            page_view,
+            page_rotation,
+        )?;
+        dict.set("Rect", rect_object(rect));
+    }
     set_shape_style(dict, shape);
     set_rgb_color(dict, "IC", shape.fill_color.as_deref());
     Ok(())
@@ -292,6 +344,9 @@ pub(crate) fn set_line_shape_fields(
     dict.set("L", flat_pdf_points_object(&points));
     set_shape_style(dict, shape);
     set_shape_line_endings(dict, shape);
+    // A Line has no interior. Producers still leave /IC behind, and a viewer
+    // that honours it paints a fill the shape never had.
+    dict.remove(b"IC");
     Ok(())
 }
 
@@ -438,19 +493,25 @@ pub(crate) fn attach_ink_shape_appearance(dict: &mut Dictionary, appearance_ref:
     dict.set("F", Object::Integer(flags | 4));
 }
 
+/// `existing_rect` is the annotation's own `/Rect`, resolved through the
+/// document the caller still owns; `None` for a dict that carries no readable
+/// rect and for the create route, where there is nothing to preserve.
 pub(crate) fn update_shape_annotation_dict(
     dict: &mut Dictionary,
     shape: &ShapeAnnotation,
     page_view: PdfRect,
     page_rotation: i64,
     modified_at: &str,
+    existing_rect: Option<PdfRect>,
 ) -> Result<bool> {
     let subtype = annotation_subtype(dict);
     if !is_supported_shape_subtype(&subtype) {
         return Ok(false);
     }
     match subtype.as_str() {
-        "square" | "circle" => set_rect_shape_fields(dict, shape, page_view, page_rotation)?,
+        "square" | "circle" => {
+            set_rect_shape_fields(dict, shape, page_view, page_rotation, existing_rect)?
+        }
         "line" => set_line_shape_fields(dict, shape, page_view, page_rotation)?,
         "polyline" => set_vertex_shape_fields(dict, shape, page_view, page_rotation, false)?,
         "polygon" => set_vertex_shape_fields(dict, shape, page_view, page_rotation, true)?,
@@ -473,7 +534,9 @@ pub(crate) fn create_shape_annotation_dict(
     dict.set("Type", Object::Name(b"Annot".to_vec()));
     dict.set("Subtype", Object::Name(subtype.as_bytes().to_vec()));
     match subtype {
-        "Square" | "Circle" => set_rect_shape_fields(&mut dict, shape, page_view, page_rotation)?,
+        "Square" | "Circle" => {
+            set_rect_shape_fields(&mut dict, shape, page_view, page_rotation, None)?
+        }
         "Line" => set_line_shape_fields(&mut dict, shape, page_view, page_rotation)?,
         "PolyLine" => set_vertex_shape_fields(&mut dict, shape, page_view, page_rotation, false)?,
         "Polygon" => set_vertex_shape_fields(&mut dict, shape, page_view, page_rotation, true)?,
@@ -619,9 +682,19 @@ pub(crate) fn apply_shape_annotation_decision(
             } else {
                 None
             };
+            let existing_rect = document
+                .get_dictionary(object_id)
+                .ok()
+                .and_then(|dict| read_shape_annotation_rect(&*document, dict));
             let dict = document.get_dictionary_mut(object_id)?;
-            let modified =
-                update_shape_annotation_dict(dict, &shape, page_view, page_rotation, modified_at)?;
+            let modified = update_shape_annotation_dict(
+                dict,
+                &shape,
+                page_view,
+                page_rotation,
+                modified_at,
+                existing_rect,
+            )?;
             if let Some(appearance_ref) = appearance_ref {
                 attach_ink_shape_appearance(dict, appearance_ref);
             }
@@ -642,9 +715,19 @@ pub(crate) fn apply_shape_annotation_decision(
         } else {
             None
         };
+        let existing_rect = document
+            .get_dictionary(object_id)
+            .ok()
+            .and_then(|dict| read_shape_annotation_rect(&*document, dict));
         let dict = document.get_dictionary_mut(object_id)?;
-        let modified =
-            update_shape_annotation_dict(dict, &shape, page_view, page_rotation, modified_at)?;
+        let modified = update_shape_annotation_dict(
+            dict,
+            &shape,
+            page_view,
+            page_rotation,
+            modified_at,
+            existing_rect,
+        )?;
         if let Some(appearance_ref) = appearance_ref {
             attach_ink_shape_appearance(dict, appearance_ref);
         }
@@ -704,9 +787,24 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
         } else {
             None
         };
+        let existing_rect = {
+            // The appended revision over the base: a `/Rect` reference the
+            // clone did not copy still resolves against the loaded original.
+            let source = AppendedRevision::new(incremental);
+            source
+                .dictionary(object_id)
+                .ok()
+                .and_then(|dict| read_shape_annotation_rect(&source, dict))
+        };
         let dict = incremental.new_document.get_dictionary_mut(object_id)?;
-        let modified =
-            update_shape_annotation_dict(dict, &shape, page_view, page_rotation, modified_at)?;
+        let modified = update_shape_annotation_dict(
+            dict,
+            &shape,
+            page_view,
+            page_rotation,
+            modified_at,
+            existing_rect,
+        )?;
         if let Some(appearance_ref) = appearance_ref {
             attach_ink_shape_appearance(dict, appearance_ref);
         }

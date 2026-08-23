@@ -74,6 +74,12 @@ type TWorkspaceSaveExecutionResult =
         serializedChanges: boolean;
         reloadWaiter: IPostSaveReloadWaiter | null;
         completion: ISaveCompletionPolicy;
+        /**
+         * The token this save's shape priming returned. Only it may declare the
+         * shape layer clean, so a document replaced mid-save cannot inherit the
+         * previous document's save.
+         */
+        preparedShapeState?: unknown;
         annotationMaterializationBaseline?: unknown;
         commitAnnotationSave?: () => void;
     }
@@ -137,7 +143,7 @@ export interface IWorkspaceSaveDependencies {
     shapes: {
         hasChanges: () => boolean;
         hasManagedShapes: () => boolean;
-        markSaved?: () => void;
+        markSaved?: (prepared?: unknown) => void;
         preparePersistedState?: (data: Uint8Array) => Promise<unknown>;
         restorePreparedState?: (snapshot: unknown) => Promise<void> | void;
         adoptPersistedStateOnReload?: () => void;
@@ -554,11 +560,29 @@ async function executeSerializedBytesSave(
     }
 
     let preparedShapeStateSnapshot: unknown = null;
+    let preparedShapeState: unknown = null;
     try {
-        if (plan.dirtyState.shapes) {
-            preparedShapeStateSnapshot = await deps.shapes.preparePersistedState?.(finalBytes) ?? null;
+        // Priming establishes the persisted shape baseline from the bytes about
+        // to be written. When it cannot run — an oversized document, a parse
+        // failure, a replaced store — the file is still saved, but nothing here
+        // knows the shape layer reached disk. The shapes then stay dirty rather
+        // than being declared clean on the strength of a scan that never ran.
+        let shapeStateWasPrimed = true;
+        if (plan.dirtyState.shapes && deps.shapes.preparePersistedState) {
+            preparedShapeStateSnapshot = await deps.shapes.preparePersistedState(finalBytes) ?? null;
+            preparedShapeState = preparedShapeStateSnapshot;
+            shapeStateWasPrimed = preparedShapeStateSnapshot !== null;
+            if (!shapeStateWasPrimed) {
+                BrowserLogger.warn(
+                    'workspace',
+                    'Saved the PDF but could not confirm the managed shape baseline; shape edits stay unsaved',
+                    {path: plan.target.expectedWorkingPath},
+                );
+            }
         }
-        armPersistedShapeState(plan, deps);
+        if (shapeStateWasPrimed) {
+            armPersistedShapeState(plan, deps);
+        }
 
         const changedObjectRefs = saveTransaction.serializedResult?.changedObjectRefs;
         const commitCallbacks: IPdfSerializedCommitCallbacks = {
@@ -613,10 +637,11 @@ async function executeSerializedBytesSave(
             serializedChanges: true,
             reloadWaiter,
             completion: {
-                markShapeStateSaved: true,
+                markShapeStateSaved: shapeStateWasPrimed,
                 preserveLivePdfjsSession: body.preserveLoadedSource && !reloadWaiter,
                 resetAnnotationStorage: true,
             },
+            ...(preparedShapeState === null ? {} : {preparedShapeState}),
             ...(annotationMaterializationBaseline === undefined
                 ? {}
                 : {annotationMaterializationBaseline}),
@@ -752,6 +777,7 @@ async function executeNativeMutationSave(
         deps.shapes.adoptPersistedStateOnReload?.();
     }
     saveTransaction.commitAnnotationSave?.();
+    const preparedShapeState = preparedShapeStateSnapshot;
     preparedShapeStateSnapshot = null;
 
     return {
@@ -759,6 +785,7 @@ async function executeNativeMutationSave(
         persisted,
         serializedChanges: true,
         reloadWaiter: null,
+        ...(preparedShapeState === null ? {} : {preparedShapeState}),
         completion: {
             allowAnnotationSaveStateRefresh: projection.noteTextUpdates.length > 0
                 || projection.freeTextNotes.length > 0
@@ -898,6 +925,7 @@ function completeSuccessfulSaveState(
     baseline: IWorkspaceSaveBaseline,
     policy: ISaveCompletionPolicy,
     deps: IWorkspaceSaveDependencies,
+    preparedShapeState?: unknown,
 ) {
     const annotationUnchanged = !deps.annotations.getSaveStateToken
         || Object.is(deps.annotations.getSaveStateToken(), baseline.annotations);
@@ -921,7 +949,10 @@ function completeSuccessfulSaveState(
     }
 
     if (policy.markShapeStateSaved) {
-        deps.shapes.markSaved?.();
+        // The prepared token names the store and save frontier this save primed.
+        // Passing it makes the clean mark refusable when a replacement store
+        // now owns the viewer.
+        deps.shapes.markSaved?.(preparedShapeState);
         if (!policy.preserveLivePdfjsSession) {
             deps.shapes.clearPendingPersistedState?.();
         }
@@ -941,12 +972,12 @@ async function completeWorkspaceSave(
 
     const baseline = getCompletionBaseline(plan, result, deps);
     if (!result.reloadWaiter) {
-        completeSuccessfulSaveState(baseline, result.completion, deps);
+        completeSuccessfulSaveState(baseline, result.completion, deps, result.preparedShapeState);
     } else {
         await result.reloadWaiter.promise.catch((error) => {
             BrowserLogger.warn('workspace', 'Saved PDF but failed to restore the reloaded view', error);
         }).finally(() => {
-            completeSuccessfulSaveState(baseline, result.completion, deps);
+            completeSuccessfulSaveState(baseline, result.completion, deps, result.preparedShapeState);
         });
     }
     if (result.persisted.outPath) {

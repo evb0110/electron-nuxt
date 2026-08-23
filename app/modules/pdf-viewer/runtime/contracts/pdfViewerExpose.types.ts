@@ -194,7 +194,8 @@ export interface IPdfViewerAnnotationCommentExpose {
 
 export interface IPdfViewerShapeExpose {
     getAllShapes: () => IShapeAnnotation[];
-    markSavedShapeState?: () => void;
+    /** `prepared` is the token this save's shape priming returned, if any. */
+    markSavedShapeState?: (prepared?: unknown) => void;
     getDeletedEmbeddedShapeAnnotationIds: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
     clearShapes: () => void;

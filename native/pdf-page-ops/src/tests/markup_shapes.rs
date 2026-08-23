@@ -505,3 +505,494 @@
 
         let _ = remove_file(pdf_path);
     }
+
+    fn embedded_shape_pdf(annotations: &[(&str, Dictionary)]) -> (Document, ObjectId) {
+        let (mut document, page_id) = create_test_document();
+        let mut annots = Vec::new();
+        for (stable_key, dict) in annotations {
+            let object_id = document.add_object(Object::Dictionary(dict.clone()));
+            write_managed_shape_stable_key(
+                document.get_dictionary_mut(object_id).unwrap(),
+                Some(stable_key),
+            );
+            annots.push(Object::Reference(object_id));
+        }
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", annots);
+        (document, page_id)
+    }
+
+    fn seed_shape_pdf(document: &mut Document, label: &str) -> PathBuf {
+        let path = temp_pdf_path(label);
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        write(&path, &bytes).unwrap();
+        path
+    }
+
+    fn shape_rect_values(document: &Document, stable_key: &str) -> Vec<f64> {
+        let page_id = *document.get_pages().values().next().unwrap();
+        for object in get_page_annots(document, page_id).unwrap() {
+            let Ok(object_id) = object.as_reference() else {
+                continue;
+            };
+            let Ok(dict) = document.get_dictionary(object_id) else {
+                continue;
+            };
+            if read_managed_shape_stable_key(dict).as_deref() != Some(stable_key) {
+                continue;
+            }
+            return dict
+                .get(b"Rect")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value.as_float().unwrap() as f64)
+                .collect();
+        }
+        panic!("shape {stable_key} is missing from the saved document");
+    }
+
+    fn shape_dict<'a>(document: &'a Document, stable_key: &str) -> &'a Dictionary {
+        let page_id = *document.get_pages().values().next().unwrap();
+        for object in get_page_annots(document, page_id).unwrap() {
+            let Ok(object_id) = object.as_reference() else {
+                continue;
+            };
+            let Ok(dict) = document.get_dictionary(object_id) else {
+                continue;
+            };
+            if read_managed_shape_stable_key(dict).as_deref() == Some(stable_key) {
+                return dict;
+            }
+        }
+        panic!("shape {stable_key} is missing from the saved document");
+    }
+
+    fn off_page_square_dict() -> Dictionary {
+        dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Square",
+            // Crosses the left and top page edges of the 200x100 test page.
+            "Rect" => vec![(-20).into(), 40.into(), 60.into(), 120.into()],
+            "C" => vec![0.into(), 0.into(), 0.into()],
+        }
+    }
+
+    fn on_page_square_dict() -> Dictionary {
+        dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Square",
+            "Rect" => vec![20.into(), 20.into(), 100.into(), 60.into()],
+            "C" => vec![0.into(), 0.into(), 0.into()],
+        }
+    }
+
+    /// Marker geometry the importer derives from `off_page_square_dict`: the
+    /// rect is clamped into the unit page box, which shifts its left/top edges.
+    fn imported_off_page_square(stable_key: &str) -> ShapeAnnotation {
+        let mut shape = rectangle_shape(stable_key, "#336699");
+        shape.fill_color = None;
+        shape.x = 0.0;
+        shape.y = 0.0;
+        shape.width = 0.4;
+        shape.height = 0.8;
+        shape
+    }
+
+    fn imported_on_page_square(stable_key: &str) -> ShapeAnnotation {
+        let mut shape = rectangle_shape(stable_key, "#336699");
+        shape.fill_color = None;
+        shape.x = 0.1;
+        shape.y = 0.4;
+        shape.width = 0.4;
+        shape.height = 0.4;
+        shape
+    }
+
+    fn shapes_mutation(shapes: Vec<ShapeAnnotation>) -> NativeMutationsFile {
+        NativeMutationsFile {
+            updates: Vec::new(),
+            free_text_notes: Vec::new(),
+            deletes: Vec::new(),
+            page_labels: None,
+            bookmarks: None,
+            shapes: Some(ShapesMutation {
+                total_pages: 1,
+                rewrite_shape_state: true,
+                shapes,
+                deleted_annotation_ids: Vec::new(),
+                deleted_stable_keys: Vec::new(),
+            }),
+            markup: None,
+            placed_images: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn keeps_the_source_rect_of_an_untouched_off_page_square() {
+        let (mut document, _page_id) = embedded_shape_pdf(&[
+            ("evb-shape:off-page", off_page_square_dict()),
+            ("evb-shape:on-page", on_page_square_dict()),
+        ]);
+        let pdf_path = seed_shape_pdf(&mut document, "shape-off-page-preserve");
+
+        let mut edited = imported_on_page_square("evb-shape:on-page");
+        edited.x = 0.2;
+        append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &shapes_mutation(vec![
+                imported_off_page_square("evb-shape:off-page"),
+                edited,
+            ]),
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        let loaded = Document::load(&pdf_path).unwrap();
+        assert_eq!(
+            shape_rect_values(&loaded, "evb-shape:off-page"),
+            vec![-20.0, 40.0, 60.0, 120.0]
+        );
+        let edited_rect = shape_rect_values(&loaded, "evb-shape:on-page");
+        assert_approximately(edited_rect[0], 40.0);
+        assert_approximately(edited_rect[2], 120.0);
+
+        let _ = remove_file(pdf_path);
+    }
+
+    #[test]
+    fn rewrites_the_rect_of_an_edited_off_page_square() {
+        let (mut document, _page_id) =
+            embedded_shape_pdf(&[("evb-shape:off-page", off_page_square_dict())]);
+        let pdf_path = seed_shape_pdf(&mut document, "shape-off-page-edited");
+
+        let mut moved = imported_off_page_square("evb-shape:off-page");
+        moved.x = 0.15;
+        append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &shapes_mutation(vec![moved]),
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        let loaded = Document::load(&pdf_path).unwrap();
+        let rect = shape_rect_values(&loaded, "evb-shape:off-page");
+        assert_approximately(rect[0], 30.0);
+        assert_approximately(rect[2], 110.0);
+
+        let _ = remove_file(pdf_path);
+    }
+
+    #[test]
+    fn drops_a_stale_line_interior_color_and_keeps_a_polygon_fill() {
+        let line_dict = dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Line",
+            "Rect" => vec![20.into(), 20.into(), 100.into(), 60.into()],
+            "L" => vec![20.into(), 20.into(), 100.into(), 60.into()],
+            "C" => vec![0.into(), 0.into(), 0.into()],
+            // A Line has no interior; the value is stale metadata.
+            "IC" => vec![1.into(), 0.into(), 0.into()],
+        };
+        let polygon_dict = dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Polygon",
+            "Rect" => vec![20.into(), 20.into(), 100.into(), 60.into()],
+            "Vertices" => vec![20.into(), 20.into(), 100.into(), 60.into(), 60.into(), 80.into()],
+            "C" => vec![0.into(), 0.into(), 0.into()],
+            "IC" => vec![0.into(), 0.into(), 1.into()],
+        };
+        let (mut document, _page_id) = embedded_shape_pdf(&[
+            ("evb-shape:line", line_dict),
+            ("evb-shape:polygon", polygon_dict),
+        ]);
+        let pdf_path = seed_shape_pdf(&mut document, "shape-line-interior-color");
+
+        let mut line = rectangle_shape("evb-shape:line", "#000000");
+        line.shape_type = "line".to_string();
+        line.fill_color = None;
+        line.x = 0.1;
+        line.y = 0.4;
+        line.x2 = Some(0.5);
+        line.y2 = Some(0.8);
+        let mut polygon = rectangle_shape("evb-shape:polygon", "#000000");
+        polygon.shape_type = "polygon".to_string();
+        polygon.fill_color = Some("#0000ff".to_string());
+        polygon.points = vec![
+            ShapePoint { x: 0.1, y: 0.8 },
+            ShapePoint { x: 0.5, y: 0.4 },
+            ShapePoint { x: 0.3, y: 0.2 },
+        ];
+
+        append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &shapes_mutation(vec![line, polygon]),
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        let loaded = Document::load(&pdf_path).unwrap();
+        assert!(shape_dict(&loaded, "evb-shape:line").get(b"IC").is_err());
+        let polygon_interior = shape_dict(&loaded, "evb-shape:polygon")
+            .get(b"IC")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_float().unwrap() as f64)
+            .collect::<Vec<_>>();
+        assert_approximately(polygon_interior[0], 0.0);
+        assert_approximately(polygon_interior[1], 0.0);
+        assert_approximately(polygon_interior[2], 1.0);
+
+        let _ = remove_file(pdf_path);
+    }
+
+    #[test]
+    fn keeps_the_source_rect_on_the_full_rewrite_shape_route() {
+        let (mut document, _page_id) = embedded_shape_pdf(&[
+            ("evb-shape:off-page", off_page_square_dict()),
+            ("evb-shape:on-page", on_page_square_dict()),
+        ]);
+
+        let mut edited = imported_on_page_square("evb-shape:on-page");
+        edited.y = 0.5;
+        apply_shape_annotations(
+            &mut document,
+            &ShapesMutation {
+                total_pages: 1,
+                rewrite_shape_state: true,
+                shapes: vec![imported_off_page_square("evb-shape:off-page"), edited],
+                deleted_annotation_ids: Vec::new(),
+                deleted_stable_keys: Vec::new(),
+            },
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        assert_eq!(
+            shape_rect_values(&document, "evb-shape:off-page"),
+            vec![-20.0, 40.0, 60.0, 120.0]
+        );
+        let edited_rect = shape_rect_values(&document, "evb-shape:on-page");
+        assert_approximately(edited_rect[1], 10.0);
+        assert_approximately(edited_rect[3], 50.0);
+    }
+
+    fn off_page_circle_dict() -> Dictionary {
+        dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Circle",
+            // Crosses the left and top page edges of the 200x100 test page.
+            "Rect" => vec![(-20).into(), 40.into(), 60.into(), 120.into()],
+            "C" => vec![0.into(), 0.into(), 0.into()],
+        }
+    }
+
+    /// Square and Circle share one branch of the shape writer, so an assertion
+    /// that only covers Square proves nothing about the ellipse subtype.
+    #[test]
+    fn keeps_the_source_rect_of_an_untouched_off_page_circle() {
+        let (mut document, _page_id) =
+            embedded_shape_pdf(&[("evb-shape:off-page-circle", off_page_circle_dict())]);
+        let pdf_path = seed_shape_pdf(&mut document, "shape-off-page-circle-preserve");
+
+        let mut circle = imported_off_page_square("evb-shape:off-page-circle");
+        circle.shape_type = "circle".to_string();
+        append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &shapes_mutation(vec![circle]),
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        let loaded = Document::load(&pdf_path).unwrap();
+        assert_eq!(
+            shape_rect_values(&loaded, "evb-shape:off-page-circle"),
+            vec![-20.0, 40.0, 60.0, 120.0]
+        );
+
+        let _ = remove_file(pdf_path);
+    }
+
+    #[test]
+    fn rewrites_the_rect_of_an_edited_off_page_circle() {
+        let (mut document, _page_id) =
+            embedded_shape_pdf(&[("evb-shape:off-page-circle", off_page_circle_dict())]);
+        let pdf_path = seed_shape_pdf(&mut document, "shape-off-page-circle-edited");
+
+        let mut circle = imported_off_page_square("evb-shape:off-page-circle");
+        circle.shape_type = "circle".to_string();
+        circle.x = 0.15;
+        append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &shapes_mutation(vec![circle]),
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        let loaded = Document::load(&pdf_path).unwrap();
+        let rect = shape_rect_values(&loaded, "evb-shape:off-page-circle");
+        assert_approximately(rect[0], 30.0);
+        assert_approximately(rect[2], 110.0);
+
+        let _ = remove_file(pdf_path);
+    }
+
+    #[test]
+    fn keeps_the_source_rect_of_an_untouched_off_page_circle_on_the_full_rewrite_route() {
+        let (mut document, _page_id) =
+            embedded_shape_pdf(&[("evb-shape:off-page-circle", off_page_circle_dict())]);
+
+        let mut circle = imported_off_page_square("evb-shape:off-page-circle");
+        circle.shape_type = "circle".to_string();
+        apply_shape_annotations(
+            &mut document,
+            &ShapesMutation {
+                total_pages: 1,
+                rewrite_shape_state: true,
+                shapes: vec![circle],
+                deleted_annotation_ids: Vec::new(),
+                deleted_stable_keys: Vec::new(),
+            },
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        assert_eq!(
+            shape_rect_values(&document, "evb-shape:off-page-circle"),
+            vec![-20.0, 40.0, 60.0, 120.0]
+        );
+    }
+
+    /// `/Rect` may be an indirect array. Reading it off the dictionary alone
+    /// sees a reference, reports "no rect", and rewrites geometry nobody edited.
+    fn embedded_shape_pdf_with_indirect_rect(
+        stable_key: &str,
+        subtype: &str,
+        rect: Vec<Object>,
+    ) -> (Document, ObjectId) {
+        let (mut document, page_id) = create_test_document();
+        let rect_id = document.add_object(Object::Array(rect));
+        let object_id = document.add_object(Object::Dictionary(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => subtype,
+            "Rect" => Object::Reference(rect_id),
+            "C" => vec![0.into(), 0.into(), 0.into()],
+        }));
+        write_managed_shape_stable_key(
+            document.get_dictionary_mut(object_id).unwrap(),
+            Some(stable_key),
+        );
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(object_id)]);
+        (document, object_id)
+    }
+
+    fn resolved_shape_rect_values(document: &Document, object_id: ObjectId) -> Vec<f64> {
+        let dict = document.get_dictionary(object_id).unwrap();
+        let rect = document.resolved(dict.get(b"Rect").unwrap()).unwrap();
+        rect.as_array()
+            .unwrap()
+            .iter()
+            .map(|value| {
+                document
+                    .resolved(value)
+                    .unwrap()
+                    .as_float()
+                    .unwrap_or_else(|_| value.as_i64().unwrap() as f32) as f64
+            })
+            .collect()
+    }
+
+    #[test]
+    fn keeps_an_indirect_source_rect_of_an_untouched_off_page_square() {
+        let (mut document, object_id) = embedded_shape_pdf_with_indirect_rect(
+            "evb-shape:indirect",
+            "Square",
+            vec![(-20).into(), 40.into(), 60.into(), 120.into()],
+        );
+        let pdf_path = seed_shape_pdf(&mut document, "shape-indirect-rect-preserve");
+
+        append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &shapes_mutation(vec![imported_off_page_square("evb-shape:indirect")]),
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        let loaded = Document::load(&pdf_path).unwrap();
+        assert_eq!(
+            resolved_shape_rect_values(&loaded, object_id),
+            vec![-20.0, 40.0, 60.0, 120.0]
+        );
+
+        let _ = remove_file(pdf_path);
+    }
+
+    #[test]
+    fn keeps_an_indirect_source_rect_on_the_full_rewrite_shape_route() {
+        let (mut document, object_id) = embedded_shape_pdf_with_indirect_rect(
+            "evb-shape:indirect",
+            "Circle",
+            vec![(-20).into(), 40.into(), 60.into(), 120.into()],
+        );
+
+        apply_shape_annotations(
+            &mut document,
+            &ShapesMutation {
+                total_pages: 1,
+                rewrite_shape_state: true,
+                shapes: vec![imported_off_page_square("evb-shape:indirect")],
+                deleted_annotation_ids: Vec::new(),
+                deleted_stable_keys: Vec::new(),
+            },
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        assert_eq!(
+            resolved_shape_rect_values(&document, object_id),
+            vec![-20.0, 40.0, 60.0, 120.0]
+        );
+    }
+
+    #[test]
+    fn rewrites_an_indirect_source_rect_when_the_shape_moved() {
+        let (mut document, object_id) = embedded_shape_pdf_with_indirect_rect(
+            "evb-shape:indirect",
+            "Square",
+            vec![(-20).into(), 40.into(), 60.into(), 120.into()],
+        );
+
+        let mut moved = imported_off_page_square("evb-shape:indirect");
+        moved.x = 0.15;
+        apply_shape_annotations(
+            &mut document,
+            &ShapesMutation {
+                total_pages: 1,
+                rewrite_shape_state: true,
+                shapes: vec![moved],
+                deleted_annotation_ids: Vec::new(),
+                deleted_stable_keys: Vec::new(),
+            },
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        let rect = resolved_shape_rect_values(&document, object_id);
+        assert_approximately(rect[0], 30.0);
+        assert_approximately(rect[2], 110.0);
+    }

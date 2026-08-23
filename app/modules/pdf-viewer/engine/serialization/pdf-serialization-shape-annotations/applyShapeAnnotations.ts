@@ -36,6 +36,7 @@ import { toPdfInkList } from '@app/modules/pdf-viewer/engine/serialization/pdf-s
 import { toPdfLinePoints } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-geometry/toPdfLinePoints';
 import { toPdfVertexPoints } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-geometry/toPdfVertexPoints';
 import { applyInkAnnotationAppearance } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shape-annotations/applyInkAnnotationAppearance';
+import { isImportedShapeRectUnchanged } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shape-annotations/isImportedShapeRectUnchanged';
 
 function updateShapeStyle(annotDict: PDFDict, doc: PDFDocument, shape: IShapeAnnotation) {
     setRgbColor(annotDict, doc, 'C', shape.color);
@@ -160,6 +161,9 @@ function applyLineAnnotationStyle(
 ) {
     updateShapeStyle(annotDict, doc, shape);
     setLineEndings(annotDict, doc, shape);
+    // A Line has no interior. Producers still leave /IC behind, and a viewer
+    // that honours it paints a fill the shape never had.
+    annotDict.delete(PDFName.of('IC'));
 }
 
 function applyVertexAnnotationStyle(
@@ -210,12 +214,18 @@ function updateRectAnnotationDict(
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ) {
-    const rect = resolveShapePdfRect(shape, pageView, pageRotation);
-    if (!rect) {
-        return false;
+    // An untouched imported Square/Circle keeps the rect the file already
+    // carries. Its marker geometry is a clamped projection of that rect, so
+    // rewriting it would move or shrink a shape nobody edited.
+    if (!isImportedShapeRectUnchanged(annotDict, getShapeMarkerRect(shape), pageView, pageRotation)) {
+        const rect = resolveShapePdfRect(shape, pageView, pageRotation);
+        if (!rect) {
+            return false;
+        }
+
+        setPdfRect(annotDict, doc, rect);
     }
 
-    setPdfRect(annotDict, doc, rect);
     applyRectAnnotationStyle(annotDict, doc, shape);
     updateShapeDates(annotDict, shape);
     return true;

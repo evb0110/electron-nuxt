@@ -165,13 +165,13 @@ Found during verification, not in the audit:
 | M1 | Med-High | Partial | Medium | P1 | Rebase outstanding history snapshots at `acknowledgeSave`; failing test first. |
 | M2 | Med-High | Partial: shielded in production | Low | P3 | Pin the shield (page op clears annotation history) with a test; no code change. |
 | M3 | Medium | Partial: orphans transient | Low | P3 | Add direct test: `reconcileEditorPresence` tombstones unbound transients. |
-| M4 | Medium | Partial | Medium | P2 | Off-page round-trip fixture first, then stop rewriting unedited rects. |
+| M4 | Medium | Partial | Medium | P2 | Landed (#101): unedited Square/Circle rects are preserved, not rewritten. |
 | M5 | Medium | Refuted | None | No action | pdf.js never yields `[]`; optional one-line guard if touching the file. |
 | M6 | Medium | Confirmed | Medium | P1 | Filter sink-mode forget by annotation ids instead of source-wide reset. |
 | M7 | Medium | Confirmed | Medium | P2 | Truncation flag + warning + completeness metadata on snapshots. |
 | M8 | Medium | Partial: not reachable via pdf.js | Low | No action | Record reachability; revisit only if a non-pdf.js source appears. |
 | M9 | Medium | Partial | Medium | P1 | Report `not-saved` outcomes through the same surfacing as thrown saves. |
-| M10 | Medium | Partial: conditional, unguarded | Medium | P2 | Route save priming through the worker client; enforce the size guard. |
+| M10 | Medium | Partial: conditional, unguarded | Medium | P2 | Landed (#103): save priming runs in the worker client under its size guard. |
 | M11 | Low-Med | Refuted as truncation | Low | P3 | Fold a user-visible rejection signal into the H2/M9 surfacing work. |
 | L1 | Low | Partial: near no-op in workspace mode | Low | P3 | Delete or gate the raw undo/redo exposes. |
 | L2 | Low | Partial: impact refuted | Low | P3 | Key store identity by Blob instance (WeakMap) like the snapshot side. |
@@ -179,13 +179,13 @@ Found during verification, not in the audit:
 | L4 | Low | Confirmed | Low | P3 | Surface note-window delete misses like the instrumented sibling path. |
 | L5 | Low | Partial | Low | P3 | Set `estimatedBytes` on canonical snapshot commands when touching history. |
 | L6 | Low | Partial | Low | P3 | Coalesce successive note-text commands per annotation, or accept. |
-| L7 | Low | Confirmed | Low | P3 | Delete stale `/IC` when updating Line dicts; keep `/LE` behavior. |
+| L7 | Low | Confirmed | Low | P3 | Landed (#101): stale `/IC` deleted when updating Line dicts; `/LE` unchanged. |
 | L8 | Low | Confirmed, reachability understated | Medium | P1 | Derive virtual row stride from the effective root font size. |
 | V1 | — | Confirmed | Medium | P2 | Bundle inventory-completeness status with M7. |
 | V2 | — | Confirmed | Medium | P1 | Fold a failure state into the M9 surfacing slice. |
-| V3 | — | Confirmed, narrow | Low | P3 | Add document-revision check to the in-flight import fence. |
+| V3 | — | Confirmed, narrow | Low | P3 | Landed (#103): the in-flight import fence compares the document revision. |
 | V4 | — | Confirmed | — | — | Evidence for L8's P1; no separate item. |
-| V5 | — | Confirmed | Low | P2 | Part of the M10 slice. |
+| V5 | — | Confirmed | Low | P2 | Landed (#103) as part of the M10 slice. |
 | V6 | — | Confirmed | Low | P3 | Add an e2e asserting undo of a deferred delete restores editor/DOM state. |
 | Q1 | Risk (unverified) | Proven: print bypasses the save lease | Medium | P1 | Route dirty print through the document operation lease; add a race test. |
 | Q2 | Risk (unverified) | Proven for live sessions | Medium | P2 | Run the MutationObserver experiment; fix editor removal on undo-of-create if confirmed. |
@@ -343,6 +343,25 @@ Order: fixture first (an embedded Square straddling the trim box through
 open, unrelated shape edit, save, reopen), then either stop clamping imported
 geometry or only serialize rects whose marker geometry actually changed.
 
+**Landed (#101), with L7.** The second option: import still clamps, because
+the overlay renders in the unit page box, but a Square or Circle whose marker
+geometry is unchanged keeps the rect the file already carries. Both writers
+decide this the same way: replay the import projection over the annotation's
+own rect and compare it with the live marker rect
+(`engine/serialization/pdf-serialization-shape-annotations/isImportedShapeRectUnchanged.ts`,
+`native/pdf-page-ops/src/shapes.rs`, `is_imported_shape_rect_unchanged`). An
+edit of any size a pointer can produce fails that comparison and serializes
+normally. The native reader resolves `/Rect` through the document, so an
+indirect array, or indirect numbers inside it, reads as an unchanged rect
+instead of as no rect at all; without that, the preservation branch would be
+skipped exactly where it matters. Coverage:
+`tests/unit/app/modules/pdf-viewer/serialization/embeddedShapeRectPreservation.test.ts`
+(serialized route, Square and Circle, including repeated open-save cycles) and
+the shape cases in `native/pdf-page-ops/src/tests/markup_shapes.rs` (full
+rewrite, incremental append, and indirect rects). L7 rode along: both writers
+now delete `/IC` when updating a Line, and the tests pin that a Polygon fill
+survives.
+
 ### M7 and V1, inventory completeness is silent
 
 Global caps break silently and the truncated snapshot is cached beyond
@@ -362,6 +381,26 @@ working-copy guard does not cover automation or native paths. Route priming
 through the worker client and inherit its guard; test that priming uses the
 worker.
 
+**Landed (#103), with V3.** Priming calls
+`importEmbeddedShapeAnnotationsUsingWorker`, so the whole-document scan leaves
+the renderer thread and inherits the 96 MiB assertion. It keeps ownership of
+the bytes, which are still on their way to disk, so the worker receives a
+copy. A refusal is the point of the change: priming then returns no
+preparation token, and a serialized save persists the file but leaves shape
+state dirty instead of declaring clean a baseline nothing established. The
+token is bound to the store and save frontier that started the save, and the
+clean mark now goes through it, so a save of a document the viewer has since
+replaced cannot mark the current one's shapes saved. In-flight priming is
+registered and aborted when the viewer adopts a different working copy or the
+composable is disposed; a save that republishes the same working copy under a
+new revision is not cancellation and survives. V3 rode along:
+`isStaleEmbeddedShapeImport` now also compares the document revision token, so
+an in-flight scan started before a page mutation is fenced, not only a
+completed cache entry. Coverage:
+`tests/unit/app/modules/pdf-viewer/runtime/annotations/managedEmbeddedShapeSavePriming.test.ts`
+and the shape-priming cases in
+`tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceNativePersistence.test.ts`.
+
 ## P3 batch
 
 Fold these into work that already touches their area; none justifies a
@@ -377,12 +416,10 @@ standalone change:
   `createPdfAnnotationSession.ts:119-141`.
 - L3: reschedule the note persist when `metadata.saving` clears
   (`useAnnotationNoteWindows.ts:379-388,417-422`).
-- L4 (with H1). L5, L6 (with any history work). L7 (with any serialization
-  work): delete `/IC` in `applyLineAnnotationStyle`
-  (`applyShapeAnnotations.ts:156-163`), mirroring the PolyLine cleanup
-  (`:165-181`).
-- V3: include the document revision in `isStaleEmbeddedShapeImport`
-  (`useManagedEmbeddedPdfShapes.ts:414-418`).
+- L4 (with H1). L5, L6 (with any history work). L7: landed with #101, in both
+  the pdf-lib and the native shape writers.
+- V3: landed with #103; the in-flight import fence now compares the document
+  revision token as well as the import token and working copy path.
 - V6: e2e asserting undo of a deferred delete restores editor and DOM state,
   not only the canonical entity.
 

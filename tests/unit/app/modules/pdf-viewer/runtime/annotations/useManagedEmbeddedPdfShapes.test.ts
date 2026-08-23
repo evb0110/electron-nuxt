@@ -22,6 +22,7 @@ import {
     useManagedEmbeddedPdfShapes,
 } from '@app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes';
 import { invalidateEmbeddedShapeImportCache } from '@app/modules/pdf-viewer/runtime/annotations/embeddedShapeImportCache';
+import { createManagedShapeStorePort } from '@tests/unit/app/modules/pdf-viewer/runtime/annotations/createManagedShapeStorePort';
 import {
     requireDocumentRevisionToken,
     type TDocumentRevisionToken,
@@ -177,38 +178,6 @@ function createEmbeddedInkShape(overrides: Partial<IShapeAnnotation>): IShapeAnn
         annotationId: '21R',
         stableKey: 'evb-shape:embedded-ink-1',
         pdfSubtype: 'Ink',
-        ...overrides,
-    };
-}
-
-/**
- * Stands in for the canonical projection: it records the intents the composable
- * forwards, and never decides an import mode of its own.
- */
-function createManagedShapeStorePort(overrides: Partial<IManagedEmbeddedPdfShapeProjectionPort> = {}): IManagedEmbeddedPdfShapeProjectionPort {
-    let baselineReady = false;
-    return {
-        getAllShapes: () => [],
-        getDeletedEmbeddedAnnotationIds: () => [],
-        getDeletedEmbeddedShapeStableKeys: () => [],
-        importEmbeddedShapes: vi.fn(() => {
-            baselineReady = true;
-            return {
-                mode: 'replace' as const,
-                skipRerender: false,
-                reason: 'stub-import',
-            };
-        }),
-        resetShapeImportBaseline: vi.fn(() => {
-            baselineReady = false;
-        }),
-        isShapeImportBaselineReady: () => baselineReady,
-        preservesShapeImportBaseline: () => baselineReady,
-        clearPendingShapeImportAdoption: vi.fn(),
-        beginShapeSave: () => ({
-            primePersistedShapes: vi.fn(() => true),
-            rollback: vi.fn(() => true),
-        }),
         ...overrides,
     };
 }
@@ -654,6 +623,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         const beginShapeSave = () => ({
             primePersistedShapes,
             rollback: vi.fn(() => true),
+            markSaved: vi.fn(() => true),
         });
         const shapeComposable = createManagedShapeStorePort({beginShapeSave});
         const managedShapes = useManagedEmbeddedPdfShapes({
