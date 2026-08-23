@@ -6,6 +6,7 @@ use crate::{
     OutputMode,
 };
 use serde::Serialize;
+use std::ops::AddAssign;
 use std::path::PathBuf;
 
 fn is_zero(value: &f64) -> bool {
@@ -66,6 +67,62 @@ pub struct PageStageTimings {
 impl PageStageTimings {
     pub(crate) fn is_empty(&self) -> bool {
         *self == Self::default()
+    }
+}
+
+/// Single owner for timing accumulation. The exhaustive destructuring without
+/// `..` is the guard: a new timing field stops compiling here until its
+/// accumulation is chosen explicitly.
+impl AddAssign for PageStageTimings {
+    fn add_assign(&mut self, other: Self) {
+        let Self {
+            decode_ms,
+            analysis_level_ms,
+            normalization_ms,
+            illumination_preparation_ms,
+            layout_normalization_ms,
+            calibration_ms,
+            picture_mask_ms,
+            mode_recommendation_ms,
+            quality_normalization_ms,
+            text_axis_ms,
+            split_ms,
+            deskew_ms,
+            content_ms,
+            rasterization_ms,
+            mask_rasterization_ms,
+            binarization_ms,
+            threshold_preparation_ms,
+            thresholding_ms,
+            binary_postprocess_ms,
+            mixed_composition_ms,
+            output_processing_ms,
+            render_ms,
+            write_ms,
+        } = other;
+        self.decode_ms += decode_ms;
+        self.analysis_level_ms += analysis_level_ms;
+        self.normalization_ms += normalization_ms;
+        self.illumination_preparation_ms += illumination_preparation_ms;
+        self.layout_normalization_ms += layout_normalization_ms;
+        self.calibration_ms += calibration_ms;
+        self.picture_mask_ms += picture_mask_ms;
+        self.mode_recommendation_ms += mode_recommendation_ms;
+        self.quality_normalization_ms += quality_normalization_ms;
+        self.text_axis_ms += text_axis_ms;
+        self.split_ms += split_ms;
+        self.deskew_ms += deskew_ms;
+        self.content_ms += content_ms;
+        self.rasterization_ms += rasterization_ms;
+        self.mask_rasterization_ms += mask_rasterization_ms;
+        self.binarization_ms += binarization_ms;
+        self.threshold_preparation_ms += threshold_preparation_ms;
+        self.thresholding_ms += thresholding_ms;
+        self.binary_postprocess_ms += binary_postprocess_ms;
+        self.mixed_composition_ms += mixed_composition_ms;
+        self.output_processing_ms += output_processing_ms;
+        self.render_ms += render_ms;
+        self.write_ms += write_ms;
     }
 }
 
@@ -153,6 +210,95 @@ mod tests {
             })
             .unwrap(),
             serde_json::json!({"layoutNormalizationMs": 12.5})
+        );
+    }
+
+    #[test]
+    fn stage_timings_add_assign_sums_every_field() {
+        let mut total = PageStageTimings {
+            decode_ms: 1.5,
+            analysis_level_ms: 2.5,
+            normalization_ms: 3.5,
+            illumination_preparation_ms: 4.5,
+            layout_normalization_ms: 5.5,
+            calibration_ms: 6.5,
+            picture_mask_ms: 7.5,
+            mode_recommendation_ms: 8.5,
+            quality_normalization_ms: 9.5,
+            text_axis_ms: 10.5,
+            split_ms: 11.5,
+            deskew_ms: 12.5,
+            content_ms: 13.5,
+            rasterization_ms: 14.5,
+            mask_rasterization_ms: 15.5,
+            binarization_ms: 16.5,
+            threshold_preparation_ms: 17.5,
+            thresholding_ms: 18.5,
+            binary_postprocess_ms: 19.5,
+            mixed_composition_ms: 20.5,
+            output_processing_ms: 21.5,
+            render_ms: 22.5,
+            write_ms: 23.5,
+        };
+        let addend = PageStageTimings {
+            decode_ms: 100.25,
+            analysis_level_ms: 200.25,
+            normalization_ms: 300.25,
+            illumination_preparation_ms: 400.25,
+            layout_normalization_ms: 500.25,
+            calibration_ms: 600.25,
+            picture_mask_ms: 700.25,
+            mode_recommendation_ms: 800.25,
+            quality_normalization_ms: 900.25,
+            text_axis_ms: 1000.25,
+            split_ms: 1100.25,
+            deskew_ms: 1200.25,
+            content_ms: 1300.25,
+            rasterization_ms: 1400.25,
+            mask_rasterization_ms: 1500.25,
+            binarization_ms: 1600.25,
+            threshold_preparation_ms: 1700.25,
+            thresholding_ms: 1800.25,
+            binary_postprocess_ms: 1900.25,
+            mixed_composition_ms: 2000.25,
+            output_processing_ms: 2100.25,
+            render_ms: 2200.25,
+            write_ms: 2300.25,
+        };
+
+        total += addend;
+
+        assert_eq!(total.decode_ms, 101.75);
+        assert_eq!(total.analysis_level_ms, 202.75);
+        assert_eq!(total.normalization_ms, 303.75);
+        assert_eq!(total.illumination_preparation_ms, 404.75);
+        assert_eq!(total.layout_normalization_ms, 505.75);
+        assert_eq!(total.calibration_ms, 606.75);
+        assert_eq!(total.picture_mask_ms, 707.75);
+        assert_eq!(total.mode_recommendation_ms, 808.75);
+        assert_eq!(total.quality_normalization_ms, 909.75);
+        assert_eq!(total.text_axis_ms, 1010.75);
+        assert_eq!(total.split_ms, 1111.75);
+        assert_eq!(total.deskew_ms, 1212.75);
+        assert_eq!(total.content_ms, 1313.75);
+        assert_eq!(total.rasterization_ms, 1414.75);
+        assert_eq!(total.mask_rasterization_ms, 1515.75);
+        assert_eq!(total.binarization_ms, 1616.75);
+        assert_eq!(total.threshold_preparation_ms, 1717.75);
+        assert_eq!(total.thresholding_ms, 1818.75);
+        assert_eq!(total.binary_postprocess_ms, 1919.75);
+        assert_eq!(total.mixed_composition_ms, 2020.75);
+        assert_eq!(total.output_processing_ms, 2121.75);
+        assert_eq!(total.render_ms, 2222.75);
+        assert_eq!(total.write_ms, 2323.75);
+        assert_eq!(
+            serde_json::to_value(total)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .len(),
+            23,
+            "every timing field must accumulate into a nonzero serialized value"
         );
     }
 

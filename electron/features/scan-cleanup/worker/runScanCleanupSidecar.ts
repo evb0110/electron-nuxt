@@ -57,6 +57,11 @@ function throwIfError(error: Error | null) {
     }
 }
 
+/**
+ * Deliberate presentation subset of the native page stage timings. The sidecar
+ * summary reports the eight stages a user can act on; the remaining native
+ * stages stay diagnostic and must not be added here just because they exist.
+ */
 type TScanCleanupStageTotalsMs = Record<
     'decode' | 'analysisLevel' | 'normalization' | 'split' | 'deskew' | 'content' | 'render' | 'write',
     number
