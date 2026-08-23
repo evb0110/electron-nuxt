@@ -1441,29 +1441,32 @@ test evidence disproves its recommendation.
 This section records the implementation run authorized after the audit and
 ledger reviews. The planning branch started from `26f45e902`. Before final
 review it was rebased without conflicts onto the then-current `origin/main`,
-`135d1c6d4`. The commit IDs below are the rebased IDs. No push had occurred when
-this record was drafted.
+`135d1c6d4`. Before publication it was rebased again without conflicts onto
+`a90b46087`. The remote commit had no overlapping paths. The commit IDs below
+are the final rebased IDs. No push had occurred when this record was drafted.
 
 ### Sequential commit map
 
 | Order | Package | Rebased commit | Result |
 | --- | --- | --- | --- |
-| 0 | Ledger definition | `cd66336a2` | Added this implementation and closure ledger. |
-| 1 | SC-IMP-001, C5 | `59641238b` | Confined runnable native manifests to one trusted root while retaining geometry-only and direct CLI compatibility. |
-| 2 | SC-IMP-002, E3 | `199a26d5f` | Added a bounded generated-PDF handoff, sender-scoped cancellation, stale-result fencing, and unclaimed working-copy cleanup. |
-| 3 | SC-IMP-003, C2 | `809923265` | Added typed warning events, native revision 10, legacy artifact handling, shared formatting, and code-based aggregation. |
-| 4 | SC-IMP-004 Stage A, C1 | `27d02130d` | Added the cross-path matched-canvas corpus and normalized physical parity oracle before changing fitters. |
-| 5 | SC-IMP-003 follow-up | `78d757a3a` | Closed warning codec, parameter, preview, and aggregation gaps exposed by review and the new oracle. |
-| 6 | SC-IMP-002 follow-up | `7d8ffaf63` | Closed timeout, disposal, late rejection, resource cleanup, and mock-isolation gaps in lifecycle coverage. |
-| 7 | SC-IMP-001 follow-up | `a96cd82e4` | Centralized manifest-root construction and diagnostics validation, deleting duplicated source-text parsing. |
-| 8 | SC-IMP-004 Stage B, C1 | `33d29c9b7` | Aligned raster, lossless, and preview placement policy for measured parity failures. |
-| 9 | SC-IMP-005, C3 | `a2dc1e3ca` | Enforced canonical page-number order at every positional page-size admission boundary. |
-| 10 | SC-IMP-006, C6 | `dd42b5c62` | Made all 23 Rust timing fields use one exhaustive accumulator and kept the TypeScript eight-field presentation subset unchanged. |
-| 11 | SC-IMP-010, T1 | `63475f017` | Rejected native progress totals and page indices outside the submitted lossless scope. |
-| 12 | SC-IMP-007, C4 | `b89ad6c83` | Made the sidecar callback carry native progress facts only; workflow owners now construct presentation progress. |
-| 13 | SC-IMP-011, T3 | `3a9674f40` | Reused the already resolved per-page lossless DPI without changing detected or fallback values. |
-| 14 | SC-IMP-014, N1 | `b79a6fd50` | Moved the complete manifest publication transaction and its rollback test to one private native module. |
-| 15 | SC-IMP-003 gate follow-up | `bd77a8906` | Updated the last hand-written Rust descriptor assertion from revision 9 to 10 after the full native gate exposed the drift. |
+| 0 | Ledger definition | `72926aeb6` | Added this implementation and closure ledger. |
+| 1 | SC-IMP-001, C5 | `52a9934e2` | Confined runnable native manifests to one trusted root while retaining geometry-only and direct CLI compatibility. |
+| 2 | SC-IMP-002, E3 | `ff80a424b` | Added a bounded generated-PDF handoff, sender-scoped cancellation, stale-result fencing, and unclaimed working-copy cleanup. |
+| 3 | SC-IMP-003, C2 | `7df345c31` | Added typed warning events, native revision 10, legacy artifact handling, shared formatting, and code-based aggregation. |
+| 4 | SC-IMP-004 Stage A, C1 | `e83d7853b` | Added the cross-path matched-canvas corpus and normalized physical parity oracle before changing fitters. |
+| 5 | SC-IMP-003 follow-up | `d2f74e675` | Closed warning codec, parameter, preview, and aggregation gaps exposed by review and the new oracle. |
+| 6 | SC-IMP-002 follow-up | `f7bac5463` | Closed timeout, disposal, late rejection, resource cleanup, and mock-isolation gaps in lifecycle coverage. |
+| 7 | SC-IMP-001 follow-up | `214604c36` | Centralized manifest-root construction and diagnostics validation, deleting duplicated source-text parsing. |
+| 8 | SC-IMP-004 Stage B, C1 | `90d1991d8` | Aligned raster, lossless, and preview placement policy for measured parity failures. |
+| 9 | SC-IMP-005, C3 | `7ab57b8a8` | Enforced canonical page-number order at every positional page-size admission boundary. |
+| 10 | SC-IMP-006, C6 | `418d17135` | Made all 23 Rust timing fields use one exhaustive accumulator and kept the TypeScript eight-field presentation subset unchanged. |
+| 11 | SC-IMP-010, T1 | `7285e4f53` | Rejected native progress totals and page indices outside the submitted lossless scope. |
+| 12 | SC-IMP-007, C4 | `4b5755b02` | Made the sidecar callback carry native progress facts only; workflow owners now construct presentation progress. |
+| 13 | SC-IMP-011, T3 | `8e48b8805` | Reused the already resolved per-page lossless DPI without changing detected or fallback values. |
+| 14 | SC-IMP-014, N1 | `9d6007cbd` | Moved the complete manifest publication transaction and its rollback test to one private native module. |
+| 15 | SC-IMP-003 gate follow-up | `477a1819d` | Updated the last hand-written Rust descriptor assertion from revision 9 to 10 after the full native gate exposed the drift. |
+| 16 | Final review corrections | `dc6ddcdf2` | Applied the useful final CodeRabbit findings to path-key exhaustiveness, fixture identity formatting, detail manifests, trusted diagnostics roots, manifest-path auditing, and quantization coverage. |
+| 17 | Gate harness correction | `68439e143` | Isolated the stroke-weight oracle child process from a contradictory color environment while preserving the strict empty-stderr assertion. |
 
 ### Package closure status
 
@@ -1483,7 +1486,7 @@ this record was drafted.
 | SC-IMP-011 T3 | Implemented after trigger | SC-IMP-010 and SC-IMP-007 edited the lossless planner. The local resolved DPI is now reused. A mutation-checked scratch-footprint test fails for both wrong fallback substitutions. |
 | SC-IMP-012 | Not triggered | No supported run approached the 24-hour threshold, and no live ordinary-root sweep collision was reproduced. No liveness registry or mtime workaround was added. |
 | SC-IMP-013 | Not triggered | No second production request builder, direct service caller, or equivalent-request join failure appeared. Document opening changes did not change scan-cleanup request identity. |
-| SC-IMP-014 | Implemented after trigger | `33d29c9b7` made substantial native placement-policy changes and `dd42b5c62` reopened classification reconciliation. `ManifestPublicationTransaction`, its lifecycle, `run_manifest_transaction`, and the direct rollback and panic test moved from `batch_cli.rs` to private `adapters/manifest_publication.rs`. The former implementation and test were deleted. |
+| SC-IMP-014 | Implemented after trigger | `90d1991d8` made substantial native placement-policy changes and `418d17135` reopened classification reconciliation. `ManifestPublicationTransaction`, its lifecycle, `run_manifest_transaction`, and the direct rollback and panic test moved from `batch_cli.rs` to private `adapters/manifest_publication.rs`. The former implementation and test were deleted. |
 | SC-IMP-015 | Not triggered | No same-process concurrent manifest API, shared metadata directory, or collision appeared. Per-run Electron scratch ownership remains unchanged. |
 
 SC-IMP-014 has one-way dependency direction. `batch_cli` supplies a validated
@@ -1537,7 +1540,7 @@ The ignored local evidence root is
 - The final `pnpm run test:rust` before this record completed successfully for
   the locked Rust workspace and ended with native search parity verified for
   ten cases. Its first run correctly failed on the stale revision-9 assertion;
-  `bd77a8906` fixed that one owner and the rerun exited zero.
+  `477a1819d` fixed that one owner and the rerun exited zero.
 
 Earlier package-focused command output was streamed during implementation but
 not retained as a package-specific artifact. The final accumulated gates below
@@ -1561,8 +1564,28 @@ per-package counts that were not preserved.
   wrong DPI substitutions would then pass. SC-IMP-014 and the protocol-parity
   follow-up passed Cubic without findings.
 - Two broad CodeRabbit passes were used during implementation. The reserved
-  final accumulated pass, its findings, and any post-fix verification are
-  recorded below after completion.
+  final accumulated pass ran on the complete diff against `origin/main` after
+  `coderabbit doctor` passed all nine checks. Nine findings were assessed.
+  Useful findings were implemented in `dc6ddcdf2`: native output path keys are
+  derived and asserted exhaustively, fixture identity hashes retain zero
+  padding, detail manifest paths must be nonempty, the diagnostics trusted root
+  is resolved once, unchecked manifest-path fields are audited by exact field
+  trail, the TypeScript check documents the native revalidation boundary, and
+  negative quantization cases are pinned. The diagnostics-script source grep
+  remains an intentional wiring tripwire, and a parameter-only rename was
+  declined as style-only. No further broad CodeRabbit pass was run because the
+  repository pass limit had been reached.
+- Native Sol at xhigh reviewed the complete final-correction diff and found no
+  security, correctness, specification, or repository-standard issue. Focused
+  verification covered 284 TypeScript tests and one Rust test. Typecheck, lint,
+  Rust format, clippy, the full 1,009-file and 8,184-test unit run, and the
+  affected native checks passed.
+- Cubic passed `dc6ddcdf2` with one declined advisory. The output path-key list
+  is compile-time exhaustive over `INativeScanCleanupOutputV3`; a new typed key
+  fails the assertion, while descriptor-value changes have separate tests.
+  Cubic returned an invalid final response for `68439e143` and failed open under
+  the repository service-error rule. The tracked correction had a deterministic
+  red reproduction before the change and green focused runs afterward.
 
 ### No-code, invariant, and boundary disposition
 
@@ -1588,14 +1611,42 @@ per-package counts that were not preserved.
 
 ### Final publication gates
 
-At the time this section was drafted, the worktree was clean, the sequential
-commits had been rebased without conflict onto `135d1c6d4`, and `origin/main`
+Before this final evidence edit, the tracked worktree was clean, the sequential
+commits had been rebased without conflict onto `a90b46087`, and `origin/main`
 was an ancestor of local `main`.
 
-- Final CodeRabbit host, base, scope, pass, findings, and disposition: pending.
-- Final all-gates run and `.devkit/gates/` summary: pending.
-- Final Cubic result for this execution-record commit: pending.
-- Last remote fetch and fast-forward proof: pending.
-- Publication tip and direct push result: pending.
-- GitHub Actions run and result: pending post-push evidence, to be reported in
-  the task handoff because a commit cannot contain its own final SHA or CI run.
+- Final CodeRabbit: local CLI on the Mac, base `origin/main`, complete
+  accumulated scope. `coderabbit doctor` passed nine of nine checks. The review
+  completed with nine findings, seven useful correction groups implemented in
+  `dc6ddcdf2`, and two findings declined with the reasons recorded above.
+- Final all-gates run: all four selected gates exited zero. The machine-readable
+  summary is
+  `.devkit/gates/2026-08-23T110306Z/summary.json`. `validate` ran from
+  11:03:06Z to 11:20:46Z, `test:coverage` to 11:22:02Z,
+  `release:verify` to 11:43:59Z, and release-cut preflight to 11:44:02Z.
+- `validate` passed 1,008 unit files and 8,127 tests, the locked Rust workspace,
+  native search parity for ten cases, the resource matrix, strict build, and
+  the blocking Electron smoke suite. The scan-cleanup crate result was 569
+  passed, three ignored, and zero failed.
+- Coverage passed 1,008 files and 8,127 tests at 64.81 percent statements,
+  59.49 percent branches, 64.63 percent functions, and 65.28 percent lines.
+  The coverage ratchet and zero-execution tripwire for 166 production files
+  passed.
+- Release verification reran the locked Rust workspace and ten-case native
+  search parity. The release-mode canonical-identity corpus test passed in
+  203.84 seconds. Resource, architecture, static-report, type-coverage, strict
+  build, and signed local macOS package checks passed. Packaged native tools and
+  `app.asar` passed their smoke and content checks.
+- The package verifier recorded one existing named gap. An ad-hoc signed macOS
+  app cannot run the packaged sidecar fold-clip smoke in place under the local
+  provenance policy. It also skipped packaged startup and notarization because
+  the local notarization credentials were absent. These are declared local
+  package limitations, not suppressed failures.
+- Release-cut preflight passed for `0.1.427` to `0.1.428` on `origin/main`.
+- A separate final `pnpm run validate:iteration` exited zero with 292 files and
+  3,372 tests. Its evidence is
+  `.devkit/analysis/gates/2026-08-23T11-45-01-128Z-3691-a6e7d61e.ndjson`.
+- Cubic for this evidence commit, the last remote fetch, fast-forward proof,
+  publication tip, direct push result, and GitHub Actions result must be
+  reported in the task handoff. A commit cannot contain its own final SHA or
+  the CI run created by its push.
