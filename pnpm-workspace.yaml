@@ -5,7 +5,10 @@ packages:
   - 'scan-cleanup-core'
 
 # Release automation and Electron smoke need the real Electron binary on every
-# fresh install. Keep this allowlist minimal.
+# fresh install. Electron 43 downloads lazily when required, so the root
+# postinstall also runs check:electron:install. The allowlist is forward-
+# compatible with Electron versions that restore a dependency lifecycle script
+# and keeps strictDepBuilds from rejecting that script during an upgrade.
 onlyBuiltDependencies:
   - electron
   - fallow

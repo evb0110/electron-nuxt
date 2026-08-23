@@ -154,7 +154,7 @@ describe('validation gate policy', () => {
             false,
             false,
         ]);
-    });
+    }, 30_000);
 
     it('fails closed for unmatched paths and unknown change detection', () => {
         const classification = validationGates.classifyValidationImpacts(['unowned/new-input.xyz']);

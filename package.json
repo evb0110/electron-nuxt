@@ -41,7 +41,7 @@
     "scan-cleanup:regress": "node scripts/scan-cleanup-regress.mjs",
     "generate:build-artifacts": "node --import tsx scripts/generateBuildArtifacts.ts",
     "preview": "pnpm exec nuxi preview",
-    "postinstall": "pnpm exec nuxi prepare && pnpm run copy:pdfjs",
+    "postinstall": "pnpm exec nuxi prepare && pnpm run copy:pdfjs && pnpm run check:electron:install",
     "copy:pdfjs": "node scripts/copy-pdfjs-assets.mjs && node scripts/sync-pdfjs-viewer-css.mjs",
     "typecheck": "node scripts/run-nuxt-typecheck.mjs && node scripts/run-workspace-package-typecheck.mjs -p electron/tsconfig.json -p tests/tsconfig.json -p tsconfig.scripts.json -p server/tsconfig.json",
     "typecheck:clean": "node scripts/run-nuxt-typecheck.mjs --cold && node scripts/run-workspace-package-typecheck.mjs --cold -p electron/tsconfig.json -p tests/tsconfig.json -p tsconfig.scripts.json -p server/tsconfig.json",
