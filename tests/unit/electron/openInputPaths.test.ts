@@ -8,6 +8,7 @@ import {
 import {mainJobBroker} from '@electron/resources/jobBroker';
 
 const mocks = vi.hoisted(() => ({
+    cleanupWorkingCopy: vi.fn(async (_workingPath: string, _ownerWebContentsId?: number) => undefined),
     addRecentInputs: vi.fn(async (_paths: string[], _owner?: unknown) => undefined),
     allowOpenPaths: vi.fn(),
     buildCombinedPdfOutputPath: vi.fn((_paths: string[]) => '/tmp/combined.pdf'),
@@ -60,6 +61,10 @@ vi.mock('@electron/file-access/workingCopyCreation', () => ({
         ownerWebContentsId?: number,
     ) => mocks.createWorkingCopyFromPath(sourcePath, originalPath, ownerWebContentsId),
 }));
+vi.mock('@electron/file-access/workingCopyCleanup', () => ({cleanupWorkingCopy: (
+    workingPath: string,
+    ownerWebContentsId?: number,
+) => mocks.cleanupWorkingCopy(workingPath, ownerWebContentsId)}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPaths: (...args: unknown[]) => mocks.allowOpenPaths(...args),
     requireOpenPath: (path: string, owner?: unknown) => mocks.requireOpenPath(path, owner),
@@ -260,6 +265,109 @@ describe('openInputPaths', () => {
             isGenerated: true,
         });
         expect(mocks.createPdfFileFromInputPaths).toHaveBeenCalledOnce();
+    });
+
+    it('refuses to create a working copy for an already-canceled open', async () => {
+        const owner = {id: 42};
+        const controller = new AbortController();
+        controller.abort(new Error('canceled before admission'));
+        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await expect(openInputPaths(
+            ['/tmp/source.pdf'],
+            {signal: controller.signal},
+            owner as never,
+        )).rejects.toThrow('canceled before admission');
+
+        expect(mocks.stat).not.toHaveBeenCalled();
+        expect(mocks.createWorkingCopy).not.toHaveBeenCalled();
+        expect(mocks.cleanupWorkingCopy).not.toHaveBeenCalled();
+    });
+
+    it('never starts working-copy creation when admission is canceled while deferred', async () => {
+        const owner = {id: 42};
+        const controller = new AbortController();
+        const admitted = Promise.withResolvers<true>();
+        const acquire = vi.spyOn(mainJobBroker, 'acquire').mockImplementation(request => (
+            new Promise((_resolve, reject) => {
+                admitted.resolve(true);
+                request.signal?.addEventListener('abort', () => reject(new Error('admission canceled')), {once: true});
+            })
+        ));
+        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+
+        const open = openInputPaths(['/tmp/source.pdf'], {signal: controller.signal}, owner as never);
+        await admitted.promise;
+        controller.abort(new Error('canceled during admission'));
+
+        await expect(open).rejects.toThrow('admission canceled');
+        expect(mocks.createWorkingCopy).not.toHaveBeenCalled();
+        expect(mocks.cleanupWorkingCopy).not.toHaveBeenCalled();
+        acquire.mockRestore();
+    });
+
+    it('discards the eventual copy of an open canceled while the copy was still running', async () => {
+        const owner = {id: 42};
+        const controller = new AbortController();
+        const copying = Promise.withResolvers<true>();
+        const copied = Promise.withResolvers<string>();
+        mocks.createWorkingCopy.mockImplementationOnce(() => {
+            copying.resolve(true);
+            return copied.promise;
+        });
+        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+
+        const open = openInputPaths(['/tmp/source.pdf'], {signal: controller.signal}, owner as never);
+        await copying.promise;
+        controller.abort(new Error('canceled during copy'));
+        copied.resolve('/tmp/working/late.pdf');
+
+        await expect(open).rejects.toThrow('canceled during copy');
+        expect(mocks.cleanupWorkingCopy).toHaveBeenCalledWith('/tmp/working/late.pdf', 42);
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/source.pdf', expect.anything());
+    });
+
+    it('cleans the copy without touching generated retention when the cancel lands first', async () => {
+        mocks.isScanCleanupGeneratedOutputPath.mockReturnValueOnce(true);
+        const owner = {id: 42};
+        const controller = new AbortController();
+        mocks.createWorkingCopy.mockImplementationOnce(async () => {
+            controller.abort(new Error('canceled after copy'));
+            return '/tmp/working/generated.pdf';
+        });
+        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await expect(openInputPaths(
+            ['/tmp/scan-cleanup/output/generated-id/source — cleaned.pdf'],
+            {signal: controller.signal},
+            owner as never,
+        )).rejects.toThrow('canceled after copy');
+
+        expect(mocks.touchScanCleanupGeneratedOutput).not.toHaveBeenCalled();
+        expect(mocks.cleanupWorkingCopy).toHaveBeenCalledWith('/tmp/working/generated.pdf', 42);
+    });
+
+    it('releases the interactive open lease even when the open is canceled', async () => {
+        const owner = {id: 42};
+        const controller = new AbortController();
+        const release = vi.fn();
+        const acquire = vi.spyOn(mainJobBroker, 'acquire')
+            .mockResolvedValue({release} as never);
+        mocks.createWorkingCopy.mockImplementationOnce(async () => {
+            controller.abort(new Error('canceled after admission'));
+            return '/tmp/working/original.pdf';
+        });
+        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await expect(openInputPaths(
+            ['/tmp/source.pdf'],
+            {signal: controller.signal},
+            owner as never,
+        )).rejects.toThrow('canceled after admission');
+
+        expect(release).toHaveBeenCalledOnce();
+        expect(mocks.cleanupWorkingCopy).toHaveBeenCalledWith('/tmp/working/original.pdf', 42);
+        acquire.mockRestore();
     });
 
     it('rejects oversized open batches before granting paths or creating temp files', async () => {

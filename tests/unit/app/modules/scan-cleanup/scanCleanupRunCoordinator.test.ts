@@ -29,6 +29,58 @@ const ownerContext = {
     documentRevision: 'scan-cleanup-test-revision',
 };
 
+function completedState(jobId: string, outputPdfPath = `/managed/${jobId}.pdf`): TScanCleanupJobState {
+    return {
+        jobId,
+        status: 'completed',
+        outputPdfPath,
+        summary: {
+            inputPages: 1,
+            outputPages: 1,
+            spreadsSplit: 0,
+            offcutsDiscarded: 0,
+            deskewSkipped: 0,
+            cropSkipped: 0,
+            excludedPages: 0,
+            blankPagesSkipped: 0,
+            warnings: [],
+        },
+        partial: false,
+        progress: progress(1, 1),
+        updatedAtMs: Date.now(),
+    };
+}
+
+function stubCapability(
+    onListener: (listener: (state: TScanCleanupJobState) => void) => void,
+    nextJobId: () => string,
+) {
+    return {
+        preview: vi.fn(),
+        cancelPreview: vi.fn(),
+        detectAll: vi.fn(),
+        cancelDetection: vi.fn(),
+        getDetectionJobState: vi.fn(),
+        subscribeDetectionJob: vi.fn(),
+        start: vi.fn(async () => ({
+            started: true as const,
+            jobId: nextJobId(),
+            outputPdfPath: `/managed/${nextJobId()}.pdf`,
+        })),
+        cancel: vi.fn(async () => true),
+        getJobState: vi.fn(async () => null),
+        subscribeJob: vi.fn(async () => null),
+        reconnectJob: vi.fn(async () => null),
+        pruneGeneratedOutputs: vi.fn(async () => 0),
+        onPreviewRaw: vi.fn(() => () => undefined),
+        onJobState: vi.fn((listener) => {
+            onListener(listener);
+            return () => undefined;
+        }),
+        onDetectionJobState: vi.fn(() => () => undefined),
+    } satisfies Partial<IScanCleanupCapability> as IScanCleanupCapability;
+}
+
 describe('scan cleanup run coordinator', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -420,7 +472,7 @@ describe('scan cleanup run coordinator', () => {
             updatedAtMs: Date.now(),
         });
         await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'success'})));
-        expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/book — cleaned.pdf');
+        expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/book — cleaned.pdf', expect.any(AbortSignal));
         const completeToast = toastAdd.mock.calls.at(-1)?.[0];
         expect(saveActiveDocumentAs).not.toHaveBeenCalled();
         completeToast.actions[0].onClick();
@@ -462,6 +514,134 @@ describe('scan cleanup run coordinator', () => {
         await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'info'})));
         expect(openGeneratedPdf).toHaveBeenCalledOnce();
         cleanup();
+    });
+
+    it('fails the run when the generated-PDF handoff outlives its deadline, once', async () => {
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        let jobId = 'job-deadline';
+        capability.value = stubCapability((next) => { listener = next; }, () => jobId);
+        const openGate = Promise.withResolvers<boolean>();
+        const signals: AbortSignal[] = [];
+        const openGeneratedPdf = vi.fn((_path: string, signal: AbortSignal) => {
+            signals.push(signal);
+            return openGate.promise;
+        });
+        const toastAdd = vi.fn();
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf,
+            saveActiveDocumentAs: vi.fn(),
+            t: ((key: string) => key) as never,
+            toast: {add: toastAdd},
+        });
+        await coordinator.startScanCleanup({
+            ...ownerContext,
+            sourcePdfPath: '/source/deadline.pdf',
+            options: expect.anything() as never,
+        });
+
+        vi.useFakeTimers();
+        try {
+            listener(completedState('job-deadline'));
+            expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/job-deadline.pdf', expect.any(AbortSignal));
+            expect(coordinator.isScanCleanupRunning.value).toBe(true);
+
+            await vi.advanceTimersByTimeAsync(30_000);
+        } finally {
+            vi.useRealTimers();
+        }
+
+        expect(signals[0]!.aborted).toBe(true);
+        expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'error',
+            title: 'scanCleanup.openResultFailed',
+        }));
+        expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
+        expect(coordinator.isScanCleanupRunning.value).toBe(false);
+
+        // The abandoned open still answers eventually. It must not re-report an
+        // outcome or clear the guard a second time.
+        openGate.resolve(true);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(toastAdd).toHaveBeenCalledOnce();
+
+        // And the released guard admits the next run.
+        jobId = 'job-after-deadline';
+        await expect(coordinator.startScanCleanup({
+            ...ownerContext,
+            sourcePdfPath: '/source/next.pdf',
+            options: expect.anything() as never,
+        })).resolves.toMatchObject({started: true});
+        expect(coordinator.scanCleanupRun.activeJobId).toBe('job-after-deadline');
+        cleanup();
+    });
+
+    it('hands a disposed handoff back to the next installation instead of losing the run', async () => {
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        let jobId = 'job-disposed';
+        capability.value = stubCapability((next) => { listener = next; }, () => jobId);
+        const abandonedOpen = Promise.withResolvers<boolean>();
+        const firstOpen = vi.fn((_path: string, _signal: AbortSignal) => abandonedOpen.promise);
+        const firstToast = vi.fn();
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const dispose = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: firstOpen,
+            saveActiveDocumentAs: vi.fn(),
+            t: ((key: string) => key) as never,
+            toast: {add: firstToast},
+        });
+        await coordinator.startScanCleanup({
+            ...ownerContext,
+            sourcePdfPath: '/source/disposed.pdf',
+            options: expect.anything() as never,
+        });
+        listener(completedState('job-disposed'));
+        expect(firstOpen).toHaveBeenCalledOnce();
+
+        const secondOpen = vi.fn(async () => true);
+        const secondToast = vi.fn();
+
+        // Disposal, reinstallation and the replay all land in one tick, the way
+        // a window that swaps its coordinator does. Nothing is awaited in
+        // between, so the abandoned handoff has not resumed yet and cannot be
+        // what releases the job for the replacement.
+        dispose();
+        const firstSignal = firstOpen.mock.calls[0]![1];
+        expect(firstSignal.aborted).toBe(true);
+        expect(firstToast).not.toHaveBeenCalled();
+        // Disposal cancels the handoff but keeps the run recorded: the job is
+        // still the persisted active one and nobody has reported it yet.
+        expect(coordinator.scanCleanupRun.activeJobId).toBe('job-disposed');
+        const reinstall = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: secondOpen,
+            saveActiveDocumentAs: vi.fn(),
+            t: ((key: string) => key) as never,
+            toast: {add: secondToast},
+        });
+        listener(completedState('job-disposed'));
+        expect(secondOpen).toHaveBeenCalledOnce();
+
+        await vi.waitFor(() => expect(secondToast).toHaveBeenCalledWith(expect.objectContaining({color: 'success'})));
+        expect(secondOpen).toHaveBeenCalledWith('/managed/job-disposed.pdf', expect.any(AbortSignal));
+        expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
+
+        // The replayed run owns the state now, so the abandoned open cannot
+        // report through the disposed dependencies or clear what replaced it.
+        jobId = 'job-after-replay';
+        await coordinator.startScanCleanup({
+            ...ownerContext,
+            sourcePdfPath: '/source/after-replay.pdf',
+            options: expect.anything() as never,
+        });
+        abandonedOpen.resolve(true);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(firstToast).not.toHaveBeenCalled();
+        expect(secondToast).toHaveBeenCalledOnce();
+        expect(coordinator.scanCleanupRun.activeJobId).toBe('job-after-replay');
+        expect(coordinator.isScanCleanupRunning.value).toBe(true);
+        reinstall();
     });
 
     it('maps out-of-order completion to exact source-page ticks only for that workspace', async () => {
@@ -729,7 +909,7 @@ describe('scan cleanup run coordinator', () => {
             color: 'error',
             title: 'scanCleanup.openResultFailed',
         })));
-        expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/missing.pdf');
+        expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/missing.pdf', expect.any(AbortSignal));
         cleanup();
     });
 
@@ -796,8 +976,8 @@ describe('scan cleanup run coordinator', () => {
             sourcePdfPath: '/source/instant.pdf',
             options: expect.anything() as never,
         });
-        await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/instant.pdf'));
-        expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
+        await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/instant.pdf', expect.any(AbortSignal)));
+        await vi.waitFor(() => expect(coordinator.scanCleanupRun.activeJobId).toBeNull());
         expect(coordinator.scanCleanupRun.jobState).toEqual(completed);
         expect(subscribeJob).not.toHaveBeenCalled();
         cleanup();

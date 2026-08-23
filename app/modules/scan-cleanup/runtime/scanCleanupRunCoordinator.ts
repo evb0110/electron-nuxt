@@ -16,6 +16,13 @@ const ACTIVE_JOB_DOCUMENT_KEY = 'evb.scanCleanup.activeDocumentRef';
 const ACTIVE_JOB_OWNER_KEY = 'evb.scanCleanup.activeOwnerId';
 const ACTIVE_JOB_REVISION_KEY = 'evb.scanCleanup.activeDocumentRevision';
 const RUN_SUBSCRIPTION_RECONCILIATION_ATTEMPTS = 3;
+/**
+ * How long the coordinator keeps the completed run's guard, active job id, and
+ * session persistence alive while the generated PDF is handed to the workspace.
+ * Kept at the bounded document-open stage budget the workspace controller uses,
+ * so a handoff that never answers fails the run instead of pinning it forever.
+ */
+const GENERATED_PDF_HANDOFF_TIMEOUT_MS = 30_000;
 
 export type TScanCleanupRunReconciliationFailure = 'subscription' | 'recovery';
 
@@ -205,7 +212,7 @@ interface IScanCleanupToast {add: (options: {
 }) => unknown;}
 
 export interface IScanCleanupCoordinatorDependencies {
-    openGeneratedPdf: (path: string) => Promise<boolean>;
+    openGeneratedPdf: (path: string, signal: AbortSignal) => Promise<boolean>;
     saveActiveDocumentAs: () => Promise<unknown>;
     openScanCleanupForDocument?: (documentRef: string) => Promise<boolean> | boolean;
     t: TTranslateFn;
@@ -218,6 +225,58 @@ let dependencies: IScanCleanupCoordinatorDependencies | null = null;
 let pendingStart: Pick<IScanCleanupStartRequest, 'documentRevision' | 'ownerId' | 'sourcePdfPath'> | null = null;
 let startRequestPromise: Promise<TScanCleanupRendererStartResult> | null = null;
 let activeStartResult: Extract<TBridgeScanCleanupStartResult, {started: true}> | null = null;
+
+interface IGeneratedPdfHandoff {
+    controller: AbortController;
+    generation: number;
+    invalidated: boolean;
+    jobId: string;
+}
+
+let handoffGeneration = 0;
+let activeGeneratedPdfHandoff: IGeneratedPdfHandoff | null = null;
+
+/**
+ * Resolves as soon as the open answers or the handoff deadline fires, and keeps
+ * consuming the open promise afterwards so a late answer can neither reject
+ * unhandled nor settle this handoff a second time.
+ */
+function settleGeneratedPdfHandoff(open: Promise<boolean>, signal: AbortSignal) {
+    return new Promise<boolean>((resolve) => {
+        const abandon = () => resolve(false);
+        signal.addEventListener('abort', abandon, {once: true});
+        open.then(
+            (opened) => {
+                signal.removeEventListener('abort', abandon);
+                resolve(opened === true);
+            },
+            () => {
+                signal.removeEventListener('abort', abandon);
+                resolve(false);
+            },
+        );
+        if (signal.aborted) {
+            abandon();
+        }
+    });
+}
+
+function invalidateGeneratedPdfHandoff() {
+    const handoff = activeGeneratedPdfHandoff;
+    if (!handoff) {
+        return;
+    }
+    handoff.invalidated = true;
+    activeGeneratedPdfHandoff = null;
+    handoffGeneration += 1;
+    // The job goes back to unreported before the abort is visible anywhere. A
+    // replacement coordinator can be installed and replayed synchronously in
+    // the same tick as disposal, and the abandoned handler only resumes a
+    // microtask later: releasing the reservation there would arrive after the
+    // replay it is meant to admit.
+    terminalJobs.delete(handoff.jobId);
+    handoff.controller.abort(new Error('Scan cleanup coordinator was disposed'));
+}
 
 function clearRunGuard() {
     scanCleanupRun.inFlight = false;
@@ -319,7 +378,42 @@ async function handleTerminalState(state: TScanCleanupJobState) {
         // until the generated PDF finishes opening: releasing them earlier
         // lets source-document detection and preview restart mid-handoff and
         // race the working-copy claim of the output document.
-        const opened = await terminalDependencies.openGeneratedPdf(state.outputPdfPath).catch(() => false);
+        handoffGeneration += 1;
+        const handoff: IGeneratedPdfHandoff = {
+            controller: new AbortController(),
+            generation: handoffGeneration,
+            invalidated: false,
+            jobId: state.jobId,
+        };
+        activeGeneratedPdfHandoff = handoff;
+        const deadline = setTimeout(
+            () => handoff.controller.abort(new Error('Generated PDF handoff timed out')),
+            GENERATED_PDF_HANDOFF_TIMEOUT_MS,
+        );
+        let opened = false;
+        try {
+            opened = await settleGeneratedPdfHandoff(
+                terminalDependencies.openGeneratedPdf(state.outputPdfPath, handoff.controller.signal),
+                handoff.controller.signal,
+            );
+        } catch {
+            opened = false;
+        } finally {
+            clearTimeout(deadline);
+            if (activeGeneratedPdfHandoff === handoff) {
+                activeGeneratedPdfHandoff = null;
+            }
+        }
+        if (handoff.invalidated) {
+            // The renderer that owned this handoff went away. Its terminal
+            // state was released back to the next coordinator installation as
+            // the handoff was invalidated, and a replay may already have been
+            // accepted since, so this abandoned attempt only steps aside.
+            return;
+        }
+        if (handoff.generation !== handoffGeneration) {
+            return;
+        }
         scanCleanupRun.activeJobId = null;
         clearRunGuard();
         persistActiveJob(null);
@@ -595,5 +689,6 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
         unsubscribe = null;
         installed = false;
         dependencies = null;
+        invalidateGeneratedPdfHandoff();
     };
 }

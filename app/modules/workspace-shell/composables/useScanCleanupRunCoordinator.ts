@@ -8,7 +8,10 @@ import {
 } from '@app/modules/scan-cleanup/public/runtime';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { getDocumentOpenCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentOpenCapability,
+    getDocumentWorkingCopyCapability,
+} from '@app/utils/platformDocuments';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TTranslateFn } from '@i18n-app';
 import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
@@ -61,6 +64,76 @@ export async function recoverScanCleanupWorkspaceForDocument(
     return true;
 }
 
+const ABANDONED_OPEN = Symbol('scan-cleanup-generated-open-abandoned');
+
+/**
+ * A working copy the main process created for an open nobody ended up claiming
+ * belongs to no document session, so nothing else will ever release it. Only
+ * the copy is discarded; the generated output it was copied from is the run's
+ * product and stays on disk for the retention sweep to age out.
+ */
+function discardUnclaimedGeneratedOpen(result: TOpenFileResult | null) {
+    if (result?.kind !== 'pdf' || !result.workingPath) {
+        return;
+    }
+    void getDocumentWorkingCopyCapability().cleanupFile(result.workingPath).catch(() => undefined);
+}
+
+export async function openScanCleanupGeneratedPdf(
+    path: string,
+    signal: AbortSignal,
+    handleOpenInNewTab: (result: TOpenFileResult) => Promise<boolean>,
+) {
+    const documentOpen = getDocumentOpenCapability();
+    const requestId = `scan-cleanup-open-${crypto.randomUUID()}`;
+    const cancelOpen = () => {
+        void documentOpen.cancelOpenDocumentDirectBatch?.(requestId).catch(() => undefined);
+    };
+    if (signal.aborted) {
+        return false;
+    }
+    signal.addEventListener('abort', cancelOpen, {once: true});
+    // Both listeners are detached on every exit, including a synchronous throw
+    // from the open call: the signal outlives this open, so anything left
+    // attached to it accumulates for the rest of the handoff.
+    let abandonOpen: (() => void) | null = null;
+    try {
+        const open = documentOpen.openDocumentDirectBatch([path], requestId);
+        // Main-process cancellation is optional and a copy already in flight
+        // cannot be interrupted, so the abort is also raced locally. The open
+        // promise is still consumed either way, both to avoid an unhandled
+        // rejection and to release a working copy that arrives with no tab left
+        // to claim it.
+        const abandoned = new Promise<typeof ABANDONED_OPEN>((resolve) => {
+            abandonOpen = () => resolve(ABANDONED_OPEN);
+            signal.addEventListener('abort', abandonOpen, {once: true});
+        });
+        const settled = await Promise.race([
+            open.then(result => ({result}), (error: unknown) => ({error})),
+            abandoned,
+        ]);
+        if (settled === ABANDONED_OPEN) {
+            void open.then(discardUnclaimedGeneratedOpen, () => undefined);
+            return false;
+        }
+        if ('error' in settled) {
+            throw settled.error;
+        }
+        if (signal.aborted) {
+            discardUnclaimedGeneratedOpen(settled.result);
+            return false;
+        }
+        return settled.result?.kind === 'pdf'
+            ? await handleOpenInNewTab(settled.result)
+            : false;
+    } finally {
+        signal.removeEventListener('abort', cancelOpen);
+        if (abandonOpen) {
+            signal.removeEventListener('abort', abandonOpen);
+        }
+    }
+}
+
 export const useScanCleanupRunCoordinator = (
     activeWorkspace: ComputedRef<IWorkspaceExpose | null>,
     handleOpenInNewTab: (result: TOpenFileResult) => Promise<boolean>,
@@ -71,12 +144,7 @@ export const useScanCleanupRunCoordinator = (
 ) => {
     const toast = useToast();
     const cleanup = installScanCleanupRunCoordinator({
-        openGeneratedPdf: async (path) => {
-            const result = await getDocumentOpenCapability().openDocumentDirect(path);
-            return result?.kind === 'pdf'
-                ? handleOpenInNewTab(result)
-                : false;
-        },
+        openGeneratedPdf: (path, signal) => openScanCleanupGeneratedPdf(path, signal, handleOpenInNewTab),
         saveActiveDocumentAs: async () => activeWorkspace.value?.handleSaveAs() ?? false,
         openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(
             documentRef,

@@ -41,7 +41,14 @@ import type {
 
 const logger = createLogger('documents-dialogs');
 const MAX_DIRECT_OPEN_BATCH_PATHS = 512;
-const activeBatchCombines = new Map<string, AbortController>();
+/**
+ * The direct batch open requests this main process can still cancel, keyed by
+ * sender and request id. Every request that carries an id is registered, not
+ * just a forced combine: a renderer that bounds its own handoff needs the
+ * single-PDF open to be cancellable too, and cancellation must never reach a
+ * request another window started.
+ */
+const activeDirectBatchRequests = new Map<string, AbortController>();
 
 export async function collectSupportedFolderPaths(folderPath: string) {
     const supportedPaths: string[] = [];
@@ -68,7 +75,7 @@ export async function collectSupportedFolderPaths(folderPath: string) {
     ).map(entry => entry.path);
 }
 
-function getBatchCombineKey(senderId: number, requestId: string) {
+function getDirectBatchRequestKey(senderId: number, requestId: string) {
     return `${senderId}:${requestId}`;
 }
 
@@ -80,11 +87,13 @@ export function handleCancelOpenDocumentDirectBatch(
     if (!normalizedRequestId) {
         return false;
     }
-    const controller = activeBatchCombines.get(getBatchCombineKey(context.sender.id, normalizedRequestId));
+    const controller = activeDirectBatchRequests.get(
+        getDirectBatchRequestKey(context.sender.id, normalizedRequestId),
+    );
     if (!controller) {
         return false;
     }
-    controller.abort(new DOMException('PDF combine was canceled.', 'AbortError'));
+    controller.abort(new DOMException('Document open was canceled.', 'AbortError'));
     return true;
 }
 
@@ -196,15 +205,13 @@ export async function handleOpenPdfDirectBatch(
             .map(path => requireOpenPath(path, context.sender));
 
         const normalizedRequestId = normalizeOptionalIpcRequestId(requestId) ?? '';
-        const abortController = batchOptions?.forceCombine && normalizedRequestId
-            ? new AbortController()
+        const abortController = normalizedRequestId ? new AbortController() : null;
+        const requestKey = abortController
+            ? getDirectBatchRequestKey(context.sender.id, normalizedRequestId)
             : null;
-        const combineKey = abortController
-            ? getBatchCombineKey(context.sender.id, normalizedRequestId)
-            : null;
-        if (combineKey && abortController) {
-            activeBatchCombines.get(combineKey)?.abort(new Error('Superseded PDF combine request'));
-            activeBatchCombines.set(combineKey, abortController);
+        if (requestKey && abortController) {
+            activeDirectBatchRequests.get(requestKey)?.abort(new Error('Superseded document open request'));
+            activeDirectBatchRequests.set(requestKey, abortController);
         }
         const options = normalizedRequestId
             ? {onCombineProgress: createOpenBatchProgressReporter(context.sender, normalizedRequestId, 'document-open')}
@@ -216,8 +223,8 @@ export async function handleOpenPdfDirectBatch(
                 ...(abortController ? {signal: abortController.signal} : {}),
             }, context.sender);
         } finally {
-            if (combineKey && activeBatchCombines.get(combineKey) === abortController) {
-                activeBatchCombines.delete(combineKey);
+            if (requestKey && activeDirectBatchRequests.get(requestKey) === abortController) {
+                activeDirectBatchRequests.delete(requestKey);
             }
         }
     } catch (err) {

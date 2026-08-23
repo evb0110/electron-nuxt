@@ -1,14 +1,164 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 import {
+    openScanCleanupGeneratedPdf,
     recoverScanCleanupWorkspaceForDocument,
     resolveScanCleanupEntryViewState,
 } from '@app/modules/workspace-shell/composables/useScanCleanupRunCoordinator';
 import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+
+const capabilities = vi.hoisted(() => ({
+    cancelOpenDocumentDirectBatch: vi.fn(async (_requestId: string) => true) as
+        | ((requestId: string) => Promise<boolean>)
+        | undefined,
+    cleanupFile: vi.fn(async (_path: string) => undefined),
+    openDocumentDirect: vi.fn(async (_path: string) => null as TOpenFileResult | null),
+    openDocumentDirectBatch: vi.fn(async (
+        _paths: string[],
+        _requestId?: string,
+    ) => null as TOpenFileResult | null),
+}));
+
+vi.mock('@app/utils/platformDocuments', () => ({
+    getDocumentOpenCapability: () => ({
+        openDocumentDirect: capabilities.openDocumentDirect,
+        openDocumentDirectBatch: capabilities.openDocumentDirectBatch,
+        cancelOpenDocumentDirectBatch: capabilities.cancelOpenDocumentDirectBatch,
+    }),
+    getDocumentWorkingCopyCapability: () => ({cleanupFile: capabilities.cleanupFile}),
+}));
+
+const generatedResult: TOpenFileResult = {
+    kind: 'pdf',
+    workingPath: '/tmp/pdf-work-1/book — cleaned.pdf',
+    originalPath: '/managed/book — cleaned.pdf',
+    isGenerated: true,
+};
+
+describe('openScanCleanupGeneratedPdf', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        capabilities.cancelOpenDocumentDirectBatch = vi.fn(async (_requestId: string) => true);
+    });
+
+    it('opens the generated output through the cancellable batch request and claims its result', async () => {
+        capabilities.openDocumentDirectBatch.mockResolvedValueOnce(generatedResult);
+        const handleOpenInNewTab = vi.fn(async () => true);
+
+        await expect(openScanCleanupGeneratedPdf(
+            '/managed/book — cleaned.pdf',
+            new AbortController().signal,
+            handleOpenInNewTab,
+        )).resolves.toBe(true);
+
+        expect(capabilities.openDocumentDirect).not.toHaveBeenCalled();
+        const [
+            paths,
+            requestId,
+        ] = capabilities.openDocumentDirectBatch.mock.calls[0]!;
+        expect(paths).toEqual(['/managed/book — cleaned.pdf']);
+        expect(requestId).toMatch(/^scan-cleanup-open-\S+$/u);
+        expect(requestId!.length).toBeLessThanOrEqual(128);
+        // The workspace claims the main-process result, not the path: that
+        // result is the working copy's ownership handoff.
+        expect(handleOpenInNewTab).toHaveBeenCalledWith(generatedResult);
+        expect(capabilities.cleanupFile).not.toHaveBeenCalled();
+    });
+
+    it('cancels the in-flight request and never claims a tab once the handoff is abandoned', async () => {
+        const open = Promise.withResolvers<TOpenFileResult | null>();
+        capabilities.openDocumentDirectBatch.mockReturnValueOnce(open.promise);
+        const handleOpenInNewTab = vi.fn(async () => true);
+        const controller = new AbortController();
+
+        const opening = openScanCleanupGeneratedPdf(
+            '/managed/book — cleaned.pdf',
+            controller.signal,
+            handleOpenInNewTab,
+        );
+        const requestId = capabilities.openDocumentDirectBatch.mock.calls[0]![1];
+        controller.abort(new Error('handoff deadline'));
+
+        await expect(opening).resolves.toBe(false);
+        expect(capabilities.cancelOpenDocumentDirectBatch).toHaveBeenCalledWith(requestId);
+        expect(handleOpenInNewTab).not.toHaveBeenCalled();
+
+        // The main process could not interrupt the copy in time, so the working
+        // copy it hands back has no owner. Only that copy is released; the
+        // generated output the run produced stays on disk.
+        open.resolve(generatedResult);
+        await vi.waitFor(() => expect(capabilities.cleanupFile)
+            .toHaveBeenCalledWith('/tmp/pdf-work-1/book — cleaned.pdf'));
+        expect(capabilities.cleanupFile).toHaveBeenCalledOnce();
+        expect(handleOpenInNewTab).not.toHaveBeenCalled();
+    });
+
+    it('abandons the handoff locally when the platform cannot cancel the request', async () => {
+        capabilities.cancelOpenDocumentDirectBatch = undefined;
+        const open = Promise.withResolvers<TOpenFileResult | null>();
+        capabilities.openDocumentDirectBatch.mockReturnValueOnce(open.promise);
+        const handleOpenInNewTab = vi.fn(async () => true);
+        const controller = new AbortController();
+
+        const opening = openScanCleanupGeneratedPdf(
+            '/managed/book — cleaned.pdf',
+            controller.signal,
+            handleOpenInNewTab,
+        );
+        controller.abort(new Error('handoff deadline'));
+
+        await expect(opening).resolves.toBe(false);
+        expect(handleOpenInNewTab).not.toHaveBeenCalled();
+
+        // A late rejection from the uninterruptible request is consumed rather
+        // than left to surface as an unhandled rejection.
+        open.reject(new Error('open failed after abandonment'));
+        await vi.waitFor(() => expect(capabilities.openDocumentDirectBatch).toHaveBeenCalledOnce());
+        expect(capabilities.cleanupFile).not.toHaveBeenCalled();
+    });
+
+    it('never issues a request for an already-abandoned handoff', async () => {
+        const controller = new AbortController();
+        controller.abort(new Error('handoff deadline'));
+
+        await expect(openScanCleanupGeneratedPdf(
+            '/managed/book — cleaned.pdf',
+            controller.signal,
+            vi.fn(async () => true),
+        )).resolves.toBe(false);
+
+        expect(capabilities.openDocumentDirectBatch).not.toHaveBeenCalled();
+    });
+
+    it('reports an open failure to the coordinator instead of swallowing it', async () => {
+        capabilities.openDocumentDirectBatch.mockRejectedValueOnce(new Error('Invalid or non-existent file'));
+
+        await expect(openScanCleanupGeneratedPdf(
+            '/managed/missing.pdf',
+            new AbortController().signal,
+            vi.fn(async () => true),
+        )).rejects.toThrow('Invalid or non-existent file');
+    });
+
+    it('treats a non-PDF answer as a failed handoff', async () => {
+        capabilities.openDocumentDirectBatch.mockResolvedValueOnce(null);
+        const handleOpenInNewTab = vi.fn(async () => true);
+
+        await expect(openScanCleanupGeneratedPdf(
+            '/managed/book — cleaned.pdf',
+            new AbortController().signal,
+            handleOpenInNewTab,
+        )).resolves.toBe(false);
+
+        expect(handleOpenInNewTab).not.toHaveBeenCalled();
+    });
+});
 
 function viewState(overrides: Partial<ITabViewSessionState> = {}): ITabViewSessionState {
     return {

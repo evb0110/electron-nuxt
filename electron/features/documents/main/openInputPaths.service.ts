@@ -21,6 +21,7 @@ import {
     createWorkingCopy,
     createWorkingCopyFromPath,
 } from '@electron/file-access/workingCopyCreation';
+import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
 import {
     allowOpenPaths,
     requireOpenPath,
@@ -207,52 +208,74 @@ export async function openInputPaths(
         const sourceCriticalStartedAt = performance.now();
         const originalPath = normalizedPaths[0]!;
         const isGenerated = isScanCleanupGeneratedOutputPath(originalPath);
+        const ownerWebContentsId = getOwnerWebContentsId(owner);
         logger.debug(`openInputPaths creating working copy for PDF: ${originalPath}`);
-        const inputBytes = await stat(originalPath).then(fileStat => fileStat.size, () => 0);
-        const admissionTimeoutSignal = AbortSignal.timeout(PDF_OPEN_ADMISSION_TIMEOUT_MS);
-        const openLease = await mainJobBroker.acquire({
-            ownerId: `pdf-open:${getOwnerWebContentsId(owner) ?? 'main'}`,
-            kind: 'pdf-working-copy',
-            priority: 'foreground',
-            admissionClass: 'interactive',
-            perOwnerLimit: 1,
-            signal: options.signal
-                ? AbortSignal.any([
-                    options.signal,
-                    admissionTimeoutSignal,
-                ])
-                : admissionTimeoutSignal,
-            resources: {
-                cpuTokens: 0,
-                estimatedResidentBytes: Math.min(64 * 1024 * 1024, Math.max(4 * 1024 * 1024, inputBytes / 64)),
-                nativeProcesses: 0,
-                ioWeight: 1,
-            },
-        });
-        let workingPath: string;
+        const lifecycle = createOpenInputPathsAbortLifecycle(owner, originalPath, options.signal);
+        const { signal } = lifecycle;
+        let openLease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
+        // Copying is not interruptible, so an abort that lands mid-copy has to
+        // let the copy finish and then dispose of it. The result is only
+        // handed to the caller once nothing can suppress it any more; until
+        // then this branch still owns the copy and must clean it up itself.
+        let unownedWorkingPath: string | null = null;
         try {
-            workingPath = await createWorkingCopy(requireOpenPath(originalPath, owner), getOwnerWebContentsId(owner));
+            throwIfAborted(signal);
+            const inputBytes = await stat(originalPath).then(fileStat => fileStat.size, () => 0);
+            const admissionTimeoutSignal = AbortSignal.timeout(PDF_OPEN_ADMISSION_TIMEOUT_MS);
+            openLease = await mainJobBroker.acquire({
+                ownerId: `pdf-open:${ownerWebContentsId ?? 'main'}`,
+                kind: 'pdf-working-copy',
+                priority: 'foreground',
+                admissionClass: 'interactive',
+                perOwnerLimit: 1,
+                signal: AbortSignal.any([
+                    signal,
+                    admissionTimeoutSignal,
+                ]),
+                resources: {
+                    cpuTokens: 0,
+                    estimatedResidentBytes: Math.min(64 * 1024 * 1024, Math.max(4 * 1024 * 1024, inputBytes / 64)),
+                    nativeProcesses: 0,
+                    ioWeight: 1,
+                },
+            });
+            throwIfAborted(signal);
+            unownedWorkingPath = await createWorkingCopy(
+                requireOpenPath(originalPath, owner),
+                ownerWebContentsId,
+            );
+            throwIfAborted(signal);
+            if (isGenerated) {
+                // Generated outputs stay out of Recent Files, so opening one is
+                // the only signal that the user still wants it: it has to
+                // restart the retention window the cleanup sweep measures.
+                await touchScanCleanupGeneratedOutput(originalPath);
+            } else {
+                persistRecentInputsAfterOpen([originalPath], owner);
+            }
+            throwIfAborted(signal);
+            logger.debug(`openInputPaths PDF source-critical timings: ${JSON.stringify({
+                recentPersistence: 'background',
+                totalMs: Math.round((performance.now() - sourceCriticalStartedAt) * 10) / 10,
+            })}`);
+            const result: TOpenFileResult = {
+                kind: 'pdf',
+                workingPath: unownedWorkingPath,
+                originalPath,
+                ...(isGenerated ? {isGenerated: true} : {}),
+            };
+            unownedWorkingPath = null;
+            return result;
         } finally {
-            openLease.release();
+            openLease?.release();
+            lifecycle.cleanup();
+            if (unownedWorkingPath) {
+                await cleanupWorkingCopy(unownedWorkingPath, ownerWebContentsId)
+                    .catch(error => {
+                        logger.warn(`Failed to clean an unclaimed PDF working copy: ${getErrorMessage(error)}`);
+                    });
+            }
         }
-        if (isGenerated) {
-            // Generated outputs stay out of Recent Files, so opening one is the
-            // only signal that the user still wants it: it has to restart the
-            // retention window the cleanup sweep measures.
-            await touchScanCleanupGeneratedOutput(originalPath);
-        } else {
-            persistRecentInputsAfterOpen([originalPath], owner);
-        }
-        logger.debug(`openInputPaths PDF source-critical timings: ${JSON.stringify({
-            recentPersistence: 'background',
-            totalMs: Math.round((performance.now() - sourceCriticalStartedAt) * 10) / 10,
-        })}`);
-        return {
-            kind: 'pdf',
-            workingPath,
-            originalPath,
-            ...(isGenerated ? {isGenerated: true} : {}),
-        };
     }
 
     const outputPath = buildCombinedPdfOutputPath(normalizedPaths);
