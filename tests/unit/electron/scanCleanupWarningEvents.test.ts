@@ -3,6 +3,7 @@ import type {TScanCleanupWarningEvent} from '@contracts/scan-cleanup/nativeProto
 import {
     describeScanCleanupNativeWarnings,
     formatScanCleanupWarningEvent,
+    toScanCleanupDpiThousandths,
     toScanCleanupPercentTenths,
 } from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 import {
@@ -168,10 +169,10 @@ const PINNED: Array<[TScanCleanupWarningEvent, string]> = [
         {
             code: 'matched-canvas-page-dpi-capped',
             pageNumber: 3,
-            appliedDpi: 200,
-            requestedDpi: 300,
+            appliedDpiThousandths: 200_000,
+            requestedDpiThousandths: 300_000,
         },
-        'Matched page size capped page 3 at 200 DPI from 300 DPI to keep its uniform canvas '
+        'Matched page size capped page 3 at 200.000 DPI from 300.000 DPI to keep its uniform canvas '
         + 'inside cleanup guardrails',
     ],
     [
@@ -185,8 +186,23 @@ const PINNED: Array<[TScanCleanupWarningEvent, string]> = [
 ];
 
 describe('scan cleanup warning events', () => {
-    it.each(PINNED)('reproduces the pinned wording of %s', (event, expected) => {
+    // Three codes are pinned more than once, so the case index joins the code:
+    // a title that named the code alone would repeat, and a repeated title is
+    // one a failure report cannot resolve to a case.
+    it.each(PINNED.map(([
+        event,
+        expected,
+    ], index) => [
+        `${String(index)} ${event.code}`,
+        event,
+        expected,
+    ] as const))('reproduces the pinned wording of case %s', (_label, event, expected) => {
         expect(formatScanCleanupWarningEvent(event)).toBe(expected);
+    });
+
+    it('pins a distinct case label for every wording it reproduces', () => {
+        expect(new Set(PINNED.map(([event], index) => `${String(index)} ${event.code}`)).size)
+            .toBe(PINNED.length);
     });
 
     it('pins one wording per warning code the catalog declares', () => {
@@ -241,6 +257,42 @@ describe('scan cleanup warning events', () => {
             documentCanvasWidth: 50,
             documentCanvasHeight: 100,
         })).toContain('at 0.0% of the document\'s scale');
+    });
+
+    it('spells a capped page\'s DPI from the digits its producer quantized', () => {
+        // A page's planned resolution is a measurement against its own
+        // rectangle, not a whole number, and the raw float reached the sentence
+        // as JavaScript's full expansion of it.
+        expect(String(296.999_999_999_999_94)).toBe('296.99999999999994');
+        expect(toScanCleanupDpiThousandths(296.999_999_999_999_94)).toBe(297_000);
+        expect(formatScanCleanupWarningEvent({
+            code: 'matched-canvas-page-dpi-capped',
+            pageNumber: 4,
+            appliedDpiThousandths: toScanCleanupDpiThousandths(200),
+            requestedDpiThousandths: toScanCleanupDpiThousandths(296.999_999_999_999_94),
+        })).toBe('Matched page size capped page 4 at 200.000 DPI from 297.000 DPI to keep its '
+            + 'uniform canvas inside cleanup guardrails');
+        // A resolution that really is fractional keeps every digit the
+        // sentence shows, and fixed point stays digits rather than arithmetic.
+        expect(toScanCleanupDpiThousandths(216.875)).toBe(216_875);
+        expect(formatScanCleanupWarningEvent({
+            code: 'matched-canvas-page-dpi-capped',
+            pageNumber: 1,
+            appliedDpiThousandths: 1,
+            requestedDpiThousandths: 216_875,
+        })).toBe('Matched page size capped page 1 at 0.001 DPI from 216.875 DPI to keep its '
+            + 'uniform canvas inside cleanup guardrails');
+        // The same exact half the sidecar's own quantizer resolves to the even
+        // digit: the producer decides it, so the formatter cannot resolve it
+        // the other way.
+        expect((875.062_5).toFixed(3)).toBe('875.063');
+        expect(formatScanCleanupWarningEvent({
+            code: 'matched-canvas-page-dpi-capped',
+            pageNumber: 2,
+            appliedDpiThousandths: 875_062,
+            requestedDpiThousandths: 1_200_000,
+        })).toBe('Matched page size capped page 2 at 875.062 DPI from 1200.000 DPI to keep its '
+            + 'uniform canvas inside cleanup guardrails');
     });
 
     it('quantizes a JavaScript producer\'s percentage to the digit it has always printed', () => {

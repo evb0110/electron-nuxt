@@ -4378,9 +4378,11 @@ describe('scan cleanup pipeline', () => {
         const canvasDpi = measured.canvas!.widthPx / measured.canvas!.widthPoints * 72;
         expect(canvasDpi).toBeLessThan(1_200);
         expect(measured.warnings.filter(warning => /normalized this document at/u.test(warning)))
-            .toEqual([`Matched page size normalized this document at ${String(Math.round(canvasDpi))} DPI `
-                + 'instead of the 1200 DPI its finest page was rendered at, '
-                + 'to keep one shared page inside the output pixel budget']);
+            .toEqual([formatScanCleanupWarningEvent({
+                code: 'matched-canvas-document-dpi-normalized',
+                canvasDpi,
+                finestPageDpi: 1_200,
+            })]);
     });
 
     it('measures a document of spreads by the half sheets it produces', async () => {
@@ -4870,9 +4872,10 @@ describe('scan cleanup pipeline', () => {
         });
         // And the run says which pages it re-rendered rather than letting the
         // user believe nothing was touched.
-        expect(summary.warnings).toContain(
-            'Matched page size re-rendered 1 page(s) that do not share the document\'s pixel grid: 2',
-        );
+        expect(summary.warnings).toContain(formatScanCleanupWarningEvent({
+            code: 'matched-canvas-pages-resampled',
+            pages: [2],
+        }));
         // The meter follows the run that actually happened. On the lossless
         // weights `rendering` is not a stage at all, so a profile fixed before
         // the fallback would freeze the percentage through the longest stage.
@@ -4926,9 +4929,10 @@ describe('scan cleanup pipeline', () => {
             widthPx: Math.ceil(400 / 72 * 300),
             heightPx: Math.ceil(200 / 72 * 300),
         });
-        expect(summary.warnings).toContain(
-            'Matched page size re-rendered 1 page(s) that do not share the document\'s pixel grid: 2',
-        );
+        expect(summary.warnings).toContain(formatScanCleanupWarningEvent({
+            code: 'matched-canvas-pages-resampled',
+            pages: [2],
+        }));
     });
 
     it('scales a smaller page onto the canvas with a content transform when nothing has to be resampled', async () => {
@@ -5074,11 +5078,19 @@ describe('scan cleanup pipeline', () => {
         }));
 
         expect(summary.warnings).toEqual([
-            'Page 1: Matched page raster extends beyond the canvas by 7 px on the left and 3 px '
-            + 'on the right; optical content remains bounded',
+            formatScanCleanupWarningEvent({
+                code: 'matched-canvas-intrinsic-overflow',
+                leftPx: 7,
+                rightPx: 3,
+            }, 1),
             'Page 2: Content crop was skipped because no content box was detected',
-            'Matched page size fitted 2 page(s) inside their requested margin boxes, '
-            + 'below the document\'s scale: 1, 2',
+            formatScanCleanupWarningEvent({
+                code: 'matched-canvas-content-fitted-pages',
+                pages: [
+                    1,
+                    2,
+                ],
+            }),
         ]);
     });
 
@@ -5100,19 +5112,27 @@ describe('scan cleanup pipeline', () => {
         expect(summary.warnings).toEqual([
             'Page 1: Totally different engine prose about fitting a page',
             'Page 2: Totally different engine prose about fitting a page',
-            'Matched page size fitted 2 page(s) inside their requested margin boxes, '
-            + 'below the document\'s scale: 1, 2',
+            formatScanCleanupWarningEvent({
+                code: 'matched-canvas-content-fitted-pages',
+                pages: [
+                    1,
+                    2,
+                ],
+            }),
         ]);
     });
 
     it('reads a legacy artifact that carries its conditions as sentences without aggregating them', async () => {
+        // The sentence is written once and read back once: what this pins is
+        // that a legacy artifact's own text survives verbatim and never reaches
+        // aggregation, not what that text says.
+        const legacySentence = 'Matched page size fitted this page to 600x500 px inside the 952x952 px '
+            + 'requested margin box on the 1000x1000 px document canvas, below the document\'s scale';
         const summary = await runRasterWarningEventPipeline(pageNumber => (pageNumber === 1
-            ? {warnings: ['Matched page size fitted this page to 600x500 px inside the 952x952 px requested '
-                + 'margin box on the 1000x1000 px document canvas, below the document\'s scale']}
+            ? {warnings: [legacySentence]}
             : {warnings: []}));
 
-        expect(summary.warnings).toEqual(['Page 1: Matched page size fitted this page to 600x500 px inside the 952x952 px requested '
-            + 'margin box on the 1000x1000 px document canvas, below the document\'s scale']);
+        expect(summary.warnings).toEqual([`Page 1: ${legacySentence}`]);
     });
 
     it('uses one pair-wide fit when either lossless spread leaf reaches the margin box', async () => {
@@ -5265,9 +5285,10 @@ describe('scan cleanup pipeline', () => {
         expect(harness.readSplitInstructions()).not.toBeNull();
         expect(harness.readSplitInstructions()!.pages[0]!.outputs[0]!.contentTransform)
             .toMatchObject({scale: 0.5});
-        expect(summary.warnings).toContain(
-            'Matched page size scaled 1 page(s) that carry their own raster without re-rendering them: 1',
-        );
+        expect(summary.warnings).toContain(formatScanCleanupWarningEvent({
+            code: 'matched-canvas-pages-scaled-in-place',
+            pages: [1],
+        }));
     });
 
     it('names a lossless page whose sheet is larger than the rectangle the run measured', async () => {
@@ -5325,13 +5346,18 @@ describe('scan cleanup pipeline', () => {
             height: 200,
         });
         expect(output.contentTransform!.scale).toBeCloseTo(0.5, 6);
+        const downscaled = {
+            code: 'matched-canvas-paper-downscaled',
+            unit: 'pt',
+            scalePercentTenths: 500,
+            documentCanvasWidth: 200,
+            documentCanvasHeight: 200,
+            paperWidth: 400,
+            paperHeight: 200,
+        } as const;
         expect(summary.warnings).toEqual([
-            'Page 1: Matched page size placed this page at 50.0% of the document\'s scale because its '
-            + '400.0x200.0 pt paper is larger than the 200.0x200.0 pt document canvas, '
-            + 'which was measured from a different layout for this page',
-            'Page 2: Matched page size placed this page at 50.0% of the document\'s scale because its '
-            + '400.0x200.0 pt paper is larger than the 200.0x200.0 pt document canvas, '
-            + 'which was measured from a different layout for this page',
+            formatScanCleanupWarningEvent(downscaled, 1),
+            formatScanCleanupWarningEvent(downscaled, 2),
         ]);
     });
 

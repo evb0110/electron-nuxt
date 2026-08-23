@@ -38,6 +38,17 @@ export function toScanCleanupPercentTenths(percent: number) {
 }
 
 /**
+ * The same counterpart for a DPI the sentence shows with three decimals. A
+ * planned render DPI is usually whole, but a source resolution measured from a
+ * raster and its page rectangle is not, and handing that float to the formatter
+ * would print JavaScript's full decimal expansion of it in a user-facing
+ * sentence.
+ */
+export function toScanCleanupDpiThousandths(dpi: number) {
+    return Math.round(Number(dpi.toFixed(3)) * 1_000);
+}
+
+/**
  * The one place a scan-cleanup warning condition becomes English. Every
  * producer — native, lossless, preview — reports the condition as an event, so
  * a wording change here cannot alter which conditions the run aggregates, and
@@ -112,8 +123,10 @@ function describeScanCleanupWarningEvent(event: TScanCleanupWarningEvent) {
                 + `instead of the ${String(Math.round(event.finestPageDpi))} DPI its finest page was rendered at, `
                 + 'to keep one shared page inside the output pixel budget';
         case 'matched-canvas-page-dpi-capped':
-            return `Matched page size capped page ${String(event.pageNumber)} at ${String(event.appliedDpi)} DPI `
-                + `from ${String(event.requestedDpi)} DPI to keep its uniform canvas inside cleanup guardrails`;
+            return `Matched page size capped page ${String(event.pageNumber)} at `
+                + `${fixedPoint(event.appliedDpiThousandths, 3)} DPI from `
+                + `${fixedPoint(event.requestedDpiThousandths, 3)} DPI to keep its uniform canvas `
+                + 'inside cleanup guardrails';
         case 'render-dpi-limited':
             return `Requested render DPI ${fixedPoint(event.requestedDpiThousandths, 3)} was limited to `
                 + `${fixedPoint(event.appliedDpiThousandths, 3)} by native raster safety limits`;

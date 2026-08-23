@@ -877,7 +877,7 @@ export const SCAN_CLEANUP_WARNING_EVENT_CODES = [
 export type TScanCleanupWarningEventCode = typeof SCAN_CLEANUP_WARNING_EVENT_CODES[number];
 
 /** One output's placement cannot report more conditions than the matrix holds. */
-const MAX_SCAN_CLEANUP_WARNING_EVENTS = 32;
+export const MAX_SCAN_CLEANUP_WARNING_EVENTS = 32;
 const MAX_SCAN_CLEANUP_WARNING_EVENT_DETAIL_LENGTH = 512;
 /**
  * Every numeric parameter is bounded, not merely finite. Like the IPC input
@@ -1023,6 +1023,48 @@ const paperDownscaled = s.refine(s.object({
     value.paperWidth,
     value.paperHeight,
 ]) && rectangleIsWholeOrAbsent(value.paperWidth, value.paperHeight), warningEventMessage);
+/**
+ * A page's capped render DPI, and the superseded shape of the same condition:
+ * artifacts written before both measurements travelled as fixed-point
+ * thousandths state them as plain DPI. One condition carries one decoded
+ * shape, so the old fields are converted and re-decoded against the canonical
+ * bounds instead of widening the union with a variant every consumer would
+ * branch on; both shapes being exact, a payload mixing them matches neither.
+ * The old field also admitted a DPI below half a thousandth: that lands on the
+ * smallest one the canonical field states rather than quantizing to zero and
+ * costing a readable artifact its decode.
+ */
+const canonicalPageDpiCapped = s.object({
+    code: warningEventCode('matched-canvas-page-dpi-capped'),
+    pageNumber: warningEventPageNumber,
+    appliedDpiThousandths: warningEventDpiThousandths,
+    requestedDpiThousandths: warningEventDpiThousandths,
+}, {
+    exact: true,
+    message: warningEventMessage,
+});
+const legacyPageDpiCapped = s.object({
+    code: warningEventCode('matched-canvas-page-dpi-capped'),
+    pageNumber: warningEventPageNumber,
+    appliedDpi: warningEventDpi,
+    requestedDpi: warningEventDpi,
+}, {
+    exact: true,
+    message: warningEventMessage,
+});
+const legacyDpiThousandths = (dpi: number) => Math.max(1, Math.round(dpi * 1_000));
+const pageDpiCapped = s.fromParser(value => {
+    if (!isRecord(value) || !('appliedDpi' in value || 'requestedDpi' in value)) {
+        return canonicalPageDpiCapped.decode(value);
+    }
+    const legacy = legacyPageDpiCapped.decode(value);
+    return canonicalPageDpiCapped.decode({
+        code: legacy.code,
+        pageNumber: legacy.pageNumber,
+        appliedDpiThousandths: legacyDpiThousandths(legacy.appliedDpi),
+        requestedDpiThousandths: legacyDpiThousandths(legacy.requestedDpi),
+    });
+}, canonicalPageDpiCapped.example);
 const warningEvent = s.union([
     contentFitted,
     s.object({
@@ -1101,15 +1143,7 @@ const warningEvent = s.union([
         exact: true,
         message: warningEventMessage,
     }),
-    s.object({
-        code: warningEventCode('matched-canvas-page-dpi-capped'),
-        pageNumber: warningEventPageNumber,
-        appliedDpi: warningEventDpi,
-        requestedDpi: warningEventDpi,
-    }, {
-        exact: true,
-        message: warningEventMessage,
-    }),
+    pageDpiCapped,
     s.object({
         code: warningEventCode('render-dpi-limited'),
         appliedDpiThousandths: warningEventDpiThousandths,

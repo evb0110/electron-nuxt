@@ -1906,6 +1906,12 @@ describe('scan cleanup preview', () => {
             },
         });
 
+        // Both lanes have to have produced something first. The base raster and
+        // the render region below are compared against the plan the detail lane
+        // published, and two absent values agree with each other.
+        expect(baseResult.outputs).not.toHaveLength(0);
+        expect(result.outputs).not.toHaveLength(0);
+        expect(detailPlan).toBeDefined();
         // The tile crop is sidecar input only: it reaches native raw, and the
         // dimensions the render plan carries come from that raw header.
         expect(tileInputPath).toMatch(/\.ppm$/);
@@ -2695,7 +2701,11 @@ describe('scan cleanup preview', () => {
         });
 
         const metadata = decodeScanCleanupPreviewResult(result);
-        const output = 'outputs' in metadata ? metadata.outputs[0]!.metadata : null;
+        const outputs = 'outputs' in metadata ? metadata.outputs : [];
+        // An empty result would satisfy every assertion below by never reaching
+        // one, so the page is proved to carry its output before it is indexed.
+        expect(outputs).not.toHaveLength(0);
+        const output = outputs[0]!.metadata;
         // The page rectangle stays fixed and content is fitted inside the
         // 5 mm boundary, which is the same geometry the final assembler uses.
         expect(output).toMatchObject({
@@ -2709,21 +2719,25 @@ describe('scan cleanup preview', () => {
                 bottomPx: 30,
             },
         });
-        expect(output!.matchedCanvasContentWidthPx).toBe(DOCUMENT_CANVAS.widthPx - 60);
+        expect(output.matchedCanvasContentWidthPx).toBe(DOCUMENT_CANVAS.widthPx - 60);
         // The lossless preview reports the fitted placement through the shared
         // code, so the sentence it shows is the final run's sentence. Its
         // extents are stated outright rather than read back from the metadata
         // under test: the 120x80 source fills the inner box's width and keeps
-        // its 3:2 aspect down the page.
-        expect(output!.warnings).toEqual([formatScanCleanupWarningEvent({
+        // its 3:2 aspect down the page. It also names the document canvas the
+        // margin box was cut out of, which is what the raster path reports for
+        // the same placement.
+        expect(output.warnings).toEqual([formatScanCleanupWarningEvent({
             code: 'matched-canvas-content-fitted',
             unit: 'px',
             contentWidth: 1_215,
             contentHeight: 810,
             innerWidth: DOCUMENT_CANVAS.widthPx - 60,
             innerHeight: DOCUMENT_CANVAS.heightPx - 60,
+            documentCanvasWidth: DOCUMENT_CANVAS.widthPx,
+            documentCanvasHeight: DOCUMENT_CANVAS.heightPx,
         })]);
-        expect(output!.matchedCanvasContentHeightPx! / output!.matchedCanvasContentWidthPx!)
+        expect(output.matchedCanvasContentHeightPx! / output.matchedCanvasContentWidthPx!)
             .toBeCloseTo(80 / 120, 2);
     });
 

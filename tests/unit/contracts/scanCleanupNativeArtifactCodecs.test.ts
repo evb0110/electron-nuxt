@@ -9,7 +9,14 @@ import {
     InvalidScanCleanupNativeArtifactError,
 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {SCAN_CLEANUP_INPUT_MAX_PAGES} from '@contracts/scan-cleanup/inputLimits';
-import type {INativeScanCleanupSplitDiagnosticsV3} from '@contracts/scan-cleanup/nativeProtocolV3';
+import {
+    MAX_SCAN_CLEANUP_WARNING_EVENTS,
+    SCAN_CLEANUP_WARNING_EVENT_CODES,
+} from '@contracts/scan-cleanup/nativeProtocolV3';
+import type {
+    INativeScanCleanupSplitDiagnosticsV3,
+    TScanCleanupWarningEvent,
+} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
     describe,
     expect,
@@ -284,7 +291,7 @@ describe('scan-cleanup native artifact codecs', () => {
             innerHeight: 95,
             documentCanvasWidth: 100,
             documentCanvasHeight: 100,
-        };
+        } satisfies TScanCleanupWarningEvent;
         const paperDownscaled = {
             code: 'matched-canvas-paper-downscaled',
             unit: 'px',
@@ -293,13 +300,76 @@ describe('scan-cleanup native artifact codecs', () => {
             documentCanvasHeight: 100,
             paperWidth: 100,
             paperHeight: 200,
-        };
+        } satisfies TScanCleanupWarningEvent;
+        // One decodable payload per code the catalog declares. The catalog owns
+        // how many that is, so a code added to the contract without a case here
+        // fails on this matrix rather than reaching an artifact undecoded.
+        const declared: readonly TScanCleanupWarningEvent[] = [
+            fitted,
+            {
+                code: 'matched-canvas-content-fitted-pages',
+                pages: [
+                    1,
+                    2,
+                    5,
+                ],
+            },
+            {code: 'matched-canvas-margins-reduced'},
+            {code: 'matched-canvas-margins-unavailable'},
+            paperDownscaled,
+            {code: 'matched-canvas-optical-centering-fallback'},
+            {
+                code: 'matched-canvas-intrinsic-overflow',
+                leftPx: 7,
+                rightPx: 3,
+            },
+            {
+                code: 'matched-canvas-spread-headroom-trimmed',
+                topPx: 12,
+            },
+            {
+                code: 'matched-canvas-fold-columns-discarded',
+                leftColumns: 5,
+                rightColumns: 9,
+            },
+            {code: 'matched-canvas-dropped'},
+            {
+                code: 'matched-canvas-geometry-unmeasured',
+                detail: 'pdfinfo exited with 1',
+            },
+            {
+                code: 'matched-canvas-pages-resampled',
+                pages: [
+                    3,
+                    1,
+                    SCAN_CLEANUP_INPUT_MAX_PAGES,
+                ],
+            },
+            {
+                code: 'matched-canvas-pages-scaled-in-place',
+                pages: [1],
+            },
+            {
+                code: 'matched-canvas-document-dpi-normalized',
+                canvasDpi: 299.6,
+                finestPageDpi: 400.2,
+            },
+            {
+                code: 'matched-canvas-page-dpi-capped',
+                pageNumber: 3,
+                appliedDpiThousandths: 200_000,
+                requestedDpiThousandths: 300_000,
+            },
+            {
+                code: 'render-dpi-limited',
+                appliedDpiThousandths: 288_500,
+                requestedDpiThousandths: 400_000,
+            },
+        ];
         const withEvents = {
             ...outputMetadata(),
             warningEvents: [
-                fitted,
-                paperDownscaled,
-                {code: 'matched-canvas-margins-reduced'},
+                ...declared,
                 // The optional rectangles are absent as a pair, and a page
                 // list keeps the order its producer found the pages in.
                 {
@@ -310,18 +380,23 @@ describe('scan-cleanup native artifact codecs', () => {
                     innerWidth: 371.7,
                     innerHeight: 171.7,
                 },
-                {
-                    code: 'matched-canvas-pages-resampled',
-                    pages: [
-                        3,
-                        1,
-                        SCAN_CLEANUP_INPUT_MAX_PAGES,
-                    ],
-                },
             ],
         };
+        const atLimit = {
+            ...outputMetadata(),
+            warningEvents: Array.from(
+                {length: MAX_SCAN_CLEANUP_WARNING_EVENTS},
+                () => ({code: 'matched-canvas-margins-reduced'}),
+            ),
+        };
 
+        expect(declared).toHaveLength(SCAN_CLEANUP_WARNING_EVENT_CODES.length);
+        expect(new Set(declared.map(event => event.code)))
+            .toEqual(new Set(SCAN_CLEANUP_WARNING_EVENT_CODES));
         expect(decodeNativeScanCleanupOutputMetadata(withEvents)).toBe(withEvents);
+        // The ceiling is a bound the contract states, not a number this test
+        // decides: one output may report exactly that many conditions.
+        expect(decodeNativeScanCleanupOutputMetadata(atLimit)).toBe(atLimit);
         // An artifact written before the structured channel existed keeps its
         // sentences and decodes unchanged.
         expect(decodeNativeScanCleanupOutputMetadata({
@@ -329,111 +404,427 @@ describe('scan-cleanup native artifact codecs', () => {
             warnings: ['Matched page size reduced requested margins because they leave no drawable canvas'],
         }).warningEvents).toBeUndefined();
 
-        for (const warningEvents of [
-            [{code: 'engine-said-something'}],
-            [{
-                ...fitted,
-                code: 'matched-canvas-margins-reduced',
-            }],
-            [{
-                ...fitted,
-                contentWidth: Number.NaN,
-            }],
-            [{
-                ...fitted,
-                contentWidth: 60.5,
-            }],
-            [{
-                code: 'matched-canvas-intrinsic-overflow',
-                leftPx: 1,
-            }],
-            [{
-                code: 'matched-canvas-geometry-unmeasured',
-                detail: 'x'.repeat(513),
-            }],
-            [{
-                code: 'matched-canvas-pages-resampled',
-                pages: [],
-            }],
+        // Each rejection names itself. A bare loop reports only the assertion
+        // that failed, which for twenty-odd malformed payloads is not enough to
+        // tell which payload the decoder let through.
+        const rejected: ReadonlyArray<{
+            label: string;
+            warningEvents: unknown;
+        }> = [
+            {
+                label: 'a code no catalog declares',
+                warningEvents: [{code: 'engine-said-something'}],
+            },
+            {
+                label: 'a parameterless code carrying another code\'s parameters',
+                warningEvents: [{
+                    ...fitted,
+                    code: 'matched-canvas-margins-reduced',
+                }],
+            },
+            {
+                label: 'a non-finite extent',
+                warningEvents: [{
+                    ...fitted,
+                    contentWidth: Number.NaN,
+                }],
+            },
+            {
+                label: 'a fractional pixel extent',
+                warningEvents: [{
+                    ...fitted,
+                    contentWidth: 60.5,
+                }],
+            },
+            {
+                label: 'an overflow missing one side',
+                warningEvents: [{
+                    code: 'matched-canvas-intrinsic-overflow',
+                    leftPx: 1,
+                }],
+            },
+            {
+                label: 'a detail past the length limit',
+                warningEvents: [{
+                    code: 'matched-canvas-geometry-unmeasured',
+                    detail: 'x'.repeat(513),
+                }],
+            },
+            {
+                label: 'an empty page list',
+                warningEvents: [{
+                    code: 'matched-canvas-pages-resampled',
+                    pages: [],
+                }],
+            },
             // A rectangle is one measurement: half of it is a payload the
             // formatter would have to guess the other half of.
-            [{
-                ...fitted,
-                documentCanvasHeight: undefined,
-            }],
-            [{
-                ...fitted,
-                documentCanvasWidth: undefined,
-            }],
-            [{
-                ...paperDownscaled,
-                paperHeight: undefined,
-            }],
-            [{
-                ...paperDownscaled,
-                paperWidth: undefined,
-            }],
+            {
+                label: 'a document canvas rectangle missing its height',
+                warningEvents: [{
+                    ...fitted,
+                    documentCanvasHeight: undefined,
+                }],
+            },
+            {
+                label: 'a document canvas rectangle missing its width',
+                warningEvents: [{
+                    ...fitted,
+                    documentCanvasWidth: undefined,
+                }],
+            },
+            {
+                label: 'a paper rectangle missing its height',
+                warningEvents: [{
+                    ...paperDownscaled,
+                    paperHeight: undefined,
+                }],
+            },
+            {
+                label: 'a paper rectangle missing its width',
+                warningEvents: [{
+                    ...paperDownscaled,
+                    paperWidth: undefined,
+                }],
+            },
             // Every numeric parameter is bounded, not merely finite.
-            [{
-                ...fitted,
-                contentWidth: 1_000_001,
-            }],
-            [{
-                ...paperDownscaled,
-                scalePercentTenths: 10_001,
-            }],
-            [{
-                ...paperDownscaled,
-                scalePercentTenths: 50.5,
-            }],
-            [{
-                code: 'matched-canvas-intrinsic-overflow',
-                leftPx: 1_000_001,
-                rightPx: 0,
-            }],
-            [{
-                code: 'matched-canvas-document-dpi-normalized',
-                canvasDpi: 300,
-                finestPageDpi: 100_001,
-            }],
-            [{
-                code: 'render-dpi-limited',
-                appliedDpiThousandths: 100_000_001,
-                requestedDpiThousandths: 400_000,
-            }],
-            [{
-                code: 'render-dpi-limited',
-                appliedDpiThousandths: 288_500.5,
-                requestedDpiThousandths: 400_000,
-            }],
-            [{
-                code: 'matched-canvas-page-dpi-capped',
-                pageNumber: SCAN_CLEANUP_INPUT_MAX_PAGES + 1,
-                appliedDpi: 200,
-                requestedDpi: 300,
-            }],
-            [{
-                code: 'matched-canvas-pages-resampled',
-                pages: [SCAN_CLEANUP_INPUT_MAX_PAGES + 1],
-            }],
+            {
+                label: 'an extent past the bound',
+                warningEvents: [{
+                    ...fitted,
+                    contentWidth: 1_000_001,
+                }],
+            },
+            {
+                label: 'a scale past the bound',
+                warningEvents: [{
+                    ...paperDownscaled,
+                    scalePercentTenths: 10_001,
+                }],
+            },
+            {
+                label: 'a fractional scale in fixed-point tenths',
+                warningEvents: [{
+                    ...paperDownscaled,
+                    scalePercentTenths: 50.5,
+                }],
+            },
+            {
+                label: 'a count past the bound',
+                warningEvents: [{
+                    code: 'matched-canvas-intrinsic-overflow',
+                    leftPx: 1_000_001,
+                    rightPx: 0,
+                }],
+            },
+            {
+                label: 'a normalized DPI past the bound',
+                warningEvents: [{
+                    code: 'matched-canvas-document-dpi-normalized',
+                    canvasDpi: 300,
+                    finestPageDpi: 100_001,
+                }],
+            },
+            {
+                label: 'a limited render DPI past the bound',
+                warningEvents: [{
+                    code: 'render-dpi-limited',
+                    appliedDpiThousandths: 100_000_001,
+                    requestedDpiThousandths: 400_000,
+                }],
+            },
+            {
+                label: 'a fractional limited render DPI in fixed-point thousandths',
+                warningEvents: [{
+                    code: 'render-dpi-limited',
+                    appliedDpiThousandths: 288_500.5,
+                    requestedDpiThousandths: 400_000,
+                }],
+            },
+            // The capped page reports the same fixed-point DPI the render limit
+            // does, so a producer that rounded it in the formatter's language
+            // instead of its own is rejected here rather than printed.
+            {
+                label: 'a fractional capped page DPI in fixed-point thousandths',
+                warningEvents: [{
+                    code: 'matched-canvas-page-dpi-capped',
+                    pageNumber: 3,
+                    appliedDpiThousandths: 200_000.5,
+                    requestedDpiThousandths: 300_000,
+                }],
+            },
+            {
+                label: 'a capped page DPI below one quantum',
+                warningEvents: [{
+                    code: 'matched-canvas-page-dpi-capped',
+                    pageNumber: 3,
+                    appliedDpiThousandths: 0,
+                    requestedDpiThousandths: 300_000,
+                }],
+            },
+            {
+                label: 'a capped page past the page limit',
+                warningEvents: [{
+                    code: 'matched-canvas-page-dpi-capped',
+                    pageNumber: SCAN_CLEANUP_INPUT_MAX_PAGES + 1,
+                    appliedDpiThousandths: 200_000,
+                    requestedDpiThousandths: 300_000,
+                }],
+            },
+            {
+                label: 'a page list naming a page past the page limit',
+                warningEvents: [{
+                    code: 'matched-canvas-pages-resampled',
+                    pages: [SCAN_CLEANUP_INPUT_MAX_PAGES + 1],
+                }],
+            },
             // A repeated page means the producer lost count of its own set;
             // the list is a set kept in the order the pages were found.
-            [{
-                code: 'matched-canvas-pages-resampled',
-                pages: [
-                    3,
-                    1,
-                    3,
-                ],
-            }],
-            Array.from({length: 33}, () => ({code: 'matched-canvas-margins-reduced'})),
-            'not-an-array',
-        ]) {
+            {
+                label: 'a page list repeating a page',
+                warningEvents: [{
+                    code: 'matched-canvas-pages-resampled',
+                    pages: [
+                        3,
+                        1,
+                        3,
+                    ],
+                }],
+            },
+            {
+                label: 'one condition past the protocol ceiling',
+                warningEvents: Array.from(
+                    {length: MAX_SCAN_CLEANUP_WARNING_EVENTS + 1},
+                    () => ({code: 'matched-canvas-margins-reduced'}),
+                ),
+            },
+            {
+                label: 'a warning channel that is not an array',
+                warningEvents: 'not-an-array',
+            },
+        ];
+
+        expect(new Set(rejected.map(({label}) => label)).size).toBe(rejected.length);
+        for (const {
+            label,
+            warningEvents,
+        } of rejected) {
             expect(() => decodeNativeScanCleanupOutputMetadata({
                 ...outputMetadata(),
                 warningEvents,
-            })).toThrow(InvalidScanCleanupNativeArtifactError);
+            }), label).toThrow(InvalidScanCleanupNativeArtifactError);
         }
+    });
+
+    it('normalizes a capped page DPI written before the fixed-point rename', () => {
+        // `matched-canvas-page-dpi-capped` once stated both measurements as
+        // plain DPI. Artifacts written then are still on disk, so the decoder
+        // reads them and hands consumers the canonical payload — the union
+        // carries one shape per condition, and the formatter never learns that
+        // the old one existed.
+        const decodeEvents = (warningEvents: readonly unknown[]) => decodeNativeScanCleanupOutputMetadata({
+            ...outputMetadata(),
+            warningEvents,
+        }).warningEvents;
+
+        expect(decodeEvents([
+            {
+                code: 'matched-canvas-page-dpi-capped',
+                pageNumber: 3,
+                appliedDpi: 200,
+                requestedDpi: 300,
+            },
+            // A source resolution measured from a raster carried its decimals,
+            // and the quantum the canonical field states is what they land on.
+            {
+                code: 'matched-canvas-page-dpi-capped',
+                pageNumber: 7,
+                appliedDpi: 288.5,
+                requestedDpi: 296.999_999_999_999_94,
+            },
+            // The old field admitted any positive DPI. One below half a
+            // quantum still names a real artifact, so it decodes to the
+            // smallest DPI the canonical field can state rather than to zero,
+            // which the bound would refuse.
+            {
+                code: 'matched-canvas-page-dpi-capped',
+                pageNumber: 9,
+                appliedDpi: Number.MIN_VALUE,
+                requestedDpi: 100_000,
+            },
+        ])).toEqual([
+            {
+                code: 'matched-canvas-page-dpi-capped',
+                pageNumber: 3,
+                appliedDpiThousandths: 200_000,
+                requestedDpiThousandths: 300_000,
+            },
+            {
+                code: 'matched-canvas-page-dpi-capped',
+                pageNumber: 7,
+                appliedDpiThousandths: 288_500,
+                requestedDpiThousandths: 297_000,
+            },
+            {
+                code: 'matched-canvas-page-dpi-capped',
+                pageNumber: 9,
+                appliedDpiThousandths: 1,
+                requestedDpiThousandths: 100_000_000,
+            },
+        ]);
+        // A current producer's payload survives the same decode unchanged, so
+        // reading an artifact is not a way to alter one.
+        expect(decodeEvents([{
+            code: 'matched-canvas-page-dpi-capped',
+            pageNumber: 3,
+            appliedDpiThousandths: 200_000,
+            requestedDpiThousandths: 300_000,
+        }])).toEqual([{
+            code: 'matched-canvas-page-dpi-capped',
+            pageNumber: 3,
+            appliedDpiThousandths: 200_000,
+            requestedDpiThousandths: 300_000,
+        }]);
+
+        // Both shapes are exact and complete, so nothing that names one field
+        // from each — or one field from a pair — is decodable. A payload whose
+        // unit the decoder would have to guess at is refused, not guessed at.
+        const rejected: ReadonlyArray<{
+            label: string;
+            warningEvents: unknown;
+        }> = [
+            {
+                label: 'a payload naming the old applied DPI beside the new requested one',
+                warningEvents: [{
+                    code: 'matched-canvas-page-dpi-capped',
+                    pageNumber: 3,
+                    appliedDpi: 200,
+                    requestedDpiThousandths: 300_000,
+                }],
+            },
+            {
+                label: 'a payload naming the new applied DPI beside the old requested one',
+                warningEvents: [{
+                    code: 'matched-canvas-page-dpi-capped',
+                    pageNumber: 3,
+                    appliedDpiThousandths: 200_000,
+                    requestedDpi: 300,
+                }],
+            },
+            {
+                label: 'a payload restating both measurements in both shapes',
+                warningEvents: [{
+                    code: 'matched-canvas-page-dpi-capped',
+                    pageNumber: 3,
+                    appliedDpi: 200,
+                    requestedDpi: 300,
+                    appliedDpiThousandths: 200_000,
+                    requestedDpiThousandths: 300_000,
+                }],
+            },
+            {
+                label: 'an old-shape payload missing half of its pair',
+                warningEvents: [{
+                    code: 'matched-canvas-page-dpi-capped',
+                    pageNumber: 3,
+                    appliedDpi: 200,
+                }],
+            },
+            {
+                label: 'an old-shape payload whose applied DPI is not positive',
+                warningEvents: [{
+                    code: 'matched-canvas-page-dpi-capped',
+                    pageNumber: 3,
+                    appliedDpi: 0,
+                    requestedDpi: 300,
+                }],
+            },
+            {
+                label: 'an old-shape payload past the DPI bound',
+                warningEvents: [{
+                    code: 'matched-canvas-page-dpi-capped',
+                    pageNumber: 3,
+                    appliedDpi: 200,
+                    requestedDpi: 100_001,
+                }],
+            },
+            {
+                label: 'an old-shape payload past the page limit',
+                warningEvents: [{
+                    code: 'matched-canvas-page-dpi-capped',
+                    pageNumber: SCAN_CLEANUP_INPUT_MAX_PAGES + 1,
+                    appliedDpi: 200,
+                    requestedDpi: 300,
+                }],
+            },
+            // The render limit was born stating fixed-point thousandths, so
+            // there is no old shape of it to accept: compatibility is one
+            // condition's history, not a shape any code may take.
+            {
+                label: 'a render limit borrowing the capped page\'s old shape',
+                warningEvents: [{
+                    code: 'render-dpi-limited',
+                    appliedDpi: 288.5,
+                    requestedDpi: 400,
+                }],
+            },
+        ];
+
+        expect(new Set(rejected.map(({label}) => label)).size).toBe(rejected.length);
+        for (const {
+            label,
+            warningEvents,
+        } of rejected) {
+            expect(() => decodeNativeScanCleanupOutputMetadata({
+                ...outputMetadata(),
+                warningEvents,
+            }), label).toThrow(InvalidScanCleanupNativeArtifactError);
+        }
+    });
+
+    it('normalizes a superseded warning shape without touching the artifact it read', () => {
+        // Decoding reads an artifact; it is never a way to rewrite one. The
+        // payload the caller still holds keeps the shape it arrived in, and a
+        // frozen one decodes like any other instead of faulting on a write
+        // the caller never asked for.
+        const legacyEvent = {
+            code: 'matched-canvas-page-dpi-capped',
+            pageNumber: 3,
+            appliedDpi: 200,
+            requestedDpi: 300,
+        };
+        const canonicalEvent = {
+            code: 'matched-canvas-page-dpi-capped',
+            pageNumber: 3,
+            appliedDpiThousandths: 200_000,
+            requestedDpiThousandths: 300_000,
+        };
+        const legacy = {
+            ...outputMetadata(),
+            warningEvents: [legacyEvent],
+        };
+        const asWritten = structuredClone(legacy);
+        const normalized = decodeNativeScanCleanupOutputMetadata(legacy);
+
+        expect(normalized.warningEvents).toEqual([canonicalEvent]);
+        expect(normalized).not.toBe(legacy);
+        expect(legacy).toEqual(asWritten);
+        expect(legacy.warningEvents[0]).toBe(legacyEvent);
+
+        const frozenLegacy = Object.freeze({
+            ...outputMetadata(),
+            warningEvents: Object.freeze([Object.freeze({...legacyEvent})]),
+        });
+        const frozenCurrent = Object.freeze({
+            ...outputMetadata(),
+            warningEvents: Object.freeze([Object.freeze({...canonicalEvent})]),
+        });
+
+        expect(decodeNativeScanCleanupOutputMetadata(frozenLegacy).warningEvents)
+            .toEqual([canonicalEvent]);
+        // A payload already stating the current shape is handed back as it
+        // came, so reading a large artifact stays a copy nobody pays for.
+        expect(decodeNativeScanCleanupOutputMetadata(frozenCurrent)).toBe(frozenCurrent);
     });
 
     it('rejects malformed nested output geometry before a consumer can use it', () => {

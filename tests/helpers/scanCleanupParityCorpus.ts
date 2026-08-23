@@ -1075,7 +1075,8 @@ export const SCAN_CLEANUP_PARITY_WARNING_COMPARISON_POLICY: Readonly<
     'matched-canvas-fold-columns-discarded': 'code-only',
     // canvasDpi/finestPageDpi: the grid the producer resolved for itself.
     'matched-canvas-document-dpi-normalized': 'code-only',
-    // appliedDpi/requestedDpi: likewise; the page is the comparison key.
+    // appliedDpiThousandths/requestedDpiThousandths: likewise; the page is the
+    // comparison key.
     'matched-canvas-page-dpi-capped': 'code-only',
     // appliedDpiThousandths/requestedDpiThousandths: the producer's render DPI.
     'render-dpi-limited': 'code-only',

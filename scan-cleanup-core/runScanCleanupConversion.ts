@@ -124,6 +124,7 @@ import {createScanCleanupScratchDir} from '@scan-cleanup-core/scratchCleanup';
 import {
     describePageNumbers,
     formatScanCleanupWarningEvent,
+    toScanCleanupDpiThousandths,
 } from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 import {
     assembleWithCompactSourcePages,
@@ -744,8 +745,8 @@ export async function runScanCleanupConversion(
                 warnEvent({
                     code: 'matched-canvas-page-dpi-capped',
                     pageNumber: plan.pageNumber,
-                    appliedDpi: dpi,
-                    requestedDpi: plan.dpi,
+                    appliedDpiThousandths: toScanCleanupDpiThousandths(dpi),
+                    requestedDpiThousandths: toScanCleanupDpiThousandths(plan.dpi),
                 });
             }
             return dpi === plan.dpi ? plan : {

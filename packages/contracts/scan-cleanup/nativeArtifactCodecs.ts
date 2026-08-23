@@ -781,6 +781,34 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
     }
 }
 
+/**
+ * Whether a raw warning event array states the superseded page-DPI shape.
+ * `matched-canvas-page-dpi-capped` is the one condition whose old fields the
+ * union converts, so the presence of either of them is the whole question of
+ * whether decoding rewrote anything.
+ */
+function statesLegacyWarningEventFields(value: unknown): boolean {
+    return Array.isArray(value)
+        && value.some(item => isRecord(item) && ('appliedDpi' in item || 'requestedDpi' in item));
+}
+
+/**
+ * The normalized warning events of a payload that states a superseded field
+ * shape, or `undefined` where the artifact already carried the canonical one.
+ * A condition written the old way must reach the formatter in the one shape
+ * the union declares, and the caller's metadata is theirs: the rewrite travels
+ * in a copy rather than into the object that was handed in. Every payload is
+ * decoded either way, because that decode is what validates it.
+ */
+function rewrittenWarningEvents(value: unknown, artifact: TArtifact) {
+    try {
+        const events = SCAN_CLEANUP_WARNING_EVENTS_SCHEMA.decode(value);
+        return statesLegacyWarningEventFields(value) ? events : undefined;
+    } catch (error) {
+        return fail(artifact, error instanceof Error ? error.message : 'warningEvents is invalid');
+    }
+}
+
 export function decodeNativeScanCleanupOutputMetadata(
     value: unknown,
 ): INativeScanCleanupOutputMetadataV3 {
@@ -824,13 +852,9 @@ export function decodeNativeScanCleanupOutputMetadata(
     // reports its conditions: those runs left the same sentences in `warnings`,
     // which stays readable and logged. Live runs always carry the array,
     // because the bundled sidecar's compatibility revision requires it.
-    if (source.warningEvents !== undefined) {
-        try {
-            SCAN_CLEANUP_WARNING_EVENTS_SCHEMA.decode(source.warningEvents);
-        } catch (error) {
-            fail(artifact, error instanceof Error ? error.message : 'warningEvents is invalid');
-        }
-    }
+    const warningEvents = source.warningEvents === undefined
+        ? undefined
+        : rewrittenWarningEvents(source.warningEvents, artifact);
     const contentWidth = source.matchedCanvasContentWidthPx ?? outputWidthPx;
     const contentHeight = source.matchedCanvasContentHeightPx ?? outputHeightPx;
     const intrinsicWidth = source.intrinsicRasterWidthPx ?? outputWidthPx;
@@ -887,7 +911,12 @@ export function decodeNativeScanCleanupOutputMetadata(
         ))
         || effectivePlacementOffsetY + contentHeight > canvasHeightPx
     ) fail(artifact, 'intrinsic content placement exceeds its canvas');
-    return decoded<INativeScanCleanupOutputMetadataV3>(source);
+    return decoded<INativeScanCleanupOutputMetadataV3>(warningEvents === undefined
+        ? source
+        : {
+            ...source,
+            warningEvents,
+        });
 }
 
 export function decodeNativeScanCleanupOutputMetadataJson(text: string) {

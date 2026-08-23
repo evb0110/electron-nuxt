@@ -2452,6 +2452,14 @@ async function runPreview(
                                         contentHeight: contentHeightPx,
                                         innerWidth: innerCanvasWidth,
                                         innerHeight: innerCanvasHeight,
+                                        // The rectangle the margin box was cut
+                                        // out of, which is what makes this
+                                        // sentence name the same canvas the
+                                        // raster path names for the same
+                                        // placement instead of stopping at the
+                                        // margin box.
+                                        documentCanvasWidth: resolvedCanvasWidth,
+                                        documentCanvasHeight: resolvedCanvasHeight,
                                     } as const]
                                     : []),
                             ].map(event => formatScanCleanupWarningEvent(event)),

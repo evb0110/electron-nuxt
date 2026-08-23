@@ -24,7 +24,6 @@ import {
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
     placeScanCleanupCanvasBox,
 } from '@scan-cleanup-core/policy/documentCanvas';
-import {formatScanCleanupWarningEvent} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
 import {
     parsePdfInfoPageGeometry,
@@ -540,9 +539,9 @@ describe('scan cleanup document canvas', () => {
             page({pageNumber: 1}),
             page({pageNumber: 2}),
         ], options);
+        // The condition is the code; the sentence it becomes is pinned once,
+        // beside the formatter that owns it.
         expect(dropped).toEqual({code: 'matched-canvas-dropped'});
-        expect(dropped && formatScanCleanupWarningEvent(dropped))
-            .toBe('Matched page size was dropped: this document carries no readable page geometry');
         // Except when the user took every page off the sheet. That document has
         // no canvas because it produces nothing, which is what was asked for.
         expect(resolveScanCleanupDroppedMatchWarningEvent([
