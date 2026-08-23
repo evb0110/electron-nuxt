@@ -120,6 +120,14 @@ function parseWorkflowJobs(workflow: string) {
     return jobs;
 }
 
+function parseWorkflowTriggers(workflow: string) {
+    const parsed = getStaticYAMLValue(parseYAML(workflow)) as unknown;
+    if (!isRecord(parsed) || !isRecord(parsed.on)) {
+        throw new Error('The CI workflow must contain an event mapping.');
+    }
+    return parsed.on;
+}
+
 const requiredPrPushConditions = new Set([
     '${{ github.event_name == \'pull_request\' || github.event_name == \'push\' }}',
     '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.electron_smoke == \'true\' }}',
@@ -312,6 +320,25 @@ function runPrePushBranch({
 }
 
 describe('CI topology policy', () => {
+    it('skips docs-only pushes without filtering required pull-request checks', async () => {
+        const triggers = parseWorkflowTriggers(await readProjectFile('.github/workflows/ci.yml'));
+        const push = triggers.push;
+        if (!isRecord(push)) {
+            throw new Error('The CI push trigger must be a mapping.');
+        }
+
+        expect(push.branches).toEqual(['main']);
+        expect(push['paths-ignore']).toEqual([
+            'docs/**',
+            '**.md',
+        ]);
+        expect(push.paths).toBeUndefined();
+
+        // GitHub leaves required checks pending when a pull-request workflow is
+        // skipped by a path filter, so keep PR triggering unconditional.
+        expect(triggers.pull_request).toBeNull();
+    });
+
     it('requires every non-advisory PR and push job through gates_ok', async () => {
         const jobs = parseWorkflowJobs(await readProjectFile('.github/workflows/ci.yml'));
         const gatesOk = jobs.gates_ok;
