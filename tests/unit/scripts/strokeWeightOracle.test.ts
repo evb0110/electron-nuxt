@@ -23,10 +23,24 @@ const specimenPath = resolve(
 const python = process.env.EVB_PYTHON ?? 'python3';
 const temporaryDirectories: string[] = [];
 
+/**
+ * A host that exports both `NO_COLOR` and `FORCE_COLOR` makes Node emit a
+ * conflict warning on the child's stderr, which would masquerade as oracle
+ * output under the clean-stderr assertions below.
+ */
+const oracleEnvironment: NodeJS.ProcessEnv = {
+    ...process.env,
+    NO_COLOR: '1',
+};
+delete oracleEnvironment.FORCE_COLOR;
+
 const runOracle = (args: string[]) => spawnSync(process.execPath, [
     oraclePath,
     ...args,
-], {encoding: 'utf8'});
+], {
+    encoding: 'utf8',
+    env: oracleEnvironment,
+});
 
 /**
  * The measurement helper needs OpenCV, NumPy and Pillow. Only the Pillow lane
