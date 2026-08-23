@@ -1108,11 +1108,16 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationSession: {
             ...annotationSession,
             ...annotationActions,
-            handleDeleteAnnotationById: (annotationId: string) => deleteAnnotationById(
-                annotationComments.value,
-                annotationId,
-                annotationActions.handleDeleteAnnotationComment,
-            ),
+            handleDeleteAnnotationById: (annotationId: string) => {
+                const requested = deleteAnnotationById(
+                    annotationComments.value,
+                    annotationId,
+                    annotationActions.handleDeleteAnnotationComment,
+                );
+                if (!requested) {
+                    setAnnotationNoteWindowError(annotationId, t('errors.annotation.delete'));
+                }
+            },
             applyAnnotationComments,
             thumbnailHiddenAnnotationIds,
             handleInsertImageFromFile: () => insertImageFromFileAt(currentPage.value, 0.5, 0.5),

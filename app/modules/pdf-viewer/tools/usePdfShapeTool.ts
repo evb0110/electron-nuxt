@@ -111,13 +111,22 @@ export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
         return shapeComposable.getAllShapes().map((shape, index) => toShapeAnnotationCommentSummary(shape, index));
     }
 
+    /**
+     * Sidebar shape rows carry the same external identity the store bound for
+     * the shape, never a canonical `appAnnotationId`. Both sides therefore
+     * resolve through the application, and an unresolvable row matches nothing.
+     */
     function findShapeForAnnotationComment(comment: IAnnotationCommentSummary) {
         if (comment.source !== 'shape') {
             return null;
         }
-        const annotationId = comment.appAnnotationId;
+        const application = options.annotationApplication.value;
+        const annotationId = application.annotationIdForSummary(comment);
+        if (!annotationId) {
+            return null;
+        }
         return shapeComposable.getAllShapes().find(shape => (
-            options.annotationApplication.value.annotationIdForShape(shape) === annotationId
+            application.annotationIdForShape(shape) === annotationId
         )) ?? null;
     }
 
