@@ -63,7 +63,7 @@ interface IWorkspacePrintDeps {
     getCurrentPrintPage?: () => number | null | undefined;
     getQuickPrintPageMetrics: () => Promise<IPdfPageMetric[] | null>;
     ensurePrintReady?: () => Promise<boolean>;
-    getPrintableSourceData: () => Promise<Uint8Array | null>;
+    getPrintableSourceData: (options?: { signal?: AbortSignal }) => Promise<Uint8Array | null>;
     renderLoadedPdfPagesForBrowserPrint?: (
         targetDocument: IBrowserPrintDocument,
         pageNumbers: number[],
@@ -650,7 +650,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             }
 
             throwIfPrintAborted(signal);
-            const sourceData = await deps.getPrintableSourceData();
+            const sourceData = await deps.getPrintableSourceData({ signal });
             throwIfPrintAborted(signal);
             if (!sourceData) {
                 throw new Error('Missing printable PDF source data');

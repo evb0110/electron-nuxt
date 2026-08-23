@@ -199,7 +199,7 @@ function createState(options?: {
         width: number;
         height: number;
     }> | null>;
-    getPrintableSourceData?: () => Promise<Uint8Array | null>;
+    getPrintableSourceData?: (options?: { signal?: AbortSignal }) => Promise<Uint8Array | null>;
     ensurePrintReady?: () => Promise<boolean>;
     canPrintDjvuSource?: boolean;
     getCurrentPrintPage?: () => number | null | undefined;
@@ -845,6 +845,52 @@ describe('useWorkspacePrint', () => {
             await printPromise;
 
             expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
+            expect(appFrame.frameWindow.print).not.toHaveBeenCalled();
+            expect(toastAddMock).not.toHaveBeenCalled();
+            expect(state.isPreparingPrint.value).toBe(false);
+            expect(state.printError.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('cancels a dirty-document print while its materialization is still pending', async () => {
+        let materializeSignal: AbortSignal | undefined;
+        const materialized = Promise.withResolvers<Uint8Array | null>();
+        const getPrintableSourceData = vi.fn(async (options?: { signal?: AbortSignal }) => {
+            materializeSignal = options?.signal;
+            return materialized.promise;
+        });
+        const appFrame = stubDocumentWithFrame();
+        const {
+            scope,
+            state,
+        } = createState({
+            workingCopyPath: '/tmp/dirty-print.pdf',
+            fileName: 'dirty-print.pdf',
+            hasPendingUnsavedChanges: true,
+            getPrintableSourceData,
+        });
+
+        try {
+            const printPromise = state.handlePrintDialogSubmit({
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+            await flushMicrotasks(12);
+
+            expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
+            expect(materializeSignal?.aborted).toBe(false);
+
+            expect(state.isPreparingPrint.value).toBe(true);
+            state.handlePrintDialogOpenChange(false);
+
+            expect(materializeSignal?.aborted).toBe(true);
+
+            materialized.resolve(null);
+            await printPromise;
+
             expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
             expect(appFrame.frameWindow.print).not.toHaveBeenCalled();
             expect(toastAddMock).not.toHaveBeenCalled();

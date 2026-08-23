@@ -32,14 +32,26 @@ describe('canonical annotation serialization architecture', () => {
     });
 
     it('routes print serialization through the canonical viewer transaction', () => {
-        const contents = source('app/modules/workspace-shell/useWorkspaceOrchestration.ts');
-        const printTransaction = contents.slice(
-            contents.indexOf('mode: \'print\''),
-            contents.indexOf('async function ensurePrintReady'),
-        );
+        const contents = source('app/modules/workspace-shell/composables/createPrintableSourceDataResolver.ts');
+        const transactionStart = contents.indexOf('mode: \'print\'');
+        const transactionEnd = contents.indexOf('resolvePdfViewerSaveTransactionFinalBytes(printTransaction)');
+        expect(transactionStart).toBeGreaterThan(-1);
+        expect(transactionEnd).toBeGreaterThan(transactionStart);
+        const printTransaction = contents.slice(transactionStart, transactionEnd);
         expect(printTransaction).toContain('serializeResult: true');
-        expect(printTransaction).toContain('source: {');
-        expect(printTransaction).toContain('serializePdfForSave');
-        expect(printTransaction).not.toContain('serializePrintableSourceData');
+        expect(printTransaction).toContain('source: deps.source');
+        expect(contents).not.toContain('serializePrintableSourceData');
+        expect(contents).not.toContain('commitAnnotationSave');
+    });
+
+    it('runs the dirty print transaction under the document operation lease', () => {
+        const orchestration = source('app/modules/workspace-shell/useWorkspaceOrchestration.ts');
+        const resolverStart = orchestration.indexOf('createPrintableSourceDataResolver({');
+        const resolverEnd = orchestration.indexOf('async function ensurePrintReady');
+        expect(resolverStart).toBeGreaterThan(-1);
+        expect(resolverEnd).toBeGreaterThan(resolverStart);
+        const printResolver = orchestration.slice(resolverStart, resolverEnd);
+        expect(printResolver).toContain('runWithDocumentOperationLease: documentOperationLease.runExclusive');
+        expect(orchestration).not.toContain('mode: \'print\'');
     });
 });

@@ -6,7 +6,6 @@ import { tryOnScopeDispose } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import {
-    resolvePdfViewerSaveTransactionFinalBytes,
     type IPdfPageRasterScheduler,
     useOcrTextContent,
     usePageContextMenu,
@@ -34,6 +33,7 @@ import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useW
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createPageMutationAnnotationMaterializer } from '@app/modules/workspace-shell/composables/createPageMutationAnnotationMaterializer';
+import { createPrintableSourceDataResolver } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
@@ -728,26 +728,17 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         removeRecentFileIfMissing,
     });
 
-    async function getPrintableSourceData() {
-        if (!hasPendingUnsavedChanges.value) {
-            return pdfData.value ?? readWorkingCopyBytes();
-        }
-
-        const printTransaction = await pdfViewerRef.value?.runSaveTransaction({
-            mode: 'print',
-            forcePdfjsMaterialize: true,
-            serializeResult: true,
-            includeManagedShapes: true,
-            rewriteShapeState: true,
-            source: {
-                getSourcePdfData,
-                serializePdfForSave,
-            },
-        });
-        return resolvePdfViewerSaveTransactionFinalBytes(printTransaction)
-            ?? pdfData.value
-            ?? await readWorkingCopyBytes();
-    }
+    const getPrintableSourceData = createPrintableSourceDataResolver({
+        hasPendingUnsavedChanges,
+        pdfData,
+        pdfViewerRef,
+        readWorkingCopyBytes,
+        source: {
+            getSourcePdfData,
+            serializePdfForSave,
+        },
+        runWithDocumentOperationLease: documentOperationLease.runExclusive,
+    });
 
     async function ensurePrintReady() {
         if (!hasOpenAnnotationNotes.value) {
