@@ -4,7 +4,14 @@ import {
     type ChildProcess,
 } from 'node:child_process';
 import { rmSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+    basename,
+    isAbsolute,
+    join,
+    parse,
+    relative,
+    resolve,
+} from 'node:path';
 import { delay } from 'es-toolkit/promise';
 import {
     buildNuxtDevServerEnv,
@@ -129,16 +136,48 @@ export function resolveNuxtForceCleanCachePaths(
     rootDir = projectRoot,
     artifactDirs = resolveNuxtDevServerArtifactDirs(),
 ) {
-    return artifactDirs
-        ? [
-            artifactDirs.buildDir,
-            artifactDirs.viteCacheDir,
-        ]
-        : [
+    if (!artifactDirs) {
+        return [
             join(rootDir, 'node_modules', '.vite'),
             join(rootDir, 'node_modules', '.cache', 'vite'),
             join(rootDir, '.nuxt'),
         ];
+    }
+
+    const resolvedRoot = resolve(rootDir);
+    const artifactPaths: Array<readonly [string, string]> = [
+        [
+            artifactDirs.buildDir,
+            'nuxt-build',
+        ],
+        [
+            artifactDirs.outputDir,
+            'nuxt-output',
+        ],
+        [
+            artifactDirs.viteCacheDir,
+            'vite-cache',
+        ],
+    ];
+    return artifactPaths.map(([
+        artifactDir,
+        expectedBasename,
+    ]) => {
+        if (!isAbsolute(artifactDir)) {
+            throw new Error(`Nuxt artifact cleanup path must be absolute: ${artifactDir}`);
+        }
+        const resolvedArtifactDir = resolve(artifactDir);
+        const rootRelativeToArtifact = relative(resolvedArtifactDir, resolvedRoot);
+        if (
+            resolvedArtifactDir === parse(resolvedArtifactDir).root
+            || resolvedArtifactDir === resolvedRoot
+            || !rootRelativeToArtifact.startsWith('..')
+            || basename(resolvedArtifactDir) !== expectedBasename
+        ) {
+            throw new Error(`Refusing unsafe Nuxt artifact cleanup path: ${artifactDir}`);
+        }
+        return resolvedArtifactDir;
+    });
 }
 
 function clearViteCache() {

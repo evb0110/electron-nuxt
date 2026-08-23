@@ -78,7 +78,9 @@ export function assertReleaseVerifyDidNotMutateWorktree(before, after) {
 
 export function runLocalReleaseVerify({
     env = process.env,
-    receiptPath = path.resolve('.devkit/analysis/release-build-receipt.json'),
+    receiptPath = path.resolve(
+        env[RELEASE_BUILD_RECEIPT_ENV_VAR] ?? '.devkit/analysis/release-build-receipt.json',
+    ),
     runCommand = run,
     snapshotGetter = getReleaseVerifyMutationSnapshot,
 } = {}) {

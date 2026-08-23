@@ -139,7 +139,13 @@ interface IReleaseChecksModule {
         runCommand?: TRunCommand;
         skipList?: string;
         stderr?: { write: (message: string) => void };
-        validateBuildReceipt?: (receiptPath: string, options: { env: TReleaseEnv }) => {valid: boolean};
+        validateBuildReceipt?: (
+            receiptPath: string,
+            options: { env: TReleaseEnv },
+        ) => {
+            reason?: string;
+            valid: boolean;
+        };
         writeBuildReceipt?: (receiptPath: string, options: { env: TReleaseEnv }) => unknown;
     }) => void;
 }
@@ -1714,6 +1720,40 @@ describe('release policy', () => {
         expect(stderrLines.join('')).toContain('Reusing strict-build receipt');
     });
 
+    it('fails closed instead of rebuilding when an all-gates receipt is stale', () => {
+        expect(() => runLocalReleaseChecks({
+            env: {
+                CI: 'true',
+                EVB_RELEASE_BUILD_RECEIPT: '/tmp/stale-release-build-receipt.json',
+                EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1',
+            },
+            stderr: {write: () => {}},
+            validateBuildReceipt: () => ({
+                reason: 'outputs-changed',
+                valid: false,
+            }),
+        })).toThrow(
+            'Cannot reuse strict-build receipt /tmp/stale-release-build-receipt.json: outputs-changed',
+        );
+    });
+
+    it('rejects explicit receipt reuse when no complete handoff is available', () => {
+        expect(() => runLocalReleaseChecks({
+            env: {EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1'},
+            stderr: {write: () => {}},
+        })).toThrow('Cannot reuse the all-gates strict build: EVB_RELEASE_BUILD_RECEIPT is missing');
+
+        expect(() => runLocalReleaseChecks({
+            allowSkip: true,
+            env: {
+                EVB_RELEASE_BUILD_RECEIPT: '/tmp/release-build-receipt.json',
+                EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1',
+            },
+            skipList: 'check:wasm:portable',
+            stderr: {write: () => {}},
+        })).toThrow('Cannot reuse the all-gates strict build: the skip list removes a strict-build prerequisite');
+    });
+
     it('skips explicitly listed release gates without changing the default gate list', () => {
         const calls: string[][] = [];
         const stderrLines: string[] = [];
@@ -1837,6 +1877,38 @@ describe('release policy', () => {
         } finally {
             rmSync(reusedReceipt, {force: true});
             rmSync(standaloneReceipt, {force: true});
+        }
+    });
+
+    it('forwards the all-gates receipt path to every release verifier command', () => {
+        const receiptPath = join(tmpdir(), `evb-forwarded-receipt-${process.pid}.json`);
+        const childReceiptPaths: Array<string | undefined> = [];
+        writeFileSync(receiptPath, '{}\n');
+        const snapshot = () => ({
+            stagedDiff: '',
+            trackedDiff: '',
+            untrackedFiles: [],
+        });
+
+        try {
+            runLocalReleaseVerify({
+                env: {
+                    EVB_RELEASE_BUILD_RECEIPT: receiptPath,
+                    EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1',
+                },
+                runCommand: (_command, _args, options) => {
+                    childReceiptPaths.push(options.env?.EVB_RELEASE_BUILD_RECEIPT);
+                    return '';
+                },
+                snapshotGetter: snapshot,
+            });
+
+            expect(childReceiptPaths).toEqual(
+                getLocalReleaseVerifyCommands().map(() => receiptPath),
+            );
+            expect(existsSync(receiptPath)).toBe(true);
+        } finally {
+            rmSync(receiptPath, {force: true});
         }
     });
 

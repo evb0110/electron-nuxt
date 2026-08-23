@@ -6,6 +6,7 @@ import {
 import { readFile } from 'node:fs/promises';
 import {
     NUXT_BUILD_DIR_ENV,
+    NUXT_OUTPUT_DIR_ENV,
     NUXT_VITE_CACHE_DIR_ENV,
     buildElectronAutomationArgs,
     buildElectronExecutablePath,
@@ -174,36 +175,42 @@ describe('sessionManager automation launch args', () => {
         expect(buildNuxtDevServerEnv({ NUXT_IGNORE_LOCK: '0' }, 3124).NUXT_IGNORE_LOCK).toBe('0');
     });
 
-    it('isolates non-default Nuxt build and Vite caches from the live developer renderer', () => {
+    it('isolates non-default Nuxt build, output, and Vite directories from release artifacts', () => {
         expect(resolveNuxtDevServerArtifactDirs({}, 'default')).toBeNull();
 
         const isolated = resolveNuxtDevServerArtifactDirs({}, 'e2e-coexistence-shared-renderer');
         expect(isolated).toEqual({
             buildDir: expect.stringMatching(/\.devkit\/sessions\/e2e-coexistence-shared-renderer\/nuxt-build$/u),
+            outputDir: expect.stringMatching(/\.devkit\/sessions\/e2e-coexistence-shared-renderer\/nuxt-output$/u),
             viteCacheDir: expect.stringMatching(/\.devkit\/sessions\/e2e-coexistence-shared-renderer\/vite-cache$/u),
         });
         expect(buildNuxtDevServerEnv({}, 3125, 'e2e-coexistence-shared-renderer')).toMatchObject({
             [NUXT_BUILD_DIR_ENV]: isolated?.buildDir,
+            [NUXT_OUTPUT_DIR_ENV]: isolated?.outputDir,
             [NUXT_VITE_CACHE_DIR_ENV]: isolated?.viteCacheDir,
         });
     });
 
     it('preserves explicit isolated Nuxt artifact directories', () => {
         expect(resolveNuxtDevServerArtifactDirs({
-            [NUXT_BUILD_DIR_ENV]: '/tmp/custom-nuxt',
-            [NUXT_VITE_CACHE_DIR_ENV]: '/tmp/custom-vite',
+            [NUXT_BUILD_DIR_ENV]: '/tmp/e2e-custom/nuxt-build',
+            [NUXT_OUTPUT_DIR_ENV]: '/tmp/e2e-custom/nuxt-output',
+            [NUXT_VITE_CACHE_DIR_ENV]: '/tmp/e2e-custom/vite-cache',
         }, 'e2e-custom')).toEqual({
-            buildDir: '/tmp/custom-nuxt',
-            viteCacheDir: '/tmp/custom-vite',
+            buildDir: '/tmp/e2e-custom/nuxt-build',
+            outputDir: '/tmp/e2e-custom/nuxt-output',
+            viteCacheDir: '/tmp/e2e-custom/vite-cache',
         });
     });
 
     it('force-cleans only the active isolated Nuxt artifacts', () => {
         expect(resolveNuxtForceCleanCachePaths('/repo', {
             buildDir: '/repo/.devkit/sessions/e2e-clean/nuxt-build',
+            outputDir: '/repo/.devkit/sessions/e2e-clean/nuxt-output',
             viteCacheDir: '/repo/.devkit/sessions/e2e-clean/vite-cache',
         })).toEqual([
             '/repo/.devkit/sessions/e2e-clean/nuxt-build',
+            '/repo/.devkit/sessions/e2e-clean/nuxt-output',
             '/repo/.devkit/sessions/e2e-clean/vite-cache',
         ]);
         expect(resolveNuxtForceCleanCachePaths('/repo', null)).toEqual([
@@ -211,6 +218,26 @@ describe('sessionManager automation launch args', () => {
             '/repo/node_modules/.cache/vite',
             '/repo/.nuxt',
         ]);
+    });
+
+    it('rejects unsafe explicit Nuxt artifact cleanup paths', () => {
+        const safeArtifacts = {
+            buildDir: '/tmp/e2e-clean/nuxt-build',
+            outputDir: '/tmp/e2e-clean/nuxt-output',
+            viteCacheDir: '/tmp/e2e-clean/vite-cache',
+        };
+        expect(() => resolveNuxtForceCleanCachePaths('/repo', {
+            ...safeArtifacts,
+            outputDir: '/',
+        })).toThrow('Refusing unsafe Nuxt artifact cleanup path: /');
+        expect(() => resolveNuxtForceCleanCachePaths('/repo/nuxt-output', {
+            ...safeArtifacts,
+            outputDir: '/repo/nuxt-output',
+        })).toThrow('Refusing unsafe Nuxt artifact cleanup path: /repo/nuxt-output');
+        expect(() => resolveNuxtForceCleanCachePaths('/repo', {
+            ...safeArtifacts,
+            outputDir: '/tmp/e2e-clean/output',
+        })).toThrow('Refusing unsafe Nuxt artifact cleanup path: /tmp/e2e-clean/output');
     });
 
     it('does not leak Vitest worker mode into the Nuxt dev server', () => {

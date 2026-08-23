@@ -52,6 +52,11 @@ export function getNativeCorpusTestCommands() {
             'spread_preview_cli_pins_the_small_print_stroke_budget_outcome',
             'off_center_binding_fold_does_not_promote_the_spread_to_mixed',
             'forced_bw_matched_canvas_routes_the_blank_verso_corner_rail_out_of_publication',
+            'over_analysis_edge_spread_analysis_matches_canonical_leaf_ink_and_content',
+            'auto_small_picture_uses_mixed_but_explicit_bw_stays_bilevel',
+            'luther_style_fragmented_gutter_does_not_pin_crop_even_when_tone_marks_it_as_picture',
+            'cli_content_box_only_inherits_local_rejected_rail_authority',
+            'cli_crop_keeps_a_flat_shaded_plate_no_picture_detector_claims',
         ].map(testName => [
             ...baseArgs,
             '--test',

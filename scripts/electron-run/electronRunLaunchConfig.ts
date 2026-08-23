@@ -25,6 +25,7 @@ const TRUTHY_ENV_VALUES = new Set([
 ]);
 
 export const NUXT_BUILD_DIR_ENV = 'EVB_NUXT_BUILD_DIR';
+export const NUXT_OUTPUT_DIR_ENV = 'EVB_NUXT_OUTPUT_DIR';
 export const NUXT_VITE_CACHE_DIR_ENV = 'EVB_NUXT_VITE_CACHE_DIR';
 
 function normalizeOptionalPath(value: string | undefined) {
@@ -40,14 +41,16 @@ export function resolveNuxtDevServerArtifactDirs(
     sessionName = getCurrentSessionName(),
 ) {
     const explicitBuildDir = normalizeOptionalPath(env[NUXT_BUILD_DIR_ENV]);
+    const explicitOutputDir = normalizeOptionalPath(env[NUXT_OUTPUT_DIR_ENV]);
     const explicitViteCacheDir = normalizeOptionalPath(env[NUXT_VITE_CACHE_DIR_ENV]);
-    if (sessionName === 'default' && !explicitBuildDir && !explicitViteCacheDir) {
+    if (sessionName === 'default' && !explicitBuildDir && !explicitOutputDir && !explicitViteCacheDir) {
         return null;
     }
 
     const artifactsDir = sessionDir(sessionName);
     return {
         buildDir: explicitBuildDir ?? join(artifactsDir, 'nuxt-build'),
+        outputDir: explicitOutputDir ?? join(artifactsDir, 'nuxt-output'),
         viteCacheDir: explicitViteCacheDir ?? join(artifactsDir, 'vite-cache'),
     };
 }
@@ -132,6 +135,7 @@ export function buildNuxtDevServerEnv(
         ...(artifactDirs
             ? {
                 [NUXT_BUILD_DIR_ENV]: artifactDirs.buildDir,
+                [NUXT_OUTPUT_DIR_ENV]: artifactDirs.outputDir,
                 [NUXT_VITE_CACHE_DIR_ENV]: artifactDirs.viteCacheDir,
             }
             : {}),

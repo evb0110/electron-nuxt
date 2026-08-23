@@ -2843,6 +2843,7 @@ fn fallback_spread_analysis_matches_canonical_leaf_ink_and_content() {
 /// on the path that actually downsamples to `MAX_ANALYSIS_EDGE`, not only on a
 /// source that is merely below the ceiling.
 #[test]
+#[ignore = "full-raster CLI fixture runs in the native CI corpus lane"]
 fn over_analysis_edge_spread_analysis_matches_canonical_leaf_ink_and_content() {
     let scratch = Scratch::new("fallback-spread-over-analysis-edge");
     let (width, height) = (2504, 1600);
@@ -2971,6 +2972,7 @@ fn over_analysis_edge_spread_analysis_matches_canonical_leaf_ink_and_content() {
 }
 
 #[test]
+#[ignore = "full-raster CLI fixture runs in the native CI corpus lane"]
 fn auto_small_picture_uses_mixed_but_explicit_bw_stays_bilevel() {
     let scratch = Scratch::new("auto-small-picture");
     let input = scratch.path("small-picture-input.png");
@@ -5680,6 +5682,7 @@ fn matched_canvas_preview_reserves_padding_inside_the_physical_page() {
 }
 
 #[test]
+#[ignore = "full-raster CLI fixture runs in the native CI corpus lane"]
 fn luther_style_fragmented_gutter_does_not_pin_crop_even_when_tone_marks_it_as_picture() {
     fn draw_glyph_line(
         image: &mut GrayImage,
@@ -5960,6 +5963,7 @@ fn luther_style_fragmented_gutter_does_not_pin_crop_even_when_tone_marks_it_as_p
 }
 
 #[test]
+#[ignore = "full-raster CLI fixture runs in the native CI corpus lane"]
 fn cli_content_box_only_inherits_local_rejected_rail_authority() {
     fn draw_glyph_line(
         image: &mut GrayImage,
@@ -6488,6 +6492,7 @@ fn forced_bw_matched_canvas_routes_the_blank_verso_corner_rail_out_of_publicatio
 /// union cannot trim authored artwork off the page while the crate tests stay
 /// green.
 #[test]
+#[ignore = "full-raster CLI fixture runs in the native CI corpus lane"]
 fn cli_crop_keeps_a_flat_shaded_plate_no_picture_detector_claims() {
     let scratch = Scratch::new("flat-shaded-plate-crop");
     let mut source = GrayImage::new(900, 1200, 244);

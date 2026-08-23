@@ -69,14 +69,21 @@ function isInvalidNuxtUiResizableImport(entry: unknown) {
 }
 
 const isVercelBuildOutput = process.env.VERCEL === '1' || process.env.NOW_BUILDER === '1';
+const isolatedNuxtOutputDir = process.env.EVB_NUXT_OUTPUT_DIR?.trim();
 const nitroOutput = isVercelBuildOutput
     // Let Nitro's Vercel preset keep Build Output API directories as static/ and functions/.
     ? {dir: '.vercel/output'}
-    : {
-        dir: 'nuxt-output',
-        publicDir: 'nuxt-output/public',
-        serverDir: 'nuxt-output/server',
-    };
+    : isolatedNuxtOutputDir
+        ? {
+            dir: isolatedNuxtOutputDir,
+            publicDir: `${isolatedNuxtOutputDir}/public`,
+            serverDir: `${isolatedNuxtOutputDir}/server`,
+        }
+        : {
+            dir: 'nuxt-output',
+            publicDir: 'nuxt-output/public',
+            serverDir: 'nuxt-output/server',
+        };
 
 const isDev = process.env.NODE_ENV !== 'production';
 const isolatedNuxtBuildDir = process.env.EVB_NUXT_BUILD_DIR?.trim();

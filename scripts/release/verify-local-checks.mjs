@@ -123,9 +123,22 @@ export function runLocalReleaseChecks({
     const receiptPath = env[RELEASE_BUILD_RECEIPT_ENV_VAR];
     const canHandoffStrictBuild = Boolean(receiptPath)
         && skippedScripts.every(script => !STRICT_BUILD_DUPLICATE_GATES.has(script));
-    const reusableReceipt = canHandoffStrictBuild
-        && env[REUSE_BUILD_RECEIPT_ENV_VAR] === '1'
-        && validateBuildReceipt(receiptPath, {env}).valid;
+    const reuseRequested = env[REUSE_BUILD_RECEIPT_ENV_VAR] === '1';
+    if (reuseRequested && !canHandoffStrictBuild) {
+        const reason = receiptPath
+            ? 'the skip list removes a strict-build prerequisite'
+            : `${RELEASE_BUILD_RECEIPT_ENV_VAR} is missing`;
+        throw new Error(`Cannot reuse the all-gates strict build: ${reason}`);
+    }
+    const receiptValidation = canHandoffStrictBuild && reuseRequested
+        ? validateBuildReceipt(receiptPath, {env})
+        : null;
+    if (receiptValidation && !receiptValidation.valid) {
+        throw new Error(
+            `Cannot reuse strict-build receipt ${receiptPath}: ${receiptValidation.reason ?? 'invalid'}`,
+        );
+    }
+    const reusableReceipt = receiptValidation?.valid === true;
     let strictBuildPrepared = reusableReceipt;
     if (reusableReceipt) {
         stderr.write(`Reusing strict-build receipt from the all-gates validation phase: ${receiptPath}\n`);
