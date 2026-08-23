@@ -42,6 +42,28 @@
         />
 
         <div
+            v-if="incompleteInventory"
+            class="notes-inventory-notice"
+            data-testid="annotation-inventory-incomplete"
+            role="status"
+            aria-live="polite"
+        >
+            <UIcon
+                class="notes-inventory-notice-icon"
+                name="i-ph-warning-circle"
+                aria-hidden="true"
+            />
+            <span class="notes-inventory-notice-body">
+                <span class="notes-inventory-notice-title">{{ t('annotations.inventoryIncompleteTitle') }}</span>
+                <span
+                    v-for="detail in inventoryNoticeDetails"
+                    :key="detail"
+                    class="notes-inventory-notice-detail"
+                >{{ detail }}</span>
+            </span>
+        </div>
+
+        <div
             v-bind="commentsContainerProps"
             class="notes-list app-scrollbar app-scroll-region--balanced"
         >
@@ -152,6 +174,7 @@ import { clamp } from 'es-toolkit/math';
 import { useVirtualList } from '@vueuse/core';
 import type {
     IAnnotationCommentSummary,
+    IAnnotationInventoryCompleteness,
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
@@ -175,6 +198,7 @@ const POINT_NOTE_MARKER_MAX_SIZE = 0.02;
 interface IProps {
     comments: IAnnotationCommentSummary[];
     status: TAnnotationCommentsStatus;
+    inventory?: IAnnotationInventoryCompleteness | null | undefined;
     activeCommentStableKey?: string | null | undefined;
     authorName?: string | null | undefined;
 }
@@ -185,6 +209,7 @@ const {
     activeCommentStableKey: activeCommentStableKeyProp = undefined,
     authorName: authorNameProp = undefined,
     comments,
+    inventory = null,
     status,
 } = defineProps<IProps>();
 
@@ -223,6 +248,30 @@ const {
 });
 const showLoadingState = computed(() => status === 'loading' && filteredComments.value.length === 0);
 const showEmptyState = computed(() => status === 'ready' && filteredComments.value.length === 0);
+// A background inventory that stopped short leaves annotations off this list
+// with no other signal, so the notice sits beside the loading and empty states
+// rather than replacing them.
+const incompleteInventory = computed(() => (
+    inventory && !inventory.complete ? inventory : null
+));
+const inventoryNoticeDetails = computed(() => {
+    const completeness = incompleteInventory.value;
+    if (!completeness) {
+        return [];
+    }
+
+    const details: string[] = [];
+    if (completeness.omissions.includes('page-parse-failure')) {
+        details.push(t('annotations.inventoryIncompleteUnreadablePages'));
+    }
+    if (
+        completeness.omissions.includes('page-cap')
+        || completeness.omissions.includes('record-cap')
+    ) {
+        details.push(t('annotations.inventoryIncompleteScanLimit'));
+    }
+    return details;
+});
 
 
 async function onSearchButtonClick() {
@@ -685,6 +734,39 @@ function placeNote() {
     color: inherit;
     border-radius: 0.2rem;
     padding: 0;
+}
+
+.notes-inventory-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--app-sidebar-row-gap);
+    padding: var(--app-sidebar-row-padding-block) var(--app-space-xs);
+    border: 1px solid color-mix(in oklab, var(--ui-warning) 45%, var(--ui-border) 55%);
+    border-radius: 0.45rem;
+    background: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-warning) 12%);
+    color: var(--ui-text-toned);
+    font-size: var(--app-sidebar-caption-font-size);
+}
+
+.notes-inventory-notice-icon {
+    flex: 0 0 auto;
+    color: var(--ui-warning);
+}
+
+.notes-inventory-notice-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-xs);
+    min-width: 0;
+}
+
+.notes-inventory-notice-title {
+    color: var(--ui-text-highlighted);
+    font-weight: 600;
+}
+
+.notes-inventory-notice-detail {
+    text-wrap: pretty;
 }
 
 .notes-loading-state {

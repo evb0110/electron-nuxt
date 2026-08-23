@@ -377,6 +377,7 @@ export function createDeferredWorkspaceExposeProxy(
         getAutomationStateSnapshot: () => deps.getMounted()?.getAutomationStateSnapshot() ?? {
             annotationComments: [],
             annotationCommentsStatus: 'loading',
+            annotationInventory: null,
             annotationDirty: false,
             originalPath: null,
             sortedAnnotationNoteWindows: [],

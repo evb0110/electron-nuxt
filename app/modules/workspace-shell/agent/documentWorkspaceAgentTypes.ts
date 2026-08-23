@@ -10,6 +10,7 @@ import type {
 import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
 import type {
     IAnnotationCommentSummary,
+    IAnnotationInventoryCompleteness,
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
@@ -29,6 +30,7 @@ export type TWorkspaceAgentTranslate = (key: 'bookmarks.untitled') => string;
 export interface IUseDocumentWorkspaceAgentOptions {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     annotationCommentsStatus: Ref<TAnnotationCommentsStatus>;
+    annotationInventory: Ref<IAnnotationInventoryCompleteness | null>;
     annotationDirty: Ref<boolean>;
     annotationPlacingPageNote: Ref<boolean>;
     annotationTool: Ref<TAnnotationTool>;

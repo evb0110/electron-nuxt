@@ -22,6 +22,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import type {
     IAnnotationCommentSummary,
+    IAnnotationInventoryCompleteness,
     IAnnotationModifiedPayload,
     IAnnotationSettings,
     IShapeAnnotation,
@@ -87,6 +88,7 @@ export interface ICreatePdfAnnotationSessionOptions {
     emitAnnotationModified: (payload?: IAnnotationModifiedPayload) => void;
     emitAnnotationState: Parameters<typeof usePdfAppAnnotationHistory>[0]['emitAnnotationState'];
     emitAnnotationComments: (comments: IAnnotationCommentSummary[]) => void;
+    emitAnnotationInventory: (completeness: IAnnotationInventoryCompleteness | null) => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationContextMenu: (payload: IAnnotationContextMenuPayload) => void;
     emitAnnotationToolAutoReset: () => void;
@@ -435,6 +437,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     ? annotationCommentsCache.value.find(candidate => candidate.stableKey === key)
                     : null;
                 activeCommentStableKey.value = comment ? annotationIdForSummary(comment) : null;
+            },
+            setInventoryCompleteness: (completeness) => {
+                options.emitAnnotationInventory(completeness);
             },
         }),
         syncInlineCommentIndicators: inlineIndicators.syncInlineCommentIndicators,
@@ -891,6 +896,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationCommentModel.clearProjection();
         activeCommentStableKey.value = null;
         options.emitAnnotationComments([]);
+        options.emitAnnotationInventory(null);
     }
     watch(documentSession.pdfDocument, (document, previousDocument) => {
         if (previousDocument && !document) {

@@ -8,6 +8,10 @@ import {
     computed,
     ref,
 } from 'vue';
+import type {
+    IAnnotationInventoryCompleteness,
+    TAnnotationInventoryOmission,
+} from '@app/types/annotations';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentViewerNavigationPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
@@ -92,6 +96,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         pdfReloadSrc: ref(null),
         annotationComments: ref([]),
         annotationCommentsStatus: ref('ready'),
+        annotationInventory: ref(null),
         annotationDirty: ref(false),
         sortedAnnotationNoteWindows: ref([]),
         handleOcrComplete: vi.fn(async () => {}),
@@ -100,6 +105,58 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
 }
 
 describe('createWorkspaceExpose', () => {
+    it('reports inventory completeness beside the annotation list it qualifies', () => {
+        const incompleteInventory: IAnnotationInventoryCompleteness = {
+            complete: false,
+            omissions: ['page-parse-failure'],
+            scannedPageCount: 2,
+            totalPageCount: 3,
+            failedPageCount: 1,
+        };
+        const annotationInventory = ref<IAnnotationInventoryCompleteness | null>(incompleteInventory);
+        const deps = createDeps({annotationInventory});
+
+        // An automation client reads `annotationComments` as the document's
+        // annotations, so a truncated scan has to say so in the same snapshot.
+        expect(createWorkspaceExpose(deps).getAutomationStateSnapshot().annotationInventory)
+            .toEqual(incompleteInventory);
+    });
+
+    it('hands out an inventory record that cannot write back into workspace state', () => {
+        const liveInventory: IAnnotationInventoryCompleteness = {
+            complete: false,
+            omissions: ['page-parse-failure'],
+            scannedPageCount: 2,
+            totalPageCount: 3,
+            failedPageCount: 1,
+        };
+        const annotationInventory = ref<IAnnotationInventoryCompleteness | null>(liveInventory);
+        const expose = createWorkspaceExpose(createDeps({annotationInventory}));
+
+        const snapshot = expose.getAutomationStateSnapshot().annotationInventory;
+        expect(snapshot).not.toBeNull();
+        expect(snapshot).not.toBe(annotationInventory.value);
+        snapshot!.complete = true;
+        snapshot!.failedPageCount = 0;
+        (snapshot!.omissions as TAnnotationInventoryOmission[]).push('page-cap');
+
+        // A snapshot is a value, not a window: mutating one reading must not
+        // rewrite the workspace's own record or the next reading of it.
+        expect(annotationInventory.value).toEqual(liveInventory);
+        expect(expose.getAutomationStateSnapshot().annotationInventory).toEqual({
+            complete: false,
+            omissions: ['page-parse-failure'],
+            scannedPageCount: 2,
+            totalPageCount: 3,
+            failedPageCount: 1,
+        });
+    });
+
+    it('reports a null inventory until a scan has measured one', () => {
+        expect(createWorkspaceExpose(createDeps()).getAutomationStateSnapshot().annotationInventory)
+            .toBeNull();
+    });
+
     it('reports path-backed PDF ownership without exposing bytes', () => {
         const deps = createDeps({
             pdfData: ref(null),

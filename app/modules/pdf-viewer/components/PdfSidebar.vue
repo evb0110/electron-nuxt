@@ -15,6 +15,7 @@
                 :settings="annotationSettings"
                 :comments="annotationComments"
                 :comments-status="annotationCommentsStatus"
+                :inventory="annotationInventory"
                 :active-comment-stable-key="annotationActiveCommentStableKey"
                 :keep-active="annotationKeepActive"
                 @set-tool="updateAnnotationTool"
@@ -115,6 +116,7 @@ import type {
 } from '@app/types/pdfUi';
 import type {
     IAnnotationCommentSummary,
+    IAnnotationInventoryCompleteness,
     IAnnotationSettings,
     TAnnotationCommentsStatus,
     TAnnotationTool,
@@ -165,6 +167,7 @@ interface IProps {
     annotationSettings: IAnnotationSettings;
     annotationComments: IAnnotationCommentSummary[];
     annotationCommentsStatus: TAnnotationCommentsStatus;
+    annotationInventory?: IAnnotationInventoryCompleteness | null | undefined;
     annotationActiveCommentStableKey?: string | null | undefined;
     bookmarkEditMode: boolean;
     bookmarkItems: IPdfBookmarkEntry[];
@@ -190,6 +193,7 @@ const {
     annotationSettings,
     annotationComments,
     annotationCommentsStatus,
+    annotationInventory = null,
     bookmarkItems,
     bookmarkNavigationIntentVersion,
     bookmarksDirty,

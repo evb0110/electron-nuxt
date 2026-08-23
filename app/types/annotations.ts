@@ -24,6 +24,26 @@ export type TAnnotationTool = TContractAnnotationTool;
 
 export type TAnnotationCommentsStatus = 'loading' | 'ready';
 
+/**
+ * Why a background annotation inventory stopped short of the whole document.
+ *
+ * `page-cap` and `record-cap` are deterministic: rescanning the same revision
+ * truncates at the same place. `page-parse-failure` is transient, so a snapshot
+ * carrying it is retried once per document revision.
+ */
+export type TAnnotationInventoryOmission =
+    | 'page-cap'
+    | 'record-cap'
+    | 'page-parse-failure';
+
+export interface IAnnotationInventoryCompleteness {
+    complete: boolean;
+    omissions: readonly TAnnotationInventoryOmission[];
+    scannedPageCount: number;
+    totalPageCount: number;
+    failedPageCount: number;
+}
+
 export type TMarkupSubtype = TPdfAnnotationMarkupSubtype;
 
 export type TShapeType = TPdfAnnotationShapeType;

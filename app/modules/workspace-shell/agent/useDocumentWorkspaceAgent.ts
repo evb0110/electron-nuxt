@@ -118,6 +118,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
     const {
         annotationComments,
         annotationCommentsStatus,
+        annotationInventory,
         annotationDirty,
         annotationPlacingPageNote,
         annotationTool,
@@ -250,6 +251,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
     const { readAgentResource: readDocumentAgentResource } = createDocumentAgentResources({
         annotationComments,
         annotationCommentsStatus,
+        annotationInventory,
         annotationDirty,
         canSave,
         createAgentBookmarkSnapshot,

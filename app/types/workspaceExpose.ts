@@ -6,6 +6,7 @@ import type { TSplitPayload } from '@contracts/windowTabs';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 import type {
     IAnnotationCommentSummary,
+    IAnnotationInventoryCompleteness,
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
@@ -237,6 +238,15 @@ interface IWorkspaceStatePort {hasPdf: {value: boolean;} | boolean;}
 export interface IWorkspaceAutomationStateSnapshot {
     annotationComments: IAnnotationCommentSummary[];
     annotationCommentsStatus: TAnnotationCommentsStatus;
+    /**
+     * Completeness of the background annotation inventory behind
+     * `annotationComments`, or `null` when no inventory pass has reported yet.
+     *
+     * An automation client reads `annotationComments` as the document's
+     * annotations; without this field a scan truncated by a cap or a page read
+     * failure is indistinguishable from a full listing.
+     */
+    annotationInventory: IAnnotationInventoryCompleteness | null;
     annotationDirty: boolean;
     dirtyState?: {
         annotationDirty: boolean;

@@ -274,6 +274,23 @@ describe('usePageAnnotationTools', () => {
         expect(tools.annotationComments.value).toEqual([]);
     });
 
+    it('drops a stale incomplete inventory when the document is closed', () => {
+        const { tools } = createHarness();
+
+        tools.applyAnnotationInventory({
+            complete: false,
+            omissions: ['page-parse-failure'],
+            scannedPageCount: 2,
+            totalPageCount: 3,
+            failedPageCount: 1,
+        });
+        expect(tools.annotationInventory.value).toMatchObject({ complete: false });
+
+        tools.clearAnnotationComments();
+
+        expect(tools.annotationInventory.value).toBeNull();
+    });
+
     it('marks dirty from a modified signal when the editor stack is empty but live annotation changes remain', () => {
         const {
             deps,

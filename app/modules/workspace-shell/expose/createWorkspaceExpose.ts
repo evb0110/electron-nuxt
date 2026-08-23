@@ -5,6 +5,7 @@ import type {
 import { ZOOM } from '@app/constants/pdfLayout';
 import type {
     IAnnotationCommentSummary,
+    IAnnotationInventoryCompleteness,
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -111,6 +112,7 @@ export interface ICreateWorkspaceExposeDeps extends
     requiresSaveAsOnFirstSave?: Ref<boolean>;
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     annotationCommentsStatus: Ref<TAnnotationCommentsStatus>;
+    annotationInventory: Ref<IAnnotationInventoryCompleteness | null>;
     annotationDirty: Ref<boolean>;
     isDirty?: Ref<boolean>;
     hasAnnotationChanges?: () => boolean;
@@ -319,11 +321,36 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         deps.zoomMode.value = 'custom';
     }
 
+    /**
+     * Copy the inventory record out of reactive state.
+     *
+     * The snapshot is a value handed to automation clients, not a window onto
+     * live state: returning the ref's own object would let a caller mutate the
+     * workspace's completeness record, and would make every snapshot taken
+     * from the same ref alias the one before it, so a mutation applied to one
+     * reading silently rewrites the others.
+     */
+    function cloneAnnotationInventory(
+        inventory: IAnnotationInventoryCompleteness | null,
+    ): IAnnotationInventoryCompleteness | null {
+        if (!inventory) {
+            return null;
+        }
+        return {
+            complete: inventory.complete,
+            omissions: [...inventory.omissions],
+            scannedPageCount: inventory.scannedPageCount,
+            totalPageCount: inventory.totalPageCount,
+            failedPageCount: inventory.failedPageCount,
+        };
+    }
+
     function getAutomationStateSnapshot(): IWorkspaceAutomationStateSnapshot {
         const reloadSrc = deps.pdfReloadSrc.value;
         return {
             annotationComments: [...deps.annotationComments.value],
             annotationCommentsStatus: deps.annotationCommentsStatus.value,
+            annotationInventory: cloneAnnotationInventory(deps.annotationInventory.value),
             annotationDirty: deps.annotationDirty.value,
             dirtyState: {
                 annotationDirty: deps.annotationDirty.value,

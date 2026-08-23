@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
+    IAnnotationInventoryCompleteness,
     IAnnotationModifiedPayload,
     IAnnotationSettings,
     IShapeAnnotation,
@@ -43,6 +44,9 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     const annotationSettings = ref<IAnnotationSettings>({ ...DEFAULT_ANNOTATION_SETTINGS });
     const annotationComments = ref<IAnnotationCommentSummary[]>([]);
     const annotationCommentsStatus = ref<TAnnotationCommentsStatus>('loading');
+    // Null means "no inventory has reported yet"; a complete inventory reports
+    // a completeness record with `complete: true`.
+    const annotationInventory = ref<IAnnotationInventoryCompleteness | null>(null);
     const annotationActiveCommentStableKey = ref<string | null>(null);
     const annotationEditorState = ref<IAnnotationEditorState>({
         isEditing: false,
@@ -224,6 +228,11 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     function clearAnnotationComments() {
         annotationComments.value = [];
         annotationCommentsStatus.value = 'loading';
+        annotationInventory.value = null;
+    }
+
+    function applyAnnotationInventory(completeness: IAnnotationInventoryCompleteness | null) {
+        annotationInventory.value = completeness;
     }
 
     return {
@@ -233,6 +242,7 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         annotationSettings,
         annotationComments,
         annotationCommentsStatus,
+        annotationInventory,
         annotationActiveCommentStableKey,
         annotationEditorState,
         annotationRevision,
@@ -250,6 +260,7 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         resetAnnotationTracking,
         markAnnotationCommentsLoading,
         applyAnnotationComments,
+        applyAnnotationInventory,
         clearAnnotationComments,
     };
 };

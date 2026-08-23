@@ -330,6 +330,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         setAnnotationNoteWindowError,
         isSameAnnotationComment,
         applyAnnotationComments: applyAnnotationCommentsFromSession,
+        applyAnnotationInventory,
     } = annotationSession;
 
     const pendingEmbeddedAnnotationDeleteCount = computed(() => {
@@ -1025,6 +1026,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             zoomMode,
             onAnnotationCommentClick: annotationActions.handleAnnotationCommentClick,
             onAnnotationComments: handleAnnotationComments,
+            onAnnotationInventory: applyAnnotationInventory,
             onAnnotationContextMenu: annotationActions.handleViewerAnnotationContextMenu,
             onAnnotationModified: handleAnnotationModifiedWithThumbnailInvalidation,
             onAnnotationNotePlacementChange: value => { annotationPlacingPageNote.value = value; },

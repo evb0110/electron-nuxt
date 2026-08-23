@@ -147,6 +147,7 @@ function createWorkspaceExposeDeps(overrides: Partial<Parameters<typeof createWo
         originalPath: ref(null),
         annotationComments: ref([]),
         annotationCommentsStatus: ref('ready'),
+        annotationInventory: ref(null),
         annotationDirty: ref(false),
         sortedAnnotationNoteWindows: ref([]),
         handleOcrComplete: vi.fn(async () => {}),

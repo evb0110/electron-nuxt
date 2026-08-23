@@ -304,6 +304,7 @@ export const usePdfViewerFeatureController = (
         emitAnnotationModified: payload => viewerEvents.annotationModified(payload),
         emitAnnotationState: viewerEvents.annotationState,
         emitAnnotationComments: viewerEvents.annotationComments,
+        emitAnnotationInventory: viewerEvents.annotationInventory,
         emitAnnotationOpenNote: viewerEvents.annotationOpenNote,
         emitAnnotationContextMenu: viewerEvents.annotationContextMenu,
         emitAnnotationToolAutoReset: viewerEvents.annotationToolAutoReset,

@@ -2,6 +2,7 @@ import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engi
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
+    IAnnotationInventoryCompleteness,
     IAnnotationModifiedPayload,
     IAnnotationSettings,
     TAnnotationSettingChange,
@@ -71,6 +72,7 @@ export interface IPdfViewerEmit {
     (e: 'annotation-state', state: IAnnotationEditorState): void;
     (e: 'annotation-modified', payload?: IAnnotationModifiedPayload): void;
     (e: 'annotation-comments', comments: IAnnotationCommentSummary[]): void;
+    (e: 'annotation-inventory', completeness: IAnnotationInventoryCompleteness | null): void;
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-context-menu', payload: IAnnotationContextMenuPayload): void;
     (e: 'annotation-tool-auto-reset'): void;

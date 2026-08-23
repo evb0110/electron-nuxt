@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
+    IAnnotationInventoryCompleteness,
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
@@ -13,6 +14,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 interface ICreateDocumentAgentResourcesOptions {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     annotationCommentsStatus: Ref<TAnnotationCommentsStatus>;
+    annotationInventory: Ref<IAnnotationInventoryCompleteness | null>;
     annotationDirty: Ref<boolean>;
     canSave: Ref<boolean>;
     createAgentBookmarkSnapshot: () => {
@@ -33,6 +35,25 @@ interface ICreateDocumentAgentResourcesOptions {
     tabId: string;
     totalPages: Ref<number>;
     workingCopyPath: Ref<TDocumentRef | null>;
+}
+
+/**
+ * An automation client reading the annotation list has no other way to learn
+ * that the background inventory stopped short, so a truncated or partly failed
+ * scan has to say so in the payload rather than look like a full listing.
+ */
+function toAgentInventoryFields(completeness: IAnnotationInventoryCompleteness | null) {
+    if (!completeness) {
+        return { inventoryComplete: null };
+    }
+
+    return {
+        inventoryComplete: completeness.complete,
+        inventoryOmissions: [...completeness.omissions],
+        inventoryScannedPageCount: completeness.scannedPageCount,
+        inventoryTotalPageCount: completeness.totalPageCount,
+        inventoryFailedPageCount: completeness.failedPageCount,
+    };
 }
 
 function parseAgentResourceUri(uri: string) {
@@ -59,6 +80,7 @@ export function createDocumentAgentResources(options: ICreateDocumentAgentResour
     const {
         annotationComments,
         annotationCommentsStatus,
+        annotationInventory,
         annotationDirty,
         canSave,
         createAgentBookmarkSnapshot,
@@ -103,6 +125,7 @@ export function createDocumentAgentResources(options: ICreateDocumentAgentResour
                 annotationNoteWindowsCount: sortedAnnotationNoteWindows.value.length,
                 annotationCommentsStatus: annotationCommentsStatus.value,
                 annotationCommentsCount: annotationComments.value.length,
+                ...toAgentInventoryFields(annotationInventory.value),
             };
         }
 
@@ -112,6 +135,7 @@ export function createDocumentAgentResources(options: ICreateDocumentAgentResour
                 tabId,
                 status: annotationCommentsStatus.value,
                 count: annotationComments.value.length,
+                ...toAgentInventoryFields(annotationInventory.value),
                 annotations: annotationComments.value.map(normalizeAgentAnnotationComment),
             };
         }
@@ -149,6 +173,7 @@ export function createDocumentAgentResources(options: ICreateDocumentAgentResour
                 tabId,
                 status: annotationCommentsStatus.value,
                 count: notes.length,
+                ...toAgentInventoryFields(annotationInventory.value),
                 notes,
             };
         }

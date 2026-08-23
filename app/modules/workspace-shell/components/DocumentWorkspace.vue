@@ -128,6 +128,7 @@
                     :annotation-settings="annotationSettings"
                     :annotation-comments="annotationComments"
                     :annotation-comments-status="annotationCommentsStatus"
+                    :annotation-inventory="annotationInventory"
                     :annotation-active-comment-stable-key="annotationActiveCommentStableKey"
                     :bookmark-edit-mode="bookmarkEditMode"
                     :bookmark-items="bookmarkItems"
@@ -726,6 +727,7 @@ const {
     annotationSettings,
     annotationComments,
     annotationCommentsStatus,
+    annotationInventory,
     annotationActiveCommentStableKey,
     thumbnailHiddenAnnotationIds,
     markAnnotationCommentsLoading,
@@ -1215,6 +1217,7 @@ const {
 } = useDocumentWorkspaceAgent({
     annotationComments,
     annotationCommentsStatus,
+    annotationInventory,
     annotationDirty,
     annotationPlacingPageNote,
     annotationTool,

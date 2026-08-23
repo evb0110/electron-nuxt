@@ -14,6 +14,7 @@ import {
 import type { Ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
+    IAnnotationInventoryCompleteness,
     ILinkAnnotation,
 } from '@app/types/annotations';
 import { useAnnotationIdentity } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationIdentity';
@@ -89,6 +90,55 @@ beforeEach(() => {
     loadPdfPageAnnotations.mockReset();
 });
 
+async function readInventoryCaps() {
+    const syncModule = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync');
+    return {
+        pageCap: syncModule.MAX_BACKGROUND_PDF_ANNOTATION_PAGES,
+        recordCap: syncModule.MAX_BACKGROUND_PDF_ANNOTATION_RECORDS,
+    };
+}
+
+async function spyOnAnnotationWarnings() {
+    const { BrowserLogger } = await import('@app/utils/browserLogger');
+    return vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
+}
+
+function createEmptyPageBundle(): IPdfPageAnnotationBundle {
+    return {
+        annotations: [],
+        pageRotation: 0,
+        pageView: [
+            0,
+            0,
+            100,
+            100,
+        ],
+    };
+}
+
+function createLinkPageBundle(pageNumber: number, count: number): IPdfPageAnnotationBundle {
+    return {
+        annotations: Array.from({ length: count }, (_unused, index) => ({
+            id: `link-${pageNumber}-${index}`,
+            subtype: 'Link',
+            url: `https://example.test/${pageNumber}/${index}`,
+            rect: [
+                0,
+                0,
+                10,
+                10,
+            ],
+        })),
+        pageRotation: 0,
+        pageView: [
+            0,
+            0,
+            100,
+            100,
+        ],
+    };
+}
+
 async function withAnnotationSyncScope<T>(run: () => Promise<T>) {
     const scope = effectScope();
     try {
@@ -138,7 +188,10 @@ async function createSyncHarness(options: {
     limits?: ReturnType<typeof resolvePdfAnnotationNameReadLimits>;
     pdfDocument?: object;
     setAnnotations?: ReturnType<typeof vi.fn>;
+    setInventoryCompleteness?: ReturnType<typeof vi.fn>;
     setLinkAnnotations?: ReturnType<typeof vi.fn>;
+    numPages?: ReturnType<typeof ref<number>>;
+    currentPage?: ReturnType<typeof ref<number>>;
 } = {}) {
     const annotationCommentsCache = options.annotationCommentsCache ?? ref<IAnnotationCommentSummary[]>([]);
     const identity = useAnnotationIdentity(annotationCommentsCache);
@@ -148,14 +201,16 @@ async function createSyncHarness(options: {
         return comments;
     });
     const setLinkAnnotations = options.setLinkAnnotations ?? vi.fn((_links: ILinkAnnotation[]) => {});
+    const setInventoryCompleteness = options.setInventoryCompleteness
+        ?? vi.fn((_completeness: IAnnotationInventoryCompleteness | null) => {});
     const { useAnnotationSync } = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync');
     const textMarkupPresentation = {notify: vi.fn()};
     const sync = useAnnotationSync({
         pdfDocument: shallowRef(options.pdfDocument ?? {}),
         documentIdentity: options.documentIdentity ?? ref('document'),
         documentRevisionToken: options.documentRevisionToken,
-        numPages: ref(1),
-        currentPage: ref(1),
+        numPages: options.numPages ?? ref(1),
+        currentPage: options.currentPage ?? ref(1),
         annotationUiManager: options.annotationUiManager ?? shallowRef(null),
         authorName: ref(null),
         getIdentity: () => identity,
@@ -164,6 +219,7 @@ async function createSyncHarness(options: {
             setAnnotations,
             setLinkAnnotations,
             setActiveKey: vi.fn(),
+            setInventoryCompleteness,
         }),
         syncInlineCommentIndicators: vi.fn(),
         textMarkupPresentation,
@@ -175,6 +231,7 @@ async function createSyncHarness(options: {
         annotationCommentsCache,
         ...markupSubtypeStore,
         setAnnotations,
+        setInventoryCompleteness,
         setLinkAnnotations,
         sync,
         textMarkupPresentation,
@@ -638,6 +695,311 @@ describe('useAnnotationSync', () => {
                     reconcileMissingTransient: true,
                 },
             );
+        });
+    });
+});
+
+describe('useAnnotationSync inventory completeness', () => {
+    it('reports a complete inventory without warning when every page is read', async () => {
+        loadPdfPageAnnotations.mockResolvedValue(createEmptyPageBundle());
+
+        await withAnnotationSyncScope(async () => {
+            const warn = await spyOnAnnotationWarnings();
+            const {
+                sync,
+                setInventoryCompleteness,
+            } = await createSyncHarness({
+                documentIdentity: ref('complete-document'),
+                numPages: ref(3),
+            });
+
+            await sync.syncAnnotationComments();
+
+            expect(setInventoryCompleteness).toHaveBeenLastCalledWith({
+                complete: true,
+                omissions: [],
+                scannedPageCount: 3,
+                totalPageCount: 3,
+                failedPageCount: 0,
+            });
+            expect(warn).not.toHaveBeenCalledWith(
+                'annotations',
+                'Background annotation inventory is incomplete',
+                expect.anything(),
+            );
+        });
+    });
+
+    it('flags and warns when the page cap truncates the scan', async () => {
+        loadPdfPageAnnotations.mockResolvedValue(createEmptyPageBundle());
+
+        await withAnnotationSyncScope(async () => {
+            const { pageCap } = await readInventoryCaps();
+            // One page past the cap: the scan has to stop on the boundary and
+            // report the page it never reached.
+            const totalPages = pageCap + 1;
+            const warn = await spyOnAnnotationWarnings();
+            const {
+                sync,
+                setInventoryCompleteness,
+            } = await createSyncHarness({
+                documentIdentity: ref('capped-document'),
+                numPages: ref(totalPages),
+            });
+
+            await sync.syncAnnotationComments();
+
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(pageCap);
+            expect(setInventoryCompleteness).toHaveBeenLastCalledWith(expect.objectContaining({
+                complete: false,
+                omissions: ['page-cap'],
+                scannedPageCount: pageCap,
+                totalPageCount: totalPages,
+                failedPageCount: 0,
+            }));
+            expect(warn).toHaveBeenCalledWith(
+                'annotations',
+                'Background annotation inventory is incomplete',
+                expect.objectContaining({ omissions: ['page-cap'] }),
+            );
+        });
+    });
+
+    it('flags and warns when the record cap truncates the scan', async () => {
+        const { recordCap } = await readInventoryCaps();
+        // Size the fixture so the cap trips on the third page: two pages stay
+        // under it, and the third crosses it with pages still unread.
+        const cappedOnPage = 3;
+        const linksPerPage = Math.ceil(recordCap / cappedOnPage);
+        expect(linksPerPage * (cappedOnPage - 1)).toBeLessThan(recordCap);
+        expect(linksPerPage * cappedOnPage).toBeGreaterThanOrEqual(recordCap);
+        const totalPages = cappedOnPage + 2;
+        loadPdfPageAnnotations.mockImplementation(async (
+            _doc: unknown,
+            pageNumber: number,
+        ) => createLinkPageBundle(pageNumber, linksPerPage));
+
+        await withAnnotationSyncScope(async () => {
+            const warn = await spyOnAnnotationWarnings();
+            const {
+                sync,
+                setInventoryCompleteness,
+            } = await createSyncHarness({
+                documentIdentity: ref('record-capped-document'),
+                numPages: ref(totalPages),
+            });
+
+            await sync.syncAnnotationComments();
+
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(cappedOnPage);
+            expect(setInventoryCompleteness).toHaveBeenLastCalledWith(expect.objectContaining({
+                complete: false,
+                omissions: ['record-cap'],
+                scannedPageCount: cappedOnPage,
+                totalPageCount: totalPages,
+                failedPageCount: 0,
+            }));
+            expect(warn).toHaveBeenCalledWith(
+                'annotations',
+                'Background annotation inventory is incomplete',
+                expect.objectContaining({ omissions: ['record-cap'] }),
+            );
+        });
+    });
+
+    it('stops at exactly the record cap rather than reading one page past it', async () => {
+        // The very first page fills the budget to the record exactly. `>=` has
+        // to stop here: pages remain, so scanning one more would push the
+        // inventory past the cap it exists to enforce, and reporting the scan
+        // complete would hide the pages it never reached.
+        const { recordCap } = await readInventoryCaps();
+        loadPdfPageAnnotations.mockImplementation(async (
+            _doc: unknown,
+            pageNumber: number,
+        ) => createLinkPageBundle(pageNumber, recordCap));
+
+        await withAnnotationSyncScope(async () => {
+            const {
+                sync,
+                setInventoryCompleteness,
+            } = await createSyncHarness({
+                documentIdentity: ref('exact-record-cap-document'),
+                numPages: ref(2),
+            });
+
+            await sync.syncAnnotationComments();
+
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(1);
+            expect(setInventoryCompleteness).toHaveBeenLastCalledWith(expect.objectContaining({
+                complete: false,
+                omissions: ['record-cap'],
+                scannedPageCount: 1,
+                totalPageCount: 2,
+            }));
+        });
+    });
+
+    it('flags and warns a page that cannot be parsed instead of counting it as read', async () => {
+        loadPdfPageAnnotations.mockImplementation(async (
+            _doc: unknown,
+            pageNumber: number,
+        ) => (pageNumber === 2 ? null : createEmptyPageBundle()));
+
+        await withAnnotationSyncScope(async () => {
+            const warn = await spyOnAnnotationWarnings();
+            const {
+                sync,
+                setInventoryCompleteness,
+            } = await createSyncHarness({
+                documentIdentity: ref('failing-page-document'),
+                numPages: ref(3),
+            });
+
+            await sync.syncAnnotationComments();
+
+            expect(setInventoryCompleteness).toHaveBeenLastCalledWith(expect.objectContaining({
+                complete: false,
+                omissions: ['page-parse-failure'],
+                scannedPageCount: 2,
+                totalPageCount: 3,
+                failedPageCount: 1,
+            }));
+            expect(warn).toHaveBeenCalledWith(
+                'annotations',
+                'Background annotation inventory is incomplete',
+                expect.objectContaining({ failedPageCount: 1 }),
+            );
+        });
+    });
+
+    it('keeps a cap-truncated snapshot incomplete across the revision-keyed cache', async () => {
+        const { recordCap } = await readInventoryCaps();
+        const totalPages = 5;
+        const linksPerPage = Math.ceil(recordCap / 3);
+        loadPdfPageAnnotations.mockImplementation(async (
+            _doc: unknown,
+            pageNumber: number,
+        ) => createLinkPageBundle(pageNumber, linksPerPage));
+
+        await withAnnotationSyncScope(async () => {
+            const first = await createSyncHarness({
+                documentIdentity: ref('cached-capped-document'),
+                documentRevisionToken: ref('revision-1'),
+                numPages: ref(totalPages),
+                pdfDocument: {},
+            });
+            await first.sync.syncAnnotationComments();
+            const scanCalls = loadPdfPageAnnotations.mock.calls.length;
+
+            const second = await createSyncHarness({
+                documentIdentity: ref('cached-capped-document'),
+                documentRevisionToken: ref('revision-1'),
+                numPages: ref(totalPages),
+                pdfDocument: {},
+            });
+            await second.sync.syncAnnotationComments();
+
+            // A cache hit must not launder a truncated scan into a
+            // complete-looking one, and a deterministic cap is not rescanned.
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(scanCalls);
+            expect(second.setInventoryCompleteness).toHaveBeenLastCalledWith(expect.objectContaining({
+                complete: false,
+                omissions: ['record-cap'],
+            }));
+        });
+    });
+
+    it('rescans once after a page read failure and reports recovery', async () => {
+        loadPdfPageAnnotations.mockImplementation(async (
+            _doc: unknown,
+            pageNumber: number,
+        ) => (pageNumber === 2 ? null : createEmptyPageBundle()));
+
+        await withAnnotationSyncScope(async () => {
+            const {
+                sync,
+                setInventoryCompleteness,
+            } = await createSyncHarness({
+                documentIdentity: ref('recovering-document'),
+                documentRevisionToken: ref('revision-1'),
+                numPages: ref(3),
+            });
+
+            await sync.syncAnnotationComments();
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(3);
+            expect(setInventoryCompleteness).toHaveBeenLastCalledWith(expect.objectContaining({
+                complete: false,
+                failedPageCount: 1,
+            }));
+
+            loadPdfPageAnnotations.mockImplementation(async () => createEmptyPageBundle());
+            await sync.syncAnnotationComments();
+
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(6);
+            expect(setInventoryCompleteness).toHaveBeenLastCalledWith({
+                complete: true,
+                omissions: [],
+                scannedPageCount: 3,
+                totalPageCount: 3,
+                failedPageCount: 0,
+            });
+        });
+    });
+
+    it('retries a failed page at most once per revision', async () => {
+        loadPdfPageAnnotations.mockImplementation(async (
+            _doc: unknown,
+            pageNumber: number,
+        ) => (pageNumber === 2 ? null : createEmptyPageBundle()));
+
+        await withAnnotationSyncScope(async () => {
+            const revision = ref('revision-1');
+            const {
+                sync,
+                setInventoryCompleteness,
+            } = await createSyncHarness({
+                documentIdentity: ref('persistently-failing-document'),
+                documentRevisionToken: revision,
+                numPages: ref(3),
+            });
+
+            await sync.syncAnnotationComments();
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(3);
+
+            await sync.syncAnnotationComments();
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(6);
+
+            // The retry budget for this revision is spent; further syncs reuse
+            // the cached snapshot instead of rescanning every time.
+            await sync.syncAnnotationComments();
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(6);
+
+            revision.value = 'revision-2';
+            await nextTick();
+            await sync.syncAnnotationComments();
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(9);
+            expect(setInventoryCompleteness).toHaveBeenLastCalledWith(expect.objectContaining({
+                complete: false,
+                failedPageCount: 1,
+            }));
+        });
+    });
+
+    it('clears the reported inventory when the document has no pages', async () => {
+        loadPdfPageAnnotations.mockResolvedValue(createEmptyPageBundle());
+
+        await withAnnotationSyncScope(async () => {
+            const {
+                sync,
+                setInventoryCompleteness,
+            } = await createSyncHarness({
+                documentIdentity: ref('empty-document'),
+                numPages: ref(0),
+            });
+
+            await sync.syncAnnotationComments();
+
+            expect(setInventoryCompleteness).toHaveBeenLastCalledWith(null);
         });
     });
 });

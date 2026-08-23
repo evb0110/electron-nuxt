@@ -15,6 +15,7 @@ import type {
     TPrintOrientation,
     TZoomMode,
 } from '@contracts/shared';
+import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type {
     IDocumentViewerExpose,
@@ -51,6 +52,23 @@ import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
 export type TWorkspaceDocumentDriverId = 'pdfjs' | 'native-pdf' | 'djvu';
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
+
+/**
+ * Handler for the viewer's annotation-inventory event.
+ *
+ * The viewer reports `null` while an inventory is still pending and a
+ * completeness record once a pass finishes, so the workspace can tell
+ * "not measured yet" from "measured and partial". Typing the handler here is
+ * what keeps that distinction: the listener map this feeds is an untyped bag
+ * of `v-on` entries, so an `unknown` handler would let a payload of any shape
+ * reach `applyAnnotationInventory` and surface as a wrong completeness notice
+ * rather than a compile error.
+ */
+export type TAnnotationInventoryListener = (
+    completeness: IAnnotationInventoryCompleteness | null,
+) => void;
+
+interface IActiveViewerListeners extends Record<string, unknown> {annotationInventory?: TAnnotationInventoryListener;}
 
 interface IOpenBatchProgressState {
     processed: number;
@@ -485,6 +503,7 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     zoomMode: Ref<TZoomMode>;
     onAnnotationCommentClick: unknown;
     onAnnotationComments: unknown;
+    onAnnotationInventory: TAnnotationInventoryListener;
     onAnnotationContextMenu: unknown;
     onAnnotationModified: unknown;
     onAnnotationNotePlacementChange: (value: boolean) => void;
@@ -602,7 +621,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
         'update:pageSource': options.onPageSourceUpdate,
     };
 
-    const activeViewerListeners = computed<Record<string, unknown>>(() => {
+    const activeViewerListeners = computed<IActiveViewerListeners>(() => {
         if (options.activeDocumentDriver.value.id !== 'pdfjs') {
             return nativeViewerListeners;
         }
@@ -614,6 +633,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             annotationState: options.onAnnotationState,
             annotationModified: options.onAnnotationModified,
             annotationComments: options.onAnnotationComments,
+            annotationInventory: options.onAnnotationInventory,
             annotationOpenNote: options.onAnnotationOpenNote,
             annotationCommentClick: options.onAnnotationCommentClick,
             annotationContextMenu: options.onAnnotationContextMenu,

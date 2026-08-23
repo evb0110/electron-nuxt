@@ -75,6 +75,7 @@
         <PdfAnnotationCommentsList
             :comments="comments"
             :status="commentsStatus"
+            :inventory="inventory"
             :active-comment-stable-key="activeCommentStableKey"
             :author-name="appSettings.authorName"
             @focus-comment="focusComment"
@@ -88,6 +89,7 @@
 <script setup lang="ts">
 import type {
     IAnnotationCommentSummary,
+    IAnnotationInventoryCompleteness,
     IAnnotationSettings,
     TAnnotationCommentsStatus,
     TAnnotationTool,
@@ -103,6 +105,7 @@ interface IProps {
     settings: IAnnotationSettings;
     comments: IAnnotationCommentSummary[];
     commentsStatus: TAnnotationCommentsStatus;
+    inventory?: IAnnotationInventoryCompleteness | null | undefined;
     activeCommentStableKey?: string | null;
 }
 
@@ -117,6 +120,7 @@ const {
     settings,
     comments,
     commentsStatus,
+    inventory = null,
     activeCommentStableKey: rawActiveCommentStableKey = null,
 } = defineProps<IProps>();
 const activeCommentStableKey = computed(() => rawActiveCommentStableKey ?? undefined);

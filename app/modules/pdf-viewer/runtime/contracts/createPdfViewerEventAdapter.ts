@@ -1,6 +1,7 @@
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
+    IAnnotationInventoryCompleteness,
     IAnnotationModifiedPayload,
     TAnnotationSettingChange,
 } from '@app/types/annotations';
@@ -28,6 +29,7 @@ export interface IPdfViewerEventAdapter {
     annotationState(state: IAnnotationEditorState): void;
     annotationModified(payload?: IAnnotationModifiedPayload): void;
     annotationComments(comments: IAnnotationCommentSummary[]): void;
+    annotationInventory(completeness: IAnnotationInventoryCompleteness | null): void;
     annotationOpenNote(comment: IAnnotationCommentSummary): void;
     annotationContextMenu(payload: IAnnotationContextMenuPayload): void;
     annotationToolAutoReset(): void;
@@ -61,6 +63,7 @@ export function createPdfViewerEventAdapter(emit: IPdfViewerEmit): IPdfViewerEve
         annotationState: state => emit('annotation-state', state),
         annotationModified: payload => emit('annotation-modified', payload),
         annotationComments: comments => emit('annotation-comments', comments),
+        annotationInventory: completeness => emit('annotation-inventory', completeness),
         annotationOpenNote: comment => emit('annotation-open-note', comment),
         annotationContextMenu: payload => emit('annotation-context-menu', payload),
         annotationToolAutoReset: () => emit('annotation-tool-auto-reset'),

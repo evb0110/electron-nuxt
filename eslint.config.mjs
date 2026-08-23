@@ -186,7 +186,7 @@ const projectConfig = withNuxt(
         ['electron/ocr/jobManager.ts', 1067],
         ['packages/contracts/agentPlatformFeature.ts', 1813],
         ['app/modules/workspace-shell/components/AppShellRoot.vue', 900],
-        ['app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts', 1081],
+        ['app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts', 1083],
         ['electron/features/agent/mcp/mcpServerCore.ts', 979],
         ['scripts/architecture/boundary-check.mjs', 1232],
         ['app/platform/browser-api/browserDjvuCapability.ts', 1202],

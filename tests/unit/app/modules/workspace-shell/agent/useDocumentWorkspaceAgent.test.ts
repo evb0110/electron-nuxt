@@ -11,6 +11,7 @@ import type { TPdfViewMode } from '@contracts/shared';
 import { AGENT_CAPABILITY_TEMPLATES } from '@electron/features/agent/mcp/agentCapabilityTemplates';
 import type {
     IAnnotationCommentSummary,
+    IAnnotationInventoryCompleteness,
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
@@ -115,6 +116,7 @@ function createAgentOptions(
     return {
         annotationComments: ref<IAnnotationCommentSummary[]>([]),
         annotationCommentsStatus: ref<TAnnotationCommentsStatus>('ready'),
+        annotationInventory: ref<IAnnotationInventoryCompleteness | null>(null),
         annotationDirty: ref(false),
         annotationPlacingPageNote: ref(false),
         annotationTool: ref<TAnnotationTool>('none'),

@@ -10,12 +10,14 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
 import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import {
     createWorkspaceDocumentDriverForAdapter,
     useWorkspaceDocumentDriver,
     useWorkspaceDocumentDriverBinding,
     type IWorkspaceDocumentDriverBindingOptions,
+    type TAnnotationInventoryListener,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import {
     WORKSPACE_VIEWER_ADAPTERS,
@@ -81,6 +83,7 @@ function createBindingHarness() {
     const isInteractionActive = ref(false);
     const isRenderActive = ref(false);
     const isWorkspaceLayoutResizing = ref(false);
+    const onAnnotationInventory = vi.fn<TAnnotationInventoryListener>();
     const onPageSourceUpdate = vi.fn();
     const onRasterSchedulerUpdate = vi.fn();
     const onSourceCapabilitiesUpdate = vi.fn();
@@ -92,6 +95,7 @@ function createBindingHarness() {
         isRenderActive,
         isWorkspaceLayoutResizing,
         nativePdfViewerRef,
+        onAnnotationInventory,
         onPageSourceUpdate,
         onRasterSchedulerUpdate,
         onSourceCapabilitiesUpdate,
@@ -120,6 +124,7 @@ function createBindingHarness() {
         isRenderActive,
         isWorkspaceLayoutResizing,
         nativePdfViewerRef,
+        onAnnotationInventory,
         onPageSourceUpdate,
         onRasterSchedulerUpdate,
         onSourceCapabilitiesUpdate,
@@ -284,5 +289,37 @@ describe('WorkspaceDocumentDriver', () => {
         expect(harness.binding.activeViewerListeners.value['update:rasterScheduler'])
             .toBe(harness.onRasterSchedulerUpdate);
         expect(harness.binding.activeViewerListeners.value['update:sourceCapabilities']).toBe(harness.onSourceCapabilitiesUpdate);
+    });
+    it('routes annotation inventory completeness only from the pdf.js driver', () => {
+        const harness = createBindingHarness();
+        expect(harness.binding.activeViewerListeners.value.annotationInventory)
+            .toBe(harness.onAnnotationInventory);
+        harness.activeDocumentDriver.value = harness.createDriver('djvu');
+        expect(harness.binding.activeViewerListeners.value.annotationInventory).toBeUndefined();
+    });
+
+    it('forwards the viewer completeness record and its pending null unchanged', () => {
+        const harness = createBindingHarness();
+        // The listener leaves here as a typed handler, not an `unknown` entry
+        // in a `v-on` bag, so the workspace side sees the same contract the
+        // viewer emits.
+        const listener: TAnnotationInventoryListener | undefined
+            = harness.binding.activeViewerListeners.value.annotationInventory;
+        expect(listener).toBeDefined();
+
+        const completeness: IAnnotationInventoryCompleteness = {
+            complete: false,
+            omissions: ['page-parse-failure'],
+            scannedPageCount: 3,
+            totalPageCount: 4,
+            failedPageCount: 1,
+        };
+        listener?.(completeness);
+        listener?.(null);
+
+        expect(harness.onAnnotationInventory).toHaveBeenNthCalledWith(1, completeness);
+        // `null` is the "no inventory measured yet" signal and must survive the
+        // hop; collapsing it into a complete record would hide the notice.
+        expect(harness.onAnnotationInventory).toHaveBeenNthCalledWith(2, null);
     });
 });
