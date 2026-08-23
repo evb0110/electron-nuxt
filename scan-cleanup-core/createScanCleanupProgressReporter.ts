@@ -2,7 +2,10 @@ import type {
     TScanCleanupProgress,
     TScanCleanupProgressStage,
     TScanCleanupSummary,
+    TScanCleanupSummaryWarningEvent,
 } from '@contracts/electronApiScanCleanup';
+
+import {formatScanCleanupWarningEvent} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 
 type TStageWeights = ReadonlyArray<readonly [TScanCleanupProgressStage, number]>;
 
@@ -16,6 +19,7 @@ export type TEmitScanCleanupProgress = (
 export function createEmptyScanCleanupSummary(
     inputPages: number,
     warnings: readonly string[],
+    warningEvents: readonly TScanCleanupSummaryWarningEvent[] = [],
 ): TScanCleanupSummary {
     return {
         inputPages,
@@ -27,7 +31,30 @@ export function createEmptyScanCleanupSummary(
         excludedPages: 0,
         blankPagesSkipped: 0,
         warnings: [...warnings],
+        warningEvents: [...warningEvents],
     };
+}
+
+/**
+ * Records one condition on a summary: the sentence the user reads and the typed
+ * event it was formatted from, published together so a consumer never has to
+ * read the sentence back to learn which condition a run raised.
+ */
+export function reportScanCleanupSummaryWarningEvent(
+    summary: TScanCleanupSummary,
+    entry: TScanCleanupSummaryWarningEvent,
+    report: (message: string) => void,
+) {
+    // A summary a run built itself always carries the list; one decoded from a
+    // run that predates this channel carries none, and the first event opens
+    // it. Appending in place keeps a document that reports a condition per page
+    // linear instead of copying the whole list once per page.
+    if (summary.warningEvents === undefined) {
+        summary.warningEvents = [entry];
+    } else {
+        summary.warningEvents.push(entry);
+    }
+    report(formatScanCleanupWarningEvent(entry.event, entry.pageNumber));
 }
 
 // Non-streaming transports really do materialize the complete raster handoff

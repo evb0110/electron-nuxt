@@ -66,8 +66,12 @@ import {
 } from '@scan-cleanup-core/detection';
 import {
     CANVAS_CONTENT_SCALE_EPSILON,
+    fitScanCleanupMarginAxisPx,
     resolveMatchedCanvasResamplePages,
+    isScanCleanupPaperLargerThanCanvas,
     resolveScanCleanupCanvasFitScale,
+    resolveScanCleanupOutputPageRect,
+    resolveScanCleanupCanvasGridAtDpi,
     resolveScanCleanupDocumentCanvasDpi,
     resolveScanCleanupOutputPaperPixels,
     resolveScanCleanupProvisionalDocumentCanvas,
@@ -76,6 +80,7 @@ import {
 import {
     describeScanCleanupNativeWarnings,
     formatScanCleanupWarningEvent,
+    toScanCleanupPercentTenths,
 } from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 import {
     isNativePageOpsDisabled,
@@ -1816,33 +1821,42 @@ async function runPreview(
                 };
             }
         }
-        const matchedPreviewDpis = [...previewRasterPlan.renderDpiByPageNumber.values()];
-        const matchedPreviewDpi = matchedPreviewDpis.length > 0
-            ? Math.min(...matchedPreviewDpis)
-            : previewRasterPlan.dpi;
         // Preview canvas planning is evidence-backed: known output pages
         // determine the provisional rectangle, while unresolved automatic
         // sheets are omitted rather than guessed whole or split. Final runs
         // retain the full-document conservative planner.
+        //
+        // The grid is the document's own resolution, not the resolution one
+        // oversized sheet's raster budget lowered that sheet to. The canvas is
+        // the page the run will produce, and planning its grid from a preview
+        // budget presented a 146-DPI frame for a page the output carries at
+        // 150 — every placement decision on it, margins included, quantized on
+        // a grid the output never has.
         const documentCanvas = pageSizes && request.options.matchPageSize
             ? resolveScanCleanupProvisionalDocumentCanvas(
                 pageSizes,
-                matchedPreviewDpi,
+                previewRasterPlan.dpi,
                 request.options,
                 request.layoutByPage,
                 request.layoutDetectionComplete === true,
             )
             : null;
+        const pagePreviewRenderDpi = previewRasterPlan.renderDpiByPageNumber.get(request.pageNumber)
+            ?? previewRasterPlan.dpi;
         // Matched pages must share the preview's document grid. Rendering a
         // proven lower-resolution page at its own DPI makes native rebuild the
         // common physical canvas on a smaller pixel grid, so changing pages
-        // visibly changes the frame and disagrees with the final document.
+        // visibly changes the frame and disagrees with the final document. The
+        // raster still stays inside the pixel budget its own sheet has, which
+        // is a bound on this raster and not on the document's rectangle.
         // Source DPI remains separate below and governs only the working grid;
         // analysis is materialized on the canonical grid after this raster.
         const basePreviewDpi = documentCanvas === null
-            ? previewRasterPlan.renderDpiByPageNumber.get(request.pageNumber)
-                ?? previewRasterPlan.dpi
-            : Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(documentCanvas)));
+            ? pagePreviewRenderDpi
+            : Math.min(
+                pagePreviewRenderDpi,
+                Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(documentCanvas))),
+            );
         const baseRaw = await materializeRawRaster(
             document,
             request.pageNumber,
@@ -2200,16 +2214,21 @@ async function runPreview(
         );
         if (lossless) {
             const analyzedOutputs = pageMetadata.outputs ?? [];
-            // The plan already carries the grid it was measured on, so a
-            // preview at that resolution reports the plan's own pixels rather
-            // than a second rounding of them.
-            const canvasGridScale = renderDpi / baseRaw.dpi;
-            const canvasWidthPx = matchedCanvas === undefined
+            // The canvas is the shared rectangle sampled at the document's own
+            // grid resolution, by the one rule the final page is sampled by.
+            // Rescaling the plan's pixel counts instead landed a whole pixel
+            // away from the page the run produces — a 297 px preview of a
+            // 296 px page — and decided the margin-fitting boundary on a canvas
+            // the output never had.
+            const canvasGridDpi = matchedCanvas === undefined
+                ? renderDpi
+                : Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(matchedCanvas)));
+            const previewCanvasGrid = matchedCanvas === undefined
                 ? null
-                : Math.max(1, Math.round(matchedCanvas.widthPx * canvasGridScale));
-            const canvasHeightPx = matchedCanvas === undefined
-                ? null
-                : Math.max(1, Math.round(matchedCanvas.heightPx * canvasGridScale));
+                : resolveScanCleanupCanvasGridAtDpi(matchedCanvas, canvasGridDpi);
+            const canvasWidthPx = previewCanvasGrid?.widthPx ?? null;
+            const canvasHeightPx = previewCanvasGrid?.heightPx ?? null;
+            const previewPageSize = pageSizes?.find(page => page.pageNumber === request.pageNumber);
             const marginsMm = resolveScanCleanupMarginsMm(request.options.marginsMm, pageOverride);
             const requestedMargins = matchedCanvas === undefined
                 ? {
@@ -2219,27 +2238,12 @@ async function runPreview(
                     bottomPx: 0,
                 }
                 : {
-                    leftPx: Math.max(0, Math.round(marginsMm.leftMm / 25.4 * renderDpi)),
-                    topPx: Math.max(0, Math.round(marginsMm.topMm / 25.4 * renderDpi)),
-                    rightPx: Math.max(0, Math.round(marginsMm.rightMm / 25.4 * renderDpi)),
-                    bottomPx: Math.max(0, Math.round(marginsMm.bottomMm / 25.4 * renderDpi)),
+                    leftPx: Math.max(0, Math.round(marginsMm.leftMm / 25.4 * canvasGridDpi)),
+                    topPx: Math.max(0, Math.round(marginsMm.topMm / 25.4 * canvasGridDpi)),
+                    rightPx: Math.max(0, Math.round(marginsMm.rightMm / 25.4 * canvasGridDpi)),
+                    bottomPx: Math.max(0, Math.round(marginsMm.bottomMm / 25.4 * canvasGridDpi)),
                 };
             const marginsRequested = Object.values(requestedMargins).some(margin => margin > 0);
-            const fitMarginAxis = (leading: number, trailing: number, total: number) => {
-                const sum = leading + trailing;
-                if (sum < total || sum === 0) {
-                    return [
-                        leading,
-                        trailing,
-                    ] as const;
-                }
-                const available = Math.max(0, total - 1);
-                const fittedLeading = Math.min(available, Math.round(available * leading / sum));
-                return [
-                    fittedLeading,
-                    available - fittedLeading,
-                ] as const;
-            };
             const plannedOutputs = analyzedOutputs.map(output => {
                 const outputWidthPx = Math.max(1, Math.round(output.cropRect.widthPx));
                 const outputHeightPx = Math.max(1, Math.round(output.cropRect.heightPx));
@@ -2261,11 +2265,11 @@ async function runPreview(
                 const [
                     marginLeft,
                     marginRight,
-                ] = fitMarginAxis(appliedMargins.leftPx, appliedMargins.rightPx, resolvedCanvasWidth);
+                ] = fitScanCleanupMarginAxisPx(appliedMargins.leftPx, appliedMargins.rightPx, resolvedCanvasWidth);
                 const [
                     marginTop,
                     marginBottom,
-                ] = fitMarginAxis(appliedMargins.topPx, appliedMargins.bottomPx, resolvedCanvasHeight);
+                ] = fitScanCleanupMarginAxisPx(appliedMargins.topPx, appliedMargins.bottomPx, resolvedCanvasHeight);
                 const deliveredMargins = {
                     leftPx: marginLeft,
                     topPx: marginTop,
@@ -2285,6 +2289,17 @@ async function runPreview(
                     inputHeightPx: output.inputHeightPx,
                     rotationDegrees: pageMetadata.rotationDegrees,
                 });
+                // The paper this output carries is the sheet the document
+                // declares, divided across the outputs it is cut into. Deriving
+                // it from analysis pixels instead compared a 150-DPI raster
+                // against a canvas measured on another grid and called a half
+                // sheet larger than the half-sheet canvas it exactly is.
+                const paperPoints = previewPageSize === undefined
+                    ? null
+                    : resolveScanCleanupOutputPageRect(
+                        previewPageSize,
+                        output.half === 'full' ? 1 : 2,
+                    );
                 const paperScale = canvasWidthPx === null || canvasHeightPx === null
                     ? 1
                     : resolveScanCleanupCanvasFitScale({
@@ -2294,6 +2309,13 @@ async function runPreview(
                         widthPoints: Math.max(1, outputPaper.widthPx),
                         heightPoints: Math.max(1, outputPaper.heightPx),
                     });
+                const paperLargerThanCanvas = matchedCanvas !== undefined
+                    && previewCanvasGrid !== null
+                    && paperPoints !== null
+                    && isScanCleanupPaperLargerThanCanvas({
+                        ...matchedCanvas,
+                        ...previewCanvasGrid,
+                    }, paperPoints);
                 const contentScale = paperScale * Math.min(1, resolveScanCleanupCanvasFitScale({
                     widthPoints: innerCanvasWidth,
                     heightPoints: innerCanvasHeight,
@@ -2313,6 +2335,7 @@ async function runPreview(
                     output,
                     outputHeightPx,
                     outputWidthPx,
+                    paperLargerThanCanvas,
                     paperScale,
                     resolvedCanvasHeight,
                     resolvedCanvasWidth,
@@ -2353,6 +2376,7 @@ async function runPreview(
                     output,
                     outputHeightPx,
                     outputWidthPx,
+                    paperLargerThanCanvas,
                     paperScale,
                     resolvedCanvasHeight,
                     resolvedCanvasWidth,
@@ -2444,6 +2468,23 @@ async function runPreview(
                                     || deliveredMargins.bottomPx !== appliedMargins.bottomPx
                                     ? [{code: 'matched-canvas-margins-reduced'} as const]
                                     : []),
+                                // Paper the shared canvas cannot hold at the
+                                // document's scale is a condition the final
+                                // run reports for the same page, so the
+                                // preview that stands in for it reports it
+                                // too. Reporting only the fitted-content
+                                // condition let a page arrive at 77% of the
+                                // document's scale with nothing said about
+                                // why.
+                                ...(paperLargerThanCanvas
+                                    ? [{
+                                        code: 'matched-canvas-paper-downscaled',
+                                        unit: 'px',
+                                        scalePercentTenths: toScanCleanupPercentTenths(paperScale * 100),
+                                        documentCanvasWidth: resolvedCanvasWidth,
+                                        documentCanvasHeight: resolvedCanvasHeight,
+                                    } as const]
+                                    : []),
                                 ...(canvasOverflow
                                     ? [{
                                         code: 'matched-canvas-content-fitted',
@@ -2490,10 +2531,16 @@ async function runPreview(
                             : {dewarpApplied: nativeMetadata.dewarpModel !== null}),
                         // What Electron decided before the render — matching
                         // dropped for want of geometry — belongs beside what
-                        // the engine reported about the page itself.
+                        // the engine reported about the page itself. Both are
+                        // conditions, so both travel as typed events and are
+                        // read as one list; only the engine's unstructured
+                        // diagnostics stay string-only.
                         warnings: [
-                            ...previewWarningEvents.map(event => formatScanCleanupWarningEvent(event)),
-                            ...describeScanCleanupNativeWarnings(nativeMetadata),
+                            ...[
+                                ...previewWarningEvents,
+                                ...nativeMetadata.warningEvents ?? [],
+                            ].map(event => formatScanCleanupWarningEvent(event)),
+                            ...describeScanCleanupNativeWarnings({warnings: nativeMetadata.warnings}),
                         ],
                     },
                 });

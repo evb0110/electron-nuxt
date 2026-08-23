@@ -1065,7 +1065,8 @@ const pageDpiCapped = s.fromParser(value => {
         requestedDpiThousandths: legacyDpiThousandths(legacy.requestedDpi),
     });
 }, canonicalPageDpiCapped.example);
-const warningEvent = s.union([
+/** One decoded condition, for the boundaries that carry conditions singly. */
+export const SCAN_CLEANUP_WARNING_EVENT_SCHEMA = s.union([
     contentFitted,
     s.object({
         code: warningEventCode('matched-canvas-content-fitted-pages'),
@@ -1155,12 +1156,12 @@ const warningEvent = s.union([
 ] as const, warningEventMessage);
 
 export const SCAN_CLEANUP_WARNING_EVENTS_SCHEMA = s.refine(
-    s.array(warningEvent),
+    s.array(SCAN_CLEANUP_WARNING_EVENT_SCHEMA),
     value => value.length <= MAX_SCAN_CLEANUP_WARNING_EVENTS,
     'evb-scan-cleanup warning events exceed the protocol limit',
 );
 
-export type TScanCleanupWarningEvent = TInferSchema<typeof warningEvent>;
+export type TScanCleanupWarningEvent = TInferSchema<typeof SCAN_CLEANUP_WARNING_EVENT_SCHEMA>;
 
 /**
  * The catalog and the decoded union are one list of codes stated twice: the

@@ -45,6 +45,7 @@ import {
 } from '@electron/features/scan-cleanup/createScanCleanupPreviewService';
 import {resolveScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/createScanCleanupService';
 import {formatScanCleanupWarningEvent} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
+import {fitScanCleanupMarginAxisPx} from '@scan-cleanup-core/policy/documentCanvas';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
     decodeScanCleanupDetectionJobState,
@@ -1215,11 +1216,18 @@ describe('scan cleanup preview', () => {
             layoutByPage: {'1': 'single-uncut-page'},
         });
 
+        // The raster is what the pixel budget bounds: this sheet is rendered
+        // at half the resolution it asks for so Poppler never materializes a
+        // 15-megapixel preview.
         expect(vi.mocked(deps.renderPage).mock.calls[0]?.[5]).toBe(36);
+        expect(4_676 / 72 * 36 * (3_328 / 72 * 36)).toBeLessThanOrEqual(4_000_000);
+        // The document canvas is not bounded by that raster: it is the page
+        // the run will produce, sampled at the document's own resolution, so
+        // every placement decision on it lands where the output lands it.
         expect(manifest).toMatchObject({
             documentCanvas: {
-                widthPx: 2_338,
-                heightPx: 1_664,
+                widthPx: 4_676,
+                heightPx: 3_328,
             },
             pages: [{options: {
                 dpi: 72,
@@ -1227,7 +1235,6 @@ describe('scan cleanup preview', () => {
                 requestedRenderDpi: 72,
             }}],
         });
-        expect(2_338 * 1_664).toBeLessThanOrEqual(4_000_000);
     });
 
     it('streams the display raster but cleans binary preview text on the source grid', async () => {
@@ -2111,11 +2118,15 @@ describe('scan cleanup preview', () => {
                 '3': 'two-page-spread',
             },
         });
+        // The grid is the document's own resolution. The sheet these halves
+        // come from is rendered below it so its raster stays inside the
+        // preview pixel budget, but that bound belongs to the raster and not
+        // to the rectangle the run will produce.
         expect(documentCanvas).toEqual({
             widthPoints: 612,
             heightPoints: 792,
-            widthPx: 1_241,
-            heightPx: 1_606,
+            widthPx: 1_275,
+            heightPx: 1_650,
         });
         expect(observedPageLayout).toBe('auto');
     });
@@ -2739,6 +2750,192 @@ describe('scan cleanup preview', () => {
         })]);
         expect(output.matchedCanvasContentHeightPx! / output.matchedCanvasContentWidthPx!)
             .toBeCloseTo(80 / 120, 2);
+    });
+
+    it('samples the matched preview canvas on the grid the output page carries', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        // 142.08 pt is 296.00000000000006 px at 150 DPI: the page the run
+        // produces carries 296 px, and the 25 mm margin pair the request asks
+        // for is exactly that width once each margin lands on the grid.
+        deps.getPageSizes = vi.fn(async () => DOCUMENT_PAGE_SIZES.map(pageSize => ({
+            ...pageSize,
+            widthPoints: 142.08,
+            heightPoints: 213.12,
+        })));
+        deps.detectRasterPages = vi.fn(async () => ({
+            detected: true,
+            pages: new Set<number>(),
+        }));
+        deps.runSidecar = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>;};
+            await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
+                canvasScope: 'page',
+                layoutClassification: 'single-uncut-page',
+                layoutConfidence: 0.9,
+                cutterXPx: null,
+                rotationDegrees: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+                outputs: [{
+                    half: 'full',
+                    sourceRegion: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 296,
+                        heightPx: 444,
+                    },
+                    contentBox: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 296,
+                        heightPx: 444,
+                    },
+                    cropRect: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 296,
+                        heightPx: 444,
+                    },
+                    appliedMargins: {
+                        leftPx: 0,
+                        topPx: 0,
+                        rightPx: 0,
+                        bottomPx: 0,
+                    },
+                    inputWidthPx: 296,
+                    inputHeightPx: 444,
+                }],
+            }));
+        });
+
+        const result = decodeScanCleanupPreviewResult(await previewOf(
+            createScanCleanupPreviewService(deps),
+            sender(),
+            {
+                ...request,
+                layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+                options: {
+                    ...request.options,
+                    preserveOriginalQuality: true,
+                    marginsMm: {
+                        leftMm: 25,
+                        topMm: 0,
+                        rightMm: 25,
+                        bottomMm: 0,
+                    },
+                },
+            },
+        ));
+        const outputs = 'outputs' in result ? result.outputs : [];
+        expect(outputs).not.toHaveLength(0);
+        const output = outputs[0]!.metadata;
+
+        // The presented canvas is the page the output carries, not a rounding
+        // of the document plan's own pixel counts.
+        expect(output.canvasWidthPx).toBe(296);
+        expect(output.canvasHeightPx).toBe(444);
+        // And because the margin pair meets that canvas exactly, the preview
+        // reduces it and says so — the decision the final page makes.
+        expect(output.warnings).toContain(formatScanCleanupWarningEvent({code: 'matched-canvas-margins-reduced'}));
+        // 25 mm rounds to 148 px on each side of this 296 px canvas, and what
+        // the preview delivers is exactly what the shared margin fit answers
+        // for that pair. The lossless assembler asks the same function, so
+        // neither route can drift into a reduction rule of its own.
+        expect([
+            output.appliedMargins.leftPx,
+            output.appliedMargins.rightPx,
+        ]).toEqual([...fitScanCleanupMarginAxisPx(148, 148, 296)]);
+    });
+
+    it('names paper the matched preview canvas cannot hold', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        // Two landscape sheets settle the document rectangle; the portrait
+        // sheet between them is the same area turned on its side, so it is
+        // paper this canvas cannot hold at the document's scale.
+        deps.getPageSizes = vi.fn(async () => DOCUMENT_PAGE_SIZES.map(pageSize => (
+            pageSize.pageNumber === 2
+                ? pageSize
+                : {
+                    ...pageSize,
+                    widthPoints: 792,
+                    heightPoints: 612,
+                }
+        )));
+        deps.detectRasterPages = vi.fn(async () => ({
+            detected: true,
+            pages: new Set<number>(),
+        }));
+        deps.runSidecar = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>;};
+            await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
+                canvasScope: 'page',
+                layoutClassification: 'single-uncut-page',
+                layoutConfidence: 0.9,
+                cutterXPx: null,
+                rotationDegrees: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+                outputs: [{
+                    half: 'full',
+                    sourceRegion: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1_275,
+                        heightPx: 1_650,
+                    },
+                    contentBox: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1_275,
+                        heightPx: 1_650,
+                    },
+                    cropRect: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1_275,
+                        heightPx: 1_650,
+                    },
+                    appliedMargins: {
+                        leftPx: 0,
+                        topPx: 0,
+                        rightPx: 0,
+                        bottomPx: 0,
+                    },
+                    inputWidthPx: 1_275,
+                    inputHeightPx: 1_650,
+                }],
+            }));
+        });
+
+        const result = decodeScanCleanupPreviewResult(await previewOf(
+            createScanCleanupPreviewService(deps),
+            sender(),
+            {
+                ...request,
+                pageNumber: 2,
+                layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+                options: {
+                    ...request.options,
+                    preserveOriginalQuality: true,
+                },
+            },
+        ));
+        const outputs = 'outputs' in result ? result.outputs : [];
+        expect(outputs).not.toHaveLength(0);
+        // The final run reports this condition for the same page. A preview
+        // that showed the smaller placement without it left the reason to be
+        // guessed.
+        expect(outputs[0]!.metadata.warnings).toContain(formatScanCleanupWarningEvent({
+            code: 'matched-canvas-paper-downscaled',
+            unit: 'px',
+            scalePercentTenths: 773,
+            documentCanvasWidth: 1_650,
+            documentCanvasHeight: 1_275,
+        }));
     });
 
     it('lets a visible request run beside the adjacent prefetch instead of aborting it', async () => {
@@ -4561,20 +4758,20 @@ describe('scan cleanup preview', () => {
             {
                 widthPoints: 612,
                 heightPoints: 792,
-                widthPx: 1_241,
-                heightPx: 1_606,
+                widthPx: 1_275,
+                heightPx: 1_650,
             },
             {
                 widthPoints: 612,
                 heightPoints: 792,
-                widthPx: 1_241,
-                heightPx: 1_606,
+                widthPx: 1_275,
+                heightPx: 1_650,
             },
             {
                 widthPoints: 1_224,
                 heightPoints: 792,
-                widthPx: 2_482,
-                heightPx: 1_606,
+                widthPx: 2_550,
+                heightPx: 1_650,
             },
         ]);
         expect(deps.getPageSizes).toHaveBeenCalledOnce();

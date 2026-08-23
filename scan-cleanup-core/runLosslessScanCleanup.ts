@@ -7,6 +7,7 @@ import {join} from 'path';
 import type {
     INativeScanCleanupAnalysisOutputV3,
     INativeScanCleanupPageMetadataV3,
+    TScanCleanupOutputHalf,
     TScanCleanupWarningEvent,
 } from '@contracts/electronApiScanCleanup';
 import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
@@ -44,10 +45,13 @@ import {
 } from '@scan-cleanup-core/provenanceStamp';
 import {
     CANVAS_CONTENT_SCALE_EPSILON,
+    fitScanCleanupMarginAxisPx,
+    isScanCleanupPaperLargerThanCanvas,
     type IScanCleanupRect,
     mapLosslessAnalysisRectToPdf,
     orientScanCleanupInsetsToPageSpace,
     resolveScanCleanupCanvasFitScale,
+    resolveScanCleanupCanvasGridAtDpi,
     resolveScanCleanupDocumentCanvas,
     resolveScanCleanupDroppedMatchWarningEvent,
     resolveScanCleanupOutputPageSpacePaperRect,
@@ -55,13 +59,13 @@ import {
     placeScanCleanupCanvasBox,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@scan-cleanup-core/policy/documentCanvas';
-import {
-    formatScanCleanupWarningEvent,
-    toScanCleanupPercentTenths,
-} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
+import {toScanCleanupPercentTenths} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver';
 import type {TEmitScanCleanupProgress} from '@scan-cleanup-core/createScanCleanupProgressReporter';
-import {createEmptyScanCleanupSummary} from '@scan-cleanup-core/createScanCleanupProgressReporter';
+import {
+    createEmptyScanCleanupSummary,
+    reportScanCleanupSummaryWarningEvent,
+} from '@scan-cleanup-core/createScanCleanupProgressReporter';
 import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
 import {
     logRasterHandoff,
@@ -186,8 +190,20 @@ export async function runLosslessScanCleanup(
         summary.warnings.push(message);
         log('warn', `Scan cleanup: ${message}`);
     };
-    const warnEvent = (event: TScanCleanupWarningEvent, pageNumber?: number) => {
-        warn(formatScanCleanupWarningEvent(event, pageNumber));
+    // Every condition this run reports travels twice: as the sentence the user
+    // reads and as the typed event it was formatted from. A consumer of the run
+    // — the CLI summary, a caller checking what a lossless conversion had to do
+    // — reads the code instead of parsing the sentence back.
+    const warnEvent = (
+        event: TScanCleanupWarningEvent,
+        pageNumber?: number,
+        half?: TScanCleanupOutputHalf,
+    ) => {
+        reportScanCleanupSummaryWarningEvent(summary, {
+            event,
+            ...(pageNumber === undefined ? {} : {pageNumber}),
+            ...(half === undefined ? {} : {half}),
+        }, warn);
     };
     const analyzedPages: Array<{
         sourcePageIndex: number;
@@ -273,6 +289,10 @@ export async function runLosslessScanCleanup(
     if (allOutputs.length === 0) {
         throw new Error('evb-scan-cleanup analysis produced no output pages');
     }
+    const sourceDpiByPage = new Map(rasterPlans.map(plan => [
+        plan.pageNumber,
+        plan.dpi,
+    ]));
     const documentCanvas = request.options.matchPageSize
         ? resolveScanCleanupDocumentCanvas(
             pageSizes,
@@ -288,6 +308,7 @@ export async function runLosslessScanCleanup(
     const scaledRasterPages = new Set<number>();
     const fittedPageEvents: Array<{
         pageNumber: number;
+        half: TScanCleanupOutputHalf;
         event: TScanCleanupWarningEvent
     }> = [];
     if (documentCanvas) {
@@ -297,120 +318,149 @@ export async function runLosslessScanCleanup(
                 page.pageSize,
                 page.pageOverride.rotationDegrees,
             );
-            const fitMarginAxis = (leading: number, trailing: number, total: number) => {
-                const sum = leading + trailing;
-                if (sum < total || sum === 0) {
-                    return [
-                        leading,
-                        trailing,
-                    ] as const;
-                }
-                const available = Math.max(0, total - 0.01);
-                const fittedLeading = available * leading / sum;
-                return [
-                    fittedLeading,
-                    available - fittedLeading,
-                ] as const;
-            };
+            // Margins are fitted on the pixel grid this page's raster would
+            // carry, because that is the grid the raster route fits them on. A
+            // pair the canvas rounds up to exactly its own width is a pair the
+            // raster route has to reduce, while the same request measured in
+            // exact points still fits — so the two quality routes of one
+            // document disagreed about whether margins were reduced at all,
+            // and delivered a margin that differed by the rounding. One grid
+            // for the decision, exact points for the placement inside it.
+            // Every analyzed page came from `rasterPlans`, so the map answers
+            // for all of them; the fallback is the same document resolution
+            // those plans resolve an undetected page to, so a page can never be
+            // measured against a resolution this run did not resolve for it.
+            const pageRenderDpi = sourceDpiByPage.get(page.sourcePageIndex + 1) ?? documentDpi;
+            const canvasGrid = resolveScanCleanupCanvasGridAtDpi(documentCanvas, pageRenderDpi);
+            // The same grid seen from the page's own unrotated user space,
+            // where its paper rectangle is stated.
+            const pageCanvasGrid = resolveScanCleanupCanvasGridAtDpi(box, pageRenderDpi);
+            const canvasGridDpi = canvasGrid.widthPx / documentCanvas.widthPoints * 72;
+            const pointsPerPixelX = documentCanvas.widthPoints / canvasGrid.widthPx;
+            const pointsPerPixelY = documentCanvas.heightPoints / canvasGrid.heightPx;
             const marginsMm = resolveScanCleanupMarginsMm(request.options.marginsMm, page.pageOverride);
-            const requestedVisualMargins = {
-                left: marginsMm.leftMm / 25.4 * 72,
-                top: marginsMm.topMm / 25.4 * 72,
-                right: marginsMm.rightMm / 25.4 * 72,
-                bottom: marginsMm.bottomMm / 25.4 * 72,
+            const requestedVisualMarginsPx = {
+                left: Math.max(0, Math.round(marginsMm.leftMm * canvasGridDpi / 25.4)),
+                top: Math.max(0, Math.round(marginsMm.topMm * canvasGridDpi / 25.4)),
+                right: Math.max(0, Math.round(marginsMm.rightMm * canvasGridDpi / 25.4)),
+                bottom: Math.max(0, Math.round(marginsMm.bottomMm * canvasGridDpi / 25.4)),
             };
-            const resolveOutputScale = (output: (typeof page.outputs)[number]) => {
-                const requestedMargins = orientScanCleanupInsetsToPageSpace(
-                    request.options.crop && output.contentDetected ? requestedVisualMargins : {
-                        left: 0,
-                        top: 0,
-                        right: 0,
-                        bottom: 0,
-                    },
-                    page.pageSize.rotation + page.pageOverride.rotationDegrees,
-                );
+            /**
+             * The margins this output actually delivers, in the page's own
+             * unrotated user space, and whether fitting had to reduce them.
+             * `pageAlignment` and the request both name visual edges, so the
+             * fit happens on the presented canvas and only its result is
+             * turned into page space.
+             */
+            const resolveFittedMargins = (marginsAvailable: boolean) => {
+                const requested = marginsAvailable ? requestedVisualMarginsPx : {
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                };
                 const [
-                    marginLeft,
-                    marginRight,
-                ] = fitMarginAxis(requestedMargins.left, requestedMargins.right, box.widthPoints);
+                    leftPx,
+                    rightPx,
+                ] = fitScanCleanupMarginAxisPx(requested.left, requested.right, canvasGrid.widthPx);
                 const [
-                    marginBottom,
-                    marginTop,
-                ] = fitMarginAxis(requestedMargins.bottom, requestedMargins.top, box.heightPoints);
-                const innerWidth = Math.max(0.01, box.widthPoints - marginLeft - marginRight);
-                const innerHeight = Math.max(0.01, box.heightPoints - marginTop - marginBottom);
-                const paperScale = resolveScanCleanupCanvasFitScale(box, {
-                    widthPoints: output.paperRect.width,
-                    heightPoints: output.paperRect.height,
-                });
-                return paperScale * Math.min(1, resolveScanCleanupCanvasFitScale({
-                    widthPoints: innerWidth,
-                    heightPoints: innerHeight,
-                }, {
-                    widthPoints: output.cropRect.width * paperScale,
-                    heightPoints: output.cropRect.height * paperScale,
-                }));
+                    topPx,
+                    bottomPx,
+                ] = fitScanCleanupMarginAxisPx(requested.top, requested.bottom, canvasGrid.heightPx);
+                const visual = orientScanCleanupInsetsToPageSpace({
+                    left: leftPx * pointsPerPixelX,
+                    top: topPx * pointsPerPixelY,
+                    right: rightPx * pointsPerPixelX,
+                    bottom: bottomPx * pointsPerPixelY,
+                }, page.pageSize.rotation + page.pageOverride.rotationDegrees);
+                return {
+                    marginLeft: visual.left,
+                    marginBottom: visual.bottom,
+                    innerWidth: Math.max(
+                        pointsPerPixelX,
+                        box.widthPoints - visual.left - visual.right,
+                    ),
+                    innerHeight: Math.max(
+                        pointsPerPixelY,
+                        box.heightPoints - visual.top - visual.bottom,
+                    ),
+                    reduced: leftPx !== requested.left
+                        || topPx !== requested.top
+                        || rightPx !== requested.right
+                        || bottomPx !== requested.bottom,
+                };
             };
-            const sharedSpreadScale = page.outputs.length === 2
-                && page.outputs.some(output => output.half === 'left')
-                && page.outputs.some(output => output.half === 'right')
-                ? Math.min(...page.outputs.map(resolveOutputScale))
-                : null;
-            for (const output of page.outputs) {
-                const marginsRequested = Object.values(requestedVisualMargins).some(margin => margin > 0);
+            const marginsRequested = Object.values(requestedVisualMarginsPx)
+                .some(margin => margin > 0);
+            // A spread's shared scale is the smallest of the very numbers this
+            // loop then places each leaf with, so both are measured once, here.
+            // Deriving them twice let the scale a leaf was compared at and the
+            // scale it was placed at drift apart under any later edit.
+            const fittedOutputs = page.outputs.map(output => {
                 const marginsAvailable = request.options.crop && output.contentDetected;
-                if (marginsRequested && !marginsAvailable) {
-                    fittedPageEvents.push({
-                        pageNumber: page.sourcePageIndex + 1,
-                        event: {code: 'matched-canvas-margins-unavailable'},
-                    });
-                }
-                const requestedMargins = orientScanCleanupInsetsToPageSpace(
-                    marginsAvailable ? requestedVisualMargins : {
-                        left: 0,
-                        top: 0,
-                        right: 0,
-                        bottom: 0,
-                    },
-                    page.pageSize.rotation + page.pageOverride.rotationDegrees,
-                );
-                const [
-                    marginLeft,
-                    marginRight,
-                ] = fitMarginAxis(requestedMargins.left, requestedMargins.right, box.widthPoints);
-                const [
-                    marginBottom,
-                    marginTop,
-                ] = fitMarginAxis(requestedMargins.bottom, requestedMargins.top, box.heightPoints);
-                if (
-                    marginLeft !== requestedMargins.left
-                    || marginTop !== requestedMargins.top
-                    || marginRight !== requestedMargins.right
-                    || marginBottom !== requestedMargins.bottom
-                ) {
-                    fittedPageEvents.push({
-                        pageNumber: page.sourcePageIndex + 1,
-                        event: {code: 'matched-canvas-margins-reduced'},
-                    });
-                }
-                const innerWidth = Math.max(0.01, box.widthPoints - marginLeft - marginRight);
-                const innerHeight = Math.max(0.01, box.heightPoints - marginTop - marginBottom);
+                const fitted = resolveFittedMargins(marginsAvailable);
                 const paperScale = resolveScanCleanupCanvasFitScale(box, {
                     widthPoints: output.paperRect.width,
                     heightPoints: output.paperRect.height,
                 });
                 const leafFit = Math.min(1, resolveScanCleanupCanvasFitScale({
-                    widthPoints: innerWidth,
-                    heightPoints: innerHeight,
+                    widthPoints: fitted.innerWidth,
+                    heightPoints: fitted.innerHeight,
                 }, {
                     widthPoints: output.cropRect.width * paperScale,
                     heightPoints: output.cropRect.height * paperScale,
                 }));
-                const scale = sharedSpreadScale ?? paperScale * leafFit;
-                const fit = scale / paperScale;
-                if (paperScale < 1 - CANVAS_CONTENT_SCALE_EPSILON) {
+                return {
+                    output,
+                    marginsAvailable,
+                    paperScale,
+                    leafFit,
+                    ...fitted,
+                };
+            });
+            const sharedSpreadScale = page.outputs.length === 2
+                && page.outputs.some(output => output.half === 'left')
+                && page.outputs.some(output => output.half === 'right')
+                ? Math.min(...fittedOutputs.map(fitted => fitted.paperScale * fitted.leafFit))
+                : null;
+            for (const {
+                output,
+                marginsAvailable,
+                paperScale,
+                leafFit,
+                marginLeft,
+                marginBottom,
+                innerWidth,
+                innerHeight,
+                reduced,
+            } of fittedOutputs) {
+                if (marginsRequested && !marginsAvailable) {
                     fittedPageEvents.push({
                         pageNumber: page.sourcePageIndex + 1,
+                        half: output.half,
+                        event: {code: 'matched-canvas-margins-unavailable'},
+                    });
+                }
+                if (reduced) {
+                    fittedPageEvents.push({
+                        pageNumber: page.sourcePageIndex + 1,
+                        half: output.half,
+                        event: {code: 'matched-canvas-margins-reduced'},
+                    });
+                }
+                const scale = sharedSpreadScale ?? paperScale * leafFit;
+                const fit = scale / paperScale;
+                if (isScanCleanupPaperLargerThanCanvas({
+                    widthPoints: box.widthPoints,
+                    heightPoints: box.heightPoints,
+                    ...pageCanvasGrid,
+                }, {
+                    widthPoints: output.paperRect.width,
+                    heightPoints: output.paperRect.height,
+                })) {
+                    fittedPageEvents.push({
+                        pageNumber: page.sourcePageIndex + 1,
+                        half: output.half,
                         event: {
                             code: 'matched-canvas-paper-downscaled',
                             unit: 'pt',
@@ -425,6 +475,7 @@ export async function runLosslessScanCleanup(
                 if (fit < 1 - CANVAS_CONTENT_SCALE_EPSILON) {
                     fittedPageEvents.push({
                         pageNumber: page.sourcePageIndex + 1,
+                        half: output.half,
                         event: {
                             code: 'matched-canvas-content-fitted',
                             unit: 'pt',
@@ -447,6 +498,7 @@ export async function runLosslessScanCleanup(
                         innerHeight,
                         alignment,
                         placementAnchor,
+                        page.pageSize.rotation + page.pageOverride.rotationDegrees,
                     );
                     output.cropRect = {
                         x: innerBox.x - marginLeft,
@@ -467,6 +519,7 @@ export async function runLosslessScanCleanup(
                     innerHeight,
                     alignment,
                     placementAnchor,
+                    page.pageSize.rotation + page.pageOverride.rotationDegrees,
                 );
                 output.contentTransform = {
                     scale,
@@ -491,12 +544,8 @@ export async function runLosslessScanCleanup(
             pages: [...scaledRasterPages],
         });
     }
-    for (const fitted of fittedPageEvents) warnEvent(fitted.event, fitted.pageNumber);
+    for (const fitted of fittedPageEvents) warnEvent(fitted.event, fitted.pageNumber, fitted.half);
     summary.outputPages = allOutputs.length;
-    const sourceDpiByPage = new Map(rasterPlans.map(plan => [
-        plan.pageNumber,
-        plan.dpi,
-    ]));
     const outputMappings: IScanCleanupOutputMapping[] = allOutputs.map((output, outputIndex) => {
         const sourcePage = output.sourcePageIndex + 1;
         const metadata = pageMetadataBySource.get(sourcePage);

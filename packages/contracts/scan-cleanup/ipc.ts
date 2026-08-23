@@ -25,12 +25,13 @@ import type {
     IScanCleanupPreviewAffine,
     IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
-import type {
-    INativeScanCleanupBinarizationDiagnosticsV3,
-    INativeScanCleanupOutputModeDiagnosticsV3,
-    INativeScanCleanupSplitDiagnosticsV3,
-    INativeScanCleanupTextToneDiagnosticsV3,
-    IScanCleanupPlacementAnchor,
+import {
+    SCAN_CLEANUP_WARNING_EVENT_SCHEMA,
+    type INativeScanCleanupBinarizationDiagnosticsV3,
+    type INativeScanCleanupOutputModeDiagnosticsV3,
+    type INativeScanCleanupSplitDiagnosticsV3,
+    type INativeScanCleanupTextToneDiagnosticsV3,
+    type IScanCleanupPlacementAnchor,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/progress';
 import {
@@ -503,6 +504,33 @@ const summaryCount = s.number({
     min: 0,
     message: 'invalid scan-cleanup summary',
 });
+/**
+ * One SC-IMP-003 condition a run reported, with the output it belongs to.
+ *
+ * `warnings` carries the same conditions as the sentences the user reads, and a
+ * consumer that has to know *which* condition a run raised would otherwise have
+ * to read English back. The page and half are the run's own attribution, so a
+ * per-output condition stays attached to its output across the boundary; a
+ * document-wide condition carries neither.
+ */
+export const SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA = s.object({
+    event: SCAN_CLEANUP_WARNING_EVENT_SCHEMA,
+    pageNumber: s.optional(s.number({
+        integer: true,
+        min: 1,
+        message: 'invalid scan-cleanup summary',
+    })),
+    half: s.optional(s.oneOf([
+        'full',
+        'left',
+        'right',
+    ] as const, 'invalid scan-cleanup summary')),
+});
+
+export type TScanCleanupSummaryWarningEvent = TInferSchema<
+    typeof SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA
+>;
+
 export const SCAN_CLEANUP_SUMMARY_SCHEMA = s.object({
     inputPages: summaryCount,
     outputPages: summaryCount,
@@ -513,6 +541,12 @@ export const SCAN_CLEANUP_SUMMARY_SCHEMA = s.object({
     excludedPages: summaryCount,
     blankPagesSkipped: summaryCount,
     warnings: s.array(s.string()),
+    /**
+     * Optional so a summary written before this channel existed still decodes:
+     * such a run reported its conditions as sentences and has no typed list to
+     * offer. A live run always publishes one.
+     */
+    warningEvents: s.optional(s.array(SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA)),
 });
 export type TScanCleanupSummary = TInferSchema<typeof SCAN_CLEANUP_SUMMARY_SCHEMA>;
 

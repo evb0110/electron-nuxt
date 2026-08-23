@@ -2258,22 +2258,24 @@ fn run_page(
                     .and_then(|plan| plan.trims.get(index))
                     .copied()
                     .unwrap_or_default();
-                let placement = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
-                    output.image.width(),
-                    output.image.height(),
-                    paper_width,
-                    paper_height,
-                    output.metadata.content_box.is_some(),
-                    &options,
-                    output.metadata.half,
-                    &canvas,
-                    optical_content_bounds_x,
-                    shared_spread_overflow_plan
-                        .as_ref()
-                        .map(|plan| plan.shared_fit),
-                    fold_trim,
-                    placement_near_paper_edge_runs_for_output(output),
-                );
+                let mut placement =
+                    plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
+                        output.image.width(),
+                        output.image.height(),
+                        paper_width,
+                        paper_height,
+                        output.metadata.content_box.is_some(),
+                        &options,
+                        output.metadata.half,
+                        &canvas,
+                        PLACEMENT_CENTERING_BOUNDS_X,
+                        shared_spread_overflow_plan
+                            .as_ref()
+                            .map(|plan| plan.shared_fit),
+                        fold_trim,
+                        placement_near_paper_edge_runs_for_output(output),
+                    );
+                placement.optical_content_bounds_x = optical_content_bounds_x;
                 (placement, canvas)
             })
         })
@@ -3408,7 +3410,7 @@ fn plan_canvas_placement_with_shared_fit(
         output.half,
         output.fold_side_near_paper_run,
     );
-    plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
+    let mut placement = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
         output.width,
         output.height,
         output.paper_width,
@@ -3417,11 +3419,13 @@ fn plan_canvas_placement_with_shared_fit(
         &output.options,
         output.half,
         canvas,
-        output.optical_content_bounds_x,
+        PLACEMENT_CENTERING_BOUNDS_X,
         shared_overflow_plan.map(|plan| plan.shared_fit),
         fold_trim,
         placement_near_paper_edge_runs,
-    )
+    );
+    placement.optical_content_bounds_x = output.optical_content_bounds_x;
+    placement
 }
 
 // Kept as explicit scalar geometry at the test seam: grouping these values
@@ -4353,6 +4357,24 @@ fn output_content_ownership(output: &CleanupResult) -> Option<BinaryImage> {
     ownership
 }
 
+/// The measured optical ink box never decides matched-canvas placement, so
+/// every planning site passes this instead of the box it measured.
+///
+/// Placement is one physical policy for the whole product: the retained
+/// content rectangle is aligned inside the requested margin box, which is what
+/// `PageAlignment` names and the only rule all three matched-canvas fitters can
+/// state. Centering the ink box instead was reachable in this raster alone —
+/// the lossless assembler never rasterizes, so it can never measure ink, and
+/// the preview fitter that mirrors it never can either — and it moved the same
+/// page by up to 1.85 mm between the two quality routes of one document
+/// (SC-IMP-004 matched-canvas parity corpus).
+///
+/// The box stays measured and published as a fact about the output. The
+/// planner keeps the arithmetic that would center by it, so the conservation
+/// invariants around a signed optical origin stay proven by the tests that call
+/// it with a box directly.
+const PLACEMENT_CENTERING_BOUNDS_X: Option<(f64, f64)> = None;
+
 fn optical_content_bounds_x_for_output(output: &CleanupResult) -> Option<(f64, f64)> {
     output_content_ownership(output)
         .as_ref()
@@ -4844,7 +4866,7 @@ mod tests {
         CleanupWarningEvent, DeferredSpreadVerticalPlacement, FoldSideTrim, HorizontalEdge,
         NearPaperEdgeRuns, PageResultMetadata, PageRunResult, ScanCleanupCliInvocation,
         SharedSpreadOverflowPlan, Tier1Provenance, WarningExtentUnit, WrittenOutput,
-        FALLBACK_SYSTEM_MEMORY_BYTES,
+        FALLBACK_SYSTEM_MEMORY_BYTES, PLACEMENT_CENTERING_BOUNDS_X,
     };
     use crate::io::raster::RasterReadError;
     use crate::{
@@ -5982,6 +6004,78 @@ mod tests {
     }
 
     #[test]
+    fn a_measured_optical_box_is_published_without_moving_the_placement() {
+        let options = CleanupOptions {
+            dpi: 100.0,
+            margins_mm: None,
+            margins_pixels: Some([20.0; 4]),
+            page_alignment: crate::PageAlignment::TopCenter,
+            ..CleanupOptions::default()
+        };
+        let canvas = DocumentCanvas {
+            width_points: 480.0,
+            height_points: 288.0,
+            width_px: 480,
+            height_px: 288,
+        };
+        // Ink that sits well left of the middle of its retained raster: the
+        // condition that used to pull the whole leaf sideways.
+        let optical_content_bounds_x = Some((10.0, 200.0));
+        let output = WrittenOutput {
+            output_path: PathBuf::new(),
+            metadata_path: PathBuf::new(),
+            bilevel_output_path: None,
+            background_output_path: None,
+            foreground_mask_output_path: None,
+            foreground_alpha_output_path: None,
+            picture_mask_output_path: None,
+            tone_preservation_alpha_output_path: None,
+            options: options.clone(),
+            source_page_index: 0,
+            half: crate::pipeline::PageHalf::Full,
+            width: 400,
+            height: 240,
+            paper_width: 400.0,
+            paper_height: 240.0,
+            content_detected: true,
+            spread_content_top: None,
+            optical_content_bounds_x,
+            fold_side_near_paper_run: 0,
+            outer_near_paper_edge_runs: NearPaperEdgeRuns::default(),
+            matched_in_memory: false,
+        };
+
+        let placed = plan_canvas_placement_with_shared_fit(&output, &canvas, None);
+        let geometric = plan_canvas_placement_for(
+            output.width,
+            output.height,
+            output.paper_width,
+            output.paper_height,
+            output.content_detected,
+            &options,
+            output.half,
+            &canvas,
+        );
+
+        // One physical placement policy: the retained content rectangle is
+        // aligned inside the requested margin box, and a measurement only this
+        // raster can make does not move it away from where the lossless
+        // assembler and the preview fitter place the same page.
+        assert_eq!(
+            placed,
+            CanvasPlacement {
+                optical_content_bounds_x,
+                ..geometric
+            }
+        );
+        assert!(!placed.optical_content_centered);
+        assert_eq!(placed.intrinsic_overflow_left, 0);
+        assert_eq!(placed.intrinsic_overflow_right, 0);
+        // The measurement itself is still published for this output.
+        assert_eq!(placed.optical_content_bounds_x, optical_content_bounds_x);
+    }
+
+    #[test]
     fn deferred_sparse_leaf_uses_carried_optical_bounds_and_outer_edge_proof() {
         let options = CleanupOptions {
             dpi: 299.0,
@@ -6040,46 +6134,34 @@ mod tests {
             &options,
             output.half,
             &canvas,
-            output.optical_content_bounds_x,
+            // Both matched-canvas planning sites answer under one placement
+            // policy, so the deferred leaf lands exactly where the in-memory
+            // one does; a site that quietly kept its own rule is the drift
+            // this comparison exists to catch.
+            PLACEMENT_CENTERING_BOUNDS_X,
             Some(shared_plan.shared_fit),
             shared_plan.trims[0],
             output.outer_near_paper_edge_runs,
         );
 
-        assert_eq!(deferred, in_memory);
-        assert!(deferred.optical_content_centered);
-        assert_eq!(deferred.intrinsic_overflow_left, 71);
-        assert_eq!(deferred.intrinsic_overflow_right, 31);
-
-        // Tightening a false outer-rail content bound removes the rail from
-        // the intrinsic raster. The genuine paper-only fold tail must still
-        // authorize the same optical placement, or the visible stencil moves
-        // even though its ownership box is unchanged.
-        let tightened = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
-            2_010,
-            2_811,
-            output.paper_width,
-            output.paper_height,
-            output.content_detected,
-            &options,
-            output.half,
-            &canvas,
-            Some((47.0, 1_713.0)),
-            Some(shared_plan.shared_fit),
-            FoldSideTrim::default(),
-            NearPaperEdgeRuns {
-                left: 0,
-                right: 220,
-            },
+        assert_eq!(
+            deferred,
+            CanvasPlacement {
+                optical_content_bounds_x: output.optical_content_bounds_x,
+                ..in_memory
+            }
         );
-        assert!(tightened.optical_content_centered);
-        assert_eq!(tightened.left, 218);
-        assert_eq!(tightened.intrinsic_overflow_right, 32);
-        let original_optical_left =
-            deferred.left as isize - deferred.intrinsic_overflow_left as isize + 336;
-        let tightened_optical_left =
-            tightened.left as isize - tightened.intrinsic_overflow_left as isize + 47;
-        assert_eq!(tightened_optical_left, original_optical_left);
+        // The carried ownership box is still published for this leaf even
+        // though it no longer moves it.
+        assert_eq!(deferred.optical_content_bounds_x, Some((336.0, 2_002.0)));
+        // The retained raster is aligned inside the requested margin box. Its
+        // fold-side tail is still conserved rather than clipped away, so the
+        // overhang the materializer has to account for is reported and the
+        // published origin stays inside the canvas.
+        assert_eq!(deferred.left, 59);
+        assert_eq!(deferred.intrinsic_overflow_left, 0);
+        assert_eq!(deferred.intrinsic_overflow_right, 161);
+        assert_eq!(deferred.materialization_source_offset_right, 219);
     }
 
     #[test]

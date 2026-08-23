@@ -4360,7 +4360,7 @@ fn matched_canvas_preview_places_a_page_exactly_where_the_final_run_does() {
 }
 
 #[test]
-fn matched_canvas_preview_matches_final_optical_placement_for_a_sparse_wide_spread_leaf() {
+fn matched_canvas_preview_matches_final_placement_for_a_sparse_wide_spread_leaf() {
     let scratch = Scratch::new("matched-sparse-spread-preview");
     let manifest = scratch.path("matched-sparse-spread-preview-manifest.json");
     let input = scratch.path("matched-sparse-spread-preview-input.png");
@@ -4486,7 +4486,28 @@ fn matched_canvas_preview_matches_final_optical_placement_for_a_sparse_wide_spre
     }
     let left = &preview_metadata[0];
     assert_eq!(left["half"], "left");
-    assert_eq!(left["matchedCanvasOpticalPlacement"], true);
+    // The ink box this leaf's sparse title occupies is measured and published,
+    // and it does not move the leaf: placement is the one physical policy the
+    // lossless assembler and the preview fitter can also state — the retained
+    // content rectangle aligned inside the requested margin box.
+    assert!(
+        left["matchedCanvasOpticalContentLeftPx"].is_number(),
+        "{left}"
+    );
+    assert!(
+        left["matchedCanvasOpticalContentRightPx"].is_number(),
+        "{left}"
+    );
+    // The flag is omitted from the artifact when it is false, so both shapes
+    // the protocol can emit for "not optically placed" are named here and
+    // nothing else — a number or a string would pass a bare inequality.
+    assert!(
+        matches!(
+            left.get("matchedCanvasOpticalPlacement"),
+            None | Some(Value::Bool(false))
+        ),
+        "{left}"
+    );
     assert_eq!(
         left["matchedCanvasIntrinsicOverflowLeftPx"]
             .as_u64()

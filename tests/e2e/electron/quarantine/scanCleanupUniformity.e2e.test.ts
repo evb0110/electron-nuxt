@@ -93,6 +93,7 @@ import {
     type IScanCleanupParityFixtureIdentity,
     type IScanCleanupParityObservation,
     type IScanCleanupParityPathSubstitution,
+    type TScanCleanupParityHalf,
     type TScanCleanupParityFixture,
 } from '@tests/helpers/scanCleanupParityCorpus';
 
@@ -442,7 +443,14 @@ interface ISplitInstructionsPage {
 interface ISplitInstructionsFile {pages: ISplitInstructionsPage[];}
 
 interface ICorpusCliSummary {
-    conversionSummary: {warnings: string[];};
+    conversionSummary: {
+        warnings: string[];
+        warningEvents?: Array<{
+            event: TScanCleanupWarningEvent;
+            pageNumber?: number;
+            half?: TScanCleanupParityHalf;
+        }>;
+    };
     perPageStreamSizes: Array<{
         sourcePageNumber: number;
         outputOrdinal: number;
@@ -451,21 +459,6 @@ interface ICorpusCliSummary {
 }
 
 const corpusEnabled = process.env.EVB_SCAN_CLEANUP_PARITY_CORPUS === '1';
-/**
- * The one path whose typed events this run cannot reach, with the blocker as
- * measured rather than as assumed. Every other path publishes codes: the raster
- * engine writes them into its output artifacts, and preview raises them in this
- * process.
- */
-const CORPUS_LOSSLESS_TYPED_WARNING_BLOCKER = {
-    path: 'lossless-final' as const,
-    reason: 'The lossless assembler raises its conditions inside the conversion child process and formats each '
-        + 'one through the shared policy before it crosses any boundary. Protocol-v3 page metadata declares no '
-        + 'warningEvents field, so the analysis artifacts the evidence directory preserves (analysis-*.json, '
-        + 'split-pages.json, lossless-analysis-manifest.json) carry none, and the run summary publishes only '
-        + 'conversionSummary.warnings as sentences. Reaching the codes would require the assembler to publish '
-        + 'them, which is a production change Stage A does not make.',
-};
 const corpusRoot = join(artifactRoot, 'parity-corpus');
 const convertScript = resolve(process.cwd(), 'scripts/scan-cleanup-convert.ts');
 
@@ -701,48 +694,43 @@ function readRasterObservations(
 }
 
 /**
- * The largest document this run rebuilds a reported page list for. The search
- * is over the page subsets of the document, and every corpus fixture is a
- * handful of pages, so a fixture that outgrows this has to be identified by a
- * mechanism that scales rather than by a search that quietly stops working.
+ * The sentence for a condition the run published, formatted from the run's own
+ * typed event rather than searched for in its text. Every condition a scan
+ * cleanup run raises now travels beside its sentence as an event, so the corpus
+ * reads the code and lets the shared policy produce the words.
  */
-const RESAMPLED_PAGE_LIST_SEARCH_PAGE_LIMIT = 12;
-
-/**
- * The sentence a run published when matched page size had to re-render pages
- * off the shared pixel grid, identified by rebuilding it rather than by reading
- * it. The conversion summary transports its warnings as text only, and the page
- * list inside this event is the run's own measurement, so every ascending page
- * subset of the document is formatted through the shared policy formatter and
- * compared for equality. The match is decided by the typed event code and the
- * page list the run actually reported: no English is parsed and no page number
- * is assumed. The evidence limitation this works around is the same one
- * CORPUS_LOSSLESS_TYPED_WARNING_BLOCKER records — the run summary carries no
- * typed warning channel for the conversion child to publish the event through.
- */
-function findMatchedCanvasResampledWarning(
-    warnings: readonly string[],
-    pageSizes: readonly IPdfPageSize[],
-) {
+function formatCorpusWarningEvent(entry: {
+    event: TScanCleanupWarningEvent;
+    pageNumber?: number;
+}) {
     const format = warningEventFormatter.current;
     if (format === null) {
         throw new Error('The scan-cleanup warning policy mock did not publish its formatter');
     }
-    if (pageSizes.length > RESAMPLED_PAGE_LIST_SEARCH_PAGE_LIMIT) {
-        throw new Error(
-            `Rebuilding a reported page list is bounded at ${String(RESAMPLED_PAGE_LIST_SEARCH_PAGE_LIMIT)} `
-            + `pages and this document has ${String(pageSizes.length)}`,
-        );
-    }
-    const documentPageNumbers = pageSizes.map(pageSize => pageSize.pageNumber);
-    const reportable = new Set<string>();
-    for (let subset = 1; subset < 2 ** documentPageNumbers.length; subset += 1) {
-        reportable.add(format({
-            code: 'matched-canvas-pages-resampled',
-            pages: documentPageNumbers.filter((_, index) => (subset & (1 << index)) !== 0),
-        }));
-    }
-    return warnings.find(warning => reportable.has(warning)) ?? null;
+    return format(entry.event, entry.pageNumber);
+}
+
+/**
+ * The conditions a run reported about one produced output.
+ *
+ * A condition the run attributed to a page and a half is a condition about that
+ * output, which is exactly what the raster engine writes into that output's own
+ * artifact. Document-wide conditions and conditions about a page as a whole are
+ * recorded by the run but belong to no output, so neither path compares them
+ * here and neither can invent a disagreement out of one.
+ */
+function readCorpusOutputWarningEvents(
+    summary: ICorpusCliSummary,
+    sourcePageNumber: number,
+    half: TScanCleanupParityHalf,
+) {
+    const entries = (summary.conversionSummary.warningEvents ?? []).filter(
+        entry => entry.pageNumber === sourcePageNumber && entry.half === half,
+    );
+    return {
+        warningEvents: entries.map(entry => entry.event),
+        warningMessages: entries.map(entry => formatCorpusWarningEvent(entry)),
+    };
 }
 
 function readLosslessObservations(
@@ -753,6 +741,10 @@ function readLosslessObservations(
 ) {
     const instructionsPath = join(nativeEvidenceDir, 'split-pages.json');
     if (!existsSync(instructionsPath)) {
+        // Why the assembler never ran is the run's own condition, read by code.
+        const resampled = (summary.conversionSummary.warningEvents ?? []).find(
+            entry => entry.event.code === 'matched-canvas-pages-resampled',
+        );
         // Matched page size re-renders any page that cannot reach the shared
         // pixel grid losslessly, and such a run never reaches the lossless
         // assembler. The case keeps its other two paths and the report says
@@ -762,10 +754,9 @@ function readLosslessObservations(
             substitution: {
                 caseId: parityCase.id,
                 path: 'lossless-final' as const,
-                reason: findMatchedCanvasResampledWarning(
-                    summary.conversionSummary.warnings,
-                    pageSizes,
-                ) ?? 'The lossless assembler did not run for this document',
+                reason: resampled === undefined
+                    ? 'The lossless assembler did not run for this document'
+                    : formatCorpusWarningEvent(resampled),
             },
         };
     }
@@ -832,9 +823,10 @@ function readLosslessObservations(
                 requestedMarginsMm: parityCase.marginsMm,
                 requestedAlignment: parityCase.pageAlignment,
                 ...presented,
-                warningEvents: null,
-                warningMessages: summary.conversionSummary.warnings.filter(
-                    warning => warning.startsWith(`Page ${String(sourcePageNumber)}: `),
+                ...readCorpusOutputWarningEvents(
+                    summary,
+                    sourcePageNumber,
+                    analysisOutput!.half,
                 ),
             });
         });
@@ -1017,7 +1009,7 @@ describe('scan cleanup matched-canvas parity corpus', () => {
                     cases,
                     fixtures,
                     pathSubstitutions,
-                    typedWarningChannelLimitations: [CORPUS_LOSSLESS_TYPED_WARNING_BLOCKER],
+                    typedWarningChannelLimitations: [],
                 });
                 const reportPath = join(corpusRoot, 'parity-corpus-report.json');
                 writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');

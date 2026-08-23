@@ -95,6 +95,14 @@ export function resolveScanCleanupMatchedCanvasPlacement(input: {
  * The shared placement resolver speaks top-left free-space offsets; PDF
  * consumers use a bottom-left y origin, so this is the one conversion owner
  * for the lossless assembler and compact-source preservation path.
+ *
+ * `displayRotationDegrees` is the quarter turn a reader applies to that page.
+ * An alignment names visual edges — `top-center` is the top of the sheet the
+ * reader holds — so the offsets are resolved on the presented rectangle and the
+ * insets they produce are turned back into page space, exactly as the margins
+ * beside them are. Resolving them in page space instead sent a quarter-turned
+ * page to whichever edge happened to carry the same page-space letter, which
+ * put its content up to 67 mm from where the raster and preview fitters put it.
  */
 export function placeScanCleanupCanvasBox(
     content: IScanCleanupRect,
@@ -102,9 +110,12 @@ export function placeScanCleanupCanvasBox(
     height: number,
     alignment: IScanCleanupOptions['pageAlignment'],
     anchor?: IScanCleanupPlacementAnchor,
+    displayRotationDegrees = 0,
 ): IScanCleanupRect {
-    const availableWidth = width - content.width;
-    const availableHeight = height - content.height;
+    const quarterTurns = normalizeScanCleanupQuarterTurns(displayRotationDegrees);
+    const swapsAxes = quarterTurns % 2 === 1;
+    const availableWidth = swapsAxes ? height - content.height : width - content.width;
+    const availableHeight = swapsAxes ? width - content.width : height - content.height;
     const placement = resolveScanCleanupPlacementOffset(
         availableWidth,
         availableHeight,
@@ -113,12 +124,18 @@ export function placeScanCleanupCanvasBox(
             ? undefined
             : {
                 anchor,
-                contentHeight: content.height,
+                contentHeight: swapsAxes ? content.width : content.height,
             },
     );
+    const pageInsets = orientScanCleanupInsetsToPageSpace({
+        left: placement.x,
+        top: placement.y,
+        right: availableWidth - placement.x,
+        bottom: availableHeight - placement.y,
+    }, quarterTurns * 90);
     return {
-        x: content.x - placement.x,
-        y: content.y - (availableHeight - placement.y),
+        x: content.x - pageInsets.left,
+        y: content.y - pageInsets.bottom,
         width,
         height,
     };
@@ -528,6 +545,59 @@ export function resolveScanCleanupDocumentCanvasDpi(
 }
 
 /**
+ * The pixel grid the shared canvas rectangle is sampled on at one page's render
+ * resolution, and the one rule every consumer of that grid answers by.
+ *
+ * The plan's own `widthPx`/`heightPx` are the rectangle rounded up at the
+ * resolution the document was planned at; a page renders at its own resolution,
+ * and the sidecar rebuilds the grid from the rectangle and that resolution by
+ * rounding to nearest. A consumer that instead rescales the plan's pixel counts
+ * lands a whole pixel away from the page the run actually produces — which is
+ * what made the preview fitter present a 297 px canvas for the 296 px page the
+ * output carried, and decide the margin-fitting boundary differently from it.
+ */
+export function resolveScanCleanupCanvasGridAtDpi(
+    canvas: IScanCleanupOrientedRect,
+    dpi: number,
+) {
+    return {
+        widthPx: Math.max(1, Math.round(canvas.widthPoints / 72 * dpi)),
+        heightPx: Math.max(1, Math.round(canvas.heightPoints / 72 * dpi)),
+    };
+}
+
+/**
+ * Fits one axis of a requested margin pair onto the matched canvas grid: the
+ * single margin-fit policy every quality route answers by.
+ *
+ * A pair that does not leave one content pixel on its axis is reduced to the
+ * pair that does, keeping the requested ratio so an off-centre request stays
+ * off-centre. `native/scan-cleanup/src/adapters/batch_cli.rs` states the same
+ * rule for the raster route it plans inside the sidecar; the preview fitter and
+ * the lossless assembler call this one, so a page cannot be reported reduced on
+ * one route and delivered exact on the other.
+ */
+export function fitScanCleanupMarginAxisPx(
+    leadingPx: number,
+    trailingPx: number,
+    totalPx: number,
+) {
+    const sum = leadingPx + trailingPx;
+    if (sum < totalPx || sum === 0) {
+        return [
+            leadingPx,
+            trailingPx,
+        ] as const;
+    }
+    const availablePx = Math.max(0, totalPx - 1);
+    const fittedLeadingPx = Math.min(availablePx, Math.round(availablePx * leadingPx / sum));
+    return [
+        fittedLeadingPx,
+        availablePx - fittedLeadingPx,
+    ] as const;
+}
+
+/**
  * Normalizes a page render to the grid the shared document canvas carries.
  * Low-resolution pages must be raised to this DPI as well as high-resolution
  * pages being capped; otherwise native reconstructs a different pixel grid
@@ -659,6 +729,42 @@ export function resolveScanCleanupPageCanvasBox(
 // Paper that is already the canvas needs no scaling at all; anything past this
 // is a real difference in the paper the scanner produced.
 export const CANVAS_CONTENT_SCALE_EPSILON = 0.001;
+
+/**
+ * How much larger than the canvas a sheet may measure and still be the sheet
+ * the canvas was measured from. A page rounded onto the shared grid can land a
+ * pixel past the rectangle it is identical to, and only paper that needs more
+ * grid than there is — a sheet cut into fewer pages than the rectangle expected
+ * — is a real difference.
+ *
+ * The bound is exactly one pixel because it is stated in the units of the
+ * shared grid, and that grid puts each rectangle on a whole pixel by rounding
+ * to nearest (`Math.round` in `resolveScanCleanupCanvasGridAtDpi`): two
+ * rectangles the run lands on the same pixel count differ by strictly less than
+ * one pixel. A grid that stopped rounding to whole pixels, or a caller that
+ * compared counts built at some other resolution, could move a rectangle
+ * further than that and would have to raise this number with it.
+ */
+const SCAN_CLEANUP_CANVAS_GRID_TOLERANCE_PX = 1;
+
+/**
+ * Whether this output's paper is larger than the canvas it is normalized onto,
+ * decided against the shared pixel grid rather than against a bare ratio.
+ *
+ * Every matched-canvas fitter reports the same condition for the same page, so
+ * the decision lives here once. A fitter that measured its paper in its own
+ * raster pixels and compared the ratio to 1 called a half sheet undersized
+ * because halving an odd pixel count rounds.
+ */
+export function isScanCleanupPaperLargerThanCanvas(
+    canvas: IScanCleanupDocumentCanvasPlan,
+    paper: IScanCleanupOrientedRect,
+) {
+    return paper.widthPoints / canvas.widthPoints * canvas.widthPx
+        > canvas.widthPx + SCAN_CLEANUP_CANVAS_GRID_TOLERANCE_PX
+        || paper.heightPoints / canvas.heightPoints * canvas.heightPx
+        > canvas.heightPx + SCAN_CLEANUP_CANVAS_GRID_TOLERANCE_PX;
+}
 
 // The lossless path never rasterizes, so its canvas grid is nominal: it exists
 // only so both quality paths carry the same plan shape, and the rectangle —

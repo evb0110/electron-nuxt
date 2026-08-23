@@ -9,9 +9,12 @@ import type {
     TScanCleanupLayoutByPage,
 } from '@contracts/electronApiScanCleanup';
 import {
+    fitScanCleanupMarginAxisPx,
+    isScanCleanupPaperLargerThanCanvas,
     orientScanCleanupInsetsToPageSpace,
     resolveMatchedCanvasResamplePages,
     resolveScanCleanupCanvasFitScale,
+    resolveScanCleanupCanvasGridAtDpi,
     resolveScanCleanupDocumentCanvasRenderDpi,
     resolveScanCleanupDocumentCanvas,
     resolveScanCleanupDroppedMatchWarningEvent,
@@ -300,6 +303,124 @@ describe('scan cleanup document canvas', () => {
                 height: targetHeight,
             });
         }
+    });
+
+    it('aligns a quarter-turned page to the edge the request names', () => {
+        // A 200x100 pt canvas presented through a page that a reader turns a
+        // quarter clockwise: the page's own box is 100 pt across and 200 pt
+        // down, and its content is 60x40 in that box. `top-center` asks for the
+        // top of the sheet the reader holds, which is the page's own left edge.
+        const content = {
+            x: 0,
+            y: 0,
+            width: 60,
+            height: 40,
+        };
+        const placed = placeScanCleanupCanvasBox(content, 100, 200, 'top-center', undefined, 90);
+        // Flush against the presented top: no page-space left inset at all.
+        expect(placed.x).toBe(0);
+        // And centred across the presented width, which is the page's own
+        // vertical axis: 200 - 40 free, half of it below the content.
+        expect(placed.y).toBe(-80);
+
+        // The same request on an unturned page keeps its long-standing answer,
+        // so orientation is the only thing this adds.
+        expect(placeScanCleanupCanvasBox(content, 100, 200, 'top-center')).toEqual({
+            x: -20,
+            y: -160,
+            width: 100,
+            height: 200,
+        });
+    });
+
+    it('samples the canvas rectangle on the grid the sidecar rebuilds', () => {
+        // 142.08 pt is 296.00000000000006 px at 150 DPI. The sidecar rounds,
+        // so the page carries 296 px; a consumer that ceils presents a canvas
+        // one pixel wider than the page it stands for.
+        expect(resolveScanCleanupCanvasGridAtDpi({
+            widthPoints: 142.08,
+            heightPoints: 213.12,
+        }, 150)).toEqual({
+            widthPx: 296,
+            heightPx: 444,
+        });
+        // A rectangle too fine for one whole pixel is still a grid.
+        expect(resolveScanCleanupCanvasGridAtDpi({
+            widthPoints: 0.01,
+            heightPoints: 0.01,
+        }, 150)).toEqual({
+            widthPx: 1,
+            heightPx: 1,
+        });
+    });
+
+    it('fits a margin pair onto one canvas axis under a single policy', () => {
+        // A pair that still leaves the canvas some content is delivered
+        // exactly as it was requested.
+        expect(fitScanCleanupMarginAxisPx(30, 20, 100)).toEqual([
+            30,
+            20,
+        ]);
+        // A pair that meets the canvas exactly is already too much: the
+        // canvas keeps one content pixel, and the reduction is split by the
+        // ratio the request asked for, so an off-centre request stays
+        // off-centre.
+        expect(fitScanCleanupMarginAxisPx(60, 40, 100)).toEqual([
+            59,
+            40,
+        ]);
+        expect(fitScanCleanupMarginAxisPx(300, 100, 100)).toEqual([
+            74,
+            25,
+        ]);
+        // A canvas with room for nothing but its content pixel carries no
+        // margin at all rather than a negative one.
+        expect(fitScanCleanupMarginAxisPx(5, 5, 1)).toEqual([
+            0,
+            0,
+        ]);
+        // Nothing requested is nothing to reduce, whatever the axis measures.
+        expect(fitScanCleanupMarginAxisPx(0, 0, 0)).toEqual([
+            0,
+            0,
+        ]);
+    });
+
+    it('calls paper larger than its canvas only past the shared grid', () => {
+        const canvas = {
+            widthPoints: 612,
+            heightPoints: 792,
+            widthPx: 1_275,
+            heightPx: 1_650,
+        };
+        // A half sheet is exactly the half-sheet canvas, and a sheet measured
+        // through a raster that rounds is still that sheet.
+        expect(isScanCleanupPaperLargerThanCanvas(canvas, {
+            widthPoints: 612,
+            heightPoints: 792,
+        })).toBe(false);
+        expect(isScanCleanupPaperLargerThanCanvas(canvas, {
+            widthPoints: 612.4,
+            heightPoints: 792,
+        })).toBe(false);
+        // The bound is one whole grid pixel, because that is the most a
+        // rectangle can move by being rounded onto this grid. Paper a pixel
+        // wider is still the sheet the grid rounded; paper past that pixel is
+        // reported, so a rounding change that could move a rectangle further
+        // fails here rather than silently widening the tolerance.
+        expect(isScanCleanupPaperLargerThanCanvas(canvas, {
+            widthPoints: 612.47,
+            heightPoints: 792,
+        })).toBe(false);
+        expect(isScanCleanupPaperLargerThanCanvas(canvas, {
+            widthPoints: 612.5,
+            heightPoints: 792,
+        })).toBe(true);
+        // Paper the canvas genuinely cannot hold is reported.
+        expect(isScanCleanupPaperLargerThanCanvas(canvas, {
+            widthPoints: 792,
+            heightPoints: 612,
+        })).toBe(true);
     });
 
     it('reads the geometry evb-pdf-page-ops reports', () => {

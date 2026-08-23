@@ -3,8 +3,16 @@ import {
     expect,
     it,
 } from 'vitest';
-import type {TScanCleanupProgress} from '@contracts/electronApiScanCleanup';
-import {createScanCleanupProgressReporter} from '@scan-cleanup-core/createScanCleanupProgressReporter';
+import type {
+    TScanCleanupProgress,
+    TScanCleanupSummary,
+    TScanCleanupSummaryWarningEvent,
+} from '@contracts/electronApiScanCleanup';
+import {
+    createEmptyScanCleanupSummary,
+    createScanCleanupProgressReporter,
+    reportScanCleanupSummaryWarningEvent,
+} from '@scan-cleanup-core/createScanCleanupProgressReporter';
 
 describe('scan cleanup progress reporter', () => {
     it('uses one monotonic rendering band for a streaming raster pipeline', () => {
@@ -161,5 +169,64 @@ describe('scan cleanup progress reporter', () => {
             stageIndex: 5,
             stageCount: 8,
         });
+    });
+});
+
+describe('scan cleanup summary warning events', () => {
+    it('accumulates every condition beside the sentence it produced', () => {
+        // The array the run collected before its summary existed is a seed the
+        // summary copies, so later conditions land on the summary and cannot
+        // reach back into the collection the caller still holds.
+        const seed: TScanCleanupSummaryWarningEvent[] = [{event: {code: 'matched-canvas-dropped'}}];
+        const summary = createEmptyScanCleanupSummary(2, [], seed);
+        const reported: string[] = [];
+        const report = (message: string) => reported.push(message);
+
+        reportScanCleanupSummaryWarningEvent(summary, {
+            event: {code: 'matched-canvas-margins-reduced'},
+            pageNumber: 1,
+            half: 'left',
+        }, report);
+        reportScanCleanupSummaryWarningEvent(summary, {
+            event: {code: 'matched-canvas-margins-unavailable'},
+            pageNumber: 2,
+        }, report);
+
+        expect(summary.warningEvents).toEqual([
+            {event: {code: 'matched-canvas-dropped'}},
+            {
+                event: {code: 'matched-canvas-margins-reduced'},
+                pageNumber: 1,
+                half: 'left',
+            },
+            {
+                event: {code: 'matched-canvas-margins-unavailable'},
+                pageNumber: 2,
+            },
+        ]);
+        expect(seed).toEqual([{event: {code: 'matched-canvas-dropped'}}]);
+        expect(reported.length).toBe(2);
+    });
+
+    it('opens the typed list on a summary that carries none', () => {
+        // A summary decoded from a run that predates this channel has no list
+        // at all. The first condition reported on it opens one rather than
+        // being dropped.
+        const summary: TScanCleanupSummary = createEmptyScanCleanupSummary(1, []);
+        delete summary.warningEvents;
+
+        reportScanCleanupSummaryWarningEvent(summary, {event: {code: 'matched-canvas-dropped'}}, () => undefined);
+        reportScanCleanupSummaryWarningEvent(summary, {
+            event: {code: 'matched-canvas-margins-reduced'},
+            pageNumber: 3,
+        }, () => undefined);
+
+        expect(summary.warningEvents).toEqual([
+            {event: {code: 'matched-canvas-dropped'}},
+            {
+                event: {code: 'matched-canvas-margins-reduced'},
+                pageNumber: 3,
+            },
+        ]);
     });
 });

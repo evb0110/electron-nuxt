@@ -21,6 +21,7 @@ import type {
     TScanCleanupProgress,
     TScanCleanupSummary,
     TScanCleanupOutputMode,
+    TScanCleanupSummaryWarningEvent,
     TScanCleanupWarningEvent,
 } from '@contracts/electronApiScanCleanup';
 import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
@@ -109,6 +110,7 @@ import {
 import {
     createEmptyScanCleanupSummary,
     createScanCleanupProgressReporter,
+    reportScanCleanupSummaryWarningEvent,
 } from '@scan-cleanup-core/createScanCleanupProgressReporter';
 import {
     logRasterHandoff,
@@ -405,6 +407,10 @@ export async function runScanCleanupConversion(
         );
         const pageCount = pageNumbers.length;
         const warnings = [...prepared.warnings];
+        // Conditions raised before the summary exists still belong to it, so
+        // they are collected in the same typed shape and handed over with the
+        // sentences they produced.
+        const warningEvents: TScanCleanupSummaryWarningEvent[] = [];
         // What the run tells the user reaches them through the summary, and
         // the same sentence belongs in the log.
         const warn = (message: string) => {
@@ -412,6 +418,10 @@ export async function runScanCleanupConversion(
             log('warn', `Scan cleanup: ${message}`);
         };
         const warnEvent = (event: TScanCleanupWarningEvent, pageNumber?: number) => {
+            warningEvents.push({
+                event,
+                ...(pageNumber === undefined ? {} : {pageNumber}),
+            });
             warn(formatScanCleanupWarningEvent(event, pageNumber));
         };
         emitProgress('normalizing', 1, 1);
@@ -1181,7 +1191,7 @@ export async function runScanCleanupConversion(
         const outputPages: IRenderedCleanupOutputPage[] = [];
         const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();
         const emptyOutputMappings: IScanCleanupOutputMapping[] = [];
-        const summary = createEmptyScanCleanupSummary(pageCount, warnings);
+        const summary = createEmptyScanCleanupSummary(pageCount, warnings, warningEvents);
         // The engine's own account of what it had to do to a page — a page it
         // could not hold at the document's scale, a raster it could not
         // publish. It travels with the summary and is logged here, so a run
@@ -1440,7 +1450,11 @@ export async function runScanCleanupConversion(
                         fittedMarginBoxPages.add(pageNumber);
                         continue;
                     }
-                    report(formatScanCleanupWarningEvent(event, pageNumber));
+                    reportScanCleanupSummaryWarningEvent(summary, {
+                        event,
+                        pageNumber,
+                        ...(metadata.half === undefined ? {} : {half: metadata.half}),
+                    }, report);
                 }
                 // Diagnostics the engine carries no structure for. An artifact
                 // written before runtime revision 10 also left its conditions
@@ -1484,10 +1498,10 @@ export async function runScanCleanupConversion(
             if (pageMetadata.layoutClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
         }
         if (fittedMarginBoxPages.size > 0) {
-            report(formatScanCleanupWarningEvent({
+            reportScanCleanupSummaryWarningEvent(summary, {event: {
                 code: 'matched-canvas-content-fitted-pages',
                 pages: [...fittedMarginBoxPages],
-            }));
+            }}, report);
         }
         summary.outputPages = outputPages.length;
         if (outputPages.length === 0) throw new Error('evb-scan-cleanup produced no output pages');

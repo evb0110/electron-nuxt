@@ -52,7 +52,10 @@ import {
 import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver';
 import {mapScanCleanupRasterPages} from '@scan-cleanup-core/resolveRasterHandoff';
 import {resolveCompactSourcePreservation} from '@scan-cleanup-core/assembleCompactScanCleanupPages';
-import {placeScanCleanupCanvasBox} from '@scan-cleanup-core/policy/documentCanvas';
+import {
+    fitScanCleanupMarginAxisPx,
+    placeScanCleanupCanvasBox,
+} from '@scan-cleanup-core/policy/documentCanvas';
 import {formatScanCleanupWarningEvent} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
@@ -4689,7 +4692,9 @@ describe('scan cleanup pipeline', () => {
     function losslessMatchedHarness(
         pageGeometry: Array<{
             widthPoints: number;
-            heightPoints: number
+            heightPoints: number;
+            /** The quarter turn a reader applies, when a case needs one. */
+            rotation?: number
         }>,
         // What the engine says survived cropping, in the pixels the page was
         // analyzed at. It is the whole sheet unless a test asks for content
@@ -4800,8 +4805,9 @@ describe('scan cleanup pipeline', () => {
                     pageNumber: index + 1,
                     xPoints: 0,
                     yPoints: 0,
-                    ...geometry,
-                    rotation: 0,
+                    widthPoints: geometry.widthPoints,
+                    heightPoints: geometry.heightPoints,
+                    rotation: geometry.rotation ?? 0,
                 }))}));
             } else if (args[0] === 'split-pages') {
                 const instructionsPath = args[args.indexOf('--instructions-file') + 1]!;
@@ -5361,6 +5367,109 @@ describe('scan cleanup pipeline', () => {
         ]);
     });
 
+    it('places a quarter-turned lossless page against the edge the reader sees', async () => {
+        const fixture = await setup();
+        // A 400x200 pt page a reader turns a quarter clockwise is presented as
+        // 200 pt across and 400 pt down, and the crop is the top half of that
+        // presented sheet.
+        const harness = losslessMatchedHarness([{
+            widthPoints: 400,
+            heightPoints: 200,
+            rotation: 90,
+        }], {
+            xPx: 0,
+            yPx: 0,
+            widthPx: 400,
+            heightPx: 100,
+        });
+        harness.pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        harness.pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(null, []));
+
+        await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                preserveOriginalQuality: true,
+                matchPageSize: true,
+                pageAlignment: 'top-center',
+                marginsMm: {
+                    leftMm: 0,
+                    topMm: 0,
+                    rightMm: 0,
+                    bottomMm: 0,
+                },
+            },
+            layoutByPage: {'1': 'single-uncut-page'},
+        }, {
+            ...pipelinePaths(fixture.dir, true),
+            pdfimagesBinary: '/pdfimages',
+        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
+
+        // `top-center` names the top of the sheet the reader holds, which is
+        // this page's own left edge. The window therefore starts at the page
+        // origin: content that already sits against the presented top is left
+        // there. Resolving the alignment in page space instead centred it
+        // across the presented height, half a sheet from where the raster and
+        // preview fitters put it.
+        expect(harness.readSplitInstructions()!.pages[0]!.outputs[0]!.cropRect).toEqual({
+            x: 0,
+            y: 0,
+            width: 400,
+            height: 200,
+        });
+    });
+
+    it('publishes every lossless condition as a typed event beside its sentence', async () => {
+        const fixture = await setup();
+        // The canvas is the wider page, so the narrow one is placed below the
+        // document's scale and says so.
+        const harness = losslessMatchedHarness([
+            {
+                widthPoints: 400,
+                heightPoints: 200,
+            },
+            {
+                widthPoints: 200,
+                heightPoints: 200,
+            },
+        ]);
+        harness.pipelineDependencies.getPageCount = vi.fn(async () => 2);
+        harness.pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(null, []));
+
+        const summary = await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                preserveOriginalQuality: true,
+                matchPageSize: true,
+            },
+            layoutByPage: {
+                '1': 'single-uncut-page',
+                '2': 'single-uncut-page',
+            },
+        }, {
+            ...pipelinePaths(fixture.dir, true),
+            pdfimagesBinary: '/pdfimages',
+        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
+
+        // Every sentence the run published came from a typed event it also
+        // published, attributed to the output it belongs to. A consumer that
+        // needs the condition reads the code instead of the English.
+        expect(summary.warningEvents?.length).toBe(summary.warnings.length);
+        expect(summary.warningEvents?.map(entry => entry.event.code)).toContain(
+            'matched-canvas-content-fitted',
+        );
+        for (const entry of summary.warningEvents ?? []) {
+            expect(entry.half).toBe('full');
+            expect(entry.pageNumber).toBeGreaterThan(0);
+        }
+        expect(summary.warnings).toEqual((summary.warningEvents ?? []).map(
+            entry => formatScanCleanupWarningEvent(entry.event, entry.pageNumber),
+        ));
+    });
+
     it('reserves exact final-canvas margins for a lossless matched page and says when content is fitted', async () => {
         const fixture = await setup();
         const harness = losslessMatchedHarness([{
@@ -5395,12 +5504,24 @@ describe('scan cleanup pipeline', () => {
             width: 400,
             height: 200,
         });
-        const fiveMillimetersPoints = 5 / 25.4 * 72;
+        // Five millimetres is reserved on the document canvas grid — the grid
+        // the raster route reserves it on — so the reservation is a whole
+        // number of canvas pixels and not an exact point decimal. The page
+        // carries no measured resolution, so the grid is this pipeline's
+        // 300-DPI fallback: the 200 pt axis is 833 px, and one pixel of it is
+        // 200/833 pt.
+        const canvasPixelPoints = 200 / Math.round(200 / 72 * 300);
+        const reservedPoints = output.contentTransform!.translateY;
+        expect(reservedPoints / canvasPixelPoints)
+            .toBeCloseTo(Math.round(reservedPoints / canvasPixelPoints), 6);
+        // And it is the pixel the request rounds to, so the delivered margin
+        // is within half a canvas pixel of the five millimetres asked for.
+        expect(Math.abs(reservedPoints - (5 / 25.4 * 72)))
+            .toBeLessThanOrEqual(canvasPixelPoints / 2);
         expect(output.contentTransform!.scale).toBeCloseTo(
-            (200 - 2 * fiveMillimetersPoints) / 200,
+            (200 - 2 * reservedPoints) / 200,
             6,
         );
-        expect(output.contentTransform!.translateY).toBeCloseTo(fiveMillimetersPoints, 6);
         // And a page that ended up below the document's scale is named rather
         // than left to be found.
         // The lossless placement reports the same fitted condition the raster
@@ -5413,5 +5534,103 @@ describe('scan cleanup pipeline', () => {
             innerWidth: 371.7,
             innerHeight: 171.7,
         }, 1)]);
+    });
+
+    it('measures a lossless matched margin on the resolution the page was scanned at', async () => {
+        const fixture = await setup();
+        const harness = losslessMatchedHarness([{
+            widthPoints: 400,
+            heightPoints: 200,
+        }]);
+        harness.pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        // The one page of this document is the canvas, so a measured raster
+        // costs it no resampling and the run stays lossless while carrying a
+        // resolution that is not the nominal lossless grid.
+        harness.pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(600, [[
+            1,
+            600,
+            {
+                width: Math.round(400 / 72 * 600),
+                height: Math.round(200 / 72 * 600),
+            },
+        ]]));
+
+        await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                preserveOriginalQuality: true,
+                matchPageSize: true,
+                pageAlignment: 'center',
+            },
+            layoutByPage: {'1': 'single-uncut-page'},
+        }, {
+            ...pipelinePaths(fixture.dir, true),
+            pdfimagesBinary: '/pdfimages',
+        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
+
+        // Every page of the run resolves a source resolution, and the margin
+        // grid is that resolution rather than the nominal grid the lossless
+        // canvas plan is stated on. The reservation therefore lands on a whole
+        // 600-DPI canvas pixel — and not on a whole 300-DPI one, which is the
+        // grid a route that ignored the page's own resolution would use.
+        const reservedPoints = harness.readSplitInstructions()!
+            .pages[0]!.outputs[0]!.contentTransform!.translateY;
+        const measuredPixelPoints = 200 / Math.round(200 / 72 * 600);
+        const nominalPixelPoints = 200 / Math.round(200 / 72 * 300);
+        expect(reservedPoints / measuredPixelPoints)
+            .toBeCloseTo(Math.round(reservedPoints / measuredPixelPoints), 6);
+        expect(Math.abs(
+            reservedPoints / nominalPixelPoints - Math.round(reservedPoints / nominalPixelPoints),
+        )).toBeGreaterThan(1e-3);
+    });
+
+    it('reduces a lossless margin pair by the fit the preview applies', async () => {
+        const fixture = await setup();
+        const harness = losslessMatchedHarness([{
+            widthPoints: 400,
+            heightPoints: 100,
+        }]);
+        harness.pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        harness.pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(null, []));
+
+        const summary = await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                preserveOriginalQuality: true,
+                matchPageSize: true,
+                pageAlignment: 'center',
+                // 25 mm on each side of a 100 pt axis is more margin than the
+                // axis has: a request no canvas can deliver, which is where
+                // the two quality routes have to agree on the reduction.
+                marginsMm: {
+                    leftMm: 25,
+                    topMm: 25,
+                    rightMm: 25,
+                    bottomMm: 25,
+                },
+            },
+            layoutByPage: {'1': 'single-uncut-page'},
+        }, {
+            ...pipelinePaths(fixture.dir, true),
+            pdfimagesBinary: '/pdfimages',
+        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
+
+        // The reduction is the shared margin fit's answer for an equal pair
+        // that meets this axis, delivered on the canvas grid the page renders
+        // on — the same function the preview fitter calls, so the two routes
+        // cannot reserve different margins for one request.
+        const canvasHeightPx = Math.round(100 / 72 * 300);
+        const canvasPixelPoints = 100 / canvasHeightPx;
+        const [reservedPx] = fitScanCleanupMarginAxisPx(canvasHeightPx, canvasHeightPx, canvasHeightPx);
+        const output = harness.readSplitInstructions()!.pages[0]!.outputs[0]!;
+        expect(output.contentTransform!.translateY).toBeCloseTo(reservedPx * canvasPixelPoints, 6);
+        // And a reduced request is reported rather than silently delivered.
+        expect(summary.warnings).toContain(
+            formatScanCleanupWarningEvent({code: 'matched-canvas-margins-reduced'}, 1),
+        );
     });
 });
