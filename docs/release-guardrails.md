@@ -73,3 +73,22 @@ To withdraw a bad release, add its tag to `NUXT_RELEASE_WITHDRAWN_TAGS`, put the
 - The release and artifact-only commands stop after the dispatched GitHub workflow run is visible; GitHub owns the remote matrix from that point.
 - If GitHub takes longer than usual to surface a just-dispatched run, set `EVB_GITHUB_WORKFLOW_START_TIMEOUT_MS` to a larger positive integer.
 - The publish-chain jobs (draft, checksums, mirror, promote, Intel attach) execute only during release runs. Latent defects there surface at release time by construction; the same-SHA repair path (re-run failed jobs, or re-dispatch the same tag and target) is the designed, proven recovery.
+
+## Deferred by evidence
+
+Decisions parked with explicit revisit conditions after the 2026-08 rework
+and the v0.1.427 campaign:
+
+- **Build-receipt machinery** (`scripts/release/build-receipt.mjs` and the
+  `EVB_RELEASE_BUILD_RECEIPT` handoff): nearly dead now that the green-CI
+  fast path skips the local gate. Delete once one or two releases have gone
+  through the fast path cleanly; `--full-verify` works either way.
+- **Matrix-artifact reuse across same-SHA attempts** and a **scheduled
+  publish-chain drill**: worth building only if publish-chain failures recur.
+  The chain's three latent defects (draft visibility, activation budget,
+  verifier drift) are fixed, and same-SHA repair is proven cheap.
+- **ci.yml provisioning consolidation** into `setup-release-env`: only if
+  ci.yml lanes start drifting the way the release lanes did; its
+  gate-independence pattern has one owner and its own topology test.
+- **Linux container image** with preinstalled system deps: stronger fix for
+  apt-mirror hangs; requires a registry decision first.
