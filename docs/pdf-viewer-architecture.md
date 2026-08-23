@@ -56,6 +56,36 @@ lookups:
 `PdfViewerPage.vue` intentionally emits both PDF.js camelCase layer classes and
 app kebab-case classes.
 
+## Current-page resolution per renderer stack
+
+Each renderer stack answers "which page is the user looking at?" with its own
+measure. The three answers agree in the middle of a page and can differ by one
+at a spread boundary. This is recorded, not unified. Unifying them would change
+observable page reporting in all three stacks at once, so it should only happen
+if boundary flicker is actually reported (navigation/zoom audit item q).
+
+| Stack | Measure | Tie-break | No candidate |
+| --- | --- | --- | --- |
+| PDF.js (`getViewportVisibilityFromDom.ts`, consumed by `usePdfScroll.ts` `resolveMostVisiblePage`) | Largest visible **area**: vertical intersection multiplied by horizontal intersection, so a horizontally scrolled-off page loses to a narrower fully visible one | Strict `>`, so the **earlier** page keeps the title | Falls back to the previous page, marked non-authoritative |
+| Generic page source (`useDocumentPageSourceRuntime.ts` `syncCurrentPageFromViewport` → `resolveNearestDocumentPageToViewportCenter`) | Page whose **center** is nearest the viewport center, found by binary search; visible area is never measured | Strict `<` on the distance comparison, so the **previous** (lower) page wins an exact tie | Returns null and the current page is left alone |
+| Native PDF preview (`NativePdfViewer.vue` `getVisiblePageNumber` → `resolveDocumentContinuousScrollWindow`) | Greatest visible **vertical height** only; horizontal overflow is ignored | Strict `>`, so the **earlier** page keeps the title | Falls back to the currently active page |
+
+Consequences worth knowing before touching any of them:
+
+- A zoomed-in PDF.js page scrolled sideways can hand the current page to a
+  neighbour, while the native preview and page-source stacks cannot, because
+  neither looks at the horizontal axis.
+- Only the page-source stack can report a page that is barely visible: the
+  nearest-center rule ignores how much of the page is on screen.
+- All three are projections. The workspace navigation fence
+  (`createWorkspacePageNavigationFence.ts`) still decides whether an observed
+  page is accepted, so a disagreement during programmatic navigation is
+  rejected rather than shown. `consumePageUpdate` is that decision: it judges
+  the page, commits an accepted one to `currentPage`, releases the target, and
+  returns the arming navigation source, all in one call, so no caller can read
+  a released fence beside an uncommitted page or credit a superseded page to
+  the surface that armed the abandoned target.
+
 ## Safety Targets
 
 Keep focused coverage around:

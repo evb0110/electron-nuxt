@@ -1149,6 +1149,37 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expect(blankVisiblePages).toEqual([]);
     }, 70_000);
 
+    it('advances the chassis current page when PageDown is pressed in the viewer', async () => {
+        const session = sessionFixture.getSession();
+        if (!session || !pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page navigation fixture is unavailable');
+        }
+
+        await jumpToPageAndWaitForCanvas(session, 1);
+        await waitForToolbarCurrentPage(session, 1);
+        // Keyboard paging is inert inside editable controls, so make sure an
+        // earlier scenario has not left focus in the page-label input.
+        await session.page.evaluate(() => {
+            const active = document.activeElement;
+            if (active instanceof HTMLElement) {
+                active.blur();
+            }
+        });
+
+        await session.page.keyboard.press('PageDown');
+        await waitForToolbarCurrentPage(session, 2);
+
+        const chassisCurrentPage = await session.page.evaluate(() => {
+            const host = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
+            return chassis?.dataset.chassisCurrentPage ?? null;
+        });
+
+        expect(chassisCurrentPage).toBe('2');
+    }, 70_000);
+
     it('renders the final page after twenty rapid next-page clicks', async () => {
         const session = sessionFixture.getSession();
         if (!session || !pageJumpReady || !pageJumpPdfPath) {

@@ -101,7 +101,6 @@ describe('usePdfViewerWheelZoom', () => {
         const effectiveScale = ref(options?.effectiveScale ?? 1);
         const zoomVirtualizationFreeze = ref(null);
         const singlePageScroll = {
-            suppressSnapFor: vi.fn(),
             handleWheel: vi.fn(() => false),
             cancelProgrammaticNavigation: vi.fn(),
         };

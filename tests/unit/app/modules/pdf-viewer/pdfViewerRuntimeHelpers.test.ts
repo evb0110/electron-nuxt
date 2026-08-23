@@ -64,26 +64,13 @@ describe('resolveResizeAnchorPage', () => {
 
 describe('resolveCustomReloadZoomMultiplier', () => {
     it('preserves the target display zoom as the custom zoom value', () => {
-        expect(resolveCustomReloadZoomMultiplier({
-            currentZoom: 1,
-            currentEffectiveScale: 0.47,
-            targetDisplayZoom: 1.16,
-        })).toBe(1.16);
+        expect(resolveCustomReloadZoomMultiplier(1.16)).toBe(1.16);
     });
 
-    it('ignores unusable previous zoom state', () => {
-        expect(resolveCustomReloadZoomMultiplier({
-            currentZoom: 0,
-            currentEffectiveScale: 0.47,
-            targetDisplayZoom: 1.16,
-        })).toBe(1.16);
-    });
-
-    it('returns null when the target display zoom is invalid', () => {
-        expect(resolveCustomReloadZoomMultiplier({
-            currentZoom: 1,
-            currentEffectiveScale: 0.47,
-            targetDisplayZoom: Number.NaN,
-        })).toBeNull();
+    it('rejects targets that cannot be a zoom multiplier', () => {
+        expect(resolveCustomReloadZoomMultiplier(Number.NaN)).toBeNull();
+        expect(resolveCustomReloadZoomMultiplier(Number.POSITIVE_INFINITY)).toBeNull();
+        expect(resolveCustomReloadZoomMultiplier(0)).toBeNull();
+        expect(resolveCustomReloadZoomMultiplier(-1)).toBeNull();
     });
 });

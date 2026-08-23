@@ -11,6 +11,7 @@ import type {
     IWorkspaceDocumentViewerSplitPort,
     IWorkspacePdfViewerInteractionPort,
 } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
@@ -62,6 +63,8 @@ interface IWorkspaceInteractionControlsOptions {
     openSearch: () => void;
     openAnnotations: () => void;
     handleAnnotationToolChange: (tool: TAnnotationTool) => void;
+    handleFitMode: (mode: TFitMode) => void;
+    handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
     handleSave: () => Promise<unknown>;
     handlePrint: () => void | Promise<void>;
     handleToggleSidebar: () => void;
@@ -74,6 +77,7 @@ interface IWorkspaceInteractionControlsOptions {
     isDjvuMode: Ref<boolean>;
     djvuSourcePath: Ref<TDocumentRef | null>;
     currentPage: Ref<number>;
+    navigationPage: Ref<number>;
     totalPages: Ref<number>;
     fileName: Ref<string | null>;
     originalPath: Ref<TDocumentRef | null>;
@@ -194,6 +198,11 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         handleActualSize: () => {
             setCustomZoomFromDisplay(1);
         },
+        handleFitMode: options.handleFitMode,
+        navigationPage: options.navigationPage,
+        totalPages,
+        viewMode,
+        handleGoToPage: options.handleGoToPage,
         handleSave: () => {
             runDetached(handleSave, {
                 category: 'user-visible-operation',

@@ -409,7 +409,6 @@ import { useDocumentOpenSurfaceLifecycle } from '@app/modules/workspace-shell/co
 import { useDocumentWorkspacePageOperationHandlers } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageOperationHandlers';
 import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
 import { useDocumentSourceSidebarSession } from '@app/modules/workspace-shell/composables/useDocumentSourceSidebarSession';
-import { useWorkspacePageNavigationCommand } from '@app/modules/workspace-shell/composables/useWorkspacePageNavigationCommand';
 import { createWorkspacePdfSearchResultNavigation } from '@app/modules/workspace-shell/composables/createWorkspacePdfSearchResultNavigation';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
@@ -779,12 +778,9 @@ const {
     handleRedo,
     handleFitMode,
     enableDragMode,
-    handleGoToPage: performGoToPage,
-} = viewNavigation;
-const {
     handleGoToPage,
     navigationCommand,
-} = useWorkspacePageNavigationCommand(performGoToPage);
+} = viewNavigation;
 const handleGoToResult = createWorkspacePdfSearchResultNavigation({
     results,
     navigate: handleGoToPage,

@@ -14,6 +14,7 @@ import type {
     IScrollToPageOptions,
     TPdfSidebarTab,
 } from '@app/modules/pdf-viewer/public';
+import type { TWorkspacePageNavigationSource } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/public';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
@@ -35,7 +36,10 @@ interface IWorkspaceViewStateDeps {
     currentPage: Ref<number>;
     totalPages: Ref<number>;
     invalidateBookmarkNavigationRequests?: (() => void) | undefined;
-    beginProgrammaticPageNavigation?: ((page: number) => void) | undefined;
+    beginProgrammaticPageNavigation?: ((
+        page: number,
+        navigationSource: TWorkspacePageNavigationSource | null,
+    ) => void) | undefined;
     requestPageNavigation?: ((page: number) => number) | undefined;
     documentViewerRef: Ref<(
         IDocumentViewerExpose & {
@@ -191,7 +195,7 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         if (options?.navigationSource !== 'bookmark') {
             deps.invalidateBookmarkNavigationRequests?.();
         }
-        deps.beginProgrammaticPageNavigation?.(targetPage);
+        deps.beginProgrammaticPageNavigation?.(targetPage, options?.navigationSource ?? null);
         // The host-owned viewport session exists before the async viewer ref.
         // Persist intent there so chassis mounting cannot replace it with a
         // stale page prop while the document is still opening.

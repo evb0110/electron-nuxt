@@ -308,6 +308,15 @@ the 700/160 ms constants), q (document the three current-page algorithms), s
 bookmark toolbar during loading/error, capability-check `closeSearch`), Z2
 (delete or realize the dead zoom parameters and no-op `suppressSnapFor`).
 
+Landed with the #83/#85 shortcut work. q is written up in
+`docs/pdf-viewer-architecture.md` ("Current-page resolution per renderer
+stack"). s reports the arming navigation source in the accepted-page
+`navigation-idle` payload. Z2 removed both dead seams. Those seams were the
+ignored `resolveCustomReloadZoomMultiplier` parameters and the `suppressSnapFor`
+plumbing, and neither had a real implementation to promote. The viewport
+ownership boundary test forbids reintroducing one in the navigation
+controller.
+
 ## Suggested implementation order
 
 1. Z1 (small, self-contained, user-visible on the web today).

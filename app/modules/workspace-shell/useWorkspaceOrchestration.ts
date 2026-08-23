@@ -27,6 +27,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
+import { useWorkspacePageNavigationCommand } from '@app/modules/workspace-shell/composables/useWorkspacePageNavigationCommand';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
@@ -507,7 +508,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         begin: beginProgrammaticPageNavigation,
         clampTo: clampProgrammaticPageNavigationTarget,
         clear: clearProgrammaticPageNavigationTarget,
-        shouldAcceptPage: shouldAcceptViewerCurrentPageUpdate,
+        consumePageUpdate: consumeViewerCurrentPageUpdate,
+        navigationPage,
         targetPage: programmaticPageNavigationTarget,
     } = createWorkspacePageNavigationFence({
         currentPage,
@@ -564,6 +566,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         canUndo,
         canRedo,
     } = viewState;
+    // Every navigation source publishes through one command, including toolbar,
+    // keyboard paging, sidebar, and restore. Toolbar-local intent therefore
+    // cannot outlive a newer command from another source.
+    const {
+        handleGoToPage,
+        navigationCommand,
+    } = useWorkspacePageNavigationCommand(viewState.handleGoToPage);
 
     const pdfHistory = usePdfHistory({
         pdfDocument,
@@ -864,6 +873,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openSearch,
         openAnnotations,
         handleAnnotationToolChange,
+        handleFitMode: viewState.handleFitMode,
+        handleGoToPage,
         handleSave,
         handlePrint: workspacePrint.handlePrint,
         handleToggleSidebar: () => {
@@ -875,6 +886,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isDjvuMode,
         djvuSourcePath,
         currentPage,
+        navigationPage,
         totalPages,
         fileName,
         originalPath,
@@ -963,7 +975,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             viewMode,
             zoom,
             viewerRef: documentViewerRef,
-            shouldAcceptPage: shouldAcceptViewerCurrentPageUpdate,
+            consumePageUpdate: consumeViewerCurrentPageUpdate,
         });
         function handleLoadError(error: unknown) {
             if (error === null || error === undefined) {
@@ -1121,9 +1133,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         viewNavigation: {
             ...viewState,
             ...pdfHistory,
+            handleGoToPage,
+            navigationCommand,
             handleUndo,
             beginProgrammaticPageNavigation,
-            shouldAcceptViewerCurrentPageUpdate,
         },
         saveWorkflow: {
             ...pageSaveOrchestration,

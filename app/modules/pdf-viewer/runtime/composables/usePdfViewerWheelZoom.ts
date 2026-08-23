@@ -48,7 +48,6 @@ interface IUsePdfViewerWheelZoomOptions {
     virtualWindowEnd: Ref<number>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
     singlePageScroll: {
-        suppressSnapFor: (ms: number) => void;
         handleWheel: (event: IDocumentWheelSourceEvent) => boolean;
         cancelProgrammaticNavigation: (reason?: string) => void;
     };
@@ -221,15 +220,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         };
     }
 
-    function suppressSinglePageSnapForWheelZoom() {
-        singlePageScroll.suppressSnapFor(
-            Math.max(
-                wheelZoomSessionIdleMs + wheelZoomSessionLockExtensionMs,
-                wheelZoomExpectedScrollWindowMs,
-            ),
-        );
-    }
-
     function createWheelDispatchContext(): IWheelDispatchContext {
         const nowMs = Date.now();
         const recentZoomAnchor = pendingZoomViewportAnchor.value;
@@ -306,7 +296,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             return false;
         }
 
-        suppressSinglePageSnapForWheelZoom();
         cancelPendingSearchScroll();
         return true;
     }
@@ -335,7 +324,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         }
 
         event.preventDefault();
-        suppressSinglePageSnapForWheelZoom();
         BrowserLogger.diagnosticThrottled(
             'pdf-zoom-debug',
             'wheel-suppressed-non-modifier',

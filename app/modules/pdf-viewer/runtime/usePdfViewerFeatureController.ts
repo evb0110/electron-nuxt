@@ -220,7 +220,6 @@ export const usePdfViewerFeatureController = (
         virtualWindowEnd: viewportSession.viewModel.virtualWindowEnd,
         zoomVirtualizationFreeze: viewportSession.zoomVirtualizationFreeze,
         singlePageScroll: {
-            suppressSnapFor: () => undefined,
             handleWheel: viewportSession.singlePageScroll.handleWheel,
             cancelProgrammaticNavigation: viewportSession.singlePageScroll.cancelProgrammaticNavigation,
         },

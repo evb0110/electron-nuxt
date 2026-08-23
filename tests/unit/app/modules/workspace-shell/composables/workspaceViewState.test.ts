@@ -50,6 +50,20 @@ function createState(options?: {
 }
 
 describe('useWorkspaceViewState', () => {
+    it('arms the navigation fence with the source that requested the page', () => {
+        const beginProgrammaticPageNavigation = vi.fn();
+        const state = createState({overrides: {
+            totalPages: ref(10),
+            beginProgrammaticPageNavigation,
+        }});
+
+        state.handleGoToPage(4, {navigationSource: 'thumbnail'});
+        expect(beginProgrammaticPageNavigation).toHaveBeenLastCalledWith(4, 'thumbnail');
+
+        state.handleGoToPage(5);
+        expect(beginProgrammaticPageNavigation).toHaveBeenLastCalledWith(5, null);
+    });
+
     it('preserves the latest of five immediate Recent-open page requests before metadata and viewer mount', () => {
         const scrollToPage = vi.fn();
         const beginProgrammaticPageNavigation = vi.fn();
@@ -67,7 +81,7 @@ describe('useWorkspaceViewState', () => {
         }
 
         expect(beginProgrammaticPageNavigation).toHaveBeenCalledTimes(5);
-        expect(beginProgrammaticPageNavigation).toHaveBeenLastCalledWith(6);
+        expect(beginProgrammaticPageNavigation).toHaveBeenLastCalledWith(6, null);
         expect(requestPageNavigation).toHaveBeenCalledTimes(5);
         expect(requestPageNavigation).toHaveBeenLastCalledWith(6);
         expect(scrollToPage).not.toHaveBeenCalled();
@@ -250,7 +264,7 @@ describe('useWorkspaceViewState', () => {
 
         state.handleGoToPage(3);
 
-        expect(beginProgrammaticPageNavigation).toHaveBeenCalledWith(3);
+        expect(beginProgrammaticPageNavigation).toHaveBeenCalledWith(3, null);
         expect(scrollToPage).toHaveBeenCalledWith(3, undefined);
     });
 
@@ -275,7 +289,7 @@ describe('useWorkspaceViewState', () => {
         state.handleGoToPage(1);
 
         expect(invalidateBookmarkNavigationRequests).toHaveBeenCalledOnce();
-        expect(beginProgrammaticPageNavigation).toHaveBeenCalledWith(1);
+        expect(beginProgrammaticPageNavigation).toHaveBeenCalledWith(1, null);
         expect(scrollToPage).toHaveBeenCalledWith(1, undefined);
     });
 
@@ -305,7 +319,7 @@ describe('useWorkspaceViewState', () => {
         state.handleGoToPage(4, options);
 
         expect(invalidateBookmarkNavigationRequests).not.toHaveBeenCalled();
-        expect(beginProgrammaticPageNavigation).toHaveBeenCalledWith(4);
+        expect(beginProgrammaticPageNavigation).toHaveBeenCalledWith(4, 'bookmark');
         expect(scrollToPage).toHaveBeenCalledWith(4, options);
     });
 });

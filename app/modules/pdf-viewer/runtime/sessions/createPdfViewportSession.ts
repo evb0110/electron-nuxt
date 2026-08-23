@@ -753,11 +753,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         if (displayZoomToRestore === null) {
             return;
         }
-        const nextZoom = resolveCustomReloadZoomMultiplier({
-            currentZoom: options.zoom.value,
-            currentEffectiveScale: scale.effectiveScale.value,
-            targetDisplayZoom: displayZoomToRestore,
-        });
+        const nextZoom = resolveCustomReloadZoomMultiplier(displayZoomToRestore);
         if (nextZoom === null || Math.abs(nextZoom - options.zoom.value) <= 0.001) {
             return;
         }

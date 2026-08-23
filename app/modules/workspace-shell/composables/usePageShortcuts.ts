@@ -4,15 +4,28 @@ import {
     useMagicKeys,
     whenever,
 } from '@vueuse/core';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TAnnotationTool } from '@app/types/annotations';
+import type { TFitMode } from '@app/types/pdfContracts';
 import type { TPdfSource } from '@app/types/pdfUi';
+import type { TPdfViewMode } from '@contracts/shared';
+import {
+    getSpreadStartForPage,
+    stepBySpread,
+} from '@app/utils/pdfViewMode';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
 
 interface IPdfViewerForShortcuts {deleteSelectedShape: () => void;}
 
 interface IPageShortcutsDeps {
     isActive: Ref<boolean>;
-    hasInteractiveDocument?: Ref<boolean>;
+    /**
+     * Whether a document is open and interactive. Paging and the modifier
+     * shortcuts key off this rather than `pdfSrc`, which is PDF-only and stays
+     * null for DjVu.
+     */
+    hasInteractiveDocument: Ref<boolean>;
+    /** The open PDF, for the shortcuts that only a PDF can service. */
     pdfSrc: Ref<TPdfSource | null>;
     canPrint: Ref<boolean>;
     canSave: Ref<boolean>;
@@ -30,6 +43,16 @@ interface IPageShortcutsDeps {
     handleZoomIn: () => void;
     handleZoomOut: () => void;
     handleActualSize: () => void;
+    handleFitMode: (mode: TFitMode) => void;
+    /**
+     * Page the keyboard steps from. It is the pending navigation target while a
+     * previous command is still travelling, so held PageDown composes instead of
+     * replaying the same step against a lagging current page.
+     */
+    navigationPage: Ref<number>;
+    totalPages: Ref<number>;
+    viewMode: Ref<TPdfViewMode>;
+    handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
     handleSave: () => void;
     handlePrint: () => void;
     handleToggleSidebar: () => void;
@@ -58,6 +81,21 @@ function isActualSizeKey(event: KeyboardEvent) {
     return event.key === '0' || event.code === 'Digit0' || event.code === 'Numpad0';
 }
 
+function isFitWidthKey(event: KeyboardEvent) {
+    return event.key === '1' || event.code === 'Digit1' || event.code === 'Numpad1';
+}
+
+function isFitHeightKey(event: KeyboardEvent) {
+    return event.key === '2' || event.code === 'Digit2' || event.code === 'Numpad2';
+}
+
+function isPagingKey(event: KeyboardEvent) {
+    return event.key === 'PageUp'
+        || event.key === 'PageDown'
+        || event.key === 'Home'
+        || event.key === 'End';
+}
+
 function eventHasCommandModifier(event: KeyboardEvent) {
     return event.ctrlKey || event.metaKey;
 }
@@ -71,7 +109,7 @@ function targetAsElement(target: EventTarget | null) {
 export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) => {
     const {
         isActive,
-        hasInteractiveDocument,
+        hasInteractiveDocument: interactiveDocument,
         pdfSrc,
         canPrint,
         annotationTool,
@@ -84,7 +122,6 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         closeShapeProperties,
         openSearch,
     } = deps;
-    const interactiveDocument = hasInteractiveDocument ?? computed(() => Boolean(pdfSrc.value));
 
     function handleEscape() {
         if (shapePropertiesPopoverVisible.value) {
@@ -171,7 +208,65 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
             deps.handleActualSize();
             return true;
         }
+        if (isFitWidthKey(event)) {
+            event.preventDefault();
+            deps.handleFitMode('width');
+            return true;
+        }
+        if (isFitHeightKey(event)) {
+            event.preventDefault();
+            deps.handleFitMode('height');
+            return true;
+        }
         return false;
+    }
+
+    function resolvePagingTargetPage(event: KeyboardEvent, totalPages: number) {
+        if (event.key === 'Home') {
+            return 1;
+        }
+        if (event.key === 'End') {
+            return totalPages;
+        }
+        const viewMode = deps.viewMode.value;
+        const sourcePage = Math.min(
+            Math.max(Math.trunc(deps.navigationPage.value) || 1, 1),
+            totalPages,
+        );
+        const targetPage = stepBySpread(
+            sourcePage,
+            viewMode,
+            totalPages,
+            event.key === 'PageDown' ? 1 : -1,
+        );
+        // stepBySpread returns a spread start; the boundary spread returns the
+        // spread the source page already sits in, which must not navigate
+        // backwards to that spread's first page.
+        return targetPage === getSpreadStartForPage(sourcePage, viewMode, totalPages)
+            ? null
+            : targetPage;
+    }
+
+    function handlePagingShortcut(event: KeyboardEvent) {
+        if (!isPagingKey(event) || event.shiftKey || event.altKey || eventHasCommandModifier(event)) {
+            return false;
+        }
+        // A closed document leaves the last one's page count behind, so the count
+        // alone must never authorise paging. Without an interactive document,
+        // the keys belong to the browser's own scrolling.
+        if (!interactiveDocument.value) {
+            return false;
+        }
+        const totalPages = Math.trunc(deps.totalPages.value);
+        if (!Number.isFinite(totalPages) || totalPages <= 0) {
+            return false;
+        }
+        event.preventDefault();
+        const targetPage = resolvePagingTargetPage(event, totalPages);
+        if (targetPage !== null) {
+            deps.handleGoToPage(targetPage, {navigationSource: 'toolbar'});
+        }
+        return true;
     }
 
     function suppressBrowserDefaultForConflictingAccelerator(event: KeyboardEvent) {
@@ -264,6 +359,9 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
                 return;
             }
             if (handleDeleteShortcut(event)) {
+                return;
+            }
+            if (handlePagingShortcut(event)) {
                 return;
             }
             return;
