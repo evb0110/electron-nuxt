@@ -28,12 +28,19 @@ const mocks = vi.hoisted(() => ({
     isPdfPath: vi.fn((path: string) => /\.pdf$/iu.test(path)),
     isScanCleanupGeneratedOutputPath: vi.fn((_path: string) => false),
     isSupportedOpenPath: vi.fn((_path: string) => true),
-    mkdtemp: vi.fn(async (_prefix: string) => '/tmp/pdf-combine-open-test'),
+    mkdtemp: vi.fn(async (_prefix: string) => COMBINE_TEMP_DIR),
     requireOpenPath: vi.fn((path: string, _owner?: unknown) => path),
     rm: vi.fn(async (_path: string, _options?: unknown) => undefined),
     stat: vi.fn(async (_path: string) => ({size: 8 * 1024 * 1024})),
     touchScanCleanupGeneratedOutput: vi.fn(async (_path: string) => true),
 }));
+
+// mkdtemp answers with a fresh directory inside the OS temp root. Cleanup owns
+// exactly that directory, so the mock nests it one level down: the parent
+// stands in for the shared temp root an rm one level too high would take.
+const COMBINE_TEMP_PARENT = '/tmp/pdf-combine-open-parent';
+const COMBINE_TEMP_DIR = `${COMBINE_TEMP_PARENT}/pdf-combine-open-test`;
+const COMBINE_TEMP_OUTPUT = `${COMBINE_TEMP_DIR}/combined.pdf`;
 
 vi.mock('fs', () => ({existsSync: (path: string) => mocks.existsSync(path)}));
 vi.mock('fs/promises', () => ({
@@ -109,24 +116,32 @@ describe('openInputPaths', () => {
                 '/tmp/a.png',
                 '/tmp/b.jpg',
             ],
-            '/tmp/pdf-combine-open-test/combined.pdf',
+            COMBINE_TEMP_OUTPUT,
             { signal: expect.any(AbortSignal) },
         );
         expect(mocks.allowOpenPaths).toHaveBeenCalledWith([
             '/tmp/a.png',
             '/tmp/b.jpg',
         ], owner);
-        expect(mocks.allowOpenPaths).toHaveBeenCalledWith(['/tmp/pdf-combine-open-test/combined.pdf'], owner);
-        expect(mocks.requireOpenPath).toHaveBeenCalledWith('/tmp/pdf-combine-open-test/combined.pdf', owner);
+        expect(mocks.allowOpenPaths).toHaveBeenCalledWith([COMBINE_TEMP_OUTPUT], owner);
+        expect(mocks.requireOpenPath).toHaveBeenCalledWith(COMBINE_TEMP_OUTPUT, owner);
         expect(mocks.createWorkingCopyFromPath).toHaveBeenCalledWith(
-            '/tmp/pdf-combine-open-test/combined.pdf',
+            COMBINE_TEMP_OUTPUT,
             '/tmp/combined.pdf',
             42,
         );
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-combine-open-test', {
+        expect(mocks.rm).toHaveBeenCalledOnce();
+        const [
+            removedPath,
+            removeOptions,
+        ] = mocks.rm.mock.calls[0]!;
+        expect(removedPath).toBe(COMBINE_TEMP_DIR);
+        expect(removeOptions).toEqual({
             recursive: true,
             force: true,
         });
+        // The sentinel parent is what a one-level-too-high cleanup would take.
+        expect(mocks.rm).not.toHaveBeenCalledWith(COMBINE_TEMP_PARENT, expect.anything());
     });
 
     it('does not add source PDFs or DjVu files to recents for generated combined PDFs', async () => {
@@ -163,22 +178,25 @@ describe('openInputPaths', () => {
     it('admits a single PDF open through the bounded interactive lane', async () => {
         const owner = {id: 42};
         const acquire = vi.spyOn(mainJobBroker, 'acquire');
-        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+        try {
+            const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
 
-        await openInputPaths(['/tmp/source.pdf'], {}, owner as never);
+            await openInputPaths(['/tmp/source.pdf'], {}, owner as never);
 
-        expect(acquire).toHaveBeenCalledWith(expect.objectContaining({
-            ownerId: 'pdf-open:42',
-            kind: 'pdf-working-copy',
-            priority: 'foreground',
-            admissionClass: 'interactive',
-            resources: expect.objectContaining({
-                cpuTokens: 0,
-                nativeProcesses: 0,
-                ioWeight: 1,
-            }),
-        }));
-        acquire.mockRestore();
+            expect(acquire).toHaveBeenCalledWith(expect.objectContaining({
+                ownerId: 'pdf-open:42',
+                kind: 'pdf-working-copy',
+                priority: 'foreground',
+                admissionClass: 'interactive',
+                resources: expect.objectContaining({
+                    cpuTokens: 0,
+                    nativeProcesses: 0,
+                    ioWeight: 1,
+                }),
+            }));
+        } finally {
+            acquire.mockRestore();
+        }
     });
 
     it('marks managed cleanup PDFs as generated and refreshes their retention instead of adding recents', async () => {
@@ -294,16 +312,19 @@ describe('openInputPaths', () => {
                 request.signal?.addEventListener('abort', () => reject(new Error('admission canceled')), {once: true});
             })
         ));
-        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+        try {
+            const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
 
-        const open = openInputPaths(['/tmp/source.pdf'], {signal: controller.signal}, owner as never);
-        await admitted.promise;
-        controller.abort(new Error('canceled during admission'));
+            const open = openInputPaths(['/tmp/source.pdf'], {signal: controller.signal}, owner as never);
+            await admitted.promise;
+            controller.abort(new Error('canceled during admission'));
 
-        await expect(open).rejects.toThrow('admission canceled');
-        expect(mocks.createWorkingCopy).not.toHaveBeenCalled();
-        expect(mocks.cleanupWorkingCopy).not.toHaveBeenCalled();
-        acquire.mockRestore();
+            await expect(open).rejects.toThrow('admission canceled');
+            expect(mocks.createWorkingCopy).not.toHaveBeenCalled();
+            expect(mocks.cleanupWorkingCopy).not.toHaveBeenCalled();
+        } finally {
+            acquire.mockRestore();
+        }
     });
 
     it('discards the eventual copy of an open canceled while the copy was still running', async () => {
@@ -324,7 +345,10 @@ describe('openInputPaths', () => {
 
         await expect(open).rejects.toThrow('canceled during copy');
         expect(mocks.cleanupWorkingCopy).toHaveBeenCalledWith('/tmp/working/late.pdf', 42);
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/source.pdf', expect.anything());
+        // Releasing the copy goes through working-copy cleanup only. A single
+        // PDF open mints no temp directory, so it must remove nothing itself
+        // and above all not the source it was asked to open.
+        expect(mocks.rm).not.toHaveBeenCalled();
     });
 
     it('cleans the copy without touching generated retention when the cancel lands first', async () => {
@@ -353,21 +377,55 @@ describe('openInputPaths', () => {
         const release = vi.fn();
         const acquire = vi.spyOn(mainJobBroker, 'acquire')
             .mockResolvedValue({release} as never);
-        mocks.createWorkingCopy.mockImplementationOnce(async () => {
-            controller.abort(new Error('canceled after admission'));
-            return '/tmp/working/original.pdf';
-        });
-        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+        try {
+            mocks.createWorkingCopy.mockImplementationOnce(async () => {
+                controller.abort(new Error('canceled after admission'));
+                return '/tmp/working/original.pdf';
+            });
+            const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
 
-        await expect(openInputPaths(
-            ['/tmp/source.pdf'],
-            {signal: controller.signal},
-            owner as never,
-        )).rejects.toThrow('canceled after admission');
+            await expect(openInputPaths(
+                ['/tmp/source.pdf'],
+                {signal: controller.signal},
+                owner as never,
+            )).rejects.toThrow('canceled after admission');
 
-        expect(release).toHaveBeenCalledOnce();
-        expect(mocks.cleanupWorkingCopy).toHaveBeenCalledWith('/tmp/working/original.pdf', 42);
-        acquire.mockRestore();
+            expect(release).toHaveBeenCalledOnce();
+            expect(mocks.cleanupWorkingCopy).toHaveBeenCalledWith('/tmp/working/original.pdf', 42);
+        } finally {
+            acquire.mockRestore();
+        }
+    });
+
+    it('cleans up the minted combine directory when the combine admission throws', async () => {
+        const owner = {id: 42};
+        const acquire = vi.spyOn(mainJobBroker, 'acquire').mockRejectedValue(
+            new Error('combine admission failed'),
+        );
+        try {
+            const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+
+            await expect(openInputPaths([
+                '/tmp/a.png',
+                '/tmp/b.jpg',
+            ], {}, owner as never)).rejects.toThrow('combine admission failed');
+
+            // A combine open takes one lease, and the directory is minted
+            // before that admission, so the throw has to unwind through the
+            // same cleanup a granted open uses.
+            expect(acquire).toHaveBeenCalledOnce();
+            expect(acquire).toHaveBeenCalledWith(expect.objectContaining({
+                ownerId: 'pdf-combine:42',
+                kind: 'pdf-combine',
+            }));
+            expect(mocks.rm).toHaveBeenCalledOnce();
+            expect(mocks.rm.mock.calls[0]![0]).toBe(COMBINE_TEMP_DIR);
+            expect(mocks.rm).not.toHaveBeenCalledWith(COMBINE_TEMP_PARENT, expect.anything());
+            expect(mocks.createPdfFileFromInputPaths).not.toHaveBeenCalled();
+            expect(mocks.createWorkingCopyFromPath).not.toHaveBeenCalled();
+        } finally {
+            acquire.mockRestore();
+        }
     });
 
     it('rejects oversized open batches before granting paths or creating temp files', async () => {

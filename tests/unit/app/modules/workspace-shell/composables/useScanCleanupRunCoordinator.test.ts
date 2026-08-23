@@ -117,10 +117,22 @@ describe('openScanCleanupGeneratedPdf', () => {
         expect(handleOpenInNewTab).not.toHaveBeenCalled();
 
         // A late rejection from the uninterruptible request is consumed rather
-        // than left to surface as an unhandled rejection.
-        open.reject(new Error('open failed after abandonment'));
-        await vi.waitFor(() => expect(capabilities.openDocumentDirectBatch).toHaveBeenCalledOnce());
+        // than left to surface as an unhandled rejection: nobody is waiting for
+        // this answer any more, and an escaping rejection would fail whichever
+        // test happens to be running when the process notices it.
+        const unhandledRejection = vi.fn();
+        process.once('unhandledRejection', unhandledRejection);
+        try {
+            open.reject(new Error('open failed after abandonment'));
+            await new Promise(resolve => setTimeout(resolve, 0));
+            expect(unhandledRejection).not.toHaveBeenCalled();
+        } finally {
+            process.removeListener('unhandledRejection', unhandledRejection);
+        }
+        // A request that failed produced no working copy, so there is nothing
+        // to release, and the abandoned handoff still claims no tab.
         expect(capabilities.cleanupFile).not.toHaveBeenCalled();
+        expect(handleOpenInNewTab).not.toHaveBeenCalled();
     });
 
     it('never issues a request for an already-abandoned handoff', async () => {

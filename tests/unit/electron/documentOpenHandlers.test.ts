@@ -116,20 +116,28 @@ describe('direct batch open cancellation', () => {
         const context = senderContext(7);
         const otherContext = senderContext(9);
         const signals: AbortSignal[] = [];
+        // Every open this test starts stays pending on purpose. That standing
+        // implementation has to come off the shared mock again, or the next
+        // test's opens never answer either.
         mocks.openInputPaths.mockImplementation(async (_paths, options) => {
             signals.push(options!.signal!);
             return new Promise(() => undefined);
         });
+        try {
+            void handlers.handleOpenPdfDirectBatch(handlerContext(context), ['/tmp/a.pdf'], 'reused-id');
+            void handlers.handleOpenPdfDirectBatch(handlerContext(otherContext), ['/tmp/b.pdf'], 'reused-id');
+            await vi.waitFor(() => expect(signals).toHaveLength(2));
+            void handlers.handleOpenPdfDirectBatch(handlerContext(context), ['/tmp/c.pdf'], 'reused-id');
+            await vi.waitFor(() => expect(signals).toHaveLength(3));
 
-        void handlers.handleOpenPdfDirectBatch(handlerContext(context), ['/tmp/a.pdf'], 'reused-id');
-        void handlers.handleOpenPdfDirectBatch(handlerContext(otherContext), ['/tmp/b.pdf'], 'reused-id');
-        await vi.waitFor(() => expect(signals).toHaveLength(2));
-        void handlers.handleOpenPdfDirectBatch(handlerContext(context), ['/tmp/c.pdf'], 'reused-id');
-        await vi.waitFor(() => expect(signals).toHaveLength(3));
+            expect(signals[0]!.aborted).toBe(true);
+            expect(signals[1]!.aborted).toBe(false);
+            expect(signals[2]!.aborted).toBe(false);
+        } finally {
+            mocks.openInputPaths.mockReset();
+        }
 
-        expect(signals[0]!.aborted).toBe(true);
-        expect(signals[1]!.aborted).toBe(false);
-        expect(signals[2]!.aborted).toBe(false);
+        await expect(mocks.openInputPaths(['/tmp/restored.pdf'])).resolves.toBeNull();
     });
 
     it('leaves an unidentified batch request uncancellable', async () => {

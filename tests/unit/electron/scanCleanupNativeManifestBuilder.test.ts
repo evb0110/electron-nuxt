@@ -11,7 +11,10 @@ import {
     join,
     resolve,
 } from 'node:path';
-import {realpathSync} from 'node:fs';
+import {
+    existsSync,
+    realpathSync,
+} from 'node:fs';
 import type {
     INativeScanCleanupManifestV3,
     IScanCleanupNormalizedZonePolygon,
@@ -711,6 +714,8 @@ describe('native scan-cleanup manifest builder', () => {
 });
 
 describe('runnable native scan-cleanup manifest path containment', () => {
+    let temporaryDirectory = '';
+    let siblingSentinel = '';
     let root = '';
     let canonicalRoot = '';
     let outside = '';
@@ -737,9 +742,14 @@ describe('runnable native scan-cleanup manifest path containment', () => {
     });
 
     beforeAll(async () => {
-        const base = await mkdtemp(join(tmpdir(), 'scan-cleanup-root-boundary-'));
-        root = join(base, 'root');
-        outside = join(base, 'outside');
+        temporaryDirectory = await mkdtemp(join(tmpdir(), 'scan-cleanup-root-boundary-'));
+        // A sibling of the minted directory. Teardown that walks up from a path
+        // inside the fixture instead of removing the minted directory itself
+        // would take this too, and with it whatever else lives in the OS temp
+        // root.
+        siblingSentinel = await mkdtemp(join(tmpdir(), 'scan-cleanup-root-boundary-sentinel-'));
+        root = join(temporaryDirectory, 'root');
+        outside = join(temporaryDirectory, 'outside');
         await mkdir(root);
         await mkdir(outside);
         await mkdir(join(root, 'nested'));
@@ -753,8 +763,16 @@ describe('runnable native scan-cleanup manifest path containment', () => {
     });
 
     afterAll(async () => {
-        if (root !== '') {
-            await rm(resolve(root, '..'), {
+        if (temporaryDirectory !== '') {
+            await rm(temporaryDirectory, {
+                recursive: true,
+                force: true,
+            });
+            expect(existsSync(temporaryDirectory)).toBe(false);
+        }
+        if (siblingSentinel !== '') {
+            expect(existsSync(siblingSentinel)).toBe(true);
+            await rm(siblingSentinel, {
                 recursive: true,
                 force: true,
             });
