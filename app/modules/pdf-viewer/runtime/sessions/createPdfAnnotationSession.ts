@@ -97,48 +97,62 @@ export interface ICreatePdfAnnotationSessionOptions {
     emitShapeContextMenu: Parameters<typeof usePdfShapeTool>[0]['emitShapeContextMenu'];
 }
 
+interface IAnnotationStoreDocumentIdentityInput {
+    workingCopyPath: string | null;
+    source: TPdfSource | null;
+}
+
 interface IAnnotationSnapshotDocumentIdentityInput {
     originalPath: string | null;
     workingCopyPath: string | null;
     source: TPdfSource | null;
 }
 
-const annotationSnapshotBlobIdentities = new WeakMap<Blob, string>();
-let nextAnnotationSnapshotBlobIdentity = 0;
+// A pathless Blob or File carries no durable name: two picks can share a name,
+// a size, and a timestamp while holding different bytes. Only the object itself
+// distinguishes them, so both the canonical store and the snapshot cache key on
+// the instance. Entries die with the Blob, and the `blob-instance:` prefix
+// cannot collide with a path.
+const annotationBlobIdentities = new WeakMap<Blob, string>();
+let nextAnnotationBlobIdentity = 0;
+
+function annotationBlobIdentity(source: Blob) {
+    const existing = annotationBlobIdentities.get(source);
+    if (existing) {
+        return existing;
+    }
+    nextAnnotationBlobIdentity += 1;
+    const identity = `blob-instance:${nextAnnotationBlobIdentity}`;
+    annotationBlobIdentities.set(source, identity);
+    return identity;
+}
 
 function annotationDocumentKey(source: TPdfSource | null) {
     if (!source) {
         return 'no-document';
     }
-    if (source instanceof Blob) {
-        return `blob:${'name' in source ? String(source.name) : 'unnamed'}:${source.size}`;
-    }
-    return `path:${source.path}`;
+    return source instanceof Blob
+        ? annotationBlobIdentity(source)
+        : `path:${source.path}`;
 }
 
-function annotationSnapshotDocumentKey(source: TPdfSource | null) {
-    if (!(source instanceof Blob)) {
-        return annotationDocumentKey(source);
-    }
-    const existing = annotationSnapshotBlobIdentities.get(source);
-    if (existing) {
-        return existing;
-    }
-    nextAnnotationSnapshotBlobIdentity += 1;
-    const identity = `blob-instance:${nextAnnotationSnapshotBlobIdentity}`;
-    annotationSnapshotBlobIdentities.set(source, identity);
-    return identity;
+export function resolveAnnotationStoreDocumentIdentity(
+    input: IAnnotationStoreDocumentIdentityInput,
+) {
+    return input.workingCopyPath
+        ? `path:${input.workingCopyPath}`
+        : annotationDocumentKey(input.source);
 }
 
+// The snapshot cache keeps its own precedence: it survives working-copy
+// rewrites by preferring the original path, which the canonical store must not
+// do because its records describe the bytes PDF.js currently holds.
 export function resolveAnnotationSnapshotDocumentIdentity(
     input: IAnnotationSnapshotDocumentIdentityInput,
 ) {
-    if (input.originalPath) {
-        return `source:${input.originalPath}`;
-    }
-    return input.workingCopyPath
-        ? `path:${input.workingCopyPath}`
-        : annotationSnapshotDocumentKey(input.source);
+    return input.originalPath
+        ? `source:${input.originalPath}`
+        : resolveAnnotationStoreDocumentIdentity(input);
 }
 
 export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionOptions) => {
@@ -290,9 +304,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     }
     let stopAnnotationApplicationProjection = annotationApplication.value.store.subscribe(projectCanonicalAnnotations);
     const annotationDocumentIdentity = computed(() => (
-        options.workingCopyPath.value
-            ? `path:${options.workingCopyPath.value}`
-            : annotationDocumentKey(options.src.value)
+        resolveAnnotationStoreDocumentIdentity({
+            workingCopyPath: options.workingCopyPath.value,
+            source: options.src.value,
+        })
     ));
     const annotationSnapshotDocumentIdentity = computed(() => (
         resolveAnnotationSnapshotDocumentIdentity({

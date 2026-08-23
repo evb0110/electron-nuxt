@@ -35,6 +35,8 @@ interface IAnnotationNoteWindowRuntime {
     order: number;
     pendingEmbeddedSave: boolean;
     createdAtMs: number;
+    saveGeneration: number;
+    persistDeferredForSave: number | null;
 }
 
 const ANNOTATION_NOTE_DISAPPEARANCE_GRACE_MS = 5_000;
@@ -64,6 +66,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     const timers = new Map<AnnotationId, ReturnType<typeof setTimeout>>();
     const disappearanceTimers = new Map<AnnotationId, ReturnType<typeof setTimeout>>();
     let nextOrder = 0;
+    // Teardown fence. Once the owning scope stops, this composable owns no
+    // timers, no runtime records, and no right to talk to the viewer again.
+    let disposed = false;
 
     function stateById(annotationId: string) {
         return states.value.find(state => state.annotationId === annotationId) ?? null;
@@ -224,7 +229,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     }
 
     function upsertAnnotationNoteWindow(comment: IAnnotationCommentSummary) {
-        if (!isNoteEligibleComment(comment)) {
+        if (disposed || !isNoteEligibleComment(comment)) {
             return;
         }
         const annotationId = commandId(comment);
@@ -262,6 +267,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             order: ++nextOrder,
             pendingEmbeddedSave: false,
             createdAtMs: Date.now(),
+            saveGeneration: 0,
+            persistDeferredForSave: null,
         });
     }
 
@@ -315,7 +322,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     }
 
     function scheduleRemovalAfterProjectionGap(id: AnnotationId) {
-        if (disappearanceTimers.has(id)) {
+        if (disposed || disappearanceTimers.has(id)) {
             return;
         }
         const metadata = runtime.get(id);
@@ -337,6 +344,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     }
 
     function schedulePersist(id: AnnotationId) {
+        if (disposed) {
+            return;
+        }
         clearTimer(id);
         timers.set(id, setTimeout(() => {
             timers.delete(id);
@@ -377,6 +387,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     }
 
     function persistAnnotationNote(value: string): boolean | Promise<boolean> {
+        if (disposed) {
+            return true;
+        }
         const id = resolveId(value) ?? asAnnotationId(value);
         const state = stateById(id);
         const metadata = runtime.get(id);
@@ -384,12 +397,30 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return true;
         }
         if (metadata.saving) {
+            // The debounce fired mid-flight. Book the retry against the save
+            // that is running right now so that exact save, and nothing else,
+            // hands the newer draft back to the timer. A window reopened under
+            // the same id gets a fresh runtime, so the request it replaced
+            // cannot reach this marker.
+            metadata.persistDeferredForSave = metadata.saveGeneration;
             return false;
         }
+        const saveGeneration = ++metadata.saveGeneration;
         metadata.saving = true;
         metadata.error = null;
         const submittedText = state.draftText;
-        const finish = (updated: boolean) => {
+        // This attempt owns exactly the window it started on: that runtime
+        // record, that state object, and its own generation. Teardown, a
+        // removal, or a reopen under the same id retires it, and a retired
+        // attempt writes nothing — a view model handed out before the window
+        // went away still reads that runtime record, so a late fulfillment must
+        // not repaint it with an outcome that arrived after the window's death.
+        const ownsAttempt = () => (
+            !disposed
+            && runtime.get(id) === metadata
+            && stateById(id) === state
+        );
+        const applyFulfilled = (updated: boolean) => {
             if (!updated) {
                 if (metadata.requiresEmbeddedSave) {
                     metadata.pendingEmbeddedSave = true;
@@ -407,27 +438,45 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             }
             return false;
         };
-        const fail = () => {
+        const applyRejected = () => {
             metadata.error = t('errors.annotation.updateNote');
             return false;
+        };
+        const conclude = (apply: () => boolean) => {
+            if (!ownsAttempt()) {
+                // The request closed its own books and stops there. Reporting
+                // what the viewer said would be a claim about a window that no
+                // longer exists, so answer the way this function answers for
+                // any id it does not own: nothing left to persist.
+                return true;
+            }
+            metadata.saving = false;
+            const result = apply();
+            // Only the save the deferral was booked against may consume it.
+            if (metadata.persistDeferredForSave !== saveGeneration) {
+                return result;
+            }
+            metadata.persistDeferredForSave = null;
+            // Resubmitting the same text would only repeat the same outcome, so
+            // a newer draft is what earns another attempt. A timer already
+            // waiting will carry that draft on its own.
+            if (state.draftText === submittedText || timers.has(id)) {
+                return result;
+            }
+            schedulePersist(id);
+            return result;
         };
         try {
             const updated = deps.updateAnnotationCommentInViewer(id, submittedText);
             if (updated instanceof Promise) {
-                return updated
-                    .then(finish)
-                    .catch(fail)
-                    .finally(() => {
-                        metadata.saving = false;
-                    });
+                return updated.then(
+                    settled => conclude(() => applyFulfilled(settled)),
+                    () => conclude(applyRejected),
+                );
             }
-            const result = finish(updated);
-            metadata.saving = false;
-            return result;
+            return conclude(() => applyFulfilled(updated));
         } catch {
-            const result = fail();
-            metadata.saving = false;
-            return result;
+            return conclude(applyRejected);
         }
     }
 
@@ -440,31 +489,73 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         return results.every(Boolean);
     }
 
-    function removeAnnotationNoteWindow(value: string) {
-        const id = resolveId(value);
-        if (!id) {
-            return;
-        }
+    function deleteAnnotationNoteWindow(id: AnnotationId) {
         states.value = states.value.filter(state => state.annotationId !== id);
         runtime.delete(id);
         clearTimer(id);
         clearDisappearanceTimer(id);
     }
 
+    function removeAnnotationNoteWindow(value: string) {
+        const id = resolveId(value);
+        if (!id) {
+            return;
+        }
+        deleteAnnotationNoteWindow(id);
+    }
+
+    // A close that has to await a save owns the window it started on, not
+    // whatever answers to that id once the save settles. Reopening a note under
+    // the same id builds a fresh state object and a fresh runtime record, so
+    // holding both instances is what tells the two windows apart.
+    function captureOwnedAnnotationNoteWindow(id: AnnotationId | null) {
+        return {
+            id,
+            state: id ? stateById(id) : null,
+            metadata: id ? runtime.get(id) ?? null : null,
+        };
+    }
+
+    function removeOwnedAnnotationNoteWindow(
+        owned: ReturnType<typeof captureOwnedAnnotationNoteWindow>,
+    ) {
+        if (!owned.id || !owned.state || !owned.metadata) {
+            return;
+        }
+        // Someone else already retired that window, or the user reopened the
+        // note while the save was in flight. Either way this continuation has
+        // nothing left to close.
+        if (stateById(owned.id) !== owned.state || runtime.get(owned.id) !== owned.metadata) {
+            return;
+        }
+        deleteAnnotationNoteWindow(owned.id);
+    }
+
     async function closeAnnotationNote(value: string, options: {saveIfDirty?: boolean} = {}) {
+        const owned = captureOwnedAnnotationNoteWindow(resolveId(value));
         if (options.saveIfDirty !== false && !await persistAnnotationNote(value)) {
             return;
         }
-        removeAnnotationNoteWindow(value);
+        removeOwnedAnnotationNoteWindow(owned);
+    }
+
+    function clearAllTimers() {
+        timers.forEach(timer => clearTimeout(timer));
+        disappearanceTimers.forEach(timer => clearTimeout(timer));
+        timers.clear();
+        disappearanceTimers.clear();
     }
 
     async function closeAllAnnotationNotes(options: {saveIfDirty?: boolean} = {}) {
+        const owned = states.value.map(state => captureOwnedAnnotationNoteWindow(
+            asAnnotationId(state.annotationId),
+        ));
         if (options.saveIfDirty !== false && !await persistAllAnnotationNotes()) {
             return false;
         }
-        timers.forEach(timer => clearTimeout(timer));
-        disappearanceTimers.forEach(timer => clearTimeout(timer));
-        timers.clear(); disappearanceTimers.clear(); runtime.clear(); states.value = [];
+        // Closing everything means everything that was open when the user asked,
+        // not a note the projection opened while the saves were draining.
+        owned.forEach(entry => removeOwnedAnnotationNoteWindow(entry));
         return true;
     }
 
@@ -474,7 +565,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         if (metadata) metadata.error = message;
     }
 
-    watch(deps.annotationComments, (comments) => {
+    const stopAnnotationCommentsWatch = watch(deps.annotationComments, (comments) => {
         if (!deps.isAnnotationCommentSyncReady?.() && deps.isAnnotationCommentSyncReady) {
             return;
         }
@@ -496,10 +587,21 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         });
     });
 
-    tryOnScopeDispose(() => {
-        timers.forEach(timer => clearTimeout(timer));
-        disappearanceTimers.forEach(timer => clearTimeout(timer));
-    });
+    // Idempotent, and safe after an explicit closeAllAnnotationNotes: the maps
+    // and the state list are simply already empty by then. Stopping the watcher
+    // here rather than leaning on the scope keeps teardown self-contained, so
+    // the projection cannot revive a window this composable no longer owns.
+    function disposeAnnotationNoteWindows() {
+        // Raise the fence first so anything the teardown itself unwinds, and
+        // anything already queued behind it, sees a retired composable.
+        disposed = true;
+        clearAllTimers();
+        runtime.clear();
+        states.value = [];
+        stopAnnotationCommentsWatch();
+    }
+
+    tryOnScopeDispose(disposeAnnotationNoteWindows);
 
     return {
         annotationNoteWindows,
