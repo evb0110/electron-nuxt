@@ -136,7 +136,7 @@ function annotationDocumentKey(source: TPdfSource | null) {
         : `path:${source.path}`;
 }
 
-export function resolveAnnotationStoreDocumentIdentity(
+function resolveAnnotationStoreDocumentIdentity(
     input: IAnnotationStoreDocumentIdentityInput,
 ) {
     return input.workingCopyPath
