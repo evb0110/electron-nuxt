@@ -364,8 +364,13 @@ describe('CI topology policy', () => {
         expect(prQuality).not.toContain('.tmp/generated-electron-builder-resources.yml');
         expect(prQuality).toContain('git ls-files --others --exclude-standard');
         expect(prQuality).toContain('run: pnpm run lint');
-        expect(prQuality).not.toContain('run: pnpm run check:static:reports');
-        expect(prQuality).not.toContain('run: pnpm run check:static:assets');
+        // The release workflow's quality job is deleted; push CI's gates_ok
+        // is the single validation authority, so the cheap static release
+        // checks run here instead of only at release time.
+        expect(prQuality).toContain('run: pnpm run check:static:reports');
+        expect(prQuality).toContain('run: pnpm run check:static:assets');
+        expect(prQuality).toContain('run: pnpm run check:drizzle-schema');
+        expect(prQuality).toContain('run: pnpm run check:electron-builder:asar-unpack');
         expect(packageScripts.lint).toBe('node scripts/validation-gates.mjs lint');
         expect(packageScripts['generate:build-artifacts']).toContain('scripts/generateBuildArtifacts.ts');
         expect(packageScripts.prepare).toContain('pnpm run generate:build-artifacts');

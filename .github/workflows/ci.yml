@@ -144,6 +144,25 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run fallow:dupes
 
+      # Release-check commands that previously ran only in the deleted release
+      # quality job or the local gate. Push CI's gates_ok is the single
+      # validation authority, so they run here, once, on every push.
+      - name: Drizzle schema configuration
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run check:drizzle-schema
+
+      - name: Electron-builder ASAR unpack configuration
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run check:electron-builder:asar-unpack
+
+      - name: Platform manifest consumer reports
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run check:static:reports
+
+      - name: Web deploy source policy
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run check:static:assets
+
   pr_electron_blocking_smoke:
     name: Electron Blocking Smoke
     if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.electron_smoke == 'true' }}
@@ -316,6 +335,15 @@ jobs:
 
       - name: Strict build
         run: pnpm run build:strict
+
+      # Release-check commands that previously ran only at release time; push
+      # CI's gates_ok is the single validation authority, so they run here,
+      # once, whenever native or build surfaces change.
+      - name: Canonical scan-cleanup identity
+        run: pnpm run test:scan-cleanup:canonical-identity
+
+      - name: Electron bundle static integrity
+        run: pnpm run test:electron-bundle-static-integrity:no-build
 
   pr_rust_tests_arm64:
     name: Rust Tests (Linux arm64)

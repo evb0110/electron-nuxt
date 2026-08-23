@@ -61,7 +61,7 @@ describe('macOS packaged-reactivation diagnostic policy', () => {
             releaseRunbook,
         ] = await Promise.all([
             readFile('scripts/verify-macos-packaged-reactivation.sh', 'utf8'),
-            readFile('docs/releasing.md', 'utf8'),
+            readFile('docs/release-guardrails.md', 'utf8'),
         ]);
 
         expect(script).toContain('EVB_REACTIVATION_ARTIFACT_DIR');

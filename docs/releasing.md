@@ -1,130 +1,63 @@
 # Releasing
 
-Releases are cut locally and published by dispatching the GitHub Release workflow, which creates the version tag for the target commit.
+Releases are cut locally and published by dispatching the GitHub
+[`Release`](../.github/workflows/release.yml) workflow, which creates the
+version tag for the target commit. Push CI's `gates_ok` is the single
+validation authority: the release workflow resolves a green target, packages,
+verifies artifacts, and publishes — it revalidates nothing.
 
 ## Normal flow
 
-1. Run `pnpm run release:cut -- patch`, `pnpm run release:cut -- minor`, or `pnpm run release:cut -- major`.
-   The release script now fails before the version bump unless it is running under the Node major pinned in `package.json` `engines.node`, which is the project's current latest-LTS baseline (currently `24.x`).
-2. When the pre-bump `HEAD` is exactly the advertised `origin/main` tip and that SHA already has a successful push-CI run with a green `gates_ok` aggregate, the script skips the local release gate entirely: push CI is the validation authority, and the release workflow's build matrix packages and verifies every target anyway. The cut then reaches workflow dispatch in minutes. Preflight (Node baseline, `gh` auth, clean worktree, branch/upstream, tag absence), the version bump, and the publication-policy scan always run. Pass `--full-verify` (`pnpm run release:cut -- patch --full-verify`) to force the full local gate — do that after changing packaging configuration (electron-builder, bundlers, native tool packaging).
-3. Without that green-CI fast path, the script runs the local release gate against the exact would-be tagged tree. The gate is split into the CI-mode lint/static/test phase (`release:verify:checks`) and the current-platform package phase (`release:verify:package:local`). In a combined run, the checks phase performs the strict build once and writes a source/toolchain/target/output receipt; packaging reuses it only after recomputing and matching every fingerprint. The standalone package command remains correct by rebuilding when no exact receipt is supplied.
-4. The script then verifies that only `package.json` changed, commits the release version, scans the exact upstream-to-`HEAD` publication range, pushes the branch update, and dispatches the GitHub [`Release`](../.github/workflows/release.yml) workflow with the intended tag and target ref.
-5. The release workflow requires a green exact-SHA push-CI run for the release commit (polling up to 45 minutes, so an immediate post-push dispatch self-serves the CI wait), packages the main artifacts, creates the matching `v*` tag, and publishes the release in one run. It does not rerun the `release:verify:checks` list; push CI is the single validation authority. A complete Windows signing pair produces signed installers. When both secrets are absent, the workflow produces unsigned direct-download installers. Setting exactly one of `WIN_CSC_LINK` or `WIN_CSC_KEY_PASSWORD` fails the credential check. The workflow always builds and verifies both Store AppX packages, in parallel with promotion; Store packaging or submission failure never gates the GitHub release. Missing Partner Center credentials skip only API submission, not those package gates.
-6. The local command exits after the GitHub Actions run is visible. It prints the run URL, the future artifact section URL, the future release URL, and the expected artifact group names.
-
-## Artifact-only flow
-
-- Run `pnpm run release:artifacts` from a clean worktree when you want GitHub to build the release artifacts without cutting a release.
-- The command uses the same Node/GitHub CLI preflight, clean-worktree check, named-branch/upstream check, and guarded branch-push handoff as the release cutter, including the publication-policy scan. It then dispatches [`Build Release Artifacts`](../.github/workflows/release-artifacts.yml) for the exact pushed commit.
-- The artifact-only workflow runs the focused release checks only when the target SHA has no successful exact-SHA push-CI `gates_ok` run (for example a branch commit push CI never saw); a CI-vouched commit goes straight to packaging. It packages the same core release matrix, runs the supplemental macOS Intel and Windows 7 legacy lanes, and builds Store AppX packages with `submit: false`. Each Store package is extracted and passed through the same packaged native-tool and ASAR/content verification used by the regular Windows release lane.
-- It never creates a tag, creates or updates a GitHub Release, uploads release assets, or submits Store packages. Downloads live as GitHub Actions artifacts on the workflow run.
-
-## Manual Microsoft Store submission
-
-Use this when GitHub built Store AppX artifacts but Partner Center API submission is not configured, or when a human wants to inspect the draft before certification. Keep account-specific IDs, portal screenshots, submission IDs, and live troubleshooting notes out of tracked docs.
-
-1. Download both Store package artifacts from the workflow run:
-   `gh run download <run-id> -n store-appx-win-x64 -n store-appx-win-arm64`
-2. Upload these package files from the downloaded artifact directories:
-   - `store-appx-win-x64/EVB-Viewer-<version>-x64-store.appx`
-   - `store-appx-win-arm64/EVB-Viewer-<version>-arm64-store.appx`
-3. In Partner Center, follow Microsoft's manual submission flow: create a draft update from the product overview, open the Packages section, upload the packages, complete required submission sections, and submit for certification. See [Create app submission for MSIX apps](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/create-app-submission) and [Upload MSIX app packages](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/upload-app-packages).
-4. Do not mix Partner Center edits with a submission created through the [Microsoft Store submissions API](https://learn.microsoft.com/en-us/windows/uwp/monetize/manage-app-submissions). Keep a submission on one path: manual Partner Center or API.
-
-Store AppX packages must declare every shipped UI locale in `electron-builder.yml`. The Store workflow validates those manifest resources so Partner Center can offer matching localized listings.
-
-## Local guardrails
-
-- `pnpm run release:verify` mirrors the local parts of the release workflow, includes current-platform build and packaging verification, and fails if the successful verify run changes the working tree snapshot.
-- `release:verify:checks` forces `CI=1` during clean app-scoped linting, split static report/assets checks, clean typechecking, Electron install verification, native-resource matrix checks, WASM portability checks, lint-owned architecture checks, Rust tests, unit coverage, Electron bundle static-integrity checks, and the single strict build.
-- `pnpm run release:verify:package:local` owns the current-platform package proof: it accepts an exact verified build receipt from the combined verifier or performs a fresh strict build when invoked alone, then packages as the release workflow would, validates artifacts/updater metadata, verifies packaged native tools, and verifies packaged startup on macOS. Use `pnpm run test:electron-bundle-static-integrity:no-build` for a no-build static-integrity loop against existing `dist-electron/`.
-- Pull requests that touch landing or its vendored package sources must pass landing vendor sync, lint, typecheck, and build checks. Native/build and landing path classification comes from the single changed-area policy in `scripts/release/policy.mjs`; manual CI quality lanes remain available on demand, while nightly maintenance keeps broader deterministic coverage running outside the local patch-cut path.
-- Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
-- Broad maintenance checks (`typecheck:coverage`, `fallow`, and the coverage zero-execution tripwire) remain part of scheduled nightly CI, but they do not block every local release cut. The dormant Python page-processor was removed in July 2026 after the native scan-cleanup pipeline superseded it; its implementation remains recoverable from git history.
-- Release-critical tests should stay deterministic and fast. Long serial Electron E2E and PDF tab diagnostics are available in nightly/manual diagnostics, but they do not block release cutting.
-- Changed or file-scoped local loops, including `pnpm exec vitest run --changed origin/main --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy --passWithNoTests`, `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, `pnpm exec fallow dead-code --changed-since origin/main`, and `pnpm run test:electron-bundle-static-integrity:no-build`, are iteration aids. They do not replace `pnpm run release:verify` for release proof.
-- Fresh installs now follow the checked-in build-script policy in [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
-- `pnpm run release:verify` is intentionally host-only for packaging. If you change cross-platform launcher or packaging decisions, add unit coverage for that branching logic instead of assuming a macOS-local release cut exercises Linux and Windows paths.
-- The macOS packaged-startup step is meaningful only when local packaging uses real Developer ID credentials. Ad-hoc local signing still verifies bundled native-tool execution, but it does not faithfully reproduce LaunchServices/runtime-library-validation behavior for a shipped `.app`.
-- After producing a signed macOS candidate, run `bash scripts/verify-macos-packaged-reactivation.sh mac <arm64|x64>` from the repository root. The diagnostic targets only `release/mac-<arch>/EVB Viewer.app`, launches a tokenized isolated profile, requires Accessibility access, and proves 20 Finder-to-LaunchServices foreground cycles plus minimized and hidden recovery. It closes the last window and requires the same macOS process to remain alive and recreate a window when activated, then explicitly terminates the app, requires its Electron process tree to exit, proves the bundle can be moved for replacement, and unregisters that exact workspace bundle from LaunchServices. It retains its main/window logs below `.devkit/test/macos-packaged-reactivation/` and terminates only the PID whose command contains the exact packaged executable and unique token. On a non-CI Mac it refuses to run without `EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST=1`, snapshots the Dock first, and removes only a matching test-path Dock item that did not pre-exist. Accessibility-denied hosts exit without weakening the assertions; keep this lane in a macOS manual/nightly environment with the permission pre-granted.
-- The scripted reactivation matrix does not claim to automate the 30-minute soak, system sleep/wake, display or Space changes, or opening a user-selected document from Finder. Perform those checks manually against the same signed candidate with no installed production or development instance in scope, and record the evidence before a release whose macOS focus behavior changed.
-- `codesign --verify` is not enough for macOS release safety. The GitHub mac packaging lanes must also pass `spctl --assess --type execute`, otherwise a bundle can look internally valid while still being rejected or crashing at launch on end-user machines.
-- The signed macOS LaunchServices gate must start from a disposable copy of the final DMG, apply browser-download quarantine, mount it, copy the app to a disposable install location, and launch that installed copy. Launching the unpacked `release/mac-<arch>` bundle does not exercise Gatekeeper's first-launch execution policy. The diagnostic refuses local production-identity runs unless `EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST=1` is set after explicit approval, unregisters the mounted source bundle before detaching the DMG, and unregisters its exact disposable app path during cleanup.
-- On macOS, packaged native-tool verification must execute the bundled tools from inside the signed app resources, not just inspect file presence or `otool` output. That is how we catch Team-ID/library-validation regressions in bundled DjVuLibre, Poppler, qpdf, and Tesseract payloads before tag push.
-- The macOS PDF-tool bundler treats missing Homebrew binaries/libraries, failed install-name rewrites, and residual Homebrew references as fatal; it must never publish a partial Poppler/qpdf resource tree.
-- Cross-platform runner differences, hosted-runner quirks, and secret-only signing/notarization failures can still require GitHub Actions, but ordinary release regressions should now fail before tag push.
-- Public releases require the macOS Developer ID and notarization secrets. Artifact-only builds may remain ad-hoc signed and must still build and launch correctly.
-- Ad-hoc macOS artifact builds are manual-install only. GitHub builds prune `latest-mac*.yml` and `.blockmap` for ad-hoc mac bundles so the updater feed cannot mix signed and ad-hoc framework blocks.
-- Windows signing secrets are optional for public releases.
-- Unsigned Windows releases are manual-install only too. GitHub builds prune `latest*.yml` and `.blockmap` unless the Windows artifact is the signed x64 updater target.
-- The release always builds and verifies both Microsoft Store AppX packages, in parallel with promotion and without gating it. API submission runs only when all three Partner Center secrets are configured. Without them, the submission step is a deliberate no-op, as it was for v0.1.426.
-- The release publish step must tolerate zero updater metadata files. Some releases are intentionally download-only across every platform.
-- Distribution decisions must remain compatible with an individual, free,
-  non-commercial project. Treat any business identity, paid account, or account
-  conversion requirement as an explicit owner decision rather than an assumed
-  release prerequisite.
-
-## Publication policy gate
-
-`scripts/check-commit-attribution.mjs` is the single gate on what becomes public: the
-pre-commit hook checks the staged tree, the pre-push hook checks everything a push would
-newly publish (including annotated tag objects), the release cutter and the artifact-only
-flow run it as part of the same command before their push, and CI reruns it for pushes and
-pull requests.
-It rejects prohibited commit attribution and the local-only artifacts listed in
-`scripts/lib/local-artifact-policy.mjs`.
-
-In CI, `--pushed-range <before> <head>` scans `before..head` when the before SHA is
-reachable, and otherwise scans the complete history of the pushed head. An absent SHA, a
-zero OID, and — after a force history rewrite — an unreachable SHA all take that wider
-path. This is intentional and fail-closed. The authorized public-history rewrite must
-remove agent instruction files and local-only directories from every public head and tag.
-After that rewrite has been validated and published, a full-history scan of a rewritten
-branch passes, and keeping it full prevents the purged content from re-entering public
-history through a later force push.
-
-Until the rewrite is published, a complete-history scan is expected to report the legacy
-artifacts. After publication, a local branch created from the old history still contains
-them and will fail the gate. Rebase or cherry-pick its work onto the rewritten `main`, or
-rewrite the branch itself (`git rebase --onto`, `git filter-repo`) so no reachable commit
-adds those paths. Do not narrow the scanned range, skip the hook, or otherwise bypass the
-gate to push such a branch.
+1. Run `pnpm run release:cut -- patch` (or `minor` / `major`).
+2. When the pre-bump `HEAD` is the advertised `origin/main` tip with a green
+   `gates_ok` push-CI run, the cut skips the local release gate and reaches
+   dispatch in minutes. Preflight, the version bump, and the publication-policy
+   scan always run. Pass `--full-verify` to force the full local gate after
+   changing packaging configuration (electron-builder, bundlers, native tool
+   packaging); without the fast path the full gate runs automatically.
+3. The workflow waits for the release commit's own push CI (up to 45 minutes,
+   so an immediate post-push dispatch self-serves the wait), builds the core
+   five-target matrix, stages and finalizes the draft with `SHA256SUMS` and
+   provenance attestations, stages the mirror, promotes, and attaches the
+   supplemental Intel ZIP afterward. The local command exits once the run is
+   visible and prints its URLs.
 
 ## Critical-path rule
 
-- The release must publish as soon as the core release matrix is done: macOS arm64, Linux x64/arm64, and Windows x64/arm64.
-- The supplemental `macos-15-intel` lane is intentionally not on the critical path. It runs in parallel and attaches its ZIP to the already-promoted GitHub release in the `attach_mac_intel` job. Because it attaches after `SHA256SUMS` is finalized, the Intel ZIP stays outside the immutable core checksum set; release verification tolerates that through `isSupplementalReleaseAsset` in `scripts/release/policy.mjs`.
-- The supplemental Windows 7 legacy lane is best-effort only. It packages a renamed legacy installer when available and must not block the main release.
-- Store AppX packaging and Partner Center reconciliation run in parallel with promotion. Nothing in the publish or promote chain `needs` them.
-- The Windows ARM64 NSIS installed-app journey in the build matrix is advisory (`continue-on-error`): it verifies hosted-runner installer behavior, not the product build, and repeatedly killed releases 28-30 minutes in on extraction races. A failure emits a warning annotation and uploads diagnostics. The same journey stays fully blocking on Windows x64.
-- The packaged scan-cleanup verifier is advisory on release for the same reason: as a blocking gate it caught zero real packaged defects while its UI pins drifted silently between releases and killed campaigns. The toolbar contract it exercised is pinned continuously and cheaply by the blocking electron smoke lane in push CI (`scanCleanupToolbarContract.e2e.test.ts`), which also runs locally in minutes. The packaged job still runs on every release and uploads its scale evidence.
-- Do not move the `macos-15-intel`, Windows 7 legacy, or Store builds back onto the blocking chain (`publish` or `promote_release` `needs`). If that happens, supplemental runner slowness or flakes will delay the whole release again.
+- Publish as soon as the core matrix is done: macOS arm64, Linux x64/arm64,
+  Windows x64/arm64. Nothing else may gate `publish` or `promote_release`.
+- Supplemental lanes attach or run afterward: the `macos-15-intel` ZIP attaches
+  post-promotion (outside the immutable `SHA256SUMS` set, tolerated via
+  `isSupplementalReleaseAsset` in `scripts/release/policy.mjs`); Windows 7
+  legacy is best-effort; Store AppX runs in parallel with promotion.
+- Advisory-by-evidence gates stay advisory: the Windows ARM64 NSIS installed
+  journey and the packaged scan-cleanup verifier annotate and upload evidence
+  without blocking (their contracts are pinned continuously in push CI, for
+  example `scanCleanupToolbarContract.e2e.test.ts`).
+
+## Anti-accretion rule
+
+A release-failure fix may add provisioning or diagnostics, but a new
+*blocking* gate must name an existing blocking gate it demotes or deletes.
+Incident-response guards start advisory (`continue-on-error` plus a warning
+annotation) and are promoted only after catching a real defect twice. Prefer a
+cheap continuously-running contract in push CI over any release-time-only
+proof: release-path code that never executes between releases is where
+campaigns die.
 
 ## Recovery flow
 
-- For an infrastructure flake (runner provisioning, network, installer race), the first action is GitHub's "Re-run failed jobs" on the same run and tag. Same-tag repair is supported: `prepare` accepts an existing tag that points at the requested SHA, and `publish` reconciles an existing draft. Do not bump the version and cut a fresh release for an infra flake; that costs a full local gate plus a new workflow run and leaves an unpublished version behind.
-- If a full retry is needed, use the workflow's manual dispatch with the existing tag and the same target SHA.
-- Only an actual code or workflow defect requires a new commit, and only a defect in the release commit itself requires a new version.
-- If local `release:verify` changes any tracked, staged, or untracked file, treat that as a release-script regression and fix it before retrying. The cutter also refuses to auto-stage unexpected release changes.
+- For an infrastructure flake, the first action is "Re-run failed jobs" on the
+  same run. Same-tag repair is fully supported: `prepare` accepts an existing
+  tag at the requested SHA, `publish` reconciles an existing finalized draft,
+  and mirror objects are content-addressed — a fresh dispatch with the same
+  tag and target SHA resumes where the failure happened.
+- Only a code or workflow defect requires a new commit, and only a defect in
+  the release commit itself requires a new version. Never bump the version to
+  retry an infra failure.
 
-## Landing rollout, withdrawal, and rollback
+## Pointers
 
-The landing download endpoint selects from the public GitHub release list; it does not trust GitHub's mutable `latest` flag. Configure the deployed landing service with:
-
-- `NUXT_RELEASE_STABLE_TAGS`: comma-separated, preference-ordered stable tags. The first available, non-withdrawn tag is served. Leave empty only for newest-public-release compatibility mode.
-- `NUXT_RELEASE_WITHDRAWN_TAGS`: comma-separated tags that must never be served.
-- `NUXT_RELEASE_CANARY_TAG` and `NUXT_RELEASE_CANARY_PERCENT`: an optional public canary and deterministic cohort percentage from 0 through 100.
-
-To withdraw a bad release, add its tag to `NUXT_RELEASE_WITHDRAWN_TAGS`, put the prior known-good tag first in `NUXT_RELEASE_STABLE_TAGS`, set the canary percentage to zero, deploy the configuration, and verify `/api/releases/latest` from multiple user-agent/cohort keys. Keep the withdrawn release excluded until a replacement has passed the packaged smoke and downloaded-asset hash checks. Rollback is therefore a server configuration change and does not require republishing or mutating old GitHub assets.
-
-## Release command behavior
-
-- The release and artifact-only commands stop after the dispatched GitHub workflow run is visible, because GitHub owns the remote matrix from that point onward.
-- The handoff poll uses `gh auth status` / `gh run ...` under the hood. If GitHub takes longer than usual to surface a just-dispatched run, set `EVB_GITHUB_WORKFLOW_START_TIMEOUT_MS` to a larger positive integer.
-
-## Why this is less brittle
-
-- Validation, packaging, and publication now happen inside one workflow run.
-- Release artifacts are downloaded from the same run that built them, so there is no cross-workflow run-id lookup or artifact certification handoff.
-- Local release cutting dispatches one focused `gh workflow run` for the release workflow instead of relying on a tag-push trigger or cross-workflow artifact lookup.
-- Slow or flaky `macos-15-intel` runners no longer hold the GitHub release hostage; they only affect the later Intel ZIP attachment.
+- Detailed guardrails, macOS signing/Gatekeeper runbooks, the artifact-only
+  flow, manual Store submission, the publication-policy gate, and landing
+  rollout/rollback: [`release-guardrails.md`](./release-guardrails.md).
