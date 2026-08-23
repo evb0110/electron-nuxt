@@ -4762,6 +4762,8 @@ describe('scan cleanup pipeline', () => {
             ] of manifest.pages.entries()) {
                 onProgress?.(0, {
                     stage: 'page-complete',
+                    completedPages: index + 1,
+                    totalPages: manifest.pages.length,
                     pageNumber: index + 1,
                 });
                 await writeFile(page.pageMetadataPath, JSON.stringify({
@@ -5762,6 +5764,251 @@ describe('scan cleanup pipeline', () => {
         );
 
         expect(pipelineDependencies.runSidecar).not.toHaveBeenCalled();
+    });
+
+    // A native progress envelope proves only that it agrees with itself: its
+    // page numbers are bounded by its own total, and nothing in the protocol
+    // ties that total to the pages this run submitted. These cases pin what the
+    // lossless consumer does before it reads a reported page number as an index
+    // into that scope.
+    describe('lossless native progress scope', () => {
+        const losslessPageNumbers = [
+            2,
+            3,
+        ];
+
+        function analysisPageMetadata() {
+            return JSON.stringify({
+                layoutClassification: 'single-uncut-page',
+                cutterXPx: null,
+                rotationDegrees: 0,
+                canvasScope: 'document',
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+                outputs: [{
+                    half: 'full',
+                    sourceRegion: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1_000,
+                        heightPx: 1_400,
+                    },
+                    cropRect: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1_000,
+                        heightPx: 1_400,
+                    },
+                    contentBox: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1_000,
+                        heightPx: 1_400,
+                    },
+                    inputWidthPx: 1_000,
+                    inputHeightPx: 1_400,
+                }],
+            });
+        }
+
+        // Pages 2 and 3 of a three-page document: a manifest index and its
+        // source page number differ, so a frame read against the wrong scope
+        // names a different page instead of failing.
+        async function runLosslessAnalysis(runSidecar: IRunScanCleanupPipelineDependencies['runSidecar']) {
+            const fixture = await setup();
+            const classifying: Array<{
+                completedUnits: number;
+                pageNumbers: number[];
+            }> = [];
+            const emitProgress = vi.fn((
+                stage: TScanCleanupProgress['stage'],
+                completedUnits: number,
+                _totalUnits: number,
+                completedPageNumbers?: Iterable<number>,
+            ) => {
+                if (stage !== 'classifying') {
+                    return;
+                }
+                classifying.push({
+                    completedUnits,
+                    pageNumbers: [...completedPageNumbers ?? []],
+                });
+            });
+            const run = runLosslessScanCleanup(
+                {
+                    sourcePdfPath: fixture.sourcePdfPath,
+                    outputPdfPath: fixture.outputPdfPath,
+                    options: {
+                        ...options,
+                        preserveOriginalQuality: true,
+                    },
+                },
+                pipelinePaths(fixture.dir),
+                fixture.sourcePdfPath,
+                [],
+                losslessPageNumbers,
+                documentGeometry([
+                    1,
+                    2,
+                    3,
+                ]),
+                dpiDetails(300, [
+                    [
+                        2,
+                        300,
+                    ],
+                    [
+                        3,
+                        300,
+                    ],
+                ]),
+                fixture.dir,
+                join(fixture.dir, 'staged.pdf'),
+                new AbortController().signal,
+                emitProgress,
+                vi.fn(),
+                highTierPolicy,
+                dependencies(runSidecar),
+            );
+            return {
+                run,
+                classifying,
+            };
+        }
+
+        it('fails a lossless run whose native total covers more pages than it submitted', async () => {
+            const {
+                run,
+                classifying,
+            } = await runLosslessAnalysis(vi.fn(async (
+                _binary,
+                _manifestPath,
+                _signal,
+                _log,
+                onProgress,
+            ) => {
+                // Self-consistent by the codec's rules — the page number is
+                // within the envelope's own total — but that total is the whole
+                // document rather than the two pages this run submitted.
+                onProgress({
+                    stage: 'classifying',
+                    completedUnits: 1,
+                    totalUnits: 3,
+                    percent: 100 / 3,
+                }, {
+                    stage: 'page-complete',
+                    completedPages: 1,
+                    totalPages: 3,
+                    pageNumber: 3,
+                });
+            }));
+
+            await expect(run).rejects.toThrow(
+                'evb-scan-cleanup analysis reported 3 total pages for 2 submitted pages',
+            );
+            expect(classifying).toEqual([{
+                completedUnits: 0,
+                pageNumbers: [],
+            }]);
+        });
+
+        it('fails a lossless run whose native page number is outside the submitted pages', async () => {
+            const {
+                run,
+                classifying,
+            } = await runLosslessAnalysis(vi.fn(async (
+                _binary,
+                _manifestPath,
+                _signal,
+                _log,
+                onProgress,
+            ) => {
+                onProgress({
+                    stage: 'classifying',
+                    completedUnits: 1,
+                    totalUnits: 2,
+                    percent: 50,
+                }, {
+                    stage: 'page-complete',
+                    completedPages: 1,
+                    totalPages: 2,
+                    pageNumber: 3,
+                });
+            }));
+
+            await expect(run).rejects.toThrow(
+                'evb-scan-cleanup analysis reported unknown page index 3',
+            );
+            expect(classifying).toEqual([{
+                completedUnits: 0,
+                pageNumbers: [],
+            }]);
+        });
+
+        it('reports each valid native frame against the source page it submitted', async () => {
+            const {
+                run,
+                classifying,
+            } = await runLosslessAnalysis(vi.fn(async (
+                _binary,
+                manifestPath,
+                _signal,
+                _log,
+                onProgress,
+            ) => {
+                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>;};
+                const progress = (
+                    stage: 'started' | 'page-analyzed' | 'page-complete' | 'completed',
+                    completedPages: number,
+                    pageNumber?: number,
+                    reconciled?: boolean,
+                ) => {
+                    onProgress({
+                        stage: 'classifying',
+                        completedUnits: completedPages,
+                        totalUnits: manifest.pages.length,
+                        percent: completedPages / manifest.pages.length * 100,
+                    }, {
+                        stage,
+                        completedPages,
+                        totalPages: manifest.pages.length,
+                        ...(pageNumber === undefined ? {} : {pageNumber}),
+                        ...(reconciled === undefined ? {} : {reconciled}),
+                    });
+                };
+                progress('started', 0);
+                for (const [
+                    index,
+                    page,
+                ] of manifest.pages.entries()) {
+                    progress('page-analyzed', index, index + 1);
+                    await writeFile(page.pageMetadataPath, analysisPageMetadata());
+                    progress('page-complete', index + 1, index + 1, true);
+                }
+                progress('completed', manifest.pages.length);
+            }));
+
+            await run;
+
+            expect(classifying).toEqual([
+                {
+                    completedUnits: 0,
+                    pageNumbers: [],
+                },
+                {
+                    completedUnits: 1,
+                    pageNumbers: [2],
+                },
+                {
+                    completedUnits: 2,
+                    pageNumbers: [
+                        2,
+                        3,
+                    ],
+                },
+            ]);
+        });
     });
 
     it('keeps a partial page selection valid against full-document geometry', async () => {

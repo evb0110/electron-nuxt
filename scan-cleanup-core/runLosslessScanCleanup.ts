@@ -181,11 +181,27 @@ export async function runLosslessScanCleanup(
     emitProgress('classifying', 0, pageNumbers.length, []);
     const classifiedPageNumbers = new Set<number>();
     await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, (_progress, nativeProgress) => {
+        // The envelope only proves itself self-consistent: its page numbers are
+        // bounded by its own total, which nothing ties to the pages this run
+        // submitted. Both totals have to agree before a reported page number
+        // can be read as an index into the submitted scope.
+        if (nativeProgress.totalPages !== pageNumbers.length) {
+            throw new Error(
+                `evb-scan-cleanup analysis reported ${String(nativeProgress.totalPages)} total pages`
+                + ` for ${String(pageNumbers.length)} submitted pages`,
+            );
+        }
         if (nativeProgress.stage !== 'page-complete') {
             return;
         }
         if (nativeProgress.pageNumber !== undefined) {
-            classifiedPageNumbers.add(pageNumbers[nativeProgress.pageNumber - 1]!);
+            const sourcePageNumber = pageNumbers[nativeProgress.pageNumber - 1];
+            if (sourcePageNumber === undefined) {
+                throw new Error(
+                    `evb-scan-cleanup analysis reported unknown page index ${String(nativeProgress.pageNumber)}`,
+                );
+            }
+            classifiedPageNumbers.add(sourcePageNumber);
         }
         emitProgress('classifying', classifiedPageNumbers.size, pageNumbers.length, classifiedPageNumbers);
     }, {allowedPathRoot: paths.tempDir});
