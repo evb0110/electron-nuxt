@@ -1586,5 +1586,6 @@ export default {
         'noOutline': 'Geen overzicht',
         'searchPlaceholder': 'Document doorzoeken',
         'goToPage': 'Ga naar pagina {page}',
+        'goToPageRenderFailed': 'Ga naar pagina {page}. Paginavoorbeeld niet beschikbaar.',
     },
 };

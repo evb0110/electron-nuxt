@@ -15,6 +15,7 @@ import {
     resolveThumbnailRasterWidth,
     resolveThumbnailRenderWidthFromStyles,
 } from '@app/utils/document-viewer/thumbnails/documentThumbnailRenderMetrics';
+import {createDocumentThumbnailMetricsCache} from '@app/utils/document-viewer/thumbnails/documentThumbnailMetricsCache';
 import {
     createDocumentThumbnailScheduler,
     type IDocumentThumbnailCommittedState,
@@ -35,12 +36,24 @@ const RENDER_OVERSCAN_PX = 420;
 const CURRENT_NEIGHBOR_COUNT = 2;
 const SCROLL_SETTLE_MS = 160;
 const RESIZE_SETTLE_MS = 140;
+/**
+ * The scheduler re-queues a page after every failed render, so a page that
+ * always fails would retry forever. Three consecutive failures of the same
+ * request is the point where a retry has stopped looking transient, so that is
+ * where the controller stops asking and surfaces the error instead.
+ */
+const RENDER_ATTEMPT_LIMIT = 3;
 
 export interface IDocumentThumbnailVirtualItem {
     aspectRatio: string;
     height: number;
     pageNumber: number;
     top: number;
+}
+
+interface IRenderFailure {
+    attempts: number;
+    widthPx: number;
 }
 
 interface IUseDocumentThumbnailControllerOptions {
@@ -92,7 +105,11 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     const cssWidth = ref(MIN_CSS_WIDTH);
     const itemChromeHeight = ref(DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT);
     const settledCssWidth = ref(MIN_CSS_WIDTH);
-    const metricsCache = new Map<number, Promise<IDocumentPageMetrics>>();
+    const metricsCache = createDocumentThumbnailMetricsCache();
+    /** Pages whose thumbnail failed RENDER_ATTEMPT_LIMIT times at the demanded width. */
+    const renderErrors = shallowReactive(new Set<number>());
+    /** Attempt bookkeeping; every page in renderErrors also has an entry here. */
+    const renderFailures = new Map<number, IRenderFailure>();
     const layout = new DocumentThumbnailLayout({
         itemChromeHeight: itemChromeHeight.value,
         pageCount: 0,
@@ -162,7 +179,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             promise = source.getPageMetrics(pageNumber, signal);
             metricsCache.set(pageNumber, promise);
             promise.catch(() => {
-                if (metricsCache.get(pageNumber) === promise) metricsCache.delete(pageNumber);
+                if (metricsCache.peek(pageNumber) === promise) metricsCache.delete(pageNumber);
             });
         }
         const metrics = await promise;
@@ -171,11 +188,48 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         return metrics;
     }
 
+    function clearRenderFailure(pageNumber: number) {
+        renderFailures.delete(pageNumber);
+        renderErrors.delete(pageNumber);
+    }
+
+    function clearRenderFailures() {
+        renderFailures.clear();
+        renderErrors.clear();
+    }
+
+    /** Failures only live as long as the page they belong to stays in demand. */
+    function pruneRenderFailures(retainedPages: ReadonlySet<number>) {
+        for (const pageNumber of [...renderFailures.keys()]) {
+            if (!retainedPages.has(pageNumber)) clearRenderFailure(pageNumber);
+        }
+    }
+
     const scheduler = createDocumentThumbnailScheduler({
         maxConcurrency: 3,
+        onError(_error, demand) {
+            const previous = renderFailures.get(demand.pageNumber);
+            // Attempts only accumulate across the same request: a width change in
+            // flight is a new request, not another failure of the previous one.
+            const attempts = previous?.widthPx === demand.widthPx ? previous.attempts + 1 : 1;
+            renderFailures.set(demand.pageNumber, {
+                attempts,
+                widthPx: demand.widthPx,
+            });
+            if (attempts < RENDER_ATTEMPT_LIMIT) {
+                return;
+            }
+            renderErrors.add(demand.pageNumber);
+            // Reconcile from inside the failure: the scheduler re-queues this page
+            // as soon as this callback returns, so the demand has to be gone by
+            // then or the exhausted page would keep retrying in a tight loop.
+            reconcileDemand();
+        },
         onStateChange(pageNumber, state) {
-            if (state) states.set(pageNumber, state);
-            else states.delete(pageNumber);
+            if (state) {
+                states.set(pageNumber, state);
+                clearRenderFailure(pageNumber);
+            } else states.delete(pageNumber);
         },
         prepareSurface,
         async render(request) {
@@ -336,26 +390,71 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         const rasterCssWidth = transient ? settledCssWidth.value : cssWidth.value;
         const normalWidth = resolveThumbnailRasterWidth(rasterCssWidth * (transient ? 1 : settledScale));
         const currentWidth = resolveThumbnailRasterWidth(cssWidth.value * settledScale);
+        pruneRenderFailures(retainedPages);
         const demand: IDocumentThumbnailDemand[] = [];
         for (const pageNumber of retainedPages) {
             const isCurrent = pageNumber === currentPage;
             const isVisiblePage = visiblePages.has(pageNumber);
+            // A page whose retries are exhausted stays out of the demand set until
+            // its error is cleared, so one broken page neither retries forever nor
+            // competes with its neighbours for a render slot. A page still holding
+            // an older thumbnail keeps it instead, pinned to the width that page's
+            // committed render asked for: that is the width the scheduler compares
+            // a settled demand against, so the demand reads as satisfied and the
+            // page neither renders again nor loses the surface the row is showing.
+            // Any other width — the width the rail now wants, or the raster the
+            // provider actually leased, which it may shrink — reads as unsatisfied
+            // and restarts the retry loop this branch exists to stop.
+            if (renderErrors.has(pageNumber)) {
+                const committedWidthPx = states.get(pageNumber)?.requestWidthPx;
+                if (committedWidthPx === undefined) {
+                    continue;
+                }
+                demand.push({
+                    distance: Math.abs(pageNumber - currentPage),
+                    pageNumber,
+                    priority: 'thumbnail',
+                    quality: 'settled',
+                    rank: isCurrent ? 0 : isVisiblePage ? 1 : 2,
+                    widthPx: committedWidthPx,
+                });
+                continue;
+            }
+            const widthPx = isCurrent ? currentWidth : normalWidth;
             demand.push({
                 distance: Math.abs(pageNumber - currentPage),
                 pageNumber,
                 priority: 'thumbnail',
                 quality: isCurrent ? 'settled' : quality,
                 rank: isCurrent ? 0 : isVisiblePage ? 1 : 2,
-                widthPx: isCurrent ? currentWidth : normalWidth,
+                widthPx,
             });
         }
         return demand;
     }
 
+    function reconcileDemand() {
+        scheduler.reconcile(buildDemand());
+    }
+
     function refresh() {
         scheduledFrame = null;
         measureViewport();
-        scheduler.reconcile(buildDemand());
+        reconcileDemand();
+    }
+
+    /**
+     * Drops a surfaced render error and asks the scheduler for that page again.
+     * Errors otherwise clear on a successful render, on a source replacement, or
+     * when the page leaves the retained window, so scrolling away and back also
+     * gives a broken page a fresh run.
+     */
+    function retryRender(pageNumber: number) {
+        if (!renderErrors.has(pageNumber)) {
+            return;
+        }
+        clearRenderFailure(pageNumber);
+        reconcileDemand();
     }
 
     function scheduleRefresh() {
@@ -468,6 +567,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             scheduler.reset();
             states.clear();
             metricsCache.clear();
+            clearRenderFailures();
             hasSourceAspectEstimate = false;
             layout.resetDocument({
                 itemChromeHeight: itemChromeHeight.value,
@@ -544,6 +644,8 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         resizeObserver?.disconnect();
         scheduler.dispose();
         states.clear();
+        clearRenderFailures();
+        metricsCache.clear();
     });
 
     return {
@@ -551,6 +653,8 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         handlePointerDown: markManualInteraction,
         handleScroll,
         handleWheel: markManualInteraction,
+        renderErrors: renderErrors as ReadonlySet<number>,
+        retryRender,
         scheduleRefresh,
         states,
         virtualItems,

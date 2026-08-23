@@ -1586,5 +1586,6 @@ export default {
         'noOutline': 'No outline',
         'searchPlaceholder': 'Search document',
         'goToPage': 'Go to page {page}',
+        'goToPageRenderFailed': 'Go to page {page}. Page preview unavailable.',
     },
 } as const;

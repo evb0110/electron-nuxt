@@ -1586,5 +1586,6 @@ export default {
         'noOutline': 'Sin esquema',
         'searchPlaceholder': 'Buscar en el documento',
         'goToPage': 'Ir a la página {page}',
+        'goToPageRenderFailed': 'Ir a la página {page}. Vista previa de la página no disponible.',
     },
 };

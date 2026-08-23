@@ -24,8 +24,11 @@
                 frame-class="document-thumbnail-list__frame"
                 :frame-style="{aspectRatio: item.aspectRatio}"
                 :style="{height: `${String(item.height)}px`, transform: `translateY(${String(item.top)}px)`}"
-                :aria-label="t('documentSourceSidebar.goToPage', {page: item.pageNumber})"
+                :aria-label="showsRenderError(item.pageNumber)
+                    ? t('documentSourceSidebar.goToPageRenderFailed', {page: item.pageNumber})
+                    : t('documentSourceSidebar.goToPage', {page: item.pageNumber})"
                 :data-thumbnail-page="item.pageNumber"
+                :data-thumbnail-render-error="showsRenderError(item.pageNumber) ? '' : undefined"
                 :data-thumbnail-request-width="states.get(item.pageNumber)?.widthPx ?? ''"
                 :disabled="disabled"
                 data-pane-relocation-scroll-item
@@ -45,6 +48,14 @@
                     :ref="element => setCanvasHost(item.pageNumber, element)"
                     class="document-thumbnail-list__canvas-host"
                 />
+                <span
+                    v-else-if="showsRenderError(item.pageNumber)"
+                    class="document-thumbnail-list__error"
+                    aria-hidden="true"
+                >
+                    <UIcon name="i-ph-warning-circle" class="size-5" />
+                    <span class="document-thumbnail-list__error-text">{{ t('common.pageRenderFailed') }}</span>
+                </span>
                 <span v-else class="document-thumbnail-list__placeholder" />
                 <template #label>
                     <slot name="label" :page-number="item.pageNumber">{{ item.pageNumber }}</slot>
@@ -82,6 +93,8 @@ const {
     handlePointerDown,
     handleScroll,
     handleWheel,
+    renderErrors,
+    retryRender,
     states,
     virtualItems,
 } = useDocumentThumbnailController({
@@ -109,10 +122,22 @@ function setCanvasHost(
     }
 }
 
+/**
+ * A committed surface wins over a render error everywhere in the row: the
+ * failure semantics belong to a row that has nothing to show, so a page still
+ * holding an older thumbnail keeps its plain name and no failure marker.
+ */
+function showsRenderError(pageNumber: number) {
+    return renderErrors.has(pageNumber) && !states.get(pageNumber)?.surface;
+}
+
 function handleItemClick(pageNumber: number, event: MouseEvent) {
     if (props.disabled) {
         return;
     }
+    // Activating a row that failed to render also asks for it again; the call is
+    // a no-op for every other row.
+    retryRender(pageNumber);
     emit('go-to-page', pageNumber, event);
 }
 </script>
@@ -127,6 +152,26 @@ function handleItemClick(pageNumber: number, event: MouseEvent) {
     position: absolute;
     top: 0;
     left: 0;
+}
+
+.document-thumbnail-list__error {
+    display: flex;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    flex-direction: column;
+    gap: var(--app-space-3xs);
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: var(--app-space-2xs);
+    color: var(--ui-text-muted);
+    text-align: center;
+}
+
+.document-thumbnail-list__error-text {
+    font-size: var(--app-sidebar-caption-font-size);
+    line-height: 1.2;
 }
 
 .document-thumbnail-list__placeholder {

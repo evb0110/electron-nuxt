@@ -1597,5 +1597,6 @@ export default {
         'noOutline': 'Aucun plan',
         'searchPlaceholder': 'Rechercher dans le document',
         'goToPage': 'Aller à la page {page}',
+        'goToPageRenderFailed': 'Aller à la page {page}. Aperçu de la page indisponible.',
     },
 };

@@ -1623,5 +1623,6 @@ export default {
         'noOutline': 'Оглавление отсутствует',
         'searchPlaceholder': 'Поиск по документу',
         'goToPage': 'Перейти на страницу {page}',
+        'goToPageRenderFailed': 'Перейти на страницу {page}. Предпросмотр страницы недоступен.',
     },
 };

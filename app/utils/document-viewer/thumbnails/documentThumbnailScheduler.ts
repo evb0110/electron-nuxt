@@ -18,6 +18,8 @@ export interface IDocumentThumbnailDemand {
 export interface IDocumentThumbnailCommittedState {
     heightPx: number;
     pageNumber: number;
+    /** Width the accepted demand asked for; the leased raster may be smaller. */
+    requestWidthPx: number;
     surface: IDocumentSurfaceLease['surface'];
     widthPx: number;
 }
@@ -27,14 +29,14 @@ interface IDocumentThumbnailSchedulerOptions {
     onStateChange: (pageNumber: number, state: IDocumentThumbnailCommittedState | null) => void;
     prepareSurface: (lease: IDocumentSurfaceLease, signal: AbortSignal) => Promise<void>;
     render: (request: IDocumentPageRenderRequest) => Promise<IDocumentSurfaceLease>;
-    onError?: ((error: unknown, pageNumber: number) => void) | undefined;
+    /** Reports a render or surface-preparation failure. Cancellations never reach it. */
+    onError?: ((error: unknown, demand: IDocumentThumbnailDemand) => void) | undefined;
 }
 
 interface IReleaseOnce {release: () => void;}
 
 interface ICommittedEntry extends IDocumentThumbnailCommittedState {
     lease: IDocumentSurfaceLease;
-    requestWidthPx: number;
     releaseOnce: IReleaseOnce;
     unsubscribe: (() => void) | null;
 }
@@ -207,6 +209,7 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
                 pageNumber,
                 widthPx: entry.widthPx,
                 heightPx: entry.heightPx,
+                requestWidthPx: entry.requestWidthPx,
                 surface: entry.surface,
             });
             if (previous && previous !== entry) {
@@ -215,7 +218,7 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
                 previous.releaseOnce.release();
             }
         } catch (error) {
-            if (!controller.signal.aborted && !isAbortError(error)) options.onError?.(error, pageNumber);
+            if (!controller.signal.aborted && !isAbortError(error)) options.onError?.(error, demand);
         } finally {
             pendingLease?.releaseOnce.release();
             if (active.get(pageNumber) === activeEntry) active.delete(pageNumber);

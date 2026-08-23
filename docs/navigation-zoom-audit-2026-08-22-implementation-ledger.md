@@ -340,6 +340,30 @@ plumbing, and neither had a real implementation to promote. The viewport
 ownership boundary test forbids reintroducing one in the navigation
 controller.
 
+o and u landed together in the generic thumbnail controller. For o, the
+controller now counts a page's consecutive render failures at the demanded
+width and, on the third, drops that page from the demand set and marks it
+failed. Withdrawing the demand from inside the failure callback is what stops
+the retry loop, because the scheduler re-queues a failed page the moment the
+callback returns. The row then shows a warning glyph and `common.pageRenderFailed`
+instead of the pulsing skeleton, and its accessible name becomes
+`documentSourceSidebar.goToPageRenderFailed` so the failure reaches screen
+readers through the row name rather than through decoration inside a button.
+An error clears on a successful render, on a source replacement, when the page
+leaves the retained window, and when the user activates the row, which doubles
+as the retry gesture. A page that already committed a narrower thumbnail never
+trades it for the failure tile: its demand is pinned to the width that
+committed render asked for, which is what the scheduler compares a settled
+demand against, so the demand reads as satisfied, the older thumbnail survives
+a failed upgrade, and the row keeps its plain name. It has to be the requested
+width and not the leased raster width, which a provider is free to make smaller;
+demanding the leased width would look unsatisfied and restart the retry loop. Per-page
+bookkeeping keeps one broken page from touching its neighbours. For u, `metricsCache` became a 256-entry LRU
+(`documentThumbnailMetricsCache.ts`): page metrics are fixed-shape records, so
+entries stand in for bytes, and the budget is several times the largest demand
+window. Layout keeps its own aspect ratios, so an eviction costs one extra
+`getPageMetrics` call and never a layout shift.
+
 ## Suggested implementation order
 
 1. Z1 (small, self-contained, user-visible on the web today).

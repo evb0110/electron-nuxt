@@ -1597,5 +1597,6 @@ export default {
         'noOutline': 'Sem estrutura',
         'searchPlaceholder': 'Pesquisar no documento',
         'goToPage': 'Ir para a página {page}',
+        'goToPageRenderFailed': 'Ir para a página {page}. Pré-visualização da página indisponível.',
     },
 };

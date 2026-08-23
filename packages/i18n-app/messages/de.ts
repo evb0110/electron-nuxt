@@ -1586,5 +1586,6 @@ export default {
         'noOutline': 'Keine Gliederung',
         'searchPlaceholder': 'Dokument durchsuchen',
         'goToPage': 'Zu Seite {page} wechseln',
+        'goToPageRenderFailed': 'Zu Seite {page} wechseln. Seitenvorschau nicht verfügbar.',
     },
 };
