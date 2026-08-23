@@ -19,7 +19,7 @@ const COMPLETE_INVENTORY_OMISSIONS: readonly TAnnotationInventoryOmission[] = Ob
  * more scan. Both caps are deterministic for a given revision: rescanning
  * truncates at exactly the same place, so retrying only burns the UI thread.
  */
-export function isRetryableInventoryCompleteness(completeness: IAnnotationInventoryCompleteness) {
+function isRetryableInventoryCompleteness(completeness: IAnnotationInventoryCompleteness) {
     return completeness.failedPageCount > 0;
 }
 
