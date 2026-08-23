@@ -147,6 +147,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             'base64',
         );
         const createRasterPipes = vi.fn(async () => undefined);
+        const publish = vi.fn();
         const sidecarRoots: Array<string | undefined> = [];
         const manifests: Array<{
             rasterWindow?: number;
@@ -216,12 +217,14 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                     )));
                     for (const [index] of manifest.pages.entries()) {
                         onProgress({
-                            stage: 'detecting',
-                            completedUnits: index + 1,
-                            totalUnits: pageCount,
-                            percent: (index + 1) / pageCount * 100,
-                            completedPageNumbers: Array.from({length: index + 1}, (_, pageIndex) => pageIndex + 1),
-                        }, {
+                            stage: 'page-analyzed',
+                            completedPages: index,
+                            totalPages: pageCount,
+                            pageNumber: index + 1,
+                            classification: 'single-uncut-page',
+                            confidence: 0.9,
+                        });
+                        onProgress({
                             stage: 'page-complete',
                             completedPages: index + 1,
                             totalPages: pageCount,
@@ -233,7 +236,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 }),
             },
             {rasterConcurrency: 2},
-            () => undefined,
+            publish,
         );
 
         expect(result.results).toHaveLength(pageCount);
@@ -251,6 +254,47 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         expect(renderPage).toHaveBeenCalledTimes(pageCount);
         expect(createRasterPipes).not.toHaveBeenCalled();
         expect(retention.release).toHaveBeenCalledOnce();
+        expect(publish.mock.calls
+            .map(([
+                ,
+                progress,
+            ]) => progress)
+            .filter(progress => progress.stage === 'detecting')).toEqual([
+            {
+                stage: 'detecting',
+                completedUnits: 0,
+                totalUnits: 2,
+                percent: 0,
+                completedPageNumbers: [1],
+            },
+            {
+                stage: 'detecting',
+                completedUnits: 1,
+                totalUnits: 2,
+                percent: 50,
+                completedPageNumbers: [1],
+            },
+            {
+                stage: 'detecting',
+                completedUnits: 1,
+                totalUnits: 2,
+                percent: 50,
+                completedPageNumbers: [
+                    1,
+                    2,
+                ],
+            },
+            {
+                stage: 'detecting',
+                completedUnits: 2,
+                totalUnits: 2,
+                percent: 100,
+                completedPageNumbers: [
+                    1,
+                    2,
+                ],
+            },
+        ]);
     });
 
     it('classifies malformed native page metadata as a native protocol failure', async () => {
@@ -332,12 +376,6 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                         outputCount: 0,
                     }));
                     onProgress({
-                        stage: 'detecting',
-                        completedUnits: 1,
-                        totalUnits: 1,
-                        percent: 100,
-                        completedPageNumbers: [1],
-                    }, {
                         stage: 'page-analyzed',
                         completedPages: 1,
                         totalPages: 1,
@@ -502,12 +540,6 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                         JSON.stringify(nativeMetadata),
                     );
                     onProgress({
-                        stage: 'detecting',
-                        completedUnits: 1,
-                        totalUnits: 1,
-                        percent: 100,
-                        completedPageNumbers: [1],
-                    }, {
                         stage: 'page-complete',
                         completedPages: 1,
                         totalPages: 1,

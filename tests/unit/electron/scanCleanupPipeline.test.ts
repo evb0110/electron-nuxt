@@ -1055,12 +1055,6 @@ describe('scan cleanup pipeline', () => {
             }));
             for (const [index] of manifest.pages.entries()) {
                 onProgress({
-                    stage: 'classifying',
-                    completedUnits: index + 1,
-                    totalUnits: manifest.pages.length,
-                    percent: (index + 1) / manifest.pages.length * 100,
-                    completedPageNumbers: Array.from({length: index + 1}, (_, pageIndex) => pageIndex + 1),
-                }, {
                     stage: 'page-analyzed',
                     completedPages: index + 1,
                     totalPages: manifest.pages.length,
@@ -1071,12 +1065,6 @@ describe('scan cleanup pipeline', () => {
             }
             for (const [index] of manifest.pages.entries()) {
                 onProgress({
-                    stage: 'classifying',
-                    completedUnits: index + 1,
-                    totalUnits: manifest.pages.length,
-                    percent: (index + 1) / manifest.pages.length * 100,
-                    completedPageNumbers: Array.from({length: index + 1}, (_, pageIndex) => pageIndex + 1),
-                }, {
                     stage: 'page-complete',
                     completedPages: index + 1,
                     totalPages: manifest.pages.length,
@@ -1307,12 +1295,6 @@ describe('scan cleanup pipeline', () => {
             }));
             await writeCleanupOutput(manifest.pages[1]!.outputs[0]!, 'single-uncut-page', false, false, Number(manifest.pages[1]!.options.dpi), false, false, false, 'grayscale');
             onProgress({
-                stage: 'rendering',
-                completedUnits: 1,
-                totalUnits: 2,
-                percent: 50,
-                completedPageNumbers: [2],
-            }, {
                 stage: 'page-complete',
                 completedPages: 1,
                 totalPages: 2,
@@ -1994,12 +1976,6 @@ describe('scan cleanup pipeline', () => {
                     page.options.dpi,
                 );
                 onProgress({
-                    stage: 'rendering',
-                    completedUnits: 1,
-                    totalUnits: 1,
-                    percent: 100,
-                    completedPageNumbers: [1],
-                }, {
                     stage: 'page-complete',
                     completedPages: 1,
                     totalPages: 1,
@@ -2080,24 +2056,12 @@ describe('scan cleanup pipeline', () => {
                     }));
                     await writeCleanupOutput(page.outputs[0]!, 'single-uncut-page');
                     onProgress({
-                        stage: 'rendering',
-                        completedUnits: index + 1,
-                        totalUnits: manifest.pages.length,
-                        percent: (index + 1) / manifest.pages.length * 100,
-                        completedPageNumbers: Array.from({length: index + 1}, (_, pageIndex) => pageIndex + 1),
-                    }, {
                         stage: 'page-analyzed',
                         completedPages: index + 1,
                         totalPages: manifest.pages.length,
                         pageNumber: index + 1,
                     });
                     onProgress({
-                        stage: 'rendering',
-                        completedUnits: index + 1,
-                        totalUnits: manifest.pages.length,
-                        percent: (index + 1) / manifest.pages.length * 100,
-                        completedPageNumbers: Array.from({length: index + 1}, (_, pageIndex) => pageIndex + 1),
-                    }, {
                         stage: 'page-complete',
                         completedPages: index + 1,
                         totalPages: manifest.pages.length,
@@ -4760,7 +4724,7 @@ describe('scan cleanup pipeline', () => {
                 index,
                 page,
             ] of manifest.pages.entries()) {
-                onProgress?.(0, {
+                onProgress?.({
                     stage: 'page-complete',
                     completedPages: index + 1,
                     totalPages: manifest.pages.length,
@@ -5892,11 +5856,6 @@ describe('scan cleanup pipeline', () => {
                 // within the envelope's own total — but that total is the whole
                 // document rather than the two pages this run submitted.
                 onProgress({
-                    stage: 'classifying',
-                    completedUnits: 1,
-                    totalUnits: 3,
-                    percent: 100 / 3,
-                }, {
                     stage: 'page-complete',
                     completedPages: 1,
                     totalPages: 3,
@@ -5925,11 +5884,6 @@ describe('scan cleanup pipeline', () => {
                 onProgress,
             ) => {
                 onProgress({
-                    stage: 'classifying',
-                    completedUnits: 1,
-                    totalUnits: 2,
-                    percent: 50,
-                }, {
                     stage: 'page-complete',
                     completedPages: 1,
                     totalPages: 2,
@@ -5965,11 +5919,6 @@ describe('scan cleanup pipeline', () => {
                     reconciled?: boolean,
                 ) => {
                     onProgress({
-                        stage: 'classifying',
-                        completedUnits: completedPages,
-                        totalUnits: manifest.pages.length,
-                        percent: completedPages / manifest.pages.length * 100,
-                    }, {
                         stage,
                         completedPages,
                         totalPages: manifest.pages.length,

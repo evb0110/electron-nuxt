@@ -180,7 +180,7 @@ export async function runLosslessScanCleanup(
     await writeFile(manifestPath, JSON.stringify(manifest));
     emitProgress('classifying', 0, pageNumbers.length, []);
     const classifiedPageNumbers = new Set<number>();
-    await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, (_progress, nativeProgress) => {
+    await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, nativeProgress => {
         // The envelope only proves itself self-consistent: its page numbers are
         // bounded by its own total, which nothing ties to the pages this run
         // submitted. Both totals have to agree before a reported page number

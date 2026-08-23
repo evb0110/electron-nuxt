@@ -463,6 +463,10 @@ export async function runScanCleanupDetection<TDocument>(
         };
         let analyzedPages = 0;
         const completedPages = new Set<number>();
+        // Every page the sidecar has said anything about, provisional or
+        // terminal. Detection presents one `detecting` stage over both frame
+        // kinds, so the page list it publishes has to span both.
+        const reportedPageNumbers = new Set<number>();
         const retained = new Map<number, IScanCleanupRetainedRaster>();
         const pagesByDpi = new Map<number, number[]>();
         for (const pageNumber of pageNumbers) {
@@ -661,15 +665,23 @@ export async function runScanCleanupDetection<TDocument>(
             manifestPath,
             operationSignal,
             log,
-            (progress, nativeProgress) => {
+            nativeProgress => {
+                if (
+                    (nativeProgress.stage === 'page-analyzed' || nativeProgress.stage === 'page-complete')
+                    && nativeProgress.pageNumber !== undefined
+                ) {
+                    reportedPageNumbers.add(nativeProgress.pageNumber);
+                }
+                const totalUnits = nativeProgress.totalPages;
                 if (nativeProgress.stage === 'page-analyzed') {
-                    analyzedPages = Math.max(analyzedPages, progress.completedUnits);
+                    analyzedPages = Math.max(analyzedPages, nativeProgress.completedPages);
                     recordResult(nativeProgress);
                     publish(publishedResults(), {
-                        ...progress,
                         stage: 'detecting',
                         completedUnits: analyzedPages,
-                        percent: progress.totalUnits === 0 ? 100 : analyzedPages / progress.totalUnits * 100,
+                        totalUnits,
+                        percent: totalUnits === 0 ? 100 : analyzedPages / totalUnits * 100,
+                        completedPageNumbers: [...reportedPageNumbers],
                     }, documentCanvasSignature());
                     return;
                 }
@@ -679,12 +691,13 @@ export async function runScanCleanupDetection<TDocument>(
                 if (nativeProgress.pageNumber !== undefined) {
                     completedPages.add(nativeProgress.pageNumber);
                 }
-                const completedUnits = Math.max(analyzedPages, progress.completedUnits);
+                const completedUnits = Math.max(analyzedPages, nativeProgress.completedPages);
                 publish(publishedResults(), {
-                    ...progress,
                     stage: 'detecting',
                     completedUnits,
-                    percent: progress.totalUnits === 0 ? 100 : completedUnits / progress.totalUnits * 100,
+                    totalUnits,
+                    percent: totalUnits === 0 ? 100 : completedUnits / totalUnits * 100,
+                    completedPageNumbers: [...reportedPageNumbers],
                 }, documentCanvasSignature(completedPages.size === totalPages));
             },
             {

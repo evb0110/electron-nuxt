@@ -13,7 +13,6 @@ import type {TNativeErrorCode} from '@contracts/nativeErrors';
 import type {
     TNativeScanCleanupPageStageTimingsV3,
     TNativeScanCleanupProgressV3,
-    TScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
 import type {TWorkerLog} from '@electron/ocr/worker/types';
 import {
@@ -99,7 +98,7 @@ export async function runScanCleanupSidecar(
     manifestPath: string,
     signal: AbortSignal,
     log: TWorkerLog,
-    onProgress: (progress: TScanCleanupProgress, nativeProgress: TNativeScanCleanupProgressV3) => void,
+    onProgress: (nativeProgress: TNativeScanCleanupProgressV3) => void,
     options: IRunScanCleanupSidecarOptions = {},
 ) {
     if (signal.aborted) throw abortErrorFromSignal(signal);
@@ -129,7 +128,7 @@ async function streamScanCleanupSidecar(
     manifestPath: string,
     signal: AbortSignal,
     log: TWorkerLog,
-    onProgress: (progress: TScanCleanupProgress, nativeProgress: TNativeScanCleanupProgressV3) => void,
+    onProgress: (nativeProgress: TNativeScanCleanupProgressV3) => void,
     options: IRunScanCleanupSidecarOptions,
 ) {
     const child = spawn(binaryPath, [
@@ -168,7 +167,6 @@ async function streamScanCleanupSidecar(
     // diagnostic totals represent each page once and use reconciled timings.
     const terminalPageTimings = new Map<number, TNativeScanCleanupPageStageTimingsV3>();
     let terminalUnkeyedTimings: TNativeScanCleanupPageStageTimingsV3 | null = null;
-    const completedPageNumbers = new Set<number>();
     const terminateForFatalError = () => {
         if (terminationPromise !== null) {
             return terminationPromise;
@@ -224,12 +222,6 @@ async function streamScanCleanupSidecar(
             const envelope = decodeNativeScanCleanupEnvelope(line);
             if (envelope.type === 'progress') {
                 const nativeProgress = envelope.progress;
-                if (
-                    (nativeProgress.stage === 'page-analyzed' || nativeProgress.stage === 'page-complete')
-                    && nativeProgress.pageNumber !== undefined
-                ) {
-                    completedPageNumbers.add(nativeProgress.pageNumber);
-                }
                 if (nativeProgress.stage === 'page-complete' && nativeProgress.stageTimings !== undefined) {
                     if (nativeProgress.pageNumber === undefined) {
                         terminalUnkeyedTimings = nativeProgress.stageTimings;
@@ -237,15 +229,12 @@ async function streamScanCleanupSidecar(
                         terminalPageTimings.set(nativeProgress.pageNumber, nativeProgress.stageTimings);
                     }
                 }
-                onProgress({
-                    stage: nativeProgress.stage === 'page-analyzed' ? 'classifying' : 'rendering',
-                    completedUnits: nativeProgress.completedPages,
-                    totalUnits: nativeProgress.totalPages,
-                    percent: nativeProgress.totalPages === 0
-                        ? 100
-                        : nativeProgress.completedPages / nativeProgress.totalPages * 100,
-                    completedPageNumbers: [...completedPageNumbers],
-                }, nativeProgress);
+                // The decoded frame travels unchanged. Detection, raster
+                // conversion, lossless conversion, and preview each map it onto
+                // the stage and percentage their own run presents; a second
+                // stage model here labelled analyze completion `rendering` for
+                // consumers that never asked for it.
+                onProgress(nativeProgress);
                 return;
             }
             terminalResult = envelope.result.status;

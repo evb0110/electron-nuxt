@@ -130,6 +130,56 @@ describe('scan cleanup sidecar stage timings', () => {
         await rejected;
     });
 
+    it('reports the decoded native frame alone and invents no stage or percentage', async () => {
+        const child = new MockSidecarProcess();
+        mocks.spawn.mockReturnValue(child);
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const onProgress = vi.fn();
+
+        const run = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/transport-manifest.json',
+            new AbortController().signal,
+            vi.fn<TWorkerLog>(),
+            onProgress,
+        );
+        child.stdout.write(progressLine(1, {decodeMs: 10}, 'page-analyzed'));
+        child.stdout.write(progressLine(1, {decodeMs: 20}));
+        child.stdout.write(resultLine('success'));
+        await flushLines(() => onProgress.mock.calls.length, 2);
+        child.emit('close', 0, null);
+        await run;
+
+        // A second stage model here labelled analyze `page-complete` as
+        // `rendering` for consumers that never asked for it. The adapter now
+        // reports the native frame verbatim, and nothing else.
+        expect(onProgress.mock.calls.map(call => call.length)).toEqual([
+            1,
+            1,
+        ]);
+        const frames = onProgress.mock.calls.map(([frame]) => frame as Record<string, unknown>);
+        expect(frames.map(frame => frame.stage)).toEqual([
+            'page-analyzed',
+            'page-complete',
+        ]);
+        for (const frame of frames) {
+            expect(frame).not.toHaveProperty('completedUnits');
+            expect(frame).not.toHaveProperty('totalUnits');
+            expect(frame).not.toHaveProperty('percent');
+            expect(frame).not.toHaveProperty('completedPageNumbers');
+            expect(frame).not.toHaveProperty('etaSeconds');
+        }
+        expect(frames[1]).toEqual({
+            stage: 'page-complete',
+            completedPages: 1,
+            totalPages: 2,
+            pageNumber: 1,
+            classification: 'single-uncut-page',
+            confidence: 0.9,
+            stageTimings: {decodeMs: 20},
+        });
+    });
+
     it('reports per-stage totals summed across every page the sidecar timed', async () => {
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);

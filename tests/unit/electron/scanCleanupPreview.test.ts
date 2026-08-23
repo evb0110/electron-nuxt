@@ -3707,12 +3707,6 @@ describe('scan cleanup preview', () => {
         deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             await writeDetectionMetadata(manifestPath);
             onProgress({
-                stage: 'detecting',
-                completedUnits: 1,
-                totalUnits: 3,
-                percent: 100 / 3,
-                completedPageNumbers: [1],
-            }, {
                 stage: 'page-analyzed',
                 completedPages: 1,
                 totalPages: 3,
@@ -3728,12 +3722,6 @@ describe('scan cleanup preview', () => {
                 3,
             ]) {
                 onProgress({
-                    stage: 'detecting',
-                    completedUnits: pageNumber,
-                    totalUnits: 3,
-                    percent: pageNumber / 3 * 100,
-                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
-                }, {
                     stage: 'page-analyzed',
                     completedPages: pageNumber,
                     totalPages: 3,
@@ -3749,16 +3737,6 @@ describe('scan cleanup preview', () => {
                 3,
             ]) {
                 onProgress({
-                    stage: 'rendering',
-                    completedUnits: pageNumber,
-                    totalUnits: 3,
-                    percent: pageNumber / 3 * 100,
-                    completedPageNumbers: [
-                        1,
-                        2,
-                        3,
-                    ],
-                }, {
                     stage: 'page-complete',
                     completedPages: pageNumber,
                     totalPages: 3,
@@ -3897,12 +3875,6 @@ describe('scan cleanup preview', () => {
             };
             await waitForDelivery(manifest.pages[0]!);
             onProgress({
-                stage: 'detecting',
-                completedUnits: 1,
-                totalUnits: 3,
-                percent: 100 / 3,
-                completedPageNumbers: [1],
-            }, {
                 stage: 'page-analyzed',
                 completedPages: 1,
                 totalPages: 3,
@@ -3918,12 +3890,6 @@ describe('scan cleanup preview', () => {
             ]) {
                 await waitForDelivery(manifest.pages[pageNumber - 1]!);
                 onProgress({
-                    stage: 'detecting',
-                    completedUnits: pageNumber,
-                    totalUnits: 3,
-                    percent: pageNumber / 3 * 100,
-                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
-                }, {
                     stage: 'page-analyzed',
                     completedPages: pageNumber,
                     totalPages: 3,
@@ -3939,12 +3905,6 @@ describe('scan cleanup preview', () => {
                 3,
             ]) {
                 onProgress({
-                    stage: 'detecting',
-                    completedUnits: pageNumber,
-                    totalUnits: 3,
-                    percent: pageNumber / 3 * 100,
-                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
-                }, {
                     stage: 'page-complete',
                     completedPages: pageNumber,
                     totalPages: 3,
@@ -4066,12 +4026,6 @@ describe('scan cleanup preview', () => {
                 pageNumber,
             ] of reconciledPages.entries()) {
                 onProgress({
-                    stage: 'detecting',
-                    completedUnits: index + 1,
-                    totalUnits: reconciledPages.length,
-                    percent: (index + 1) / reconciledPages.length * 100,
-                    completedPageNumbers: reconciledPages.slice(0, index + 1),
-                }, {
                     stage: 'page-complete',
                     completedPages: index + 1,
                     totalPages: reconciledPages.length,
@@ -4124,12 +4078,6 @@ describe('scan cleanup preview', () => {
                 3,
             ]) {
                 onProgress({
-                    stage: 'detecting',
-                    completedUnits: pageNumber,
-                    totalUnits: 3,
-                    percent: pageNumber / 3 * 100,
-                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
-                }, {
                     stage: 'page-complete',
                     completedPages: pageNumber,
                     totalPages: 3,
@@ -4236,12 +4184,6 @@ describe('scan cleanup preview', () => {
                 3,
             ]) {
                 onProgress({
-                    stage: 'detecting',
-                    completedUnits: pageNumber,
-                    totalUnits: 3,
-                    percent: pageNumber / 3 * 100,
-                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
-                }, {
                     stage: 'page-complete',
                     completedPages: pageNumber,
                     totalPages: 3,
@@ -4297,12 +4239,6 @@ describe('scan cleanup preview', () => {
                 3,
             ]) {
                 onProgress({
-                    stage: 'detecting',
-                    completedUnits: pageNumber,
-                    totalUnits: 3,
-                    percent: pageNumber / 3 * 100,
-                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
-                }, {
                     stage: 'page-complete',
                     completedPages: pageNumber,
                     totalPages: 3,
@@ -4434,13 +4370,7 @@ describe('scan cleanup preview', () => {
                         confidence: 0.98,
                     }} : {}),
                 } as const;
-                onProgress({
-                    stage: 'detecting',
-                    completedUnits: nativeProgress.completedPages,
-                    totalUnits: nativeProgress.totalPages,
-                    percent: nativeProgress.completedPages / nativeProgress.totalPages * 100,
-                    completedPageNumbers: Array.from({length: nativeProgress.completedPages}, (_, index) => index + 1),
-                }, nativeProgress);
+                onProgress(nativeProgress);
             }
         });
         const service = createScanCleanupPreviewService(deps);
@@ -4681,12 +4611,6 @@ describe('scan cleanup preview', () => {
                     3,
                 ]) {
                     onProgress({
-                        stage: 'detecting',
-                        completedUnits: pageNumber,
-                        totalUnits: 3,
-                        percent: pageNumber / 3 * 100,
-                        completedPageNumbers: Array.from({length: pageNumber}, (_value, index) => index + 1),
-                    }, {
                         stage: 'page-complete',
                         completedPages: pageNumber,
                         totalPages: 3,
@@ -4973,12 +4897,6 @@ describe('scan cleanup preview', () => {
                         }],
                     }));
                     onProgress({
-                        stage: 'detecting',
-                        completedUnits: pageNumber,
-                        totalUnits: 2,
-                        percent: pageNumber * 50,
-                        completedPageNumbers: Array.from({length: pageNumber}, (_value, index) => index + 1),
-                    }, {
                         stage: 'page-complete',
                         completedPages: pageNumber,
                         totalPages: 2,
@@ -5509,20 +5427,13 @@ describe('scan cleanup preview', () => {
         deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             await writeDetectionMetadata(manifestPath);
             const analyzePage = (pageNumber: number) => {
-                const progress = {
-                    stage: 'detecting' as const,
-                    completedUnits: pageNumber,
-                    totalUnits: totalPages,
-                    percent: pageNumber / totalPages * 100,
-                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
-                };
-                onProgress(progress, {
+                onProgress({
                     stage: 'page-analyzed',
                     completedPages: pageNumber,
                     totalPages,
                     pageNumber,
                 });
-                onProgress(progress, {
+                onProgress({
                     stage: 'page-complete',
                     completedPages: pageNumber,
                     totalPages,
@@ -5623,12 +5534,6 @@ describe('scan cleanup preview', () => {
                 page,
             ] of pages.entries()) {
                 onProgress({
-                    stage: 'detecting',
-                    completedUnits: index + 1,
-                    totalUnits: pages.length,
-                    percent: (index + 1) / pages.length * 100,
-                    completedPageNumbers: pages.slice(0, index + 1).map(item => item.pageNumber),
-                }, {
                     stage: 'page-complete',
                     completedPages: index + 1,
                     totalPages: pages.length,
@@ -5734,12 +5639,6 @@ describe('scan cleanup preview', () => {
                 2,
             ]) {
                 onProgress({
-                    stage: 'detecting',
-                    completedUnits: pageNumber,
-                    totalUnits: 2,
-                    percent: pageNumber * 50,
-                    completedPageNumbers: Array.from({length: pageNumber}, (_value, index) => index + 1),
-                }, {
                     stage: 'page-complete',
                     completedPages: pageNumber,
                     totalPages: 2,
@@ -5939,12 +5838,6 @@ describe('scan cleanup preview', () => {
                 page,
             ] of manifest.pages.entries()) {
                 onProgress({
-                    stage: 'detecting',
-                    completedUnits: index + 1,
-                    totalUnits: manifest.pages.length,
-                    percent: (index + 1) / manifest.pages.length * 100,
-                    completedPageNumbers: [page.sourcePageIndex + 1],
-                }, {
                     stage: 'page-complete',
                     completedPages: index + 1,
                     totalPages: manifest.pages.length,
@@ -6040,12 +5933,6 @@ describe('scan cleanup preview', () => {
             await writeDetectionMetadata(manifestPath);
             for (let pageNumber = 1; pageNumber <= manifest.pages.length; pageNumber += 1) {
                 args[4]({
-                    stage: 'rendering',
-                    completedUnits: pageNumber,
-                    totalUnits: manifest.pages.length,
-                    percent: pageNumber / manifest.pages.length * 100,
-                    completedPageNumbers: [pageNumber],
-                }, {
                     stage: 'page-complete',
                     completedPages: pageNumber,
                     totalPages: manifest.pages.length,
@@ -6282,12 +6169,6 @@ describe('scan cleanup preview', () => {
         const entered = Promise.withResolvers<undefined>();
         deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal, _log, onProgress) => {
             onProgress({
-                stage: 'detecting',
-                completedUnits: 1,
-                totalUnits: 3,
-                percent: 100 / 3,
-                completedPageNumbers: [1],
-            }, {
                 stage: 'page-complete',
                 completedPages: 1,
                 totalPages: 3,

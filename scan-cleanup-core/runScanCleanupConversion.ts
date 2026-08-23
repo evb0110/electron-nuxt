@@ -1134,10 +1134,7 @@ export async function runScanCleanupConversion(
             index + 1,
             page.sourcePageIndex + 1,
         ]));
-        const reportNativeProgress = (
-            _progress: TScanCleanupProgress,
-            nativeProgress: TNativeScanCleanupProgressV3,
-        ) => {
+        const reportNativeProgress = (nativeProgress: TNativeScanCleanupProgressV3) => {
             if (nativeProgress.stage !== 'page-complete') {
                 return;
             }

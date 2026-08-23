@@ -6,7 +6,6 @@ import type {
     IScanCleanupPlacementAnchor,
     IScanCleanupSourcePageMetadata,
     TNativeScanCleanupProgressV3,
-    TScanCleanupProgress,
     TScanCleanupLayoutByPage,
     TScanCleanupOutputHalf,
     TScanCleanupOutputMode,
@@ -246,10 +245,13 @@ export type TScanCleanupRenderPage = (
     limits?: IScanCleanupRasterRenderLimits,
 ) => Promise<void>;
 
-export type TScanCleanupSidecarProgress = (
-    progress: TScanCleanupProgress,
-    nativeProgress: TNativeScanCleanupProgressV3,
-) => void;
+/**
+ * The sidecar adapter is a transport: it reports the decoded native frame and
+ * nothing else. Stage naming, percentage, ETA, and weighted bands belong to the
+ * workflow that ran the sidecar, which is the only owner that knows what the
+ * frame means for the run the user is watching.
+ */
+export type TScanCleanupSidecarProgress = (nativeProgress: TNativeScanCleanupProgressV3) => void;
 
 export type TScanCleanupRunSidecar = (
     binaryPath: string,

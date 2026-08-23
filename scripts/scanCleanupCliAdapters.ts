@@ -698,7 +698,6 @@ export async function runCliScanCleanupSidecar(
         message: string
     } | null} = {value: null};
     let protocolError: Error | null = null;
-    const completedPageNumbers = new Set<number>();
     const protocol = createScanCleanupSidecarProtocolHandler({
         stdout: child.stdout,
         stderr: child.stderr,
@@ -715,22 +714,7 @@ export async function runCliScanCleanupSidecar(
         try {
             const envelope = decodeNativeEnvelope(line);
             if (envelope.type === 'progress') {
-                const progress = envelope.progress;
-                if (
-                    (progress.stage === 'page-analyzed' || progress.stage === 'page-complete')
-                    && progress.pageNumber !== undefined
-                ) {
-                    completedPageNumbers.add(progress.pageNumber);
-                }
-                onProgress({
-                    stage: progress.stage === 'page-analyzed' ? 'classifying' : 'rendering',
-                    completedUnits: progress.completedPages,
-                    totalUnits: progress.totalPages,
-                    percent: progress.totalPages === 0
-                        ? 100
-                        : progress.completedPages / progress.totalPages * 100,
-                    completedPageNumbers: [...completedPageNumbers],
-                }, progress);
+                onProgress(envelope.progress);
                 return;
             }
             terminalStatus = envelope.result.status;
