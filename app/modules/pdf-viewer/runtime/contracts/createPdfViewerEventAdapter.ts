@@ -6,6 +6,7 @@ import type {
     TAnnotationSettingChange,
 } from '@app/types/annotations';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
+import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type {
     PDFDocumentProxy,
@@ -30,6 +31,7 @@ export interface IPdfViewerEventAdapter {
     annotationModified(payload?: IAnnotationModifiedPayload): void;
     annotationComments(comments: IAnnotationCommentSummary[]): void;
     annotationInventory(completeness: IAnnotationInventoryCompleteness | null): void;
+    annotationEnrichmentState(state: IAnnotationEnrichmentState): void;
     annotationOpenNote(comment: IAnnotationCommentSummary): void;
     annotationContextMenu(payload: IAnnotationContextMenuPayload): void;
     annotationToolAutoReset(): void;
@@ -64,6 +66,7 @@ export function createPdfViewerEventAdapter(emit: IPdfViewerEmit): IPdfViewerEve
         annotationModified: payload => emit('annotation-modified', payload),
         annotationComments: comments => emit('annotation-comments', comments),
         annotationInventory: completeness => emit('annotation-inventory', completeness),
+        annotationEnrichmentState: state => emit('annotation-enrichment-state', state),
         annotationOpenNote: comment => emit('annotation-open-note', comment),
         annotationContextMenu: payload => emit('annotation-context-menu', payload),
         annotationToolAutoReset: () => emit('annotation-tool-auto-reset'),

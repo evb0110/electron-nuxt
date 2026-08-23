@@ -35,8 +35,15 @@ import {
     getPdfjsEditorFacadeState,
 } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import { collectPagePdfSnapshotEntries } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
+import {
+    createIncompleteInventoryRetryLedger,
+    MAX_BACKGROUND_PDF_ANNOTATION_PAGES,
+    MAX_BACKGROUND_PDF_ANNOTATION_RECORDS,
+    resolveAnnotationInventoryCompleteness,
+} from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationInventoryCompleteness';
 import type {
     IPdfAnnotationSnapshot,
+    IPdfAnnotationSnapshotFence,
     TPdfAnnotationNameReadResult,
 } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/pdfAnnotationSnapshotCache';
 import {
@@ -46,6 +53,19 @@ import {
 } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/pdfAnnotationSnapshotCache';
 import { loadPdfPageAnnotations } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
 import { leasePdfDocumentPage } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {
+    areAnnotationEnrichmentStatesEqual,
+    evaluateAnnotationEnrichmentEligibility,
+    PENDING_ANNOTATION_ENRICHMENT_STATE,
+    resolveAnnotationEnrichmentState,
+} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
+import type {
+    IAnnotationEnrichmentLimits,
+    IAnnotationEnrichmentRequest,
+    IAnnotationEnrichmentState,
+    TAnnotationEnrichmentIntent,
+    TAnnotationEnrichmentSkipReason,
+} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import { resolveEditorMarkerRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveEditorMarkerRect';
 import { resolveMarkupSubtypeOverrideRegistration } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveMarkupSubtypeOverrideRegistration';
 import { safeReadEditorData } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/safeReadEditorData';
@@ -101,62 +121,18 @@ interface IUseAnnotationSyncOptions {
     syncInlineCommentIndicators: () => void;
     textMarkupPresentation: ITextMarkupPresentationController;
     debounceMs?: number;
-    getAnnotationNameReadLimits: () => {
-        eagerMaxBytes: number;
-        interactiveMaxBytes: number;
-    };
+    getAnnotationNameReadLimits: () => IAnnotationEnrichmentLimits;
     getPdfSourceByteSize: () => number | null;
     isPdfSourceBlob: () => boolean;
 }
 
-type TPdfAnnotationNameReadIntent = 'eager' | 'interactive';
+type TPdfAnnotationNameReadIntent = TAnnotationEnrichmentIntent;
 type TPdfAnnotationNameReconciliationResult =
     | 'reconciled'
     | 'already-reconciled'
     | 'skipped-over-limit'
     | 'stale'
     | 'failed';
-
-/**
- * Ceilings on one background inventory pass, exported so the tests that cover
- * the truncation behaviour bind to the same numbers the scan enforces instead
- * of restating them.
- */
-export const MAX_BACKGROUND_PDF_ANNOTATION_PAGES = 5_000;
-export const MAX_BACKGROUND_PDF_ANNOTATION_RECORDS = 25_000;
-
-const COMPLETE_INVENTORY_OMISSIONS: readonly TAnnotationInventoryOmission[] = Object.freeze([]);
-
-/**
- * Page read failures are transient, so a snapshot that hit one is worth one
- * more scan. Both caps are deterministic for a given revision: rescanning
- * truncates at exactly the same place, so retrying only burns the UI thread.
- */
-function isRetryableInventoryCompleteness(completeness: IAnnotationInventoryCompleteness) {
-    return completeness.failedPageCount > 0;
-}
-
-/**
- * Warn, not debug: the default renderer log threshold is `warn`, and an
- * inventory that silently omits pages is exactly the thing a user reporting
- * "my annotations are missing" needs to see in a log.
- */
-function warnOnIncompleteInventory(completeness: IAnnotationInventoryCompleteness) {
-    if (completeness.complete) {
-        return;
-    }
-
-    BrowserLogger.warn(
-        'annotations',
-        'Background annotation inventory is incomplete',
-        {
-            omissions: completeness.omissions,
-            scannedPageCount: completeness.scannedPageCount,
-            totalPageCount: completeness.totalPageCount,
-            failedPageCount: completeness.failedPageCount,
-        },
-    );
-}
 
 type TEditorData = ReturnType<typeof safeReadEditorData>;
 
@@ -182,20 +158,22 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         isPdfSourceBlob,
     } = options;
 
+    const annotationEnrichmentState = ref<IAnnotationEnrichmentState>(PENDING_ANNOTATION_ENRICHMENT_STATE);
     let syncToken = 0;
     let syncRunPromise: Promise<void> | null = null;
     let syncRerunRequested = false;
     const trackedCreatedEditors = new WeakSet<object>();
     let pdfAnnotationSnapshot: IPdfAnnotationSnapshot | null = null;
     let pdfAnnotationSnapshotVersion = 0;
-    let incompleteSnapshotRetryVersion: number | null = null;
-    let pdfAnnotationSnapshotPromise: {
+    const incompleteInventoryRetries = createIncompleteInventoryRetryLedger(
+        () => pdfAnnotationSnapshotVersion,
+    );
+    let pdfAnnotationSnapshotPromise: (IPdfAnnotationSnapshotFence & {
         doc: PDFDocumentProxy;
-        pageCount: number;
         version: number;
         intent: TPdfAnnotationNameReadIntent;
         promise: Promise<IPdfAnnotationSnapshot | null>;
-    } | null = null;
+    }) | null = null;
     let annotationNameReconciliationPromise: {
         doc: PDFDocumentProxy;
         pageCount: number;
@@ -203,6 +181,14 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         promise: Promise<TPdfAnnotationNameReconciliationResult>;
     } | null = null;
     let hasAppliedDocumentSnapshot = false;
+
+    function resolvePdfAnnotationSnapshotFence(pageCount: number): IPdfAnnotationSnapshotFence {
+        return {
+            pageCount,
+            identity: documentIdentity.value,
+            revision: documentRevisionToken?.value ?? null,
+        };
+    }
 
     function getSharedSnapshotKey(pageCount: number) {
         const revision = documentRevisionToken?.value ?? null;
@@ -252,12 +238,47 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         });
     }
 
+    function resolveAnnotationEnrichmentRequest(
+        intent: TAnnotationEnrichmentIntent,
+        pageCount: number,
+    ): IAnnotationEnrichmentRequest {
+        return {
+            intent,
+            pageCount,
+            sourceByteSize: getPdfSourceByteSize(),
+            isBlobSource: isPdfSourceBlob(),
+            limits: getAnnotationNameReadLimits(),
+        };
+    }
+
+    function setAnnotationEnrichmentState(next: IAnnotationEnrichmentState) {
+        if (areAnnotationEnrichmentStatesEqual(annotationEnrichmentState.value, next)) {
+            return;
+        }
+        annotationEnrichmentState.value = next;
+    }
+
+    function publishAnnotationEnrichmentState(
+        readResult: TPdfAnnotationNameReadResult,
+        skipReason: TAnnotationEnrichmentSkipReason | null,
+        pageCount: number,
+    ) {
+        setAnnotationEnrichmentState(resolveAnnotationEnrichmentState(
+            readResult,
+            skipReason,
+            evaluateAnnotationEnrichmentEligibility(
+                resolveAnnotationEnrichmentRequest('interactive', pageCount),
+            ),
+        ));
+    }
+
     function resetPdfAnnotationSnapshot() {
+        setAnnotationEnrichmentState(PENDING_ANNOTATION_ENRICHMENT_STATE);
         pdfAnnotationSnapshotVersion += 1;
         pdfAnnotationSnapshot = null;
         pdfAnnotationSnapshotPromise = null;
         annotationNameReconciliationPromise = null;
-        incompleteSnapshotRetryVersion = null;
+        incompleteInventoryRetries.reset();
     }
 
     function resolveAnnotationKindLabel(subtype: string | null | undefined) {
@@ -274,7 +295,11 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         hasAppliedDocumentSnapshot = false;
     });
     watch(documentIdentity, () => {
+        // A new identity is a different document even when PDF.js hands back
+        // the same proxy and page count, so nothing read from the previous
+        // one may survive.
         syncToken += 1;
+        resetPdfAnnotationSnapshot();
         hasAppliedDocumentSnapshot = false;
     });
     watch(() => documentRevisionToken?.value ?? null, () => {
@@ -461,6 +486,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         localToken: number,
         intent: TPdfAnnotationNameReadIntent,
     ): Promise<IPdfAnnotationSnapshot | null> {
+        const fence = resolvePdfAnnotationSnapshotFence(pageCount);
         const identity = getIdentity();
         const comments: IAnnotationCommentSummary[] = [];
         const links: ILinkAnnotation[] = [];
@@ -471,18 +497,10 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const { collectPdfAnnotationNamesByPage } = await import(
             '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage'
         );
-        const sourceSize = getPdfSourceByteSize();
-        const limits = getAnnotationNameReadLimits();
-        const allowFullRead = sourceSize !== null
-            && sourceSize <= (
-                intent === 'interactive'
-                    ? limits.interactiveMaxBytes
-                    : limits.eagerMaxBytes
-            )
-            && (
-                intent === 'interactive'
-                || (pageCount <= 512 && isPdfSourceBlob())
-            );
+        const eligibility = evaluateAnnotationEnrichmentEligibility(
+            resolveAnnotationEnrichmentRequest(intent, pageCount),
+        );
+        const allowFullRead = eligibility.allowed;
         let annotationNameReadResult: TPdfAnnotationNameReadResult = allowFullRead
             ? 'reconciled'
             : 'skipped';
@@ -561,31 +579,43 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             );
         }
 
-        const completeness: IAnnotationInventoryCompleteness = {
-            complete: omissions.size === 0,
-            omissions: omissions.size === 0 ? COMPLETE_INVENTORY_OMISSIONS : [...omissions],
-            scannedPageCount: visitedPages - failedPageCount,
-            totalPageCount: pageCount,
+        const completeness = resolveAnnotationInventoryCompleteness({
+            omissions,
+            visitedPageCount: visitedPages,
             failedPageCount,
-        };
-        warnOnIncompleteInventory(completeness);
+            totalPageCount: pageCount,
+        });
 
         return {
             doc,
-            pageCount,
+            ...fence,
             comments,
             links,
             annotationNameReadResult,
+            annotationNameSkipReason: eligibility.reason,
             completeness,
         };
     }
 
+    /**
+     * Reuse is fenced on the exact source, not on shape. Page count and PDF.js
+     * proxy can both repeat across documents; identity plus revision cannot.
+     */
+    function matchesPdfSnapshotFence(
+        snapshot: IPdfAnnotationSnapshotFence,
+        pageCount: number,
+    ) {
+        return snapshot.pageCount === pageCount
+            && snapshot.identity === documentIdentity.value
+            && snapshot.revision === (documentRevisionToken?.value ?? null);
+    }
+
     function matchesPdfSnapshotRequest(
-        snapshot: Pick<IPdfAnnotationSnapshot, 'doc' | 'pageCount'>,
+        snapshot: IPdfAnnotationSnapshotFence & {doc: PDFDocumentProxy},
         doc: PDFDocumentProxy,
         pageCount: number,
     ) {
-        return snapshot.doc === doc && snapshot.pageCount === pageCount;
+        return snapshot.doc === doc && matchesPdfSnapshotFence(snapshot, pageCount);
     }
 
     function getReusablePdfSnapshotPromise(
@@ -618,46 +648,9 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             snapshot
             && snapshotVersion === pdfAnnotationSnapshotVersion
             && pdfDocument.value === doc
-            && numPages.value === pageCount,
+            && numPages.value === pageCount
+            && matchesPdfSnapshotFence(snapshot, pageCount),
         );
-    }
-
-    function hasPendingIncompleteSnapshotRetry(completeness: IAnnotationInventoryCompleteness) {
-        return !completeness.complete
-            && isRetryableInventoryCompleteness(completeness)
-            && incompleteSnapshotRetryVersion !== pdfAnnotationSnapshotVersion;
-    }
-
-    /**
-     * A cached snapshot that lost pages to a transient read failure is
-     * discarded once per snapshot generation, so the next sync rescans and can
-     * recover the missing pages. Anything that bumps the generation (new
-     * document, new revision, explicit invalidation) re-arms the retry, and
-     * within one generation the retry is spent once, so a permanently
-     * unreadable page cannot turn every sync into a full rescan. The gate is
-     * per call: once a lookup decides to rescan, every other cache tier in the
-     * same lookup has to agree, or the discarded snapshot would come straight
-     * back from the next tier.
-     */
-    function createIncompleteSnapshotRetryGate() {
-        let retryTaken = false;
-        return function shouldDiscardIncompleteSnapshot(
-            completeness: IAnnotationInventoryCompleteness,
-        ) {
-            if (completeness.complete || !isRetryableInventoryCompleteness(completeness)) {
-                return false;
-            }
-            if (retryTaken) {
-                return true;
-            }
-            if (!hasPendingIncompleteSnapshotRetry(completeness)) {
-                return false;
-            }
-
-            incompleteSnapshotRetryVersion = pdfAnnotationSnapshotVersion;
-            retryTaken = true;
-            return true;
-        };
     }
 
     async function getPdfAnnotationSnapshot(
@@ -666,7 +659,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         localToken: number,
         intent: TPdfAnnotationNameReadIntent,
     ): Promise<IPdfAnnotationSnapshot | null> {
-        const shouldDiscardIncompleteSnapshot = createIncompleteSnapshotRetryGate();
+        const shouldDiscardIncompleteSnapshot = incompleteInventoryRetries.createGate();
         if (
             pdfAnnotationSnapshot
             && matchesPdfSnapshotRequest(pdfAnnotationSnapshot, doc, pageCount)
@@ -683,7 +676,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const shared = readSharedPdfAnnotationSnapshot(sharedKey, doc);
         if (
             shared
-            && shared.pageCount === pageCount
+            && matchesPdfSnapshotFence(shared, pageCount)
             && (
                 intent === 'eager'
                 || shared.annotationNameReadResult === 'reconciled'
@@ -717,7 +710,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
 
         pdfAnnotationSnapshotPromise = {
             doc,
-            pageCount,
+            ...resolvePdfAnnotationSnapshotFence(pageCount),
             version: snapshotVersion,
             intent,
             promise: snapshotPromise,
@@ -731,7 +724,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         markupSubtype: ISyncMarkupSubtype,
         store: ISyncStore,
     ) {
-        
+        setAnnotationEnrichmentState(PENDING_ANNOTATION_ENRICHMENT_STATE);
         identity.clearMemory();
         markupSubtype.clearOverrides();
         store.setAnnotations([], {reconcileMissingTransient: false});
@@ -968,6 +961,15 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             return null;
         }
 
+        if (annotationNameReadIntent === 'interactive') {
+            // A read that is running is neither a completed skip nor a
+            // failure. The annotations panel starts this pass the moment it
+            // opens, so leaving the previous verdict up would tell the user
+            // the read was declined at the exact moment it is happening, and
+            // would offer a retry that only restarts the pass already going.
+            setAnnotationEnrichmentState(PENDING_ANNOTATION_ENRICHMENT_STATE);
+        }
+
         const localToken = ++syncToken;
         const commentsByKey = new Map<string, IAnnotationCommentSummary>();
         const uiManager = annotationUiManager.value;
@@ -1011,6 +1013,11 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             hasPostOpenUserMutation,
             pdfSnapshot.completeness,
         );
+        publishAnnotationEnrichmentState(
+            pdfSnapshot.annotationNameReadResult,
+            pdfSnapshot.annotationNameSkipReason,
+            pdfSnapshot.pageCount,
+        );
         return pdfSnapshot;
     }
 
@@ -1026,16 +1033,16 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             pdfAnnotationSnapshot
             && matchesPdfSnapshotRequest(pdfAnnotationSnapshot, doc, pageCount)
             && pdfAnnotationSnapshot.annotationNameReadResult === 'reconciled'
-            && !hasPendingIncompleteSnapshotRetry(pdfAnnotationSnapshot.completeness)
+            && !incompleteInventoryRetries.hasPendingRetry(pdfAnnotationSnapshot.completeness)
         ) {
             return Promise.resolve('already-reconciled');
         }
 
-        const sourceSize = getPdfSourceByteSize();
-        if (
-            sourceSize === null
-            || sourceSize > getAnnotationNameReadLimits().interactiveMaxBytes
-        ) {
+        const interactiveEligibility = evaluateAnnotationEnrichmentEligibility(
+            resolveAnnotationEnrichmentRequest('interactive', pageCount),
+        );
+        if (!interactiveEligibility.allowed) {
+            publishAnnotationEnrichmentState('skipped', interactiveEligibility.reason, pageCount);
             return Promise.resolve('skipped-over-limit');
         }
 
@@ -1073,6 +1080,13 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
                     error,
                     reason,
                 });
+                if (
+                    pdfDocument.value === doc
+                    && numPages.value === pageCount
+                    && pdfAnnotationSnapshotVersion === snapshotVersion
+                ) {
+                    publishAnnotationEnrichmentState('failed', null, pageCount);
+                }
                 return 'failed' as const;
             })
             .finally(() => {
@@ -1164,6 +1178,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     });
 
     return {
+        annotationEnrichmentState: readonly(annotationEnrichmentState),
         trackedCreatedEditors,
         toEditorSummary,
         syncAnnotationComments,

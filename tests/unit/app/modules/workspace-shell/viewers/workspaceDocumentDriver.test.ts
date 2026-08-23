@@ -17,6 +17,7 @@ import {
     useWorkspaceDocumentDriver,
     useWorkspaceDocumentDriverBinding,
     type IWorkspaceDocumentDriverBindingOptions,
+    type TAnnotationEnrichmentStateListener,
     type TAnnotationInventoryListener,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import {
@@ -84,6 +85,7 @@ function createBindingHarness() {
     const isRenderActive = ref(false);
     const isWorkspaceLayoutResizing = ref(false);
     const onAnnotationInventory = vi.fn<TAnnotationInventoryListener>();
+    const onAnnotationEnrichmentState = vi.fn<TAnnotationEnrichmentStateListener>();
     const onPageSourceUpdate = vi.fn();
     const onRasterSchedulerUpdate = vi.fn();
     const onSourceCapabilitiesUpdate = vi.fn();
@@ -95,6 +97,7 @@ function createBindingHarness() {
         isRenderActive,
         isWorkspaceLayoutResizing,
         nativePdfViewerRef,
+        onAnnotationEnrichmentState,
         onAnnotationInventory,
         onPageSourceUpdate,
         onRasterSchedulerUpdate,
@@ -124,6 +127,7 @@ function createBindingHarness() {
         isRenderActive,
         isWorkspaceLayoutResizing,
         nativePdfViewerRef,
+        onAnnotationEnrichmentState,
         onAnnotationInventory,
         onPageSourceUpdate,
         onRasterSchedulerUpdate,
@@ -321,5 +325,19 @@ describe('WorkspaceDocumentDriver', () => {
         // `null` is the "no inventory measured yet" signal and must survive the
         // hop; collapsing it into a complete record would hide the notice.
         expect(harness.onAnnotationInventory).toHaveBeenNthCalledWith(2, null);
+    });
+
+    it('routes the annotation enrichment verdict to the workspace only for the PDF.js viewer', () => {
+        const harness = createBindingHarness();
+
+        // Without this listener the annotations panel never learns that a
+        // document's annotation read was skipped, and silently shows unknown
+        // authors instead.
+        expect(harness.binding.activeViewerListeners.value.annotationEnrichmentState)
+            .toBe(harness.onAnnotationEnrichmentState);
+
+        harness.activeDocumentDriver.value = harness.createDriver('djvu');
+
+        expect(harness.binding.activeViewerListeners.value.annotationEnrichmentState).toBeUndefined();
     });
 });

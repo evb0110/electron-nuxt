@@ -24,6 +24,7 @@ import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
 import { createBrowserDocumentRef } from '@app/platform/browser/browserDocumentRefs';
 import { resolveAnnotationSnapshotDocumentIdentity } from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
+import { MAX_EAGER_ANNOTATION_ENRICHMENT_PAGE_COUNT } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 
 function resolvePdfAnnotationNameReadLimits(tier: 'low' | 'medium') {
     const policy = resolveOpenPathSecondaryPerformancePolicy(resolvePerformanceProfile({ tier }));
@@ -91,10 +92,10 @@ beforeEach(() => {
 });
 
 async function readInventoryCaps() {
-    const syncModule = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync');
+    const inventoryModule = await import('@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationInventoryCompleteness');
     return {
-        pageCap: syncModule.MAX_BACKGROUND_PDF_ANNOTATION_PAGES,
-        recordCap: syncModule.MAX_BACKGROUND_PDF_ANNOTATION_RECORDS,
+        pageCap: inventoryModule.MAX_BACKGROUND_PDF_ANNOTATION_PAGES,
+        recordCap: inventoryModule.MAX_BACKGROUND_PDF_ANNOTATION_RECORDS,
     };
 }
 
@@ -557,6 +558,500 @@ describe('useAnnotationSync', () => {
                 text: 'Persisted note',
             });
             expect(annotationCommentsCache.value[0]?.annotationName).toBeNull();
+        });
+    });
+
+    describe('annotation enrichment state', () => {
+        function mockEmptyPage() {
+            loadPdfPageAnnotations.mockResolvedValue({
+                annotations: [],
+                pageRotation: 0,
+                pageView: [
+                    0,
+                    0,
+                    100,
+                    100,
+                ],
+            });
+        }
+
+        it('reports an enriched document once the full annotation read completes', async () => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            mockEmptyPage();
+
+            await withAnnotationSyncScope(async () => {
+                const limits = resolvePdfAnnotationNameReadLimits('medium');
+                const { sync } = await createSyncHarness({
+                    documentIdentity: ref('enriched-document'),
+                    limits,
+                    getPdfSourceByteSize: () => limits.eagerMaxBytes,
+                    isPdfSourceBlob: () => true,
+                });
+
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'pending',
+                    reason: null,
+                    canRetry: false,
+                });
+                await sync.syncAnnotationComments();
+
+                expect(collectPdfAnnotationNamesByPage).toHaveBeenCalledOnce();
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'enriched',
+                    reason: null,
+                    canRetry: false,
+                });
+            });
+        });
+
+        it('reports the eager skip for a non-blob source and clears it on the retry', async () => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            mockEmptyPage();
+
+            await withAnnotationSyncScope(async () => {
+                const limits = resolvePdfAnnotationNameReadLimits('medium');
+                const { sync } = await createSyncHarness({
+                    documentIdentity: ref('path-document-within-limits'),
+                    limits,
+                    // A path source is never read eagerly, but the annotations
+                    // panel can still ask for the read on demand.
+                    getPdfSourceByteSize: () => limits.eagerMaxBytes,
+                    isPdfSourceBlob: () => false,
+                });
+
+                await sync.syncAnnotationComments();
+
+                expect(collectPdfAnnotationNamesByPage).not.toHaveBeenCalled();
+                // The document is incomplete now. A possible retry does not
+                // make it complete, so the panel still has something to say.
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'skipped',
+                    reason: 'unreadable-source',
+                    canRetry: true,
+                });
+
+                await expect(sync.ensurePdfAnnotationNameReconciliation('annotations-ui-open'))
+                    .resolves.toBe('reconciled');
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'enriched',
+                    reason: null,
+                    canRetry: false,
+                });
+            });
+        });
+
+        it('reports the eager skip for a document past the open-path page ceiling', async () => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            mockEmptyPage();
+
+            await withAnnotationSyncScope(async () => {
+                const limits = resolvePdfAnnotationNameReadLimits('medium');
+                const { sync } = await createSyncHarness({
+                    documentIdentity: ref('page-heavy-document'),
+                    limits,
+                    numPages: ref(MAX_EAGER_ANNOTATION_ENRICHMENT_PAGE_COUNT + 1),
+                    getPdfSourceByteSize: () => 1024,
+                    isPdfSourceBlob: () => true,
+                });
+
+                await sync.syncAnnotationComments();
+
+                expect(collectPdfAnnotationNamesByPage).not.toHaveBeenCalled();
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'skipped',
+                    reason: 'over-page-count',
+                    canRetry: true,
+                });
+
+                await expect(sync.ensurePdfAnnotationNameReconciliation('annotations-ui-open'))
+                    .resolves.toBe('reconciled');
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'enriched',
+                    reason: null,
+                    canRetry: false,
+                });
+            });
+        });
+
+        it('reports the eager skip for a source over the open-path byte budget', async () => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            mockEmptyPage();
+
+            await withAnnotationSyncScope(async () => {
+                const limits = resolvePdfAnnotationNameReadLimits('medium');
+                const { sync } = await createSyncHarness({
+                    documentIdentity: ref('eager-oversized-document'),
+                    limits,
+                    getPdfSourceByteSize: () => limits.eagerMaxBytes + 1,
+                    isPdfSourceBlob: () => true,
+                });
+
+                await sync.syncAnnotationComments();
+
+                expect(collectPdfAnnotationNamesByPage).not.toHaveBeenCalled();
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'skipped',
+                    reason: 'over-byte-limit',
+                    canRetry: true,
+                });
+            });
+        });
+
+        it('reports a document past the interactive limit as skipped without a retry', async () => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            mockEmptyPage();
+
+            await withAnnotationSyncScope(async () => {
+                const limits = resolvePdfAnnotationNameReadLimits('medium');
+                const { sync } = await createSyncHarness({
+                    documentIdentity: ref('oversized-document'),
+                    limits,
+                    getPdfSourceByteSize: () => limits.interactiveMaxBytes + 1,
+                });
+
+                await sync.syncAnnotationComments();
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'skipped',
+                    reason: 'over-byte-limit',
+                    canRetry: false,
+                });
+
+                await expect(sync.ensurePdfAnnotationNameReconciliation('annotations-ui-open'))
+                    .resolves.toBe('skipped-over-limit');
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'skipped',
+                    reason: 'over-byte-limit',
+                    canRetry: false,
+                });
+                expect(collectPdfAnnotationNamesByPage).not.toHaveBeenCalled();
+            });
+        });
+
+        it.each([
+            {
+                label: 'one byte under the interactive limit',
+                offset: -1,
+                canRetry: true,
+            },
+            {
+                label: 'exactly at the interactive limit',
+                offset: 0,
+                canRetry: true,
+            },
+            {
+                label: 'one byte over the interactive limit',
+                offset: 1,
+                canRetry: false,
+            },
+        ])('keeps the interactive byte boundary inclusive: $label', async ({
+            offset,
+            canRetry,
+        }) => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            mockEmptyPage();
+
+            await withAnnotationSyncScope(async () => {
+                const limits = resolvePdfAnnotationNameReadLimits('medium');
+                const { sync } = await createSyncHarness({
+                    documentIdentity: ref(`boundary-document-${offset}`),
+                    limits,
+                    getPdfSourceByteSize: () => limits.interactiveMaxBytes + offset,
+                });
+
+                await sync.syncAnnotationComments();
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'skipped',
+                    reason: 'over-byte-limit',
+                    canRetry,
+                });
+            });
+        });
+
+        it('reports a failed annotation read as failed and recovers on a successful retry', async () => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            collectPdfAnnotationNamesByPage.mockRejectedValueOnce(new Error('unreadable'));
+            mockEmptyPage();
+
+            await withAnnotationSyncScope(async () => {
+                const limits = resolvePdfAnnotationNameReadLimits('medium');
+                const { sync } = await createSyncHarness({
+                    documentIdentity: ref('failing-document'),
+                    limits,
+                    getPdfSourceByteSize: () => limits.eagerMaxBytes,
+                    isPdfSourceBlob: () => true,
+                });
+
+                await sync.syncAnnotationComments();
+
+                // A failure is not a size skip: the read was attempted, and
+                // attempting it again is worth offering.
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'failed',
+                    reason: null,
+                    canRetry: true,
+                });
+
+                await expect(sync.ensurePdfAnnotationNameReconciliation('annotations-ui-open'))
+                    .resolves.toBe('reconciled');
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'enriched',
+                    reason: null,
+                    canRetry: false,
+                });
+            });
+        });
+
+        it('stops claiming a skipped read while the on-demand pass is running', async () => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            mockEmptyPage();
+            let releaseNameRead: (names: Map<number, Map<string, string>>) => void = () => {};
+            // The pass dynamically imports its reader before touching the
+            // document, so the mock call is the only reliable signal that the
+            // read is genuinely in flight.
+            const nameReadStarted = new Promise<void>((markStarted) => {
+                collectPdfAnnotationNamesByPage.mockImplementationOnce(
+                    async () => new Promise<Map<number, Map<string, string>>>((resolve) => {
+                        releaseNameRead = resolve;
+                        markStarted();
+                    }),
+                );
+            });
+
+            await withAnnotationSyncScope(async () => {
+                const limits = resolvePdfAnnotationNameReadLimits('medium');
+                const { sync } = await createSyncHarness({
+                    documentIdentity: ref('in-flight-document'),
+                    limits,
+                    getPdfSourceByteSize: () => limits.eagerMaxBytes,
+                    isPdfSourceBlob: () => false,
+                });
+
+                await sync.syncAnnotationComments();
+                expect(sync.annotationEnrichmentState.value.status).toBe('skipped');
+
+                const reconciliation = sync.ensurePdfAnnotationNameReconciliation('annotations-ui-open');
+                await nameReadStarted;
+
+                // Opening the annotations panel starts this pass. Reporting the
+                // eager skip while the read runs tells the user it was declined
+                // at the exact moment it is happening, and offers a retry that
+                // would only restart the read already under way.
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'pending',
+                    reason: null,
+                    canRetry: false,
+                });
+
+                releaseNameRead(new Map());
+                await expect(reconciliation).resolves.toBe('reconciled');
+                expect(sync.annotationEnrichmentState.value.status).toBe('enriched');
+            });
+        });
+
+        it('drops back to pending when the document is cleared', async () => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            mockEmptyPage();
+
+            await withAnnotationSyncScope(async () => {
+                const limits = resolvePdfAnnotationNameReadLimits('medium');
+                const { sync } = await createSyncHarness({
+                    documentIdentity: ref('cleared-document'),
+                    limits,
+                    getPdfSourceByteSize: () => limits.interactiveMaxBytes + 1,
+                });
+
+                await sync.syncAnnotationComments();
+                expect(sync.annotationEnrichmentState.value.status).toBe('skipped');
+
+                sync.clearSyncState();
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'pending',
+                    reason: null,
+                    canRetry: false,
+                });
+            });
+        });
+
+        it('answers a panel-first request the limits forbid instead of staying pending', async () => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            mockEmptyPage();
+
+            await withAnnotationSyncScope(async () => {
+                const limits = resolvePdfAnnotationNameReadLimits('medium');
+                const { sync } = await createSyncHarness({
+                    documentIdentity: ref('panel-first-oversized-document'),
+                    limits,
+                    getPdfSourceByteSize: () => limits.interactiveMaxBytes + 1,
+                });
+
+                // The annotations panel asks for the read as soon as it opens,
+                // which can happen before any sync has settled. The declined
+                // read is then the only thing that speaks for the document, so
+                // staying pending would show the user nothing at all.
+                expect(sync.annotationEnrichmentState.value.status).toBe('pending');
+
+                await expect(sync.ensurePdfAnnotationNameReconciliation('annotations-ui-open'))
+                    .resolves.toBe('skipped-over-limit');
+
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'skipped',
+                    reason: 'over-byte-limit',
+                    canRetry: false,
+                });
+                expect(collectPdfAnnotationNamesByPage).not.toHaveBeenCalled();
+            });
+        });
+
+        it('reports an on-demand read that throws as failed rather than skipped', async () => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            mockEmptyPage();
+
+            await withAnnotationSyncScope(async () => {
+                const limits = resolvePdfAnnotationNameReadLimits('medium');
+                const { sync } = await createSyncHarness({
+                    documentIdentity: ref('throwing-on-demand-document'),
+                    limits,
+                    getPdfSourceByteSize: () => limits.eagerMaxBytes,
+                    isPdfSourceBlob: () => false,
+                });
+
+                await sync.syncAnnotationComments();
+                expect(sync.annotationEnrichmentState.value.status).toBe('skipped');
+
+                // The on-demand pass can fail outside the annotation-name read
+                // itself. That is still an attempted read, so the panel must
+                // stop calling it a skip and keep offering the retry.
+                loadPdfPageAnnotations.mockRejectedValueOnce(new Error('page read failed'));
+
+                await expect(sync.ensurePdfAnnotationNameReconciliation('annotations-ui-open'))
+                    .resolves.toBe('failed');
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'failed',
+                    reason: null,
+                    canRetry: true,
+                });
+            });
+        });
+    });
+
+    describe('snapshot reuse fencing', () => {
+        function pageWithComment(annotationId: string): IPdfPageAnnotationBundle {
+            return {
+                annotations: [{
+                    id: annotationId,
+                    subtype: 'FreeText',
+                    contentsObj: {str: `Note ${annotationId}`},
+                    rect: [
+                        10,
+                        10,
+                        20,
+                        20,
+                    ],
+                }],
+                pageRotation: 0,
+                pageView: [
+                    0,
+                    0,
+                    100,
+                    100,
+                ],
+            };
+        }
+
+        it('re-reads a replaced document that keeps the same proxy and page count', async () => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            loadPdfPageAnnotations
+                .mockResolvedValueOnce(pageWithComment('document-a-comment'))
+                .mockResolvedValueOnce(pageWithComment('document-b-comment'));
+            collectPdfAnnotationNamesByPage
+                .mockResolvedValueOnce(new Map<number, Map<string, string>>())
+                .mockRejectedValueOnce(new Error('unreadable'));
+
+            await withAnnotationSyncScope(async () => {
+                const documentIdentity = ref('identity-a');
+                const pdfDocument = {};
+                const {
+                    setAnnotations,
+                    sync,
+                } = await createSyncHarness({
+                    documentIdentity,
+                    pdfDocument,
+                    getPdfSourceByteSize: () => 1024,
+                    isPdfSourceBlob: () => true,
+                });
+
+                await sync.syncAnnotationComments();
+                expect(setAnnotations).toHaveBeenLastCalledWith(
+                    [expect.objectContaining({annotationId: 'document-a-comment'})],
+                    expect.any(Object),
+                );
+                expect(sync.annotationEnrichmentState.value.status).toBe('enriched');
+
+                // Same PDF.js proxy, same page count, different document. No
+                // comment and no enrichment verdict may survive that.
+                documentIdentity.value = 'identity-b';
+                await nextTick();
+                expect(sync.annotationEnrichmentState.value.status).toBe('pending');
+
+                await sync.syncAnnotationComments();
+                expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(2);
+                expect(setAnnotations).toHaveBeenLastCalledWith(
+                    [expect.objectContaining({annotationId: 'document-b-comment'})],
+                    expect.any(Object),
+                );
+                expect(sync.annotationEnrichmentState.value.status).toBe('failed');
+            });
+        });
+
+        it('reuses a snapshot only for the same identity and revision', async () => {
+            loadPdfPageAnnotations
+                .mockResolvedValueOnce(pageWithComment('revision-1-comment'))
+                .mockResolvedValueOnce(pageWithComment('revision-2-comment'));
+
+            await withAnnotationSyncScope(async () => {
+                // One live PDF.js document, two viewers. The per-proxy cache
+                // is the reuse source here, so only the fence can stop a
+                // stale revision from crossing over.
+                const sharedProxy = {};
+                const firstRevision = await createSyncHarness({
+                    documentIdentity: ref('shared-identity'),
+                    documentRevisionToken: ref('revision-1'),
+                    pdfDocument: sharedProxy,
+                });
+                await firstRevision.sync.syncAnnotationComments();
+                expect(firstRevision.setAnnotations).toHaveBeenLastCalledWith(
+                    [expect.objectContaining({annotationId: 'revision-1-comment'})],
+                    expect.any(Object),
+                );
+
+                // A save rewrites the bytes in place: same identity, new
+                // revision, so the cached comments are stale.
+                const secondRevision = await createSyncHarness({
+                    documentIdentity: ref('shared-identity'),
+                    documentRevisionToken: ref('revision-2'),
+                    pdfDocument: sharedProxy,
+                });
+                await secondRevision.sync.syncAnnotationComments();
+                expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(2);
+                expect(secondRevision.setAnnotations).toHaveBeenLastCalledWith(
+                    [expect.objectContaining({annotationId: 'revision-2-comment'})],
+                    expect.any(Object),
+                );
+
+                // Reopened from scratch: a fresh proxy, so the keyed cache is
+                // the only place revision 1 can come back from.
+                const reopenedFirstRevision = await createSyncHarness({
+                    documentIdentity: ref('shared-identity'),
+                    documentRevisionToken: ref('revision-1'),
+                    pdfDocument: {},
+                });
+                await reopenedFirstRevision.sync.syncAnnotationComments();
+                expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(2);
+                expect(reopenedFirstRevision.setAnnotations).toHaveBeenLastCalledWith(
+                    [expect.objectContaining({annotationId: 'revision-1-comment'})],
+                    expect.any(Object),
+                );
+            });
         });
     });
 

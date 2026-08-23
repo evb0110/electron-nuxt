@@ -76,12 +76,14 @@
             :comments="comments"
             :status="commentsStatus"
             :inventory="inventory"
+            :enrichment-state="enrichmentState"
             :active-comment-stable-key="activeCommentStableKey"
             :author-name="appSettings.authorName"
             @focus-comment="focusComment"
             @open-note="openNote"
             @delete-comment="deleteComment"
             @place-note="placeNote"
+            @retry-enrichment="retryEnrichment"
         />
     </div>
 </template>
@@ -94,6 +96,8 @@ import type {
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
+import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
+import { PENDING_ANNOTATION_ENRICHMENT_STATE } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
 import PdfAnnotationCommentsList from '@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue';
 import PdfAnnotationStyleEditor from '@app/modules/pdf-viewer/components/PdfAnnotationStyleEditor.vue';
@@ -106,6 +110,7 @@ interface IProps {
     comments: IAnnotationCommentSummary[];
     commentsStatus: TAnnotationCommentsStatus;
     inventory?: IAnnotationInventoryCompleteness | null | undefined;
+    enrichmentState?: IAnnotationEnrichmentState | undefined;
     activeCommentStableKey?: string | null;
 }
 
@@ -121,6 +126,7 @@ const {
     comments,
     commentsStatus,
     inventory = null,
+    enrichmentState = PENDING_ANNOTATION_ENRICHMENT_STATE,
     activeCommentStableKey: rawActiveCommentStableKey = null,
 } = defineProps<IProps>();
 const activeCommentStableKey = computed(() => rawActiveCommentStableKey ?? undefined);
@@ -186,6 +192,7 @@ const emit = defineEmits<{
     'open-note': [comment: IAnnotationCommentSummary];
     'delete-comment': [comment: IAnnotationCommentSummary];
     'place-note': [];
+    'retry-enrichment': [];
 }>();
 
 const keepActiveModel = computed({
@@ -262,6 +269,10 @@ function deleteComment(comment: IAnnotationCommentSummary) {
 
 function placeNote() {
     emit('place-note');
+}
+
+function retryEnrichment() {
+    emit('retry-enrichment');
 }
 </script>
 

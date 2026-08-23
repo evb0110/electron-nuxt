@@ -27,6 +27,29 @@
             />
         </div>
 
+        <p
+            v-if="enrichmentNotice"
+            class="notes-enrichment-notice"
+            role="status"
+        >
+            <UIcon
+                :name="enrichmentNotice.icon"
+                aria-hidden="true"
+            />
+            <span class="notes-enrichment-notice-text">{{ enrichmentNotice.message }}</span>
+            <UButton
+                v-if="enrichmentNotice.canRetry"
+                type="button"
+                class="notes-enrichment-retry"
+                color="neutral"
+                variant="link"
+                size="xs"
+                @click="retryEnrichment"
+            >
+                {{ t('annotations.enrichmentRetry') }}
+            </UButton>
+        </p>
+
         <AppSearchInput
             v-if="searchVisible"
             ref="searchInputRef"
@@ -187,18 +210,20 @@ import {
     splitByQueryMatches,
 } from '@app/utils/pdfAnnotationComments';
 import { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
+import { isPointNoteMarkerSizedRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/pointNoteMarkerPolicy';
+import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
+import { PENDING_ANNOTATION_ENRICHMENT_STATE } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import {
     annotationKindLabelFromSubtype,
     isTextMarkupSubtype,
 } from '@app/services/pdf/annotationSubtype';
 import AppSearchInput from '@app/components/AppSearchInput.vue';
 
-const POINT_NOTE_MARKER_MAX_SIZE = 0.02;
-
 interface IProps {
     comments: IAnnotationCommentSummary[];
     status: TAnnotationCommentsStatus;
     inventory?: IAnnotationInventoryCompleteness | null | undefined;
+    enrichmentState?: IAnnotationEnrichmentState | undefined;
     activeCommentStableKey?: string | null | undefined;
     authorName?: string | null | undefined;
 }
@@ -209,16 +234,54 @@ const {
     activeCommentStableKey: activeCommentStableKeyProp = undefined,
     authorName: authorNameProp = undefined,
     comments,
+    enrichmentState = PENDING_ANNOTATION_ENRICHMENT_STATE,
     inventory = null,
     status,
 } = defineProps<IProps>();
+
+/**
+ * One panel-level line, never a per-row badge: the omission is a property of
+ * the document, not of any single annotation. It stays up while a retry is
+ * offered, because the annotations on screen are incomplete until that retry
+ * actually succeeds.
+ *
+ * The size wording is only used for the two limits that really are about
+ * document size. A source the open path cannot reparse gets neutral wording,
+ * since calling a small PDF "large" would be a lie.
+ */
+const enrichmentNotice = computed(() => {
+    if (enrichmentState.status === 'failed') {
+        return {
+            icon: 'i-ph-warning-circle',
+            message: t('annotations.enrichmentFailed'),
+            canRetry: enrichmentState.canRetry,
+        };
+    }
+    if (enrichmentState.status !== 'skipped') {
+        return null;
+    }
+    const isSizeLimited = enrichmentState.reason === 'over-byte-limit'
+        || enrichmentState.reason === 'over-page-count';
+    return {
+        icon: 'i-ph-info',
+        message: isSizeLimited
+            ? t('annotations.enrichmentSkippedSize')
+            : t('annotations.enrichmentSkippedSource'),
+        canRetry: enrichmentState.canRetry,
+    };
+});
 
 const emit = defineEmits<{
     'focus-comment': [comment: IAnnotationCommentSummary];
     'open-note': [comment: IAnnotationCommentSummary];
     'delete-comment': [comment: IAnnotationCommentSummary];
     'place-note': [];
+    'retry-enrichment': [];
 }>();
+
+function retryEnrichment() {
+    emit('retry-enrichment');
+}
 
 const query = ref('');
 const searchVisible = ref(false);
@@ -394,14 +457,7 @@ function isPointLikeInlineNote(comment: IAnnotationCommentSummary) {
         return true;
     }
 
-    const rect = comment.markerRect;
-    return Boolean(
-        rect
-        && isFiniteNumber(rect.width)
-        && isFiniteNumber(rect.height)
-        && rect.width <= POINT_NOTE_MARKER_MAX_SIZE
-        && rect.height <= POINT_NOTE_MARKER_MAX_SIZE,
-    );
+    return isPointNoteMarkerSizedRect(comment.markerRect);
 }
 
 function hasUserPreviewText(comment: IAnnotationCommentSummary) {
@@ -551,6 +607,27 @@ function placeNote() {
 
 .notes-search {
     width: 100%;
+}
+
+.notes-enrichment-notice {
+    display: flex;
+    align-items: center;
+    gap: var(--app-sidebar-row-gap);
+    margin: 0;
+    font-size: var(--app-sidebar-caption-font-size);
+    line-height: 1.35;
+    color: var(--ui-text-muted);
+}
+
+.notes-enrichment-notice-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.notes-enrichment-retry {
+    flex: 0 0 auto;
+    padding: 0;
+    font-size: inherit;
 }
 
 .notes-list {

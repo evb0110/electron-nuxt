@@ -4,26 +4,37 @@ import type {
     ILinkAnnotation,
 } from '@app/types/annotations';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
+import type { TAnnotationEnrichmentSkipReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { estimateAnnotationSnapshotBytes } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/estimateAnnotationSnapshotBytes';
 
 export type TPdfAnnotationNameReadResult = 'reconciled' | 'skipped' | 'failed';
 
-export interface IPdfAnnotationSnapshot {
-    doc: PDFDocumentProxy;
+/**
+ * Every reusable snapshot carries the source it was read from. Page count and
+ * PDF.js proxy alone do not identify a document: replacing the open file with
+ * a same-length, same-page-count one keeps both, so comments and the
+ * enrichment result would silently carry over from the previous document.
+ */
+export interface IPdfAnnotationSnapshotFence {
     pageCount: number;
+    identity: string;
+    revision: TDocumentRevisionToken | null;
+}
+
+interface IPdfAnnotationSnapshotPayload {
     comments: IAnnotationCommentSummary[];
     links: ILinkAnnotation[];
     annotationNameReadResult: TPdfAnnotationNameReadResult;
+    annotationNameSkipReason: TAnnotationEnrichmentSkipReason | null;
     completeness: IAnnotationInventoryCompleteness;
 }
 
-export interface ISharedPdfAnnotationSnapshot {
-    pageCount: number;
-    comments: IAnnotationCommentSummary[];
-    links: ILinkAnnotation[];
-    annotationNameReadResult: TPdfAnnotationNameReadResult;
-    completeness: IAnnotationInventoryCompleteness;
-}
+export interface IPdfAnnotationSnapshot
+    extends IPdfAnnotationSnapshotFence, IPdfAnnotationSnapshotPayload {doc: PDFDocumentProxy;}
+
+export type ISharedPdfAnnotationSnapshot =
+    IPdfAnnotationSnapshotFence & IPdfAnnotationSnapshotPayload;
 
 /**
  * One cached payload plus everything needed to un-cache it.
@@ -81,9 +92,12 @@ let retainedSnapshotBytes = 0;
 function toSharedSnapshot(snapshot: IPdfAnnotationSnapshot): ISharedPdfAnnotationSnapshot {
     return {
         pageCount: snapshot.pageCount,
+        identity: snapshot.identity,
+        revision: snapshot.revision,
         comments: structuredClone(snapshot.comments),
         links: structuredClone(snapshot.links),
         annotationNameReadResult: snapshot.annotationNameReadResult,
+        annotationNameSkipReason: snapshot.annotationNameSkipReason,
         completeness: {
             ...snapshot.completeness,
             omissions: [...snapshot.completeness.omissions],
@@ -98,9 +112,12 @@ export function cloneSharedPdfAnnotationSnapshot(
     return {
         doc,
         pageCount: cached.pageCount,
+        identity: cached.identity,
+        revision: cached.revision,
         comments: structuredClone(cached.comments),
         links: structuredClone(cached.links),
         annotationNameReadResult: cached.annotationNameReadResult,
+        annotationNameSkipReason: cached.annotationNameSkipReason,
         completeness: {
             ...cached.completeness,
             omissions: [...cached.completeness.omissions],

@@ -64,12 +64,15 @@ function createSnapshot(options: {
     return {
         doc: options.doc as never,
         pageCount: 1,
+        identity: 'document',
+        revision: null,
         comments: Array.from(
             { length: options.commentCount },
             (_unused, index) => createComment(index, options.textLength),
         ),
         links: [],
         annotationNameReadResult: 'skipped' as const,
+        annotationNameSkipReason: null,
         completeness: COMPLETE,
     };
 }

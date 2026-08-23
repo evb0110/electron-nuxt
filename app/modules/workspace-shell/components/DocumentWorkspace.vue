@@ -129,6 +129,7 @@
                     :annotation-comments="annotationComments"
                     :annotation-comments-status="annotationCommentsStatus"
                     :annotation-inventory="annotationInventory"
+                    :annotation-enrichment-state="annotationEnrichmentState"
                     :annotation-active-comment-stable-key="annotationActiveCommentStableKey"
                     :bookmark-edit-mode="bookmarkEditMode"
                     :bookmark-items="bookmarkItems"
@@ -156,6 +157,7 @@
                     @annotation-open-note="annotationSession.handleOpenAnnotationNote"
                     @annotation-delete-comment="annotationSession.handleDeleteAnnotationComment"
                     @annotation-place-note="annotationSession.handleStartPlaceNote"
+                    @annotation-retry-enrichment="requestAnnotationEnrichment"
                     @bookmarks-change="handleBookmarksChange"
                     @update:bookmark-edit-mode="bookmarkEditMode = $event"
                     @page-context-menu="showPageContextMenu"
@@ -680,11 +682,14 @@ const isExternalWorkspaceLayoutResizingRef = toRef(() => isExternalWorkspaceLayo
 const isActiveViewerLayoutResizing = computed(() => (
     isResizingSidebar.value || isExternalWorkspaceLayoutResizingRef.value || isTabTransitionBusy
 ));
+function requestAnnotationEnrichment() {
+    void pdfViewerRef.value?.ensurePdfAnnotationNameReconciliation?.('annotations-ui-open');
+}
 watch(
     () => showSidebar.value && sidebarTab.value === 'annotations',
     (annotationsVisible) => {
         if (annotationsVisible) {
-            void pdfViewerRef.value?.ensurePdfAnnotationNameReconciliation?.('annotations-ui-open');
+            requestAnnotationEnrichment();
         }
     },
     {flush: 'post'},
@@ -728,6 +733,7 @@ const {
     annotationComments,
     annotationCommentsStatus,
     annotationInventory,
+    annotationEnrichmentState,
     annotationActiveCommentStableKey,
     thumbnailHiddenAnnotationIds,
     markAnnotationCommentsLoading,

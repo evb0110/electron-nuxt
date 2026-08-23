@@ -1,5 +1,6 @@
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { markerRectCenterDistance } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/markerRectCenterDistance';
+import { isPointNoteMarkerSizedRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/pointNoteMarkerPolicy';
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
 import { toMarkerRectFromEditorRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromEditorRect';
@@ -8,8 +9,6 @@ import { getOptionalNumber } from '@app/services/pdfjs/runtime';
 import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/engine/annotations/bridge/getPdfjsEditorFacadeState';
 
 const PENDING_ANCHOR_DISTANCE_THRESHOLD = 0.14;
-
-const MAX_FREETEXT_NOTE_MARKER_SIZE = 0.02;
 
 export function resolveEditorMarkerRect(editor: IPdfjsEditor) {
     const editorRotation = normalizePageRotation(
@@ -28,11 +27,7 @@ export function resolveEditorMarkerRect(editor: IPdfjsEditor) {
         : toMarkerRectFromEditor(editor);
     const pendingAnchorRect = normalizeMarkerRect(getPdfjsEditorFacadeState(editor).pendingAnchorRect ?? null);
     const markerDistanceFromPending = markerRectCenterDistance(markerRectFromEditor, pendingAnchorRect);
-    const hasPointSizedPendingAnchor = Boolean(
-        pendingAnchorRect
-        && pendingAnchorRect.width <= MAX_FREETEXT_NOTE_MARKER_SIZE
-        && pendingAnchorRect.height <= MAX_FREETEXT_NOTE_MARKER_SIZE,
-    );
+    const hasPointSizedPendingAnchor = isPointNoteMarkerSizedRect(pendingAnchorRect);
     const shouldUsePendingAnchor = Boolean(
         pendingAnchorRect
         && (

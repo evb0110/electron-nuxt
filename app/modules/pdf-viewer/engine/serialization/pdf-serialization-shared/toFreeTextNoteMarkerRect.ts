@@ -2,11 +2,17 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
+import { isPointNoteMarkerSizedRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/pointNoteMarkerPolicy';
 import { isAnnotationMarkerRect } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shared/isAnnotationMarkerRect';
 
-const POINT_NOTE_MARKER_SIZE = 0.0016;
-
-const MAX_FREETEXT_NOTE_MARKER_SIZE = 0.02;
+/**
+ * Normalized side the save pipeline writes for an app note anchor that is not
+ * already point-sized. It is deliberately far below
+ * `POINT_NOTE_MARKER_MAX_NORMALIZED_SIZE`: the anchor only has to be a
+ * non-degenerate rect the import path can classify back as a marker, not a
+ * shape anything draws.
+ */
+export const POINT_NOTE_MARKER_SIZE = 0.0016;
 
 export function toFreeTextNoteMarkerRect(
     value: IAnnotationCommentSummary['markerRect'],
@@ -15,10 +21,7 @@ export function toFreeTextNoteMarkerRect(
         return null;
     }
 
-    if (
-        value.width <= MAX_FREETEXT_NOTE_MARKER_SIZE
-        && value.height <= MAX_FREETEXT_NOTE_MARKER_SIZE
-    ) {
+    if (isPointNoteMarkerSizedRect(value)) {
         return value;
     }
 

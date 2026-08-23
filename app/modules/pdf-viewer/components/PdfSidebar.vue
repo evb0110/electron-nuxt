@@ -16,6 +16,7 @@
                 :comments="annotationComments"
                 :comments-status="annotationCommentsStatus"
                 :inventory="annotationInventory"
+                :enrichment-state="annotationEnrichmentState"
                 :active-comment-stable-key="annotationActiveCommentStableKey"
                 :keep-active="annotationKeepActive"
                 @set-tool="updateAnnotationTool"
@@ -25,6 +26,7 @@
                 @open-note="openAnnotationNote"
                 @delete-comment="deleteAnnotationComment"
                 @place-note="placeAnnotationNote"
+                @retry-enrichment="retryAnnotationEnrichment"
             />
 
             <DocumentSidebarPagesPanel
@@ -123,6 +125,8 @@ import type {
 } from '@app/types/annotations';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { TPdfSidebarTab } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
+import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
+import { PENDING_ANNOTATION_ENRICHMENT_STATE } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import PdfAnnotationsPanel from '@app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import PdfPageSelectionBar from '@app/modules/pdf-viewer/components/PdfPageSelectionBar.vue';
@@ -168,6 +172,7 @@ interface IProps {
     annotationComments: IAnnotationCommentSummary[];
     annotationCommentsStatus: TAnnotationCommentsStatus;
     annotationInventory?: IAnnotationInventoryCompleteness | null | undefined;
+    annotationEnrichmentState?: IAnnotationEnrichmentState | undefined;
     annotationActiveCommentStableKey?: string | null | undefined;
     bookmarkEditMode: boolean;
     bookmarkItems: IPdfBookmarkEntry[];
@@ -194,6 +199,7 @@ const {
     annotationComments,
     annotationCommentsStatus,
     annotationInventory = null,
+    annotationEnrichmentState = PENDING_ANNOTATION_ENRICHMENT_STATE,
     bookmarkItems,
     bookmarkNavigationIntentVersion,
     bookmarksDirty,
@@ -249,6 +255,7 @@ const emit = defineEmits<{
     'annotation-open-note': [comment: IAnnotationCommentSummary];
     'annotation-delete-comment': [comment: IAnnotationCommentSummary];
     'annotation-place-note': [];
+    'annotation-retry-enrichment': [];
     'bookmarks-change': [payload: IPdfBookmarkChangePayload];
     'page-context-menu': [payload: {
         clientX: number;
@@ -384,6 +391,10 @@ function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
 
 function placeAnnotationNote() {
     emit('annotation-place-note');
+}
+
+function retryAnnotationEnrichment() {
+    emit('annotation-retry-enrichment');
 }
 
 function rotateSelectedPagesClockwise() {

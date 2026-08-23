@@ -23,6 +23,7 @@ import type {
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 
 export interface IPdfViewerProps {
     src: TPdfSource | null;
@@ -73,6 +74,7 @@ export interface IPdfViewerEmit {
     (e: 'annotation-modified', payload?: IAnnotationModifiedPayload): void;
     (e: 'annotation-comments', comments: IAnnotationCommentSummary[]): void;
     (e: 'annotation-inventory', completeness: IAnnotationInventoryCompleteness | null): void;
+    (e: 'annotation-enrichment-state', state: IAnnotationEnrichmentState): void;
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-context-menu', payload: IAnnotationContextMenuPayload): void;
     (e: 'annotation-tool-auto-reset'): void;

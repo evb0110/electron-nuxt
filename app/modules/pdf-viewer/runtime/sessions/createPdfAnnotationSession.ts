@@ -59,6 +59,7 @@ import { useAnnotationHighlight } from '@app/modules/pdf-viewer/annotations/brid
 import { useAnnotationCrud } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud';
 import { useFreeTextResize } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize';
 import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel';
+import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
@@ -89,6 +90,7 @@ export interface ICreatePdfAnnotationSessionOptions {
     emitAnnotationState: Parameters<typeof usePdfAppAnnotationHistory>[0]['emitAnnotationState'];
     emitAnnotationComments: (comments: IAnnotationCommentSummary[]) => void;
     emitAnnotationInventory: (completeness: IAnnotationInventoryCompleteness | null) => void;
+    emitAnnotationEnrichmentState: (state: IAnnotationEnrichmentState) => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationContextMenu: (payload: IAnnotationContextMenuPayload) => void;
     emitAnnotationToolAutoReset: () => void;
@@ -461,6 +463,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         },
         isPdfSourceBlob: () => typeof Blob !== 'undefined' && options.src.value instanceof Blob,
     });
+    watch(
+        commentSync.annotationEnrichmentState,
+        state => options.emitAnnotationEnrichmentState(state),
+        {immediate: true},
+    );
     function emitAnnotationOpenNoteWithReconciliation(comment: IAnnotationCommentSummary) {
         void commentSync.ensurePdfAnnotationNameReconciliation('annotations-ui-open');
         const noteComment = annotationCommentModel.withTransientNoteCreationTimestamp(comment);

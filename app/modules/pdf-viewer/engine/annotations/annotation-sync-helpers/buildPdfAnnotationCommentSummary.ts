@@ -19,35 +19,21 @@ import type {
 import { pickEarliestAnnotationCreationTimestamp } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/pickEarliestAnnotationCreationTimestamp';
 import { pickLatestAnnotationTimestamp } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/pickLatestAnnotationTimestamp';
 import { resolveCombinedAnnotationText } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveCombinedAnnotationText';
+import { isPointNoteMarkerSizedRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/pointNoteMarkerPolicy';
 
 const FREE_TEXT_SUBTYPE_LOWER = 'freetext';
-
-const MAX_FREETEXT_NOTE_MARKER_SIZE = 0.02;
-const MARKER_SIZE_ROUNDING_TOLERANCE = Number.EPSILON * 16;
 
 function isFreeTextNoteMarkerRect(
     subtype: string | null | undefined,
     hasLinkedPopup: boolean,
     rect: IAnnotationMarkerRect | null,
-): rect is IAnnotationMarkerRect {
-    if (!rect || !hasLinkedPopup) {
+) {
+    if (!hasLinkedPopup) {
         return false;
     }
     const normalizedSubtype = (subtype ?? '').trim().toLowerCase();
     return normalizedSubtype === FREE_TEXT_SUBTYPE_LOWER
-        && rect.width <= MAX_FREETEXT_NOTE_MARKER_SIZE + MARKER_SIZE_ROUNDING_TOLERANCE
-        && rect.height <= MAX_FREETEXT_NOTE_MARKER_SIZE + MARKER_SIZE_ROUNDING_TOLERANCE;
-}
-
-function resolvePdfCommentMarkerRect(
-    subtype: string | null | undefined,
-    hasLinkedPopup: boolean,
-    rawMarkerRect: IAnnotationMarkerRect | null,
-) {
-    if (!isFreeTextNoteMarkerRect(subtype, hasLinkedPopup, rawMarkerRect)) {
-        return rawMarkerRect;
-    }
-    return rawMarkerRect;
+        && isPointNoteMarkerSizedRect(rect);
 }
 
 function resolvePdfCommentIds(
@@ -208,6 +194,6 @@ export function buildPdfAnnotationCommentSummary(
         annotationName,
         source: 'pdf',
         hasNote: hasPdfAnnotationNote(subtype, hasLinkedPopup, text, rawMarkerRect),
-        markerRect: resolvePdfCommentMarkerRect(subtype, hasLinkedPopup, rawMarkerRect),
+        markerRect: rawMarkerRect,
     };
 }

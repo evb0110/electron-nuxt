@@ -13,6 +13,7 @@ import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-g
 import type { IDetachedMarkerOccupied } from '@app/modules/pdf-viewer/engine/annotations/annotation-marker-geometry/annotationMarkerGeometryTypes';
 import { FOCUS_PULSE_MS } from '@app/constants/timeouts';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
+import { isPointNoteMarkerSizedRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/pointNoteMarkerPolicy';
 
 interface IUseAnnotationMarkerViewModelOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -25,8 +26,6 @@ interface IUseAnnotationMarkerViewModelOptions {
         moreNotes: (count: number) => string;
     };
 }
-
-const MAX_FREETEXT_NOTE_MARKER_SIZE = 0.02;
 
 function buildPreview(
     comment: IAnnotationCommentSummary,
@@ -80,10 +79,7 @@ function isMarkerEligibleComment(comment: IAnnotationCommentSummary) {
     if (subtype === 'freetext' || subtype === 'typewriter') {
         // Regular text annotations are also FreeText/Typewriter, but sticky notes
         // use a point-like anchor rect. Keep markers only for that anchor shape.
-        return (
-            rect.width <= MAX_FREETEXT_NOTE_MARKER_SIZE
-            && rect.height <= MAX_FREETEXT_NOTE_MARKER_SIZE
-        );
+        return isPointNoteMarkerSizedRect(rect);
     }
 
     return true;

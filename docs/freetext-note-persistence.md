@@ -38,7 +38,13 @@ This resolves the tension because:
 
 ## Why the Rect Must Be Rewritten
 
-The annotation sync layer classifies FreeText annotations as "point-like note markers" only when they have a linked Popup and both normalized dimensions are ≤ 0.02. The boundary is inclusive: `0.02` is a marker, while `0.020001` is not. Larger third-party FreeText annotations remain FreeText content and are never converted into app note markers. PDF.js saves the app's note-anchor rects at editor size (e.g. 7×20 points), which is too large to pass this check. Without rect rewriting, an app-created note would not be recognized as a marker on reopen.
+The annotation sync layer classifies FreeText annotations as "point-like note markers" only when they have a linked Popup and both normalized dimensions are ≤ 0.02. The boundary is inclusive: `0.02` is a marker, while `0.020001` is not.
+
+`pointNoteMarkerPolicy.ts` owns that threshold and the `isPointNoteMarkerSizedRect` predicate. Import classification, the comments list, the editor marker resolver, the page marker view model and the save pipeline all call it, and nothing else may hold the constant. The comparison adds a rounding tolerance of `Number.EPSILON * 16`. A rect authored at exactly the threshold lands a few ulps above it once a PDF rect is divided by the page box, and without the tolerance the list would call such a note a marker while the save pipeline shrank it.
+
+The lower bound is strict: both sides must be greater than zero. A zero or negative side is degenerate geometry, not a very small marker — it cannot be drawn, hit-tested or dragged. `toMarkerRectFromPdfRect` already expands a genuinely zero-area annotation rect to the `0.0016` anchor size on import, so the only rects that reach the predicate at zero are malformed, and the save pipeline rewrites them to a usable anchor instead of preserving them. The rotated round trip holds at 0°, 90°, 180° and 270°: a point-note anchor imported from a PDF rect stays classified as a marker and saves back to the rect it came from.
+
+Larger third-party FreeText annotations remain FreeText content and are never converted into app note markers. PDF.js saves the app's note-anchor rects at editor size (e.g. 7×20 points), which is too large to pass this check. Without rect rewriting, an app-created note would not be recognized as a marker on reopen.
 
 ## Why ZWS Must Be Stripped
 
@@ -72,3 +78,4 @@ pdf-lib performs a full re-serialize when saving, so a large size reduction is r
 | `app/modules/pdf-viewer/engine/pdf-serialization-comments/updateAnnotationTextByRef.ts` | Writes note text to FreeText `/Contents` for targeted updates |
 | `app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.ts` | ZWS stripping when selecting text source |
 | `app/modules/pdf-viewer/engine/annotations/domain/annotationEntity.ts` | Canonical ZWS/BOM normalization before store commands |
+| `app/modules/pdf-viewer/engine/annotations/annotation-rules/pointNoteMarkerPolicy.ts` | The single point-note marker size threshold and predicate |
