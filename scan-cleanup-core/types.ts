@@ -47,6 +47,30 @@ export interface IPdfPageSize {
     dominantImageHeightPoints?: number;
 }
 
+/**
+ * Positional consumers read this geometry as `pageSizes[pageNumber - 1]`, so a
+ * full-length array whose records are out of order hands one page another
+ * page's paper, DPI, placement and text-layer matrix without ever looking
+ * wrong. The two real decoders already answer `1..N`; this is the admission
+ * check for an injected or directly supplied array, and it rejects rather than
+ * sorts so the broken producer is the thing that surfaces.
+ */
+export function assertCanonicalPdfPageSizes(
+    pageSizes: readonly IPdfPageSize[],
+    context: string,
+) {
+    for (const [
+        index,
+        pageSize,
+    ] of pageSizes.entries()) {
+        if (pageSize.pageNumber !== index + 1) {
+            throw new Error(
+                `${context} received page geometry out of document order: expected page ${String(index + 1)} at index ${String(index)}, received page ${String(pageSize.pageNumber)}`,
+            );
+        }
+    }
+}
+
 export interface IDetectedPageRaster {
     dpi: number;
     width: number;

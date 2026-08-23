@@ -13,7 +13,10 @@ import {
     resolveScanCleanupPageLayout,
     resolveScanCleanupPlacementOffset,
 } from '@contracts/scanCleanupPageOverrides';
-import type {IPdfPageSize} from '@scan-cleanup-core/types';
+import {
+    assertCanonicalPdfPageSizes,
+    type IPdfPageSize,
+} from '@scan-cleanup-core/types';
 import {
     resolveScanCleanupMatchedCanvasMaxPixels,
     SCAN_CLEANUP_MAX_DIMENSION_PX,
@@ -780,6 +783,10 @@ export const SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI = 300;
  *
  * A page with no raster (vector or text) is not on this list: a content
  * transform places it on the canvas exactly, at any scale.
+ *
+ * This reads `pageSizes[pageNumber - 1]`, and the preview service reaches it
+ * with geometry from an injectable dependency that no earlier call has
+ * admitted, so the order check belongs here rather than at the callers.
  */
 export function resolveMatchedCanvasResamplePages(
     pageSizes: readonly IPdfPageSize[],
@@ -790,6 +797,7 @@ export function resolveMatchedCanvasResamplePages(
     rasterDetectionAvailable: boolean,
     layoutByPage?: TScanCleanupLayoutByPage,
 ) {
+    assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup matched canvas resample planning');
     const canvas = options.matchPageSize
         ? resolveScanCleanupDocumentCanvas(pageSizes, canvasGridDpi, options, layoutByPage)
         : null;

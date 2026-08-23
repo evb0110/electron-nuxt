@@ -33,6 +33,7 @@ import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import {
+    assertCanonicalPdfPageSizes,
     detectSourceDpiFromPageSizes,
     resolveSourceDpi,
     type IRunScanCleanupPipelineDependencies,
@@ -477,6 +478,11 @@ export async function runScanCleanupConversion(
                 `Scan cleanup received geometry for ${String(pageSizes.length)} of ${String(documentPageCount)} pages`,
             );
         }
+        // Everything downstream — DPI probing, the document canvas, the raster
+        // plans, placement and the text layer — indexes this array by document
+        // page number. It is admitted once, here, whether it was measured or
+        // handed to the run.
+        assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup conversion');
         const dpiProbePages = request.options.matchPageSize ? documentPageNumbers : pageNumbers;
         emitProgress('probing', 0, dpiProbePages.length, []);
         // For scan PDFs the fast geometry pass above also reports the dominant

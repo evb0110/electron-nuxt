@@ -17,6 +17,7 @@ import {
     resolveScanCleanupMarginsMm,
 } from '@contracts/scanCleanupPageOverrides';
 import {
+    assertCanonicalPdfPageSizes,
     resolveSourceDpi,
     type IRunScanCleanupPipelineDependencies,
     type IRunScanCleanupPipelineRequest,
@@ -89,6 +90,11 @@ export async function runLosslessScanCleanup(
     policy: IScanCleanupRuntimePolicy,
     dependencies: IRunScanCleanupPipelineDependencies,
 ) {
+    // The assembler crops in the source page's own user space, so a page that
+    // is handed another page's box writes a wrong document rather than a
+    // failing one. This entry is reachable directly, not only through the
+    // conversion run that already admitted its geometry.
+    assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup lossless assembly');
     if (!paths.pdfPageOpsBinary) {
         throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }

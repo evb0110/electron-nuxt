@@ -23,6 +23,7 @@ import {buildRunnableNativeScanCleanupManifest} from '@scan-cleanup-core/policy/
 import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
 import {preserveScanCleanupJsonEvidence} from '@scan-cleanup-core/preserveScanCleanupJsonEvidence';
 import {
+    assertCanonicalPdfPageSizes,
     detectSourceDpiFromPageSizes,
     type IDetectedPageRaster,
     type IPdfPageSize,
@@ -407,6 +408,9 @@ export async function runScanCleanupDetection<TDocument>(
         const totalPages = await retention.pageCount(document, signal);
         const pageNumbers = Array.from({length: totalPages}, (_, index) => index + 1);
         const pageSizes = await retention.pageSizes(document, signal);
+        // Detection reads the whole document, so a native page number is a
+        // source page number and this array is indexed by it directly.
+        assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup detection');
         const pageSizeByNumber = new Map(pageSizes.map(page => [
             page.pageNumber,
             page,

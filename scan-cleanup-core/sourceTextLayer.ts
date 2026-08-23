@@ -1,6 +1,9 @@
 import type {IScanCleanupTextLayerInstruction} from '@scan-cleanup-core/compactManifest';
 import type {IRenderedCleanupOutputPage} from '@scan-cleanup-core/assembleCompactScanCleanupPages';
-import type {IPdfPageSize} from '@scan-cleanup-core/types';
+import {
+    assertCanonicalPdfPageSizes,
+    type IPdfPageSize,
+} from '@scan-cleanup-core/types';
 import {resolveScanCleanupMatchedCanvasPlacement} from '@scan-cleanup-core/policy/documentCanvas';
 
 export interface IScanCleanupTextLayerPlan {
@@ -220,6 +223,10 @@ export function buildScanCleanupTextLayerPlan(
     outputs: readonly IRenderedCleanupOutputPage[],
     pageSizes: readonly IPdfPageSize[],
 ): IScanCleanupTextLayerPlan {
+    // Each instruction maps a source page's text into an output page through
+    // `pageSizes[sourcePageNumber - 1]`, so out-of-order geometry silently
+    // stamps one page's words onto another.
+    assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup text layer planning');
     const pages: IScanCleanupTextLayerInstruction[] = [];
     const skippedNonAffine = new Set<number>();
     const alreadyPreserved = new Set<number>();

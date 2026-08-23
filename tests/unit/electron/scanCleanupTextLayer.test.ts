@@ -370,4 +370,16 @@ describe('scan-cleanup source text layer', () => {
             alreadyPreserved: [2],
         });
     });
+
+    it('rejects page geometry that is not in document order', () => {
+        expect(() => buildScanCleanupTextLayerPlan([output()], [
+            {
+                ...pageSize,
+                pageNumber: 2,
+            },
+            pageSize,
+        ])).toThrow(
+            'Scan cleanup text layer planning received page geometry out of document order: expected page 1 at index 0, received page 2',
+        );
+    });
 });

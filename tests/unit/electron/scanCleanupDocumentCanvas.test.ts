@@ -556,6 +556,21 @@ describe('scan cleanup document canvas', () => {
         ]);
     });
 
+    it('accepts shuffled pdfinfo records and returns canonical order', () => {
+        // Poppler is free to print the pages in any order; the decoder is the
+        // owner that answers 1..N, so the seams downstream never sort.
+        expect(parsePdfInfoPageGeometry([
+            'Pages:           2',
+            'Page    2 size:  400 x 500 pts',
+            'Page    2 rot:   90',
+            'Page    1 size:  612 x 792 pts (letter)',
+            'Page    1 rot:   0',
+        ].join('\n')).map(pageSize => pageSize.pageNumber)).toEqual([
+            1,
+            2,
+        ]);
+    });
+
     it('reads the same geometry out of pdfinfo when page-ops is unavailable', () => {
         // The page view Poppler renders with -cropbox, at the precision pdfinfo
         // prints it, plus the rotation the page is presented under.
@@ -1421,6 +1436,29 @@ describe('scan cleanup document canvas', () => {
                 new Set<number>(),
                 false,
             )).toEqual([2]);
+        });
+
+        it('rejects page geometry that is not in document order', () => {
+            // The canvas rectangle is order-independent, but the per-page
+            // lookup here is positional: a full-length shuffled array would
+            // measure page 1 against page 2's paper and silently name the
+            // wrong pages for re-rendering.
+            expect(() => resolveMatchedCanvasResamplePages(
+                [...mixedScale].reverse(),
+                [
+                    1,
+                    2,
+                ],
+                losslessOptions,
+                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
+                new Set([
+                    1,
+                    2,
+                ]),
+                true,
+            )).toThrow(
+                'Scan cleanup matched canvas resample planning received page geometry out of document order: expected page 1 at index 0, received page 2',
+            );
         });
     });
 });

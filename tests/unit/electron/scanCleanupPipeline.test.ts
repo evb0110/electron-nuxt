@@ -41,6 +41,7 @@ import {
     type IRunScanCleanupPipelineDependencies,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
 import {observeScanCleanupAnalysisReleasePromises} from '@scan-cleanup-core/runScanCleanupConversion';
+import {runLosslessScanCleanup} from '@scan-cleanup-core/runLosslessScanCleanup';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
 import {
     resolveReusablePagePlan,
@@ -204,6 +205,18 @@ async function answerPageSizesCommand(args: readonly string[], pageCount = 4) {
         rotation: 0,
     }))}));
     return true;
+}
+
+// The document's own geometry in whatever order a producer hands it over.
+function documentGeometry(pageNumbers: readonly number[]) {
+    return pageNumbers.map(pageNumber => ({
+        pageNumber,
+        xPoints: 0,
+        yPoints: 0,
+        widthPoints: 240,
+        heightPoints: 336,
+        rotation: 0,
+    }));
 }
 
 function pipelinePaths(dir: string, includePageOps = true, includePdfInfo = false) {
@@ -5632,5 +5645,173 @@ describe('scan cleanup pipeline', () => {
         expect(summary.warnings).toContain(
             formatScanCleanupWarningEvent({code: 'matched-canvas-margins-reduced'}, 1),
         );
+    });
+    it('rejects injected page geometry that is not in document order before probing, rendering or the sidecar', async () => {
+        const fixture = await setup();
+        const pipelineDependencies = dependencies(vi.fn());
+        pipelineDependencies.getPageCount = vi.fn(async () => 3);
+        // Full-length geometry for this document, out of order: page 2 would
+        // be cleaned, placed and assembled against page 3's paper.
+        pipelineDependencies.getPageSizes = vi.fn(async () => documentGeometry([
+            3,
+            1,
+            2,
+        ]));
+
+        await expect(runScanCleanupPipeline(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options,
+            },
+            pipelinePaths(fixture.dir),
+            new AbortController().signal,
+            vi.fn(),
+            highTierPolicy,
+            undefined,
+            pipelineDependencies,
+        )).rejects.toThrow(
+            'Scan cleanup conversion received page geometry out of document order: expected page 1 at index 0, received page 3',
+        );
+
+        expect(pipelineDependencies.detectSourceDpi).not.toHaveBeenCalled();
+        expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
+        expect(pipelineDependencies.renderPagePpm).not.toHaveBeenCalled();
+        expect(pipelineDependencies.runSidecar).not.toHaveBeenCalled();
+        await expect(readFile(fixture.outputPdfPath)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('rejects bridge-supplied page metadata whose records do not match their page keys', async () => {
+        const fixture = await setup();
+        const pipelineDependencies = dependencies(vi.fn());
+
+        await expect(runScanCleanupPipeline(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options,
+                sourcePageMetadataByPage: Object.fromEntries(documentGeometry([
+                    2,
+                    1,
+                ]).map((pageSize, index) => [
+                    String(index + 1),
+                    {
+                        ...pageSize,
+                        sourceDpi: 300,
+                    },
+                ])),
+            },
+            pipelinePaths(fixture.dir),
+            new AbortController().signal,
+            vi.fn(),
+            highTierPolicy,
+            undefined,
+            pipelineDependencies,
+        )).rejects.toThrow(
+            'Scan cleanup conversion received page geometry out of document order: expected page 1 at index 0, received page 2',
+        );
+
+        expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
+        expect(pipelineDependencies.renderPagePpm).not.toHaveBeenCalled();
+        expect(pipelineDependencies.runSidecar).not.toHaveBeenCalled();
+    });
+
+    it('rejects page geometry that is not in document order at the lossless seam', async () => {
+        const fixture = await setup();
+        const pipelineDependencies = dependencies(vi.fn());
+
+        await expect(runLosslessScanCleanup(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options: {
+                    ...options,
+                    preserveOriginalQuality: true,
+                },
+            },
+            pipelinePaths(fixture.dir),
+            fixture.sourcePdfPath,
+            [],
+            [
+                1,
+                2,
+            ],
+            documentGeometry([
+                2,
+                1,
+            ]),
+            dpiDetails(300, [
+                [
+                    1,
+                    300,
+                ],
+                [
+                    2,
+                    300,
+                ],
+            ]),
+            fixture.dir,
+            join(fixture.dir, 'staged.pdf'),
+            new AbortController().signal,
+            vi.fn(),
+            vi.fn(),
+            highTierPolicy,
+            pipelineDependencies,
+        )).rejects.toThrow(
+            'Scan cleanup lossless assembly received page geometry out of document order: expected page 1 at index 0, received page 2',
+        );
+
+        expect(pipelineDependencies.runSidecar).not.toHaveBeenCalled();
+    });
+
+    it('keeps a partial page selection valid against full-document geometry', async () => {
+        const fixture = await setup();
+        let cleanupManifest: {pages: Array<{
+            pageMetadataPath: string;
+            options: {dpi: number};
+            outputs: ICleanupOutput[];
+        }>} | null = null;
+        const pipelineDependencies = dependencies(vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as NonNullable<typeof cleanupManifest>;
+            cleanupManifest = manifest;
+            for (const page of manifest.pages) {
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    layoutClassification: 'single-uncut-page',
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                }));
+                await writeCleanupOutput(
+                    page.outputs[0]!,
+                    'single-uncut-page',
+                    true,
+                    false,
+                    page.options.dpi,
+                );
+            }
+        }));
+        pipelineDependencies.getPageCount = vi.fn(async () => 3);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [[
+            2,
+            300,
+        ]]));
+
+        // Geometry is numbered for the whole document while the run covers one
+        // page: selected-page order is not document page numbering, so this
+        // stays a valid run rather than a rejected one.
+        const summary = await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options,
+            sourcePageNumbers: [2],
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
+
+        expect(summary.inputPages).toBe(1);
+        expect(summary.outputPages).toBe(1);
+        expect(cleanupManifest!.pages).toHaveLength(1);
+        expect(cleanupManifest!.pages[0]!.outputs[0]!.outputPath).toMatch(/clean-2-0\.png$/u);
+        expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF-');
     });
 });

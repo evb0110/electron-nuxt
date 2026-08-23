@@ -670,4 +670,61 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         expect(retention.retain).not.toHaveBeenCalled();
         expect(retention.release).toHaveBeenCalledOnce();
     });
+
+    it('rejects retained page geometry that is not in document order', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-test-'));
+        dirs.push(tempDir);
+        const renderPage = vi.fn();
+        const retention: IScanCleanupDetectionRetention<{id: string}> = {
+            openDocument: vi.fn(async () => ({id: 'document'})),
+            pageCount: vi.fn(async () => 3),
+            // Full-length geometry for the same document, in the wrong order:
+            // detection reads a native page number as a source page number, so
+            // page 2 would be classified against page 3's paper.
+            pageSizes: vi.fn(async () => [
+                3,
+                1,
+                2,
+            ].map(pageNumber => ({
+                pageNumber,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 480,
+                heightPoints: 480,
+                rotation: 0,
+            }))),
+            rasterPages: vi.fn(async () => ({
+                detected: false,
+                pages: new Set<number>(),
+            })),
+            retainedPaths: vi.fn(async () => new Map()),
+            rasterScratchPath: vi.fn(async () => join(tempDir, 'unexpected.png')),
+            retain: vi.fn(),
+            release: vi.fn(async () => undefined),
+        };
+
+        await expect(runScanCleanupDetection(
+            createRequest(),
+            new AbortController().signal,
+            retention,
+            {
+                getTempDir: () => tempDir,
+                getAvailableScratchBytes: vi.fn(async () => null),
+                getPdftoppmBinary: () => 'pdftoppm',
+                resolveBinary: () => 'evb-scan-cleanup',
+                renderPage,
+                renderPagePpm: vi.fn(),
+                runSidecar: vi.fn(),
+            },
+            {rasterConcurrency: 2},
+            () => undefined,
+        )).rejects.toThrow(
+            'Scan cleanup detection received page geometry out of document order: expected page 1 at index 0, received page 3',
+        );
+
+        expect(retention.rasterPages).not.toHaveBeenCalled();
+        expect(renderPage).not.toHaveBeenCalled();
+        expect(retention.retain).not.toHaveBeenCalled();
+        expect(retention.release).toHaveBeenCalledOnce();
+    });
 });
