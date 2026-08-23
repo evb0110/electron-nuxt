@@ -5,13 +5,13 @@ import type {
 } from '@app/utils/document-viewer/source/documentPageSource';
 import { searchDocumentTextProvider } from '@app/utils/document-viewer/providers/documentSearch';
 import type { IDocumentSearchBackend } from '@app/utils/document-viewer/search/documentSearch';
+import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
 
-const DOCUMENT_SOURCE_MIN_QUERY_LENGTH = 2;
 let nextDocumentSourceSearchRequestId = 0;
 
 function createProviderBackend(provider: IDocumentSearchProvider): IDocumentSearchBackend {
     return {
-        minQueryLength: DOCUMENT_SOURCE_MIN_QUERY_LENGTH,
+        minQueryLength: DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH,
         async search(request) {
             const response = await provider.search({
                 ...request,
@@ -45,7 +45,7 @@ function createDocumentTextProviderSearchBackend(options: {
     pageCount: number;
 }): IDocumentSearchBackend {
     return {
-        minQueryLength: DOCUMENT_SOURCE_MIN_QUERY_LENGTH,
+        minQueryLength: DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH,
         search: request => searchDocumentTextProvider({
             provider: options.provider,
             pageCount: options.pageCount,

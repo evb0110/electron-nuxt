@@ -12,6 +12,7 @@ import {
     ref,
     type Ref,
 } from 'vue';
+import type * as TimeoutConstants from '@app/constants/timeouts';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts';
@@ -71,6 +72,7 @@ interface IPdfSearchPageMatches {
 }
 
 interface IPdfSearchTestApi {
+    cancelSearch: () => void;
     clearSearch: () => void;
     currentMatch: Ref<number>;
     currentResult: Ref<IPdfSearchTestResult | null>;
@@ -102,6 +104,13 @@ const mockSearch = {
 vi.mock('@app/utils/getSearchCapability', () => ({ getSearchCapability: () => mockSearch }));
 vi.mock('#imports', () => ({ useTypedI18n: () => ({ t: (key: string) => key }) }));
 
+/** Lets `search()` run past its internal awaits and reach its debounce filter. */
+async function flushToScheduledSearch() {
+    for (let turn = 0; turn < 8; turn += 1) {
+        await Promise.resolve();
+    }
+}
+
 async function createPdfSearch(options?: { documentRevisionToken?: Ref<TDocumentRevisionToken | null> }): Promise<IPdfSearchTestApi> {
     const { usePdfSearch } = await import('@app/modules/pdf-viewer/runtime/composables/usePdfSearch');
     return usePdfSearch(options) as IPdfSearchTestApi;
@@ -120,6 +129,8 @@ describe('usePdfSearch', () => {
 
     afterEach(() => {
         vi.useRealTimers();
+        vi.doUnmock('@app/constants/timeouts');
+        vi.resetModules();
     });
 
     it('allows single-character queries', async () => {
@@ -989,5 +1000,123 @@ describe('usePdfSearch', () => {
         expect(search.results.value).toEqual([]);
         expect(search.searchProgress.value).toBeUndefined();
         expect(search.isSearching.value).toBe(false);
+    });
+
+    it('drops a scheduled search before it reaches the backend when the search tab is left', async () => {
+        const search = await createPdfSearch();
+
+        const promise = search.search('alpha', '/tmp/work.pdf', 928);
+        search.cancelSearch();
+
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await expect(promise).resolves.toBe(false);
+        expect(mockSearch.run).not.toHaveBeenCalled();
+        expect(search.isSearching.value).toBe(false);
+        expect(search.searchQuery.value).toBe('alpha');
+    });
+
+    it('clears the pending debounce timer instead of leaving it to fire', async () => {
+        const timeouts = await vi.importActual<typeof TimeoutConstants>('@app/constants/timeouts');
+        vi.doMock('@app/constants/timeouts', () => ({
+            ...timeouts,
+            SEARCH_DEBOUNCE_MS: 50,
+        }));
+        vi.resetModules();
+        const search = await createPdfSearch();
+
+        const promise = search.search('alpha', '/tmp/work.pdf', 928);
+        await flushToScheduledSearch();
+        expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+        search.cancelSearch();
+
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(50);
+        await expect(promise).resolves.toBe(false);
+        expect(mockSearch.run).not.toHaveBeenCalled();
+    });
+
+    it('cancels the in-flight backend request and ignores everything it reports afterwards', async () => {
+        let requestId = '';
+        let progressListener: (progress: IPdfSearchTestProgress) => void = () => {
+            throw new Error('Progress listener was not registered');
+        };
+        let resolveSearch: (value: IPdfSearchRunResult) => void = () => {};
+        const unsubscribeProgress = vi.fn();
+        const match = {
+            pageNumber: 3,
+            pageMatchIndex: 0,
+            matchIndex: 0,
+            startOffset: 8,
+            endOffset: 12,
+        };
+
+        mockSearch.onProgress.mockImplementation((listener) => {
+            progressListener = listener;
+            return unsubscribeProgress;
+        });
+        mockSearch.run.mockImplementation(async (_pdfPath, _query, options) => {
+            requestId = options.requestId;
+            return new Promise((resolve) => {
+                resolveSearch = resolve;
+            });
+        });
+        const search = await createPdfSearch();
+
+        const promise = search.search('alpha', '/tmp/work.pdf', 928);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        expect(search.isSearching.value).toBe(true);
+
+        search.cancelSearch();
+
+        expect(mockSearch.cancel).toHaveBeenCalledWith(requestId);
+        expect(unsubscribeProgress).toHaveBeenCalledTimes(1);
+        expect(search.isSearching.value).toBe(false);
+
+        progressListener({
+            requestId,
+            processed: 400,
+            total: 928,
+            results: [match],
+            truncated: true,
+        });
+
+        expect(search.results.value).toEqual([]);
+        expect(search.searchProgress.value).toBeUndefined();
+        expect(search.isTruncated.value).toBe(false);
+
+        resolveSearch({
+            results: [match],
+            truncated: true,
+        });
+        await expect(promise).resolves.toBe(false);
+
+        expect(search.results.value).toEqual([]);
+        expect(search.isTruncated.value).toBe(false);
+        expect(search.isSearching.value).toBe(false);
+        expect(search.submittedSearchQuery.value).toBe('alpha');
+    });
+
+    it('keeps a canceled search restartable', async () => {
+        const search = await createPdfSearch();
+        const abandoned = search.search('alpha', '/tmp/work.pdf', 928);
+        search.cancelSearch();
+        await expect(abandoned).resolves.toBe(false);
+
+        mockSearch.run.mockResolvedValueOnce({
+            results: [{
+                pageNumber: 2,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 0,
+                endOffset: 5,
+            }],
+            truncated: false,
+        });
+        const restarted = search.search('alpha', '/tmp/work.pdf', 928);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+
+        await expect(restarted).resolves.toBe(true);
+        expect(search.results.value).toHaveLength(1);
     });
 });

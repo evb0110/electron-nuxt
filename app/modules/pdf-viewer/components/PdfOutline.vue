@@ -1,6 +1,7 @@
 <template>
     <div class="pdf-bookmarks flex flex-col gap-3">
         <DocumentBookmarkToolbar
+            v-if="isBookmarkToolbarVisible"
             :display-mode="displayMode"
             editable
             :is-edit-mode="isEditMode"
@@ -12,7 +13,7 @@
         />
 
         <div
-            v-if="isLoading"
+            v-if="bookmarkStatus === 'loading'"
             class="pdf-bookmarks-loading"
         >
             <AppSpinner size="md" tone="muted" />
@@ -20,7 +21,13 @@
         </div>
 
         <DocumentPanelEmptyState
-            v-else-if="bookmarks.length === 0"
+            v-else-if="bookmarkStatus === 'error'"
+            icon="i-ph-warning"
+            :title="t('bookmarks.unavailable')"
+        />
+
+        <DocumentPanelEmptyState
+            v-else-if="bookmarkStatus === 'empty'"
             icon="i-ph-book-open"
             :title="t('bookmarks.noBookmarks')"
         >
@@ -113,7 +120,10 @@ import type {
 } from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
-import type { IDocumentBookmarkTreeItem } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
+import type {
+    IDocumentBookmarkTreeItem,
+    TDocumentBookmarkStatus,
+} from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {
@@ -166,10 +176,24 @@ const { t } = useTypedI18n();
 
 const bookmarks = ref<IBookmarkItem[]>([]);
 const isLoading = ref(false);
+const outlineError = ref(false);
 const activeItemId = ref<string | null>(null);
 const displayMode = ref<TBookmarkDisplayMode>('current-expanded');
 const expandedBookmarkIds = ref<Set<string>>(new Set());
 const styleRangeStartId = ref<string | null>(null);
+
+const bookmarkStatus = computed<TDocumentBookmarkStatus>(() => {
+    if (isLoading.value) {
+        return 'loading';
+    }
+    if (outlineError.value) {
+        return 'error';
+    }
+    return bookmarks.value.length === 0 ? 'empty' : 'ready';
+});
+const isBookmarkToolbarVisible = computed(() => (
+    bookmarkStatus.value === 'ready' || bookmarkStatus.value === 'empty'
+));
 
 const isEditMode = computed({
     get: () => props.isEditMode,
@@ -512,6 +536,7 @@ function applyPendingBookmarkItems(
     entries: IPdfBookmarkEntry[],
     options: { syncBaseline?: boolean } = {},
 ) {
+    outlineError.value = false;
     if (JSON.stringify(entries) === getPersistedBookmarkSnapshot()) {
         if (options.syncBaseline) {
             syncBookmarkBaselineFromCurrentItems();
@@ -567,6 +592,7 @@ function clearLoadedOutline() {
     }
 
     isLoading.value = false;
+    outlineError.value = false;
     bookmarks.value = [];
     activeItemId.value = null;
     selection.clearSelection();
@@ -602,6 +628,7 @@ function applyLoadedBookmarks(resolved: IBookmarkItem[]) {
         return;
     }
 
+    outlineError.value = false;
     bookmarks.value = resolved;
     updateActiveItemFromCurrentPage();
     if (activeItemId.value) {
@@ -624,6 +651,7 @@ function handleOutlineLoadError(
     }
 
     BrowserLogger.error('pdfOutline', 'Failed to load bookmarks', error);
+    outlineError.value = true;
     bookmarks.value = [];
     activeItemId.value = null;
     selection.clearSelection();
@@ -638,6 +666,7 @@ function finishOutlineLoading(runId: number) {
 
 async function loadUsableOutline(pdfDocument: PDFDocumentProxy, runId: number) {
     isLoading.value = true;
+    outlineError.value = false;
     try {
         const resolved = await resolveBookmarksFromPdf(pdfDocument);
         if (!isStaleOutlineRun(runId, pdfDocument)) {

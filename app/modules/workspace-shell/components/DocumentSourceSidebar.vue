@@ -22,18 +22,19 @@
 
         <div v-show="effectiveTab === 'bookmarks'" class="document-source-sidebar__bookmarks">
             <DocumentBookmarkToolbar
+                v-if="isBookmarkToolbarVisible"
                 :display-mode="bookmarkDisplayMode"
                 @set-display-mode="setBookmarkDisplayMode"
             />
-            <p v-if="outlineLoading" class="document-source-sidebar__status">{{ t('documentSourceSidebar.loadingOutline') }}</p>
+            <p v-if="outlineStatus === 'loading'" class="document-source-sidebar__status">{{ t('documentSourceSidebar.loadingOutline') }}</p>
             <DocumentPanelEmptyState
-                v-else-if="outlineError"
+                v-else-if="outlineStatus === 'error'"
                 icon="i-ph-warning"
-                :title="t('searchResults.unavailable')"
-                :description="outlineError"
+                :title="t('bookmarks.unavailable')"
+                :description="outlineError ?? ''"
             />
             <DocumentPanelEmptyState
-                v-else-if="outlineItems.length === 0"
+                v-else-if="outlineStatus === 'empty'"
                 icon="i-ph-bookmark"
                 :title="t('documentSourceSidebar.noOutline')"
             />
@@ -80,7 +81,10 @@ const props = defineProps<{
     isResizing?: boolean;
     searchFocusRequest?: number;
 }>();
-const emit = defineEmits<{'go-to-page': [pageNumber: number];}>();
+const emit = defineEmits<{
+    'go-to-page': [pageNumber: number];
+    'update:availableTabs': [value: TDocumentSidebarTab[]];
+}>();
 
 const activeTab = defineModel<TDocumentSidebarTab>('activeTab', {required: true});
 const sidebarCapabilities = computed(() => ({
@@ -98,6 +102,11 @@ const {
     capabilitiesReady: computed(() => props.source !== null),
     preferredTab: activeTab,
 });
+watch(
+    availableTabs,
+    tabs => emit('update:availableTabs', [...tabs]),
+    {immediate: true},
+);
 const bookmarkSession = useDocumentBookmarkSession({
     source: computed(() => props.source),
     currentPage: computed(() => props.currentPage),
@@ -110,11 +119,16 @@ const {
     error: outlineError,
     expandedIds: expandedBookmarkIds,
     getPageNumber: getBookmarkPageNumber,
-    isLoading: outlineLoading,
     items: outlineItems,
     setDisplayMode: setBookmarkDisplayMode,
+    status: outlineStatus,
     toggleExpanded: toggleBookmarkExpanded,
 } = bookmarkSession;
+
+/** Display modes are meaningless until there is a settled outline to arrange. */
+const isBookmarkToolbarVisible = computed(() => (
+    outlineStatus.value === 'ready' || outlineStatus.value === 'empty'
+));
 
 const availableShellTabs = computed(() => availableTabs.value.map(tab => ({
     value: tab,

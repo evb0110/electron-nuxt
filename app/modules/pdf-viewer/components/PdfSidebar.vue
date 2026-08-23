@@ -104,6 +104,7 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IResolvedSearchMatchOptions } from '@contracts/search';
+import { PDF_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
@@ -225,6 +226,7 @@ const emit = defineEmits<{
     goToPage: [page: number, options?: IScrollToPageOptions];
     goToResult: [index: number];
     'update:activeTab': [value: TPdfSidebarTab];
+    'update:availableTabs': [value: TPdfSidebarTab[]];
     'update:searchQuery': [value: string];
     'update:searchOptions': [value: IResolvedSearchMatchOptions];
     'update:annotation-tool': [value: TAnnotationTool];
@@ -232,6 +234,7 @@ const emit = defineEmits<{
     'update:bookmark-edit-mode': [value: boolean];
     'update:pageLabelRanges': [ranges: IPdfPageLabelRange[]];
     search: [];
+    'cancel-search': [];
     next: [];
     previous: [];
     'annotation-setting': [payload: {
@@ -272,12 +275,12 @@ const searchSession = createPdfDocumentSearchSession({
     error: computed(() => searchError ?? null),
     progress: computed(() => searchProgress),
     isTruncated: computed(() => isTruncated ?? false),
-    minQueryLength: computed(() => minQueryLength ?? 1),
+    minQueryLength: computed(() => minQueryLength ?? PDF_SEARCH_MIN_QUERY_LENGTH),
     setQuery: value => emit('update:searchQuery', value),
     setOptions: value => emit('update:searchOptions', value),
     run: () => emit('search'),
     clear: () => emit('update:searchQuery', ''),
-    cancel: () => undefined,
+    cancel: () => emit('cancel-search'),
     select: index => emit('goToResult', index),
     navigate: (direction) => {
         if (direction === 'next') {
@@ -315,6 +318,12 @@ const {
     capabilitiesReady: computed(() => true),
     preferredTab: activeTab,
 });
+
+watch(
+    availableTabs,
+    tabs => emit('update:availableTabs', [...tabs]),
+    {immediate: true},
+);
 
 const selectedThumbnailPages = computed(() => selectedThumbnailPagesProp);
 
@@ -444,6 +453,13 @@ watch(
         const sidebarClosed = wasOpen && !isOpen;
         if (leftAnnotations || sidebarClosed) {
             emit('update:annotation-tool', 'none');
+        }
+        // A search the user has navigated away from is wasted work: drop the
+        // in-flight request and anything still waiting on the debounce.
+        const leftSearch = previousTab === 'search'
+            && (activeSidebarTab !== 'search' || sidebarClosed);
+        if (leftSearch) {
+            searchSession.cancel();
         }
     },
     { flush: 'post' },

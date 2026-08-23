@@ -6,6 +6,7 @@ import {
     getDocumentBookmarkActivePath,
     type IDocumentBookmarkTreeItem,
     type TDocumentBookmarkDisplayMode,
+    type TDocumentBookmarkStatus,
 } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 
 interface IUseDocumentBookmarkSessionOptions {
@@ -23,6 +24,15 @@ export const useDocumentBookmarkSession = (options: IUseDocumentBookmarkSessionO
     let controller: AbortController | null = null;
     let sourceGeneration = 0;
 
+    const status = computed<TDocumentBookmarkStatus>(() => {
+        if (isLoading.value) {
+            return 'loading';
+        }
+        if (error.value !== null) {
+            return 'error';
+        }
+        return items.value.length === 0 ? 'empty' : 'ready';
+    });
     const activePath = computed(() => getDocumentBookmarkActivePath(items.value, options.currentPage.value));
     const activeId = computed(() => activePath.value.at(-1) ?? null);
     const activePathIds = computed(() => new Set(activePath.value));
@@ -105,6 +115,7 @@ export const useDocumentBookmarkSession = (options: IUseDocumentBookmarkSessionO
         items,
         load,
         setDisplayMode,
+        status,
         toggleExpanded,
     };
 };

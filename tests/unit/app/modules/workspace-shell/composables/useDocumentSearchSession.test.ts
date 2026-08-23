@@ -8,6 +8,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
 import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
 import type {
     IDocumentSearchBackend,
@@ -182,6 +183,35 @@ describe('useDocumentSearchSession', () => {
         expect(backend.search).not.toHaveBeenCalled();
         expect(harness.session.submittedQuery.value).toBe('ab');
         expect(harness.session.isSearching.value).toBe(false);
+        harness.stop();
+    });
+    it('reports the document-source contract minimum while no backend is attached', async () => {
+        const backend = ref<IDocumentSearchBackend | null>(null);
+        const harness = withSession(() => useDocumentSearchSession({backend}));
+
+        expect(harness.session.minQueryLength.value).toBe(DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH);
+
+        harness.session.setQuery('a');
+        await expect(harness.session.run()).resolves.toBe(false);
+
+        const search = vi.fn(async () => ({
+            results: [createMatch(0, 0)],
+            truncated: false,
+        }));
+        backend.value = {
+            minQueryLength: 4,
+            search,
+        };
+
+        expect(harness.session.minQueryLength.value).toBe(4);
+
+        harness.session.setQuery('abc');
+        await expect(harness.session.run()).resolves.toBe(false);
+        expect(search).not.toHaveBeenCalled();
+
+        harness.session.setQuery('abcd');
+        await expect(harness.session.run()).resolves.toBe(true);
+        expect(search).toHaveBeenCalledTimes(1);
         harness.stop();
     });
 });

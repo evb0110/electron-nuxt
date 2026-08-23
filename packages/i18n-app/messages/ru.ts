@@ -1230,6 +1230,7 @@ export default {
         'prefixPlaceholder': 'Раздел-',
     },
     'bookmarks': {
+        'unavailable': 'Закладки недоступны',
         'noBookmarks': 'Нет доступных закладок',
         'loading': 'Загрузка закладок...',
         'enterEditMode': 'Режим редактирования',

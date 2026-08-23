@@ -1207,6 +1207,7 @@ export default {
         'prefixPlaceholder': 'Abschnitt-',
     },
     'bookmarks': {
+        'unavailable': 'Lesezeichen nicht verfügbar',
         'noBookmarks': 'Keine Lesezeichen vorhanden',
         'loading': 'Lesezeichen werden geladen...',
         'enterEditMode': 'Lesezeichen-Bearbeitungsmodus aktivieren',

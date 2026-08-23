@@ -640,6 +640,7 @@ describe('createBrowserSearchCapability', () => {
             'alpha foo',
             'beta foo',
             'gamma foo',
+            'delta foo',
         ];
         const getPage = vi.fn(async (pageNumber: number) => ({
             getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
@@ -673,11 +674,116 @@ describe('createBrowserSearchCapability', () => {
         });
         expect(secondRun.truncated).toBe(true);
         expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
-        expect(getPage).toHaveBeenCalledTimes(4);
+        expect(getPage).toHaveBeenCalledTimes(6);
 
         const indexedDbFactory = cast<FakeIndexedDbFactory>(indexedDB);
         const database = indexedDbFactory.getDatabase('evb-browser-search-cache');
         expect(database?.getStoreRecords('document-text').size ?? 0).toBe(0);
+    });
+
+    it('keeps an exact-limit result set complete and scans every remaining page', async () => {
+        vi.doMock('@app/platform/browser-api/browserSearchLimits', () => ({
+            SEARCH_EXCERPT_CONTEXT_CHARS: 10,
+            SEARCH_RESULT_LIMIT: 2,
+        }));
+        const pageTexts = [
+            'alpha foo',
+            'beta foo',
+            'gamma without a match',
+        ];
+        const getPage = vi.fn(async (pageNumber: number) => ({
+            getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: pageTexts.length,
+            getPage,
+            destroy: vi.fn(async () => {}),
+        }) });
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        const { capability } = createBrowserSearchCapability();
+        const truncatedProgress: boolean[] = [];
+        capability.onProgress(progress => truncatedProgress.push(Boolean(progress.truncated)));
+        const result = await capability.run('/tmp/test.pdf', 'foo', {requestId: 'exact-limit'});
+
+        expect(result.truncated).toBe(false);
+        expect(result.results.map(match => Number(match.pageNumber))).toEqual([
+            1,
+            2,
+        ]);
+        expect(getPage).toHaveBeenCalledTimes(3);
+        expect(truncatedProgress).not.toContain(true);
+    });
+
+    it('truncates only after discovering the first match beyond the limit', async () => {
+        vi.doMock('@app/platform/browser-api/browserSearchLimits', () => ({
+            SEARCH_EXCERPT_CONTEXT_CHARS: 10,
+            SEARCH_RESULT_LIMIT: 2,
+        }));
+        const pageTexts = [
+            'alpha foo',
+            'beta foo',
+            'gamma foo',
+            'delta foo',
+        ];
+        const getPage = vi.fn(async (pageNumber: number) => ({
+            getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: pageTexts.length,
+            getPage,
+            destroy: vi.fn(async () => {}),
+        }) });
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        const { capability } = createBrowserSearchCapability();
+        const progressUpdates: Array<{
+            processed: number;
+            truncated: boolean;
+            pageNumbers: number[];
+        }> = [];
+        capability.onProgress(progress => progressUpdates.push({
+            processed: progress.processed,
+            truncated: Boolean(progress.truncated),
+            pageNumbers: (progress.results ?? []).map(match => Number(match.pageNumber)),
+        }));
+        const result = await capability.run('/tmp/test.pdf', 'foo', {requestId: 'over-limit'});
+
+        expect(result.truncated).toBe(true);
+        expect(result.results.map(match => Number(match.pageNumber))).toEqual([
+            1,
+            2,
+        ]);
+        expect(result.results.map(match => match.matchIndex)).toEqual([
+            0,
+            1,
+        ]);
+        expect(getPage).toHaveBeenCalledTimes(3);
+        expect(progressUpdates.filter(update => update.truncated)).toEqual([{
+            processed: 3,
+            truncated: true,
+            pageNumbers: [],
+        }]);
+        expect(progressUpdates.flatMap(update => update.pageNumbers)).toEqual([
+            1,
+            2,
+        ]);
     });
 
     it('assigns page match indexes without scanning prior results', async () => {

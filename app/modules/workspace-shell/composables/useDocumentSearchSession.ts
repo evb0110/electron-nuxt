@@ -1,6 +1,7 @@
 import type { MaybeRefOrGetter } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import type { IResolvedSearchMatchOptions } from '@contracts/search';
+import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
 import { DEFAULT_DOCUMENT_SEARCH_OPTIONS } from '@app/utils/document-viewer/providers/documentSearch';
 import type {
     IDocumentSearchBackend,
@@ -41,7 +42,9 @@ export const useDocumentSearchSession = (
     const error = ref<string | null>(null);
     const progress = ref<IDocumentSearchProgress>();
     const isTruncated = ref(false);
-    const minQueryLength = computed(() => toValue(options.backend)?.minQueryLength ?? 1);
+    const minQueryLength = computed(() => (
+        toValue(options.backend)?.minQueryLength ?? DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH
+    ));
     let activeController: AbortController | null = null;
     let backendGeneration = 0;
     let runGeneration = 0;
@@ -98,7 +101,7 @@ export const useDocumentSearchSession = (
         const normalizedQuery = query.value.trim();
         submittedQuery.value = normalizedQuery;
         resetResults();
-        if (!backend || normalizedQuery.length < backend.minQueryLength) {
+        if (!backend || normalizedQuery.length < minQueryLength.value) {
             return false;
         }
 

@@ -21,7 +21,9 @@ describe('document bookmark architecture boundaries', () => {
             sourceSidebar,
         ]) {
             expect(source).toContain('DocumentBookmarkToolbar');
+            expect(source).toContain('v-if="isBookmarkToolbarVisible"');
             expect(source).toContain('DocumentBookmarkTree');
+            expect(source).toContain('t(\'bookmarks.unavailable\')');
         }
         expect(sourceSidebar).not.toContain('flattenDocumentOutline');
         expect(sourceSidebar).not.toContain('v-for="item in outlineItems"');

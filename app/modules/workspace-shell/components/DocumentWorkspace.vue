@@ -138,7 +138,9 @@
                     :selected-thumbnail-pages="selectedThumbnailPages"
                     :thumbnail-invalidation-request="thumbnailInvalidationRequest"
                     :thumbnail-hidden-annotation-ids="thumbnailHiddenAnnotationIds"
+                    @update:available-tabs="setAvailableSidebarTabs"
                     @search="handleSearchWhenDocumentReady"
+                    @cancel-search="cancelSearch"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
                     @update:search-options="searchOptions = $event"
@@ -173,6 +175,7 @@
                     :search-session="documentSourceSidebar.searchSession"
                     :search-focus-request="searchFocusRequest"
                     @go-to-page="handleGoToPage"
+                    @update:available-tabs="setAvailableSidebarTabs"
                 />
             </template>
             <WorkspaceViewerHost
@@ -658,6 +661,8 @@ const {
     searchProgress,
     isTruncated,
     minQueryLength,
+    cancelSearch,
+    setAvailableSidebarTabs,
     handleSearch,
     handleSearchNext,
     handleSearchPrevious,

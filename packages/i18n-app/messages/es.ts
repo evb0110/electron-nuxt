@@ -1207,6 +1207,7 @@ export default {
         'prefixPlaceholder': 'Sección-',
     },
     'bookmarks': {
+        'unavailable': 'Marcadores no disponibles',
         'noBookmarks': 'No hay marcadores disponibles',
         'loading': 'Cargando marcadores...',
         'enterEditMode': 'Modo de edición de marcadores',

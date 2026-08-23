@@ -1041,6 +1041,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             const requestId = options.requestId ?? createBrowserSafeId();
             const results: IPdfSearchResult[] = [];
             let emittedResultCount = 0;
+            let truncated = false;
             const pageMatchCounts = new Map<number, number>();
             const matchOptions = {
                 matchCase: Boolean(options.matchCase),
@@ -1065,6 +1066,22 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                         }
 
                         for (const match of iteratePdfSearchMatches(page.text, query, matchOptions)) {
+                            if (results.length >= SEARCH_RESULT_LIMIT) {
+                                // Only a match we refuse to report proves the set was cut, so the
+                                // limit-th match alone must never raise the truncated flag.
+                                truncated = true;
+                                emitSearchProgress({
+                                    requestId,
+                                    processed: page.pageNumber,
+                                    total: pageCount,
+                                    results: results.slice(emittedResultCount),
+                                    resultsStartIndex: emittedResultCount,
+                                    truncated: true,
+                                });
+                                emittedResultCount = results.length;
+                                return false;
+                            }
+
                             const pageMatchIndex = pageMatchCounts.get(page.pageNumber) ?? 0;
                             pageMatchCounts.set(page.pageNumber, pageMatchIndex + 1);
                             const words = collectSearchMatchWords(page, match.startOffset, match.endOffset);
@@ -1084,19 +1101,6 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                                 ...(words !== undefined && page.pageWidth !== undefined ? {pageWidth: page.pageWidth} : {}),
                                 ...(words !== undefined && page.pageHeight !== undefined ? {pageHeight: page.pageHeight} : {}),
                             });
-                            if (results.length >= SEARCH_RESULT_LIMIT) {
-                                const delta = results.slice(emittedResultCount);
-                                emitSearchProgress({
-                                    requestId,
-                                    processed: page.pageNumber,
-                                    total: pageCount,
-                                    results: delta,
-                                    resultsStartIndex: emittedResultCount,
-                                    truncated: true,
-                                });
-                                emittedResultCount = results.length;
-                                return false;
-                            }
                         }
 
                         const delta = results.slice(emittedResultCount);
@@ -1123,7 +1127,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
                 return {
                     results,
-                    truncated: results.length >= SEARCH_RESULT_LIMIT,
+                    truncated,
                 } satisfies IPdfSearchResponse;
             } finally {
                 finishSearchRequest(requestId);

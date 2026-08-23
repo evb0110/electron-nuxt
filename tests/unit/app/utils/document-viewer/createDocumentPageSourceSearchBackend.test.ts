@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { parsePageNumber } from '@contracts/pageNumbers';
+import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
 import { DEFAULT_DOCUMENT_SEARCH_OPTIONS } from '@app/utils/document-viewer/providers/documentSearch';
 import { createDocumentPageSourceSearchBackend } from '@app/utils/document-viewer/search/createDocumentPageSourceSearchBackend';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
@@ -105,5 +106,21 @@ describe('createDocumentPageSourceSearchBackend', () => {
 
         expect(getPageText).toHaveBeenCalledTimes(1);
         expect(response.results).toHaveLength(1);
+    });
+
+    it('publishes the shared document-source minimum query length on both backends', () => {
+        const providerBackend = createDocumentPageSourceSearchBackend(asSource({
+            pageCount: 3,
+            searchProvider: {search: vi.fn()},
+            textProvider: {getPageText: vi.fn()},
+        }));
+        const textBackend = createDocumentPageSourceSearchBackend(asSource({
+            pageCount: 3,
+            textProvider: {getPageText: vi.fn()},
+        }));
+
+        expect(DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH).toBe(2);
+        expect(providerBackend?.minQueryLength).toBe(DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH);
+        expect(textBackend?.minQueryLength).toBe(DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH);
     });
 });

@@ -10,7 +10,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
+import type {
+    IDocumentOutlineItem,
+    IDocumentPageSource,
+} from '@app/utils/document-viewer/source/documentPageSource';
 import { useDocumentBookmarkSession } from '@app/utils/document-viewer/bookmarks/useDocumentBookmarkSession';
 
 function createSource(getOutline: NonNullable<IDocumentPageSource['outlineProvider']>['getOutline']): IDocumentPageSource {
@@ -22,6 +25,17 @@ function createSource(getOutline: NonNullable<IDocumentPageSource['outlineProvid
         getPageMetrics: vi.fn(),
         renderPage: vi.fn(),
         dispose: vi.fn(),
+    };
+}
+
+function createDeferredOutline() {
+    let resolve!: (value: IDocumentOutlineItem[]) => void;
+    const promise = new Promise<IDocumentOutlineItem[]>((nextResolve) => {
+        resolve = nextResolve;
+    });
+    return {
+        promise,
+        resolve,
     };
 }
 
@@ -79,5 +93,68 @@ describe('useDocumentBookmarkSession', () => {
 
         expect(captured.signal?.aborted).toBe(true);
         scope.stop();
+    });
+    it('reports one outline status across loading, error, empty, and ready', async () => {
+        const outline = createDeferredOutline();
+        const scope = effectScope();
+        const session = scope.run(() => useDocumentBookmarkSession({
+            source: shallowRef<IDocumentPageSource | null>(createSource(() => outline.promise)),
+            currentPage: ref(1),
+            isActive: ref(true),
+        }))!;
+
+        try {
+            expect(session.status.value).toBe('loading');
+
+            outline.resolve([{
+                title: 'Part',
+                pageNumber: 1,
+                children: [],
+            }]);
+            await flush();
+
+            expect(session.status.value).toBe('ready');
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('represents a failed outline load as an error status carrying the reason', async () => {
+        const scope = effectScope();
+        const session = scope.run(() => useDocumentBookmarkSession({
+            source: shallowRef<IDocumentPageSource | null>(createSource(
+                vi.fn().mockRejectedValue(new Error('outline stream is corrupt')),
+            )),
+            currentPage: ref(1),
+            isActive: ref(true),
+        }))!;
+
+        try {
+            await flush();
+
+            expect(session.status.value).toBe('error');
+            expect(session.error.value).toBe('outline stream is corrupt');
+            expect(session.items.value).toEqual([]);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('separates an empty outline from a failed one', async () => {
+        const scope = effectScope();
+        const session = scope.run(() => useDocumentBookmarkSession({
+            source: shallowRef<IDocumentPageSource | null>(createSource(vi.fn().mockResolvedValue([]))),
+            currentPage: ref(1),
+            isActive: ref(true),
+        }))!;
+
+        try {
+            await flush();
+
+            expect(session.status.value).toBe('empty');
+            expect(session.error.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
     });
 });

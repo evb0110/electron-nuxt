@@ -16,11 +16,11 @@ import type {
 } from '@contracts/search';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { MaybeRefOrGetter } from 'vue';
-import { findSearchErrorEnvelope } from '@contracts/search';
 import {
-    tryOnScopeDispose,
-    useDebounceFn,
-} from '@vueuse/core';
+    findSearchErrorEnvelope,
+    PDF_SEARCH_MIN_QUERY_LENGTH,
+} from '@contracts/search';
+import { tryOnScopeDispose } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 import { useAnalytics } from '@app/composables/useAnalytics';
@@ -32,6 +32,16 @@ import { getSearchCapability } from '@app/utils/getSearchCapability';
 import { createBrowserSafeId } from '@app/utils/browserSafe';
 
 interface IUsePdfSearchOptions { documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null | undefined>; }
+
+interface IScheduledPdfSearch {
+    runId: number;
+    query: string;
+    pdfPath: string;
+    documentRevisionToken: TDocumentRevisionToken | null;
+    pageCount?: number;
+    options: IResolvedSearchMatchOptions;
+    requestedAt: number;
+}
 
 /**
  * Unquoted UI queries retain the established trim behavior. Double quotes are an
@@ -75,8 +85,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     const scheduledResolvers = new Map<number, (applied: boolean) => void>();
     let progressCleanup: (() => void) | null = null;
     let activeRequestId: string | null = null;
-
-    const MIN_QUERY_LENGTH = 1;
+    let pendingSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
     const totalMatches = computed(() => results.value.length);
     const hasPartialResults = computed(() => isSearching.value && (results.value.length > 0 || isTruncated.value));
@@ -332,15 +341,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         return nextResults;
     }
 
-    const debouncedPerformSearch = useDebounceFn(async (payload: {
-        runId: number;
-        query: string;
-        pdfPath: string;
-        documentRevisionToken: TDocumentRevisionToken | null;
-        pageCount?: number;
-        options: IResolvedSearchMatchOptions;
-        requestedAt: number;
-    }) => {
+    async function runScheduledSearch(payload: IScheduledPdfSearch) {
         const resolver = scheduledResolvers.get(payload.runId);
         scheduledResolvers.delete(payload.runId);
         if (!resolver) {
@@ -372,9 +373,33 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         } finally {
             resolver?.(isCurrentSearchRun(payload.runId, payload.documentRevisionToken) && !searchError.value);
         }
-    }, SEARCH_DEBOUNCE_MS);
+    }
+
+    /**
+     * The debounce timer is owned here rather than by a filter wrapper so that
+     * leaving the search tab can actually drop work that has not started yet.
+     */
+    function scheduleSearch(payload: IScheduledPdfSearch) {
+        clearPendingSearchTimer();
+        if (SEARCH_DEBOUNCE_MS <= 0) {
+            void runScheduledSearch(payload);
+            return;
+        }
+        pendingSearchTimer = setTimeout(() => {
+            pendingSearchTimer = null;
+            void runScheduledSearch(payload);
+        }, SEARCH_DEBOUNCE_MS);
+    }
+
+    function clearPendingSearchTimer() {
+        if (pendingSearchTimer !== null) {
+            clearTimeout(pendingSearchTimer);
+            pendingSearchTimer = null;
+        }
+    }
 
     function cancelScheduledSearch() {
+        clearPendingSearchTimer();
         for (const resolver of scheduledResolvers.values()) {
             resolver(false);
         }
@@ -397,6 +422,19 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 error,
             });
         }
+    }
+
+    /**
+     * Abandons the current run without touching the query, options, or results
+     * the user can still see. Leaving the search tab uses this; `clearSearch`
+     * stays the explicit "empty the panel" action.
+     */
+    function cancelSearch() {
+        searchRunId += 1;
+        cancelScheduledSearch();
+        void cancelActiveSearch();
+        cleanupProgressListener();
+        isSearching.value = false;
     }
 
     async function performSearch(
@@ -548,7 +586,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         }
         cleanupProgressListener();
 
-        if (resolvedQuery.length < MIN_QUERY_LENGTH) {
+        if (resolvedQuery.length < PDF_SEARCH_MIN_QUERY_LENGTH) {
             isSearching.value = false;
             isTruncated.value = false;
             searchError.value = null;
@@ -577,13 +615,13 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 requestedAt: Date.now(),
             };
             if (pageCount !== undefined) {
-                void debouncedPerformSearch({
+                scheduleSearch({
                     ...payload,
                     pageCount,
                 });
                 return;
             }
-            void debouncedPerformSearch(payload);
+            scheduleSearch(payload);
         });
     }
 
@@ -652,15 +690,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         });
     }
 
-    tryOnScopeDispose(() => {
-        searchRunId += 1;
-        cancelScheduledSearch();
-        cleanupProgressListener();
-        void cancelActiveSearch();
-        const maybeCancelableDebounce = debouncedPerformSearch as { cancel?: () => void; };
-        maybeCancelableDebounce.cancel?.();
-        isSearching.value = false;
-    });
+    tryOnScopeDispose(cancelSearch);
 
     return {
         searchQuery,
@@ -679,11 +709,12 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         currentMatch,
         isTruncated,
         wasSearchCanceled,
-        minQueryLength: MIN_QUERY_LENGTH,
+        minQueryLength: PDF_SEARCH_MIN_QUERY_LENGTH,
         search,
         setSearchOption,
         goToResult,
         setResultIndex,
+        cancelSearch,
         clearSearch,
         resetSearchCache,
         getMatchesForPage,

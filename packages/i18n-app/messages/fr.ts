@@ -1212,6 +1212,7 @@ export default {
         'prefixPlaceholder': 'Section-',
     },
     'bookmarks': {
+        'unavailable': 'Signets indisponibles',
         'noBookmarks': 'Aucun signet disponible',
         'loading': 'Chargement des signets...',
         'enterEditMode': 'Activer le mode édition des signets',

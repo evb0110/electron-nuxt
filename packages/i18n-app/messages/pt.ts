@@ -1212,6 +1212,7 @@ export default {
         'prefixPlaceholder': 'Secção-',
     },
     'bookmarks': {
+        'unavailable': 'Marcadores indisponíveis',
         'noBookmarks': 'Sem marcadores disponíveis',
         'loading': 'A carregar marcadores...',
         'enterEditMode': 'Entrar no modo de edição de marcadores',

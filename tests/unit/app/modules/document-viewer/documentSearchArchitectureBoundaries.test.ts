@@ -45,6 +45,20 @@ describe('document search architecture boundaries', () => {
         expect(pdfSidebar).toContain('createPdfDocumentSearchSession');
     });
 
+    it('routes sidebar search cancellation into the PDF search lifecycle', () => {
+        const pdfSidebar = read('app/modules/pdf-viewer/components/PdfSidebar.vue');
+        const workspace = read('app/modules/workspace-shell/components/DocumentWorkspace.vue');
+        const searchSidebar = read('app/modules/workspace-shell/composables/useWorkspaceSearchSidebar.ts');
+        const pdfSearch = read('app/modules/pdf-viewer/runtime/composables/usePdfSearch.ts');
+
+        expect(pdfSidebar).toContain('cancel: () => emit(\'cancel-search\')');
+        expect(pdfSidebar).not.toContain('cancel: () => undefined');
+        expect(pdfSidebar).toContain('searchSession.cancel()');
+        expect(workspace).toContain('@cancel-search="cancelSearch"');
+        expect(searchSidebar).toContain('cancelSearch');
+        expect(pdfSearch).toContain('function cancelSearch()');
+    });
+
     it('keeps page-source rendering free of sidebar UI ownership', () => {
         const featurePack = read('app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue');
 

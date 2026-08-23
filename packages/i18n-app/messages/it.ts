@@ -1207,6 +1207,7 @@ export default {
         'prefixPlaceholder': 'Sezione-',
     },
     'bookmarks': {
+        'unavailable': 'Segnalibri non disponibili',
         'noBookmarks': 'Nessun segnalibro disponibile',
         'loading': 'Caricamento segnalibri...',
         'enterEditMode': 'Entra in modalità modifica segnalibri',

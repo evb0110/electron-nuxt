@@ -1207,6 +1207,7 @@ export default {
         'prefixPlaceholder': 'Sectie-',
     },
     'bookmarks': {
+        'unavailable': 'Bladwijzers niet beschikbaar',
         'noBookmarks': 'Geen bladwijzers beschikbaar',
         'loading': 'Bladwijzers laden...',
         'enterEditMode': 'Bladwijzerbewerkingsmodus inschakelen',

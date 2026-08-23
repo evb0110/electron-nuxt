@@ -21,6 +21,15 @@ import {
 export const SEARCH_RESULT_LIMIT = 500;
 export const SEARCH_EXCERPT_CONTEXT_CHARS = 56;
 
+/**
+ * Minimum query lengths every search surface must honor, backend and UI alike.
+ * PDF search answers from a prepared index, so a single character is cheap and
+ * is the only way to search ideographic scripts. Document-source search scans
+ * page text on demand, where a one-character query is too broad to be useful.
+ */
+export const PDF_SEARCH_MIN_QUERY_LENGTH = 1;
+export const DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH = 2;
+
 export interface IPdfSearchExcerpt {
     prefix: boolean;
     suffix: boolean;
