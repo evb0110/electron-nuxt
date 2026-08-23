@@ -20,6 +20,19 @@ export interface IBookmarkItem extends TBookmarkContractCore {
     items: IBookmarkItem[];
 }
 
+/**
+ * The content coordinates a bookmark id is derived from. `parentId` carries the
+ * whole ancestry, because every parent id was derived the same way.
+ */
+export interface IBookmarkIdentityInput {
+    parentId: string | null;
+    title: string;
+    pageIndex: number | null;
+    dest: string | unknown[] | null;
+}
+
+export type TCreateBookmarkId = (input: IBookmarkIdentityInput) => string;
+
 export interface IBookmarkLocation {
     parent: IBookmarkItem | null;
     list: IBookmarkItem[];

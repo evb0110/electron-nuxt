@@ -29,14 +29,14 @@ export const usePdfOutlineEditing = (
     resetDragState: () => void,
     currentPage: Ref<number>,
     emitBookmarksChange: () => void,
-    createBookmarkId: () => string,
+    createDraftBookmarkId: () => string,
 ) => {
     const { t } = useTypedI18n();
     const editingItemId = ref<string | null>(null);
 
     function createDraftBookmark(): IBookmarkItem {
         return {
-            id: createBookmarkId(),
+            id: createDraftBookmarkId(),
             title: t('bookmarks.newBookmark'),
             dest: null,
             pageIndex: Math.max(0, (currentPage.value || 1) - 1),

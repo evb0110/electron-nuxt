@@ -6,6 +6,7 @@ import { clamp } from 'es-toolkit/math';
 import type {
     IBookmarkItem,
     IBookmarkLocation,
+    TCreateBookmarkId,
 } from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -458,12 +459,13 @@ export async function buildResolvedOutline(
     pdfDocument: PDFDocumentProxy,
     destinationCache: Map<string, unknown[] | null>,
     refIndexCache: Map<string, number | null>,
-    createId: () => string,
+    createId: TCreateBookmarkId,
 ): Promise<IBookmarkItem[]> {
     const root: IBookmarkItem[] = [];
     const stack: Array<{
         item: IOutlineItemRaw;
         target: IBookmarkItem[];
+        parentId: string | null;
         depth: number;
     }> = [];
     let acceptedCount = 0;
@@ -475,6 +477,7 @@ export async function buildResolvedOutline(
             stack.push({
                 item,
                 target: root,
+                parentId: null,
                 depth: 1,
             });
         }
@@ -498,10 +501,16 @@ export async function buildResolvedOutline(
             refIndexCache,
         );
         const children: IBookmarkItem[] = [];
+        const id = createId({
+            parentId: frame.parentId,
+            title: frame.item.title,
+            pageIndex: destinationTarget?.pageIndex ?? null,
+            dest: frame.item.dest,
+        });
         frame.target.push({
             title: frame.item.title,
             dest: frame.item.dest,
-            id: createId(),
+            id,
             pageIndex: destinationTarget?.pageIndex ?? null,
             ...(destinationTarget?.pageYRatio === null || destinationTarget?.pageYRatio === undefined
                 ? {}
@@ -526,6 +535,7 @@ export async function buildResolvedOutline(
                 stack.push({
                     item,
                     target: children,
+                    parentId: id,
                     depth: frame.depth + 1,
                 });
             }
@@ -544,12 +554,13 @@ export async function buildResolvedOutline(
 
 export function buildOutlineFromBookmarkEntries(
     entries: readonly IPdfBookmarkEntry[],
-    createId: () => string,
+    createId: TCreateBookmarkId,
 ) {
     const root: IBookmarkItem[] = [];
     const stack: Array<{
         entry: IPdfBookmarkEntry;
         target: IBookmarkItem[];
+        parentId: string | null;
         depth: number;
     }> = [];
     let acceptedCount = 0;
@@ -561,6 +572,7 @@ export function buildOutlineFromBookmarkEntries(
             stack.push({
                 entry,
                 target: root,
+                parentId: null,
                 depth: 1,
             });
         }
@@ -578,13 +590,20 @@ export function buildOutlineFromBookmarkEntries(
 
         acceptedCount += 1;
         const children: IBookmarkItem[] = [];
+        const pageIndex = typeof frame.entry.pageIndex === 'number' && Number.isFinite(frame.entry.pageIndex)
+            ? Math.max(0, Math.trunc(frame.entry.pageIndex))
+            : null;
+        const id = createId({
+            parentId: frame.parentId,
+            title: frame.entry.title,
+            pageIndex,
+            dest: frame.entry.namedDest,
+        });
         frame.target.push({
             title: frame.entry.title,
             dest: frame.entry.namedDest,
-            id: createId(),
-            pageIndex: typeof frame.entry.pageIndex === 'number' && Number.isFinite(frame.entry.pageIndex)
-                ? Math.max(0, Math.trunc(frame.entry.pageIndex))
-                : null,
+            id,
+            pageIndex,
             ...(typeof frame.entry.pageYRatio === 'number' && Number.isFinite(frame.entry.pageYRatio)
                 ? {pageYRatio: clamp(frame.entry.pageYRatio, 0, 1)}
                 : {}),
@@ -608,6 +627,7 @@ export function buildOutlineFromBookmarkEntries(
                 stack.push({
                     entry,
                     target: children,
+                    parentId: id,
                     depth: frame.depth + 1,
                 });
             }

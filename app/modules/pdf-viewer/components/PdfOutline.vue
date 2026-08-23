@@ -116,6 +116,7 @@ import type {
     IBookmarkItem,
     IBookmarkActivatePayload,
     IBookmarkDropPayload,
+    IBookmarkIdentityInput,
     TBookmarkDisplayMode,
 } from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
@@ -146,6 +147,8 @@ import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPan
 import DocumentBookmarkToolbar from '@app/components/document-viewer/DocumentBookmarkToolbar.vue';
 import DocumentBookmarkTree from '@app/components/document-viewer/DocumentBookmarkTree.vue';
 import { navigateToBookmarkDestination } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination';
+import { createBookmarkIdentityFactory } from '@app/modules/pdf-viewer/engine/pdf-outline-identity/createBookmarkIdentityFactory';
+import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-bookmark-serialization/areBookmarkEntriesEqual';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -229,16 +232,28 @@ const activePathBookmarkIds = computed(() => {
     return ids;
 });
 
-let bookmarkIdCounter = 0;
-
-function resetBookmarkIdCounter() {
-    bookmarkIdCounter = 0;
+/**
+ * Bookmark ids are derived from each bookmark's content path, so an outline
+ * rebuilt from the same entries reproduces the ids that selection, expansion,
+ * row keys, and drag state are held under. A rebuild starts a fresh factory
+ * because duplicate-sibling counters belong to one tree.
+ */
+function createBookmarkIdentity() {
+    return createBookmarkIdentityFactory({untitledLabel: t('bookmarks.untitled')});
 }
 
-function createBookmarkId() {
-    const id = `bookmark-${bookmarkIdCounter}`;
-    bookmarkIdCounter += 1;
-    return id;
+let bookmarkIdentity = createBookmarkIdentity();
+
+function resetBookmarkIdentity() {
+    bookmarkIdentity = createBookmarkIdentity();
+}
+
+function createBookmarkId(input: IBookmarkIdentityInput) {
+    return bookmarkIdentity.createBookmarkId(input);
+}
+
+function createDraftBookmarkId() {
+    return bookmarkIdentity.createDraftBookmarkId();
 }
 
 const flatBookmarks = computed(() => flattenBookmarks(bookmarks.value));
@@ -368,7 +383,7 @@ const editing = usePdfOutlineEditing(
     dragDrop.resetDragState,
     currentPageRef,
     emitBookmarksChange,
-    createBookmarkId,
+    createDraftBookmarkId,
 );
 
 function addRootBookmark() {
@@ -475,27 +490,23 @@ provide(pdfOutlineTreeKey, {
 });
 
 let outlineRunId = 0;
-const initialBookmarkSnapshot = ref('[]');
+const initialBookmarkEntries = shallowRef<IPdfBookmarkEntry[]>([]);
 const hasMaterializedBookmarkSnapshot = ref(false);
-
-function getPersistedBookmarkSnapshot(items = bookmarks.value) {
-    return JSON.stringify(editing.mapBookmarksForPersistence(items));
-}
 
 function emitBookmarksChange() {
     const persisted = editing.mapBookmarksForPersistence(bookmarks.value);
-    const snapshot = JSON.stringify(persisted);
     emit('bookmarks-change', {
         bookmarks: persisted,
-        dirty: snapshot !== initialBookmarkSnapshot.value,
+        dirty: !areBookmarkEntriesEqual(persisted, initialBookmarkEntries.value),
         history: 'record',
     });
 }
 
 function setBookmarkBaseline() {
     const persisted = editing.mapBookmarksForPersistence(bookmarks.value);
-    initialBookmarkSnapshot.value = JSON.stringify(persisted);
-    hasMaterializedBookmarkSnapshot.value = true;
+    // The emitted payload belongs to the parent from here on, so the baseline
+    // maps its own copy instead of aliasing what was handed out.
+    syncBookmarkBaselineFromCurrentItems();
     emit('bookmarks-change', {
         bookmarks: persisted,
         dirty: false,
@@ -528,7 +539,7 @@ function shouldApplyExternalBookmarkItems(isDirty: boolean) {
 }
 
 function syncBookmarkBaselineFromCurrentItems() {
-    initialBookmarkSnapshot.value = getPersistedBookmarkSnapshot();
+    initialBookmarkEntries.value = editing.mapBookmarksForPersistence(bookmarks.value);
     hasMaterializedBookmarkSnapshot.value = true;
 }
 
@@ -537,7 +548,7 @@ function applyPendingBookmarkItems(
     options: { syncBaseline?: boolean } = {},
 ) {
     outlineError.value = false;
-    if (JSON.stringify(entries) === getPersistedBookmarkSnapshot()) {
+    if (areBookmarkEntriesEqual(entries, editing.mapBookmarksForPersistence(bookmarks.value))) {
         if (options.syncBaseline) {
             syncBookmarkBaselineFromCurrentItems();
         } else {
@@ -547,7 +558,7 @@ function applyPendingBookmarkItems(
     }
 
     invalidateBookmarkNavigationRequests();
-    resetBookmarkIdCounter();
+    resetBookmarkIdentity();
     bookmarks.value = buildOutlineFromBookmarkEntries(entries, createBookmarkId);
     closeBookmarkContextMenu();
     editing.cancelEditingBookmark();
@@ -613,7 +624,7 @@ async function resolveBookmarksFromPdf(pdfDocument: PDFDocumentProxy) {
     const destinationCache = new Map<string, unknown[] | null>();
     const refIndexCache = new Map<string, number | null>();
 
-    resetBookmarkIdCounter();
+    resetBookmarkIdentity();
     return buildResolvedOutline(
         rawOutline,
         pdfDocument,

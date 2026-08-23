@@ -308,6 +308,29 @@ the 700/160 ms constants), q (document the three current-page algorithms), s
 bookmark toolbar during loading/error, capability-check `closeSearch`), Z2
 (delete or realize the dead zoom parameters and no-op `suppressSnapFor`).
 
+e and f landed together, since both sit in the bookmark panel's outline sync.
+Bookmark ids now come from the content path (parent id, trimmed label, page
+index, named destination, plus an occurrence counter that tells identical
+siblings apart) in
+`app/modules/pdf-viewer/engine/pdf-outline-identity/createBookmarkIdentityFactory.ts`,
+so inserting, removing, or reordering unrelated siblings leaves every other id
+alone and an outline rebuilt from the same persisted entries reproduces the ids
+that selection, expansion, drag state, and row keys are held under. Identity
+reads each field the way persistence writes it: the label trimmed and, when
+blank, replaced by the untitled label, and array destinations ignored because
+saving drops them. Fields are joined length-prefixed, so a label containing the
+separator cannot impersonate a neighbouring field and hand two different
+bookmarks the same id. Draft bookmarks keep counter ids, because a bookmark
+whose title is about to be typed has no content to be identified by. Dirty
+detection and the external-apply guard now compare the persisted fields
+directly
+(`app/modules/pdf-viewer/engine/pdf-bookmark-serialization/areBookmarkEntriesEqual.ts`)
+in one linear pass, so an outline that arrives with the same content but a
+different key order or optional-field spelling no longer reads as an edit and
+no longer forces a rebuild that would discard panel state. Bookmark ids stay in
+memory; `IPdfBookmarkEntry` carries none, so there is no persisted positional
+key to migrate.
+
 Landed with the #83/#85 shortcut work. q is written up in
 `docs/pdf-viewer-architecture.md` ("Current-page resolution per renderer
 stack"). s reports the arming navigation source in the accepted-page
