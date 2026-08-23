@@ -193,20 +193,24 @@ function assertManifestPagePaths(
     page: IScanCleanupManifestPageInput,
     pageIndex: number,
     allowedRoot: IScanCleanupAllowedRoot,
-    checkedPaths: Set<string>,
+    checkedPathTrails: Map<string, string>,
 ) {
     const pageLabel = `page ${String(pageIndex + 1)}`;
-    const check = (path: string | undefined, label: string) => {
+    const pageTrail = `pages.${String(pageIndex)}`;
+    const check = (path: string | undefined, trail: string, label: string) => {
         if (path === undefined) {
             return;
         }
         assertScanCleanupPathWithinCanonicalRoot(path, allowedRoot, label);
-        checkedPaths.add(path);
+        // Keyed by the field trail the manifest emits, not by the path value: a
+        // slot this list never judged cannot borrow the verdict of a checked
+        // slot that happens to carry the same string.
+        checkedPathTrails.set(trail, path);
     };
     for (const {
         field,
         label,
-    } of MANIFEST_PAGE_PATH_FIELDS) check(page[field], `${pageLabel} ${label}`);
+    } of MANIFEST_PAGE_PATH_FIELDS) check(page[field], `${pageTrail}.${field}`, `${pageLabel} ${label}`);
     for (const [
         outputIndex,
         output,
@@ -215,7 +219,11 @@ function assertManifestPagePaths(
             field,
             label,
         } of MANIFEST_OUTPUT_PATH_FIELDS) {
-            check(output[field], `${pageLabel} output ${String(outputIndex)} ${label}`);
+            check(
+                output[field],
+                `${pageTrail}.outputs.${String(outputIndex)}.${field}`,
+                `${pageLabel} output ${String(outputIndex)} ${label}`,
+            );
         }
     }
     const detailRenderPlan = page.detailRenderPlan;
@@ -225,7 +233,13 @@ function assertManifestPagePaths(
     for (const {
         field,
         label,
-    } of MANIFEST_DETAIL_RENDER_PLAN_PATH_FIELDS) check(detailRenderPlan[field], `${pageLabel} ${label}`);
+    } of MANIFEST_DETAIL_RENDER_PLAN_PATH_FIELDS) {
+        check(
+            detailRenderPlan[field],
+            `${pageTrail}.detailRenderPlan.${field}`,
+            `${pageLabel} ${label}`,
+        );
+    }
 }
 
 /**
@@ -233,10 +247,13 @@ function assertManifestPagePaths(
  * containment never judged. Descriptor lists say what is checked; this says
  * that nothing else reached the wire, including a slot copied verbatim from
  * caller input.
+ *
+ * Coverage is matched per emitted field trail, so an unlabelled path slot fails
+ * even when it repeats a string some other slot was cleared for.
  */
 function assertNoUncheckedManifestPaths(
     manifest: INativeScanCleanupManifestV3,
-    checkedPaths: ReadonlySet<string>,
+    checkedPathTrails: ReadonlyMap<string, string>,
 ) {
     const visit = (value: unknown, trail: string) => {
         if (Array.isArray(value)) {
@@ -254,7 +271,7 @@ function assertNoUncheckedManifestPaths(
             entry,
         ] of Object.entries(value)) {
             const fieldTrail = trail === '' ? key : `${trail}.${key}`;
-            if (key.endsWith('Path') && typeof entry === 'string' && !checkedPaths.has(entry)) {
+            if (key.endsWith('Path') && typeof entry === 'string' && checkedPathTrails.get(fieldTrail) !== entry) {
                 throw new ScanCleanupContractError(
                     `manifest field ${fieldTrail} was not checked against the allowed root`,
                 );
@@ -319,7 +336,7 @@ function assembleNativeScanCleanupManifest({
     // One canonical root per manifest: every field is judged against the same
     // resolved directory instead of re-resolving the root for each path.
     const allowedRoot = allowedPathRoot === null ? null : canonicalizeScanCleanupAllowedRoot(allowedPathRoot);
-    const checkedPaths = new Set<string>();
+    const checkedPathTrails = new Map<string, string>();
     const manifest: INativeScanCleanupManifestV3 = {
         version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
         operation,
@@ -342,7 +359,7 @@ function assembleNativeScanCleanupManifest({
                     `page ${String(pageIndex + 1)} fixed analysis input requires a positive analysisDpi`,
                 );
             }
-            if (allowedRoot !== null) assertManifestPagePaths(page, pageIndex, allowedRoot, checkedPaths);
+            if (allowedRoot !== null) assertManifestPagePaths(page, pageIndex, allowedRoot, checkedPathTrails);
             const resolvedOptions = {
                 ...resolveEffectiveScanCleanupOptions({
                     options,
@@ -426,7 +443,7 @@ function assembleNativeScanCleanupManifest({
             };
         }),
     };
-    if (allowedRoot !== null) assertNoUncheckedManifestPaths(manifest, checkedPaths);
+    if (allowedRoot !== null) assertNoUncheckedManifestPaths(manifest, checkedPathTrails);
     return manifest;
 }
 

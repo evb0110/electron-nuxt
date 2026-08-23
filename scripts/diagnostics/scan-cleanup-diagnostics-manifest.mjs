@@ -1,3 +1,5 @@
+import {resolve} from 'node:path';
+
 /**
  * One owner for a diagnostics manifest scope.
  *
@@ -21,8 +23,12 @@ export function createScanCleanupDiagnosticsManifestScope(
     if (typeof buildRunnableNativeScanCleanupManifest !== 'function') {
         throw new Error('Scan-cleanup diagnostics manifest scope requires the runnable manifest builder');
     }
+    // Resolved once, here: the builder judges paths against an absolute root and
+    // the native flag names one, so a harness that passes a relative root must
+    // not leave those two sides reading it against different directories.
+    const resolvedAllowedPathRoot = resolve(allowedPathRoot);
     return {
-        allowedPathRoot,
+        allowedPathRoot: resolvedAllowedPathRoot,
         /** Build a runnable manifest constrained to this scope's root. */
         buildManifest(input) {
             if (input === null || typeof input !== 'object') {
@@ -33,7 +39,7 @@ export function createScanCleanupDiagnosticsManifestScope(
             }
             return buildRunnableNativeScanCleanupManifest({
                 ...input,
-                allowedPathRoot,
+                allowedPathRoot: resolvedAllowedPathRoot,
             });
         },
         /** Sidecar argv for a manifest this scope built. */
@@ -45,7 +51,7 @@ export function createScanCleanupDiagnosticsManifestScope(
                 '--manifest',
                 manifestPath,
                 '--allowed-path-root',
-                allowedPathRoot,
+                resolvedAllowedPathRoot,
             ];
         },
     };

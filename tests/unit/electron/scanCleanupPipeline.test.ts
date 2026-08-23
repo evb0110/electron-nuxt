@@ -137,7 +137,23 @@ interface ICleanupOutput {
     foregroundMaskOutputPath?: string;
 }
 
-const nativeOutputPathKeys = [
+type TNativeOutputPathKey = {
+    [K in keyof INativeScanCleanupOutputV3]-?: K extends `${string}Path` ? K : never;
+}[keyof INativeScanCleanupOutputV3];
+
+/**
+ * Accept the confinement key list only when it names every `${string}Path`
+ * field of the native output, so a new path slot fails to compile here until
+ * the confinement assertion below judges it too.
+ */
+const defineNativeOutputPathKeys = <TKeys extends readonly TNativeOutputPathKey[]>(
+    keys: TKeys
+        & (Exclude<TNativeOutputPathKey, TKeys[number]> extends never
+            ? unknown
+            : {unconfinedNativeOutputPathKey: Exclude<TNativeOutputPathKey, TKeys[number]>}),
+): TKeys => keys;
+
+const nativeOutputPathKeys = defineNativeOutputPathKeys([
     'outputPath',
     'metadataPath',
     'bilevelOutputPath',
@@ -146,7 +162,7 @@ const nativeOutputPathKeys = [
     'foregroundAlphaOutputPath',
     'pictureMaskOutputPath',
     'tonePreservationAlphaOutputPath',
-] as const satisfies ReadonlyArray<keyof INativeScanCleanupOutputV3>;
+] as const);
 
 const options: IScanCleanupOptions = {
     preserveOriginalQuality: false,

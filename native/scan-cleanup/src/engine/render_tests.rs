@@ -5910,6 +5910,14 @@ mod tests {
         assert_eq!(quantize_decimal(f64::NAN, 3), 0);
         assert_eq!(quantize_decimal(f64::INFINITY, 1), 0);
         assert_eq!(quantize_decimal(f64::MIN_POSITIVE, 3), 0);
+        // A negative measurement quantizes by magnitude and carries the sign,
+        // so its ties fall on the same even digit rather than away from zero.
+        assert_eq!(quantize_decimal(-12.25, 1), -122);
+        assert_eq!(quantize_decimal(-875.0625, 3), -875_062);
+        assert_eq!(quantize_decimal(-12.3, 1), -123);
+        assert_eq!(quantize_decimal(-600.123_456, 3), -600_123);
+        assert_eq!(quantize_decimal(-0.0, 3), 0);
+        assert_eq!(quantize_decimal(f64::NEG_INFINITY, 1), 0);
     }
 
     #[test]

@@ -989,6 +989,21 @@ describe('runnable native scan-cleanup manifest path containment', () => {
         })).not.toThrow();
     });
 
+    it('refuses an unclaimed path slot that repeats a path checked elsewhere', () => {
+        const page = fullyPopulatedPage();
+        // The very string a descriptor cleared for `outputPath`. Coverage is
+        // owned per emitted field trail, so an unknown slot cannot inherit the
+        // verdict a judged slot earned for the same value.
+        const outputWithFutureSlot: INativeScanCleanupOutputV3 & {futureOutputPath: string} = {
+            ...page.outputs![0]!,
+            futureOutputPath: page.outputs![0]!.outputPath,
+        };
+        page.outputs = [outputWithFutureSlot];
+
+        expect(() => runnable([page]))
+            .toThrow('manifest field pages.0.outputs.0.futureOutputPath was not checked against the allowed root');
+    });
+
     it('canonicalizes the allowed root once for a whole manifest', () => {
         // Every path sits below `nested`, so the root itself is resolved only
         // when the manifest canonicalizes it, once, rather than again for each

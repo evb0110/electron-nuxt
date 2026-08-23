@@ -1975,6 +1975,7 @@ describe('scan cleanup preview', () => {
         // the detail scratch, not inside it: the wider temp root is what keeps
         // it admissible.
         expect(isPathWithinRoot(baseCleanedRasterPaths[0]!, dir)).toBe(true);
+        expect(detailManifestPaths.length).toBeGreaterThan(0);
         expect(isPathWithinRoot(baseCleanedRasterPaths[0]!, dirname(detailManifestPaths[0]!))).toBe(false);
         await service.dispose();
         await expect(stat(baseCleanedRasterPaths[0]!)).rejects.toMatchObject({code: 'ENOENT'});

@@ -100,6 +100,12 @@ export function canonicalizeScanCleanupAllowedRoot(rootPath: string): IScanClean
  * Judge one path against an already-canonical root. Every failure names the
  * candidate's own label, so an unresolvable candidate is never reported as if
  * the configured root were at fault.
+ *
+ * The verdict describes the filesystem as it stood when this ran: a path
+ * admitted here can be re-pointed afterwards, and this check alone cannot say
+ * otherwise. It is a build-time gate, not the last one. The native allowed-root
+ * and preflight boundary judge a runnable manifest again before its transaction
+ * touches anything.
  */
 export function assertScanCleanupPathWithinCanonicalRoot(
     candidatePath: string,

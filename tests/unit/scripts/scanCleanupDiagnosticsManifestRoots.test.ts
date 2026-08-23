@@ -8,7 +8,9 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {
+    isAbsolute,
     join,
+    relative,
     resolve,
 } from 'node:path';
 import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
@@ -137,6 +139,25 @@ describe('scan cleanup diagnostics manifest scope', () => {
 
         expect(otherScope.sidecarArgv(join(otherRoot, 'manifest.json')).at(-1)).toBe(otherRoot);
         expect(() => otherScope.buildManifest(manifestInput(join(otherRoot, 'input.png'), otherRoot)))
+            .not.toThrow();
+        expect(() => scope.buildManifest(manifestInput(join(otherRoot, 'input.png'), otherRoot)))
+            .toThrow(ScanCleanupContractError);
+    });
+
+    it('resolves a relative root once so the builder and the launch name one directory', () => {
+        const relativeRoot = relative(process.cwd(), scopedRoot);
+        expect(isAbsolute(relativeRoot)).toBe(false);
+        const scope = createScanCleanupDiagnosticsManifestScope(
+            relativeRoot,
+            buildRunnableNativeScanCleanupManifest,
+        );
+        const manifestPath = join(scopedRoot, 'manifest.json');
+
+        // One absolute value the scope owns: containment and the native flag
+        // cannot read the same relative spelling from different directories.
+        expect(scope.allowedPathRoot).toBe(scopedRoot);
+        expect(scope.sidecarArgv(manifestPath).at(-1)).toBe(scope.allowedPathRoot);
+        expect(() => scope.buildManifest(manifestInput(join(scopedRoot, 'input.png'), scopedRoot)))
             .not.toThrow();
         expect(() => scope.buildManifest(manifestInput(join(otherRoot, 'input.png'), otherRoot)))
             .toThrow(ScanCleanupContractError);

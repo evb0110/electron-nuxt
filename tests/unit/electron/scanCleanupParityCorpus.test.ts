@@ -176,7 +176,7 @@ function fixtureIdentity(fixture: TScanCleanupParityFixture, index: number): ISc
     return {
         fixture,
         fileName: `parity-${fixture}.pdf`,
-        sha256: String(index).repeat(64).slice(0, 64),
+        sha256: String(index).padStart(64, '0'),
         bytes: 1024 + index,
         pageCount: 2,
     };
