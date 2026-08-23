@@ -3,6 +3,14 @@ import {clamp} from 'es-toolkit/math';
 const COMFORT_PADDING_MIN_PX = 16;
 const COMFORT_PADDING_MAX_PX = 48;
 
+/**
+ * Shared auto-follow timing policy for every document thumbnail adapter.
+ * A rail stops following the current page for the cooldown after a user
+ * interaction, and ignores its own programmatic scrolls for the guard window.
+ */
+export const DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS = 700;
+export const DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS = 160;
+
 export interface IDocumentThumbnailPageBounds {
     bottom: number;
     height: number;

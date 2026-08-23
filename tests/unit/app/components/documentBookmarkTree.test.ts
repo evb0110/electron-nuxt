@@ -70,10 +70,14 @@ function harnessState(overrides: Partial<IBookmarkTreeHarnessState> = {}) {
 }
 
 const activeUnmounts = new Set<() => void>();
+const revealTrackerRestores: Array<() => void> = [];
 
 afterEach(() => {
     for (const unmount of [...activeUnmounts]) {
         unmount();
+    }
+    for (const restore of revealTrackerRestores.splice(0)) {
+        restore();
     }
 });
 
@@ -120,6 +124,25 @@ async function mountTree(state: IBookmarkTreeHarnessState) {
 function renderedIds(host: HTMLElement) {
     return [...host.querySelectorAll<HTMLElement>('[data-bookmark-id]')]
         .map(row => row.dataset.bookmarkId);
+}
+
+type TScrollIntoView = (...args: unknown[]) => void;
+
+/**
+ * happy-dom leaves `scrollIntoView` unimplemented, so patching it is both the
+ * stub the component needs and the record of which row it revealed.
+ */
+function trackRevealedRows() {
+    const revealed: string[] = [];
+    const prototype = Element.prototype as Element & {scrollIntoView?: TScrollIntoView};
+    const original = prototype.scrollIntoView;
+    prototype.scrollIntoView = function trackReveal(this: HTMLElement) {
+        revealed.push(this.dataset.bookmarkId ?? '');
+    };
+    revealTrackerRestores.push(() => {
+        prototype.scrollIntoView = original;
+    });
+    return revealed;
 }
 
 function row(host: HTMLElement, id: string) {
@@ -234,6 +257,88 @@ describe('DocumentBookmarkTree', () => {
         const collapsedToggle = row(host, 'a1').querySelector('.document-bookmark-item__toggle')!;
         expect(collapsedToggle.getAttribute('aria-expanded')).toBe('false');
         expect(row(host, 'a3').querySelector('.document-bookmark-item__toggle')).toBeNull();
+    });
+
+    it('reveals the nearest visible ancestor when collapsed ancestors hide the active row', async () => {
+        const state = harnessState({
+            displayMode: 'top-level',
+            expandedIds: new Set(['a']),
+            activePathIds: new Set([
+                'a',
+                'a1',
+                'a2',
+            ]),
+        });
+        const scrolled = trackRevealedRows();
+        const {host} = await mountTree(state);
+
+        state.activeId = 'a2';
+        await nextTick();
+        await nextTick();
+
+        expect(renderedIds(host)).not.toContain('a2');
+        expect(scrolled).toEqual(['a1']);
+    });
+
+    it('re-reveals the active row when a display-mode change makes it visible', async () => {
+        const state = harnessState({
+            displayMode: 'top-level',
+            expandedIds: new Set(),
+            activePathIds: new Set([
+                'a',
+                'a1',
+                'a2',
+            ]),
+            activeId: 'a2',
+        });
+        const scrolled = trackRevealedRows();
+        const {host} = await mountTree(state);
+
+        state.displayMode = 'all-expanded';
+        await nextTick();
+        await nextTick();
+
+        expect(renderedIds(host)).toContain('a2');
+        expect(scrolled).toEqual(['a2']);
+    });
+
+    it('reveals the active row once expansion uncovers it, without rewriting expansion', async () => {
+        const state = harnessState({
+            displayMode: 'top-level',
+            expandedIds: new Set(),
+            activePathIds: new Set([
+                'a',
+                'a1',
+                'a2',
+            ]),
+            activeId: 'a2',
+        });
+        const scrolled = trackRevealedRows();
+        const {events} = await mountTree(state);
+
+        state.expandedIds = new Set([
+            'a',
+            'a1',
+        ]);
+        await nextTick();
+        await nextTick();
+        expect(scrolled).toEqual(['a2']);
+
+        // A re-emitted expansion set keeps the same reveal target, so the tree
+        // leaves the user's scroll position alone.
+        state.expandedIds = new Set([
+            'a',
+            'a1',
+        ]);
+        await nextTick();
+        await nextTick();
+
+        expect(scrolled).toEqual(['a2']);
+        expect(state.expandedIds).toEqual(new Set([
+            'a',
+            'a1',
+        ]));
+        expect(events).toEqual([]);
     });
 
     it('falls back to the untitled label and applies bookmark text styling', async () => {

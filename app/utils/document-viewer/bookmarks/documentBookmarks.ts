@@ -90,6 +90,97 @@ export function getDocumentBookmarkActivePath(
     return bestPath;
 }
 
+export interface IDocumentBookmarkVisibleRow {
+    item: IDocumentBookmarkTreeItem;
+    depth: number;
+    isExpanded: boolean;
+}
+
+export interface IDocumentBookmarkDisplayState {
+    displayMode: TDocumentBookmarkDisplayMode;
+    expandedIds: ReadonlySet<string>;
+    activePathIds: ReadonlySet<string>;
+}
+
+function isDocumentBookmarkItemExpanded(
+    item: IDocumentBookmarkTreeItem,
+    display: IDocumentBookmarkDisplayState,
+) {
+    if (display.displayMode === 'all-expanded') {
+        return true;
+    }
+    if (display.displayMode === 'current-expanded') {
+        return display.activePathIds.has(item.id);
+    }
+    return display.expandedIds.has(item.id);
+}
+
+/**
+ * Rows the tree renders for a display state, in document order.
+ */
+export function getDocumentBookmarkVisibleRows(
+    items: readonly IDocumentBookmarkTreeItem[],
+    display: IDocumentBookmarkDisplayState,
+): IDocumentBookmarkVisibleRow[] {
+    const rows: IDocumentBookmarkVisibleRow[] = [];
+    const stack = items.toReversed().map(item => ({
+        item,
+        depth: 0,
+    }));
+    while (stack.length > 0) {
+        const {
+            item,
+            depth,
+        } = stack.pop()!;
+        const isExpanded = item.children.length > 0 && isDocumentBookmarkItemExpanded(item, display);
+        rows.push({
+            item,
+            depth,
+            isExpanded,
+        });
+        if (isExpanded) {
+            for (let index = item.children.length - 1; index >= 0; index -= 1) {
+                stack.push({
+                    item: item.children[index]!,
+                    depth: depth + 1,
+                });
+            }
+        }
+    }
+    return rows;
+}
+
+/**
+ * Row to scroll to when following the active bookmark. Collapsed ancestors hide
+ * the active row itself, so the deepest rendered ancestor stands in for it
+ * instead of the follow silently giving up. Rendered rows are in document
+ * order, so the last row on the active path is the deepest one.
+ */
+export function resolveDocumentBookmarkRevealRowIndex(
+    rows: readonly IDocumentBookmarkVisibleRow[],
+    activeId: string | null,
+    activePathIds: ReadonlySet<string>,
+) {
+    if (!activeId) {
+        return -1;
+    }
+
+    let ancestorIndex = -1;
+    for (const [
+        index,
+        row,
+    ] of rows.entries()) {
+        if (row.item.id === activeId) {
+            return index;
+        }
+        if (activePathIds.has(row.item.id)) {
+            ancestorIndex = index;
+        }
+    }
+
+    return ancestorIndex;
+}
+
 export function findDocumentBookmark(
     items: readonly IDocumentBookmarkTreeItem[],
     id: string,

@@ -22,9 +22,11 @@
 
 <script setup lang="ts">
 import {useVirtualList} from '@vueuse/core';
-import type {
-    IDocumentBookmarkTreeItem,
-    TDocumentBookmarkDisplayMode,
+import {
+    getDocumentBookmarkVisibleRows,
+    resolveDocumentBookmarkRevealRowIndex,
+    type IDocumentBookmarkTreeItem,
+    type TDocumentBookmarkDisplayMode,
 } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 import DocumentBookmarkTreeItem from '@app/components/document-viewer/DocumentBookmarkTreeItem.vue';
 
@@ -41,53 +43,14 @@ const emit = defineEmits<{
 }>();
 const treeRef = ref<HTMLElement | null>(null);
 
-interface IDocumentBookmarkVisibleRow {
-    item: IDocumentBookmarkTreeItem;
-    depth: number;
-    isExpanded: boolean;
-}
-
 // Must match the fixed row height in DocumentBookmarkTreeItem.vue.
 const BOOKMARK_ROW_HEIGHT_PX = 42;
 
-function isItemExpanded(item: IDocumentBookmarkTreeItem) {
-    if (props.displayMode === 'all-expanded') {
-        return true;
-    }
-    if (props.displayMode === 'current-expanded') {
-        return props.activePathIds.has(item.id);
-    }
-    return props.expandedIds.has(item.id);
-}
-
-const visibleRows = computed<IDocumentBookmarkVisibleRow[]>(() => {
-    const rows: IDocumentBookmarkVisibleRow[] = [];
-    const stack = props.items.toReversed().map(item => ({
-        item,
-        depth: 0,
-    }));
-    while (stack.length > 0) {
-        const {
-            item,
-            depth,
-        } = stack.pop()!;
-        const isExpanded = item.children.length > 0 && isItemExpanded(item);
-        rows.push({
-            item,
-            depth,
-            isExpanded,
-        });
-        if (isExpanded) {
-            for (let index = item.children.length - 1; index >= 0; index -= 1) {
-                stack.push({
-                    item: item.children[index]!,
-                    depth: depth + 1,
-                });
-            }
-        }
-    }
-    return rows;
-});
+const visibleRows = computed(() => getDocumentBookmarkVisibleRows(props.items, {
+    displayMode: props.displayMode,
+    expandedIds: props.expandedIds,
+    activePathIds: props.activePathIds,
+}));
 
 const {
     list: virtualRows,
@@ -99,22 +62,46 @@ const {
     overscan: 12,
 });
 
-watch(() => props.activeId, async (activeId) => {
-    if (!activeId) {
-        return;
-    }
+const revealRowIndex = computed(() => resolveDocumentBookmarkRevealRowIndex(
+    visibleRows.value,
+    props.activeId,
+    props.activePathIds,
+));
+const revealRowId = computed(() => visibleRows.value[revealRowIndex.value]?.item.id ?? null);
+
+async function revealRow(rowId: string) {
     await nextTick();
     const renderedRow = treeRef.value
-        ?.querySelector<HTMLElement>(`[data-bookmark-id="${CSS.escape(activeId)}"]`);
+        ?.querySelector<HTMLElement>(`[data-bookmark-id="${CSS.escape(rowId)}"]`);
     if (renderedRow) {
+        // Preserve the user's scroll position when the row is already rendered;
+        // the virtual-list scroll helper aligns to an absolute row instead.
         renderedRow.scrollIntoView({block: 'nearest'});
         return;
     }
-    const rowIndex = visibleRows.value.findIndex(row => row.item.id === activeId);
+    const rowIndex = visibleRows.value.findIndex(row => row.item.id === rowId);
     if (rowIndex >= 0) {
         scrollToRow(rowIndex);
     }
-}, {flush: 'post'});
+}
+
+// Follow the active bookmark whenever it moves, and whenever a display-mode or
+// expansion change moves which row stands in for it. Expansion itself stays
+// under the user's control: nothing here rewrites `expandedIds`.
+watch(
+    [
+        () => props.activeId,
+        revealRowId,
+    ],
+    () => {
+        const rowId = revealRowId.value;
+        if (!rowId) {
+            return;
+        }
+        void revealRow(rowId);
+    },
+    {flush: 'post'},
+);
 </script>
 
 <style scoped>

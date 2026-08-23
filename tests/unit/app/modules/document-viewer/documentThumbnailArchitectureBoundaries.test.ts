@@ -69,6 +69,20 @@ describe('document thumbnail architecture boundaries', () => {
         expect(pdfThumbnails).not.toContain('ThumbnailFenwickLayout');
     });
 
+    it('shares one auto-follow timing policy instead of per-adapter literals', () => {
+        const pdfThumbnails = read('app/modules/pdf-viewer/components/PdfThumbnails.vue');
+        const sourceController = read('app/utils/document-viewer/thumbnails/useDocumentThumbnailController.ts');
+
+        for (const source of [
+            pdfThumbnails,
+            sourceController,
+        ]) {
+            expect(source).toContain('DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS');
+            expect(source).toContain('DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS');
+            expect(source).not.toMatch(/^\s*(?:export\s+)?const \w*(?:COOLDOWN|GUARD)\w*_MS\s*=/mu);
+        }
+    });
+
     it('keeps capability reconciliation in one shared session without format watchers rewriting preference', () => {
         const pdfSidebar = read('app/modules/pdf-viewer/components/PdfSidebar.vue');
         const sourceSidebar = read('app/modules/workspace-shell/components/DocumentSourceSidebar.vue');

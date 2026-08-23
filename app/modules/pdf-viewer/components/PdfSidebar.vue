@@ -77,7 +77,8 @@
             </DocumentSidebarPagesPanel>
 
             <PdfOutline
-                v-if="isOpen && effectiveTab === 'bookmarks'"
+                v-if="hasActivatedBookmarksTab"
+                v-show="effectiveTab === 'bookmarks'"
                 :pdf-document="pdfDocument"
                 :current-page="currentPage"
                 :is-edit-mode="bookmarkEditMode"
@@ -129,6 +130,7 @@ import AppSidebarShell from '@app/components/sidebar/AppSidebarShell.vue';
 import DocumentSidebarPagesPanel from '@app/components/document-viewer/DocumentSidebarPagesPanel.vue';
 import {useDocumentSidebarCapabilitySession} from '@app/utils/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
 import { createPdfDocumentSearchSession } from '@app/modules/pdf-viewer/search/createPdfDocumentSearchSession';
+import { SIDEBAR } from '@app/constants/pdfLayout';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 
 interface IProps {
@@ -316,6 +318,22 @@ const {
 
 const selectedThumbnailPages = computed(() => selectedThumbnailPagesProp);
 
+const isBookmarksTabActive = computed(() => isOpen && effectiveTab.value === 'bookmarks');
+
+/**
+ * The bookmarks panel mounts on its first activation and then stays alive
+ * behind `v-show`, so outline display mode, expansion, and selection survive
+ * tab switches. Documents whose bookmarks tab is never opened still skip
+ * outline parsing entirely; unmounting the sidebar host remains the reset
+ * boundary.
+ */
+const hasActivatedBookmarksTab = ref(false);
+watch(isBookmarksTabActive, (isActive) => {
+    if (isActive) {
+        hasActivatedBookmarksTab.value = true;
+    }
+}, {immediate: true});
+
 function handleSelectedPagesUpdate(pages: number[]) {
     emit('update:selectedThumbnailPages', pages);
 }
@@ -474,7 +492,7 @@ function handleShellTabUpdate(value: string) {
 }
 
 const sidebarStyle = computed(() => {
-    const sidebarWidth = width ?? 240;
+    const sidebarWidth = width ?? SIDEBAR.DEFAULT_WIDTH;
 
     return {
         width: `${sidebarWidth}px`,

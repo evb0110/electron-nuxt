@@ -13,6 +13,7 @@ import {
     buildOutlineFromBookmarkEntries,
     buildResolvedOutline,
     convertOutlineColorToHex,
+    flattenBookmarks,
     normalizeBookmarkColor,
     parseOutlineItems,
     resolveActiveBookmarkForPage,
@@ -368,6 +369,42 @@ describe('pdfOutlineHelpers', () => {
         ];
 
         expect(resolveActiveBookmarkForPage(bookmarks, 5, 'first-on-page')?.id).toBe('first-on-page');
+    });
+
+    it('prefers the shallower bookmark when a parent and its child share the page', () => {
+        const parent = createBookmark('chapter', 4);
+        const child = createBookmark('chapter-opening', 4);
+        parent.items = [child];
+
+        expect(resolveActiveBookmarkForPage(
+            flattenBookmarks([
+                createBookmark('intro', 0),
+                parent,
+            ]),
+            5,
+            'intro',
+        )?.id).toBe('chapter');
+    });
+
+    it('keeps the later sibling when equal-page candidates share a depth', () => {
+        const parent = createBookmark('chapter', 4);
+        parent.items = [createBookmark('chapter-opening', 4)];
+
+        expect(resolveActiveBookmarkForPage(
+            flattenBookmarks([
+                parent,
+                createBookmark('appendix', 4),
+            ]),
+            5,
+            null,
+        )?.id).toBe('appendix');
+    });
+
+    it('ignores bookmarks with non-finite page indices', () => {
+        expect(resolveActiveBookmarkForPage([
+            createBookmark('chapter', 4),
+            createBookmark('invalid', Number.NaN),
+        ], 5, null)?.id).toBe('chapter');
     });
 
     it('uses the last bookmark at or before the page when the active bookmark is elsewhere', () => {

@@ -1,7 +1,10 @@
 <template>
   <DocumentThumbnailRail
     :set-root="setContainerRef"
-    tabindex="0"
+    tabindex="-1"
+    role="listbox"
+    aria-multiselectable="true"
+    :aria-label="t('sidebar.pages')"
     class="pdf-thumbnails"
     :class="{
       'is-reorder-dragging': isDragging,
@@ -16,9 +19,14 @@
     @dragover="handleExternalDragOver"
     @dragleave="handleExternalDragLeave"
     @drop="handleExternalDrop"
+    @focusin="handleContainerFocusIn"
     @keydown="handleContainerKeyDown"
   >
-    <div class="pdf-thumbnails-virtual-wrapper" :style="virtualWrapperStyle">
+    <div
+      role="presentation"
+      class="pdf-thumbnails-virtual-wrapper"
+      :style="virtualWrapperStyle"
+    >
       <DocumentThumbnailItem
         v-for="page in virtualPages"
         :key="page"
@@ -36,6 +44,10 @@
         }"
         :data-page="page"
         data-pane-relocation-scroll-item
+        role="option"
+        :aria-selected="isSelected(page)"
+        :aria-label="t('pageOps.pageTarget', {page: formatPageIndicatorWithOptions(page, pageLabels ?? null)})"
+        :tabindex="page === rovingFocusPage ? 0 : -1"
         :style="getThumbnailStyle(page)"
         @mousedown="handleDragMouseDown($event, page)"
         @click="handleThumbnailClick($event, page)"
@@ -46,12 +58,10 @@
             :text="getThumbnailSelectionLabel(page)"
             :delay-duration="400"
           >
-            <button
-              type="button"
+            <span
+              aria-hidden="true"
               class="pdf-thumbnail-selection-toggle"
               :class="{ 'is-selected': isSelected(page) }"
-              :aria-label="getThumbnailSelectionLabel(page)"
-              :aria-pressed="isSelected(page) ? 'true' : 'false'"
               @mousedown.stop
               @click.stop="toggleSinglePageSelection(page)"
             >
@@ -60,7 +70,7 @@
                 name="i-ph-check"
                 class="pdf-thumbnail-selection-icon"
               />
-            </button>
+            </span>
           </AppTooltip>
         </template>
         <span class="pdf-thumbnail-skeleton" aria-hidden="true" />
@@ -104,6 +114,8 @@ import DocumentThumbnailRail from '@app/components/document-viewer/DocumentThumb
 import type {IDocumentThumbnailLayoutAnchor} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
 import {usePdfThumbnailVirtualLayout} from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailVirtualLayout';
 import {
+    DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS,
+    DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS,
     getDocumentThumbnailComfortPadding,
     getDocumentThumbnailMaxScrollTop,
     isDocumentThumbnailWithinComfortViewport,
@@ -121,8 +133,7 @@ import type {
 
 const THUMBNAIL_WIDTH_CHANGE_THRESHOLD = 1;
 const THUMBNAIL_RASTER_RESIZE_SETTLE_MS = 120;
-const AUTO_SYNC_INTERACTION_COOLDOWN_MS = 700;
-const AUTO_SYNC_PROGRAMMATIC_SCROLL_GUARD_MS = 160;
+const INTERACTION_DIAGNOSTIC_THROTTLE_MS = 160;
 const AUTO_SYNC_LAYOUT_RETRY_COUNT = 4;
 const {
     annotationComments = undefined,
@@ -272,20 +283,26 @@ const {
 const { t } = useTypedI18n();
 
 const {
+    handleContainerFocusIn,
     handleContainerKeyDown,
     handleThumbnailClick,
     handleThumbnailContextMenu,
     isSelected,
+    rovingFocusPage,
     toggleSinglePageSelection,
 } = usePdfThumbnailSelection({
     consumeClickSkip,
     currentPage: computed(() => currentPage),
+    focusPageElement: page => void nextTick()
+        .then(waitForNextFrame)
+        .then(() => getThumbnailElement(page)?.focus({preventScroll: true})),
     isDragging,
     isExternalDragOver,
     markUserInteraction,
     onContextMenu: payload => emit('page-context-menu', payload),
     onGoToPage: page => emit('go-to-page', page, {navigationSource: 'thumbnail'}),
     onSelectedPagesChange: pages => emit('update:selected-pages', pages),
+    renderedPages: virtualPages,
     scrollPageIntoKeyboardView,
     selectedPages: computed(() => selectedPages ?? []),
     totalPages: computed(() => totalPages),
@@ -321,7 +338,7 @@ function markUserInteraction(reason: string) {
     lastUserInteractionAtMs = now;
     if (
         reason === lastUserInteractionReason
-        && (now - lastUserInteractionLogAtMs) < AUTO_SYNC_PROGRAMMATIC_SCROLL_GUARD_MS
+        && (now - lastUserInteractionLogAtMs) < INTERACTION_DIAGNOSTIC_THROTTLE_MS
     ) {
         return;
     }
@@ -336,11 +353,11 @@ function markUserInteraction(reason: string) {
 }
 
 function isRecentProgrammaticScroll() {
-    return (Date.now() - lastProgrammaticScrollAtMs) < AUTO_SYNC_PROGRAMMATIC_SCROLL_GUARD_MS;
+    return (Date.now() - lastProgrammaticScrollAtMs) < DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS;
 }
 
 function isCurrentPageAutoSyncSuppressed() {
-    if ((Date.now() - lastUserInteractionAtMs) < AUTO_SYNC_INTERACTION_COOLDOWN_MS) {
+    if ((Date.now() - lastUserInteractionAtMs) < DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS) {
         return true;
     }
 

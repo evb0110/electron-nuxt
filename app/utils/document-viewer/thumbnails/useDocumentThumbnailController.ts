@@ -23,6 +23,8 @@ import {
 } from '@app/utils/document-viewer/thumbnails/documentThumbnailScheduler';
 import {createDocumentThumbnailResizeAnchorLifecycle} from '@app/utils/document-viewer/thumbnails/createDocumentThumbnailResizeAnchorLifecycle';
 import {
+    DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS,
+    DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS,
     resolveDocumentThumbnailPageBounds,
     resolveDocumentThumbnailRevealScrollTop,
 } from '@app/utils/document-viewer/thumbnails/documentThumbnailViewport';
@@ -33,8 +35,6 @@ const RENDER_OVERSCAN_PX = 420;
 const CURRENT_NEIGHBOR_COUNT = 2;
 const SCROLL_SETTLE_MS = 160;
 const RESIZE_SETTLE_MS = 140;
-const AUTO_FOLLOW_INTERACTION_COOLDOWN_MS = 700;
-const PROGRAMMATIC_SCROLL_GUARD_MS = 160;
 
 export interface IDocumentThumbnailVirtualItem {
     aspectRatio: string;
@@ -381,7 +381,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     function handleScroll() {
         isScrolling.value = true;
         viewportRevision.value += 1;
-        if ((Date.now() - lastProgrammaticScrollAtMs) >= PROGRAMMATIC_SCROLL_GUARD_MS) {
+        if ((Date.now() - lastProgrammaticScrollAtMs) >= DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS) {
             markManualInteraction();
         }
         if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
@@ -397,7 +397,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     }
 
     function isAutoFollowSuppressed() {
-        return (Date.now() - lastManualInteractionAtMs) < AUTO_FOLLOW_INTERACTION_COOLDOWN_MS;
+        return (Date.now() - lastManualInteractionAtMs) < DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS;
     }
 
     function revealCurrentPage(optionsOverride: {force?: boolean} = {}) {

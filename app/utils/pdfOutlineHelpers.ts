@@ -721,6 +721,24 @@ export function flattenBookmarks(items: IBookmarkItem[]) {
     return flattened;
 }
 
+/**
+ * Depth of every entry of a pre-order flattened outline, keyed by identity.
+ * A parent always precedes its children in that order, so one pass is enough.
+ */
+function resolveFlattenedBookmarkDepths(flatBookmarks: IBookmarkItem[]) {
+    const depths = new Map<IBookmarkItem, number>();
+
+    for (const item of flatBookmarks) {
+        const depth = depths.get(item) ?? 0;
+        depths.set(item, depth);
+        for (const child of item.items) {
+            depths.set(child, depth + 1);
+        }
+    }
+
+    return depths;
+}
+
 export function resolveActiveBookmarkForPage(
     flatBookmarks: IBookmarkItem[],
     currentPage: number,
@@ -735,10 +753,24 @@ export function resolveActiveBookmarkForPage(
         return currentActive;
     }
 
+    const depths = resolveFlattenedBookmarkDepths(flatBookmarks);
     let active: IBookmarkItem | null = null;
 
     for (const item of flatBookmarks) {
-        if (typeof item.pageIndex === 'number' && item.pageIndex <= pageIndex) {
+        if (
+            typeof item.pageIndex !== 'number'
+            || !Number.isFinite(item.pageIndex)
+            || item.pageIndex > pageIndex
+        ) {
+            continue;
+        }
+        // Later candidates win, except that a child inheriting its parent's
+        // page must not outrank the parent that names the section.
+        if (
+            active === null
+            || item.pageIndex !== active.pageIndex
+            || (depths.get(item) ?? 0) <= (depths.get(active) ?? 0)
+        ) {
             active = item;
         }
     }

@@ -27,13 +27,11 @@
 }
 
 .pdf-thumbnail:hover .pdf-thumbnail-selection-toggle,
-.pdf-thumbnail-selection-toggle:focus-visible,
 .pdf-thumbnail-selection-toggle.is-selected {
   opacity: 1;
 }
 
-.pdf-thumbnail-selection-toggle:hover,
-.pdf-thumbnail-selection-toggle:focus-visible {
+.pdf-thumbnail-selection-toggle:hover {
   border-color: var(--ui-primary);
   background: var(--app-sidebar-control-hover-bg);
 }
@@ -122,4 +120,19 @@
   outline: 2px dashed var(--ui-primary);
   outline-offset: -2px;
   border-radius: var(--app-thumbnail-row-radius);
+}
+
+.pdf-thumbnail:focus {
+  outline: none;
+}
+
+.pdf-thumbnail:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--app-toolbar-focus-ring);
+}
+
+@media (forced-colors: active) {
+  .pdf-thumbnail:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
 }
