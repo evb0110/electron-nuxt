@@ -105,6 +105,7 @@ export const usePdfAppAnnotationHistory = (options: {
             workspaceCommandSink.register({
                 source: 'annotation',
                 estimatedBytes: Math.max(0, command.estimatedBytes ?? DEFAULT_COMMAND_BYTES),
+                entityIds: command.annotationIds,
                 undo: () => replayWorkspaceCommand(command.undo),
                 cmd: () => replayWorkspaceCommand(command.cmd),
             });
@@ -134,7 +135,7 @@ export const usePdfAppAnnotationHistory = (options: {
         );
         transactionCommands = transactionCommands.filter(keep);
         if (workspaceCommandSink) {
-            workspaceCommandSink.reset('annotation');
+            workspaceCommandSink.forget('annotation', ids);
         } else {
             undoStack.splice(0, undoStack.length, ...undoStack.filter(keep));
             redoStack.splice(0, redoStack.length, ...redoStack.filter(keep));

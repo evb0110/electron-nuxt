@@ -43,6 +43,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     const commandSink: IWorkspaceCommandSink = {
         register: workspaceUndoTimeline.registerCommand,
         reset: workspaceUndoTimeline.resetSource,
+        forget: workspaceUndoTimeline.forgetSourceEntries,
     };
     setWorkspaceCommandSink?.(commandSink);
 

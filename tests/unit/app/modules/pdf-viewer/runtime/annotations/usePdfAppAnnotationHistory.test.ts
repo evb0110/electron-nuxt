@@ -507,6 +507,7 @@ describe('usePdfAppAnnotationHistory', () => {
         history.setWorkspaceCommandSink({
             register: ledger.registerCommand,
             reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
         });
         history.registerCommand({
             cmd: vi.fn(),
@@ -550,6 +551,7 @@ describe('usePdfAppAnnotationHistory', () => {
         history.setWorkspaceCommandSink({
             register: ledger.registerCommand,
             reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
         });
         history.registerCommand({
             undo: vi.fn(),
@@ -561,6 +563,203 @@ describe('usePdfAppAnnotationHistory', () => {
         history.forgetCommands(new Set([forgottenId]));
         expect(ledger.nextUndoSource.value).toBe('file');
         expect(ledger.canRedoTimeline.value).toBe(false);
+    });
+
+    it('keeps unrelated annotation history undoable when one shape is hard-forgotten', async () => {
+        const ledger = useWorkspaceCommandLedger();
+        const forgottenId = asAnnotationId('replaced-shape');
+        const keptId = asAnnotationId('sticky-note');
+        const forgottenUndo = vi.fn();
+        const forgottenRedo = vi.fn();
+        const keptUndo = vi.fn();
+        const keptRedo = vi.fn();
+        const undoFile = vi.fn(() => true);
+        const history = usePdfAppAnnotationHistory({
+            pdfjsAnnotationState: ref(createAnnotationState()),
+            emitAnnotationState: vi.fn(),
+            markModified: vi.fn(),
+        });
+        ledger.registerCommand({
+            source: 'file',
+            undo: undoFile,
+            cmd: () => true,
+        });
+        history.setWorkspaceCommandSink({
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+        history.registerCommand({
+            undo: forgottenUndo,
+            cmd: forgottenRedo,
+            annotationIds: [forgottenId],
+        });
+        history.registerCommand({
+            undo: keptUndo,
+            cmd: keptRedo,
+            annotationIds: [keptId],
+        });
+
+        history.forgetCommands(new Set([forgottenId]));
+
+        expect(ledger.nextUndoSource.value).toBe('annotation');
+        await expect(ledger.undoTimeline()).resolves.toBe(true);
+        expect(keptUndo).toHaveBeenCalledOnce();
+        await expect(ledger.redoTimeline()).resolves.toBe(true);
+        expect(keptRedo).toHaveBeenCalledOnce();
+        await ledger.undoTimeline();
+        await ledger.undoTimeline();
+        expect(undoFile).toHaveBeenCalledOnce();
+        expect(ledger.canUndoTimeline.value).toBe(false);
+        expect(forgottenUndo).not.toHaveBeenCalled();
+        expect(forgottenRedo).not.toHaveBeenCalled();
+    });
+
+    it('keeps a survivor undoable when a pending undo target is hard-forgotten mid-flight', async () => {
+        const ledger = useWorkspaceCommandLedger();
+        const forgottenId = asAnnotationId('replaced-shape');
+        const forgottenUndo = vi.fn();
+        const undoFile = vi.fn(() => true);
+        const history = usePdfAppAnnotationHistory({
+            pdfjsAnnotationState: ref(createAnnotationState()),
+            emitAnnotationState: vi.fn(),
+            markModified: vi.fn(),
+        });
+        ledger.registerCommand({
+            source: 'file',
+            undo: undoFile,
+            cmd: () => true,
+        });
+        history.setWorkspaceCommandSink({
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+        history.registerCommand({
+            undo: forgottenUndo,
+            cmd: vi.fn(),
+            annotationIds: [forgottenId],
+        });
+
+        // The replay runs synchronously, so the hard-forget lands in the gap
+        // between it and the ledger settling the command it started.
+        const pendingUndo = ledger.undoTimeline();
+        history.forgetCommands(new Set([forgottenId]));
+
+        await expect(pendingUndo).resolves.toBe(true);
+        expect(forgottenUndo).toHaveBeenCalledOnce();
+        expect(ledger.nextUndoSource.value).toBe('file');
+        expect(ledger.canRedoTimeline.value).toBe(false);
+        await expect(ledger.undoTimeline()).resolves.toBe(true);
+        expect(undoFile).toHaveBeenCalledOnce();
+        expect(ledger.canUndoTimeline.value).toBe(false);
+    });
+
+    it('keeps a survivor undoable when a pending redo target is hard-forgotten mid-flight', async () => {
+        const ledger = useWorkspaceCommandLedger();
+        const forgottenId = asAnnotationId('replaced-shape');
+        const forgottenRedo = vi.fn();
+        const undoFile = vi.fn(() => true);
+        const history = usePdfAppAnnotationHistory({
+            pdfjsAnnotationState: ref(createAnnotationState()),
+            emitAnnotationState: vi.fn(),
+            markModified: vi.fn(),
+        });
+        ledger.registerCommand({
+            source: 'file',
+            undo: undoFile,
+            cmd: () => true,
+        });
+        history.setWorkspaceCommandSink({
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+        history.registerCommand({
+            undo: vi.fn(),
+            cmd: forgottenRedo,
+            annotationIds: [forgottenId],
+        });
+        await ledger.undoTimeline();
+
+        const pendingRedo = ledger.redoTimeline();
+        history.forgetCommands(new Set([forgottenId]));
+
+        // The forgotten target must not come back, and the file checkpoint
+        // below it must not be stepped over.
+        await expect(pendingRedo).resolves.toBe(true);
+        expect(forgottenRedo).toHaveBeenCalledOnce();
+        expect(ledger.canRedoTimeline.value).toBe(false);
+        expect(ledger.nextUndoSource.value).toBe('file');
+        await expect(ledger.undoTimeline()).resolves.toBe(true);
+        expect(undoFile).toHaveBeenCalledOnce();
+    });
+
+    it('keeps a survivor undoable when the annotation source clears during a pending undo', async () => {
+        const ledger = useWorkspaceCommandLedger();
+        const undoFile = vi.fn(() => true);
+        const history = usePdfAppAnnotationHistory({
+            pdfjsAnnotationState: ref(createAnnotationState()),
+            emitAnnotationState: vi.fn(),
+            markModified: vi.fn(),
+        });
+        ledger.registerCommand({
+            source: 'file',
+            undo: undoFile,
+            cmd: () => true,
+        });
+        history.setWorkspaceCommandSink({
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+        history.registerCommand({
+            undo: vi.fn(),
+            cmd: vi.fn(),
+            annotationIds: [asAnnotationId('cleared-shape')],
+        });
+
+        // A viewer swap or document reopen clears the annotation source through
+        // the same sink while the command it started is still settling.
+        const pendingUndo = ledger.undoTimeline();
+        history.clear();
+
+        await expect(pendingUndo).resolves.toBe(true);
+        expect(ledger.nextUndoSource.value).toBe('file');
+        await expect(ledger.undoTimeline()).resolves.toBe(true);
+        expect(undoFile).toHaveBeenCalledOnce();
+        expect(ledger.canUndoTimeline.value).toBe(false);
+    });
+
+    it('drops a multi-shape annotation command when any one of its shapes is forgotten', async () => {
+        const ledger = useWorkspaceCommandLedger();
+        const forgottenId = asAnnotationId('replaced-shape');
+        const survivingId = asAnnotationId('surviving-shape');
+        const pairedUndo = vi.fn();
+        const history = usePdfAppAnnotationHistory({
+            pdfjsAnnotationState: ref(createAnnotationState()),
+            emitAnnotationState: vi.fn(),
+            markModified: vi.fn(),
+        });
+        history.setWorkspaceCommandSink({
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+        });
+        history.registerCommand({
+            undo: pairedUndo,
+            cmd: vi.fn(),
+            annotationIds: [
+                forgottenId,
+                survivingId,
+            ],
+        });
+
+        history.forgetCommands(new Set([forgottenId]));
+
+        expect(ledger.canUndoTimeline.value).toBe(false);
+        await expect(ledger.undoTimeline()).resolves.toBe(false);
+        expect(pairedUndo).not.toHaveBeenCalled();
     });
 
     it('drops a hard-forgotten local command before its transaction is published', () => {
@@ -601,6 +800,7 @@ describe('usePdfAppAnnotationHistory', () => {
         history.setWorkspaceCommandSink({
             register: ledger.registerCommand,
             reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
         });
 
         history.runTransaction(() => {
@@ -638,6 +838,7 @@ describe('usePdfAppAnnotationHistory', () => {
         history.setWorkspaceCommandSink({
             register: ledger.registerCommand,
             reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
         });
         history.registerExecutorCommand({
             undo,
@@ -703,6 +904,7 @@ describe('usePdfAppAnnotationHistory', () => {
         history.setWorkspaceCommandSink({
             register: command => registrations.push(command),
             reset,
+            forget: vi.fn(),
         });
 
         history.registerCommand({
@@ -742,6 +944,7 @@ describe('usePdfAppAnnotationHistory', () => {
         history.setWorkspaceCommandSink({
             register: command => registrations.push(command),
             reset: vi.fn(),
+            forget: vi.fn(),
         });
         history.registerCommand({
             undo: () => calls.push('undo'),

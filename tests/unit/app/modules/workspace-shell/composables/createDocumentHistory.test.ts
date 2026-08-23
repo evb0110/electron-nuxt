@@ -118,6 +118,7 @@ describe('createDocumentHistory', () => {
         history.setWorkspaceCommandSink({
             register: command => registrations.push(command as typeof registrations[number]),
             reset,
+            forget: vi.fn(),
         });
         await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
         await history.pushHistorySnapshot(new Uint8Array([
@@ -325,6 +326,7 @@ describe('createDocumentHistory', () => {
         history.setWorkspaceCommandSink({
             register,
             reset: vi.fn(),
+            forget: vi.fn(),
         });
 
         await expect(history.ensureHistoryBaselineForMutation()).resolves.toBe(true);
@@ -462,6 +464,7 @@ describe('createDocumentHistory', () => {
         history.setWorkspaceCommandSink({
             register,
             reset: vi.fn(),
+            forget: vi.fn(),
         });
         await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
         await history.markCurrentHistoryEntryClean(null, {

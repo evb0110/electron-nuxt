@@ -62,6 +62,7 @@ describe('useWorkspaceMetadataHistory', () => {
             commandSink: {
                 register: command => registrations.push(command as typeof registrations[number]),
                 reset,
+                forget: vi.fn(),
             },
         });
         history.resetToCurrentState();
