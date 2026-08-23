@@ -1,10 +1,8 @@
 import {isRecord} from '@contracts/runtimeGuards';
-import {
-    execFileSync,
-    spawnSync,
-} from 'node:child_process';
+import {spawnSync} from 'node:child_process';
 import {
     existsSync,
+    mkdirSync,
     mkdtempSync,
     readFileSync,
     rmSync,
@@ -47,6 +45,8 @@ interface IWorkflowJob {
     needs?: string | string[];
     steps?: IWorkflowStep[];
 }
+
+interface IPackageJson { scripts: Record<string, string> }
 
 async function readProjectFile(filePath: string) {
     return readFile(path.join(process.cwd(), filePath), 'utf8');
@@ -227,94 +227,102 @@ async function collectTestFiles(directory: string): Promise<string[]> {
     return nestedFiles.flat();
 }
 
-interface IPrePushScenario {
+interface IAffectedOracleScenario {
+    classifierExit?: number;
     nativeChanged: boolean;
-    probeExit: number;
+    nativeOutputPresent?: boolean;
+    scanCleanupChanged: boolean;
+    scanCleanupOutputPresent?: boolean;
+    supportsTypeStripping?: boolean;
 }
 
-// Runs the real pre-push case branch after replacing the already-tested command
-// functions with in-process recorders. Keeping the branch in the shell preserves
-// its control flow without spawning dozens of stub executables per scenario.
-function runPrePushBranch({
+function runAffectedOracleBranch({
+    classifierExit = 0,
     nativeChanged,
-    probeExit,
-}: IPrePushScenario) {
-    const workdir = mkdtempSync(path.join(tmpdir(), 'scan-cleanup-pre-push-'));
-    const logPath = path.join(workdir, 'calls.log');
-    const harnessPath = path.join(workdir, 'scan-cleanup-oracles-harness.sh');
-    const source = readFileSync(
-        path.resolve(process.cwd(), 'scripts/ci/scan-cleanup-oracles.sh'),
-        'utf8',
-    );
-    const caseMarker = 'case "$mode" in\n';
-    if (!source.includes(caseMarker)) {
-        throw new Error('Scan-cleanup oracle script is missing its mode case branch.');
-    }
-    const recorders = [
-        'record_call() { printf \'%s\\n\' "$1" >> "$EVB_TEST_CALL_LOG"; }',
-        'run_catastrophe_oracle() { record_call catastrophe-oracle; }',
-        'build_scan_cleanup_tool() { record_call build; }',
-        'run_stroke_weight_oracle() { record_call stroke-weight-oracle; }',
-        'run_export_oracles() { record_call export-oracles; }',
-        'supports_type_stripping() { return 0; }',
-        'native_or_build_changed() { [ "$EVB_TEST_NATIVE_CHANGED" = true ]; }',
-        'scan_cleanup_tool_is_available() {',
-        '  record_call tool-probe',
-        '  case "$EVB_TEST_PROBE_EXIT" in',
-        '    0) return 0 ;;',
-        '    20) return 1 ;;',
-        '  esac',
-        '  printf \'%s\\n\' \'error: cannot tell whether the scan-cleanup tool is present\' >&2',
-        '  exit 1',
-        '}',
-        '',
-    ].join('\n');
-    writeFileSync(harnessPath, source.replace(caseMarker, () => `${recorders}${caseMarker}`));
-
-    let failed = false;
-    let stderr = '';
+    nativeOutputPresent = true,
+    scanCleanupChanged,
+    scanCleanupOutputPresent = true,
+    supportsTypeStripping = true,
+}: IAffectedOracleScenario) {
+    const workdir = mkdtempSync(path.join(tmpdir(), 'scan-cleanup-affected-'));
     try {
-        try {
-            execFileSync('/bin/sh', [
-                harnessPath,
-                'pre-push',
-                '.devkit/scratch/pre-push-oracles',
-                'origin',
-            ], {
-                cwd: workdir,
-                encoding: 'utf8',
-                env: {
-                    ...process.env,
-                    EVB_TEST_CALL_LOG: logPath,
-                    EVB_TEST_NATIVE_CHANGED: String(nativeChanged),
-                    EVB_TEST_PROBE_EXIT: String(probeExit),
-                },
-                // execFileSync forwards stderr to the parent unless it is captured,
-                // and one scenario here deliberately makes the script complain.
-                stdio: [
-                    'ignore',
-                    'pipe',
-                    'pipe',
-                ],
-            });
-        } catch (error) {
-            failed = true;
-            stderr = isRecord(error) && typeof error.stderr === 'string' ? error.stderr : '';
-        }
+        const binDirectory = path.join(workdir, 'bin');
+        const callsPath = path.join(workdir, 'calls.log');
+        const harnessPath = path.join(workdir, 'scan-cleanup-oracles-harness.sh');
+        mkdirSync(binDirectory, {recursive: true});
 
-        const calls = existsSync(logPath)
-            ? readFileSync(logPath, 'utf8').split('\n').filter(Boolean)
+        writeFileSync(path.join(binDirectory, 'git'), [
+            '#!/bin/sh',
+            'case "$*" in',
+            '  "rev-parse --abbrev-ref --symbolic-full-name @{upstream}") printf \'%s\\n\' origin/main ;;',
+            '  rev-parse\\ --verify*) exit 0 ;;',
+            '  *) exit 9 ;;',
+            'esac',
+            '',
+        ].join('\n'), {mode: 0o755});
+        writeFileSync(path.join(binDirectory, 'node'), [
+            '#!/bin/sh',
+            'case "$*" in',
+            '  *classify-changed-areas.mjs*)',
+            '    [ "$EVB_TEST_CLASSIFIER_EXIT" -eq 0 ] || exit "$EVB_TEST_CLASSIFIER_EXIT"',
+            '    [ "$EVB_TEST_SCAN_OUTPUT" = true ] && printf \'scan_cleanup_export=%s\\n\' "$EVB_TEST_SCAN_CHANGED" >> "$GITHUB_OUTPUT"',
+            '    [ "$EVB_TEST_NATIVE_OUTPUT" = true ] && printf \'native_or_build=%s\\n\' "$EVB_TEST_NATIVE_CHANGED" >> "$GITHUB_OUTPUT"',
+            '    exit 0',
+            '    ;;',
+            '  *) exit 9 ;;',
+            'esac',
+            '',
+        ].join('\n'), {mode: 0o755});
+
+        const source = readFileSync(
+            path.resolve(process.cwd(), 'scripts/ci/scan-cleanup-oracles.sh'),
+            'utf8',
+        );
+        const caseMarker = 'case "$mode" in\n';
+        const recorders = [
+            'record_call() { printf \'%s\\n\' "$1" >> "$EVB_TEST_CALLS"; }',
+            'run_catastrophe_oracle() { record_call catastrophe-oracle; }',
+            'build_scan_cleanup_tool() { record_call build; }',
+            'run_stroke_weight_oracle() { record_call stroke-weight-oracle; }',
+            'run_export_oracles() { record_call export-oracles; }',
+            'supports_type_stripping() { [ "$EVB_TEST_TYPE_STRIPPING" = true ]; }',
+            '',
+        ].join('\n');
+        expect(source).toContain(caseMarker);
+        writeFileSync(harnessPath, source.replace(caseMarker, `${recorders}${caseMarker}`), {mode: 0o755});
+
+        const result = spawnSync('/bin/sh', [
+            harnessPath,
+            'affected',
+            path.join(workdir, 'output'),
+            'origin',
+        ], {
+            cwd: workdir,
+            encoding: 'utf8',
+            env: {
+                ...process.env,
+                EVB_TEST_CALLS: callsPath,
+                EVB_TEST_CLASSIFIER_EXIT: String(classifierExit),
+                EVB_TEST_NATIVE_CHANGED: String(nativeChanged),
+                EVB_TEST_NATIVE_OUTPUT: String(nativeOutputPresent),
+                EVB_TEST_SCAN_CHANGED: String(scanCleanupChanged),
+                EVB_TEST_SCAN_OUTPUT: String(scanCleanupOutputPresent),
+                EVB_TEST_TYPE_STRIPPING: String(supportsTypeStripping),
+                PATH: `${binDirectory}:${process.env.PATH ?? ''}`,
+            },
+        });
+        const calls = existsSync(callsPath)
+            ? readFileSync(callsPath, 'utf8').split('\n').filter(Boolean)
             : [];
-
         return {
             calls,
-            failed,
-            stderr,
+            status: result.status,
+            stderr: result.stderr,
         };
     } finally {
         rmSync(workdir, {
-            recursive: true,
             force: true,
+            recursive: true,
         });
     }
 }
@@ -538,8 +546,10 @@ describe('CI topology policy', () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const oracleScript = await readProjectFile('scripts/ci/scan-cleanup-oracles.sh');
         const prePush = await readProjectFile('.husky/pre-push');
+        const packageJson = JSON.parse(await readProjectFile('package.json')) as IPackageJson;
         const catastropheOracle = shellFunction(oracleScript, 'run_catastrophe_oracle');
         const exportOracles = shellFunction(oracleScript, 'run_export_oracles');
+        const affectedOracles = shellFunction(oracleScript, 'run_affected_oracles');
         const nativeJob = workflowJob(workflow, 'pr_native_build_safety');
         const arm64Job = workflowJob(workflow, 'pr_rust_tests_arm64');
         const exportJob = workflowJob(workflow, 'pr_scan_cleanup_oracles');
@@ -553,67 +563,98 @@ describe('CI topology policy', () => {
         expect(exportOracles).toContain('--fail-on text-loss');
         expect(arm64Job).toContain('runs-on: ubuntu-24.04-arm');
         expect(arm64Job).toContain('run: scripts/ci/apt-install.sh poppler-utils');
-        expect(prePush).toContain('scripts/ci/scan-cleanup-oracles.sh');
-        expect(prePush).toContain('pre-push .devkit/scratch/pre-push-scan-cleanup-oracles');
-        expect(oracleScript).toContain('major === 22 && minor >= 18');
-        expect(oracleScript).toContain('warning: skipping scan-cleanup preview and word-loss pre-push oracles');
-
-        // Which build the pre-push branch reaches is pinned by running it, below.
-        // The probe's own contract cannot be: that test stubs node, so it can see
-        // neither the resolver being asked nor the status that separates a missing
-        // binary from a probe that could not answer at all.
-        const probe = shellFunction(oracleScript, 'scan_cleanup_tool_is_available');
-        expect(probe, 'the probe must ask the resolver the export oracles use').toContain('resolveCliNativeToolPath');
-        expect(probe, 'absence needs a status of its own, distinct from a failed probe').toContain('? 0 : 20');
+        expect(prePush).not.toContain('scripts/ci/scan-cleanup-oracles.sh');
+        expect(packageJson.scripts['test:scan-cleanup:affected-oracles'])
+            .toBe('scripts/ci/scan-cleanup-oracles.sh affected');
+        expect(affectedOracles).toContain('--include-worktree');
         expect(workflow).not.toContain('node scripts/diagnostics/scan-cleanup-preview-harness.mjs');
         expect(prePush).not.toContain('node scripts/diagnostics/scan-cleanup-preview-harness.mjs');
     });
 
-    it('reaches a scan-cleanup build on pre-push only when the oracles would otherwise fail', () => {
-        // Every push runs the export oracles against the built tool, so a checkout
-        // that never built it could not push at all. Building is also what takes
-        // the machine-wide heavy gate and needs a Rust toolchain, so a docs-only
-        // push must not reach it. Both halves are decisions, not text.
-        const nativeChanged = runPrePushBranch({
+    it.skipIf(process.platform === 'win32')('runs only the affected scan-cleanup oracle groups', () => {
+        expect(runAffectedOracleBranch({
+            nativeChanged: false,
+            scanCleanupChanged: false,
+        })).toMatchObject({
+            calls: [],
+            status: 0,
+        });
+        expect(runAffectedOracleBranch({
             nativeChanged: true,
-            probeExit: 0,
+            scanCleanupChanged: false,
+        })).toMatchObject({
+            calls: ['catastrophe-oracle'],
+            status: 0,
         });
-        expect(nativeChanged.calls, 'changed native sources must rebuild and re-run the stroke oracle').toEqual([
-            'catastrophe-oracle',
-            'build',
-            'stroke-weight-oracle',
-            'export-oracles',
-        ]);
-
-        const toolPresent = runPrePushBranch({
+        expect(runAffectedOracleBranch({
             nativeChanged: false,
-            probeExit: 0,
+            scanCleanupChanged: true,
+        })).toMatchObject({
+            calls: [
+                'build',
+                'stroke-weight-oracle',
+                'export-oracles',
+            ],
+            status: 0,
         });
-        expect(toolPresent.calls, 'an ordinary push with the tool present must not take the heavy gate').toEqual([
-            'tool-probe',
-            'export-oracles',
-        ]);
+        expect(runAffectedOracleBranch({
+            nativeChanged: true,
+            scanCleanupChanged: true,
+        })).toMatchObject({
+            calls: [
+                'catastrophe-oracle',
+                'build',
+                'stroke-weight-oracle',
+                'export-oracles',
+            ],
+            status: 0,
+        });
+    });
 
-        const toolMissing = runPrePushBranch({
+    it.skipIf(process.platform === 'win32')('fails closed when affected-oracle classification is unavailable', () => {
+        const classifierFailure = runAffectedOracleBranch({
+            classifierExit: 8,
             nativeChanged: false,
-            probeExit: 20,
+            scanCleanupChanged: false,
         });
-        expect(toolMissing.calls, 'a checkout that never built the tool must still reach a build').toEqual([
-            'tool-probe',
-            'build',
-            'export-oracles',
-        ]);
+        expect(classifierFailure).toMatchObject({
+            calls: [
+                'catastrophe-oracle',
+                'build',
+                'stroke-weight-oracle',
+                'export-oracles',
+            ],
+            status: 0,
+        });
+        expect(classifierFailure.stderr).toContain('classification failed');
 
-        // A probe that cannot answer is not an answer. Reading its failure as
-        // absence sends a healthy docs-only push into a Rust build and a wait on
-        // the heavy gate before it fails for the real reason anyway.
-        const probeBroken = runPrePushBranch({
+        const missingOutput = runAffectedOracleBranch({
             nativeChanged: false,
-            probeExit: 1,
+            nativeOutputPresent: false,
+            scanCleanupChanged: false,
         });
-        expect(probeBroken.failed, 'a probe that cannot run must stop the push').toBe(true);
-        expect(probeBroken.calls, 'a broken probe must not be read as a missing binary').toEqual(['tool-probe']);
-        expect(probeBroken.stderr).toContain('cannot tell whether the scan-cleanup tool is present');
+        expect(missingOutput).toMatchObject({
+            calls: [
+                'catastrophe-oracle',
+                'build',
+                'stroke-weight-oracle',
+                'export-oracles',
+            ],
+            status: 0,
+        });
+        expect(missingOutput.stderr).toContain('expected changed-area outputs missing');
+    });
+
+    it.skipIf(process.platform === 'win32')('stops before affected oracles when Node lacks type stripping', () => {
+        const result = runAffectedOracleBranch({
+            nativeChanged: false,
+            scanCleanupChanged: true,
+            supportsTypeStripping: false,
+        });
+
+        expect(result.calls).toEqual([]);
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('Node >= 22.18');
     });
 
     it('runs regular packaged-content verification against extracted Store AppX contents', async () => {

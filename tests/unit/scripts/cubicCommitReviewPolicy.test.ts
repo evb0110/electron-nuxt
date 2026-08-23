@@ -1,6 +1,5 @@
 import {spawnSync} from 'node:child_process';
 import {
-    chmod,
     mkdir,
     mkdtemp,
     readFile,
@@ -145,77 +144,13 @@ describe('Cubic local commit review policy', () => {
         expect(cubicReview.cacheMarkerName('abc123', 'next build/1')).toBe('abc123-next_build_1.passed');
     });
 
-    it.skipIf(process.platform === 'win32')(
-        'preserves pre-push stdin and stops when the Cubic commit check fails',
-        async () => {
-            const workDirectory = await mkdtemp(path.join(tmpdir(), 'cubic-hook-policy-'));
-            try {
-                const binDirectory = path.join(workDirectory, 'bin');
-                const scriptsDirectory = path.join(workDirectory, 'scripts');
-                const callsPath = path.join(workDirectory, 'calls.log');
-                const payloadsPath = path.join(workDirectory, 'payloads.log');
-                const oraclePath = path.join(scriptsDirectory, 'ci', 'scan-cleanup-oracles.sh');
-                await mkdir(binDirectory, {recursive: true});
-                await mkdir(path.dirname(oraclePath), {recursive: true});
-                await writeFile(path.join(binDirectory, 'node'), [
-                    '#!/bin/sh',
-                    'payload=$(cat)',
-                    'printf \'%s\\n\' "$*" >> "$HOOK_CALLS"',
-                    'printf \'%s\\0\' "$payload" >> "$HOOK_PAYLOADS"',
-                    'case "$*" in',
-                    '  *review-cubic-commits.mjs*) exit 7 ;;',
-                    'esac',
-                    '',
-                ].join('\n'), {mode: 0o755});
-                await writeFile(oraclePath, [
-                    '#!/bin/sh',
-                    'printf \'reached\\n\' >> "$HOOK_CALLS"',
-                    '',
-                ].join('\n'), {mode: 0o755});
-                await chmod(oraclePath, 0o755);
+    it('keeps Cubic and scan-cleanup oracles out of the pre-push hook', async () => {
+        const prePush = await readFile(path.join(process.cwd(), '.husky', 'pre-push'), 'utf8');
 
-                const updatePayload = [
-                    `refs/heads/main ${'a'.repeat(40)} refs/heads/main ${'b'.repeat(40)}`,
-                    `refs/tags/v1 ${'c'.repeat(40)} refs/tags/v1 ${'0'.repeat(40)}`,
-                    '',
-                ].join('\n');
-                const result = spawnSync('/bin/sh', [
-                    path.join(process.cwd(), '.husky', 'pre-push'),
-                    'origin',
-                    'https://example.test/repo.git',
-                ], {
-                    cwd: workDirectory,
-                    encoding: 'utf8',
-                    env: {
-                        ...process.env,
-                        HOOK_CALLS: callsPath,
-                        HOOK_PAYLOADS: payloadsPath,
-                        PATH: `${binDirectory}:${process.env.PATH ?? ''}`,
-                        TMPDIR: workDirectory,
-                    },
-                    input: updatePayload,
-                });
-
-                expect(result.error).toBeUndefined();
-                expect(result.status).toBe(7);
-                const calls = (await readFile(callsPath, 'utf8')).split('\n').filter(Boolean);
-                expect(calls).toEqual([
-                    'scripts/check-commit-attribution.mjs --pre-push origin https://example.test/repo.git',
-                    'scripts/review-cubic-commits.mjs --pre-push origin https://example.test/repo.git',
-                ]);
-                const payloads = (await readFile(payloadsPath)).toString('utf8').split('\0').filter(Boolean);
-                expect(payloads).toEqual([
-                    updatePayload.trimEnd(),
-                    updatePayload.trimEnd(),
-                ]);
-            } finally {
-                await rm(workDirectory, {
-                    force: true,
-                    recursive: true,
-                });
-            }
-        },
-    );
+        expect(prePush).toContain('scripts/check-commit-attribution.mjs --pre-push');
+        expect(prePush).not.toContain('review-cubic-commits.mjs');
+        expect(prePush).not.toContain('scan-cleanup-oracles.sh');
+    });
 
     it('enforces findings while failing open for Cubic availability errors and honoring cache force', async () => {
         const repository = await mkdtemp(path.join(tmpdir(), 'cubic-main-policy-'));

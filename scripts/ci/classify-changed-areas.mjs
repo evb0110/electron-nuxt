@@ -7,6 +7,13 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { getCiChangedAreaPolicy } from '../release/policy.mjs';
 
+const diffNameOnlyArguments = [
+    '--no-renames',
+    '--name-only',
+    '--diff-filter=ACDMRT',
+    '-z',
+];
+
 function normalizePath(filePath) {
     return filePath.split(path.sep).join('/').replace(/^\.\//u, '');
 }
@@ -58,23 +65,45 @@ function readSingleArg(argv, name) {
     return readArgValues(argv, name).at(-1);
 }
 
+function readNullDelimitedGitOutput(arguments_) {
+    return execFileSync('git', arguments_, { encoding: 'utf8' })
+        .split('\0')
+        .filter(Boolean);
+}
+
 export function getChangedFiles({
     base,
     head,
+    includeWorktree = false,
 }) {
     if (!base || !head) {
         throw new Error('Both --base=<sha> and --head=<sha> are required when --file is not provided.');
     }
     try {
-        const output = execFileSync('git', [
+        const files = readNullDelimitedGitOutput([
             'diff',
-            '--no-renames',
-            '--name-only',
-            '--diff-filter=ACDMR',
-            '-z',
+            ...diffNameOnlyArguments,
             `${base}...${head}`,
-        ], { encoding: 'utf8' });
-        return output.split('\0').filter(Boolean);
+        ]);
+        if (includeWorktree) {
+            files.push(...readNullDelimitedGitOutput([
+                'diff',
+                ...diffNameOnlyArguments,
+                'HEAD',
+            ]));
+            files.push(...readNullDelimitedGitOutput([
+                'diff',
+                '--cached',
+                ...diffNameOnlyArguments,
+            ]));
+            files.push(...readNullDelimitedGitOutput([
+                'ls-files',
+                '--others',
+                '--exclude-standard',
+                '-z',
+            ]));
+        }
+        return [...new Set(files)];
     } catch {
         // A force-push replaces the event's `before` commit, so the push
         // payload references a SHA this checkout cannot resolve. There is no
@@ -94,6 +123,7 @@ export function runChangedAreaClassifier({
         : getChangedFiles({
             base: readSingleArg(argv, 'base'),
             head: readSingleArg(argv, 'head'),
+            includeWorktree: argv.includes('--include-worktree'),
         });
     const result = classifyChangedFiles(files);
     const outputLines = Object.entries(result).map(([

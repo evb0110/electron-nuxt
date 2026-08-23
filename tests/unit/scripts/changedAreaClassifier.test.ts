@@ -3,6 +3,8 @@ import {
     mkdtempSync,
     readFileSync,
     rmSync,
+    symlinkSync,
+    unlinkSync,
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -81,12 +83,16 @@ function commitAll(root: string, message: string) {
     ]);
 }
 
-function runClassifierForRange(root: string, base: string, head: string) {
-    const result = spawnSync(process.execPath, [
+function runClassifierForRange(root: string, base: string, head: string, includeWorktree = false) {
+    const arguments_ = [
         classifierPath,
         `--base=${base}`,
         `--head=${head}`,
-    ], {
+    ];
+    if (includeWorktree) {
+        arguments_.push('--include-worktree');
+    }
+    const result = spawnSync(process.execPath, arguments_, {
         cwd: root,
         encoding: 'utf8',
     });
@@ -307,6 +313,74 @@ describe('changed-area classifier', () => {
                 'notes/moved.vue',
             ]));
             expect(classification.result.landing?.matched).toBe(true);
+        } finally {
+            rmSync(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('includes staged, unstaged, and untracked paths for agent-run gates', () => {
+        const root = createTempRepository();
+        try {
+            const trackedPath = join(root, 'app/modules/scan-cleanup/tracked.ts');
+            mkdirSync(resolve(trackedPath, '..'), {recursive: true});
+            writeFileSync(trackedPath, 'export const tracked = 1;\n', 'utf8');
+            const base = commitAll(root, 'add tracked scan-cleanup source');
+
+            writeFileSync(trackedPath, 'export const tracked = 2;\n', 'utf8');
+            const stagedPath = join(root, 'native/scan-cleanup/staged.rs');
+            mkdirSync(resolve(stagedPath, '..'), {recursive: true});
+            writeFileSync(stagedPath, 'pub const STAGED: bool = true;\n', 'utf8');
+            runGit(root, [
+                'add',
+                'native/scan-cleanup/staged.rs',
+            ]);
+            const stagedThenDeletedPath = join(root, 'app/modules/scan-cleanup/staged-then-deleted.ts');
+            writeFileSync(stagedThenDeletedPath, 'export const stagedThenDeleted = true;\n', 'utf8');
+            runGit(root, [
+                'add',
+                'app/modules/scan-cleanup/staged-then-deleted.ts',
+            ]);
+            unlinkSync(stagedThenDeletedPath);
+            const untrackedPath = join(root, 'scan-cleanup-core/untracked.ts');
+            mkdirSync(resolve(untrackedPath, '..'), {recursive: true});
+            writeFileSync(untrackedPath, 'export const untracked = true;\n', 'utf8');
+
+            const classification = runClassifierForRange(root, base, base, true);
+
+            expect(classification.files).toEqual(expect.arrayContaining([
+                'app/modules/scan-cleanup/tracked.ts',
+                'app/modules/scan-cleanup/staged-then-deleted.ts',
+                'native/scan-cleanup/staged.rs',
+                'scan-cleanup-core/untracked.ts',
+            ]));
+            expect(classification.result.scan_cleanup_export?.matched).toBe(true);
+            expect(classification.result.native_or_build?.matched).toBe(true);
+        } finally {
+            rmSync(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it.skipIf(process.platform === 'win32')('includes tracked file type changes for agent-run gates', () => {
+        const root = createTempRepository();
+        try {
+            const trackedPath = join(root, 'app/modules/scan-cleanup/type-change.ts');
+            mkdirSync(resolve(trackedPath, '..'), {recursive: true});
+            writeFileSync(trackedPath, 'export const value = true;\n', 'utf8');
+            const base = commitAll(root, 'add tracked scan-cleanup source');
+
+            unlinkSync(trackedPath);
+            symlinkSync('replacement.ts', trackedPath);
+
+            const classification = runClassifierForRange(root, base, base, true);
+
+            expect(classification.files).toContain('app/modules/scan-cleanup/type-change.ts');
+            expect(classification.result.scan_cleanup_export?.matched).toBe(true);
         } finally {
             rmSync(root, {
                 force: true,

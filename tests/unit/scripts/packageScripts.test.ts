@@ -164,14 +164,16 @@ describe('package scripts', () => {
             'test:e2e:electron:headless',
             'test:e2e:electron:blocking-smoke:headless',
             'test:e2e:electron:quarantine:headless',
+            'test:scan-cleanup:affected-oracles',
             'diag:scan-cleanup-preview-harness',
             'diag:scan-cleanup-representative-audit',
         ];
 
         expect(required.every(name => Boolean(scripts[name]))).toBe(true);
         // Keep the public surface bounded while retaining explicit operator
-        // entry points for the canonical-identity and OCR-quality release gates.
-        expect(Object.keys(scripts).length).toBeLessThanOrEqual(105);
+        // entry points for the affected scan-cleanup, canonical-identity, and
+        // OCR-quality gates.
+        expect(Object.keys(scripts).length).toBeLessThanOrEqual(106);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);

@@ -16,31 +16,6 @@ build_scan_cleanup_tool() {
   pnpm run build:scan-cleanup
 }
 
-# Asks the same resolver the export oracles use, so this check cannot disagree
-# with what they need on disk. Exit 20 is the resolver answering "nothing there";
-# any other failure means the probe itself could not run, and reporting that as a
-# missing binary would send an otherwise healthy push into a Rust build and a wait
-# on the machine-wide heavy gate before failing for the real reason anyway.
-scan_cleanup_tool_is_available() {
-  probe_status=0
-  probe_error=$(node --input-type=module -e '
-import {pathToFileURL} from "node:url";
-import {tsImport} from "tsx/esm/api";
-const root = pathToFileURL(`${process.cwd()}/`).href;
-const {resolveCliNativeToolPath} = await tsImport("./scripts/scanCleanupCliAdapters.ts", root);
-process.exit(resolveCliNativeToolPath("evb-scan-cleanup", "scan-cleanup", process.cwd(), process.env.EVB_SCAN_CLEANUP_PATH) ? 0 : 20);
-' 2>&1 >/dev/null) || probe_status=$?
-  case "$probe_status" in
-    0) return 0 ;;
-    20) return 1 ;;
-  esac
-  printf '%s\n' "error: cannot tell whether the scan-cleanup tool is present (probe exited $probe_status)" >&2
-  if [ -n "$probe_error" ]; then
-    printf '%s\n' "$probe_error" >&2
-  fi
-  exit 1
-}
-
 run_stroke_weight_oracle() {
   stroke_output="$output_root/stroke-weight"
   mkdir -p "$stroke_output"
@@ -84,25 +59,66 @@ run_export_oracles() {
     --fail-on text-loss
 }
 
-native_or_build_changed() {
+run_affected_oracles() {
   remote_name=$1
   upstream_ref=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
   if [ -z "$upstream_ref" ]; then
     upstream_ref="$remote_name/main"
   fi
+  scan_cleanup_changed=1
+  native_changed=1
   if ! git rev-parse --verify "$upstream_ref^{commit}" >/dev/null 2>&1; then
-    printf '%s\n' "warning: cannot resolve upstream ref $upstream_ref; running native scan-cleanup oracles conservatively" >&2
-    return 0
+    printf '%s\n' "warning: cannot resolve upstream ref $upstream_ref; running all scan-cleanup oracles conservatively" >&2
+    scan_cleanup_changed=1
+    native_changed=1
+  else
+    classifier_output=$(mktemp "${TMPDIR:-/tmp}/evb-scan-cleanup-classifier.XXXXXX")
+    cleanup_classifier_output() {
+      rm -f "$classifier_output"
+    }
+    trap cleanup_classifier_output EXIT
+    trap 'exit 1' HUP INT TERM
+    if GITHUB_OUTPUT="$classifier_output" node scripts/ci/classify-changed-areas.mjs \
+      --base="$upstream_ref" --head=HEAD --include-worktree >/dev/null; then
+      if grep -qE '^scan_cleanup_export=(true|false)$' "$classifier_output" \
+        && grep -qE '^native_or_build=(true|false)$' "$classifier_output"; then
+        scan_cleanup_changed=0
+        native_changed=0
+        grep -qx 'scan_cleanup_export=true' "$classifier_output" && scan_cleanup_changed=1
+        grep -qx 'native_or_build=true' "$classifier_output" && native_changed=1
+      else
+        printf '%s\n' 'warning: expected changed-area outputs missing; running all scan-cleanup oracles conservatively' >&2
+        scan_cleanup_changed=1
+        native_changed=1
+      fi
+    else
+      printf '%s\n' 'warning: changed-area classification failed; running all scan-cleanup oracles conservatively' >&2
+      scan_cleanup_changed=1
+      native_changed=1
+    fi
+    cleanup_classifier_output
+    trap - EXIT HUP INT TERM
   fi
 
-  classifier_output=$(mktemp "${TMPDIR:-/tmp}/evb-scan-cleanup-classifier.XXXXXX")
-  trap 'rm -f "$classifier_output"' EXIT HUP INT TERM
-  if ! GITHUB_OUTPUT="$classifier_output" node scripts/ci/classify-changed-areas.mjs \
-    --base="$upstream_ref" --head=HEAD >/dev/null; then
-    printf '%s\n' 'warning: changed-area classification failed; running native scan-cleanup oracles conservatively' >&2
-    return 0
+  if [ "$scan_cleanup_changed" -eq 0 ] && [ "$native_changed" -eq 0 ]; then
+    printf '%s\n' "No scan-cleanup oracle inputs changed relative to $upstream_ref; skipping."
+    return
   fi
-  grep -qx 'native_or_build=true' "$classifier_output"
+
+  if [ "$scan_cleanup_changed" -eq 1 ] && ! supports_type_stripping; then
+    printf '%s\n' 'scan-cleanup affected oracles require Node >= 22.18 for TypeScript stripping.' >&2
+    exit 1
+  fi
+  if [ "$native_changed" -eq 1 ]; then
+    run_catastrophe_oracle
+  fi
+  if [ "$scan_cleanup_changed" -eq 0 ]; then
+    printf '%s\n' "No scan-cleanup export oracle inputs changed relative to $upstream_ref; native catastrophe oracle complete."
+    return
+  fi
+  build_scan_cleanup_tool
+  run_stroke_weight_oracle
+  run_export_oracles
 }
 
 case "$mode" in
@@ -118,35 +134,12 @@ case "$mode" in
     run_stroke_weight_oracle
     run_export_oracles
     ;;
-  pre-push)
+  affected)
     remote_name=${3:-origin}
-    native_changed=0
-    if native_or_build_changed "$remote_name"; then
-      native_changed=1
-      run_catastrophe_oracle
-    fi
-    if ! supports_type_stripping; then
-      node_version=$(node --version 2>/dev/null || printf 'unavailable')
-      printf '%s\n' \
-        "warning: skipping scan-cleanup preview and word-loss pre-push oracles; Node >= 22.18 is required (found $node_version)" >&2
-      exit 0
-    fi
-    # The export oracles drive the built tool on every push, so the tool has to be
-    # present whether or not native sources changed -- gating the build on changed
-    # sources left a fresh checkout unable to push at all. Building is also what
-    # takes the machine-wide heavy gate and needs a Rust toolchain, so only reach
-    # for it when sources moved or the binary is genuinely missing; an ordinary
-    # push then waits on no gate capacity and needs no cargo on PATH.
-    if [ "$native_changed" -eq 1 ]; then
-      build_scan_cleanup_tool
-      run_stroke_weight_oracle
-    elif ! scan_cleanup_tool_is_available; then
-      build_scan_cleanup_tool
-    fi
-    run_export_oracles
+    run_affected_oracles "$remote_name"
     ;;
   *)
-    printf '%s\n' 'usage: scripts/ci/scan-cleanup-oracles.sh <native|export|pre-push> [output-root] [remote]' >&2
+    printf '%s\n' 'usage: scripts/ci/scan-cleanup-oracles.sh <native|export|affected> [output-root] [remote]' >&2
     exit 2
     ;;
 esac
