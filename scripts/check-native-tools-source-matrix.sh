@@ -240,7 +240,9 @@ elif ! find "resources/tesseract/tessdata" -maxdepth 1 -type f -name '*.trainedd
   missing=1
 else
   echo "OK tessdata directory and traineddata files present"
-  node --import tsx scripts/generateElectronBuilderResources.ts
+  if [ "${EVB_BUILD_ARTIFACTS_PREPARED:-0}" != "1" ]; then
+    node --import tsx scripts/generateElectronBuilderResources.ts
+  fi
 fi
 
 if [ "$missing" -ne 0 ]; then

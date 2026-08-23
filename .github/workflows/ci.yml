@@ -325,6 +325,9 @@ jobs:
       - name: Rust tests
         run: pnpm run test:rust
 
+      - name: Scan-cleanup real-corpus tests
+        run: node scripts/run-native-corpus-tests.mjs
+
       - name: Scan-cleanup catastrophe baseline
         run: scripts/ci/scan-cleanup-oracles.sh native "$RUNNER_TEMP/scan-cleanup-oracles"
 

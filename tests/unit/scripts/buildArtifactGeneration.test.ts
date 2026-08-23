@@ -32,6 +32,13 @@ import {
 import { NATIVE_TOOL_RESOURCE_FAMILIES } from '@scripts/nativeResourceManifest';
 
 describe('build artifact generation', () => {
+    it('honors the explicit once-only preparation boundary', async () => {
+        await expect(generateBuildArtifacts({
+            env: {EVB_BUILD_ARTIFACTS_PREPARED: '1'},
+            projectRoot: path.join(tmpdir(), `evb-prepared-artifacts-${process.pid}`),
+        })).resolves.toBe(false);
+    });
+
     it('plans both platform API consumers from the canonical descriptor', () => {
         const firstPlan = createPlatformApiArtifactPlan();
 

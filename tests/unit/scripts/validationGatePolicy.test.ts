@@ -53,6 +53,7 @@ interface IValidationGateModule {
         stylelint: string;
     };
     getValidationPlan: (options: {
+        allGates?: boolean;
         changes: IValidationChanges;
         classification?: {
             full: boolean;
@@ -65,6 +66,7 @@ interface IValidationGateModule {
         command: string;
         heavyWeight: number;
         id: string;
+        parallelPhase?: number;
     }>;
     pruneRetentionEntries: (options: {
         keep: number;
@@ -290,6 +292,55 @@ describe('validation gate policy', () => {
         ]));
         expect(plan.find(stage => stage.id === 'test.unit.affected-projects')?.args)
             .toContain('unit-static-architecture');
+    });
+
+    it('consolidates the full local gate sequence without duplicate unit or build work', () => {
+        const plan = validationGates.getValidationPlan({
+            allGates: true,
+            changes: {
+                files: ['package.json'],
+                known: true,
+                reason: 'explicit-files',
+            },
+            tier: 'acceptance',
+        });
+        const stageIds = plan.map(stage => stage.id);
+        const scripts = plan.flatMap(stage => (
+            stage.command === 'pnpm' && stage.args[0] === 'run'
+                ? [stage.args[1]]
+                : []
+        ));
+
+        expect(stageIds).toEqual([
+            'build.prepare',
+            'lint.full',
+            'typecheck.full',
+            'test.coverage',
+            'typecheck.coverage',
+            'fallow.all',
+            'static.platform-report',
+            'static.web-deploy-source',
+            'native.lint',
+            'native.test',
+            'native.resource-matrix',
+            'build.strict',
+            'electron.bundle-integrity',
+            'electron.blocking-smoke',
+        ]);
+        expect(scripts).toContain('lint:clean');
+        expect(scripts).toContain('typecheck:clean');
+        expect(scripts).toContain('test:coverage');
+        expect(scripts).toContain('fallow:all');
+        expect(scripts).not.toContain('test:unit');
+        expect(plan.find(stage => stage.id === 'electron.blocking-smoke')?.args)
+            .toContain('--no-build');
+        expect(plan.filter(stage => stage.parallelPhase === 0).map(stage => stage.id))
+            .toEqual(stageIds.slice(1, 9));
+        expect(plan.filter(stage => stage.parallelPhase === 3).map(stage => stage.id))
+            .toEqual([
+                'electron.bundle-integrity',
+                'electron.blocking-smoke',
+            ]);
     });
 
     it('keys lint caches by configuration, toolchain, platform, and architecture content', async () => {

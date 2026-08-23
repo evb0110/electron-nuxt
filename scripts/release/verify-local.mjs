@@ -83,7 +83,9 @@ export function runLocalReleaseVerify({
     snapshotGetter = getReleaseVerifyMutationSnapshot,
 } = {}) {
     const before = snapshotGetter({runCommand});
-    rmSync(receiptPath, {force: true});
+    if (env.EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT !== '1') {
+        rmSync(receiptPath, {force: true});
+    }
     const releaseEnv = {
         ...env,
         [RELEASE_BUILD_RECEIPT_ENV_VAR]: receiptPath,

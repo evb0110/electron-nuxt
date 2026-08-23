@@ -234,11 +234,13 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
         return;
     }
 
-    const { generateNativeToolProtocols } = await tsImport(
-        './generateNativeToolProtocols.ts',
-        import.meta.url,
-    );
-    await generateNativeToolProtocols();
+    if (process.env.EVB_BUILD_ARTIFACTS_PREPARED !== '1') {
+        const { generateNativeToolProtocols } = await tsImport(
+            './generateNativeToolProtocols.ts',
+            import.meta.url,
+        );
+        await generateNativeToolProtocols();
+    }
     const cargoEnvironment = getCargoBuildEnvironment();
     const metadataArgs = [
         'metadata',

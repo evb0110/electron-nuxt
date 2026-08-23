@@ -14,6 +14,7 @@ import type {
 } from 'type-fest';
 
 interface IVitestProjectTestConfig {
+    env?: Record<string, string>;
     exclude?: string[];
     fileParallelism?: boolean;
     globalSetup?: string[];
@@ -248,9 +249,15 @@ describe('electron e2e Vitest project topology', () => {
     it('keeps the PR blocking smoke short and separate from broad regression', async () => {
         const config = await loadVitestSharedConfig(undefined);
         const blockingSmokeProject = projectByName(config, vitestProjectNames.electronE2EBlockingSmoke);
+        const regressionProject = projectByName(config, vitestProjectNames.electronE2ERegression);
 
         expect(blockingSmokeProject.test?.include).toEqual(electronE2EBlockingSmokeTestFiles);
         expect(blockingSmokeProject.test?.include).not.toContain('tests/e2e/electron/viewerSmoke.e2e.test.ts');
+        expect(blockingSmokeProject.test?.env).toMatchObject({EVB_PR_SMOKE_SCOPE: 'blocking'});
+        expect(regressionProject.test?.env).toMatchObject({EVB_PR_SMOKE_SCOPE: 'pressure'});
+        const mixedSmokeSource = await readFile('tests/e2e/electron/prBlockingSmoke.e2e.test.ts', 'utf8');
+        expect(mixedSmokeSource).toContain('blockingIt(');
+        expect(mixedSmokeSource).toContain('pressureIt(');
     });
 
     it('exposes opt-in e2e subsets as named projects instead of env-mutated includes', async () => {

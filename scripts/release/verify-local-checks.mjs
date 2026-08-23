@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { run } from './shared.mjs';
 import {
     RELEASE_BUILD_RECEIPT_ENV_VAR,
+    validateReleaseBuildReceipt,
     writeReleaseBuildReceipt,
 } from './build-receipt.mjs';
 import {
@@ -12,6 +13,7 @@ import {
 
 const SKIP_ACK_ENV_VAR = 'EVB_RELEASE_VERIFY_SKIP_ACK';
 const SKIP_LIST_ENV_VAR = 'EVB_RELEASE_VERIFY_SKIP';
+const REUSE_BUILD_RECEIPT_ENV_VAR = 'EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT';
 const STRICT_BUILD_DUPLICATE_GATES = new Set([
     'build:pdf-image-combine',
     'build:pdf-page-ops',
@@ -107,6 +109,7 @@ export function runLocalReleaseChecks({
     runCommand = run,
     skipList = env[SKIP_LIST_ENV_VAR],
     stderr = process.stderr,
+    validateBuildReceipt = validateReleaseBuildReceipt,
     writeBuildReceipt = writeReleaseBuildReceipt,
 } = {}) {
     const commands = getLocalReleaseCheckCommands();
@@ -120,7 +123,13 @@ export function runLocalReleaseChecks({
     const receiptPath = env[RELEASE_BUILD_RECEIPT_ENV_VAR];
     const canHandoffStrictBuild = Boolean(receiptPath)
         && skippedScripts.every(script => !STRICT_BUILD_DUPLICATE_GATES.has(script));
-    let strictBuildPrepared = false;
+    const reusableReceipt = canHandoffStrictBuild
+        && env[REUSE_BUILD_RECEIPT_ENV_VAR] === '1'
+        && validateBuildReceipt(receiptPath, {env}).valid;
+    let strictBuildPrepared = reusableReceipt;
+    if (reusableReceipt) {
+        stderr.write(`Reusing strict-build receipt from the all-gates validation phase: ${receiptPath}\n`);
+    }
     const prepareStrictBuild = () => {
         if (!canHandoffStrictBuild || strictBuildPrepared) {
             return;

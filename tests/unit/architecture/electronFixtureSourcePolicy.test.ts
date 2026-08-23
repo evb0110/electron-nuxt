@@ -94,7 +94,7 @@ describe('Electron E2E fixture source policy', () => {
         const cleanupHookEnd = smokeSource.indexOf('\n    afterAll(', cleanupHookStart);
         const cleanupHookBlock = smokeSource.slice(cleanupHookStart, cleanupHookEnd);
         const testFinallyStart = smokeSource.indexOf('        } finally {', smokeSource.indexOf(
-            'it(\'serializes early Recent navigation and owns every viewport frame\'',
+            'pressureIt(\'serializes early Recent navigation and owns every viewport frame\'',
         ));
         const testFinallyEnd = smokeSource.indexOf('\n        }', testFinallyStart) + '\n        }'.length;
         const testFinallyBlock = smokeSource.slice(testFinallyStart, testFinallyEnd);
@@ -183,13 +183,13 @@ describe('Electron E2E fixture source policy', () => {
         expect(blockingSource).toContain('wheelPdfViewportAndWaitForSettlement');
         expect(blockingSource).toContain('sessionFixture.restart({');
         const cumulativeTestStart = blockingSource.indexOf(
-            'it(\'keeps large-PDF opening, virtualization, and repeated reopen within budget\'',
+            'pressureIt(\'keeps large-PDF opening, virtualization, and repeated reopen within budget\'',
         );
         const interactionTestStart = blockingSource.indexOf(
-            'it(\'keeps large-PDF interaction transitions causally stable\'',
+            'pressureIt(\'keeps large-PDF interaction transitions causally stable\'',
         );
         const interactionTestEnd = blockingSource.indexOf(
-            'it(\'does not report a delayed render error for a high-zoom current page\'',
+            'pressureIt(\'does not report a delayed render error for a high-zoom current page\'',
             interactionTestStart,
         );
         const cumulativeTestSource = blockingSource.slice(cumulativeTestStart, interactionTestStart);

@@ -139,6 +139,7 @@ interface IReleaseChecksModule {
         runCommand?: TRunCommand;
         skipList?: string;
         stderr?: { write: (message: string) => void };
+        validateBuildReceipt?: (receiptPath: string, options: { env: TReleaseEnv }) => {valid: boolean};
         writeBuildReceipt?: (receiptPath: string, options: { env: TReleaseEnv }) => unknown;
     }) => void;
 }
@@ -156,6 +157,8 @@ interface IReleaseVerifyModule {
     ) => void;
     getLocalReleaseVerifyCommands: () => IReleaseCommand[];
     runLocalReleaseVerify: (options?: {
+        env?: TReleaseEnv;
+        receiptPath?: string;
         runCommand?: TRunCommand;
         snapshotGetter?: () => IReleaseVerifySnapshot;
     }) => void;
@@ -1686,6 +1689,31 @@ describe('release policy', () => {
         );
     });
 
+    it('reuses a validated strict build from the same all-gates run', () => {
+        const scripts: string[] = [];
+        const receipts: string[] = [];
+        const stderrLines: string[] = [];
+
+        runLocalReleaseChecks({
+            env: {
+                CI: 'true',
+                EVB_RELEASE_BUILD_RECEIPT: '/tmp/release-build-receipt.json',
+                EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1',
+            },
+            runCommand: (_command: string, args: string[]) => {
+                scripts.push(args[1] ?? args[0] ?? '');
+            },
+            stderr: {write: message => stderrLines.push(message)},
+            validateBuildReceipt: () => ({valid: true}),
+            writeBuildReceipt: receiptPath => receipts.push(receiptPath),
+        });
+
+        expect(scripts).not.toContain('build:strict');
+        expect(scripts).toContain('test:electron-bundle-static-integrity:no-build');
+        expect(receipts).toEqual([]);
+        expect(stderrLines.join('')).toContain('Reusing strict-build receipt');
+    });
+
     it('skips explicitly listed release gates without changing the default gate list', () => {
         const calls: string[][] = [];
         const stderrLines: string[] = [];
@@ -1777,6 +1805,39 @@ describe('release policy', () => {
         })).toThrow('tracked diff');
 
         expect(calls).toEqual(getLocalReleaseVerifyCommands());
+    });
+
+    it('preserves an all-gates build receipt but clears standalone receipts', () => {
+        const reusedReceipt = join(tmpdir(), `evb-reused-receipt-${process.pid}.json`);
+        const standaloneReceipt = join(tmpdir(), `evb-standalone-receipt-${process.pid}.json`);
+        writeFileSync(reusedReceipt, '{}\n');
+        writeFileSync(standaloneReceipt, '{}\n');
+        const snapshot = () => ({
+            stagedDiff: '',
+            trackedDiff: '',
+            untrackedFiles: [],
+        });
+
+        try {
+            runLocalReleaseVerify({
+                env: {EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1'},
+                receiptPath: reusedReceipt,
+                runCommand: () => '',
+                snapshotGetter: snapshot,
+            });
+            runLocalReleaseVerify({
+                env: {},
+                receiptPath: standaloneReceipt,
+                runCommand: () => '',
+                snapshotGetter: snapshot,
+            });
+
+            expect(existsSync(reusedReceipt)).toBe(true);
+            expect(existsSync(standaloneReceipt)).toBe(false);
+        } finally {
+            rmSync(reusedReceipt, {force: true});
+            rmSync(standaloneReceipt, {force: true});
+        }
     });
 
     it('keeps strict build enforcement in the local packaging phase', () => {

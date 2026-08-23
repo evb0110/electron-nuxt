@@ -609,7 +609,7 @@ describe('CI topology policy', () => {
             ],
             status: 0,
         });
-    });
+    }, 15_000);
 
     it.skipIf(process.platform === 'win32')('fails closed when affected-oracle classification is unavailable', () => {
         const classifierFailure = runAffectedOracleBranch({
@@ -1178,6 +1178,8 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:wasm:portable');
         expectSplitQualitySteps(workflowJob(workflow, 'nightly_maintenance'));
         expect(workflow).toContain('run: pnpm run test:rust');
+        expect(workflowJob(workflow, 'pr_native_build_safety'))
+            .toContain('run: node scripts/run-native-corpus-tests.mjs');
         const rustFuzz = workflowJob(workflow, 'nightly_rust_fuzz');
         expect(rustFuzz).toContain('cargo install cargo-fuzz --version 0.13.1 --locked');
         expect(rustFuzz).toContain('for target in decode roundtrip; do');

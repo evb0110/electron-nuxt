@@ -76,6 +76,7 @@ fn carried_cutter_preserves_a_legacy_one_column_fold_band() {
 }
 
 #[test]
+#[ignore = "real fixture corpus runs in the native CI corpus lane"]
 fn real_hard_cases_and_spread_controls_follow_stage_b_policy() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/split");
     let fixtures: Vec<Fixture> =

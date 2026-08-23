@@ -1291,6 +1291,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "full-raster mode matrix runs in the native CI corpus lane"]
     fn page_seven_twin_protects_picture_and_heading_in_every_output_mode() {
         let source = page_seven_trim_twin();
         for output_mode in [OutputMode::Auto, OutputMode::Mixed, OutputMode::Bw] {
@@ -2309,6 +2310,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "full-resolution synthetic analysis runs in the native CI corpus lane"]
     fn document_prior_is_gated_at_full_resolution_before_analysis_downscaling() {
         let mut source = GrayImage::new(3_000, 2_100, 245);
         let gutter_x = 1_410;
@@ -3226,6 +3228,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "full-raster paper-tone sweep runs in the native CI corpus lane"]
     fn auto_mode_turns_dark_text_on_uniform_tinted_paper_into_black_on_white() {
         for paper in [
             [205, 225, 245],

@@ -136,6 +136,7 @@ fn assert_native_canvas_owns_image(metadata: &Value) {
 }
 
 #[test]
+#[ignore = "real fixture corpus runs in the native CI corpus lane"]
 fn real_gray_flyleaf_is_white_and_consistent_in_preview_and_final_cli_renders() {
     let scratch = Scratch::new("gray-flyleaf");
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/blank");
@@ -249,6 +250,7 @@ fn real_gray_flyleaf_is_white_and_consistent_in_preview_and_final_cli_renders() 
 }
 
 #[test]
+#[ignore = "real fixture corpus runs in the native CI corpus lane"]
 fn real_gray_flyleaf_stays_white_when_auto_was_pre_resolved_to_grayscale() {
     let scratch = Scratch::new("gray-flyleaf-resolved-grayscale");
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/blank");
@@ -2200,6 +2202,7 @@ fn final_cli_pins_the_adjudicated_stroke_budget_and_rescue_counters() {
 }
 
 #[test]
+#[ignore = "real fixture corpus runs in the native CI corpus lane"]
 fn spread_preview_cli_pins_the_small_print_stroke_budget_outcome() {
     let scratch = Scratch::new("impressum-spread-trace");
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -6252,6 +6255,7 @@ fn batch_prior_stabilizes_a_cropped_thin_complete_source_mask_without_removing_i
 }
 
 #[test]
+#[ignore = "real fixture corpus runs in the native CI corpus lane"]
 fn off_center_binding_fold_does_not_promote_the_spread_to_mixed() {
     let scratch = Scratch::new("toc-spread-fold-ownership");
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -6373,6 +6377,7 @@ fn off_center_binding_fold_does_not_promote_the_spread_to_mixed() {
 }
 
 #[test]
+#[ignore = "real fixture corpus runs in the native CI corpus lane"]
 fn forced_bw_matched_canvas_routes_the_blank_verso_corner_rail_out_of_publication() {
     let scratch = Scratch::new("toc-spread-forced-bw-corner-rail");
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

@@ -14,6 +14,9 @@ export async function generateBuildArtifacts({
     env?: NodeJS.ProcessEnv;
     projectRoot?: string;
 } = {}) {
+    if (env.EVB_BUILD_ARTIFACTS_PREPARED === '1') {
+        return false;
+    }
     const isVercelBuild = env.VERCEL === '1' || env.NOW_BUILDER === '1';
     const changed = await Promise.all([
         ...isVercelBuild

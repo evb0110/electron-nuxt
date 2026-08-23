@@ -420,6 +420,8 @@ describe('package scripts', () => {
             path.join(process.cwd(), 'scripts/test-electron-e2e-headless.sh'),
             'utf8',
         );
+        expect(launcher).toContain('--no-build');
+        expect(launcher).toContain('vitest run --project "$target_project"');
         expect(launcher).toContain('export EVB_AUTOMATION_NO_FOCUS=1');
         expect(launcher).toContain('export EVB_AUTOMATION_HIDE_WINDOW=1');
         expect(launcher).toContain('export EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE=1');

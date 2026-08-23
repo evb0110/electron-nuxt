@@ -172,6 +172,12 @@ function createElectronE2ETestProject(
         test: {
             name,
             include,
+            ...(name === vitestProjectNames.electronE2EBlockingSmoke
+                ? {env: {EVB_PR_SMOKE_SCOPE: 'blocking'}}
+                : {}),
+            ...(name === vitestProjectNames.electronE2ERegression
+                ? {env: {EVB_PR_SMOKE_SCOPE: 'pressure'}}
+                : {}),
             globalSetup: ['tests/e2e/electron/globalSetup.ts'],
             globals: false,
             fileParallelism: false,

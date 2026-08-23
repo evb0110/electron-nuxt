@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable max-lines -- The gate owner keeps scheduling, evidence, and impact policy in one inspectable module. */
 import { spawn } from 'node:child_process';
 import {
     createHash,
@@ -28,6 +29,8 @@ import { fileURLToPath } from 'node:url';
 import { getValidationImpactPolicy } from './release/policy.mjs';
 import { matchesChangedAreaPattern } from './ci/classify-changed-areas.mjs';
 import { withNodeHeap } from './typecheckNodeEnv.mjs';
+import {allGatesValidationStages} from './all-gates-validation-plan.mjs';
+import {runStageBatches} from './run-stage-batches.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const unitProjects = [
@@ -401,6 +404,7 @@ function affectedPlan(tier, files, classification) {
     return stages;
 }
 export function getValidationPlan({
+    allGates = false,
     changes,
     classification = classifyValidationImpacts(changes.files),
     tier,
@@ -408,7 +412,8 @@ export function getValidationPlan({
     if (!validationTiers.has(tier)) {
         throw new Error(`Unknown validation tier "${tier}".`);
     }
-    const mustRunFull = !changes.known
+    const mustRunFull = allGates
+        || !changes.known
         || classification.full
         || classification.impacts.policy
         || (changes.files.length === 0 && tier !== 'iteration');
@@ -425,6 +430,10 @@ export function getValidationPlan({
             pnpmRunStage('typecheck.full', 'typecheck'),
             pnpmRunStage('test.unit.full', 'test:unit', {heavyWeight: 1}),
         ];
+    }
+
+    if (allGates && tier === 'acceptance') {
+        return allGatesValidationStages;
     }
 
     const fullStages = [
@@ -1023,7 +1032,7 @@ async function runStages(stages, {
         if (stages.some(stageDefinition => stageDefinition.heavyWeight > 0)) {
             await reportRepoSessions();
         }
-        for (const stageDefinition of stages) {
+        const runStage = async stageDefinition => {
             const cacheState = stageDefinition.cachePath
                 ? (existsSync(stageDefinition.cachePath) ? 'warm' : 'cold')
                 : 'not-applicable';
@@ -1044,6 +1053,7 @@ async function runStages(stages, {
                 heavyWeight: stageDefinition.heavyWeight,
                 id: stageDefinition.id,
                 inputFingerprint,
+                parallelPhase: stageDefinition.parallelPhase ?? null,
                 startedAt: new Date(startedAtMs).toISOString(),
             })}\n`);
             let status = 'passed';
@@ -1080,7 +1090,8 @@ async function runStages(stages, {
                     ...result,
                 })}\n`);
             }
-        }
+        };
+        await runStageBatches(stages, runStage);
     } finally {
         const endedAtMs = Date.now();
         evidence.write(`${JSON.stringify({
@@ -1139,6 +1150,7 @@ async function runTier(tier, argv) {
         process.stderr.write(`[gate] Change impact is unknown (${changes.reason}); running the full ${tier} tier.\n`);
     }
     const plan = getValidationPlan({
+        allGates: process.env.EVB_VALIDATE_ALL_GATES === '1',
         changes,
         classification,
         tier,
