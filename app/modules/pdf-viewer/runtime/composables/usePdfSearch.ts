@@ -59,6 +59,24 @@ function normalizeDocumentRevisionToken(token: TDocumentRevisionToken | null | u
     return typeof token === 'string' && token.length > 0 ? token : null;
 }
 
+function mixSearchSignatureHash(hash: number, value: number) {
+    return Math.imul(hash ^ (value >>> 0), 16777619);
+}
+
+function mixSearchWordGeometry(
+    hash: number,
+    words: IPdfSearchMatch['words'],
+) {
+    let nextHash = mixSearchSignatureHash(hash, words?.length ?? 0);
+    words?.forEach((word) => {
+        nextHash = mixSearchSignatureHash(nextHash, Math.round(word.x * 100));
+        nextHash = mixSearchSignatureHash(nextHash, Math.round(word.y * 100));
+        nextHash = mixSearchSignatureHash(nextHash, Math.round(word.width * 100));
+        nextHash = mixSearchSignatureHash(nextHash, Math.round(word.height * 100));
+    });
+    return nextHash;
+}
+
 export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     const { t } = useTypedI18n();
     const analytics = useAnalytics();
@@ -100,8 +118,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     function buildPageMatchSignatureToken(pageMatchData: IPdfPageMatches) {
         let hash = 2166136261;
         const mix = (value: number) => {
-            hash ^= value >>> 0;
-            hash = Math.imul(hash, 16777619);
+            hash = mixSearchSignatureHash(hash, value);
         };
 
         mix(pageMatchData.pageIndex);
@@ -117,13 +134,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             mix(match.end);
             mix(Math.round(match.pageWidth ?? 0));
             mix(Math.round(match.pageHeight ?? 0));
-            mix(match.words?.length ?? 0);
-            match.words?.forEach((word) => {
-                mix(Math.round(word.x * 100));
-                mix(Math.round(word.y * 100));
-                mix(Math.round(word.width * 100));
-                mix(Math.round(word.height * 100));
-            });
+            hash = mixSearchWordGeometry(hash, match.words);
         });
 
         return `${pageMatchData.pageIndex}:${pageMatchData.matches.length}:${hash >>> 0}`;
@@ -150,20 +161,9 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         }
 
         let hash = 2166136261;
-        const mix = (value: number) => {
-            hash ^= value >>> 0;
-            hash = Math.imul(hash, 16777619);
-        };
-
-        mix(Math.round(match.pageWidth ?? 0));
-        mix(Math.round(match.pageHeight ?? 0));
-        mix(match.words?.length ?? 0);
-        match.words?.forEach((word) => {
-            mix(Math.round(word.x * 100));
-            mix(Math.round(word.y * 100));
-            mix(Math.round(word.width * 100));
-            mix(Math.round(word.height * 100));
-        });
+        hash = mixSearchSignatureHash(hash, Math.round(match.pageWidth ?? 0));
+        hash = mixSearchSignatureHash(hash, Math.round(match.pageHeight ?? 0));
+        hash = mixSearchWordGeometry(hash, match.words);
 
         return String(hash >>> 0);
     }
