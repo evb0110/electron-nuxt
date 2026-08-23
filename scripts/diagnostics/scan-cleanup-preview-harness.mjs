@@ -39,6 +39,7 @@ import {
     loadImage,
 } from '@napi-rs/canvas';
 import {tsImport} from 'tsx/esm/api';
+import {createScanCleanupDiagnosticsManifestScope} from './scan-cleanup-diagnostics-manifest.mjs';
 import {loadGrayscaleImage} from './load-grayscale-image.mjs';
 import {
     composePreviewTransition,
@@ -965,6 +966,10 @@ async function main() {
     };
     for (const pageNumber of args.pages) {
         const pageDirectory = join(args.out, `page-${String(pageNumber)}`);
+        const manifestScope = createScanCleanupDiagnosticsManifestScope(
+            pageDirectory,
+            buildRunnableNativeScanCleanupManifest,
+        );
         await mkdir(pageDirectory, {recursive: true});
         const detectionResult = detection.results[pageNumber - 1];
         if (!detectionResult || detectionResult.pageNumber !== pageNumber) {
@@ -1020,7 +1025,7 @@ async function main() {
                 : {[String(pageNumber)]: detectionResult.pagePlanEvidence},
             pageNumber,
         );
-        const manifest = buildRunnableNativeScanCleanupManifest({
+        const manifest = manifestScope.buildManifest({
             operation: 'render',
             renderMode: 'preview',
             canvasScope: 'page',
@@ -1052,15 +1057,13 @@ async function main() {
                     ? {}
                     : {documentPrior: detectionResult.documentPrior}),
             }],
-            allowedPathRoot: pageDirectory,
         });
         await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-        await runCommand(tools.scanCleanup, [
-            '--manifest',
-            manifestPath,
-            '--allowed-path-root',
-            pageDirectory,
-        ], {commandLabel: `preview-harness(page=${String(pageNumber)})`});
+        await runCommand(
+            tools.scanCleanup,
+            manifestScope.sidecarArgv(manifestPath),
+            {commandLabel: `preview-harness(page=${String(pageNumber)})`},
+        );
         const outputMetadata = [];
         for (const output of nativeOutputs) {
             try {
@@ -1109,12 +1112,11 @@ async function main() {
             delete provisionalManifest.pages[0].options[key];
         }
         await writeFile(provisionalManifestPath, JSON.stringify(provisionalManifest, null, 2) + '\n');
-        await runCommand(tools.scanCleanup, [
-            '--manifest',
-            provisionalManifestPath,
-            '--allowed-path-root',
-            pageDirectory,
-        ], {commandLabel: `preview-harness-provisional(page=${String(pageNumber)})`});
+        await runCommand(
+            tools.scanCleanup,
+            manifestScope.sidecarArgv(provisionalManifestPath),
+            {commandLabel: `preview-harness-provisional(page=${String(pageNumber)})`},
+        );
         const provisionalLeaves = [];
         for (const output of provisionalOutputs) {
             try {

@@ -15,8 +15,10 @@ import {
     existsSync,
     realpathSync,
 } from 'node:fs';
+import type * as nodeFs from 'fs';
 import type {
     INativeScanCleanupManifestV3,
+    INativeScanCleanupOutputV3,
     IScanCleanupNormalizedZonePolygon,
     IScanCleanupOptions,
     TNativeScanCleanupOperation,
@@ -30,6 +32,7 @@ import {
     type IScanCleanupManifestPageInput,
 } from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
 import {assertNativeScanCleanupManifestGeometry} from '@scan-cleanup-core/policy/assertNativeScanCleanupManifestGeometry';
+import {assertScanCleanupPathWithinCanonicalRoot} from '@scan-cleanup-core/assertScanCleanupPathWithinRoot';
 import {resolveEffectiveScanCleanupOptions} from '@scan-cleanup-core/policy/effectiveOptions';
 import {ScanCleanupContractError} from '@scan-cleanup-core/errors';
 import {
@@ -38,7 +41,25 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
+
+const {realpathSyncCalls} = vi.hoisted(() => ({realpathSyncCalls: [] as string[]}));
+
+// The builder resolves paths through `fs`, and a spy cannot be installed on an
+// ESM namespace. Recording the real implementation's arguments is what makes
+// "the root is canonicalized once per manifest" observable.
+vi.mock('fs', async importOriginal => {
+    const actual = await importOriginal<typeof nodeFs>();
+    const realpathSync = (...args: Parameters<typeof actual.realpathSync>) => {
+        realpathSyncCalls.push(String(args[0]));
+        return actual.realpathSync(...args);
+    };
+    return {
+        ...actual,
+        realpathSync: Object.assign(realpathSync, actual.realpathSync),
+    };
+});
 
 const fixtureDirectory = resolve('native/scan-cleanup/tests/fixtures/protocol');
 
@@ -841,10 +862,10 @@ describe('runnable native scan-cleanup manifest path containment', () => {
         )).not.toThrow();
     });
 
-    // The builder names every path field it checks by hand, so each auxiliary
-    // slot is exercised directly: a symlink resolving back inside the root is
-    // accepted, and the same slot holding a symlink that resolves outside it is
-    // rejected. A field dropped from the builder's list fails here.
+    // Path coverage is proved against what the builder actually emits rather
+    // than against a second list of field names kept in this file: every path
+    // the manifest carries is located at runtime, and each one is then made to
+    // escape on its own.
     const region = {
         xPx: 0,
         yPx: 0,
@@ -867,102 +888,174 @@ describe('runnable native scan-cleanup manifest path containment', () => {
         sampledRegion: region,
     });
 
-    type TAuxiliarySlot = (target: IScanCleanupManifestPageInput, path: string) => void;
-
-    const auxiliarySlots: Array<[string, TAuxiliarySlot]> = [
-        [
-            'analysisInputPath',
-            (target, path) => {
-                target.analysisInputPath = path;
-                target.analysisDpi = 150;
-            },
-        ],
-        [
-            'trustedForegroundMaskPath',
-            (target, path) => void (target.trustedForegroundMaskPath = path),
-        ],
-        [
-            'trustedMrcBackgroundPath',
-            (target, path) => void (target.trustedMrcBackgroundPath = path),
-        ],
-        [
-            'detailRenderPlan.baseMetadataPath',
-            (target, path) => void (target.detailRenderPlan = detailPlan(
-                path,
-                join(root, 'inside-link.png'),
-                join(root, 'inside-link.png'),
-            )),
-        ],
-        [
-            'detailRenderPlan.baseRasterPath',
-            (target, path) => void (target.detailRenderPlan = detailPlan(
-                join(root, 'inside-link.png'),
-                path,
-                join(root, 'inside-link.png'),
-            )),
-        ],
-        [
-            'detailRenderPlan.baseCleanedRasterPath',
-            (target, path) => void (target.detailRenderPlan = detailPlan(
-                join(root, 'inside-link.png'),
-                join(root, 'inside-link.png'),
-                path,
-            )),
-        ],
-        [
-            'pageMetadataPath',
-            (target, path) => void (target.pageMetadataPath = path),
-        ],
-        [
-            'outputs.metadataPath',
-            (target, path) => void (target.outputs![0]!.metadataPath = path),
-        ],
-        [
-            'outputs.bilevelOutputPath',
-            (target, path) => void (target.outputs![0]!.bilevelOutputPath = path),
-        ],
-        [
-            'outputs.backgroundOutputPath',
-            (target, path) => void (target.outputs![0]!.backgroundOutputPath = path),
-        ],
-        [
-            'outputs.foregroundMaskOutputPath',
-            (target, path) => {
-                target.outputs![0]!.backgroundOutputPath = join(root, 'inside-link.png');
-                target.outputs![0]!.foregroundMaskOutputPath = path;
-            },
-        ],
-        [
-            'outputs.foregroundAlphaOutputPath',
-            (target, path) => {
-                target.outputs![0]!.backgroundOutputPath = join(root, 'inside-link.png');
-                target.outputs![0]!.foregroundAlphaOutputPath = path;
-            },
-        ],
-        [
-            'outputs.pictureMaskOutputPath',
-            (target, path) => void (target.outputs![0]!.pictureMaskOutputPath = path),
-        ],
-        [
-            'outputs.tonePreservationAlphaOutputPath',
-            (target, path) => void (target.outputs![0]!.tonePreservationAlphaOutputPath = path),
-        ],
-    ];
-
-    const pageWithSlot = (fill: TAuxiliarySlot, path: string) => {
-        const target: IScanCleanupManifestPageInput = page(
-            join(root, 'input.png'),
-            join(root, 'nested/output.png'),
-        );
-        fill(target, path);
-        return target;
+    /** Dotted trail of every `*Path` string reachable from `value`. */
+    const pathTrails = (value: unknown, trail = ''): string[] => {
+        if (Array.isArray(value)) {
+            return value.flatMap((entry, index) => pathTrails(entry, `${trail}.${String(index)}`));
+        }
+        if (value === null || typeof value !== 'object') {
+            return [];
+        }
+        return Object.entries(value).flatMap(([
+            key,
+            entry,
+        ]) => {
+            const fieldTrail = trail === '' ? key : `${trail}.${key}`;
+            return key.endsWith('Path') && typeof entry === 'string'
+                ? [fieldTrail]
+                : pathTrails(entry, fieldTrail);
+        });
     };
 
-    it.each(auxiliarySlots)('judges %s by the same root as the page input', (_label, fill) => {
-        expect(() => runnable([pageWithSlot(fill, join(root, 'inside-link.png'))])).not.toThrow();
-        expect(() => runnable([pageWithSlot(fill, join(root, 'input-link.png'))]))
-            .toThrow(ScanCleanupContractError);
+    const setByTrail = (target: unknown, trail: string, value: string) => {
+        const segments = trail.split('.');
+        let cursor = target as Record<string, unknown>;
+        for (const segment of segments.slice(0, -1)) {
+            cursor = cursor[segment] as Record<string, unknown>;
+        }
+        cursor[segments.at(-1)!] = value;
+    };
+
+    // Every optional slot filled at once, so the emitted manifest names the
+    // complete current path inventory.
+    const fullyPopulatedPage = (): IScanCleanupManifestPageInput => ({
+        inputPath: join(root, 'input.png'),
+        analysisInputPath: join(root, 'input.png'),
+        analysisDpi: 150,
+        trustedForegroundMaskPath: join(root, 'input.png'),
+        trustedMrcBackgroundPath: join(root, 'input.png'),
+        pageNumber: 1,
+        dpi: 300,
+        pageMetadataPath: join(root, 'page-1.json'),
+        outputs: [{
+            outputPath: join(root, 'nested/output.png'),
+            metadataPath: join(root, 'page-1-output.json'),
+            bilevelOutputPath: join(root, 'nested/output.pbm'),
+            backgroundOutputPath: join(root, 'nested/output-background.png'),
+            foregroundMaskOutputPath: join(root, 'nested/output-mask.pbm'),
+            foregroundAlphaOutputPath: join(root, 'nested/output-alpha.pgm'),
+            pictureMaskOutputPath: join(root, 'nested/output-picture-mask.pbm'),
+            tonePreservationAlphaOutputPath: join(root, 'nested/output-tone.pgm'),
+        }],
+        detailRenderPlan: detailPlan(
+            join(root, 'inside-link.png'),
+            join(root, 'inside-link.png'),
+            join(root, 'inside-link.png'),
+        ),
     });
+
+    it('emits no path the builder input does not already own', () => {
+        const page = fullyPopulatedPage();
+        const manifest = runnable([page]);
+
+        expect(pathTrails(manifest).toSorted()).toEqual(
+            pathTrails(page).map(trail => `pages.0.${trail}`).toSorted(),
+        );
+    });
+
+    it.each(pathTrails(fullyPopulatedPage()))(
+        'judges %s by the same root as the page input',
+        trail => {
+            const accepted = fullyPopulatedPage();
+            setByTrail(accepted, trail, join(root, 'inside-link.png'));
+            expect(() => runnable([accepted])).not.toThrow();
+
+            const escaping = fullyPopulatedPage();
+            setByTrail(escaping, trail, join(root, 'input-link.png'));
+            expect(() => runnable([escaping])).toThrow(ScanCleanupContractError);
+        },
+    );
+
+    it('refuses a manifest that carries a path no field descriptor claimed', () => {
+        const page = fullyPopulatedPage();
+        // A slot the builder does not know about still reaches the wire,
+        // because outputs are copied verbatim from caller input. It must not
+        // pass unjudged just because no descriptor names it.
+        const outputWithFutureSlot: INativeScanCleanupOutputV3 & {futureOutputPath: string} = {
+            ...page.outputs![0]!,
+            futureOutputPath: join(root, 'nested/future.png'),
+        };
+        page.outputs = [outputWithFutureSlot];
+
+        expect(() => runnable([page]))
+            .toThrow('manifest field pages.0.outputs.0.futureOutputPath was not checked against the allowed root');
+        expect(() => buildGeometryOnlyNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options,
+            pages: [page],
+        })).not.toThrow();
+    });
+
+    it('canonicalizes the allowed root once for a whole manifest', () => {
+        // Every path sits below `nested`, so the root itself is resolved only
+        // when the manifest canonicalizes it, once, rather than again for each
+        // field the way a per-call check would.
+        const nestedPage = (pageNumber: number) => ({
+            ...fullyPopulatedPage(),
+            pageNumber,
+            inputPath: join(root, 'nested/input.png'),
+            analysisInputPath: join(root, 'nested/analysis.png'),
+            trustedForegroundMaskPath: join(root, 'nested/mask.pbm'),
+            trustedMrcBackgroundPath: join(root, 'nested/background.png'),
+            pageMetadataPath: join(root, `nested/page-${String(pageNumber)}.json`),
+            outputs: [{
+                ...fullyPopulatedPage().outputs![0]!,
+                metadataPath: join(root, `nested/page-${String(pageNumber)}-output.json`),
+            }],
+            detailRenderPlan: detailPlan(
+                join(root, 'nested/base.json'),
+                join(root, 'nested/base.png'),
+                join(root, 'nested/base-cleaned.png'),
+            ),
+        });
+        realpathSyncCalls.length = 0;
+        runnable([
+            nestedPage(1),
+            nestedPage(2),
+        ]);
+
+        expect(realpathSyncCalls.filter(candidate => candidate === root)).toEqual([root]);
+        // Two pages of paths were still judged, so the single root resolution
+        // is reuse rather than skipped work.
+        expect(realpathSyncCalls.filter(candidate => candidate === join(root, 'nested')).length)
+            .toBeGreaterThan(1);
+    });
+
+    it('names the allowed root in root failures and the field in candidate failures', () => {
+        const validPage = page(join(root, 'input.png'), join(root, 'nested/output.png'));
+        const missingRoot = join(root, 'no-such-root');
+
+        expect(() => runnable([validPage], missingRoot))
+            .toThrow(`allowed root does not exist: ${missingRoot}`);
+        expect(() => runnable([validPage], join(root, 'input.png')))
+            .toThrow(`allowed root is not a directory: ${join(root, 'input.png')}`);
+        expect(() => runnable([validPage], 'relative-root'))
+            .toThrow('allowed root must be an absolute path: relative-root');
+
+        // A candidate that cannot be canonicalized names its own field: it is
+        // the manifest path that failed, not the configured root.
+        expect(() => runnable([page(join(root, 'dangling.png'), join(root, 'nested/output.png'))]))
+            .toThrow('page 1 input path contains an unresolved symlink');
+        expect(() => runnable([page(join(root, 'input.png'), join(root, 'escape-dir/output.png'))]))
+            .toThrow('page 1 output 0 output path is outside its allowed root');
+        expect(() => runnable([page(join(root, 'input.png'), 'output.png')]))
+            .toThrow('page 1 output 0 output path must be an absolute path');
+    });
+
+    it('rejects a root object the canonicalizer never issued', () => {
+        expect(() => assertScanCleanupPathWithinCanonicalRoot(
+            join(root, 'input.png'),
+            {
+                configuredPath: root,
+                canonicalPath: canonicalRoot,
+            },
+            'forged root path',
+        )).toThrow('forged root path was judged against a root that was never canonicalized');
+    });
+
 
     it('keeps geometry-only placeholders out of path validation and matches the runnable assembly', () => {
         const placeholderPages = [{

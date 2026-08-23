@@ -13,6 +13,20 @@ import {
 } from 'path';
 import {ScanCleanupContractError} from '@scan-cleanup-core/errors';
 
+/**
+ * A root that has already been resolved to the real directory it names. Only
+ * {@link canonicalizeScanCleanupAllowedRoot} issues one, so a caller cannot
+ * hand a raw, unchecked string to the containment check by mistake.
+ */
+export interface IScanCleanupAllowedRoot {
+    /** The root exactly as configured, named by errors about the root itself. */
+    readonly configuredPath: string;
+    /** The symlink-resolved directory every candidate must resolve inside. */
+    readonly canonicalPath: string;
+}
+
+const issuedAllowedRoots = new WeakSet<IScanCleanupAllowedRoot>();
+
 function isMissingEntry(error: unknown) {
     const code = (error as NodeJS.ErrnoException | null)?.code;
     return code === 'ENOENT' || code === 'ENOTDIR';
@@ -55,32 +69,51 @@ function canonicalizeThroughExistingAncestor(candidatePath: string, label: strin
     }
 }
 
-function canonicalizeRoot(rootPath: string, label: string) {
-    let canonicalRoot: string;
+/**
+ * Resolve a trusted root once. Errors here describe the configured root itself
+ * rather than whichever path was about to be judged against it.
+ */
+export function canonicalizeScanCleanupAllowedRoot(rootPath: string): IScanCleanupAllowedRoot {
+    if (!isAbsolute(rootPath)) {
+        throw new ScanCleanupContractError(`allowed root must be an absolute path: ${rootPath}`);
+    }
+    let canonicalPath: string;
     let isDirectory: boolean;
     try {
-        canonicalRoot = realpathSync(rootPath);
-        isDirectory = statSync(canonicalRoot).isDirectory();
+        canonicalPath = realpathSync(rootPath);
+        isDirectory = statSync(canonicalPath).isDirectory();
     } catch {
-        throw new ScanCleanupContractError(`${label} allowed root does not exist: ${rootPath}`);
+        throw new ScanCleanupContractError(`allowed root does not exist: ${rootPath}`);
     }
     if (!isDirectory) {
-        throw new ScanCleanupContractError(`${label} allowed root is not a directory: ${rootPath}`);
+        throw new ScanCleanupContractError(`allowed root is not a directory: ${rootPath}`);
     }
-    return canonicalRoot;
+    const allowedRoot = Object.freeze({
+        configuredPath: rootPath,
+        canonicalPath,
+    });
+    issuedAllowedRoots.add(allowedRoot);
+    return allowedRoot;
 }
 
-export function assertScanCleanupPathWithinRoot(
+/**
+ * Judge one path against an already-canonical root. Every failure names the
+ * candidate's own label, so an unresolvable candidate is never reported as if
+ * the configured root were at fault.
+ */
+export function assertScanCleanupPathWithinCanonicalRoot(
     candidatePath: string,
-    rootPath: string,
+    allowedRoot: IScanCleanupAllowedRoot,
     label: string,
 ) {
-    if (!isAbsolute(candidatePath) || !isAbsolute(rootPath)) {
+    if (!issuedAllowedRoots.has(allowedRoot)) {
+        throw new ScanCleanupContractError(`${label} was judged against a root that was never canonicalized`);
+    }
+    if (!isAbsolute(candidatePath)) {
         throw new ScanCleanupContractError(`${label} must be an absolute path`);
     }
-    const canonicalRoot = canonicalizeRoot(rootPath, label);
     const canonicalCandidate = canonicalizeThroughExistingAncestor(candidatePath, label);
-    const relativePath = relative(canonicalRoot, canonicalCandidate);
+    const relativePath = relative(allowedRoot.canonicalPath, canonicalCandidate);
     if (
         relativePath === '..'
         || relativePath.startsWith(`..${sep}`)

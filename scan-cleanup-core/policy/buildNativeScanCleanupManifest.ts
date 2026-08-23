@@ -21,7 +21,11 @@ import {
     type TScanCleanupQualityPath,
 } from '@scan-cleanup-core/policy/effectiveOptions';
 import {ScanCleanupContractError} from '@scan-cleanup-core/errors';
-import {assertScanCleanupPathWithinRoot} from '@scan-cleanup-core/assertScanCleanupPathWithinRoot';
+import {
+    assertScanCleanupPathWithinCanonicalRoot,
+    canonicalizeScanCleanupAllowedRoot,
+    type IScanCleanupAllowedRoot,
+} from '@scan-cleanup-core/assertScanCleanupPathWithinRoot';
 
 export interface IScanCleanupManifestPageInput {
     inputPath: string;
@@ -80,108 +84,185 @@ function clampNativeLimit(value: unknown, maximum: number, label: string) {
     return Math.min(maximum, Math.max(1, Math.floor(value)));
 }
 
+type TManifestPage = INativeScanCleanupManifestV3['pages'][number];
+
+type TManifestDetailRenderPlan = NonNullable<TManifestPage['detailRenderPlan']>;
+
+type TPathFieldKey<T> = {[K in keyof T]-?: K extends `${string}Path` ? K : never}[keyof T];
+
+interface IManifestPathField<T> {
+    field: TPathFieldKey<T>;
+    /** Trailing part of the containment error label for this field. */
+    label: string;
+}
+
+/**
+ * Accept a descriptor list only when it names every path field of the shape it
+ * validates. A new path slot in the protocol or in the builder input therefore
+ * fails to compile until it is given a label here, instead of silently
+ * shipping unchecked.
+ */
+function defineManifestPathFields<T>() {
+    return <TFields extends ReadonlyArray<IManifestPathField<T>>>(
+        fields: TFields
+            & (Exclude<TPathFieldKey<T>, TFields[number]['field']> extends never
+                ? unknown
+                : {unlabelledManifestPathField: Exclude<TPathFieldKey<T>, TFields[number]['field']>}),
+    ): TFields => fields;
+}
+
+/**
+ * Every path-bearing manifest slot, in the order the builder judges it. The
+ * page list is defined over both the emitted page and the builder input, so
+ * neither side can grow a path the other does not know about.
+ */
+const MANIFEST_PAGE_PATH_FIELDS = defineManifestPathFields<TManifestPage & IScanCleanupManifestPageInput>()([
+    {
+        field: 'inputPath',
+        label: 'input path',
+    },
+    {
+        field: 'analysisInputPath',
+        label: 'analysis input path',
+    },
+    {
+        field: 'pageMetadataPath',
+        label: 'metadata path',
+    },
+    {
+        field: 'trustedForegroundMaskPath',
+        label: 'trusted foreground mask path',
+    },
+    {
+        field: 'trustedMrcBackgroundPath',
+        label: 'trusted MRC background path',
+    },
+]);
+
+const MANIFEST_OUTPUT_PATH_FIELDS = defineManifestPathFields<INativeScanCleanupOutputV3>()([
+    {
+        field: 'outputPath',
+        label: 'output path',
+    },
+    {
+        field: 'metadataPath',
+        label: 'metadata path',
+    },
+    {
+        field: 'bilevelOutputPath',
+        label: 'bilevel output path',
+    },
+    {
+        field: 'backgroundOutputPath',
+        label: 'background output path',
+    },
+    {
+        field: 'foregroundMaskOutputPath',
+        label: 'foreground mask output path',
+    },
+    {
+        field: 'foregroundAlphaOutputPath',
+        label: 'foreground alpha output path',
+    },
+    {
+        field: 'pictureMaskOutputPath',
+        label: 'picture mask output path',
+    },
+    {
+        field: 'tonePreservationAlphaOutputPath',
+        label: 'tone-preservation alpha output path',
+    },
+]);
+
+const MANIFEST_DETAIL_RENDER_PLAN_PATH_FIELDS = defineManifestPathFields<TManifestDetailRenderPlan>()([
+    {
+        field: 'baseMetadataPath',
+        label: 'detail base metadata path',
+    },
+    {
+        field: 'baseRasterPath',
+        label: 'detail base raster path',
+    },
+    {
+        field: 'baseCleanedRasterPath',
+        label: 'detail base cleaned raster path',
+    },
+]);
+
 function assertManifestPagePaths(
     page: IScanCleanupManifestPageInput,
     pageIndex: number,
-    allowedPathRoot: string,
+    allowedRoot: IScanCleanupAllowedRoot,
+    checkedPaths: Set<string>,
 ) {
     const pageLabel = `page ${String(pageIndex + 1)}`;
-    assertScanCleanupPathWithinRoot(page.inputPath, allowedPathRoot, `${pageLabel} input path`);
-    if (page.analysisInputPath !== undefined) {
-        assertScanCleanupPathWithinRoot(
-            page.analysisInputPath,
-            allowedPathRoot,
-            `${pageLabel} analysis input path`,
-        );
-    }
-    assertScanCleanupPathWithinRoot(page.pageMetadataPath, allowedPathRoot, `${pageLabel} metadata path`);
-    for (const [
+    const check = (path: string | undefined, label: string) => {
+        if (path === undefined) {
+            return;
+        }
+        assertScanCleanupPathWithinCanonicalRoot(path, allowedRoot, label);
+        checkedPaths.add(path);
+    };
+    for (const {
+        field,
         label,
-        path,
-    ] of [
-            [
-                'trusted foreground mask path',
-                page.trustedForegroundMaskPath,
-            ],
-            [
-                'trusted MRC background path',
-                page.trustedMrcBackgroundPath,
-            ],
-        ] as const) {
-        if (path !== undefined) assertScanCleanupPathWithinRoot(path, allowedPathRoot, `${pageLabel} ${label}`);
-    }
+    } of MANIFEST_PAGE_PATH_FIELDS) check(page[field], `${pageLabel} ${label}`);
     for (const [
         outputIndex,
         output,
     ] of (page.outputs ?? []).entries()) {
-        for (const [
+        for (const {
+            field,
             label,
-            path,
-        ] of [
-                [
-                    'output path',
-                    output.outputPath,
-                ],
-                [
-                    'metadata path',
-                    output.metadataPath,
-                ],
-                [
-                    'bilevel output path',
-                    output.bilevelOutputPath,
-                ],
-                [
-                    'background output path',
-                    output.backgroundOutputPath,
-                ],
-                [
-                    'foreground mask output path',
-                    output.foregroundMaskOutputPath,
-                ],
-                [
-                    'foreground alpha output path',
-                    output.foregroundAlphaOutputPath,
-                ],
-                [
-                    'picture mask output path',
-                    output.pictureMaskOutputPath,
-                ],
-                [
-                    'tone-preservation alpha output path',
-                    output.tonePreservationAlphaOutputPath,
-                ],
-            ] as const) {
-            if (path !== undefined) {
-                assertScanCleanupPathWithinRoot(
-                    path,
-                    allowedPathRoot,
-                    `${pageLabel} output ${String(outputIndex)} ${label}`,
-                );
-            }
+        } of MANIFEST_OUTPUT_PATH_FIELDS) {
+            check(output[field], `${pageLabel} output ${String(outputIndex)} ${label}`);
         }
     }
     const detailRenderPlan = page.detailRenderPlan;
-    if (detailRenderPlan !== undefined) {
-        for (const [
-            label,
-            path,
-        ] of [
-                [
-                    'detail base metadata path',
-                    detailRenderPlan.baseMetadataPath,
-                ],
-                [
-                    'detail base raster path',
-                    detailRenderPlan.baseRasterPath,
-                ],
-                [
-                    'detail base cleaned raster path',
-                    detailRenderPlan.baseCleanedRasterPath,
-                ],
-            ] as const) {
-            if (path !== undefined) assertScanCleanupPathWithinRoot(path, allowedPathRoot, `${pageLabel} ${label}`);
-        }
+    if (detailRenderPlan === undefined) {
+        return;
     }
+    for (const {
+        field,
+        label,
+    } of MANIFEST_DETAIL_RENDER_PLAN_PATH_FIELDS) check(detailRenderPlan[field], `${pageLabel} ${label}`);
+}
+
+/**
+ * Last word on coverage: a runnable manifest may not carry a path string that
+ * containment never judged. Descriptor lists say what is checked; this says
+ * that nothing else reached the wire, including a slot copied verbatim from
+ * caller input.
+ */
+function assertNoUncheckedManifestPaths(
+    manifest: INativeScanCleanupManifestV3,
+    checkedPaths: ReadonlySet<string>,
+) {
+    const visit = (value: unknown, trail: string) => {
+        if (Array.isArray(value)) {
+            for (const [
+                index,
+                entry,
+            ] of value.entries()) visit(entry, `${trail}.${String(index)}`);
+            return;
+        }
+        if (value === null || typeof value !== 'object') {
+            return;
+        }
+        for (const [
+            key,
+            entry,
+        ] of Object.entries(value)) {
+            const fieldTrail = trail === '' ? key : `${trail}.${key}`;
+            if (key.endsWith('Path') && typeof entry === 'string' && !checkedPaths.has(entry)) {
+                throw new ScanCleanupContractError(
+                    `manifest field ${fieldTrail} was not checked against the allowed root`,
+                );
+            }
+            visit(entry, fieldTrail);
+        }
+    };
+    visit(manifest, '');
 }
 
 function assertManifestOutputContract(
@@ -235,7 +316,11 @@ function assembleNativeScanCleanupManifest({
     hostMemoryBytes,
     rasterWindow,
 }: IBuildNativeScanCleanupManifestInput, allowedPathRoot: string | null): INativeScanCleanupManifestV3 {
-    return {
+    // One canonical root per manifest: every field is judged against the same
+    // resolved directory instead of re-resolving the root for each path.
+    const allowedRoot = allowedPathRoot === null ? null : canonicalizeScanCleanupAllowedRoot(allowedPathRoot);
+    const checkedPaths = new Set<string>();
+    const manifest: INativeScanCleanupManifestV3 = {
         version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
         operation,
         ...(analysisPurpose === undefined ? {} : {analysisPurpose}),
@@ -257,7 +342,7 @@ function assembleNativeScanCleanupManifest({
                     `page ${String(pageIndex + 1)} fixed analysis input requires a positive analysisDpi`,
                 );
             }
-            if (allowedPathRoot !== null) assertManifestPagePaths(page, pageIndex, allowedPathRoot);
+            if (allowedRoot !== null) assertManifestPagePaths(page, pageIndex, allowedRoot, checkedPaths);
             const resolvedOptions = {
                 ...resolveEffectiveScanCleanupOptions({
                     options,
@@ -341,6 +426,8 @@ function assembleNativeScanCleanupManifest({
             };
         }),
     };
+    if (allowedRoot !== null) assertNoUncheckedManifestPaths(manifest, checkedPaths);
+    return manifest;
 }
 
 /**
