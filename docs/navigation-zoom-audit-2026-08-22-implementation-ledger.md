@@ -364,6 +364,39 @@ entries stand in for bytes, and the budget is several times the largest demand
 window. Layout keeps its own aspect ratios, so an eviction costs one extra
 `getPageMetrics` call and never a layout shift.
 
+b and n landed together in the shared sidebar seam. For b, `effectiveTab` is
+now the reconciliation result alone
+(`app/utils/document-viewer/sidebar/useDocumentSidebarCapabilitySession.ts`);
+the old `?? preferredTab` fallback let an unavailable tab stay active whenever
+the available list was empty, which is every moment before a page source
+resolves and the whole life of a source with no sidebar capability. Falling
+back to the raw preference there was visible, not cosmetic: the search panel
+is mounted under `v-show`, so a workspace whose preference was `search` showed
+that panel, and marked it active, over a sidebar with no tabs at all, and a
+preference of `bookmarks` opened the bookmarks block against a source that has
+no outline provider. `null` closes every panel and hands the tab strip an empty
+selection instead. The clamp reads the preference and never writes it, so a
+capability that comes back re-adopts the user's choice on the next tick, and a
+preference the current format can serve is never swapped for a fallback. No
+watcher was added on purpose: a write would destroy the shared workspace
+preference that the composable exists to protect, and the architecture boundary
+test already forbids format components from reconciling tabs themselves.
+
+For n, the sidebar forwards the pointer event the thumbnail row was activated
+with instead of dropping it. The inline `emit('go-to-page', $event)` handler it
+used could only ever pass the first emitted argument, so the modifier keys the
+rail already published died one layer above it and generic multi-select could
+not be built without synthesizing an event. `IDocumentThumbnailListEmits`
+(`app/utils/document-viewer/thumbnails/documentThumbnailListEmits.ts`) now
+states the rail's contract in one place, and the sidebar republishes the event
+as optional because bookmark rows navigate without one. Consumers that only
+navigate are unaffected: `DocumentWorkspace` takes the page number and drops
+the event, and the type system enforces that it must, since binding the
+navigation handler straight to the event is rejected (a `MouseEvent` cannot
+stand in for `IScrollToPageOptions`, whose properties are all optional). Nothing
+in this change resolves selection intent; it only makes the intent readable
+where multi-select would be implemented.
+
 ## Suggested implementation order
 
 1. Z1 (small, self-contained, user-visible on the web today).

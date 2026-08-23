@@ -50,6 +50,12 @@ export interface IMountedDocumentThumbnailList {
     host: HTMLElement;
     /** Pages the rail asked to navigate to, in order. */
     navigations: number[];
+    /**
+     * The activation event each navigation carried, in the same order. The
+     * rail forwards the user's own event so a consumer can read its modifier
+     * keys instead of rebuilding one.
+     */
+    navigationEvents: MouseEvent[];
     setSource: (source: IDocumentPageSource | null) => void;
     unmount: () => void;
 }
@@ -266,12 +272,16 @@ export function createDocumentThumbnailSourceHarness(
 export function mountDocumentThumbnailList(source: IDocumentPageSource | null): IMountedDocumentThumbnailList {
     const activeSource = ref<IDocumentPageSource | null>(source);
     const navigations: number[] = [];
+    const navigationEvents: MouseEvent[] = [];
     const host = document.createElement('div');
     document.body.append(host);
     const app = createApp({render: () => h(DocumentThumbnailList, {
         source: activeSource.value,
         currentPage: 1,
-        onGoToPage: (pageNumber: number) => navigations.push(pageNumber),
+        onGoToPage: (pageNumber: number, event: MouseEvent) => {
+            navigations.push(pageNumber);
+            navigationEvents.push(event);
+        },
     })});
     app.component('UIcon', ICON_STUB);
     app.mount(host);
@@ -284,6 +294,7 @@ export function mountDocumentThumbnailList(source: IDocumentPageSource | null): 
     return {
         host,
         navigations,
+        navigationEvents,
         setSource: (next: IDocumentPageSource | null) => {
             activeSource.value = next;
         },

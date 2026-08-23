@@ -68,6 +68,7 @@
 <script setup lang="ts">
 import type {ComponentPublicInstance} from 'vue';
 import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
+import type {IDocumentThumbnailListEmits} from '@app/utils/document-viewer/thumbnails/documentThumbnailListEmits';
 import {useDocumentThumbnailController} from '@app/utils/document-viewer/thumbnails/useDocumentThumbnailController';
 import DocumentThumbnailItem from '@app/components/document-viewer/DocumentThumbnailItem.vue';
 import DocumentThumbnailRail from '@app/components/document-viewer/DocumentThumbnailRail.vue';
@@ -82,7 +83,7 @@ const props = defineProps<{
     selectedPages?: ReadonlySet<number>;
     disabled?: boolean;
 }>();
-const emit = defineEmits<{'go-to-page': [pageNumber: number, event: MouseEvent];}>();
+const emit = defineEmits<IDocumentThumbnailListEmits>();
 const {t} = useTypedI18n();
 const scrollRoot = ref<HTMLElement | null>(null);
 function setScrollRoot(element: HTMLElement | null) {

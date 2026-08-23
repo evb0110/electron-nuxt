@@ -4,7 +4,7 @@
         class="pdf-sidebar"
         data-testid="document-sidebar"
         :style="sidebarStyle"
-        :model-value="effectiveTab"
+        :model-value="effectiveTab ?? ''"
         :tabs="localizedTabs"
         :outer-scroll="false"
         @update:model-value="handleShellTabUpdate"

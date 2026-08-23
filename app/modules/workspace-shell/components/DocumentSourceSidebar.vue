@@ -3,7 +3,7 @@
         class="document-source-sidebar"
         data-testid="document-sidebar"
         :aria-label="t('documentSourceSidebar.navLabel')"
-        :model-value="effectiveTab"
+        :model-value="effectiveTab ?? ''"
         :tabs="availableShellTabs"
         @update:model-value="handleShellTabUpdate"
     >
@@ -16,7 +16,7 @@
                 :current-page="currentPage"
                 :is-active="effectiveTab === 'thumbnails'"
                 :is-resizing="isResizing"
-                @go-to-page="emit('go-to-page', $event)"
+                @go-to-page="forwardThumbnailActivation"
             />
         </DocumentSidebarPagesPanel>
 
@@ -82,7 +82,9 @@ const props = defineProps<{
     searchFocusRequest?: number;
 }>();
 const emit = defineEmits<{
-    'go-to-page': [pageNumber: number];
+    // Optional because bookmark rows navigate without a selection event; see
+    // IDocumentThumbnailListEmits for what the thumbnail rail hands over.
+    'go-to-page': [pageNumber: number, event?: MouseEvent];
     'update:availableTabs': [value: TDocumentSidebarTab[]];
 }>();
 
@@ -151,6 +153,14 @@ function handleShellTabUpdate(value: string) {
         return;
     }
     selectTab(value as TDocumentSidebarTab);
+}
+
+/**
+ * Thumbnail rows hand over the click they were activated with, so a consumer
+ * can act on its modifier keys; bookmark rows navigate without one.
+ */
+function forwardThumbnailActivation(pageNumber: number, event: MouseEvent) {
+    emit('go-to-page', pageNumber, event);
 }
 
 function activateBookmark(id: string) {

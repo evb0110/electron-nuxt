@@ -177,7 +177,7 @@
                     :is-resizing="isResizingSidebar"
                     :search-session="documentSourceSidebar.searchSession"
                     :search-focus-request="searchFocusRequest"
-                    @go-to-page="handleGoToPage"
+                    @go-to-page="handleSourceSidebarGoToPage"
                     @update:available-tabs="setAvailableSidebarTabs"
                 />
             </template>
@@ -955,6 +955,15 @@ function handleDocumentInitialVisualReadyWithAutomationEvent() {
     return handleDocumentInitialVisualReadyWithAutomationEventBase();
 }
 const documentSourceSidebar = useDocumentSourceSidebarSession({onNavigate: pageIndex => handleGoToPage(pageIndex + 1, {navigationSource: 'search'})});
+/**
+ * The source sidebar also reports the click a thumbnail row was activated
+ * with, for consumers that resolve multi-select intent from its modifiers.
+ * This one only navigates, so the event is dropped here rather than reaching
+ * navigation as scroll options.
+ */
+function handleSourceSidebarGoToPage(pageNumber: number, _event?: MouseEvent) {
+    handleGoToPage(pageNumber);
+}
 const documentPageSource = shallowRef<IDocumentPageSource | null>(null);
 function handlePageSourceUpdate(source: IDocumentPageSource | null) {
     documentPageSource.value = source;

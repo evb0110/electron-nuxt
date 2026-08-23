@@ -83,6 +83,22 @@ describe('document thumbnail architecture boundaries', () => {
         }
     });
 
+    it('carries the row activation event through one shared selection contract', () => {
+        const contract = read('app/utils/document-viewer/thumbnails/documentThumbnailListEmits.ts');
+        const sourceThumbnails = read('app/components/document-viewer/DocumentThumbnailList.vue');
+        const sourceSidebar = read('app/modules/workspace-shell/components/DocumentSourceSidebar.vue');
+
+        expect(contract).toContain('\'go-to-page\': [pageNumber: number, event: MouseEvent]');
+        expect(sourceThumbnails).toContain('defineEmits<IDocumentThumbnailListEmits>()');
+        expect(sourceSidebar).toContain('\'go-to-page\': [pageNumber: number, event?: MouseEvent]');
+        // The forwarding shape that dropped the event: `$event` in an inline
+        // handler is the first emitted argument only. Types and text can only
+        // rule that shape out; that the sidebar hands the consumer the rail's
+        // own event object is proven by mounting it, in
+        // tests/unit/app/modules/workspace-shell/components/documentSourceSidebarActivationForwarding.test.ts.
+        expect(sourceSidebar).not.toContain('@go-to-page="emit(\'go-to-page\', $event)"');
+    });
+
     it('keeps capability reconciliation in one shared session without format watchers rewriting preference', () => {
         const pdfSidebar = read('app/modules/pdf-viewer/components/PdfSidebar.vue');
         const sourceSidebar = read('app/modules/workspace-shell/components/DocumentSourceSidebar.vue');
