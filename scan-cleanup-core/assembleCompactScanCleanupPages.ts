@@ -31,14 +31,6 @@ import {
 } from '@scan-cleanup-core/compactManifest';
 import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
 
-const REPORTED_PAGE_NUMBER_LIMIT = 20;
-
-export function describePageNumbers(pageNumbers: readonly number[]) {
-    return pageNumbers.length <= REPORTED_PAGE_NUMBER_LIMIT
-        ? pageNumbers.join(', ')
-        : `${pageNumbers.slice(0, REPORTED_PAGE_NUMBER_LIMIT).join(', ')} and ${String(pageNumbers.length - REPORTED_PAGE_NUMBER_LIMIT)} more`;
-}
-
 export interface IRenderedCleanupOutputPage {
     sourcePageNumber: number;
     path: string;

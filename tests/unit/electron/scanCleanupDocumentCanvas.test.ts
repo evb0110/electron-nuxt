@@ -14,7 +14,7 @@ import {
     resolveScanCleanupCanvasFitScale,
     resolveScanCleanupDocumentCanvasRenderDpi,
     resolveScanCleanupDocumentCanvas,
-    resolveScanCleanupDroppedMatchWarning,
+    resolveScanCleanupDroppedMatchWarningEvent,
     resolveScanCleanupMatchedCanvasPlacement,
     resolveScanCleanupOutputPaperPixels,
     resolveScanCleanupOutputPageRect,
@@ -24,6 +24,7 @@ import {
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
     placeScanCleanupCanvasBox,
 } from '@scan-cleanup-core/policy/documentCanvas';
+import {formatScanCleanupWarningEvent} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
 import {
     parsePdfInfoPageGeometry,
@@ -532,16 +533,19 @@ describe('scan cleanup document canvas', () => {
 
     it('separates a document without a canvas from a document without pages', () => {
         // Both quality paths drop matching on a document that answers no
-        // rectangle, and both report it with this sentence: a run that quietly
+        // rectangle, and both report it with this condition: a run that quietly
         // stops matching writes exactly the pages of differing size the setting
         // exists to prevent.
-        expect(resolveScanCleanupDroppedMatchWarning([
+        const dropped = resolveScanCleanupDroppedMatchWarningEvent([
             page({pageNumber: 1}),
             page({pageNumber: 2}),
-        ], options)).toBe('Matched page size was dropped: this document carries no readable page geometry');
+        ], options);
+        expect(dropped).toEqual({code: 'matched-canvas-dropped'});
+        expect(dropped && formatScanCleanupWarningEvent(dropped))
+            .toBe('Matched page size was dropped: this document carries no readable page geometry');
         // Except when the user took every page off the sheet. That document has
         // no canvas because it produces nothing, which is what was asked for.
-        expect(resolveScanCleanupDroppedMatchWarning([
+        expect(resolveScanCleanupDroppedMatchWarningEvent([
             page({pageNumber: 1}),
             page({pageNumber: 2}),
         ], {
@@ -552,7 +556,7 @@ describe('scan cleanup document canvas', () => {
             },
         })).toBeNull();
         // One page still on the sheet is still a document worth reporting.
-        expect(resolveScanCleanupDroppedMatchWarning([
+        expect(resolveScanCleanupDroppedMatchWarningEvent([
             page({pageNumber: 1}),
             page({pageNumber: 2}),
         ], {

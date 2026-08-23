@@ -21,6 +21,7 @@ import type {
     TScanCleanupProgress,
     TScanCleanupSummary,
     TScanCleanupOutputMode,
+    TScanCleanupWarningEvent,
 } from '@contracts/electronApiScanCleanup';
 import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
 import {
@@ -78,7 +79,7 @@ import {
     resolveScanCleanupDocumentCanvasDpi,
     resolveScanCleanupDocumentCanvasRenderDpi,
     resolveScanCleanupDocumentCanvas,
-    resolveScanCleanupDroppedMatchWarning,
+    resolveScanCleanupDroppedMatchWarningEvent,
     resolveMatchedCanvasResamplePages,
     resolveScanCleanupUnclassifiedPages,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
@@ -121,8 +122,11 @@ import {runLosslessScanCleanup} from '@scan-cleanup-core/runLosslessScanCleanup'
 import {DETECTION_DPI} from '@scan-cleanup-core/detection';
 import {createScanCleanupScratchDir} from '@scan-cleanup-core/scratchCleanup';
 import {
-    assembleWithCompactSourcePages,
     describePageNumbers,
+    formatScanCleanupWarningEvent,
+} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
+import {
+    assembleWithCompactSourcePages,
     type IRenderedCleanupOutputPage,
     resolveCompactSourcePreservation,
     resolveFullSourcePagePreservation,
@@ -406,6 +410,9 @@ export async function runScanCleanupConversion(
             warnings.push(message);
             log('warn', `Scan cleanup: ${message}`);
         };
+        const warnEvent = (event: TScanCleanupWarningEvent, pageNumber?: number) => {
+            warn(formatScanCleanupWarningEvent(event, pageNumber));
+        };
         emitProgress('normalizing', 1, 1);
         // The lossless path assembles with evb-pdf-page-ops, so it needs the
         // tool itself. Matching only needs the geometry, which Poppler reports
@@ -537,7 +544,10 @@ export async function runScanCleanupConversion(
             : [];
         if (resampledPages.length > 0) {
             losslessRun = false;
-            warn(`Matched page size re-rendered ${String(resampledPages.length)} page(s) that do not share the document's pixel grid: ${describePageNumbers(resampledPages)}`);
+            warnEvent({
+                code: 'matched-canvas-pages-resampled',
+                pages: resampledPages,
+            });
         }
         if (request.options.preserveOriginalQuality && resampledPages.length === 0) {
             const summary = await runLosslessScanCleanup(
@@ -710,11 +720,11 @@ export async function runScanCleanupConversion(
             ? finestCanvasDpi
             : resolveScanCleanupDocumentCanvasDpi(documentCanvas);
         if (canvasDpi < finestCanvasDpi * 0.99) {
-            warn(
-                `Matched page size normalized this document at ${String(Math.round(canvasDpi))} DPI `
-                + `instead of the ${String(Math.round(finestCanvasDpi))} DPI its finest page was rendered at, `
-                + 'to keep one shared page inside the output pixel budget',
-            );
+            warnEvent({
+                code: 'matched-canvas-document-dpi-normalized',
+                canvasDpi,
+                finestPageDpi: finestCanvasDpi,
+            });
         }
         // Native reconstructs the final uniform canvas from each page's render
         // DPI and the document rectangle. The plan's pixel fields alone cannot
@@ -731,10 +741,12 @@ export async function runScanCleanupConversion(
                 ? plan.dpi
                 : resolveScanCleanupDocumentCanvasRenderDpi(plan.dpi, documentCanvas);
             if (dpi < plan.dpi) {
-                warn(
-                    `Matched page size capped page ${String(plan.pageNumber)} at ${String(dpi)} DPI `
-                    + `from ${String(plan.dpi)} DPI to keep its uniform canvas inside cleanup guardrails`,
-                );
+                warnEvent({
+                    code: 'matched-canvas-page-dpi-capped',
+                    pageNumber: plan.pageNumber,
+                    appliedDpi: dpi,
+                    requestedDpi: plan.dpi,
+                });
             }
             return dpi === plan.dpi ? plan : {
                 ...plan,
@@ -989,8 +1001,8 @@ export async function runScanCleanupConversion(
         // A geometry read that failed outright already said so, with the reason
         // it failed; this names the other way a document answers no canvas.
         if (options !== request.options && pageSizes !== null) {
-            const droppedWarning = resolveScanCleanupDroppedMatchWarning(pageSizes, request.options);
-            if (droppedWarning) warn(droppedWarning);
+            const droppedEvent = resolveScanCleanupDroppedMatchWarningEvent(pageSizes, request.options);
+            if (droppedEvent) warnEvent(droppedEvent);
         }
         // One manifest for the whole document keeps page-size matching global.
         // On POSIX, raw PPM inputs are FIFOs: Poppler produces each page while
@@ -1169,6 +1181,14 @@ export async function runScanCleanupConversion(
         const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();
         const emptyOutputMappings: IScanCleanupOutputMapping[] = [];
         const summary = createEmptyScanCleanupSummary(pageCount, warnings);
+        // The engine's own account of what it had to do to a page — a page it
+        // could not hold at the document's scale, a raster it could not
+        // publish. It travels with the summary and is logged here, so a run
+        // that quietly compromised says where.
+        const report = (message: string) => {
+            summary.warnings.push(message);
+            log('warn', `Scan cleanup: ${message}`);
+        };
         const fittedMarginBoxPages = new Set<number>();
         for (const [
             pageIndex,
@@ -1412,21 +1432,22 @@ export async function runScanCleanupConversion(
                 });
                 if (!metadata.skewApplied) summary.deskewSkipped += 1;
                 if (request.options.crop && metadata.contentBox == null) summary.cropSkipped += 1;
-                // The engine's own account of what it had to do to this page —
-                // a page it could not hold at the document's scale, a raster it
-                // could not publish. It travels with the summary and is logged
-                // here, so a run that quietly compromised says where.
-                for (const warning of metadata.warnings ?? []) {
-                    if (
-                        warning.startsWith('Matched page size fitted this page to ')
-                        && warning.includes(' requested margin box ')
-                    ) {
+                for (const event of metadata.warningEvents ?? []) {
+                    // One aggregate names every page the document's scale could
+                    // not hold; per-page lines would bury it.
+                    if (event.code === 'matched-canvas-content-fitted') {
                         fittedMarginBoxPages.add(pageNumber);
                         continue;
                     }
-                    const reported = `Page ${String(pageNumber)}: ${warning}`;
-                    summary.warnings.push(reported);
-                    log('warn', `Scan cleanup: ${reported}`);
+                    report(formatScanCleanupWarningEvent(event, pageNumber));
+                }
+                // Diagnostics the engine carries no structure for. An artifact
+                // written before runtime revision 10 also left its conditions
+                // here as sentences; those stay readable and logged, and never
+                // reach aggregation. A live run cannot produce them: the
+                // bundled sidecar fails the handshake below that revision.
+                for (const warning of metadata.warnings ?? []) {
+                    report(`Page ${String(pageNumber)}: ${warning}`);
                 }
             }
             if (request.options.readingOrder === 'rtl' && pageMetadata.layoutClassification === 'two-page-spread') {
@@ -1462,11 +1483,10 @@ export async function runScanCleanupConversion(
             if (pageMetadata.layoutClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
         }
         if (fittedMarginBoxPages.size > 0) {
-            const reported = 'Matched page size fitted '
-                + `${String(fittedMarginBoxPages.size)} page(s) inside their requested margin boxes, `
-                + `below the document's scale: ${describePageNumbers([...fittedMarginBoxPages])}`;
-            summary.warnings.push(reported);
-            log('warn', `Scan cleanup: ${reported}`);
+            report(formatScanCleanupWarningEvent({
+                code: 'matched-canvas-content-fitted-pages',
+                pages: [...fittedMarginBoxPages],
+            }));
         }
         summary.outputPages = outputPages.length;
         if (outputPages.length === 0) throw new Error('evb-scan-cleanup produced no output pages');

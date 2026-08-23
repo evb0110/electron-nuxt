@@ -35,8 +35,11 @@ export const GENERATED_RUST_NATIVE_TOOL_PROTOCOLS = [
         // intentionally advances independently of the JSON format's public
         // `version`: adding a field to a deny-unknown-fields Rust struct makes
         // an older executable incompatible even when the v3 wire shape remains
-        // additive for current consumers.
-        protocolVersion: 9,
+        // additive for current consumers. It also fences the reverse case —
+        // revision 10 is the first sidecar that reports placement conditions as
+        // structured `warningEvents`, which Electron aggregates by code, so an
+        // older binary must fail the handshake rather than run.
+        protocolVersion: 10,
         resourceFamilyId: 'scan-cleanup',
         stagingName: 'scan-cleanup',
     },

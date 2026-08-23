@@ -7,6 +7,7 @@ import {join} from 'path';
 import type {
     INativeScanCleanupAnalysisOutputV3,
     INativeScanCleanupPageMetadataV3,
+    TScanCleanupWarningEvent,
 } from '@contracts/electronApiScanCleanup';
 import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
@@ -48,13 +49,16 @@ import {
     orientScanCleanupInsetsToPageSpace,
     resolveScanCleanupCanvasFitScale,
     resolveScanCleanupDocumentCanvas,
-    resolveScanCleanupDroppedMatchWarning,
+    resolveScanCleanupDroppedMatchWarningEvent,
     resolveScanCleanupOutputPageSpacePaperRect,
     resolveScanCleanupPageCanvasBox,
     placeScanCleanupCanvasBox,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@scan-cleanup-core/policy/documentCanvas';
-import {describePageNumbers} from '@scan-cleanup-core/assembleCompactScanCleanupPages';
+import {
+    formatScanCleanupWarningEvent,
+    toScanCleanupPercentTenths,
+} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver';
 import type {TEmitScanCleanupProgress} from '@scan-cleanup-core/createScanCleanupProgressReporter';
 import {createEmptyScanCleanupSummary} from '@scan-cleanup-core/createScanCleanupProgressReporter';
@@ -182,6 +186,9 @@ export async function runLosslessScanCleanup(
         summary.warnings.push(message);
         log('warn', `Scan cleanup: ${message}`);
     };
+    const warnEvent = (event: TScanCleanupWarningEvent, pageNumber?: number) => {
+        warn(formatScanCleanupWarningEvent(event, pageNumber));
+    };
     const analyzedPages: Array<{
         sourcePageIndex: number;
         rotationQuarterTurns: number;
@@ -275,11 +282,14 @@ export async function runLosslessScanCleanup(
         )
         : null;
     if (documentCanvas === null && request.options.matchPageSize) {
-        const droppedWarning = resolveScanCleanupDroppedMatchWarning(pageSizes, request.options);
-        if (droppedWarning) warn(droppedWarning);
+        const droppedEvent = resolveScanCleanupDroppedMatchWarningEvent(pageSizes, request.options);
+        if (droppedEvent) warnEvent(droppedEvent);
     }
     const scaledRasterPages = new Set<number>();
-    const fittedPageWarnings: string[] = [];
+    const fittedPageEvents: Array<{
+        pageNumber: number;
+        event: TScanCleanupWarningEvent
+    }> = [];
     if (documentCanvas) {
         for (const page of analyzedPages) {
             const box = resolveScanCleanupPageCanvasBox(
@@ -350,10 +360,10 @@ export async function runLosslessScanCleanup(
                 const marginsRequested = Object.values(requestedVisualMargins).some(margin => margin > 0);
                 const marginsAvailable = request.options.crop && output.contentDetected;
                 if (marginsRequested && !marginsAvailable) {
-                    fittedPageWarnings.push(
-                        `Page ${String(page.sourcePageIndex + 1)}: Requested margins were not applied because `
-                        + 'content detection or cropping is unavailable',
-                    );
+                    fittedPageEvents.push({
+                        pageNumber: page.sourcePageIndex + 1,
+                        event: {code: 'matched-canvas-margins-unavailable'},
+                    });
                 }
                 const requestedMargins = orientScanCleanupInsetsToPageSpace(
                     marginsAvailable ? requestedVisualMargins : {
@@ -378,10 +388,10 @@ export async function runLosslessScanCleanup(
                     || marginRight !== requestedMargins.right
                     || marginBottom !== requestedMargins.bottom
                 ) {
-                    fittedPageWarnings.push(
-                        `Page ${String(page.sourcePageIndex + 1)}: Matched page size reduced requested margins `
-                        + 'because they leave no drawable canvas',
-                    );
+                    fittedPageEvents.push({
+                        pageNumber: page.sourcePageIndex + 1,
+                        event: {code: 'matched-canvas-margins-reduced'},
+                    });
                 }
                 const innerWidth = Math.max(0.01, box.widthPoints - marginLeft - marginRight);
                 const innerHeight = Math.max(0.01, box.heightPoints - marginTop - marginBottom);
@@ -399,21 +409,31 @@ export async function runLosslessScanCleanup(
                 const scale = sharedSpreadScale ?? paperScale * leafFit;
                 const fit = scale / paperScale;
                 if (paperScale < 1 - CANVAS_CONTENT_SCALE_EPSILON) {
-                    fittedPageWarnings.push(
-                        `Page ${String(page.sourcePageIndex + 1)}: Matched page size placed this page at `
-                        + `${(paperScale * 100).toFixed(1)}% of the document's scale because its `
-                        + `${output.paperRect.width.toFixed(1)}x${output.paperRect.height.toFixed(1)} pt paper is larger `
-                        + `than the ${box.widthPoints.toFixed(1)}x${box.heightPoints.toFixed(1)} pt document canvas, `
-                        + 'which was measured from a different layout for this page',
-                    );
+                    fittedPageEvents.push({
+                        pageNumber: page.sourcePageIndex + 1,
+                        event: {
+                            code: 'matched-canvas-paper-downscaled',
+                            unit: 'pt',
+                            scalePercentTenths: toScanCleanupPercentTenths(paperScale * 100),
+                            documentCanvasWidth: box.widthPoints,
+                            documentCanvasHeight: box.heightPoints,
+                            paperWidth: output.paperRect.width,
+                            paperHeight: output.paperRect.height,
+                        },
+                    });
                 }
                 if (fit < 1 - CANVAS_CONTENT_SCALE_EPSILON) {
-                    fittedPageWarnings.push(
-                        `Page ${String(page.sourcePageIndex + 1)}: Matched page size fitted this page to `
-                        + `${(output.cropRect.width * scale).toFixed(1)}x${(output.cropRect.height * scale).toFixed(1)} pt `
-                        + `inside the ${innerWidth.toFixed(1)}x${innerHeight.toFixed(1)} pt margin box, `
-                        + 'below the document\'s scale',
-                    );
+                    fittedPageEvents.push({
+                        pageNumber: page.sourcePageIndex + 1,
+                        event: {
+                            code: 'matched-canvas-content-fitted',
+                            unit: 'pt',
+                            contentWidth: output.cropRect.width * scale,
+                            contentHeight: output.cropRect.height * scale,
+                            innerWidth,
+                            innerHeight,
+                        },
+                    });
                 }
                 const alignment = page.pageOverride.placementOverrides?.[output.half]
                     ?? request.options.pageAlignment;
@@ -466,12 +486,12 @@ export async function runLosslessScanCleanup(
         }
     }
     if (scaledRasterPages.size > 0) {
-        warn(
-            `Matched page size scaled ${String(scaledRasterPages.size)} page(s) that carry their own raster `
-            + `without re-rendering them: ${describePageNumbers([...scaledRasterPages])}`,
-        );
+        warnEvent({
+            code: 'matched-canvas-pages-scaled-in-place',
+            pages: [...scaledRasterPages],
+        });
     }
-    for (const warning of fittedPageWarnings) warn(warning);
+    for (const fitted of fittedPageEvents) warnEvent(fitted.event, fitted.pageNumber);
     summary.outputPages = allOutputs.length;
     const sourceDpiByPage = new Map(rasterPlans.map(plan => [
         plan.pageNumber,

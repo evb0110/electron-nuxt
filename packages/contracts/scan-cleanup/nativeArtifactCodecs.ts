@@ -11,6 +11,7 @@ import {
     legacyNativeScanCleanupFoldBandV3,
     NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3,
     SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
+    SCAN_CLEANUP_WARNING_EVENTS_SCHEMA,
     type INativeScanCleanupAnalysisOutputV3,
     type INativeScanCleanupDewarpModelV3,
     type INativeScanCleanupOutputMetadataV3,
@@ -818,6 +819,17 @@ export function decodeNativeScanCleanupOutputMetadata(
         source.warnings.forEach((warning, index) => {
             if (typeof warning !== 'string' || warning.length > MAX_WARNING_LENGTH) fail(artifact, `warnings[${String(index)}] is invalid`);
         });
+    }
+    // Absence is how an artifact written before the structured channel existed
+    // reports its conditions: those runs left the same sentences in `warnings`,
+    // which stays readable and logged. Live runs always carry the array,
+    // because the bundled sidecar's compatibility revision requires it.
+    if (source.warningEvents !== undefined) {
+        try {
+            SCAN_CLEANUP_WARNING_EVENTS_SCHEMA.decode(source.warningEvents);
+        } catch (error) {
+            fail(artifact, error instanceof Error ? error.message : 'warningEvents is invalid');
+        }
     }
     const contentWidth = source.matchedCanvasContentWidthPx ?? outputWidthPx;
     const contentHeight = source.matchedCanvasContentHeightPx ?? outputHeightPx;

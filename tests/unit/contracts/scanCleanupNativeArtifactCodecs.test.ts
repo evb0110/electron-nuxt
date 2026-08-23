@@ -8,6 +8,7 @@ import {
     decodeNativeScanCleanupPreviewPageMetadataJson,
     InvalidScanCleanupNativeArtifactError,
 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
+import {SCAN_CLEANUP_INPUT_MAX_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import type {INativeScanCleanupSplitDiagnosticsV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
     describe,
@@ -271,6 +272,168 @@ describe('scan-cleanup native artifact codecs', () => {
                 pageMetadata().outputs[0],
             ],
         })).toThrow('protocol limit');
+    });
+
+    it('bounds structured warning events and accepts an artifact written without them', () => {
+        const fitted = {
+            code: 'matched-canvas-content-fitted',
+            unit: 'px',
+            contentWidth: 60,
+            contentHeight: 50,
+            innerWidth: 95,
+            innerHeight: 95,
+            documentCanvasWidth: 100,
+            documentCanvasHeight: 100,
+        };
+        const paperDownscaled = {
+            code: 'matched-canvas-paper-downscaled',
+            unit: 'px',
+            scalePercentTenths: 500,
+            documentCanvasWidth: 50,
+            documentCanvasHeight: 100,
+            paperWidth: 100,
+            paperHeight: 200,
+        };
+        const withEvents = {
+            ...outputMetadata(),
+            warningEvents: [
+                fitted,
+                paperDownscaled,
+                {code: 'matched-canvas-margins-reduced'},
+                // The optional rectangles are absent as a pair, and a page
+                // list keeps the order its producer found the pages in.
+                {
+                    code: 'matched-canvas-content-fitted',
+                    unit: 'pt',
+                    contentWidth: 343.25,
+                    contentHeight: 171.7,
+                    innerWidth: 371.7,
+                    innerHeight: 171.7,
+                },
+                {
+                    code: 'matched-canvas-pages-resampled',
+                    pages: [
+                        3,
+                        1,
+                        SCAN_CLEANUP_INPUT_MAX_PAGES,
+                    ],
+                },
+            ],
+        };
+
+        expect(decodeNativeScanCleanupOutputMetadata(withEvents)).toBe(withEvents);
+        // An artifact written before the structured channel existed keeps its
+        // sentences and decodes unchanged.
+        expect(decodeNativeScanCleanupOutputMetadata({
+            ...outputMetadata(),
+            warnings: ['Matched page size reduced requested margins because they leave no drawable canvas'],
+        }).warningEvents).toBeUndefined();
+
+        for (const warningEvents of [
+            [{code: 'engine-said-something'}],
+            [{
+                ...fitted,
+                code: 'matched-canvas-margins-reduced',
+            }],
+            [{
+                ...fitted,
+                contentWidth: Number.NaN,
+            }],
+            [{
+                ...fitted,
+                contentWidth: 60.5,
+            }],
+            [{
+                code: 'matched-canvas-intrinsic-overflow',
+                leftPx: 1,
+            }],
+            [{
+                code: 'matched-canvas-geometry-unmeasured',
+                detail: 'x'.repeat(513),
+            }],
+            [{
+                code: 'matched-canvas-pages-resampled',
+                pages: [],
+            }],
+            // A rectangle is one measurement: half of it is a payload the
+            // formatter would have to guess the other half of.
+            [{
+                ...fitted,
+                documentCanvasHeight: undefined,
+            }],
+            [{
+                ...fitted,
+                documentCanvasWidth: undefined,
+            }],
+            [{
+                ...paperDownscaled,
+                paperHeight: undefined,
+            }],
+            [{
+                ...paperDownscaled,
+                paperWidth: undefined,
+            }],
+            // Every numeric parameter is bounded, not merely finite.
+            [{
+                ...fitted,
+                contentWidth: 1_000_001,
+            }],
+            [{
+                ...paperDownscaled,
+                scalePercentTenths: 10_001,
+            }],
+            [{
+                ...paperDownscaled,
+                scalePercentTenths: 50.5,
+            }],
+            [{
+                code: 'matched-canvas-intrinsic-overflow',
+                leftPx: 1_000_001,
+                rightPx: 0,
+            }],
+            [{
+                code: 'matched-canvas-document-dpi-normalized',
+                canvasDpi: 300,
+                finestPageDpi: 100_001,
+            }],
+            [{
+                code: 'render-dpi-limited',
+                appliedDpiThousandths: 100_000_001,
+                requestedDpiThousandths: 400_000,
+            }],
+            [{
+                code: 'render-dpi-limited',
+                appliedDpiThousandths: 288_500.5,
+                requestedDpiThousandths: 400_000,
+            }],
+            [{
+                code: 'matched-canvas-page-dpi-capped',
+                pageNumber: SCAN_CLEANUP_INPUT_MAX_PAGES + 1,
+                appliedDpi: 200,
+                requestedDpi: 300,
+            }],
+            [{
+                code: 'matched-canvas-pages-resampled',
+                pages: [SCAN_CLEANUP_INPUT_MAX_PAGES + 1],
+            }],
+            // A repeated page means the producer lost count of its own set;
+            // the list is a set kept in the order the pages were found.
+            [{
+                code: 'matched-canvas-pages-resampled',
+                pages: [
+                    3,
+                    1,
+                    3,
+                ],
+            }],
+            Array.from({length: 33}, () => ({code: 'matched-canvas-margins-reduced'})),
+            'not-an-array',
+        ]) {
+            expect(() => decodeNativeScanCleanupOutputMetadata({
+                ...outputMetadata(),
+                warningEvents,
+            })).toThrow(InvalidScanCleanupNativeArtifactError);
+        }
     });
 
     it('rejects malformed nested output geometry before a consumer can use it', () => {

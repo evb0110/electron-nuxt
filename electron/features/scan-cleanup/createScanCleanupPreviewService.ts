@@ -37,7 +37,10 @@ import {
     decodeNativeScanCleanupPreviewPageMetadataJson,
     type TNativeScanCleanupPreviewOutputArtifactMetadataV3,
 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
-import type {INativeScanCleanupReusableGeometryV3} from '@contracts/scan-cleanup/nativeProtocolV3';
+import type {
+    INativeScanCleanupReusableGeometryV3,
+    TScanCleanupWarningEvent,
+} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
@@ -70,6 +73,10 @@ import {
     resolveScanCleanupProvisionalDocumentCanvas,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@scan-cleanup-core/policy/documentCanvas';
+import {
+    describeScanCleanupNativeWarnings,
+    formatScanCleanupWarningEvent,
+} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 import {
     isNativePageOpsDisabled,
     resolveNativePageOpsPath,
@@ -1755,7 +1762,7 @@ async function runPreview(
         // gives matching its document-wide grid. Only lower the preview grid
         // when every page is proven to be a full-page raster; mixed/vector
         // documents keep the conservative 150-DPI preview.
-        const previewWarnings: string[] = [];
+        const previewWarningEvents: TScanCleanupWarningEvent[] = [];
         let pageSizes: IPdfPageSize[] | null = null;
         let previewRasterPlan = resolvePreviewRasterPlan(null);
         try {
@@ -1765,10 +1772,10 @@ async function runPreview(
             if (signal.aborted) throw error;
             if (request.options.matchPageSize) {
                 const detail = getErrorMessage(error);
-                previewWarnings.push(
-                    'Matched page size is off for this document: its page geometry could not be measured '
-                    + `(${detail}). Pages are previewed and cleaned at their own size.`,
-                );
+                previewWarningEvents.push({
+                    code: 'matched-canvas-geometry-unmeasured',
+                    detail,
+                });
                 logger.warn(`Scan cleanup preview dropped matched page size: ${detail}`);
             } else {
                 logger.debug(
@@ -2422,23 +2429,32 @@ async function runPreview(
                             // exactly the size the output page will carry.
                             matchedCanvasContentWidthPx: contentWidthPx,
                             matchedCanvasContentHeightPx: contentHeightPx,
+                            // The renderer presents sentences, not conditions.
+                            // Preview names the same conditions the final run
+                            // does, through the same formatter, so the two can
+                            // never describe one placement differently.
                             warnings: [
-                                ...previewWarnings,
+                                ...previewWarningEvents,
                                 ...(matchedCanvas !== undefined && marginsRequested && !marginsAvailable
-                                    ? ['Requested margins were not applied because content detection or cropping is unavailable']
+                                    ? [{code: 'matched-canvas-margins-unavailable'} as const]
                                     : []),
                                 ...(deliveredMargins.leftPx !== appliedMargins.leftPx
                                     || deliveredMargins.topPx !== appliedMargins.topPx
                                     || deliveredMargins.rightPx !== appliedMargins.rightPx
                                     || deliveredMargins.bottomPx !== appliedMargins.bottomPx
-                                    ? ['Matched page size reduced requested margins because they leave no drawable canvas']
+                                    ? [{code: 'matched-canvas-margins-reduced'} as const]
                                     : []),
                                 ...(canvasOverflow
-                                    ? [`Matched page size fitted this page to ${String(contentWidthPx)}x${String(contentHeightPx)} px `
-                                        + `inside the ${String(innerCanvasWidth)}x${String(innerCanvasHeight)} px margin box, `
-                                        + 'below the document\'s scale']
+                                    ? [{
+                                        code: 'matched-canvas-content-fitted',
+                                        unit: 'px',
+                                        contentWidth: contentWidthPx,
+                                        contentHeight: contentHeightPx,
+                                        innerWidth: innerCanvasWidth,
+                                        innerHeight: innerCanvasHeight,
+                                    } as const]
                                     : []),
-                            ],
+                            ].map(event => formatScanCleanupWarningEvent(event)),
                         },
                     };
                 }),
@@ -2468,8 +2484,8 @@ async function runPreview(
                         // dropped for want of geometry — belongs beside what
                         // the engine reported about the page itself.
                         warnings: [
-                            ...previewWarnings,
-                            ...nativeMetadata.warnings ?? [],
+                            ...previewWarningEvents.map(event => formatScanCleanupWarningEvent(event)),
+                            ...describeScanCleanupNativeWarnings(nativeMetadata),
                         ],
                     },
                 });

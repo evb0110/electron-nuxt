@@ -1,9 +1,9 @@
 use crate::adapters::single_ocr_cli::{invalid, parse_options};
 use crate::engine::render::{
     analyze_page_with_color_and_document_prior_cached, clean_detail_page_with_color,
-    clean_page_with_color_and_document_prior_cached, downscale_rgb_to_dimensions,
-    CanonicalAnalysisPlane, CleanupRaster, CleanupResult, DetailRenderSources,
-    LayeredForegroundKind,
+    clean_page_with_color_and_document_prior_cached, downscale_rgb_to_dimensions, quantize_decimal,
+    CanonicalAnalysisPlane, CleanupRaster, CleanupResult, CleanupWarningEvent, DetailRenderSources,
+    LayeredForegroundKind, WarningExtentUnit,
 };
 use crate::mode_select::{OutputModeDiagnostics, OutputModeRecommendationReason};
 use crate::{
@@ -3703,7 +3703,6 @@ fn apply_canvas_metadata(
         top,
         requested_margins,
         optical_content_centered,
-        optical_content_fit_failed,
         optical_content_bounds_x,
         intrinsic_overflow_left,
         intrinsic_overflow_right,
@@ -3748,6 +3747,25 @@ fn apply_canvas_metadata(
     metadata.canvas_height = canvas.height_px;
     metadata.placement_offset_x = left;
     metadata.placement_offset_y = top;
+    // Placement conditions are reported as structured events, not sentences:
+    // the shared TypeScript formatter owns their wording and the pipeline
+    // aggregates them by code.
+    metadata
+        .warning_events
+        .extend(canvas_placement_warning_events(
+            placement,
+            canvas,
+            metadata.content_box.is_some(),
+        ));
+}
+
+/// Every condition this placement has to report about the canvas it landed on.
+fn canvas_placement_warning_events(
+    placement: CanvasPlacement,
+    canvas: &DocumentCanvas,
+    content_box_detected: bool,
+) -> Vec<CleanupWarningEvent> {
+    let mut events = Vec::new();
     if placement.overflow {
         let [margin_left, margin_top, margin_right, margin_bottom] = placement.requested_margins;
         let inner_width = canvas
@@ -3760,57 +3778,53 @@ fn apply_canvas_metadata(
             .saturating_sub(margin_top)
             .saturating_sub(margin_bottom)
             .max(1);
-        metadata.warnings.push(format!(
-            "Matched page size fitted this page to {content_width}x{content_height} px \
-             inside the {inner_width}x{inner_height} px requested margin box on the {}x{} px \
-             document canvas, below the document's scale",
-            canvas.width_px, canvas.height_px,
-        ));
+        events.push(CleanupWarningEvent::MatchedCanvasContentFitted {
+            unit: WarningExtentUnit::Px,
+            content_width: placement.content_width as f64,
+            content_height: placement.content_height as f64,
+            inner_width: inner_width as f64,
+            inner_height: inner_height as f64,
+            document_canvas_width: Some(canvas.width_px as f64),
+            document_canvas_height: Some(canvas.height_px as f64),
+        });
     }
-    if intrinsic_overflow_left > 0 || intrinsic_overflow_right > 0 {
-        metadata.warnings.push(format!(
-            "Matched page raster extends beyond the canvas by {} px on the left and {} px on the right; optical content remains bounded",
-            intrinsic_overflow_left, intrinsic_overflow_right,
-        ));
+    if placement.intrinsic_overflow_left > 0 || placement.intrinsic_overflow_right > 0 {
+        events.push(CleanupWarningEvent::MatchedCanvasIntrinsicOverflow {
+            left_px: placement.intrinsic_overflow_left,
+            right_px: placement.intrinsic_overflow_right,
+        });
     }
-    if intrinsic_overflow_top > 0 {
-        metadata.warnings.push(format!(
-            "Matched spread placement trimmed {intrinsic_overflow_top} px of source headroom above the shared content anchor"
-        ));
+    if placement.intrinsic_overflow_top > 0 {
+        events.push(CleanupWarningEvent::MatchedCanvasSpreadHeadroomTrimmed {
+            top_px: placement.intrinsic_overflow_top,
+        });
     }
     if placement.fold_trim_left > 0 || placement.fold_trim_right > 0 {
-        metadata.warnings.push(format!(
-            "Matched spread discarded {} provably-paper fold-side columns on the left and {} on the right (all samples met the leaf-specific paper bound) before overflow fitting",
-            placement.fold_trim_left, placement.fold_trim_right,
-        ));
+        events.push(CleanupWarningEvent::MatchedCanvasFoldColumnsDiscarded {
+            left_columns: placement.fold_trim_left,
+            right_columns: placement.fold_trim_right,
+        });
     }
-    if optical_content_fit_failed && metadata.content_box.is_some() {
-        metadata.warnings.push(
-            "Optical centering was requested but the optical bounds could not fit inside the canvas margins; raster alignment was retained"
-                .to_owned(),
-        );
+    if placement.optical_content_fit_failed && content_box_detected {
+        events.push(CleanupWarningEvent::MatchedCanvasOpticalCenteringFallback);
     }
     if placement.margins_reduced {
-        metadata.warnings.push(
-            "Matched page size reduced requested margins because they leave no drawable canvas"
-                .to_owned(),
-        );
+        events.push(CleanupWarningEvent::MatchedCanvasMarginsReduced);
     }
     if placement.margins_unavailable {
-        metadata.warnings.push(
-            "Requested margins were not applied because content detection or cropping is unavailable"
-                .to_owned(),
-        );
+        events.push(CleanupWarningEvent::MatchedCanvasMarginsUnavailable);
     }
     if placement.undersized_paper {
-        let percent = placement.paper_scale * 100.0;
-        metadata.warnings.push(format!(
-            "Matched page size placed this page at {percent:.1}% of the document's scale \
-             because its paper is larger than the {}x{} px document canvas, \
-             which was measured from a different layout for this page",
-            canvas.width_px, canvas.height_px,
-        ));
+        events.push(CleanupWarningEvent::MatchedCanvasPaperDownscaled {
+            unit: WarningExtentUnit::Px,
+            scale_percent_tenths: quantize_decimal(placement.paper_scale * 100.0, 1),
+            document_canvas_width: canvas.width_px as f64,
+            document_canvas_height: canvas.height_px as f64,
+            paper_width: None,
+            paper_height: None,
+        });
     }
+    events
 }
 
 fn match_primary_raster_in_memory(
@@ -4812,23 +4826,25 @@ mod tests {
         adaptive_thread_count, align_deferred_spread_vertical_placements,
         align_spread_vertical_placements, assert_manifest_paths_within_root,
         background_canvas_dimensions, background_dimensions_to_publish, cache_budget_bytes,
-        canvas_fit_for, decode_page_inputs, derive_page_ink_contexts, edge_near_paper_run_in_gray,
-        estimate_peak_page_bytes, fold_side_near_paper_run_in_gray, fold_trim_for, manifest_cache,
-        manifest_worker_threads, map_image_error, map_page_io_error, map_raster_error,
-        matched_output_paper_dimensions_for, materialize_gray_primary_on_canvas,
-        materialize_stream_page, normalize_trusted_foreground_selection, optical_binary_bounds_x,
-        optical_content_bounds_x, optical_content_center_x, page_cache_for, page_worker_threads,
-        parse_cli_args, place_on_white_canvas, place_on_white_canvas_with_source_offset,
-        plan_canvas_placement_for, plan_canvas_placement_for_with_optical_center,
+        canvas_fit_for, canvas_placement_warning_events, decode_page_inputs,
+        derive_page_ink_contexts, edge_near_paper_run_in_gray, estimate_peak_page_bytes,
+        fold_side_near_paper_run_in_gray, fold_trim_for, manifest_cache, manifest_worker_threads,
+        map_image_error, map_page_io_error, map_raster_error, matched_output_paper_dimensions_for,
+        materialize_gray_primary_on_canvas, materialize_stream_page,
+        normalize_trusted_foreground_selection, optical_binary_bounds_x, optical_content_bounds_x,
+        optical_content_center_x, page_cache_for, page_worker_threads, parse_cli_args,
+        place_on_white_canvas, place_on_white_canvas_with_source_offset, plan_canvas_placement_for,
+        plan_canvas_placement_for_with_optical_center,
         plan_canvas_placement_for_with_optical_center_and_fit,
         plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim,
         plan_canvas_placement_with_shared_fit, preflight_manifest_paths,
         preserve_tier1_provenance_after_rerun, reconcile_classification_batch,
         robust_quantile_dimension, run_manifest_transaction, run_regular_page_jobs,
         run_stream_page_jobs, write_gray_layer_background, CanvasPlacement, CleanupRaster,
-        DeferredSpreadVerticalPlacement, FoldSideTrim, HorizontalEdge, NearPaperEdgeRuns,
-        PageResultMetadata, PageRunResult, ScanCleanupCliInvocation, SharedSpreadOverflowPlan,
-        Tier1Provenance, WrittenOutput, FALLBACK_SYSTEM_MEMORY_BYTES,
+        CleanupWarningEvent, DeferredSpreadVerticalPlacement, FoldSideTrim, HorizontalEdge,
+        NearPaperEdgeRuns, PageResultMetadata, PageRunResult, ScanCleanupCliInvocation,
+        SharedSpreadOverflowPlan, Tier1Provenance, WarningExtentUnit, WrittenOutput,
+        FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::io::raster::RasterReadError;
     use crate::{
@@ -8074,5 +8090,213 @@ mod tests {
         assert_eq!(metadata.document_prior, Some(prior));
         assert_eq!(metadata.output_count, 2);
         assert_eq!(metadata.split_seam, Some(seam));
+    }
+
+    fn warning_event_canvas() -> DocumentCanvas {
+        DocumentCanvas {
+            width_points: 720.0,
+            height_points: 720.0,
+            width_px: 1_000,
+            height_px: 1_000,
+        }
+    }
+
+    fn warning_event_placement() -> CanvasPlacement {
+        CanvasPlacement {
+            content_width: 700,
+            content_height: 700,
+            left: 0,
+            top: 0,
+            requested_margins: [0; 4],
+            optical_content_centered: false,
+            optical_content_fit_failed: false,
+            optical_content_bounds_x: None,
+            intrinsic_overflow_left: 0,
+            intrinsic_overflow_right: 0,
+            intrinsic_overflow_top: 0,
+            fold_trim_left: 0,
+            fold_trim_right: 0,
+            fold_clip_left: 0,
+            fold_clip_right: 0,
+            materialization_left: 0,
+            materialization_source_offset_left: 0,
+            materialization_source_offset_right: 0,
+            margins_reduced: false,
+            margins_unavailable: false,
+            overflow: false,
+            ink_aligned: false,
+            paper_scale: 1.0,
+            undersized_paper: false,
+        }
+    }
+
+    #[test]
+    fn placement_without_conditions_reports_no_warning_events() {
+        assert_eq!(
+            canvas_placement_warning_events(
+                warning_event_placement(),
+                &warning_event_canvas(),
+                true
+            ),
+            Vec::new()
+        );
+    }
+
+    #[test]
+    fn fitted_placement_reports_the_margin_box_it_was_fitted_into() {
+        let placement = CanvasPlacement {
+            overflow: true,
+            content_width: 600,
+            content_height: 500,
+            requested_margins: [24, 24, 24, 24],
+            ..warning_event_placement()
+        };
+
+        assert_eq!(
+            canvas_placement_warning_events(placement, &warning_event_canvas(), true),
+            vec![CleanupWarningEvent::MatchedCanvasContentFitted {
+                unit: WarningExtentUnit::Px,
+                content_width: 600.0,
+                content_height: 500.0,
+                inner_width: 952.0,
+                inner_height: 952.0,
+                document_canvas_width: Some(1_000.0),
+                document_canvas_height: Some(1_000.0),
+            }]
+        );
+    }
+
+    #[test]
+    fn intrinsic_overflow_reports_both_sides_it_extends_past() {
+        let placement = CanvasPlacement {
+            intrinsic_overflow_left: 7,
+            intrinsic_overflow_right: 3,
+            ..warning_event_placement()
+        };
+
+        assert_eq!(
+            canvas_placement_warning_events(placement, &warning_event_canvas(), true),
+            vec![CleanupWarningEvent::MatchedCanvasIntrinsicOverflow {
+                left_px: 7,
+                right_px: 3,
+            }]
+        );
+    }
+
+    #[test]
+    fn spread_headroom_trim_reports_the_rows_above_the_shared_anchor() {
+        let placement = CanvasPlacement {
+            intrinsic_overflow_top: 12,
+            ..warning_event_placement()
+        };
+
+        assert_eq!(
+            canvas_placement_warning_events(placement, &warning_event_canvas(), true),
+            vec![CleanupWarningEvent::MatchedCanvasSpreadHeadroomTrimmed { top_px: 12 }]
+        );
+    }
+
+    #[test]
+    fn fold_side_trim_reports_the_columns_each_leaf_lost() {
+        let placement = CanvasPlacement {
+            fold_trim_left: 5,
+            fold_trim_right: 9,
+            ..warning_event_placement()
+        };
+
+        assert_eq!(
+            canvas_placement_warning_events(placement, &warning_event_canvas(), true),
+            vec![CleanupWarningEvent::MatchedCanvasFoldColumnsDiscarded {
+                left_columns: 5,
+                right_columns: 9,
+            }]
+        );
+    }
+
+    #[test]
+    fn optical_centering_fallback_is_reported_only_with_detected_content() {
+        let placement = CanvasPlacement {
+            optical_content_fit_failed: true,
+            ..warning_event_placement()
+        };
+
+        assert_eq!(
+            canvas_placement_warning_events(placement, &warning_event_canvas(), true),
+            vec![CleanupWarningEvent::MatchedCanvasOpticalCenteringFallback]
+        );
+        assert_eq!(
+            canvas_placement_warning_events(placement, &warning_event_canvas(), false),
+            Vec::new()
+        );
+    }
+
+    #[test]
+    fn reduced_and_unavailable_margins_report_their_own_codes() {
+        let placement = CanvasPlacement {
+            margins_reduced: true,
+            margins_unavailable: true,
+            ..warning_event_placement()
+        };
+
+        assert_eq!(
+            canvas_placement_warning_events(placement, &warning_event_canvas(), true),
+            vec![
+                CleanupWarningEvent::MatchedCanvasMarginsReduced,
+                CleanupWarningEvent::MatchedCanvasMarginsUnavailable,
+            ]
+        );
+    }
+
+    #[test]
+    fn undersized_paper_reports_the_scale_it_was_placed_at() {
+        let placement = CanvasPlacement {
+            undersized_paper: true,
+            paper_scale: 0.5,
+            ..warning_event_placement()
+        };
+
+        assert_eq!(
+            canvas_placement_warning_events(placement, &warning_event_canvas(), true),
+            vec![CleanupWarningEvent::MatchedCanvasPaperDownscaled {
+                unit: WarningExtentUnit::Px,
+                scale_percent_tenths: 500,
+                document_canvas_width: 1_000.0,
+                document_canvas_height: 1_000.0,
+                paper_width: None,
+                paper_height: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn warning_events_serialize_as_their_contract_codes_and_parameters() {
+        let placement = CanvasPlacement {
+            overflow: true,
+            margins_reduced: true,
+            requested_margins: [10, 10, 10, 10],
+            ..warning_event_placement()
+        };
+
+        assert_eq!(
+            serde_json::to_value(canvas_placement_warning_events(
+                placement,
+                &warning_event_canvas(),
+                true
+            ))
+            .unwrap(),
+            serde_json::json!([
+                {
+                    "code": "matched-canvas-content-fitted",
+                    "unit": "px",
+                    "contentWidth": 700.0,
+                    "contentHeight": 700.0,
+                    "innerWidth": 980.0,
+                    "innerHeight": 980.0,
+                    "documentCanvasWidth": 1_000.0,
+                    "documentCanvasHeight": 1_000.0,
+                },
+                {"code": "matched-canvas-margins-reduced"},
+            ])
+        );
     }
 }

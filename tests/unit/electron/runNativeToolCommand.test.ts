@@ -239,9 +239,24 @@ describe('runNativeToolCommand', () => {
         expect(mismatch).toMatchObject({
             name: 'NativeToolProtocolVersionError',
             toolName: 'evb-scan-cleanup',
-            expectedVersion: 9,
+            expectedVersion: 10,
             actualVersion: '2',
         });
+    });
+
+    it('rejects the scan-cleanup revision that predates structured warning events', async () => {
+        // A sidecar from before the structured channel answers 9 and reports
+        // its placement conditions as English only. Electron aggregates by
+        // code, so that binary has to fail the handshake rather than run.
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: '9\n',
+        });
+        const {verifyNativeToolProtocol} = await loadModule();
+
+        await expect(verifyNativeToolProtocol('/tools/evb-scan-cleanup'))
+            .rejects.toThrow('expected 10, got 9');
     });
 
     it('reports empty and unknown native tool protocol responses', async () => {

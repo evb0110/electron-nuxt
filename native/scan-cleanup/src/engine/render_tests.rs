@@ -5856,11 +5856,60 @@ mod tests {
         assert_eq!(output.metadata.render_dpi, 875.0);
         assert_eq!(output.metadata.requested_render_dpi, 1_200.0);
         assert!(output.metadata.raster_scale_limited);
-        assert!(output
-            .metadata
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("limited to 875.000")));
+        assert_eq!(
+            output.metadata.warning_events,
+            vec![CleanupWarningEvent::RenderDpiLimited {
+                applied_dpi_thousandths: 875_000,
+                requested_dpi_thousandths: 1_200_000,
+            }]
+        );
+    }
+
+    /// The fixed-point units the formatter renders have to spell the number
+    /// this sidecar used to print itself, including at an exact half, where
+    /// Rust's `{:.N}` and JavaScript's `toFixed` disagree. `{:.N}` appears
+    /// nowhere but here: it is the reference the quantizer is checked against.
+    #[test]
+    fn quantized_decimals_spell_the_text_the_sidecar_used_to_print() {
+        fn rendered(units: i64, decimals: u32) -> String {
+            let scale = 10i64.pow(decimals);
+            format!(
+                "{}.{:0width$}",
+                units / scale,
+                units % scale,
+                width = decimals as usize
+            )
+        }
+
+        for value in [
+            // Exact halves at one decimal — only `m/4` with odd `m` can be one.
+            0.25, 0.75, 12.25, 49.75, 99.25, 0.05, 33.35, 66.65, 50.0, 12.3, 99.9999,
+        ] {
+            assert_eq!(
+                rendered(quantize_decimal(value, 1), 1),
+                format!("{value:.1}"),
+                "one decimal of {value}"
+            );
+        }
+        for value in [
+            // Exact halves at three decimals — only `m/16` with odd `m`.
+            0.0625, 875.0625, 288.4375, 0.1875, 1199.9375, 875.0, 1_200.0, 288.5, 0.0005,
+            600.123_456,
+        ] {
+            assert_eq!(
+                rendered(quantize_decimal(value, 3), 3),
+                format!("{value:.3}"),
+                "three decimals of {value}"
+            );
+        }
+        // The tie the two languages resolve in opposite directions: `{:.3}`
+        // keeps the even digit, `toFixed` would round away from zero.
+        assert_eq!(quantize_decimal(875.0625, 3), 875_062);
+        assert_eq!(quantize_decimal(12.25, 1), 122);
+        assert_eq!(quantize_decimal(0.0, 3), 0);
+        assert_eq!(quantize_decimal(f64::NAN, 3), 0);
+        assert_eq!(quantize_decimal(f64::INFINITY, 1), 0);
+        assert_eq!(quantize_decimal(f64::MIN_POSITIVE, 3), 0);
     }
 
     #[test]

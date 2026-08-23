@@ -53,6 +53,7 @@ import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver'
 import {mapScanCleanupRasterPages} from '@scan-cleanup-core/resolveRasterHandoff';
 import {resolveCompactSourcePreservation} from '@scan-cleanup-core/assembleCompactScanCleanupPages';
 import {placeScanCleanupCanvasBox} from '@scan-cleanup-core/policy/documentCanvas';
+import {formatScanCleanupWarningEvent} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
     assertScanCleanupCompactSourceBudget,
@@ -4999,6 +5000,121 @@ describe('scan cleanup pipeline', () => {
         });
     });
 
+    // The final raster run reports placement by code, so the sentence a
+    // fixture carries can change without changing which pages the run
+    // aggregates — and an artifact from before the structured channel keeps
+    // reporting its conditions as the sentences it stored.
+    async function runRasterWarningEventPipeline(
+        metadataByPage: (pageNumber: number) => Record<string, unknown>,
+    ) {
+        const fixture = await setup();
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(
+            async (_binary, manifestPath) => {
+                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                    sourcePageIndex: number;
+                    pageMetadataPath: string;
+                    outputs: ICleanupOutput[];
+                }>};
+                for (const page of manifest.pages) {
+                    await writeFile(page.pageMetadataPath, JSON.stringify({
+                        layoutClassification: 'single-uncut-page',
+                        cutterXPx: null,
+                        rotationDegrees: 0,
+                        excluded: false,
+                        blankOutputsSkipped: 0,
+                        outputCount: 1,
+                    }));
+                    const output = page.outputs[0]!;
+                    await writeCleanupOutput(output, 'single-uncut-page');
+                    const metadata = JSON.parse(
+                        await readFile(output.metadataPath, 'utf8'),
+                    ) as Record<string, unknown>;
+                    await writeFile(output.metadataPath, JSON.stringify({
+                        ...metadata,
+                        ...metadataByPage(page.sourcePageIndex + 1),
+                    }));
+                }
+            },
+        );
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.getPageCount = vi.fn(async () => 2);
+
+        return runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                matchPageSize: false,
+            },
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
+    }
+
+    it('aggregates matched-canvas placement by warning code, not by native wording', async () => {
+        const summary = await runRasterWarningEventPipeline(pageNumber => ({
+            warnings: pageNumber === 2 ? ['Content crop was skipped because no content box was detected'] : [],
+            warningEvents: [
+                {
+                    code: 'matched-canvas-content-fitted',
+                    unit: 'px',
+                    contentWidth: 600,
+                    contentHeight: 500,
+                    innerWidth: 952,
+                    innerHeight: 952,
+                    documentCanvasWidth: 1000,
+                    documentCanvasHeight: 1000,
+                },
+                ...(pageNumber === 1
+                    ? [{
+                        code: 'matched-canvas-intrinsic-overflow',
+                        leftPx: 7,
+                        rightPx: 3,
+                    }]
+                    : []),
+            ],
+        }));
+
+        expect(summary.warnings).toEqual([
+            'Page 1: Matched page raster extends beyond the canvas by 7 px on the left and 3 px '
+            + 'on the right; optical content remains bounded',
+            'Page 2: Content crop was skipped because no content box was detected',
+            'Matched page size fitted 2 page(s) inside their requested margin boxes, '
+            + 'below the document\'s scale: 1, 2',
+        ]);
+    });
+
+    it('keeps the aggregate when the native diagnostic wording changes', async () => {
+        const summary = await runRasterWarningEventPipeline(() => ({
+            warnings: ['Totally different engine prose about fitting a page'],
+            warningEvents: [{
+                code: 'matched-canvas-content-fitted',
+                unit: 'px',
+                contentWidth: 600,
+                contentHeight: 500,
+                innerWidth: 952,
+                innerHeight: 952,
+                documentCanvasWidth: 1000,
+                documentCanvasHeight: 1000,
+            }],
+        }));
+
+        expect(summary.warnings).toEqual([
+            'Page 1: Totally different engine prose about fitting a page',
+            'Page 2: Totally different engine prose about fitting a page',
+            'Matched page size fitted 2 page(s) inside their requested margin boxes, '
+            + 'below the document\'s scale: 1, 2',
+        ]);
+    });
+
+    it('reads a legacy artifact that carries its conditions as sentences without aggregating them', async () => {
+        const summary = await runRasterWarningEventPipeline(pageNumber => (pageNumber === 1
+            ? {warnings: ['Matched page size fitted this page to 600x500 px inside the 952x952 px requested '
+                + 'margin box on the 1000x1000 px document canvas, below the document\'s scale']}
+            : {warnings: []}));
+
+        expect(summary.warnings).toEqual(['Page 1: Matched page size fitted this page to 600x500 px inside the 952x952 px requested '
+            + 'margin box on the 1000x1000 px document canvas, below the document\'s scale']);
+    });
+
     it('uses one pair-wide fit when either lossless spread leaf reaches the margin box', async () => {
         const fixture = await setup();
         const harness = losslessMatchedHarness([{
@@ -5261,6 +5377,15 @@ describe('scan cleanup pipeline', () => {
         expect(output.contentTransform!.translateY).toBeCloseTo(fiveMillimetersPoints, 6);
         // And a page that ended up below the document's scale is named rather
         // than left to be found.
-        expect(summary.warnings).toEqual([expect.stringContaining('Page 1: Matched page size fitted this page to 343.3x171.7 pt inside the 371.7x171.7 pt margin box')]);
+        // The lossless placement reports the same fitted condition the raster
+        // and preview paths report, through the same formatter.
+        expect(summary.warnings).toEqual([formatScanCleanupWarningEvent({
+            code: 'matched-canvas-content-fitted',
+            unit: 'pt',
+            contentWidth: 343.3,
+            contentHeight: 171.7,
+            innerWidth: 371.7,
+            innerHeight: 171.7,
+        }, 1)]);
     });
 });

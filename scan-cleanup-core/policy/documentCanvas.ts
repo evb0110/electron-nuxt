@@ -6,6 +6,7 @@ import type {
     TScanCleanupLayoutByPage,
     TScanCleanupOutputHalf,
     TScanCleanupPageRotation,
+    TScanCleanupWarningEvent,
 } from '@contracts/electronApiScanCleanup';
 import {
     getScanCleanupPageOverride,
@@ -394,15 +395,15 @@ export function resolveScanCleanupProvisionalDocumentCanvas(
  * — not geometry the run failed to read — and a warning there names a problem
  * that does not exist.
  */
-export function resolveScanCleanupDroppedMatchWarning(
+export function resolveScanCleanupDroppedMatchWarningEvent(
     pageSizes: readonly IPdfPageSize[],
     options: IScanCleanupOptions,
-) {
+): TScanCleanupWarningEvent | null {
     return pageSizes.every(
         pageSize => getScanCleanupPageOverride(options.pageOverrides, pageSize.pageNumber).excluded,
     )
         ? null
-        : 'Matched page size was dropped: this document carries no readable page geometry';
+        : {code: 'matched-canvas-dropped'};
 }
 
 /**

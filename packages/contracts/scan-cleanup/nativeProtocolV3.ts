@@ -28,6 +28,7 @@ import type {
     IScanCleanupPreviewAffine,
     IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
+import {SCAN_CLEANUP_INPUT_MAX_PAGES} from '@contracts/scan-cleanup/inputLimits';
 
 export const SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION = 3 as const;
 
@@ -168,7 +169,13 @@ export interface INativeScanCleanupOutputMetadataV3 {
     dewarpConfidence?: number | null;
     dewarpModel?: INativeScanCleanupDewarpModelV3 | null;
     contentBox?: IScanCleanupPixelRect | null;
+    /**
+     * Unstructured native diagnostics. Every condition the pipeline aggregates
+     * or displays as a decision travels in `warningEvents` instead; artifacts
+     * written before that channel existed still carry those sentences here.
+     */
     warnings?: string[];
+    warningEvents?: TScanCleanupWarningEvent[];
     renderDpi?: number;
     matchedCanvasTargetWidthPoints?: number | null;
     matchedCanvasTargetHeightPoints?: number | null;
@@ -840,6 +847,300 @@ const resultEnvelope = s.object({
         failureResult,
     ] as const, 'Invalid evb-scan-cleanup result envelope'),
 });
+
+/**
+ * Structured warning transport. A producer states the condition it detected and
+ * the finite parameters that describe it; the shared formatter in
+ * `scan-cleanup-core/policy/scanCleanupWarningEvents` owns every user-visible
+ * sentence. Aggregation therefore reads codes, never English, and a wording
+ * change cannot turn one aggregate into per-page noise.
+ */
+export const SCAN_CLEANUP_WARNING_EVENT_CODES = [
+    'matched-canvas-content-fitted',
+    'matched-canvas-content-fitted-pages',
+    'matched-canvas-margins-reduced',
+    'matched-canvas-margins-unavailable',
+    'matched-canvas-paper-downscaled',
+    'matched-canvas-optical-centering-fallback',
+    'matched-canvas-intrinsic-overflow',
+    'matched-canvas-spread-headroom-trimmed',
+    'matched-canvas-fold-columns-discarded',
+    'matched-canvas-dropped',
+    'matched-canvas-geometry-unmeasured',
+    'matched-canvas-pages-resampled',
+    'matched-canvas-pages-scaled-in-place',
+    'matched-canvas-document-dpi-normalized',
+    'matched-canvas-page-dpi-capped',
+    'render-dpi-limited',
+] as const;
+
+export type TScanCleanupWarningEventCode = typeof SCAN_CLEANUP_WARNING_EVENT_CODES[number];
+
+/** One output's placement cannot report more conditions than the matrix holds. */
+const MAX_SCAN_CLEANUP_WARNING_EVENTS = 32;
+const MAX_SCAN_CLEANUP_WARNING_EVENT_DETAIL_LENGTH = 512;
+/**
+ * Every numeric parameter is bounded, not merely finite. Like the IPC input
+ * limits these ceilings sit far above any document the pipeline can produce —
+ * the raster guardrail stops at 40 000 px a side, and 1 000 000 pt is 13 888
+ * inches of paper — while keeping a decoded event's arithmetic and rendered
+ * width bounded no matter what wrote the artifact. They are stated here rather
+ * than imported from the pipeline's own policy: a contract decides a payload
+ * without depending on the runtime that produced it.
+ */
+const MAX_SCAN_CLEANUP_WARNING_EVENT_EXTENT = 1_000_000;
+const MAX_SCAN_CLEANUP_WARNING_EVENT_DPI = 100_000;
+const MAX_SCAN_CLEANUP_WARNING_EVENT_DPI_THOUSANDTHS = MAX_SCAN_CLEANUP_WARNING_EVENT_DPI * 1_000;
+/**
+ * The condition itself means the paper did not fit, so every real scale is
+ * below 100%; the ceiling is 1000% so headroom, not the check, is what a
+ * producer runs out of first.
+ */
+const MAX_SCAN_CLEANUP_WARNING_EVENT_SCALE_PERCENT_TENTHS = 10_000;
+
+const warningEventMessage = 'Invalid evb-scan-cleanup warning event';
+const warningEventCode = <const TCode extends TScanCleanupWarningEventCode>(code: TCode) =>
+    s.oneOf([code] as const, warningEventMessage);
+/**
+ * Physical extents travel in the unit their producer measures in: a raster
+ * placement in canvas pixels, a lossless placement in PDF points. The unit also
+ * decides how the formatter prints them, so pixel extents must be whole.
+ */
+const warningEventUnit = s.oneOf([
+    'px',
+    'pt',
+] as const, warningEventMessage);
+const warningEventExtent = s.number({
+    min: 0,
+    max: MAX_SCAN_CLEANUP_WARNING_EVENT_EXTENT,
+    message: warningEventMessage,
+});
+const warningEventCount = s.number({
+    integer: true,
+    min: 0,
+    max: MAX_SCAN_CLEANUP_WARNING_EVENT_EXTENT,
+    message: warningEventMessage,
+});
+const warningEventDpi = s.number({
+    min: Number.MIN_VALUE,
+    max: MAX_SCAN_CLEANUP_WARNING_EVENT_DPI,
+    message: warningEventMessage,
+});
+/**
+ * A DPI the formatter prints with three decimals, and a percentage it prints
+ * with one, travel as the fixed-point integer their producer quantized to.
+ * Rust and JavaScript disagree on which way an exact half rounds, so the digits
+ * are decided once — by the code that measured the value — and the formatter
+ * only places the decimal point.
+ */
+const warningEventDpiThousandths = s.number({
+    integer: true,
+    min: 1,
+    max: MAX_SCAN_CLEANUP_WARNING_EVENT_DPI_THOUSANDTHS,
+    message: warningEventMessage,
+});
+const warningEventScalePercentTenths = s.number({
+    integer: true,
+    min: 0,
+    max: MAX_SCAN_CLEANUP_WARNING_EVENT_SCALE_PERCENT_TENTHS,
+    message: warningEventMessage,
+});
+const warningEventPageNumber = s.number({
+    integer: true,
+    min: 1,
+    max: SCAN_CLEANUP_INPUT_MAX_PAGES,
+    message: warningEventMessage,
+});
+/**
+ * A page list is a set the producer already deduplicated, kept in the order it
+ * discovered the pages in — source order carries meaning, so the contract
+ * checks for repeats rather than normalizing them away.
+ */
+const warningEventPages = s.refine(
+    s.array(warningEventPageNumber),
+    value => value.length > 0
+        && value.length <= SCAN_CLEANUP_INPUT_MAX_PAGES
+        && new Set(value).size === value.length,
+    warningEventMessage,
+);
+const warningEventDetail = s.refine(
+    s.string(),
+    value => value.length <= MAX_SCAN_CLEANUP_WARNING_EVENT_DETAIL_LENGTH,
+    warningEventMessage,
+);
+const pixelExtentsAreWhole = (
+    unit: 'px' | 'pt',
+    extents: ReadonlyArray<number | undefined>,
+) => unit !== 'px'
+    || extents.every(extent => extent === undefined || Number.isSafeInteger(extent));
+/**
+ * An optional rectangle is one measurement, not two. A producer that measured
+ * it reports both sides; one side alone is a payload the formatter would have
+ * to guess at, so the contract refuses it.
+ */
+const rectangleIsWholeOrAbsent = (width?: number, height?: number) =>
+    (width === undefined) === (height === undefined);
+
+const contentFitted = s.refine(s.object({
+    code: warningEventCode('matched-canvas-content-fitted'),
+    unit: warningEventUnit,
+    contentWidth: warningEventExtent,
+    contentHeight: warningEventExtent,
+    innerWidth: warningEventExtent,
+    innerHeight: warningEventExtent,
+    /** Present only where the producer reports the whole document rectangle. */
+    documentCanvasWidth: s.optional(warningEventExtent),
+    documentCanvasHeight: s.optional(warningEventExtent),
+}, {
+    exact: true,
+    message: warningEventMessage,
+}), value => pixelExtentsAreWhole(value.unit, [
+    value.contentWidth,
+    value.contentHeight,
+    value.innerWidth,
+    value.innerHeight,
+    value.documentCanvasWidth,
+    value.documentCanvasHeight,
+]) && rectangleIsWholeOrAbsent(
+    value.documentCanvasWidth,
+    value.documentCanvasHeight,
+), warningEventMessage);
+const paperDownscaled = s.refine(s.object({
+    code: warningEventCode('matched-canvas-paper-downscaled'),
+    unit: warningEventUnit,
+    scalePercentTenths: warningEventScalePercentTenths,
+    documentCanvasWidth: warningEventExtent,
+    documentCanvasHeight: warningEventExtent,
+    /** Present only where the producer measured the paper it could not hold. */
+    paperWidth: s.optional(warningEventExtent),
+    paperHeight: s.optional(warningEventExtent),
+}, {
+    exact: true,
+    message: warningEventMessage,
+}), value => pixelExtentsAreWhole(value.unit, [
+    value.documentCanvasWidth,
+    value.documentCanvasHeight,
+    value.paperWidth,
+    value.paperHeight,
+]) && rectangleIsWholeOrAbsent(value.paperWidth, value.paperHeight), warningEventMessage);
+const warningEvent = s.union([
+    contentFitted,
+    s.object({
+        code: warningEventCode('matched-canvas-content-fitted-pages'),
+        pages: warningEventPages,
+    }, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+    s.object({code: warningEventCode('matched-canvas-margins-reduced')}, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+    s.object({code: warningEventCode('matched-canvas-margins-unavailable')}, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+    paperDownscaled,
+    s.object({code: warningEventCode('matched-canvas-optical-centering-fallback')}, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+    s.object({
+        code: warningEventCode('matched-canvas-intrinsic-overflow'),
+        leftPx: warningEventCount,
+        rightPx: warningEventCount,
+    }, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+    s.object({
+        code: warningEventCode('matched-canvas-spread-headroom-trimmed'),
+        topPx: warningEventCount,
+    }, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+    s.object({
+        code: warningEventCode('matched-canvas-fold-columns-discarded'),
+        leftColumns: warningEventCount,
+        rightColumns: warningEventCount,
+    }, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+    s.object({code: warningEventCode('matched-canvas-dropped')}, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+    s.object({
+        code: warningEventCode('matched-canvas-geometry-unmeasured'),
+        detail: warningEventDetail,
+    }, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+    s.object({
+        code: warningEventCode('matched-canvas-pages-resampled'),
+        pages: warningEventPages,
+    }, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+    s.object({
+        code: warningEventCode('matched-canvas-pages-scaled-in-place'),
+        pages: warningEventPages,
+    }, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+    s.object({
+        code: warningEventCode('matched-canvas-document-dpi-normalized'),
+        canvasDpi: warningEventDpi,
+        finestPageDpi: warningEventDpi,
+    }, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+    s.object({
+        code: warningEventCode('matched-canvas-page-dpi-capped'),
+        pageNumber: warningEventPageNumber,
+        appliedDpi: warningEventDpi,
+        requestedDpi: warningEventDpi,
+    }, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+    s.object({
+        code: warningEventCode('render-dpi-limited'),
+        appliedDpiThousandths: warningEventDpiThousandths,
+        requestedDpiThousandths: warningEventDpiThousandths,
+    }, {
+        exact: true,
+        message: warningEventMessage,
+    }),
+] as const, warningEventMessage);
+
+export const SCAN_CLEANUP_WARNING_EVENTS_SCHEMA = s.refine(
+    s.array(warningEvent),
+    value => value.length <= MAX_SCAN_CLEANUP_WARNING_EVENTS,
+    'evb-scan-cleanup warning events exceed the protocol limit',
+);
+
+export type TScanCleanupWarningEvent = TInferSchema<typeof warningEvent>;
+
+/**
+ * The catalog and the decoded union are one list of codes stated twice: the
+ * catalog is what aggregation and the formatter switch on, the union is what a
+ * payload may carry. Either list gaining a code the other lacks collapses this
+ * type to `never`, so the assignment stops compiling before the two can drift.
+ */
+type TSameCodes<TCatalog extends string, TCarried extends string> = [TCatalog] extends [TCarried]
+    ? [TCarried] extends [TCatalog] ? true : never
+    : never;
+const _warningEventCodesMatchCatalog: TSameCodes<
+    TScanCleanupWarningEventCode,
+    TScanCleanupWarningEvent['code']
+> = true;
 
 export const NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA = s.fromParser((value: unknown) => {
     if (!isRecord(value) || value.version !== SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION) {

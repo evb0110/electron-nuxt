@@ -5360,6 +5360,11 @@ fn matched_canvas_keeps_a_page_that_already_fits_off_the_resampler() {
         serde_json::json!([]),
         "a page within a pixel of the grid is not reported as fitted below it"
     );
+    assert_eq!(
+        metadata_json["warningEvents"],
+        serde_json::json!([]),
+        "a page within a pixel of the grid reports no placement condition"
+    );
     let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
     assert_eq!((image.width(), image.height()), (100, 100));
     assert_native_canvas_owns_image(&metadata_json);
@@ -5434,12 +5439,15 @@ fn matched_canvas_reserves_requested_output_padding_inside_the_physical_page() {
     );
     let metadata_json: Value = serde_json::from_slice(&fs::read(&metadata).unwrap()).unwrap();
     assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(true));
-    let warnings = metadata_json["warnings"].as_array().unwrap();
+    let warning_events = metadata_json["warningEvents"].as_array().unwrap();
     assert!(
-        warnings
-            .iter()
-            .any(|warning| warning.as_str().unwrap_or("").contains("document canvas")),
-        "warnings={warnings:?}"
+        warning_events.iter().any(|event| {
+            event["code"] == "matched-canvas-content-fitted"
+                && event["unit"] == "px"
+                && event["documentCanvasWidth"] == 100.0
+                && event["documentCanvasHeight"] == 100.0
+        }),
+        "warningEvents={warning_events:?}"
     );
     let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
     assert_eq!((image.width(), image.height()), (100, 100));
@@ -5521,13 +5529,14 @@ fn matched_canvas_reports_a_sheet_larger_than_the_rectangle_it_was_measured_for(
     assert_eq!(metadata_json["canvasOverflow"], serde_json::json!(false));
     assert_eq!(metadata_json["matchedCanvasContentWidthPx"], 50);
     assert_eq!(metadata_json["matchedCanvasContentHeightPx"], 50);
-    let warnings = metadata_json["warnings"].as_array().unwrap();
+    let warning_events = metadata_json["warningEvents"].as_array().unwrap();
     assert!(
-        warnings.iter().any(|warning| warning
-            .as_str()
-            .unwrap_or("")
-            .contains("at 50.0% of the document's scale")),
-        "warnings={warnings:?}"
+        warning_events.iter().any(|event| {
+            event["code"] == "matched-canvas-paper-downscaled"
+                && event["unit"] == "px"
+                && event["scalePercentTenths"] == 500
+        }),
+        "warningEvents={warning_events:?}"
     );
     let image = decode_gray(&fs::read(&output).unwrap(), 50_000, 300).unwrap();
     assert_eq!((image.width(), image.height()), (50, 100));

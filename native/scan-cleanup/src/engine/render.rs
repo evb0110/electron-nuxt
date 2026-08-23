@@ -94,6 +94,118 @@ pub struct PdfImagePlacement {
     pub height_points: f64,
 }
 
+/// Unit a warning event's physical extents are measured in. Native placement
+/// works on the canvas pixel grid; the lossless path measures the same
+/// conditions in PDF points.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WarningExtentUnit {
+    Px,
+    Pt,
+}
+
+/// Structured counterpart of `CleanupMetadata::warnings` for every condition
+/// the pipeline aggregates or presents as a decision. Wording, units, and page
+/// prefixes belong to the shared TypeScript formatter, so an event carries only
+/// the parameters that sentence needs and never any user-facing text.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "code",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+pub enum CleanupWarningEvent {
+    MatchedCanvasContentFitted {
+        unit: WarningExtentUnit,
+        content_width: f64,
+        content_height: f64,
+        inner_width: f64,
+        inner_height: f64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        document_canvas_width: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        document_canvas_height: Option<f64>,
+    },
+    MatchedCanvasMarginsReduced,
+    MatchedCanvasMarginsUnavailable,
+    MatchedCanvasPaperDownscaled {
+        unit: WarningExtentUnit,
+        scale_percent_tenths: i64,
+        document_canvas_width: f64,
+        document_canvas_height: f64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        paper_width: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        paper_height: Option<f64>,
+    },
+    MatchedCanvasOpticalCenteringFallback,
+    MatchedCanvasIntrinsicOverflow {
+        left_px: usize,
+        right_px: usize,
+    },
+    MatchedCanvasSpreadHeadroomTrimmed {
+        top_px: usize,
+    },
+    MatchedCanvasFoldColumnsDiscarded {
+        left_columns: usize,
+        right_columns: usize,
+    },
+    RenderDpiLimited {
+        applied_dpi_thousandths: i64,
+        requested_dpi_thousandths: i64,
+    },
+}
+
+/// Quantizes a measurement to `10^-decimals` units, rounding to nearest with
+/// ties to even on the exact binary value — the rule this sidecar's own
+/// `{:.N}` text followed before wording moved to TypeScript. Deciding the
+/// digits here is what keeps them out of a formatter whose language resolves an
+/// exact half the other way; the formatter only places the decimal point.
+///
+/// A non-finite measurement has no digits to report and quantizes to zero; a
+/// magnitude past `i64` saturates, which the contract's own ceilings reject.
+pub(crate) fn quantize_decimal(value: f64, decimals: u32) -> i64 {
+    if !value.is_finite() {
+        return 0;
+    }
+    let scale = 10i128.pow(decimals);
+    let bits = value.abs().to_bits();
+    let biased_exponent = ((bits >> 52) & 0x7ff) as i32;
+    let fraction = i128::from(bits & ((1u64 << 52) - 1));
+    // `value.abs()` is exactly `mantissa * 2^exponent`.
+    let (mantissa, exponent) = if biased_exponent == 0 {
+        (fraction, -1074)
+    } else {
+        (fraction | (1i128 << 52), biased_exponent - 1075)
+    };
+    let scaled_mantissa = mantissa.saturating_mul(scale);
+    let magnitude = if exponent >= 127 {
+        i128::MAX
+    } else if exponent >= 0 {
+        scaled_mantissa.saturating_mul(1i128 << exponent)
+    } else if -exponent >= 127 {
+        // Below 2^-74 before scaling: less than half a quantum at any precision.
+        0
+    } else {
+        let denominator = 1i128 << -exponent;
+        let quotient = scaled_mantissa / denominator;
+        let doubled_remainder = (scaled_mantissa % denominator) * 2;
+        if doubled_remainder > denominator
+            || (doubled_remainder == denominator && quotient % 2 == 1)
+        {
+            quotient + 1
+        } else {
+            quotient
+        }
+    };
+    let clamped = magnitude.clamp(0, i128::from(i64::MAX)) as i64;
+    if value.is_sign_negative() {
+        -clamped
+    } else {
+        clamped
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanupMetadata {
@@ -284,7 +396,10 @@ pub struct CleanupMetadata {
     pub render_dpi: f64,
     pub requested_render_dpi: f64,
     pub raster_scale_limited: bool,
+    /// Unstructured diagnostics with no program logic or UI behind them.
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub warning_events: Vec<CleanupWarningEvent>,
 }
 
 fn is_zero_usize(value: &usize) -> bool {
@@ -623,6 +738,7 @@ pub(crate) fn clean_detail_page_with_color(
     metadata.raster_scale_limited = options.dpi + f64::EPSILON < options.requested_render_dpi();
     metadata.canvas_scope = crate::protocol::manifest_v3::CanvasScope::Page;
     metadata.warnings = output.metadata.warnings;
+    metadata.warning_events = output.metadata.warning_events;
     output.metadata = metadata;
     output.effectively_blank = false;
 
@@ -6709,11 +6825,12 @@ fn clean_region(
     let source_dpi = options.source_dpi();
     let requested_render_dpi = options.requested_render_dpi();
     let raster_scale_limited = options.dpi + f64::EPSILON < requested_render_dpi;
+    let mut warning_events = Vec::new();
     if raster_scale_limited {
-        warnings.push(format!(
-            "Requested render DPI {requested_render_dpi:.3} was limited to {:.3} by native raster safety limits",
-            options.dpi
-        ));
+        warning_events.push(CleanupWarningEvent::RenderDpiLimited {
+            applied_dpi_thousandths: quantize_decimal(options.dpi, 3),
+            requested_dpi_thousandths: quantize_decimal(requested_render_dpi, 3),
+        });
     }
     Ok(CleanupResult {
         image,
@@ -6801,6 +6918,7 @@ fn clean_region(
             requested_render_dpi,
             raster_scale_limited,
             warnings,
+            warning_events,
         },
     })
 }

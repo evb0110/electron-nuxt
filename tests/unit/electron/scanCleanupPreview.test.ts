@@ -44,6 +44,7 @@ import {
     type IScanCleanupPreviewService,
 } from '@electron/features/scan-cleanup/createScanCleanupPreviewService';
 import {resolveScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/createScanCleanupService';
+import {formatScanCleanupWarningEvent} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
     decodeScanCleanupDetectionJobState,
@@ -2707,9 +2708,21 @@ describe('scan cleanup preview', () => {
                 rightPx: 30,
                 bottomPx: 30,
             },
-            warnings: [expect.stringContaining('below the document\'s scale')],
         });
         expect(output!.matchedCanvasContentWidthPx).toBe(DOCUMENT_CANVAS.widthPx - 60);
+        // The lossless preview reports the fitted placement through the shared
+        // code, so the sentence it shows is the final run's sentence. Its
+        // extents are stated outright rather than read back from the metadata
+        // under test: the 120x80 source fills the inner box's width and keeps
+        // its 3:2 aspect down the page.
+        expect(output!.warnings).toEqual([formatScanCleanupWarningEvent({
+            code: 'matched-canvas-content-fitted',
+            unit: 'px',
+            contentWidth: 1_215,
+            contentHeight: 810,
+            innerWidth: DOCUMENT_CANVAS.widthPx - 60,
+            innerHeight: DOCUMENT_CANVAS.heightPx - 60,
+        })]);
         expect(output!.matchedCanvasContentHeightPx! / output!.matchedCanvasContentWidthPx!)
             .toBeCloseTo(80 / 120, 2);
     });
@@ -4955,8 +4968,17 @@ describe('scan cleanup preview', () => {
                 matchedCanvasContentHeightPx: 180,
                 placementOffsetXPx: 2,
                 placementOffsetYPx: 0,
-                warnings: ['Matched page size fitted this page to 196x180 px inside the 196x180 px requested '
-                    + 'margin box on the 200x180 px document canvas, below the document\'s scale'],
+                warnings: [],
+                warningEvents: [{
+                    code: 'matched-canvas-content-fitted',
+                    unit: 'px',
+                    contentWidth: 196,
+                    contentHeight: 180,
+                    innerWidth: 196,
+                    innerHeight: 180,
+                    documentCanvasWidth: 200,
+                    documentCanvasHeight: 180,
+                }],
             }));
         });
 
@@ -4973,7 +4995,18 @@ describe('scan cleanup preview', () => {
             matchedCanvasContentHeightPx: 180,
             placementOffsetXPx: 2,
             canvasOverflow: true,
-            warnings: [expect.stringContaining('below the document\'s scale')],
+            // The condition arrives as a code and leaves as the sentence the
+            // final run reports for the same placement.
+            warnings: [formatScanCleanupWarningEvent({
+                code: 'matched-canvas-content-fitted',
+                unit: 'px',
+                contentWidth: 196,
+                contentHeight: 180,
+                innerWidth: 196,
+                innerHeight: 180,
+                documentCanvasWidth: 200,
+                documentCanvasHeight: 180,
+            })],
         }}]});
     });
 
