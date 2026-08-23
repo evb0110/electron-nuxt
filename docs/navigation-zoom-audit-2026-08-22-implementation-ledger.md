@@ -317,3 +317,21 @@ bookmark toolbar during loading/error, capability-check `closeSearch`), Z2
 5. k, then l (both under the annotation contract, k first so l's UI work sits
    on the unified predicate).
 6. c, m2, v as the area next comes up; P3 batch opportunistically.
+
+## Issue tracking
+
+Filed 2026-08-23, all labeled `ready-for-agent` except the P3 umbrella:
+
+| Item | Issue |
+| --- | --- |
+| Z1 web fit shortcuts | #83 |
+| a bookmark panel state | #84 |
+| m1 keyboard paging | #85 |
+| m2 thumbnail rail keyboard access | #86 |
+| c active bookmark under collapsed ancestors | #87 |
+| g search cancel stub | #88 |
+| i exact-limit truncation | #89 |
+| k 0.02 marker predicate | #90 |
+| l author-enrichment surfacing | #94 (blocked by #90) |
+| v annotation snapshot LRU byte bound | #95 |
+| P3 batch umbrella | #96 |
