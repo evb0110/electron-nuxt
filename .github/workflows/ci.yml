@@ -325,9 +325,6 @@ jobs:
       - name: Rust tests
         run: pnpm run test:rust
 
-      - name: Scan-cleanup real-corpus tests
-        run: node scripts/run-native-corpus-tests.mjs
-
       - name: Scan-cleanup catastrophe baseline
         run: scripts/ci/scan-cleanup-oracles.sh native "$RUNNER_TEMP/scan-cleanup-oracles"
 
@@ -342,14 +339,53 @@ jobs:
       - name: Strict build
         run: pnpm run build:strict
 
-      # Release-check commands that previously ran only at release time; push
-      # CI's gates_ok is the single validation authority, so they run here,
-      # once, whenever native or build surfaces change.
-      - name: Canonical scan-cleanup identity
-        run: pnpm run test:scan-cleanup:canonical-identity
-
+      # Release-check command promoted from release time; push CI's gates_ok
+      # is the single validation authority. The cargo-release-heavy
+      # scan-cleanup gates run in the parallel pr_scan_cleanup_heavy job so
+      # they widen coverage without lengthening this lane's serial path.
       - name: Electron bundle static integrity
         run: pnpm run test:electron-bundle-static-integrity:no-build
+
+  pr_scan_cleanup_heavy:
+    # The two cargo-release-heavy scan-cleanup gates (real-corpus, canonical
+    # identity) measured 18.0m and 7.7m serially inside Native And Build
+    # Safety, pushing that lane to 45-49 minutes (issue #109's root growth).
+    # Running them as a parallel sibling keeps them blocking through gates_ok
+    # while the native lane's serial path returns to ~26 minutes; within this
+    # job the two share one cargo target directory.
+    name: Scan Cleanup Heavy Gates
+    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
+    needs: pr_changed_areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Install PDF text test tools
+        timeout-minutes: 15
+        run: scripts/ci/apt-install.sh poppler-utils
+
+      - name: Scan-cleanup real-corpus tests
+        run: node scripts/run-native-corpus-tests.mjs
+
+      - name: Canonical scan-cleanup identity
+        run: pnpm run test:scan-cleanup:canonical-identity
 
   pr_rust_tests_arm64:
     name: Rust Tests (Linux arm64)
@@ -501,6 +537,7 @@ jobs:
       - pr_electron_blocking_smoke
       - pr_browser_integration
       - pr_native_build_safety
+      - pr_scan_cleanup_heavy
       - pr_rust_tests_arm64
       - pr_scan_cleanup_oracles
       - pr_landing_quality
@@ -523,6 +560,7 @@ jobs:
             ['pr_electron_blocking_smoke', process.env.ELECTRON_SMOKE_CHANGED],
             ['pr_browser_integration', process.env.BROWSER_INTEGRATION_CHANGED],
             ['pr_native_build_safety', process.env.NATIVE_OR_BUILD_CHANGED],
+            ['pr_scan_cleanup_heavy', process.env.NATIVE_OR_BUILD_CHANGED],
             ['pr_rust_tests_arm64', process.env.NATIVE_OR_BUILD_CHANGED],
             ['pr_scan_cleanup_oracles', process.env.SCAN_CLEANUP_EXPORT_CHANGED],
             ['pr_landing_quality', process.env.LANDING_CHANGED],
