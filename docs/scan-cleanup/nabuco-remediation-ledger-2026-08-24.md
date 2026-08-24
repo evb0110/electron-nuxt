@@ -2,8 +2,8 @@
 
 Date: 2026-08-24
 
-Status: Implementation and local closure gates complete. Repository review,
-publication, and exact-commit CI are in progress.
+Status: Verified and published to `main`. The implementation, full-document
+artifact, manual review, repository review, and exact-commit CI are complete.
 
 Planning baseline: `c23eed1fd5cb7328eb9020cdafefa985f5c0255f`
 
@@ -153,14 +153,14 @@ negative behavior requirements.
 
 | Package | Priority | State | Depends on | Primary owner | Closure summary |
 | --- | --- | --- | --- | --- | --- |
-| NAB-EVID-001 Durable evidence | P0 | Verified locally | Redistribution decision | Fixture and corpus ownership | Generated fixtures run in CI. The external lane verifies the Nabuco hash and selected pages without redistributing source bytes. |
+| NAB-EVID-001 Durable evidence | P0 | Verified | Redistribution decision | Fixture and corpus ownership | Generated fixtures run in CI. The external lane verifies the Nabuco hash and selected pages without redistributing source bytes. |
 | NAB-ISSUES-001 Publish five issue specs | P1 | Not authorized | This ledger; fixture branch named | GitHub issue tracker | No issues were opened. The implementation request did not require or authorize issue publication. |
-| NAB-DEWARP-001 Contain automatic dewarp | P1 | Verified locally | NAB-EVID-001 | `auto_dewarp.rs` and dewarp harness | Filtered text-component containment rejects unsafe narrow models through the existing no-dewarp path. |
-| NAB-ORACLE-001 Audit RGB and non-affine output | P1 | Verified locally | NAB-EVID-001 | Word-loss audit and CI corpus | The generated RGB camera fixture runs under enforced text-loss checking, and malformed non-affine mappings fail closed. |
-| NAB-FOLD-001 Retain fold-side text | P1 | Verified locally | NAB-ORACLE-001 | `split.rs` and render planning | Local column support protects fold-side line starts in automatic, manual, and full-resolution paths. |
-| NAB-MIXED-001 Reject destructive Mixed ownership | P1 | Verified locally | NAB-ORACLE-001 | `mode_select.rs` and Mixed render path | Auto requires independent picture-tone evidence before paper tint can produce Mixed; genuine Mixed controls remain Mixed. |
-| NAB-SPREAD-001 Recover five physical spreads | P2 | Verified locally | NAB-EVID-001; true-single negatives | Split detection and document reconciliation | A strict one-weak-outer-edge recovery plus guarded CropBox-to-MediaBox retry recovers all 148 spreads without changing tracked true singles. |
-| NAB-FULL-001 Whole-document closure | P1 | Verified locally | All five behavior packages | Scan-cleanup program | The final rerun has 296 leaves, zero accepted dewarps, and no major or catastrophic defect in manual review. The full gate, external corpus, affected oracle, and compatibility classifier pass. Repository review, commit, and CI remain. |
+| NAB-DEWARP-001 Contain automatic dewarp | P1 | Verified | NAB-EVID-001 | `auto_dewarp.rs` and dewarp harness | Filtered text-component containment rejects unsafe narrow models through the existing no-dewarp path. |
+| NAB-ORACLE-001 Audit RGB and non-affine output | P1 | Verified | NAB-EVID-001 | Word-loss audit and CI corpus | The generated RGB camera fixture runs under enforced text-loss checking, and malformed non-affine mappings fail closed. |
+| NAB-FOLD-001 Retain fold-side text | P1 | Verified | NAB-ORACLE-001 | `split.rs` and render planning | Local column support protects fold-side line starts in automatic, manual, and full-resolution paths. |
+| NAB-MIXED-001 Reject destructive Mixed ownership | P1 | Verified | NAB-ORACLE-001 | `mode_select.rs` and Mixed render path | Auto requires independent picture-tone evidence before paper tint can produce Mixed; genuine Mixed controls remain Mixed. |
+| NAB-SPREAD-001 Recover five physical spreads | P2 | Verified | NAB-EVID-001; true-single negatives | Split detection and document reconciliation | A strict one-weak-outer-edge recovery plus guarded CropBox-to-MediaBox retry recovers all 148 spreads without changing tracked true singles. |
+| NAB-FULL-001 Whole-document closure | P1 | Verified | All five behavior packages | Scan-cleanup program | The final rerun has 296 leaves, zero accepted dewarps, and no major or catastrophic defect in manual review. The full gate, external corpus, affected oracle, compatibility classifier, repository reviews, publication, and exact-commit CI pass. |
 
 NAB-ISSUES-001 publishes five issues in total. Four describe product behavior.
 The fifth describes RGB and non-affine oracle capability. It must not claim that
@@ -571,14 +571,18 @@ NAB-FULL-001 adds these final gates:
 Package: `NAB-EVID-001`, `NAB-DEWARP-001`, `NAB-ORACLE-001`,
 `NAB-FOLD-001`, `NAB-MIXED-001`, `NAB-SPREAD-001`, and `NAB-FULL-001`
 
-State: Verified locally. Publication evidence remains pending.
+State: Verified.
 
 Issue: None. Issue publication was not authorized or required.
 
 Implementation baseline SHA:
 `c23eed1fd5cb7328eb9020cdafefa985f5c0255f`
 
-Commit SHA: Pending local review and commit.
+Implementation commit SHA:
+`4134d8d84b8b830b193661567ad30e8221879f70`
+
+Coverage follow-up commit SHA:
+`e652c32745fdf1bf15b76c29929aaccc0dca0d38`
 
 Changed scope:
 
@@ -616,6 +620,11 @@ Commands and exact results:
 - `pnpm run test:scan-cleanup:affected-oracles`: exit 0, native catastrophes
   0, RGB text-loss flags 0. The pre-existing RGB preview-weight warning remains
   diagnostic and is not an enforced text-loss failure.
+- `pnpm run test:coverage` after the coverage follow-up: 1,085 files and 9,108
+  tests passed. The coverage ratchet passed, including scan-cleanup-adapters at
+  71.11% statements, 68.38% branches, 80.70% functions, and 72.13% lines. The
+  zero-execution tripwire passed for 175 production files, including all 18
+  changed production files.
 - `pnpm run diag:verify-generated-pdf` on the 16-page representative real
   output: `classified-compatible`, 0 failures. Compatibility report SHA-256:
   `76ad9c579b2c1edc8c3e024ea91de06ce8b5b3e87eaea07db4e1d4a4da55bdd2`.
@@ -658,9 +667,21 @@ mapping guards, mapping-space validation, CropBox normalization, and admission
 report ownership. Refactor-only and redundant-test suggestions were declined
 after the applicable focused and full tests passed.
 
-Cubic disposition: Pending commit.
+Cubic disposition: The implementation commit passed with 8 advisory findings
+after the shared renderer-geometry refactor. The coverage follow-up passed with
+one advisory about `Promise.withResolvers`; it does not apply because
+`package.json` and every CI workflow pin Node 24.11.1.
 
-CI run and conclusion: Pending push.
+CI run and conclusion:
+
+- implementation run
+  `https://github.com/evb0110/evb-viewer/actions/runs/32784610965` failed only
+  the changed-file coverage tripwire. This exposed unexercised adapter and CLI
+  paths and led to the follow-up commit;
+- follow-up run
+  `https://github.com/evb0110/evb-viewer/actions/runs/32787135451` passed. Quality
+  Gates, Scan Cleanup Export Oracles, attribution, compatibility checks, and
+  aggregate `gates_ok` are green for the exact published SHA.
 
 Remaining risks and non-goals:
 
@@ -699,5 +720,6 @@ Next package unblocked:
 
 ## Current next action
 
-Complete CodeRabbit and Cubic review, publish the implementation to `main`,
-wait for exact-commit CI, then append the commit and CI identifiers above.
+No remediation package remains open. A future task may add a real curved-page
+positive to measure automatic-dewarp quality, which this safety-focused change
+does not claim to improve.
