@@ -440,7 +440,14 @@ async function waitForCommittedFitHeightGeometry(
             const pageContainer = viewport?.querySelector<HTMLElement>(
                 `.page_container[data-page="${String(targetPage)}"]`,
             ) ?? null;
-            const canvas = pageContainer?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+            // A fit change preserves the pre-fit pixels in a resize snapshot
+            // canvas until the new-scale raster commits. Measuring that
+            // snapshot would report the previous fit's raster resolution, so
+            // read the live render layer and require the preserved copy to be
+            // retired before this geometry counts as committed.
+            const canvas = pageContainer?.querySelector<HTMLCanvasElement>(
+                '.page_canvas .page_canvas__render-layer canvas',
+            ) ?? null;
             if (
                 toolbar?.zoomMode !== 'fit-height'
             || !viewport
@@ -448,6 +455,8 @@ async function waitForCommittedFitHeightGeometry(
             || !canvas
             || canvas.width <= 0
             || canvas.height <= 0
+            || !pageContainer.classList.contains('page_container--rendered')
+            || pageContainer.querySelector('.pdf-resize-canvas-snapshot') !== null
             || pageContainer.querySelector('.document-page-skeleton') !== null
             ) {
                 return false;
@@ -516,7 +525,9 @@ async function waitForCommittedFitHeightGeometry(
             const pageContainer = viewport?.querySelector<HTMLElement>(
                 `.page_container[data-page="${String(targetPage)}"]`,
             ) ?? null;
-            const canvas = pageContainer?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+            const canvas = pageContainer?.querySelector<HTMLCanvasElement>(
+                '.page_canvas .page_canvas__render-layer canvas',
+            ) ?? null;
             const pageRect = pageContainer?.getBoundingClientRect() ?? null;
             const canvasRect = canvas?.getBoundingClientRect() ?? null;
             const traceWindow = window as IPdfRenderTraceReaderWindow;
@@ -562,7 +573,9 @@ async function waitForCommittedFitHeightGeometry(
                     left: pageRect.left,
                     top: pageRect.top,
                     width: pageRect.width,
+                    hasResizeSnapshot: pageContainer?.querySelector('.pdf-resize-canvas-snapshot') !== null,
                     hasSkeleton: pageContainer?.querySelector('.document-page-skeleton') !== null,
+                    isRendered: pageContainer?.classList.contains('page_container--rendered') ?? false,
                 } : null,
                 canvas: canvasRect ? {
                     cssHeight: canvasRect.height,
@@ -587,7 +600,9 @@ async function waitForCommittedFitHeightGeometry(
         const pageContainer = viewport.querySelector<HTMLElement>(
             `.page_container[data-page="${String(targetPage)}"]`,
         )!;
-        const canvas = pageContainer.querySelector<HTMLCanvasElement>('.page_canvas canvas')!;
+        const canvas = pageContainer.querySelector<HTMLCanvasElement>(
+            '.page_canvas .page_canvas__render-layer canvas',
+        )!;
         if (!toolbar) {
             throw new Error('Active toolbar snapshot is unavailable');
         }

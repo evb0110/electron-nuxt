@@ -51,7 +51,13 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
                 current.pageNumber,
                 viewport.currentPage.value,
             )
-            || current.snapshot.phase === 'viewport-committed' && !current.surface.markReady(current.render)
+            // The surface phase reports `ready` for the whole life of an open
+            // document once its first visual is committed, because the opening
+            // shell stays retired across later page changes. Readiness is owned
+            // by the viewport lifecycle, which every navigation returns to
+            // `transitioning` until physically painted pixels are confirmed
+            // here, so the mark is driven off the fence rather than the phase.
+            || !current.surface.markReady(current.render)
         ) {
             return;
         }

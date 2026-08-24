@@ -96,10 +96,46 @@ function createResidentCanvasFixture(
         emitInitialVisualReady,
     });
 
+    function mountPageCanvas(pageNumber: number) {
+        const nextPageContainer = document.createElement('div');
+        nextPageContainer.className = 'page_container';
+        nextPageContainer.dataset.page = String(pageNumber);
+        nextPageContainer.getBoundingClientRect = vi.fn(() => cast<DOMRect>({
+            width: 511.459,
+            height: 755,
+        }));
+        const nextCanvasHost = document.createElement('div');
+        nextCanvasHost.className = 'page_canvas';
+        const nextCanvas = document.createElement('canvas');
+        nextCanvas.width = 1023;
+        nextCanvas.height = 1510;
+        nextCanvas.getBoundingClientRect = vi.fn(() => cast<DOMRect>({
+            top: 0,
+            right: 511.459,
+            bottom: 755,
+            left: 0,
+            width: 511.459,
+            height: 755,
+        }));
+        nextCanvasHost.append(nextCanvas);
+        nextPageContainer.append(nextCanvasHost);
+        viewerContainer.append(nextPageContainer);
+        currentPage.value = pageNumber;
+        const snapshot = surface.snapshot.value;
+        initialVisual.handlePageCanvasMounted({
+            openSurfaceGeneration: snapshot.generation,
+            documentRevision: snapshot.identity!.documentRevision,
+            renderVersion: 1,
+            requestId: pageNumber,
+            pageNumber,
+        });
+    }
+
     return {
         initialVisual,
         commitCurrentViewportIfSettled,
         emitInitialVisualReady,
+        mountPageCanvas,
         surface,
         viewerContainer,
     };
@@ -156,6 +192,35 @@ describe('createPdfInitialVisualCommit', () => {
         expect(fixture.surface.viewportSession.value.renderFence).toBeNull();
         expect(fixture.commitCurrentViewportIfSettled).not.toHaveBeenCalled();
         expect(fixture.emitInitialVisualReady).not.toHaveBeenCalled();
+
+        fixture.viewerContainer.remove();
+    });
+
+    it('returns the viewport to ready after an in-document navigation repaints the new page', () => {
+        const fixture = createResidentCanvasFixture();
+        fixture.initialVisual.adoptResidentCanvas(2);
+        expect(fixture.surface.viewportSession.value.lifecycle).toBe('ready');
+
+        fixture.surface.requestNavigation(3, 0);
+        expect(fixture.surface.viewportSession.value).toMatchObject({
+            lifecycle: 'transitioning',
+            requestedPage: 3,
+        });
+
+        fixture.mountPageCanvas(3);
+
+        expect(fixture.surface.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 3,
+            committedPage: 3,
+            visual: {
+                pageNumber: 3,
+                presentation: 'canvas',
+            },
+        });
+        // The opening handshake is owned by the first visual of the open
+        // document; a later page must not republish it.
+        expect(fixture.emitInitialVisualReady).toHaveBeenCalledExactlyOnceWith({pageNumber: 2});
 
         fixture.viewerContainer.remove();
     });
