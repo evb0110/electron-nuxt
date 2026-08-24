@@ -746,7 +746,7 @@ async function main() {
         }
         return runCliNativeToolCommand(command, args, nativeOptions(options, log));
     };
-    const renderers = createCliRenderers(runCommand);
+    const renderers = createCliRenderers(runCommand, pdfinfoBinary);
     const getPageCount: TScanCleanupGetPageCount = async (pdfPath, options) => {
         const result = await runCommand(qpdfBinary, [
             '--show-npages',
@@ -848,6 +848,7 @@ async function main() {
             runCommand,
             signal,
             tempDir: temporaryRoot,
+            resolveSuspiciousCropBoxFallback: false,
         });
     const retention = createCliRetention(
         temporaryRoot,

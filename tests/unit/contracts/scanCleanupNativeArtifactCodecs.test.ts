@@ -123,6 +123,8 @@ function fullSplitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
         leftInkPixels: 31_717,
         rightInkPixels: 20_784,
         outerMarginScore: 1,
+        leftOuterMarginScore: 1,
+        rightOuterMarginScore: 1,
         gutterScore: 1,
         agreementScore: 1,
         foldScore: 0.086,
@@ -154,6 +156,8 @@ function fullSplitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
         independentGutterGatePassed: true,
         aspectSupportGatePassed: true,
         evidenceAgreementGatePassed: true,
+        outerMarginRecovery: false,
+        outerMarginWeakEdge: null,
         sparseSpreadRecovered: true,
         abstained: false,
         foldBand: {

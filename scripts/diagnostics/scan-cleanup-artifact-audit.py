@@ -573,14 +573,13 @@ def _edge_registration_shift(
     shifts: list[int] = []
     correlations: list[float] = []
     for axis in ("x", "y"):
-        projection_bottom = height if axis == "x" else bottom
         source_projection = _edge_projection(
             aligned_source,
             axis=axis,
             left=left,
             top=0,
             right=right,
-            bottom=projection_bottom,
+            bottom=bottom,
         )
         output_projection = _edge_projection(
             output,
@@ -588,7 +587,7 @@ def _edge_registration_shift(
             left=left,
             top=0,
             right=right,
-            bottom=projection_bottom,
+            bottom=bottom,
         )
         if max(source_projection, default=0) == 0 or max(output_projection, default=0) == 0:
             shifts.append(0)

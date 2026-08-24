@@ -33,6 +33,7 @@ import {
     parsePdfPageSizesPayload,
     type IPdfPageSize,
 } from '@electron/pdf/pdfPageSizes';
+import {resolveSuspiciousCropBoxPageSizes} from '@scan-cleanup-core/pdfPageSizes';
 
 const options: IScanCleanupOptions = {
     preserveOriginalQuality: false,
@@ -598,6 +599,38 @@ describe('scan cleanup document canvas', () => {
                 rotation: 90,
             },
         ]);
+    });
+
+    it('uses MediaBox geometry only for a suspicious landscape CropBox', () => {
+        const parsed = parsePdfInfoPageGeometry([
+            'Pages:           3',
+            'Page    1 size:  358.816 x 425.609 pts',
+            'Page    1 rot:   0',
+            'Page    1 MediaBox:      0.00     0.00   841.89   633.89',
+            'Page    1 CropBox:     411.63   122.85   770.44   548.46',
+            'Page    2 size:  760 x 560 pts',
+            'Page    2 rot:   0',
+            'Page    2 MediaBox:      0.00     0.00   800.00   600.00',
+            'Page    2 CropBox:      20.00    20.00   780.00   580.00',
+            'Page    3 size:  760 x 560 pts',
+            'Page    3 rot:   0',
+            'Page    3 MediaBox:      0.00     0.00   800.00   600.00',
+            'Page    3 CropBox:      20.00    20.00   780.00   580.00',
+        ].join('\n'));
+        const resolved = resolveSuspiciousCropBoxPageSizes(parsed);
+
+        expect(resolved[0]).toMatchObject({
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 841.89,
+            heightPoints: 633.89,
+            mediaWidthPoints: 841.89,
+            mediaHeightPoints: 633.89,
+        });
+        expect(resolved[1]).toMatchObject({
+            widthPoints: 760,
+            heightPoints: 560,
+        });
     });
 
     it('refuses a pdfinfo answer that is missing a page', () => {

@@ -43,6 +43,11 @@ supports_type_stripping() {
 }
 
 run_export_oracles() {
+  local rgb_output="$output_root/rgb-camera"
+  mkdir -p "$rgb_output"
+  node scripts/diagnostics/generate-scan-cleanup-rgb-fixture.mjs \
+    --out "$rgb_output/source.pdf"
+
   node scripts/diagnostics/scan-cleanup-preview-harness.mjs \
     --source tests/fixtures/electron/test-scanned.pdf \
     --pages 1 \
@@ -56,6 +61,20 @@ run_export_oracles() {
     --from 1 \
     --to 1 \
     --out "$output_root/word-loss.json" \
+    --fail-on text-loss
+
+  node scripts/diagnostics/scan-cleanup-preview-harness.mjs \
+    --source "$rgb_output/source.pdf" \
+    --pages 1 \
+    --out "$rgb_output/preview"
+
+  node scripts/diagnostics/scan-cleanup-word-loss-audit.mjs \
+    --source "$rgb_output/source.pdf" \
+    --cleaned "$rgb_output/preview/final-reference.pdf" \
+    --mapping "$rgb_output/preview/final-reference.pdf.summary.json" \
+    --from 1 \
+    --to 1 \
+    --out "$rgb_output/word-loss.json" \
     --fail-on text-loss
 }
 

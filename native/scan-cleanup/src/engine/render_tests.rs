@@ -3821,7 +3821,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_mixed_owns_independent_color_when_picture_detection_is_empty() {
+    fn auto_color_preserves_independent_color_when_picture_detection_is_empty() {
         let mut color = RgbImage::new(360, 260, [205, 225, 245]);
         for row in 0..8 {
             for column in 0..14 {
@@ -3874,27 +3874,20 @@ mod tests {
         .outputs
         .remove(0);
 
-        assert_eq!(output.metadata.output_mode, OutputMode::Mixed);
-        let layers = output
-            .mixed_layers
+        assert_eq!(output.metadata.output_mode, OutputMode::Color);
+        let color_output = output
+            .color_image
             .as_ref()
-            .expect("Auto Mixed page must carry actual separable layers");
-        let color_background = layers
-            .color_background
-            .as_ref()
-            .expect("independent color must survive in the Mixed background");
-        let retained_red = color_background.get(270, 210);
+            .expect("unowned color must preserve the full source page");
+        let retained_red = color_output.get(270, 210);
         assert!(
             retained_red[0] > retained_red[1].saturating_add(60)
                 && retained_red[0] > retained_red[2].saturating_add(50),
             "red mark was lost: {retained_red:?}"
         );
         assert!(
-            color_background
-                .get(350, 250)
-                .iter()
-                .all(|value| *value >= 245),
-            "uniform tinted paper was restored instead of whitened"
+            color_output.get(350, 250)[2] > color_output.get(350, 250)[0],
+            "safe Color fallback unexpectedly whitened the source paper"
         );
     }
 

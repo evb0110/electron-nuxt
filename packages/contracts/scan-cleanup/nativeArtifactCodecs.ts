@@ -337,6 +337,7 @@ function outputModeDiagnostics(value: unknown, artifact: TArtifact, label: strin
         'strong-single-line-text',
         'spatial-tone',
         'bilevel-fidelity',
+        'mixed-ownership-veto',
         'uncertain-fallback',
     ] as const, artifact, `${label}.rule`);
     for (const key of [
@@ -392,6 +393,31 @@ function outputModeDiagnostics(value: unknown, artifact: TArtifact, label: strin
         'calibratedSourceXHeightPx',
         'softEdgeToInkRatio',
     ] as const) finite(source[key], artifact, `${label}.${key}`);
+    if (source.protectedTextBlockCount !== undefined) {
+        integer(source.protectedTextBlockCount, artifact, `${label}.protectedTextBlockCount`);
+    }
+    if (source.protectedTextBlockPictureOverlapPixels !== undefined) {
+        integer(
+            source.protectedTextBlockPictureOverlapPixels,
+            artifact,
+            `${label}.protectedTextBlockPictureOverlapPixels`,
+        );
+    }
+    if (source.protectedTextBlockPictureOverlapFraction !== undefined) {
+        unit(
+            source.protectedTextBlockPictureOverlapFraction,
+            artifact,
+            `${label}.protectedTextBlockPictureOverlapFraction`,
+        );
+    }
+    for (const key of [
+        'mixedOwnershipIndependentPictureEvidence',
+        'mixedOwnershipVeto',
+    ] as const) {
+        if (source[key] !== undefined && typeof source[key] !== 'boolean') {
+            fail(artifact, `${label}.${key} must be boolean`);
+        }
+    }
 }
 
 function splitDiagnostics(value: unknown, artifact: TArtifact, label: string) {

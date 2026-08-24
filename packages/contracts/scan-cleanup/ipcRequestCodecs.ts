@@ -743,6 +743,14 @@ export function decodeSourcePageMetadata(value: unknown): IScanCleanupSourcePage
     ) {
         throw new Error('invalid scan-cleanup source page metadata');
     }
+    if (
+        value.renderBox !== undefined
+        && value.renderBox !== 'cropbox'
+        && value.renderBox !== 'mediabox'
+    ) {
+        throw new Error('invalid scan-cleanup source page metadata');
+    }
+    const renderBox = value.renderBox;
     return {
         pageNumber,
         xPoints,
@@ -751,6 +759,7 @@ export function decodeSourcePageMetadata(value: unknown): IScanCleanupSourcePage
         heightPoints: positive('heightPoints'),
         rotation,
         sourceDpi: positive('sourceDpi'),
+        ...(renderBox === undefined ? {} : {renderBox}),
         ...(hasDominant ? {
             dominantImageWidthPx: decodedDominant[0],
             dominantImageHeightPx: decodedDominant[1],

@@ -4,7 +4,7 @@ use scan_primitives::{
     distance::{find_peaks, squared_euclidean_distance},
     morphology::{close, reconstruct_binary},
     threshold::{threshold_local, LocalThreshold},
-    BinaryImage, ComponentMap, GrayImage, Point,
+    BinaryImage, Component, ComponentMap, GrayImage, Point,
 };
 use std::collections::BTreeSet;
 
@@ -29,6 +29,14 @@ const MIN_RELATIVE_IMPROVEMENT: f64 = 0.15;
 const MIN_ABSOLUTE_IMPROVEMENT: f64 = 0.001;
 const SLOPE_PENALTY: f64 = 0.2;
 const DEPTHS: [f64; 5] = [1.0, 1.5, 2.0, 2.5, 3.0];
+const TEXT_COMPONENT_MIN_ASPECT_RATIO: f64 = 0.1;
+const TEXT_COMPONENT_MAX_ASPECT_RATIO: f64 = 10.0;
+const MODEL_CONTAINMENT_VERTICAL_PADDING: f64 = 10.0;
+// Ridge tracing can stop a few glyphs short of the physical text edge when a
+// glyph's horizontal stroke does not support the band response. Keep this
+// allowance horizontal only. The vertical envelope remains tight so a narrow
+// model cannot hide a separate text block above or below it.
+const MODEL_CONTAINMENT_HORIZONTAL_PADDING: f64 = 24.0;
 
 #[derive(Clone, Debug)]
 pub struct AutoDewarpResult {
@@ -137,6 +145,13 @@ pub fn detect_curves_at_dpi_with_depth(
     let Some((working_options, model_score)) = select_model(&lines, &geometry, fixed_depth) else {
         return no_model(0.0);
     };
+    // Model straightness alone cannot tell whether select_model chose a narrow
+    // pair of lines. Keep the guard in working-raster coordinates so every
+    // component used to build the envelope is checked before publication.
+    let plausible_components = plausible_text_components(&text, geometry.width);
+    if !contains_text_components(&working_options, &plausible_components) {
+        return no_model(0.0);
+    }
     let absolute_improvement = identity_score - model_score;
     let relative_improvement = absolute_improvement / identity_score.max(1e-9);
     if identity_score <= MIN_ABSOLUTE_IMPROVEMENT
@@ -397,20 +412,103 @@ fn smooth_samples(samples: &mut [f64]) {
 
 fn has_text_component_distribution(text: &BinaryImage, content_width: f64) -> bool {
     let components = ComponentMap::from_binary(text);
-    let plausible = components
+    let plausible = plausible_text_components(text, content_width);
+    let mut row_centers = plausible
+        .iter()
+        .map(|component| (component.top + component.bottom) / 2)
+        .collect::<Vec<_>>();
+    row_centers.sort_unstable();
+    let row_gap = (text.height() / 40).max(4);
+    let mut row_count = 0usize;
+    let mut previous_center = None;
+    for center in row_centers {
+        if previous_center.is_none_or(|previous| center.abs_diff(previous) >= row_gap) {
+            row_count += 1;
+            previous_center = Some(center);
+        }
+    }
+    plausible.len() >= 20
+        && row_count >= 2
+        && plausible.len() * 2 >= components.components().len().min(plausible.len() * 3)
+}
+
+fn plausible_text_components(text: &BinaryImage, content_width: f64) -> Vec<Component> {
+    let components = ComponentMap::from_binary(text);
+    components
         .components()
         .iter()
         .filter(|component| {
             let width = component.right - component.left + 1;
             let height = component.bottom - component.top + 1;
-            width >= 2
+            let aspect_ratio = width as f64 / height as f64;
+            component.left > 0
+                && component.top > 0
+                && component.right + 1 < text.width()
+                && component.bottom + 1 < text.height()
+                && width >= 2
                 && height >= 2
                 && width as f64 <= content_width * 0.2
                 && height <= text.height().max(1) / 8
                 && component.area >= 6
+                && (TEXT_COMPONENT_MIN_ASPECT_RATIO..=TEXT_COMPONENT_MAX_ASPECT_RATIO)
+                    .contains(&aspect_ratio)
         })
-        .count();
-    plausible >= 20 && plausible * 2 >= components.components().len().min(plausible * 3)
+        .cloned()
+        .collect()
+}
+
+fn contains_text_components(model: &DewarpOptions, components: &[Component]) -> bool {
+    let Some(top_first) = model.top_curve.first() else {
+        return false;
+    };
+    let Some(top_last) = model.top_curve.last() else {
+        return false;
+    };
+    let Some(bottom_first) = model.bottom_curve.first() else {
+        return false;
+    };
+    let Some(bottom_last) = model.bottom_curve.last() else {
+        return false;
+    };
+    let left = top_first.x.max(bottom_first.x);
+    let right = top_last.x.min(bottom_last.x);
+    if !left.is_finite() || !right.is_finite() || left >= right {
+        return false;
+    }
+    // Directrices follow text-line centers. The component half-size accounts
+    // for the glyph box on either side of that center, while the fixed slack
+    // covers a few analysis pixels. Every retained component is checked.
+    components.iter().all(|component| {
+        let center_x = (component.left + component.right) as f64 * 0.5;
+        let center_y = (component.top + component.bottom) as f64 * 0.5;
+        let padding_x = (component.right - component.left + 1) as f64 * 0.5
+            + MODEL_CONTAINMENT_HORIZONTAL_PADDING;
+        let padding_y = (component.bottom - component.top + 1) as f64 * 0.5
+            + MODEL_CONTAINMENT_VERTICAL_PADDING;
+        if center_x < left - padding_x || center_x > right + padding_x {
+            return false;
+        }
+        let top_y = sample_curve_y(&model.top_curve, center_x);
+        let bottom_y = sample_curve_y(&model.bottom_curve, center_x);
+        center_y >= top_y - padding_y && center_y <= bottom_y + padding_y
+    })
+}
+
+fn sample_curve_y(curve: &[Point], x: f64) -> f64 {
+    let first = curve[0];
+    let last = *curve.last().unwrap();
+    if x <= first.x {
+        return first.y;
+    }
+    if x >= last.x {
+        return last.y;
+    }
+    let pair = curve
+        .windows(2)
+        .find(|pair| pair[1].x >= x)
+        .unwrap_or_else(|| curve.windows(2).next_back().unwrap());
+    let amount = (x - pair[0].x) / (pair[1].x - pair[0].x).max(1e-9);
+    pair[0].y + (pair[1].y - pair[0].y) * amount
 }
 
 fn extract_text_bands(
@@ -1133,9 +1231,19 @@ mod tests {
     use super::*;
 
     fn text_page(curve_amplitude: f64, line_count: usize) -> GrayImage {
+        text_page_with_columns(
+            curve_amplitude,
+            (0..line_count)
+                .map(|_| (0, 14))
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+    }
+
+    fn text_page_with_columns(curve_amplitude: f64, columns: &[(usize, usize)]) -> GrayImage {
         let mut image = GrayImage::new(360, 300, 245);
-        for line in 0..line_count {
-            for column in 0..14 {
+        for (line, &(first_column, last_column)) in columns.iter().enumerate() {
+            for column in first_column..last_column {
                 let left = 38 + column * 21;
                 let normalized = (left as f64 / 360.0 - 0.5) * 2.0;
                 let top =
@@ -1145,6 +1253,36 @@ mod tests {
                         if x < left + 3 || y < top + 3 || y >= top + 10 {
                             image.set(x, y, 24);
                         }
+                    }
+                }
+            }
+        }
+        image
+    }
+
+    fn curled_harness_page() -> GrayImage {
+        let amplitude = 34.0;
+        let baselines = [190.0, 260.0, 330.0, 400.0, 470.0, 540.0, 610.0, 680.0];
+        let mut image = GrayImage::new(720, 960, 241);
+        for (line, baseline) in baselines.into_iter().enumerate() {
+            for column in 0..18 {
+                let left = 105 + column * 29;
+                let normalized = (left as f64 - 360.0) / 360.0;
+                let top = (baseline + amplitude * normalized * normalized).round() as usize;
+                let ink = if line % 2 == 0 { 65 } else { 73 };
+                for y in top..top + 15 {
+                    for x in left..left + 3 {
+                        image.set(x, y, ink);
+                    }
+                }
+                for y in top..top + 3 {
+                    for x in left..left + 10 {
+                        image.set(x, y, ink);
+                    }
+                }
+                for y in top + 7..top + 9 {
+                    for x in left..left + 8 {
+                        image.set(x, y, ink);
                     }
                 }
             }
@@ -1164,6 +1302,12 @@ mod tests {
             first.model.unwrap().top_curve,
             second.model.unwrap().top_curve
         );
+    }
+
+    #[test]
+    fn accepts_the_curled_harness_fixture() {
+        let result = detect_curves_at_dpi(&curled_harness_page(), 200.0);
+        assert!(result.model.is_some(), "confidence={}", result.confidence);
     }
 
     #[test]
@@ -1215,5 +1359,119 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(!has_mixed_significant_curvature(&parabola));
         assert!(has_mixed_significant_curvature(&s_curve));
+    }
+
+    fn threshold_text_seed(image: &GrayImage) -> (BinaryImage, ContentGeometry) {
+        let binary = threshold_local(
+            image,
+            WOLF_RADIUS,
+            LocalThreshold::Wolf {
+                k: 0.34,
+                deviation_floor: 2.0,
+                minimum_percentile: 0.01,
+                hard_ink: 24,
+                hard_paper: 248,
+            },
+        );
+        text_seed_and_geometry(&binary).expect("generated page should expose text geometry")
+    }
+
+    fn draw_outline_glyph(image: &mut GrayImage, left: usize, top: usize) {
+        for y in top..top + 13 {
+            for x in left..left + 9 {
+                if x < left + 3 || y < top + 3 || y >= top + 10 {
+                    image.set(x, y, 24);
+                }
+            }
+        }
+    }
+
+    fn draw_outline_component(image: &mut BinaryImage, left: usize, top: usize) {
+        for y in top..top + 13 {
+            for x in left..left + 9 {
+                if x < left + 3 || y < top + 3 || y >= top + 10 {
+                    image.set(x, y, true);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn containment_guard_rejects_a_narrow_model_with_outside_text() {
+        let image = text_page(20.0, 7);
+        let (text, geometry) = threshold_text_seed(&image);
+        let (bands, probability) = extract_text_bands(&image, &text, &geometry);
+        let mut lines = trace_lines(&image, &bands, &probability, &geometry);
+        deduplicate_lines(&mut lines);
+        lines.sort_by(|left, right| left.mean_y.total_cmp(&right.mean_y));
+        let (model, _) = select_model(&lines, &geometry, None).expect("model should be selected");
+        let components = plausible_text_components(&text, geometry.width);
+        assert!(contains_text_components(&model, &components));
+
+        let mut with_marginal_note = components.clone();
+        with_marginal_note.push(Component {
+            label: u32::MAX - 1,
+            area: 75,
+            left: 305,
+            top: 230,
+            right: 313,
+            bottom: 242,
+        });
+        assert!(contains_text_components(&model, &with_marginal_note));
+
+        let mut with_outside_note = components;
+        with_outside_note.push(Component {
+            label: u32::MAX,
+            area: 75,
+            left: 336,
+            top: 150,
+            right: 344,
+            bottom: 162,
+        });
+        assert!(!contains_text_components(&model, &with_outside_note));
+    }
+
+    #[test]
+    fn outside_text_uses_the_no_model_fallback() {
+        let mut image = text_page(20.0, 7);
+        draw_outline_glyph(&mut image, 336, 150);
+        let result = detect_curves_at_dpi(&image, 200.0);
+        assert!(result.model.is_none(), "confidence={}", result.confidence);
+    }
+
+    #[test]
+    fn text_component_filter_keeps_marginal_text_and_ignores_edge_shadow() {
+        let image = text_page(20.0, 7);
+        let (text, geometry) = threshold_text_seed(&image);
+        let mut augmented = text.clone();
+        draw_outline_component(&mut augmented, 326, 220);
+        for y in 100..230 {
+            for x in 4..25 {
+                augmented.set(x, y, true);
+            }
+        }
+
+        let components = plausible_text_components(&augmented, geometry.width);
+        assert!(components
+            .iter()
+            .any(|component| component.left == 326 && component.top == 220));
+        assert!(!components.iter().any(|component| {
+            component.left == 4
+                && component.top == 100
+                && component.right == 24
+                && component.bottom == 229
+        }));
+    }
+
+    #[test]
+    fn edge_shadow_does_not_reject_a_curved_text_page() {
+        let mut image = text_page(20.0, 7);
+        for y in 0..image.height() {
+            for x in 0..24 {
+                image.set(x, y, 160);
+            }
+        }
+        let result = detect_curves_at_dpi(&image, 200.0);
+        assert!(result.model.is_some(), "confidence={}", result.confidence);
     }
 }

@@ -34,6 +34,25 @@ const MIN_GUTTER_BAND_DEPRESSION: f64 = 6.0;
 const GUTTER_BAND_PAPER_ROW_SHARE: f64 = 0.10;
 const GUTTER_BAND_INK_ROW_SHARE: f64 = 0.10;
 const GUTTER_BAND_MAX_COLUMN_CONTRAST: f64 = 60.0;
+// Keep the ordinary bilateral min() policy as the default. The recovery lane
+// below is deliberately much stricter and can only repair one contaminated
+// outer edge when the other local evidence is saturated.
+const OUTER_MARGIN_STANDARD_FLOOR: f64 = 0.02;
+const OUTER_MARGIN_RECOVERY_STRONG_EDGE: f64 = 0.20;
+const OUTER_MARGIN_RECOVERY_BILATERAL: f64 = 0.20;
+const OUTER_MARGIN_RECOVERY_PAGE_SCORE: f64 = 0.20;
+const OUTER_MARGIN_RECOVERY_SURFACE_SCORE: f64 = 0.15;
+const OUTER_MARGIN_RECOVERY_GUTTER: f64 = 0.55;
+const OUTER_MARGIN_RECOVERY_AGREEMENT: f64 = 0.90;
+const OUTER_MARGIN_RECOVERY_ASPECT: f64 = 0.35;
+const OUTER_MARGIN_RECOVERY_MIN_SIDE_FRACTION: f64 = 0.34;
+const FOLD_SUPPORT_MAX_COLUMN_FRACTION: f64 = 0.60;
+const FOLD_SUPPORT_MAX_COMPONENT_WIDTH_FRACTION: f64 = 0.03;
+const FOLD_SUPPORT_MAX_COMPONENT_HEIGHT_FRACTION: f64 = 0.12;
+const FOLD_SUPPORT_MAX_COMPONENT_AREA_FRACTION: f64 = 0.003;
+const FOLD_SUPPORT_AMBIGUOUS_FILL: f64 = 0.20;
+const FOLD_SUPPORT_MIN_REPEATED_ROWS: usize = 3;
+const FOLD_SUPPORT_PIXEL_CONTRAST: f64 = 24.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -41,6 +60,13 @@ pub enum LayoutClassification {
     SingleUncutPage,
     PageWithOffcut,
     TwoPageSpread,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OuterMarginSide {
+    Left,
+    Right,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -268,6 +294,8 @@ pub struct SplitDiagnostics {
     pub right_surface_score: f64,
     pub left_ink_pixels: usize,
     pub right_ink_pixels: usize,
+    pub left_outer_margin_score: f64,
+    pub right_outer_margin_score: f64,
     pub outer_margin_score: f64,
     pub gutter_score: f64,
     pub agreement_score: f64,
@@ -300,6 +328,8 @@ pub struct SplitDiagnostics {
     pub independent_gutter_gate_passed: bool,
     pub aspect_support_gate_passed: bool,
     pub evidence_agreement_gate_passed: bool,
+    pub outer_margin_recovery: bool,
+    pub outer_margin_weak_edge: Option<OuterMarginSide>,
     pub sparse_spread_recovered: bool,
     pub abstained: bool,
 }
@@ -755,11 +785,11 @@ fn spread_decision(
         decision_x,
         folded_sheet_balance,
     );
-    let outer_margins = outer_margin_score(&analysis.cleaned, &analysis.binary, decision_x);
-    let (confidence, independent_spread_cues) = spread_confidence(
+    let outer_margins = outer_margin_scores(&analysis.cleaned, &analysis.binary, decision_x);
+    let (mut confidence, independent_spread_cues) = spread_confidence(
         whitespace.score,
         bilateral.score,
-        outer_margins,
+        outer_margins.bilateral(),
         fold_score,
         soft_gutter_score,
         diagnostics.aspect_spread_score,
@@ -784,7 +814,9 @@ fn spread_decision(
     diagnostics.right_surface_score = bilateral.right.surface_score;
     diagnostics.left_ink_pixels = bilateral.left.ink;
     diagnostics.right_ink_pixels = bilateral.right.ink;
-    diagnostics.outer_margin_score = outer_margins;
+    diagnostics.left_outer_margin_score = outer_margins.left;
+    diagnostics.right_outer_margin_score = outer_margins.right;
+    diagnostics.outer_margin_score = outer_margins.bilateral();
     diagnostics.gutter_darkness_score = gutter_darkness;
     diagnostics.soft_gutter_score = soft_gutter_score;
     diagnostics.soft_gutter_coverage =
@@ -802,10 +834,9 @@ fn spread_decision(
     diagnostics.gutter_score = gutter_score;
     diagnostics.agreement_score = agreement_score;
     diagnostics.independent_spread_cues = independent_spread_cues;
-    diagnostics.evidence_product = diagnostics.evidence_product.max(confidence);
 
     diagnostics.bilateral_gate_passed = bilateral.score >= 0.08;
-    diagnostics.outer_margin_gate_passed = outer_margins >= 0.02;
+    diagnostics.outer_margin_gate_passed = outer_margins.bilateral() >= OUTER_MARGIN_STANDARD_FLOOR;
     diagnostics.gutter_gate_passed = gutter_score >= 0.25;
     diagnostics.independent_gutter_gate_passed =
         fold_score >= 0.25 || soft_gutter_score >= 0.25 || gutter_darkness >= 0.25;
@@ -815,6 +846,42 @@ fn spread_decision(
         || agrees
         || local_fold.is_some()
         || gutter_darkness.max(soft_gutter_score) >= 0.25;
+
+    // The bilateral minimum remains the normal policy. Recovery is local and
+    // one-sided only. It needs real page surfaces on both leaves, a strong
+    // body score on both leaves, a saturated gutter, matching fold evidence,
+    // spread-shaped geometry, and enough width on each side to rule out an
+    // outer offcut. A cohort prior is intentionally absent from this gate.
+    let recovery_edge = outer_margin_recovery_edge(
+        outer_margins,
+        bilateral,
+        decision_x,
+        analysis.gray.width(),
+        gutter_score,
+        fold_score,
+        soft_gutter_score,
+        gutter_darkness,
+        agreement_score,
+        diagnostics.aspect_spread_score,
+        diagnostics.whitespace_gate_passed,
+        diagnostics.central_position_gate_passed,
+        diagnostics.evidence_agreement_gate_passed,
+    );
+    if let Some(weak_edge) = recovery_edge {
+        diagnostics.outer_margin_recovery = true;
+        diagnostics.outer_margin_weak_edge = Some(weak_edge);
+        let (recovered_confidence, recovered_independent_spread_cues) = spread_confidence(
+            whitespace.score,
+            bilateral.score,
+            outer_margins.strong_edge(weak_edge),
+            fold_score,
+            soft_gutter_score,
+            diagnostics.aspect_spread_score,
+        );
+        confidence = recovered_confidence;
+        diagnostics.independent_spread_cues = recovered_independent_spread_cues;
+    }
+    diagnostics.evidence_product = diagnostics.evidence_product.max(confidence);
 
     let standard_spread = diagnostics.whitespace_gate_passed
         && diagnostics.bilateral_gate_passed
@@ -855,7 +922,9 @@ fn spread_decision(
         sparse_x,
         folded_sheet_balance,
     );
-    let sparse_outer_margins = outer_margin_score(&analysis.cleaned, &analysis.binary, sparse_x);
+    let sparse_outer_margin_scores =
+        outer_margin_scores(&analysis.cleaned, &analysis.binary, sparse_x);
+    let sparse_outer_margins = sparse_outer_margin_scores.bilateral();
     let sparse_agreement = fold.is_none()
         || agrees
         || local_fold.is_some()
@@ -877,7 +946,7 @@ fn spread_decision(
 
     // These are policy gates, not compensating weights. A very strong cue may
     // never make up for a missing independent cue.
-    if !standard_spread && !sparse_spread {
+    if !standard_spread && recovery_edge.is_none() && !sparse_spread {
         diagnostics.abstained = true;
         return None;
     }
@@ -894,6 +963,8 @@ fn spread_decision(
         diagnostics.right_surface_score = sparse_bilateral.right.surface_score;
         diagnostics.left_ink_pixels = sparse_bilateral.left.ink;
         diagnostics.right_ink_pixels = sparse_bilateral.right.ink;
+        diagnostics.left_outer_margin_score = sparse_outer_margin_scores.left;
+        diagnostics.right_outer_margin_score = sparse_outer_margin_scores.right;
         diagnostics.outer_margin_score = sparse_outer_margins;
         let sparse = sparse_gutter.expect("sparse spread requires a gutter candidate");
         let mean_strength = (diagnostics.aspect_spread_score
@@ -1424,15 +1495,90 @@ fn page_surface_texture_score(gray: &GrayImage, left: usize, right: usize) -> f6
     ramp(occupied as f64 / dark_samples.len() as f64, 0.05, 0.35)
 }
 
-fn outer_margin_score(cleaned: &BinaryImage, raw: &BinaryImage, cutter_x: f64) -> f64 {
+#[derive(Clone, Copy, Debug, Default)]
+struct OuterMarginScores {
+    left: f64,
+    right: f64,
+}
+
+impl OuterMarginScores {
+    fn bilateral(self) -> f64 {
+        self.left.min(self.right)
+    }
+
+    fn weak_edge(self) -> Option<OuterMarginSide> {
+        match (
+            self.left < OUTER_MARGIN_STANDARD_FLOOR,
+            self.right < OUTER_MARGIN_STANDARD_FLOOR,
+        ) {
+            (true, false) => Some(OuterMarginSide::Left),
+            (false, true) => Some(OuterMarginSide::Right),
+            _ => None,
+        }
+    }
+
+    fn strong_edge(self, weak: OuterMarginSide) -> f64 {
+        match weak {
+            OuterMarginSide::Left => self.right,
+            OuterMarginSide::Right => self.left,
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn outer_margin_recovery_edge(
+    outer_margins: OuterMarginScores,
+    bilateral: BilateralScore,
+    cutter_x: f64,
+    width: usize,
+    gutter_score: f64,
+    fold_score: f64,
+    soft_gutter_score: f64,
+    gutter_darkness: f64,
+    agreement_score: f64,
+    aspect_spread_score: f64,
+    whitespace_gate_passed: bool,
+    central_position_gate_passed: bool,
+    evidence_agreement_gate_passed: bool,
+) -> Option<OuterMarginSide> {
+    outer_margins.weak_edge().filter(|&weak_edge| {
+        let side_fraction = cutter_x / width.max(1) as f64;
+        let strong_outer = outer_margins.strong_edge(weak_edge);
+        let bilateral_surfaces = bilateral.left.surface_score
+            >= OUTER_MARGIN_RECOVERY_SURFACE_SCORE
+            && bilateral.right.surface_score >= OUTER_MARGIN_RECOVERY_SURFACE_SCORE;
+        let bilateral_page_bodies = bilateral.left.page_score >= OUTER_MARGIN_RECOVERY_PAGE_SCORE
+            && bilateral.right.page_score >= OUTER_MARGIN_RECOVERY_PAGE_SCORE;
+        let independent_gutter =
+            fold_score.max(soft_gutter_score).max(gutter_darkness) >= OUTER_MARGIN_RECOVERY_GUTTER;
+        let offcut_rejection = (OUTER_MARGIN_RECOVERY_MIN_SIDE_FRACTION
+            ..=1.0 - OUTER_MARGIN_RECOVERY_MIN_SIDE_FRACTION)
+            .contains(&side_fraction);
+        strong_outer >= OUTER_MARGIN_RECOVERY_STRONG_EDGE
+            && bilateral.score >= OUTER_MARGIN_RECOVERY_BILATERAL
+            && bilateral_surfaces
+            && bilateral_page_bodies
+            && gutter_score >= OUTER_MARGIN_RECOVERY_GUTTER
+            && independent_gutter
+            && whitespace_gate_passed
+            && central_position_gate_passed
+            && evidence_agreement_gate_passed
+            && agreement_score >= OUTER_MARGIN_RECOVERY_AGREEMENT
+            && aspect_spread_score >= OUTER_MARGIN_RECOVERY_ASPECT
+            && offcut_rejection
+    })
+}
+
+fn outer_margin_scores(
+    cleaned: &BinaryImage,
+    raw: &BinaryImage,
+    cutter_x: f64,
+) -> OuterMarginScores {
     let cutter = clamp_cutter(cleaned.width(), cutter_x);
-    edge_margin_score(cleaned, raw, 0, cutter, true).min(edge_margin_score(
-        cleaned,
-        raw,
-        cutter,
-        cleaned.width(),
-        false,
-    ))
+    OuterMarginScores {
+        left: edge_margin_score(cleaned, raw, 0, cutter, true),
+        right: edge_margin_score(cleaned, raw, cutter, cleaned.width(), false),
+    }
 }
 
 fn edge_margin_score(
@@ -2502,6 +2648,11 @@ fn gutter_column_profiles(gray: &GrayImage, range: std::ops::Range<usize>) -> Ve
 /// asymmetric, since a sheet lit from one side casts its shadow mostly onto
 /// one leaf.
 fn gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
+    let band = gutter_shadow_band_unprotected(gray, cutter_x)?;
+    Some(protect_fold_band_endpoints(gray, cutter_x, band))
+}
+
+fn gutter_shadow_band_unprotected(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
     let width = gray.width();
     let legacy_cap = (width as f64 * MAX_GUTTER_BAND_FRACTION).floor() as usize;
     let search_cap = (width as f64 * MAX_OFFSET_GUTTER_BAND_FRACTION).floor() as usize;
@@ -2626,6 +2777,185 @@ fn gutter_shadow_band(gray: &GrayImage, cutter_x: f64) -> Option<(f64, f64)> {
         }
     }
     (left_edge < right_edge).then_some((left_edge as f64, right_edge as f64))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FoldSupportKind {
+    None,
+    Confident,
+    Ambiguous,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct FoldEndpointSupport {
+    kind: Option<FoldSupportKind>,
+    min_x: usize,
+    max_x: usize,
+}
+
+/// Keep a measured fold exclusion from swallowing source-supported material.
+/// The fold detector intentionally works on grayscale columns because a
+/// shadow is not ink. This second pass looks only inside the already measured
+/// corridor and asks whether any dark support behaves like glyphs or repeated
+/// text rows. A continuous rail or fold shadow has no such shape and leaves
+/// the measured band byte-for-byte unchanged.
+fn protect_fold_band_endpoints(
+    gray: &GrayImage,
+    cutter_x: f64,
+    (left_edge, right_edge): (f64, f64),
+) -> (f64, f64) {
+    let cutter = clamp_cutter(gray.width(), cutter_x) as f64;
+    let left_edge = left_edge.clamp(0.0, cutter);
+    let right_edge = right_edge.clamp(cutter, gray.width() as f64);
+    if gray.width() < 8 || gray.height() < 8 || left_edge >= right_edge {
+        return (left_edge, right_edge);
+    }
+
+    let left_support = fold_endpoint_support(
+        gray,
+        left_edge.round().clamp(0.0, cutter) as usize,
+        cutter as usize,
+    );
+    let right_support = fold_endpoint_support(
+        gray,
+        cutter as usize,
+        right_edge.round().clamp(cutter, gray.width() as f64) as usize,
+    );
+
+    let left_edge = match left_support.kind {
+        Some(FoldSupportKind::Confident) => (left_edge.round() as usize
+            + left_support.max_x.saturating_add(1))
+        .min(cutter as usize) as f64,
+        Some(FoldSupportKind::Ambiguous) => cutter,
+        Some(FoldSupportKind::None) | None => left_edge,
+    };
+    let right_edge = match right_support.kind {
+        Some(FoldSupportKind::Confident) => {
+            (right_edge.round() as usize).min(cutter as usize + right_support.min_x) as f64
+        }
+        Some(FoldSupportKind::Ambiguous) => cutter,
+        Some(FoldSupportKind::None) | None => right_edge,
+    };
+    (left_edge, right_edge)
+}
+
+fn fold_endpoint_support(gray: &GrayImage, left: usize, right: usize) -> FoldEndpointSupport {
+    if left >= right || right > gray.width() || gray.height() == 0 {
+        return FoldEndpointSupport::default();
+    }
+    let width = right - left;
+    let height = gray.height();
+    let max_dark_pixels_per_column =
+        (height as f64 * FOLD_SUPPORT_MAX_COLUMN_FRACTION).ceil() as usize;
+    let profiles = gutter_column_profiles(gray, left..right);
+    let mut support_mask = BinaryImage::new(width, height);
+    let mut column_dark = vec![0usize; width];
+    let mut dark_pixels = 0usize;
+    let mut min_x = right;
+    let mut max_x = left;
+    let mut row_has_support = vec![false; height];
+    // A fold shadow can lower the whole corridor enough that its aggregate
+    // quantile contrast looks flat even when a glyph is present. Use the
+    // per-pixel threshold as the first test. The occupancy cap below still
+    // rejects a continuous rail or shadow before it can become support.
+    for (offset, x) in (left..right).enumerate() {
+        let profile = profiles[offset];
+        let support_threshold = profile.mean - FOLD_SUPPORT_PIXEL_CONTRAST;
+        if support_threshold <= 0.0 {
+            continue;
+        }
+        for y in 0..height {
+            if f64::from(gray.get(x, y)) < support_threshold {
+                column_dark[offset] += 1;
+            }
+        }
+    }
+    for (offset, x) in (left..right).enumerate() {
+        let profile = profiles[offset];
+        let support_threshold = profile.mean - FOLD_SUPPORT_PIXEL_CONTRAST;
+        if column_dark[offset] == 0 || column_dark[offset] > max_dark_pixels_per_column {
+            continue;
+        }
+        for (y, row_support) in row_has_support.iter_mut().enumerate() {
+            if f64::from(gray.get(x, y)) >= support_threshold {
+                // A continuously dark column is a rail or shadow, not a
+                // glyph. It is excluded before row support is counted.
+                continue;
+            }
+            dark_pixels += 1;
+            min_x = min_x.min(offset);
+            max_x = max_x.max(offset);
+            *row_support = true;
+            support_mask.set(offset, y, true);
+        }
+    }
+    if dark_pixels == 0 {
+        return FoldEndpointSupport::default();
+    }
+
+    let mut row_bands = Vec::new();
+    let mut row_start = None;
+    for (y, &has_support) in row_has_support.iter().enumerate() {
+        match (row_start, has_support) {
+            (None, true) => row_start = Some(y),
+            (Some(start), false) => {
+                row_bands.push((start, y));
+                row_start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(start) = row_start {
+        row_bands.push((start, height));
+    }
+
+    let components = ComponentMap::from_binary(&support_mask);
+    let max_component_width = (gray.width() as f64 * FOLD_SUPPORT_MAX_COMPONENT_WIDTH_FRACTION)
+        .ceil()
+        .max(3.0) as usize;
+    let max_component_height = (height as f64 * FOLD_SUPPORT_MAX_COMPONENT_HEIGHT_FRACTION)
+        .ceil()
+        .max(3.0) as usize;
+    let max_component_area =
+        (gray.width() as f64 * height as f64 * FOLD_SUPPORT_MAX_COMPONENT_AREA_FRACTION)
+            .ceil()
+            .max(8.0) as usize;
+    let glyph_like_components = components
+        .components()
+        .iter()
+        .filter(|component| {
+            component.right < width
+                && component.left < width
+                && component.right - component.left < max_component_width
+                && component.bottom - component.top < max_component_height
+                && component.area <= max_component_area
+        })
+        .count();
+    let repeated_rows = row_bands.len() >= FOLD_SUPPORT_MIN_REPEATED_ROWS
+        && row_bands.len() as f64 / height as f64 <= 0.55;
+    let glyph_like = glyph_like_components >= 2;
+    let confident = repeated_rows || glyph_like;
+    let fill = dark_pixels as f64 / (width * height) as f64;
+    let ambiguous = !confident
+        && fill <= FOLD_SUPPORT_AMBIGUOUS_FILL
+        && components.components().iter().any(|component| {
+            component.right < width
+                && component.left < width
+                && component.right - component.left < max_component_width
+                && component.bottom - component.top < max_component_height
+                && component.area <= max_component_area
+        });
+    FoldEndpointSupport {
+        kind: Some(if confident {
+            FoldSupportKind::Confident
+        } else if ambiguous {
+            FoldSupportKind::Ambiguous
+        } else {
+            FoldSupportKind::None
+        }),
+        min_x,
+        max_x,
+    }
 }
 
 /// Replays the pre-offset measurement as a stability reference. The wider
@@ -3015,6 +3345,133 @@ mod tests {
     }
 
     #[test]
+    fn one_contaminated_outer_edge_uses_strict_local_recovery() {
+        let bilateral = BilateralScore {
+            score: 0.82,
+            left: SideScore {
+                page_score: 0.86,
+                surface_score: 0.72,
+                ..SideScore::default()
+            },
+            right: SideScore {
+                page_score: 0.88,
+                surface_score: 0.74,
+                ..SideScore::default()
+            },
+        };
+        let recovered = outer_margin_recovery_edge(
+            OuterMarginScores {
+                left: 0.0,
+                right: 0.64,
+            },
+            bilateral,
+            450.0,
+            900,
+            0.80,
+            0.72,
+            0.0,
+            0.78,
+            1.0,
+            0.80,
+            true,
+            true,
+            true,
+        );
+        assert_eq!(recovered, Some(OuterMarginSide::Left));
+    }
+
+    #[test]
+    fn one_contaminated_outer_edge_recovers_an_observed_spread() {
+        let mut gray = GrayImage::new(660, 420, 245);
+        add_text_lines(&mut gray, 0, 300);
+        for y in 0..gray.height() {
+            for x in 29..39 {
+                gray.set(x, y, 245);
+            }
+        }
+        add_text_lines(&mut gray, 360, 625);
+        add_vertical_fold(&mut gray, 330);
+        let result = detect_split(&gray, 150.0, LayoutMode::Auto, None);
+        assert_eq!(
+            result.classification,
+            LayoutClassification::TwoPageSpread,
+            "{result:#?}"
+        );
+        assert!(
+            result.diagnostics.outer_margin_recovery,
+            "left={} right={} bilateral={} page={}..{} surface={}..{} gutter={} fold={} agreement={} aspect={} whitespace={} central={} evidence={}",
+            result.diagnostics.left_outer_margin_score,
+            result.diagnostics.right_outer_margin_score,
+            result.diagnostics.bilateral_score,
+            result.diagnostics.left_page_score,
+            result.diagnostics.right_page_score,
+            result.diagnostics.left_surface_score,
+            result.diagnostics.right_surface_score,
+            result.diagnostics.gutter_score,
+            result.diagnostics.fold_score,
+            result.diagnostics.agreement_score,
+            result.diagnostics.aspect_spread_score,
+            result.diagnostics.whitespace_score,
+            result.diagnostics.central_position_gate_passed,
+            result.diagnostics.evidence_agreement_gate_passed,
+        );
+        assert_eq!(
+            result.diagnostics.outer_margin_weak_edge,
+            Some(OuterMarginSide::Left),
+            "{result:#?}"
+        );
+        let (_, expected_independent_spread_cues) = spread_confidence(
+            result.diagnostics.whitespace_score,
+            result.diagnostics.bilateral_score,
+            result.diagnostics.right_outer_margin_score,
+            result.diagnostics.fold_score,
+            result.diagnostics.soft_gutter_score,
+            result.diagnostics.aspect_spread_score,
+        );
+        assert_eq!(
+            result.diagnostics.independent_spread_cues,
+            expected_independent_spread_cues,
+        );
+        assert_eq!(result.confidence, result.diagnostics.evidence_product);
+    }
+
+    #[test]
+    fn two_weak_outer_edges_do_not_use_local_recovery() {
+        let bilateral = BilateralScore {
+            score: 0.82,
+            left: SideScore {
+                page_score: 0.86,
+                surface_score: 0.72,
+                ..SideScore::default()
+            },
+            right: SideScore {
+                page_score: 0.88,
+                surface_score: 0.74,
+                ..SideScore::default()
+            },
+        };
+        let recovered = outer_margin_recovery_edge(
+            OuterMarginScores {
+                left: 0.0,
+                right: 0.0,
+            },
+            bilateral,
+            450.0,
+            900,
+            0.80,
+            0.72,
+            0.0,
+            0.78,
+            1.0,
+            0.80,
+            true,
+            true,
+            true,
+        );
+        assert_eq!(recovered, None);
+    }
+
+    #[test]
     fn manual_cutter_in_auto_mode_remains_a_two_page_spread() {
         let gray = GrayImage::new(300, 180, 245);
         let result = detect_split(&gray, 300.0, LayoutMode::Auto, Some(151.0));
@@ -3077,7 +3534,7 @@ mod tests {
     }
 
     #[test]
-    fn curved_seam_dynamic_program_tracks_a_non_vertical_gutter() {
+    fn curved_seam_dynamic_program_tracks_a_non_vertical_gutter_with_crossing_text() {
         let mut gray = GrayImage::new(320, 220, 238);
         let mut binary = BinaryImage::new(320, 220);
         let expected = (0..gray.height())
@@ -3087,6 +3544,21 @@ mod tests {
             let x = x.round() as usize;
             gray.set(x, y, 45);
             binary.set(x, y, true);
+        }
+        for y in (24..gray.height().saturating_sub(24)).step_by(18) {
+            let center = expected[y].round() as usize;
+            for x in center.saturating_sub(14)..=center.saturating_sub(9) {
+                gray.set(x, y, 35);
+                if y + 1 < gray.height() {
+                    gray.set(x, y + 1, 35);
+                }
+            }
+            for x in center.saturating_add(9)..=(center + 14).min(gray.width() - 1) {
+                gray.set(x, y, 35);
+                if y + 1 < gray.height() {
+                    gray.set(x, y + 1, 35);
+                }
+            }
         }
         let seam = refine_curved_seam(&gray, &binary, 160.0, 0.0).unwrap();
         let seam_error = seam
@@ -3612,6 +4084,27 @@ mod tests {
         gray
     }
 
+    fn add_fold_crossing_text(gray: &mut GrayImage, center: usize) {
+        add_fold_crossing_text_with_value(gray, center, 35);
+    }
+
+    fn add_fold_crossing_text_with_value(gray: &mut GrayImage, center: usize, value: u8) {
+        for y in (48..gray.height().saturating_sub(48)).step_by(18) {
+            for x in center.saturating_sub(8)..=center.saturating_sub(2) {
+                gray.set(x, y, value);
+                if y + 1 < gray.height() {
+                    gray.set(x, y + 1, value);
+                }
+            }
+            for x in center.saturating_add(2)..=(center + 8).min(gray.width() - 1) {
+                gray.set(x, y, value);
+                if y + 1 < gray.height() {
+                    gray.set(x, y + 1, value);
+                }
+            }
+        }
+    }
+
     #[test]
     fn gutter_band_covers_the_fold_shadow_and_stays_inside_the_capped_window() {
         let page = fold_shadow_page(1000, 600, 500, 8, 60);
@@ -3700,7 +4193,8 @@ mod tests {
 
     #[test]
     fn raw_source_remeasurement_extends_a_collapsed_right_band_without_moving_cutter() {
-        let page = fold_shadow_page(2000, 600, 1040, 20, 60);
+        let mut page = fold_shadow_page(2000, 600, 1040, 20, 60);
+        add_fold_crossing_text_with_value(&mut page, 1040, 120);
         let mut split = split_at(
             page.width(),
             page.height(),
@@ -3714,7 +4208,10 @@ mod tests {
         assert_eq!(split.cutter_x, Some(1000.0));
         let (left, right) = measured_fold_edges(&split);
         assert_eq!(left, 1000.0);
-        assert!(right > 1000.0);
+        assert!(
+            right > 1000.0 && right < 1061.0,
+            "text moved the endpoint: {right}"
+        );
         assert_eq!(split.pages[1].points[0].x, right);
 
         let shadowless = GrayImage::new(2000, 600, 245);
@@ -3740,6 +4237,71 @@ mod tests {
             right >= 520.0,
             "the shadow-only side stays covered: {right}"
         );
+    }
+
+    #[test]
+    fn fold_band_shrinks_toward_the_cutter_when_repeated_text_crosses_it() {
+        let mut page = fold_shadow_page(1000, 600, 500, 20, 60);
+        add_fold_crossing_text(&mut page, 500);
+        let (left, right) = gutter_shadow_band(&page, 500.0).unwrap();
+        assert!(
+            left > 480.0 && left < 500.0,
+            "left endpoint did not shrink: {left}"
+        );
+        assert!(
+            right > 500.0 && right < 520.0,
+            "right endpoint did not shrink: {right}"
+        );
+    }
+
+    #[test]
+    fn fold_band_retains_repeated_margin_glyphs_under_a_shadow() {
+        let mut page = fold_shadow_page(1000, 600, 500, 20, 60);
+        for y in (48..552).step_by(18) {
+            for x in 503..510 {
+                page.set(x, y, 35);
+                page.set(x, y + 1, 35);
+            }
+        }
+
+        let (left, right) = gutter_shadow_band(&page, 500.0).unwrap();
+        assert_eq!(left, 480.0);
+        assert_eq!(right, 503.0, "the first supported glyph column was cut");
+    }
+
+    #[test]
+    fn fold_band_keeps_a_continuous_rail_as_shadow() {
+        let mut page = fold_shadow_page(1000, 600, 500, 20, 60);
+        for y in 0..page.height() {
+            for x in 503..506 {
+                page.set(x, y, 120);
+            }
+        }
+
+        let raw = gutter_shadow_band_unprotected(&page, 500.0).unwrap();
+        assert_eq!(gutter_shadow_band(&page, 500.0), Some(raw));
+    }
+
+    #[test]
+    fn shadow_only_fold_band_keeps_the_measured_edges_byte_identical() {
+        let page = fold_shadow_page(1000, 600, 500, 20, 60);
+        assert_eq!(
+            gutter_shadow_band(&page, 500.0),
+            legacy_gutter_shadow_band(&page, 500.0)
+        );
+    }
+
+    #[test]
+    fn ambiguous_fold_corridor_support_retains_the_cutter_edge() {
+        let mut page = fold_shadow_page(1000, 600, 500, 20, 60);
+        for y in 240..304 {
+            for x in 482..487 {
+                page.set(x, y, 145);
+            }
+        }
+        let (left, right) = gutter_shadow_band(&page, 500.0).unwrap();
+        assert_eq!(left, 500.0);
+        assert!(right > 500.0);
     }
 
     #[test]
@@ -3787,8 +4349,25 @@ mod tests {
                 gray.set(x, y, 150);
             }
         }
+        let shadow_only = gray.clone();
+        add_fold_crossing_text_with_value(&mut gray, 600, 120);
+        let shadow_only_result = detect_split(&shadow_only, 150.0, LayoutMode::Auto, None);
         let measured = detect_split(&gray, 150.0, LayoutMode::Auto, None);
         let cutter = measured.cutter_x.expect("a spread cuts somewhere");
+        let (clean_left, clean_right) = measured_fold_edges(&shadow_only_result);
+        let (text_left, text_right) = measured_fold_edges(&measured);
+        assert!(
+            text_left >= clean_left,
+            "left endpoint expanded: {clean_left}..{text_left}"
+        );
+        assert!(
+            text_right <= clean_right,
+            "right endpoint expanded: {text_right}..{clean_right}"
+        );
+        assert!(
+            text_left > clean_left || text_right < clean_right,
+            "crossing text did not shrink either measured endpoint: {clean_left}..{clean_right} -> {text_left}..{text_right}"
+        );
         // The clean pass inherits nothing but the cutter, so it has to find the
         // same shadow again and leave the right leaf exactly where the analyze
         // pass left it.
@@ -3808,6 +4387,36 @@ mod tests {
             unavailable.diagnostics.fold_band,
             FoldBand::unmeasured(FoldBandUnmeasuredReason::MeasurementUnavailable),
         );
+    }
+
+    #[test]
+    fn manual_cutter_stays_authoritative_when_fold_text_adjusts_endpoints() {
+        let cutter = 600.0;
+        let mut shadow_only = GrayImage::new(1200, 800, 245);
+        add_text_lines(&mut shadow_only, 60, 560);
+        add_text_lines(&mut shadow_only, 640, 1140);
+        for y in 0..shadow_only.height() {
+            for x in 590..=610 {
+                shadow_only.set(x, y, 150);
+            }
+        }
+        let mut supported = shadow_only.clone();
+        add_fold_crossing_text_with_value(&mut supported, cutter as usize, 120);
+
+        let clean = detect_split(&shadow_only, 150.0, LayoutMode::Auto, Some(cutter));
+        let adjusted = detect_split(&supported, 150.0, LayoutMode::Auto, Some(cutter));
+        assert_eq!(clean.cutter_x, Some(cutter));
+        assert_eq!(adjusted.cutter_x, Some(cutter));
+        let (clean_left, clean_right) = measured_fold_edges(&clean);
+        let (adjusted_left, adjusted_right) = measured_fold_edges(&adjusted);
+        assert!(adjusted_left >= clean_left);
+        assert!(adjusted_right <= clean_right);
+        assert!(
+            adjusted_left > clean_left || adjusted_right < clean_right,
+            "supported text did not adjust either endpoint: {clean_left}..{clean_right} -> {adjusted_left}..{adjusted_right}"
+        );
+        assert_eq!(adjusted.pages[0].points[1].x, adjusted_left);
+        assert_eq!(adjusted.pages[1].points[0].x, adjusted_right);
     }
 
     #[test]
@@ -4034,5 +4643,21 @@ mod tests {
 
         let diagnostics = serde_json::to_value(moved.diagnostics).unwrap();
         assert_eq!(diagnostics["foldBand"]["reason"], "cutter-invalidated");
+    }
+
+    #[test]
+    fn outer_margin_recovery_diagnostics_serialize_scores_and_weak_edge() {
+        let diagnostics = serde_json::to_value(SplitDiagnostics {
+            left_outer_margin_score: 0.0,
+            right_outer_margin_score: 0.64,
+            outer_margin_recovery: true,
+            outer_margin_weak_edge: Some(OuterMarginSide::Left),
+            ..SplitDiagnostics::default()
+        })
+        .unwrap();
+        assert_eq!(diagnostics["leftOuterMarginScore"], 0.0);
+        assert_eq!(diagnostics["rightOuterMarginScore"], 0.64);
+        assert_eq!(diagnostics["outerMarginRecovery"], true);
+        assert_eq!(diagnostics["outerMarginWeakEdge"], "left");
     }
 }

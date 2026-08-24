@@ -110,6 +110,19 @@ final output page for `bw`, `grayscale`, `color`, and `mixed`) and
 the same fixture ID, so private corpora can enforce regression expectations without
 committing fixture paths or results.
 
+Set `sha256` to a 64-character SHA-256 digest when a fixture must refer to one
+exact external source. The verifier admits every source before invoking a native
+tool, records `expectedSha256`, `actualSha256`, and `admissionStatus` in the
+fixture and corpus reports, and fails on a missing required source or checksum
+mismatch. Existing `optional: true` entries still skip an absent source. Use
+`required: false` when an entry is optional without the legacy flag.
+
+The Nabuco external lane is described by
+`scripts/fixtures/scan-cleanup/nabuco-external-corpus.json`. It names the
+external source, selected pages, settings, and checksum only; the PDF remains
+outside the repository. Set `EVB_SCAN_CLEANUP_NABUCO_SOURCE_PDF` before using
+that manifest.
+
 The diagnostic detects each selected page's dominant source DPI with `pdfimages`,
 rasterizes with `pdftoppm`, runs protocol-v3 auto analysis and final rendering,
 combines the output with the release PDF combiner, and reports every mode, codec,

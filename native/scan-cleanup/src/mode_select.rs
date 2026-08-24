@@ -1,3 +1,4 @@
+use crate::protocol::manifest_v3::ContentBlockEvidence;
 use crate::{calibration::PageCalibration, io::png::RgbImage, OutputMode};
 use scan_primitives::{threshold::otsu_threshold, BinaryImage, ComponentMap, GrayImage};
 use serde::{Deserialize, Serialize};
@@ -87,6 +88,9 @@ const FLAT_FEW_LINE_TEXT_MAX_LINES: usize = 5;
 const FLAT_FEW_LINE_TEXT_MAX_INK_FRACTION: f64 = 0.012;
 const FLAT_FEW_LINE_TEXT_MIN_MODE_DISTANCE: f64 = 28.0;
 const MIN_TEXT_EDGE_TO_INK_RATIO: f64 = 0.5;
+const MIN_MIXED_OWNERSHIP_OVERLAP_PIXELS: usize = 256;
+const MIN_MIXED_OWNERSHIP_OVERLAP_FRACTION: f64 = 0.50;
+const MAX_INDEPENDENT_OUTSIDE_TONE_FRACTION: f64 = 0.12;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -125,6 +129,7 @@ pub enum OutputModeRule {
     StrongSingleLineText,
     SpatialTone,
     BilevelFidelity,
+    MixedOwnershipVeto,
     UncertainFallback,
 }
 
@@ -177,6 +182,11 @@ pub struct OutputModeDiagnostics {
     pub outside_tonal_largest_component_height_fraction: f64,
     pub coherent_outside_tonal_region: bool,
     pub destructive_mode_tonal_veto: bool,
+    pub protected_text_block_count: usize,
+    pub protected_text_block_picture_overlap_pixels: usize,
+    pub protected_text_block_picture_overlap_fraction: f64,
+    pub mixed_ownership_independent_picture_evidence: bool,
+    pub mixed_ownership_veto: bool,
     pub source_dpi: f64,
     pub analysis_dpi: f64,
     pub calibrated_source_stroke_width_px: f64,
@@ -300,6 +310,11 @@ fn recommendation(
             outside_tonal_largest_component_height_fraction: 0.0,
             coherent_outside_tonal_region: false,
             destructive_mode_tonal_veto: false,
+            protected_text_block_count: 0,
+            protected_text_block_picture_overlap_pixels: 0,
+            protected_text_block_picture_overlap_fraction: 0.0,
+            mixed_ownership_independent_picture_evidence: false,
+            mixed_ownership_veto: false,
             source_dpi: 0.0,
             analysis_dpi: 0.0,
             calibrated_source_stroke_width_px: 0.0,
@@ -617,6 +632,87 @@ pub(crate) fn recommend_output_mode_with_tone(
     result
 }
 
+/// Rejects an automatic Mixed recommendation when its own protected text
+/// evidence says that a meaningful text block is mostly picture-owned, but no
+/// independent picture owner corroborates that assignment. The comparison is
+/// made against the existing analysis-resolution content blocks. It does not
+/// render a second candidate, and it never changes an explicit user mode.
+pub(crate) fn veto_contradictory_mixed_ownership(
+    mut recommendation: OutputModeRecommendation,
+    auto_mode: bool,
+    protected_blocks: &[ContentBlockEvidence],
+    independent_picture_evidence: bool,
+) -> OutputModeRecommendation {
+    let mut protected_text_block_count = 0usize;
+    let mut largest_overlap_pixels = 0usize;
+    let mut largest_overlap_fraction = 0.0f64;
+    let mut contradiction = false;
+
+    for block in protected_blocks {
+        // Content diagnostics already filter these blocks through the
+        // calibrated protection policy. Restrict the summary to blocks that
+        // carry text-like evidence so a picture-only block cannot veto its
+        // own Mixed recommendation.
+        if !(block.text_evidence || block.heading_evidence || block.grayscale_evidence) {
+            continue;
+        }
+        let block_area = block.bounds.width_px.saturating_mul(block.bounds.height_px);
+        if block_area == 0 {
+            continue;
+        }
+        let overlap_fraction = block.picture_mask_overlap_pixels as f64 / block_area as f64;
+        protected_text_block_count += 1;
+        largest_overlap_pixels = largest_overlap_pixels.max(block.picture_mask_overlap_pixels);
+        largest_overlap_fraction = largest_overlap_fraction.max(overlap_fraction);
+        contradiction |= block.picture_mask_overlap_pixels >= MIN_MIXED_OWNERSHIP_OVERLAP_PIXELS
+            && overlap_fraction >= MIN_MIXED_OWNERSHIP_OVERLAP_FRACTION;
+    }
+
+    recommendation.diagnostics.protected_text_block_count = protected_text_block_count;
+    recommendation
+        .diagnostics
+        .protected_text_block_picture_overlap_pixels = largest_overlap_pixels;
+    recommendation
+        .diagnostics
+        .protected_text_block_picture_overlap_fraction = largest_overlap_fraction.clamp(0.0, 1.0);
+    recommendation
+        .diagnostics
+        .mixed_ownership_independent_picture_evidence = independent_picture_evidence;
+
+    let veto = auto_mode
+        && recommendation.mode == OutputMode::Mixed
+        && contradiction
+        && !independent_picture_evidence;
+    recommendation.diagnostics.mixed_ownership_veto = veto;
+    if veto {
+        let preserves_color = recommendation.diagnostics.significant_color;
+        recommendation.mode = if preserves_color {
+            OutputMode::Color
+        } else {
+            OutputMode::Grayscale
+        };
+        recommendation.confidence = recommendation.confidence.min(0.82);
+        recommendation.reason = if preserves_color {
+            OutputModeRecommendationReason::ColorChroma
+        } else {
+            OutputModeRecommendationReason::UncertainTonal
+        };
+        recommendation.diagnostics.rule = OutputModeRule::MixedOwnershipVeto;
+        recommendation.diagnostics.fallback_used = true;
+    }
+    recommendation
+}
+
+/// A broad coherent field can veto destructive B&W, but it is not by itself
+/// a picture owner. Keep the same bounded-area qualification used by the
+/// stencil path so a photographed page background or cloth does not exempt a
+/// contradictory Mixed recommendation.
+pub(crate) fn qualifies_independent_outside_tone(
+    outside_tone: crate::text_tone::OutsideTonalEvidence,
+) -> bool {
+    outside_tone.coherent() && outside_tone.fraction <= MAX_INDEPENDENT_OUTSIDE_TONE_FRACTION
+}
+
 /// Chooses a concrete output mode from the renderer's prepared analysis artifacts.
 ///
 /// Detect-all receives a direct 150-DPI raster while final rendering can downsample
@@ -628,7 +724,7 @@ pub(crate) fn recommend_output_mode(
     evidence: PreparedModeEvidence<'_>,
 ) -> OutputModeRecommendation {
     let luminance = luminance_evidence(evidence.analysis);
-    let chroma = chroma_evidence(
+    let (chroma, _) = chroma_evidence_and_mask(
         evidence.analysis,
         evidence.analysis_rgb,
         evidence.text_line_count,
@@ -674,9 +770,18 @@ pub(crate) fn recommend_output_mode(
     let significant_picture = picture_fraction >= picture_floor;
     let has_text = evidence.text_line_count >= MIN_TEXT_LINES;
 
+    // Paper tint is not a picture owner. It can make a camera page look
+    // "color text with pictures" even when the vetted picture mask is empty.
+    // Mixed has a bilevel foreground, so allowing that branch without an
+    // actual tone owner silently turns the whole page into destructive B&W.
+    // A real detector-owned picture still qualifies through
+    // `significant_picture`; unowned chroma falls through to Color and keeps
+    // the camera evidence instead of inventing a Mixed layer.
+    let tinted_text_with_picture_owner = evidence.picture_tone_evidence
+        && chroma.paper_tint >= 8.0
+        && luminance.ink_fraction <= COLOR_TEXT_MAX_INK_FRACTION;
     if significant_color
-        && (significant_picture
-            || chroma.paper_tint >= 8.0 && luminance.ink_fraction <= COLOR_TEXT_MAX_INK_FRACTION)
+        && (significant_picture || tinted_text_with_picture_owner)
         && has_text
         && !(chroma.colored_fraction >= COLOR_DOMINANT_FRACTION_FLOOR
             && evidence.text_line_count <= COLOR_DOMINANT_MAX_TEXT_LINES)
@@ -2378,8 +2483,8 @@ mod tests {
         let red_mark_recommendation = classify(&rgb_to_gray(&blue_stock), Some(&blue_stock));
         assert_eq!(
             red_mark_recommendation.mode,
-            OutputMode::Mixed,
-            "{red_mark_recommendation:?}"
+            OutputMode::Color,
+            "an interior color mark without a picture owner should preserve the whole page: {red_mark_recommendation:?}"
         );
         assert!(red_mark_recommendation.diagnostics.significant_color);
 
@@ -2642,6 +2747,168 @@ mod tests {
         assert!(!subfloor_unconfirmed.diagnostics.significant_picture);
     }
 
+    fn protected_text_block(
+        width: usize,
+        height: usize,
+        picture_overlap: usize,
+    ) -> ContentBlockEvidence {
+        ContentBlockEvidence {
+            bounds: crate::protocol::manifest_v3::ContentDiagnosticRect {
+                x_px: 12,
+                y_px: 18,
+                width_px: width,
+                height_px: height,
+            },
+            picture_mask_overlap_pixels: picture_overlap,
+            heading_evidence: false,
+            grayscale_evidence: false,
+            text_evidence: true,
+        }
+    }
+
+    #[test]
+    fn broad_outside_tone_does_not_exempt_contradictory_mixed_ownership() {
+        let photographed_field = crate::text_tone::OutsideTonalEvidence {
+            fraction: 0.34,
+            largest_component_fraction: 0.12,
+            largest_component_width_fraction: 0.28,
+            largest_component_height_fraction: 0.59,
+        };
+        assert!(!qualifies_independent_outside_tone(photographed_field));
+
+        let localized_tone = crate::text_tone::OutsideTonalEvidence {
+            fraction: 0.025,
+            largest_component_fraction: 0.02,
+            largest_component_width_fraction: 0.12,
+            largest_component_height_fraction: 0.10,
+        };
+        assert!(qualifies_independent_outside_tone(localized_tone));
+    }
+
+    #[test]
+    fn auto_mixed_veto_falls_back_for_camera_paper_and_red_cloth() {
+        let (_, mut rgb) = text_page([245; 3]);
+        // A narrow red cloth strip supplies chroma, while the oversized
+        // detector mask incorrectly claims the printed block below it.
+        for y in 0..42 {
+            for x in 0..36 {
+                rgb.set(x, y, [128, 18, 24]);
+            }
+        }
+        let gray = rgb_to_gray(&rgb);
+        let mut picture_mask = BinaryImage::new(gray.width(), gray.height());
+        for y in 18..238 {
+            for x in 12..340 {
+                picture_mask.set(x, y, true);
+            }
+        }
+        let recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &gray,
+            analysis_rgb: Some(&rgb),
+            picture_mask: &picture_mask,
+            picture_tone_evidence: false,
+            text_line_count: 8,
+        });
+        assert_eq!(recommendation.mode, OutputMode::Mixed, "{recommendation:?}");
+        assert!(recommendation.diagnostics.significant_color);
+
+        let vetoed = veto_contradictory_mixed_ownership(
+            recommendation,
+            true,
+            &[protected_text_block(328, 220, 328 * 220)],
+            false,
+        );
+        assert_eq!(vetoed.mode, OutputMode::Color, "{vetoed:?}");
+        assert!(vetoed.diagnostics.mixed_ownership_veto);
+        assert_eq!(vetoed.diagnostics.protected_text_block_count, 1);
+        assert_eq!(
+            vetoed
+                .diagnostics
+                .protected_text_block_picture_overlap_pixels,
+            328 * 220
+        );
+        assert_eq!(
+            vetoed
+                .diagnostics
+                .protected_text_block_picture_overlap_fraction,
+            1.0
+        );
+    }
+
+    #[test]
+    fn auto_mixed_veto_falls_back_to_grayscale_without_color_evidence() {
+        let (gray, _) = text_page([205; 3]);
+        let mut picture_mask = BinaryImage::new(gray.width(), gray.height());
+        for y in 18..158 {
+            for x in 12..340 {
+                picture_mask.set(x, y, true);
+            }
+        }
+        let recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &gray,
+            analysis_rgb: None,
+            picture_mask: &picture_mask,
+            picture_tone_evidence: false,
+            text_line_count: 8,
+        });
+        assert_eq!(recommendation.mode, OutputMode::Mixed, "{recommendation:?}");
+        assert!(!recommendation.diagnostics.significant_color);
+
+        let vetoed = veto_contradictory_mixed_ownership(
+            recommendation,
+            true,
+            &[protected_text_block(328, 140, 328 * 140)],
+            false,
+        );
+        assert_eq!(vetoed.mode, OutputMode::Grayscale, "{vetoed:?}");
+        assert!(vetoed.diagnostics.mixed_ownership_veto);
+        assert_eq!(
+            vetoed.reason,
+            OutputModeRecommendationReason::UncertainTonal
+        );
+    }
+
+    #[test]
+    fn independent_picture_evidence_preserves_genuine_auto_mixed() {
+        let (gray, _) = text_page([245; 3]);
+        let mut picture_mask = BinaryImage::new(gray.width(), gray.height());
+        for y in 40..130 {
+            for x in 230..340 {
+                picture_mask.set(x, y, true);
+            }
+        }
+        let recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &gray,
+            analysis_rgb: None,
+            picture_mask: &picture_mask,
+            picture_tone_evidence: true,
+            text_line_count: 8,
+        });
+        assert_eq!(recommendation.mode, OutputMode::Mixed, "{recommendation:?}");
+        let preserved = veto_contradictory_mixed_ownership(
+            recommendation,
+            true,
+            &[protected_text_block(328, 220, 328 * 220)],
+            true,
+        );
+        assert_eq!(preserved.mode, OutputMode::Mixed, "{preserved:?}");
+        assert!(!preserved.diagnostics.mixed_ownership_veto);
+        assert!(
+            preserved
+                .diagnostics
+                .mixed_ownership_independent_picture_evidence
+        );
+
+        let explicit_mode = veto_contradictory_mixed_ownership(
+            recommendation,
+            false,
+            &[protected_text_block(328, 220, 328 * 220)],
+            false,
+        );
+        assert_eq!(explicit_mode.mode, OutputMode::Mixed, "{explicit_mode:?}");
+        assert!(!explicit_mode.diagnostics.mixed_ownership_veto);
+    }
+
     #[test]
     fn photo_dominant_page_stays_semantically_mixed() {
         let (mut gray, _) = text_page([245; 3]);
@@ -2730,6 +2997,36 @@ mod tests {
             cover_recommendation.reason,
             OutputModeRecommendationReason::ColorChroma
         );
+    }
+
+    #[test]
+    fn tinted_camera_text_without_picture_owner_stays_color() {
+        let (_, mut rgb) = text_page([245, 228, 214]);
+        // Camera-bed color is real chroma, but it is attached to the raster
+        // edge and disappears when the page crop is applied.
+        for y in 0..rgb.height() {
+            for x in 0..18 {
+                rgb.set(x, y, [128, 18, 24]);
+            }
+        }
+        let gray = rgb_to_gray(&rgb);
+        let recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &gray,
+            analysis_rgb: Some(&rgb),
+            picture_mask: &BinaryImage::new(gray.width(), gray.height()),
+            picture_tone_evidence: false,
+            text_line_count: 8,
+        });
+        assert_eq!(
+            recommendation.mode,
+            OutputMode::Color,
+            "paper tint must not manufacture a Mixed bilevel foreground: {recommendation:?}"
+        );
+        assert_eq!(
+            recommendation.reason,
+            OutputModeRecommendationReason::ColorChroma
+        );
+        assert!(!recommendation.diagnostics.significant_picture);
     }
 
     #[test]

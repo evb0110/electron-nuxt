@@ -5,6 +5,10 @@ import type {
     TScanCleanupRenderPage,
     TScanCleanupRunCommand,
 } from '@scan-cleanup-core/types';
+import {
+    parsePdfInfoPageGeometry,
+    shouldUseMediaBoxForSuspiciousCrop,
+} from '@scan-cleanup-core/pdfPageSizes';
 import {readPngDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
 import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
@@ -16,6 +20,21 @@ const DEFAULT_RASTER_LIMITS = {
     maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
     maxPixels: SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
 };
+const PDFINFO_TIMEOUT_MS = 60 * 1000;
+const PDFINFO_OVERVIEW_MAX_STDOUT_BYTES = 256 * 1024;
+
+interface IScanCleanupRendererOptions {pdfinfoBinary?: string;}
+
+interface IRenderDocumentGeometry {fallbackToMediaBoxPages: ReadonlySet<number>;}
+
+function pageCountFromPdfInfo(output: string) {
+    const match = /^Pages:\s+(\d+)\s*$/mu.exec(output);
+    const pageCount = Number.parseInt(match?.[1] ?? '', 10);
+    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
+        throw new Error('pdfinfo returned no page count for CropBox recovery');
+    }
+    return pageCount;
+}
 
 function validateRenderLimits(limits: IScanCleanupRasterRenderLimits | undefined) {
     if (limits === undefined) {
@@ -60,10 +79,58 @@ function validateCrop(crop: Parameters<TScanCleanupRenderPage>[8]) {
     }
 }
 
+async function readSuspiciousCropGeometry(
+    runCommand: TScanCleanupRunCommand,
+    pdfinfoBinary: string,
+    sourcePdfPath: string,
+    signal: AbortSignal | undefined,
+    log: TScanCleanupLog,
+): Promise<IRenderDocumentGeometry | null> {
+    try {
+        const commandOptions = {
+            timeoutMs: PDFINFO_TIMEOUT_MS,
+            ...(signal === undefined ? {} : {signal}),
+            log,
+        };
+        const overview = await runCommand(pdfinfoBinary, [sourcePdfPath], {
+            ...commandOptions,
+            commandLabel: 'pdfinfo(cropbox-recovery-overview)',
+            maxStdoutBytes: PDFINFO_OVERVIEW_MAX_STDOUT_BYTES,
+        });
+        const pageCount = pageCountFromPdfInfo(overview.stdout);
+        const detailed = await runCommand(pdfinfoBinary, [
+            '-f',
+            '1',
+            '-l',
+            String(pageCount),
+            '-box',
+            sourcePdfPath,
+        ], {
+            ...commandOptions,
+            commandLabel: 'pdfinfo(cropbox-recovery-boxes)',
+            maxStdoutBytes: PDFINFO_OVERVIEW_MAX_STDOUT_BYTES + pageCount * 1024,
+            rejectOnStdoutTruncation: true,
+        });
+        const pageSizes = parsePdfInfoPageGeometry(detailed.stdout);
+        return {fallbackToMediaBoxPages: new Set(
+            pageSizes
+                .filter(page => shouldUseMediaBoxForSuspiciousCrop(page, pageSizes))
+                .map(page => page.pageNumber),
+        )};
+    } catch (error) {
+        if (signal?.aborted) throw error;
+        log(
+            'warn',
+            `CropBox recovery metadata could not be read; retaining Poppler's CropBox rendering: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return null;
+    }
+}
+
 async function renderPage(
     runCommand: TScanCleanupRunCommand,
     format: 'png' | 'ppm',
-    paths: Pick<Parameters<TScanCleanupRenderPage>[0], 'pdftoppmBinary'>,
+    paths: Parameters<TScanCleanupRenderPage>[0],
     log: TScanCleanupLog,
     pageNumber: number,
     sourcePdfPath: string,
@@ -73,12 +140,13 @@ async function renderPage(
     signal?: AbortSignal,
     crop?: Parameters<TScanCleanupRenderPage>[8],
     limits?: Parameters<TScanCleanupRenderPage>[9],
+    useMediaBox = false,
 ) {
     validateCrop(crop);
     validateRenderLimits(limits);
     const commandArgs = [
         ...(format === 'png' ? ['-png'] : []),
-        '-cropbox',
+        ...(useMediaBox ? [] : ['-cropbox']),
         ...(limits?.scaleToFitPx === undefined ? [] : [
             '-scale-to',
             String(limits.scaleToFitPx),
@@ -119,7 +187,96 @@ async function renderPage(
 export function createScanCleanupRenderers(
     runCommand: TScanCleanupRunCommand,
     fallbackLimits: Pick<IScanCleanupRasterRenderLimits, 'maxDimensionPx' | 'maxPixels'> = DEFAULT_RASTER_LIMITS,
+    rendererOptions: IScanCleanupRendererOptions = {},
 ) {
+    const geometryBySourcePdf = new Map<string, Promise<IRenderDocumentGeometry | null>>();
+    const awaitWithSignal = async <T>(pending: Promise<T>, signal: AbortSignal | undefined) => {
+        if (signal === undefined) {
+            return pending;
+        }
+        signal.throwIfAborted();
+        return new Promise<T>((resolve, reject) => {
+            const aborted = () => reject(signal.reason ?? new Error('Scan cleanup render aborted'));
+            signal.addEventListener('abort', aborted, {once: true});
+            pending.then(
+                value => {
+                    signal.removeEventListener('abort', aborted);
+                    resolve(value);
+                },
+                error => {
+                    signal.removeEventListener('abort', aborted);
+                    reject(error);
+                },
+            );
+        });
+    };
+    const getDocumentGeometry = async (
+        sourcePdfPath: string,
+        signal: AbortSignal | undefined,
+        log: TScanCleanupLog,
+    ) => {
+        if (rendererOptions.pdfinfoBinary === undefined) {
+            return Promise.resolve(null);
+        }
+        const cached = geometryBySourcePdf.get(sourcePdfPath);
+        if (cached !== undefined) {
+            return awaitWithSignal(cached, signal);
+        }
+        const pending = readSuspiciousCropGeometry(
+            runCommand,
+            rendererOptions.pdfinfoBinary,
+            sourcePdfPath,
+            undefined,
+            log,
+        ).catch(error => {
+            geometryBySourcePdf.delete(sourcePdfPath);
+            throw error;
+        });
+        geometryBySourcePdf.set(sourcePdfPath, pending);
+        if (geometryBySourcePdf.size > 32) {
+            const oldestSourcePdf = geometryBySourcePdf.keys().next().value;
+            if (oldestSourcePdf !== undefined) {
+                geometryBySourcePdf.delete(oldestSourcePdf);
+            }
+        }
+        return awaitWithSignal(pending, signal);
+    };
+    const renderPageWithResolvedBox = async (
+        format: 'png' | 'ppm',
+        ...[
+            paths,
+            log,
+            pageNumber,
+            sourcePdfPath,
+            outputPath,
+            dpi,
+            popplerEnv,
+            signal,
+            crop,
+            limits,
+            renderBox,
+        ]: Parameters<TScanCleanupRenderPage>
+    ) => {
+        const geometry = crop === undefined && renderBox !== 'cropbox' && renderBox !== 'mediabox'
+            ? await getDocumentGeometry(sourcePdfPath, signal, log)
+            : null;
+        await renderPage(
+            runCommand,
+            format,
+            paths,
+            log,
+            pageNumber,
+            sourcePdfPath,
+            outputPath,
+            dpi,
+            popplerEnv,
+            signal,
+            crop,
+            limits,
+            renderBox === 'mediabox'
+                || (renderBox !== 'cropbox' && geometry?.fallbackToMediaBoxPages.has(pageNumber) === true),
+        );
+    };
     const renderPageToPng: TScanCleanupRenderPage = async (
         paths,
         log,
@@ -131,10 +288,10 @@ export function createScanCleanupRenderers(
         signal,
         crop,
         limits,
+        renderBox,
     ) => {
         try {
-            await renderPage(
-                runCommand,
+            await renderPageWithResolvedBox(
                 'png',
                 paths,
                 log,
@@ -146,6 +303,7 @@ export function createScanCleanupRenderers(
                 signal,
                 crop,
                 limits,
+                renderBox,
             );
             signal?.throwIfAborted();
             const dimensions = await readPngDimensions(outputPngPath);
@@ -168,7 +326,7 @@ export function createScanCleanupRenderers(
             throw error;
         }
     };
-    const renderPageToPpm: TScanCleanupRenderPage = (
+    const renderPageToPpm: TScanCleanupRenderPage = async (
         paths,
         log,
         pageNumber,
@@ -179,20 +337,23 @@ export function createScanCleanupRenderers(
         signal,
         crop,
         limits,
-    ) => renderPage(
-        runCommand,
-        'ppm',
-        paths,
-        log,
-        pageNumber,
-        sourcePdfPath,
-        outputPpmPath,
-        dpi,
-        popplerEnv,
-        signal,
-        crop,
-        limits,
-    );
+        renderBox,
+    ) => {
+        await renderPageWithResolvedBox(
+            'ppm',
+            paths,
+            log,
+            pageNumber,
+            sourcePdfPath,
+            outputPpmPath,
+            dpi,
+            popplerEnv,
+            signal,
+            crop,
+            limits,
+            renderBox,
+        );
+    };
     return {
         renderPage: renderPageToPng,
         renderPagePpm: renderPageToPpm,

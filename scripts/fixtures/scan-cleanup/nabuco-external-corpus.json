@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "id": "nabuco-camera-source",
+      "pdfPath": "${EVB_SCAN_CLEANUP_NABUCO_SOURCE_PDF}",
+      "pages": [3, 31, 32, 33, 41, 52, 101, 147],
+      "required": true,
+      "sha256": "de50d9a355e0242162a1868319c423308bbc836212ca01bc47fb3d18c7d15375",
+      "options": {
+        "binarization": "auto",
+        "cropContent": true
+      },
+      "source": {
+        "filename": "! J.-Nabuco-F.-Tamburini-Ceremonial-Apostolique-avant-Innocent-VIII.-Texte-du-manuscrit-Urbinate-Latin-469-Roma-1960.pdf",
+        "pages": 148,
+        "bytes": 45335160
+      }
+    }
+  ]
+}

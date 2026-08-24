@@ -195,8 +195,9 @@ const projectConfig = withNuxt(
         ['packages/contracts/ocrPlatformFeature.ts', 1368],
         // The v3 protocol contract is one shared schema with its native
         // counterpart; splitting it would fork the pairing rather than shorten
-        // it. The staged Analyze input window is the growth this budget covers.
-        ['packages/contracts/scan-cleanup/nativeProtocolV3.ts', 1221],
+        // it. The staged Analyze input window and optional Mixed/split evidence
+        // are the growth this budget covers.
+        ['packages/contracts/scan-cleanup/nativeProtocolV3.ts', 1242],
     ].map(([
         file,
         max,

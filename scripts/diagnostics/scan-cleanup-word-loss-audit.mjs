@@ -110,6 +110,8 @@ const GRAY_EDGE_MIN_SHAPE_IOU = 0.06;
 const GRAY_EDGE_MIN_SHAPE_RECALL = 0.15;
 const GRAY_EDGE_MAX_MEAN = 245;
 const BLACK_THRESHOLD = 128;
+const RGB_SUPPORT_MAX_INK = 128;
+const RGB_SUPPORT_MIN_PAPER_SEPARATION = 32;
 
 function scaleLabel(scale) {
     if (typeof scale === 'object') {
@@ -316,7 +318,9 @@ function selectSourceMaskRow(rows) {
         return null;
     }
     const [singleImage] = imageRows;
-    return singleImage?.color === 'gray' ? singleImage : null;
+    return singleImage?.color === 'gray' || singleImage?.color === 'rgb'
+        ? singleImage
+        : null;
 }
 
 function selectCleanedInkRow(rows) {
@@ -340,6 +344,7 @@ function pngFileNumber(fileName) {
 }
 
 async function extractPngMask({
+    includeGray = false,
     pageNumber,
     pdfPath,
     row,
@@ -375,7 +380,7 @@ async function extractPngMask({
                 `pdfimages did not produce ${role} row ${String(rowIndex)} on PDF page ${pageNumber}`,
             );
         }
-        return decodePng(await readFile(join(workDirectory, extractedName)));
+        return decodePng(await readFile(join(workDirectory, extractedName)), includeGray);
     } finally {
         await Promise.all(extractedNames.map(name =>
             rm(join(workDirectory, name), {force: true}),
@@ -490,7 +495,11 @@ function decodePng(buffer, includeGray = false) {
         current.copy(previous);
     }
     const totalPixels = width * height;
-    const invertForeground = darkPixelCount > totalPixels / 2;
+    // RGB camera pages are not masks. A dark photographed page must not be
+    // inverted into an all-white support mask merely because its paper or
+    // exposure is unusual. Bilevel and grayscale mask behavior stays as it
+    // was before RGB sources were admitted.
+    const invertForeground = colorType !== 2 && darkPixelCount > totalPixels / 2;
     if (invertForeground) {
         for (let index = 0; index < pixels.length; index += 1) {
             pixels[index] = pixels[index] ? 0 : 1;
@@ -638,6 +647,50 @@ function makeBitmap(width, height, pixels) {
         height,
         pixels,
         width,
+    };
+}
+
+/**
+ * Turn a single RGB camera image into the small amount of source support the
+ * audit needs. This is deliberately stricter than the rendered grayscale
+ * fallback. Paper texture and illumination gradients remain background; only
+ * pixels that are both dark in absolute terms and separated from the page's
+ * upper-quartile paper level become support. Component and coverage checks
+ * still decide whether that support looks like text.
+ */
+function makeConservativeRgbSupport(decoded) {
+    if (!decoded.gray) {
+        throw new Error('RGB source image did not produce grayscale support samples');
+    }
+    const histogram = new Uint32Array(256);
+    for (const value of decoded.gray) {
+        histogram[value] += 1;
+    }
+    const paperReference = histogramPercentile(
+        histogram,
+        decoded.gray.length,
+        SOURCE_SUPPORT_PERCENTILE,
+    );
+    const threshold = Math.min(
+        RGB_SUPPORT_MAX_INK,
+        Math.max(0, paperReference - RGB_SUPPORT_MIN_PAPER_SEPARATION),
+    );
+    const pixels = new Uint8Array(decoded.gray.length);
+    let blackCount = 0;
+    for (let index = 0; index < decoded.gray.length; index += 1) {
+        if (decoded.gray[index] <= threshold) {
+            pixels[index] = 1;
+            blackCount += 1;
+        }
+    }
+    return {
+        ...decoded,
+        blackCount,
+        pixels,
+        rgbSupport: {
+            paperReference,
+            threshold,
+        },
     };
 }
 
@@ -806,6 +859,57 @@ function applySourceGraySplitTransform(source, transform) {
         transform.cropWidth,
         transform.height,
     );
+}
+
+function mapSplitLocalPointToFullSource(point, transform) {
+    const rotatedX = point.x + transform.x;
+    const rotatedY = point.y + transform.y;
+    const turns = ((transform.quarterTurns % 4) + 4) % 4;
+    if (turns === 0) {
+        return {
+            x: rotatedX,
+            y: rotatedY,
+        };
+    }
+    if (turns === 1) {
+        return {
+            x: rotatedY,
+            y: transform.fullHeight - 1 - rotatedX,
+        };
+    }
+    if (turns === 2) {
+        return {
+            x: transform.fullWidth - 1 - rotatedX,
+            y: transform.fullHeight - 1 - rotatedY,
+        };
+    }
+    return {
+        x: transform.fullWidth - 1 - rotatedY,
+        y: rotatedX,
+    };
+}
+
+function mapFullSourcePointToSplitLocal(point, transform) {
+    const turns = ((transform.quarterTurns % 4) + 4) % 4;
+    let rotatedX;
+    let rotatedY;
+    if (turns === 0) {
+        rotatedX = point.x;
+        rotatedY = point.y;
+    } else if (turns === 1) {
+        rotatedX = transform.fullHeight - 1 - point.y;
+        rotatedY = point.x;
+    } else if (turns === 2) {
+        rotatedX = transform.fullWidth - 1 - point.x;
+        rotatedY = transform.fullHeight - 1 - point.y;
+    } else {
+        rotatedX = point.y;
+        rotatedY = transform.fullWidth - 1 - point.x;
+    }
+    return {
+        x: rotatedX - transform.x,
+        y: rotatedY - transform.y,
+    };
 }
 
 function downsampleBitmap(bitmap, factor) {
@@ -1468,6 +1572,410 @@ function resolveCanonicalGeometryScale(geometry, source, cleaned) {
     };
 }
 
+function finitePoint(value) {
+    return value
+        && typeof value === 'object'
+        && Number.isFinite(value.x)
+        && Number.isFinite(value.y);
+}
+
+function interpolateDewarpGrid(points, columns, rows, width, height, x, y) {
+    const gridX = Math.min(
+        columns - 1,
+        Math.max(0, (x / width) * (columns - 1)),
+    );
+    const gridY = Math.min(
+        rows - 1,
+        Math.max(0, (y / height) * (rows - 1)),
+    );
+    const left = Math.floor(gridX);
+    const top = Math.floor(gridY);
+    const right = Math.min(columns - 1, left + 1);
+    const bottom = Math.min(rows - 1, top + 1);
+    const tx = gridX - left;
+    const ty = gridY - top;
+    const at = (column, row) => points[row * columns + column];
+    const lerp = (start, end, amount) => start + (end - start) * amount;
+    const bilinearCoordinate = coordinate => lerp(
+        lerp(at(left, top)[coordinate], at(right, top)[coordinate], tx),
+        lerp(at(left, bottom)[coordinate], at(right, bottom)[coordinate], tx),
+        ty,
+    );
+    return {
+        x: bilinearCoordinate('x'),
+        y: bilinearCoordinate('y'),
+    };
+}
+
+function dewarpGridCellDeterminant(points, columns, row, column) {
+    const at = (x, y) => points[y * columns + x];
+    const topLeft = at(column, row);
+    const topRight = at(column + 1, row);
+    const bottomLeft = at(column, row + 1);
+    return (
+        (topRight.x - topLeft.x) * (bottomLeft.y - topLeft.y)
+        - (topRight.y - topLeft.y) * (bottomLeft.x - topLeft.x)
+    );
+}
+
+function validateDewarpGridSemantics({
+    columns,
+    mapping,
+    rows,
+    sourceRegionHeight,
+    sourceRegionWidth,
+    sourceRegionX,
+    sourceRegionY,
+}) {
+    const outputAllowance = Math.max(
+        4,
+        Math.max(mapping.outputWidth, mapping.outputHeight) * 0.25,
+    );
+    const sourceAllowance = Math.max(4, Math.max(sourceRegionWidth, sourceRegionHeight) * 0.25);
+    const outputPointsInBounds = mapping.sourceToOutput.every(point =>
+        point.x >= -outputAllowance
+        && point.x <= mapping.outputWidth + outputAllowance
+        && point.y >= -outputAllowance
+        && point.y <= mapping.outputHeight + outputAllowance,
+    );
+    const sourcePointsInBounds = mapping.outputToSource.every(point =>
+        point.x >= sourceRegionX - sourceAllowance
+        && point.x <= sourceRegionX + sourceRegionWidth + sourceAllowance
+        && point.y >= sourceRegionY - sourceAllowance
+        && point.y <= sourceRegionY + sourceRegionHeight + sourceAllowance,
+    );
+    if (!outputPointsInBounds || !sourcePointsInBounds) {
+        return 'dewarpMapping contains out-of-bounds coordinates';
+    }
+    for (const points of [
+        mapping.sourceToOutput,
+        mapping.outputToSource,
+    ]) {
+        for (let row = 0; row < rows - 1; row += 1) {
+            for (let column = 0; column < columns - 1; column += 1) {
+                const determinant = dewarpGridCellDeterminant(points, columns, row, column);
+                if (!Number.isFinite(determinant) || determinant <= 1e-6) {
+                    return 'dewarpMapping is folded or non-invertible';
+                }
+            }
+        }
+    }
+    const sourceTolerance = Math.max(
+        8,
+        Math.max(sourceRegionWidth, sourceRegionHeight) * 0.1,
+    );
+    const outputTolerance = Math.max(
+        8,
+        Math.max(mapping.outputWidth, mapping.outputHeight) * 0.1,
+    );
+    const sourceToOutput = point => interpolateDewarpGrid(
+        mapping.sourceToOutput,
+        columns,
+        rows,
+        sourceRegionWidth,
+        sourceRegionHeight,
+        point.x - sourceRegionX,
+        point.y - sourceRegionY,
+    );
+    const outputToSource = point => interpolateDewarpGrid(
+        mapping.outputToSource,
+        columns,
+        rows,
+        mapping.outputWidth,
+        mapping.outputHeight,
+        point.x,
+        point.y,
+    );
+    for (let row = 0; row < rows; row += 1) {
+        const sourceY = sourceRegionY + row / (rows - 1) * sourceRegionHeight;
+        const outputY = row / (rows - 1) * mapping.outputHeight;
+        for (let column = 0; column < columns; column += 1) {
+            const sourceX = sourceRegionX + column / (columns - 1) * sourceRegionWidth;
+            const outputX = column / (columns - 1) * mapping.outputWidth;
+            const sourceRoundTrip = outputToSource(sourceToOutput({
+                x: sourceX,
+                y: sourceY,
+            }));
+            const outputRoundTrip = sourceToOutput(outputToSource({
+                x: outputX,
+                y: outputY,
+            }));
+            if (
+                Math.hypot(sourceRoundTrip.x - sourceX, sourceRoundTrip.y - sourceY) > sourceTolerance
+                || Math.hypot(outputRoundTrip.x - outputX, outputRoundTrip.y - outputY) > outputTolerance
+            ) {
+                return 'dewarpMapping source/output grids are not mutual inverses';
+            }
+        }
+    }
+    return null;
+}
+
+function resolveDewarpGeometryAlignment(
+    geometry,
+    source,
+    cleaned,
+    sourceCoordinateTransform = null,
+) {
+    if (geometry?.dewarped !== true) {
+        return {kind: 'not-dewarped'};
+    }
+    const mapping = geometry.dewarpMapping;
+    if (mapping === undefined || mapping === null) {
+        return {
+            kind: 'missing',
+            reason: 'dewarped output has no declared dewarpMapping',
+        };
+    }
+    if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) {
+        return {
+            kind: 'malformed',
+            reason: 'dewarpMapping must be an object',
+        };
+    }
+    const columns = mapping.columns;
+    const rows = mapping.rows;
+    const pointCount = columns * rows;
+    if (
+        !Number.isSafeInteger(columns)
+        || !Number.isSafeInteger(rows)
+        || columns < 2
+        || rows < 2
+        || columns > 1024
+        || rows > 1024
+        || !Number.isSafeInteger(pointCount)
+        || pointCount <= 0
+    ) {
+        return {
+            kind: 'malformed',
+            reason: 'dewarpMapping grid dimensions are invalid',
+        };
+    }
+    if (
+        !Number.isSafeInteger(mapping.outputWidth)
+        || !Number.isSafeInteger(mapping.outputHeight)
+        || mapping.outputWidth <= 0
+        || mapping.outputHeight <= 0
+        || !finitePoint(mapping.outputOrigin)
+        || !Array.isArray(mapping.outputToSource)
+        || !Array.isArray(mapping.sourceToOutput)
+        || mapping.outputToSource.length !== pointCount
+        || mapping.sourceToOutput.length !== pointCount
+        || mapping.outputToSource.some(point => !finitePoint(point))
+        || mapping.sourceToOutput.some(point => !finitePoint(point))
+    ) {
+        return {
+            kind: 'malformed',
+            reason: 'dewarpMapping grid points or output dimensions are invalid',
+        };
+    }
+    const canvasWidth = geometry.canvasWidthPx;
+    const canvasHeight = geometry.canvasHeightPx;
+    const inputWidth = geometry.inputWidthPx;
+    const inputHeight = geometry.inputHeightPx;
+    const placementOffsetX = geometry.placementOffsetXPx;
+    const placementOffsetY = geometry.placementOffsetYPx;
+    if (
+        !finitePositive(canvasWidth)
+        || !finitePositive(canvasHeight)
+        || !finitePositive(inputWidth)
+        || !finitePositive(inputHeight)
+        || !Number.isFinite(placementOffsetX)
+        || !Number.isFinite(placementOffsetY)
+    ) {
+        return {
+            kind: 'malformed',
+            reason: 'dewarpMapping geometry has invalid canvas, input, or placement dimensions',
+        };
+    }
+    const sourceRegion = geometry.sourceRegion;
+    const sourceRegionValid = sourceRegion === undefined
+        || (
+            sourceRegion
+            && Number.isFinite(sourceRegion.xPx)
+            && Number.isFinite(sourceRegion.yPx)
+            && finitePositive(sourceRegion.widthPx)
+            && finitePositive(sourceRegion.heightPx)
+        );
+    if (!sourceRegionValid) {
+        return {
+            kind: 'malformed',
+            reason: 'dewarpMapping sourceRegion is invalid',
+        };
+    }
+    const sourceRegionX = sourceRegion?.xPx ?? 0;
+    const sourceRegionY = sourceRegion?.yPx ?? 0;
+    const sourceRegionWidth = sourceRegion?.widthPx ?? inputWidth;
+    const sourceRegionHeight = sourceRegion?.heightPx ?? inputHeight;
+    const matchWidth = geometry.matchedCanvasContentWidthPx
+        ?? geometry.outputWidthPx
+        ?? mapping.outputWidth;
+    const matchHeight = geometry.matchedCanvasContentHeightPx
+        ?? geometry.outputHeightPx
+        ?? mapping.outputHeight;
+    if (!finitePositive(matchWidth) || !finitePositive(matchHeight)) {
+        return {
+            kind: 'malformed',
+            reason: 'dewarpMapping has no positive output content dimensions',
+        };
+    }
+    const semanticError = validateDewarpGridSemantics({
+        columns,
+        mapping,
+        rows,
+        sourceRegionHeight,
+        sourceRegionWidth,
+        sourceRegionX,
+        sourceRegionY,
+    });
+    if (semanticError !== null) {
+        return {
+            kind: 'malformed',
+            reason: semanticError,
+        };
+    }
+    const canvasScaleX = cleaned.width / canvasWidth;
+    const canvasScaleY = cleaned.height / canvasHeight;
+    const outputScaleX = matchWidth / mapping.outputWidth;
+    const outputScaleY = matchHeight / mapping.outputHeight;
+    const scaleX = outputScaleX * canvasScaleX;
+    const scaleY = outputScaleY * canvasScaleY;
+    if (!finitePositive(scaleX) || !finitePositive(scaleY)) {
+        return {
+            kind: 'malformed',
+            reason: 'dewarpMapping resolves to a non-positive output scale',
+        };
+    }
+    const sourceToInput = point => {
+        const fullSource = sourceCoordinateTransform === null
+            ? point
+            : mapSplitLocalPointToFullSource(point, sourceCoordinateTransform);
+        const fullWidth = sourceCoordinateTransform?.fullWidth ?? source.width;
+        const fullHeight = sourceCoordinateTransform?.fullHeight ?? source.height;
+        return {
+            x: fullSource.x / fullWidth * inputWidth,
+            y: fullSource.y / fullHeight * inputHeight,
+        };
+    };
+    const inputToSource = point => {
+        const fullWidth = sourceCoordinateTransform?.fullWidth ?? source.width;
+        const fullHeight = sourceCoordinateTransform?.fullHeight ?? source.height;
+        const fullSource = {
+            x: point.x / inputWidth * fullWidth,
+            y: point.y / inputHeight * fullHeight,
+        };
+        return sourceCoordinateTransform === null
+            ? {
+                x: fullSource.x / fullWidth * source.width,
+                y: fullSource.y / fullHeight * source.height,
+            }
+            : mapFullSourcePointToSplitLocal(fullSource, sourceCoordinateTransform);
+    };
+    const sourceToOutput = point => {
+        const inputPoint = sourceToInput(point);
+        const inputPointX = inputPoint.x;
+        const inputPointY = inputPoint.y;
+        if (
+            inputPointX < sourceRegionX
+            || inputPointX > sourceRegionX + sourceRegionWidth
+            || inputPointY < sourceRegionY
+            || inputPointY > sourceRegionY + sourceRegionHeight
+        ) {
+            return {
+                x: Number.NaN,
+                y: Number.NaN,
+            };
+        }
+        const output = interpolateDewarpGrid(
+            mapping.sourceToOutput,
+            columns,
+            rows,
+            sourceRegionWidth,
+            sourceRegionHeight,
+            inputPointX - sourceRegionX,
+            inputPointY - sourceRegionY,
+        );
+        return {
+            x: (output.x * outputScaleX + placementOffsetX) * canvasScaleX,
+            y: (output.y * outputScaleY + placementOffsetY) * canvasScaleY,
+        };
+    };
+    const outputToSource = point => {
+        const output = {
+            x: (point.x / canvasScaleX - placementOffsetX) / outputScaleX,
+            y: (point.y / canvasScaleY - placementOffsetY) / outputScaleY,
+        };
+        const sourcePoint = interpolateDewarpGrid(
+            mapping.outputToSource,
+            columns,
+            rows,
+            mapping.outputWidth,
+            mapping.outputHeight,
+            output.x,
+            output.y,
+        );
+        return inputToSource(sourcePoint);
+    };
+    return {
+        alignment: {
+            dx: 0,
+            dy: 0,
+            fullOverlapScore: 0,
+            mapOutputPoint: outputToSource,
+            mapSourcePoint: sourceToOutput,
+            overlapScore: 0,
+            scale: {
+                label: `canonical-dewarp-grid(${String(columns)}x${String(rows)})`,
+                x: scaleX,
+                y: scaleY,
+            },
+            scaleX,
+            scaleY,
+        },
+        kind: 'valid',
+    };
+}
+
+function alignAtDewarpGrid(source, cleaned, alignment) {
+    const stride = Math.max(1, Math.ceil(source.blackCount / MAX_FULL_ALIGNMENT_SAMPLES));
+    let ordinal = 0;
+    let sampleCount = 0;
+    let overlap = 0;
+    for (let y = 0; y < source.height; y += 1) {
+        const offset = y * source.width;
+        for (let x = 0; x < source.width; x += 1) {
+            if (!source.pixels[offset + x]) {
+                continue;
+            }
+            if (ordinal % stride === 0) {
+                const mapped = alignment.mapSourcePoint({
+                    x,
+                    y,
+                });
+                const targetX = Math.round(mapped.x);
+                const targetY = Math.round(mapped.y);
+                if (
+                    targetX >= 0
+                    && targetX < cleaned.width
+                    && targetY >= 0
+                    && targetY < cleaned.height
+                    && cleaned.pixels[targetY * cleaned.width + targetX]
+                ) {
+                    overlap += 1;
+                }
+                sampleCount += 1;
+            }
+            ordinal += 1;
+        }
+    }
+    const score = sampleCount === 0 ? 0 : overlap / sampleCount;
+    return {
+        ...alignment,
+        fullOverlapScore: score,
+        overlapScore: score,
+    };
+}
+
 function ensureComponentPixels(component, componentLabels, sourceWidth) {
     if (component.pixels || !componentLabels) {
         return component.pixels ?? [];
@@ -1483,6 +1991,26 @@ function ensureComponentPixels(component, componentLabels, sourceWidth) {
     }
     component.pixels = pixels;
     return pixels;
+}
+
+function mapSourcePixel(sourceX, sourceY, alignment, xMap, yMap) {
+    if (typeof alignment.mapSourcePoint === 'function') {
+        const mapped = alignment.mapSourcePoint({
+            x: sourceX,
+            y: sourceY,
+        });
+        if (!Number.isFinite(mapped.x) || !Number.isFinite(mapped.y)) {
+            return null;
+        }
+        return {
+            x: Math.round(mapped.x),
+            y: Math.round(mapped.y),
+        };
+    }
+    return {
+        x: xMap[sourceX] + alignment.dx,
+        y: yMap[sourceY] + alignment.dy,
+    };
 }
 
 function mapComponentPixels(
@@ -1505,8 +2033,12 @@ function mapComponentPixels(
     for (const pixelIndex of sourcePixels) {
         const sourceX = pixelIndex % sourceWidth;
         const sourceY = Math.floor(pixelIndex / sourceWidth);
-        const targetX = xMap[sourceX] + alignment.dx;
-        const targetY = yMap[sourceY] + alignment.dy;
+        const mapped = mapSourcePixel(sourceX, sourceY, alignment, xMap, yMap);
+        if (mapped === null) {
+            continue;
+        }
+        const targetX = mapped.x;
+        const targetY = mapped.y;
         if (
             targetX < 0
             || targetX >= targetWidth
@@ -1546,8 +2078,12 @@ function countComponentCoverage(
     for (const pixelIndex of sourcePixels) {
         const sourceX = pixelIndex % sourceWidth;
         const sourceY = Math.floor(pixelIndex / sourceWidth);
-        const targetX = xMap[sourceX] + alignment.dx;
-        const targetY = yMap[sourceY] + alignment.dy;
+        const mapped = mapSourcePixel(sourceX, sourceY, alignment, xMap, yMap);
+        if (mapped === null) {
+            continue;
+        }
+        const targetX = mapped.x;
+        const targetY = mapped.y;
         if (
             targetX >= 0
             && targetX < target.width
@@ -1691,8 +2227,12 @@ function evaluateGrayPreservation({
     for (const pixelIndex of sourcePixels) {
         const sourceX = pixelIndex % sourceWidth;
         const sourceY = Math.floor(pixelIndex / sourceWidth);
-        const targetX = xMap[sourceX] + alignment.dx + localDx;
-        const targetY = yMap[sourceY] + alignment.dy + localDy;
+        const mappedPoint = mapSourcePixel(sourceX, sourceY, alignment, xMap, yMap);
+        if (mappedPoint === null) {
+            continue;
+        }
+        const targetX = mappedPoint.x + localDx;
+        const targetY = mappedPoint.y + localDy;
         if (
             targetX < 0
             || targetX >= cleanedGray.width
@@ -2044,16 +2584,35 @@ function sourceRegionHistogram(sourceGray, bbox, alignment) {
         (bbox.width * bbox.height) / 60_000,
     )));
     for (let y = bbox.y; y < bbox.y + bbox.height; y += step) {
-        const sourceY = Math.min(
-            sourceGray.height - 1,
-            Math.max(0, Math.round((y - alignment.dy) / scaleY)),
-        );
+        const mappedY = typeof alignment.mapOutputPoint === 'function'
+            ? alignment.mapOutputPoint({
+                x: bbox.x,
+                y,
+            })
+            : null;
+        const sourceY = mappedY === null
+            ? Math.min(
+                sourceGray.height - 1,
+                Math.max(0, Math.round((y - alignment.dy) / scaleY)),
+            )
+            : Math.min(sourceGray.height - 1, Math.max(0, Math.round(mappedY.y)));
         for (let x = bbox.x; x < bbox.x + bbox.width; x += step) {
-            const sourceX = Math.min(
-                sourceGray.width - 1,
-                Math.max(0, Math.round((x - alignment.dx) / scaleX)),
-            );
-            histogram[sourceGray.values[sourceY * sourceGray.width + sourceX]] += 1;
+            const mapped = typeof alignment.mapOutputPoint === 'function'
+                ? alignment.mapOutputPoint({
+                    x,
+                    y,
+                })
+                : null;
+            const sourceX = mapped === null
+                ? Math.min(
+                    sourceGray.width - 1,
+                    Math.max(0, Math.round((x - alignment.dx) / scaleX)),
+                )
+                : Math.min(sourceGray.width - 1, Math.max(0, Math.round(mapped.x)));
+            const sampledY = mapped === null
+                ? sourceY
+                : Math.min(sourceGray.height - 1, Math.max(0, Math.round(mapped.y)));
+            histogram[sourceGray.values[sampledY * sourceGray.width + sourceX]] += 1;
             sampleCount += 1;
         }
     }
@@ -2148,30 +2707,57 @@ function markSourceSupportForComponent({
     );
     const scaleX = alignment.scaleX ?? alignment.scale;
     const scaleY = alignment.scaleY ?? alignment.scale;
-    const sourceLeft = Math.max(
-        0,
-        Math.floor((bbox.x - alignment.dx) / scaleX) - 1,
-    );
-    const sourceTop = Math.max(
-        0,
-        Math.floor((bbox.y - alignment.dy) / scaleY) - 1,
-    );
-    const sourceRight = Math.min(
-        sourceGray.width - 1,
-        Math.ceil((bbox.x + bbox.width - 1 - alignment.dx) / scaleX) + 1,
-    );
-    const sourceBottom = Math.min(
-        sourceGray.height - 1,
-        Math.ceil((bbox.y + bbox.height - 1 - alignment.dy) / scaleY) + 1,
-    );
+    const mappedCorners = typeof alignment.mapOutputPoint === 'function'
+        ? [
+            [
+                bbox.x,
+                bbox.y,
+            ],
+            [
+                bbox.x + bbox.width - 1,
+                bbox.y,
+            ],
+            [
+                bbox.x,
+                bbox.y + bbox.height - 1,
+            ],
+            [
+                bbox.x + bbox.width - 1,
+                bbox.y + bbox.height - 1,
+            ],
+        ].map(([
+            x,
+            y,
+        ]) => alignment.mapOutputPoint({
+            x,
+            y,
+        }))
+            .filter(point => point !== null && Number.isFinite(point.x) && Number.isFinite(point.y))
+        : [];
+    const sourceLeft = Math.max(0, Math.floor(mappedCorners.length > 0
+        ? Math.min(...mappedCorners.map(point => point.x))
+        : (bbox.x - alignment.dx) / scaleX) - 1);
+    const sourceTop = Math.max(0, Math.floor(mappedCorners.length > 0
+        ? Math.min(...mappedCorners.map(point => point.y))
+        : (bbox.y - alignment.dy) / scaleY) - 1);
+    const sourceRight = Math.min(sourceGray.width - 1, Math.ceil(mappedCorners.length > 0
+        ? Math.max(...mappedCorners.map(point => point.x))
+        : (bbox.x + bbox.width - 1 - alignment.dx) / scaleX) + 1);
+    const sourceBottom = Math.min(sourceGray.height - 1, Math.ceil(mappedCorners.length > 0
+        ? Math.max(...mappedCorners.map(point => point.y))
+        : (bbox.y + bbox.height - 1 - alignment.dy) / scaleY) + 1);
     for (let sourceY = sourceTop; sourceY <= sourceBottom; sourceY += 1) {
         const sourceOffset = sourceY * sourceGray.width;
         for (let sourceX = sourceLeft; sourceX <= sourceRight; sourceX += 1) {
             if (sourceGray.values[sourceOffset + sourceX] >= paperFloor) {
                 continue;
             }
-            const targetX = xMap[sourceX] + alignment.dx;
-            const targetY = yMap[sourceY] + alignment.dy;
+            const mapped = mapSourcePixel(sourceX, sourceY, alignment, xMap, yMap);
+            if (mapped === null) {
+                continue;
+            }
+            const targetX = mapped.x;
+            const targetY = mapped.y;
             if (
                 targetX >= 0
                 && targetX < targetWidth
@@ -2511,7 +3097,8 @@ async function analyzePage({
         };
     }
     try {
-        const source = await extractPngMask({
+        let source = await extractPngMask({
+            includeGray: sourceRow.color === 'rgb',
             pageNumber,
             pdfPath: sourcePdf,
             role: 'source',
@@ -2519,6 +3106,9 @@ async function analyzePage({
             rows: sourceRows,
             workDirectory,
         });
+        if (sourceRow.color === 'rgb') {
+            source = makeConservativeRgbSupport(source);
+        }
         const cleaned = await extractPngMask({
             pageNumber: outputPageNumber,
             pdfPath: cleanedPdf,
@@ -2536,26 +3126,62 @@ async function analyzePage({
         const sourceForAudit = sourceSplitTransform === null
             ? source
             : applySourceSplitTransform(source, sourceSplitTransform);
+        const sourceCoordinateTransform = sourceSplitTransform === null
+            ? null
+            : {
+                ...sourceSplitTransform,
+                fullHeight: source.height,
+                fullWidth: source.width,
+            };
+        const dewarpGeometry = resolveDewarpGeometryAlignment(
+            renderGeometry,
+            sourceForAudit,
+            cleaned,
+            sourceCoordinateTransform,
+        );
+        if (dewarpGeometry.kind === 'missing') {
+            return {
+                flagged: false,
+                inventedFlagged: false,
+                inventedCount: 0,
+                inventedInkFraction: 0,
+                outputPage: outputPageNumber,
+                page: pageNumber,
+                reason: dewarpGeometry.reason,
+                status: 'skipped',
+            };
+        }
+        if (dewarpGeometry.kind === 'malformed') {
+            return pageError(
+                pageNumber,
+                outputPageNumber,
+                dewarpGeometry.reason,
+            );
+        }
         const sourceAlignment = makeAlignmentBitmap(sourceForAudit, minArea, true);
         const cleanedAlignment = makeAlignmentBitmap(cleaned, minArea);
         const alignmentSource = sourceAlignment.bitmap;
         const alignmentCleaned = cleanedAlignment.bitmap;
         const alignmentSourceTop = alignmentSource;
         const alignmentCleanedTop = alignmentCleaned;
-        const canonicalGeometryScale = resolveCanonicalGeometryScale(
-            renderGeometry,
-            sourceForAudit,
-            cleaned,
-        );
-        const canonicalGeometryAlignment = canonicalGeometryScale === null
+        const canonicalGeometryScale = dewarpGeometry.kind === 'valid'
             ? null
-            : alignAtScale(
+            : resolveCanonicalGeometryScale(
+                renderGeometry,
                 sourceForAudit,
                 cleaned,
-                canonicalGeometryScale,
-                alignmentSourceTop,
-                alignmentCleanedTop,
             );
+        const canonicalGeometryAlignment = dewarpGeometry.kind === 'valid'
+            ? alignAtDewarpGrid(sourceForAudit, cleaned, dewarpGeometry.alignment)
+            : canonicalGeometryScale === null
+                ? null
+                : alignAtScale(
+                    sourceForAudit,
+                    cleaned,
+                    canonicalGeometryScale,
+                    alignmentSourceTop,
+                    alignmentCleanedTop,
+                );
         const alignmentOne = canonicalGeometryAlignment === null
             ? alignAtScale(
                 sourceForAudit,
@@ -2620,17 +3246,25 @@ async function analyzePage({
             ));
         }
         // Canonical V3 geometry is the conversion contract. Empirical fitting
-        // remains a fallback for old summaries, dewarped pages, and fixtures,
-        // but must not override known page placement with a visually plausible
-        // transform that compares different source lines.
+        // remains a fallback for old summaries and fixtures, but must not
+        // override known page placement with a visually plausible transform
+        // that compares different source lines. Declared dewarp grids take the
+        // nonlinear path above and never fall back to an affine fit.
         const alignment = canonicalGeometryAlignment ?? alignments.reduce((best, candidate) =>
             candidate.fullOverlapScore > best.fullOverlapScore ? candidate : best,
         );
         const alignmentReliable =
-            alignment.overlapScore >= ALIGNMENT_MIN_RELIABLE_OVERLAP
-            && (
-                alignment.fullOverlapScore >= ALIGNMENT_MIN_RELIABLE_OVERLAP
-                || alignment.overlapScore >= ALIGNMENT_STRONG_SOURCE_OVERLAP
+            (
+                alignment.overlapScore >= ALIGNMENT_MIN_RELIABLE_OVERLAP
+                && (
+                    alignment.fullOverlapScore >= ALIGNMENT_MIN_RELIABLE_OVERLAP
+                    || alignment.overlapScore >= ALIGNMENT_STRONG_SOURCE_OVERLAP
+                )
+            )
+            || (
+                sourceRow.color === 'rgb'
+                && cleaned.blackCount === 0
+                && sourceAlignment.bitmap.blackCount > 0
             );
         const auditDilationRadius = resolveAuditDilationRadius(
             cleanedRow,
@@ -2693,7 +3327,12 @@ async function analyzePage({
                 sourceAlignment.components,
                 sourceAlignment.componentLabels,
                 cleanedGray,
-                sourceGray,
+                // The rendered fallback for a raw ImageMask can invert its
+                // paper plane. Never let that gray rendering turn a removed
+                // RGB source component into a false preservation result.
+                sourceRow.color === 'rgb' || renderGeometry?.dewarped === true
+                    ? null
+                    : sourceGray,
             )
             : preliminaryMetrics;
         const inventedMetrics = analyzeInventedInk(
@@ -2779,6 +3418,13 @@ async function analyzePage({
                 height: sourceForAudit.height,
                 type: sourceRow.type,
                 width: sourceForAudit.width,
+                ...(sourceForAudit.rgbSupport === undefined
+                    ? {}
+                    : {support: {
+                        kind: 'conservative-rgb',
+                        paperReference: sourceForAudit.rgbSupport.paperReference,
+                        threshold: sourceForAudit.rgbSupport.threshold,
+                    }}),
             },
             sourceInkPixels: sourceForAudit.blackCount,
             status: 'analyzed',
@@ -3368,7 +4014,7 @@ function shouldFailFor(
         return true;
     }
     if (options.failOn === 'text-loss') {
-        return lossFlaggedPages.length > 0;
+        return lossFlaggedPages.length > 0 || suppressedPages.length > 0;
     }
     if (options.failOn === 'silhouette') {
         return silhouettePages.length > 0;

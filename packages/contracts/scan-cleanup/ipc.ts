@@ -430,6 +430,8 @@ export interface IScanCleanupSourcePageMetadata {
     heightPoints: number;
     rotation: number;
     sourceDpi: number;
+    /** Explicit Poppler box selected by document detection, when it retried a page. */
+    renderBox?: 'cropbox' | 'mediabox';
     dominantImageWidthPx?: number;
     dominantImageHeightPx?: number;
     dominantImageWidthPoints?: number;

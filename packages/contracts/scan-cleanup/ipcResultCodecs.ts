@@ -1,4 +1,4 @@
-import { isRecord } from '@contracts/runtimeGuards';
+import {isRecord} from '@contracts/runtimeGuards';
 import {
     decodeScanCleanupScratchShortfall,
     SCAN_CLEANUP_ERROR_CODES,
@@ -22,13 +22,10 @@ import {
     isLayoutClassification,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {
-    isNativeScanCleanupFoldBandV3,
-    legacyNativeScanCleanupFoldBandV3,
-} from '@contracts/scan-cleanup/nativeProtocolV3';
-import {
     isScanCleanupOutputMode,
     isScanCleanupOutputModeRecommendationReason,
 } from '@contracts/scan-cleanup/outputModeGuards';
+import {decodeSplitDiagnostics} from '@contracts/scan-cleanup/decodeSplitDiagnostics';
 
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PREVIEW_MAX_TOTAL_BYTES = 96 * 1024 * 1024;
@@ -941,107 +938,6 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
         };
     }
     throw new Error('invalid scan-cleanup job status');
-}
-
-function decodeSplitDiagnostics(
-    value: unknown,
-): NonNullable<TScanCleanupDetectionJobState['results'][number]['splitDiagnostics']> {
-    if (!isRecord(value)) throw new Error('invalid scan-cleanup split diagnostics');
-    const candidate = value.foldBand === undefined
-        ? {
-            ...value,
-            foldBand: legacyNativeScanCleanupFoldBandV3(),
-        }
-        : value;
-    const integerKeys = [
-        'leftInkPixels',
-        'rightInkPixels',
-        'independentSpreadCues',
-    ] as const;
-    const numberKeys = [
-        'analysisDpi',
-        'deskewAngleDegrees',
-        'deskewConfidence',
-        'cutterSlope',
-        'leftDeskewAngleDegrees',
-        'rightDeskewAngleDegrees',
-        'leftDeskewConfidence',
-        'rightDeskewConfidence',
-        'whitespaceX',
-        'foldX',
-        'decisionX',
-        'whitespaceScore',
-        'bilateralScore',
-        'leftPageScore',
-        'rightPageScore',
-        'leftContentScore',
-        'rightContentScore',
-        'leftSurfaceScore',
-        'rightSurfaceScore',
-        'outerMarginScore',
-        'gutterScore',
-        'agreementScore',
-        'foldScore',
-        'gutterDarknessScore',
-        'softGutterScore',
-        'softGutterCoverage',
-        'softGutterContinuity',
-        'softGutterMeanDepression',
-        'sparseGutterScore',
-        'sparseGutterCoverage',
-        'sparseGutterContinuity',
-        'sparseGutterMeanDepression',
-        'aspectRatio',
-        'aspectSpreadScore',
-        'aspectSingleScore',
-        'offcutBoundaryScore',
-        'offcutEmptyScore',
-        'offcutPopulatedScore',
-        'offcutWidthScore',
-        'offcutNoTextRowsScore',
-        'alternativeProduct',
-        'evidenceProduct',
-    ] as const;
-    const booleanKeys = [
-        'whitespaceGatePassed',
-        'centralPositionGatePassed',
-        'bilateralGatePassed',
-        'outerMarginGatePassed',
-        'gutterGatePassed',
-        'independentGutterGatePassed',
-        'aspectSupportGatePassed',
-        'evidenceAgreementGatePassed',
-        'sparseSpreadRecovered',
-        'abstained',
-    ] as const;
-    const allowed = new Set<string>([
-        ...integerKeys,
-        ...numberKeys,
-        ...booleanKeys,
-        'foldBand',
-    ]);
-    type TSplitDiagnostics = NonNullable<
-        TScanCleanupDetectionJobState['results'][number]['splitDiagnostics']
-    >;
-    const isValid = (
-        subject: Record<string, unknown>,
-    ): subject is Record<string, unknown> & TSplitDiagnostics =>
-        !Object.keys(subject).some(key => !allowed.has(key))
-        && integerKeys.every(key => (
-            typeof subject[key] === 'number'
-            && Number.isSafeInteger(subject[key])
-            && subject[key] >= 0
-        ))
-        && numberKeys.every(key => (
-            typeof subject[key] === 'number'
-            && Number.isFinite(subject[key])
-        ))
-        && booleanKeys.every(key => typeof subject[key] === 'boolean')
-        && isNativeScanCleanupFoldBandV3(subject.foldBand);
-    if (!isValid(candidate)) {
-        throw new Error('invalid scan-cleanup split diagnostics');
-    }
-    return candidate;
 }
 
 export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanupDetectionJobState | null {

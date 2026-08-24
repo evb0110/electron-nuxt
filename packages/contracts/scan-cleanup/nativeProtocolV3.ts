@@ -246,6 +246,7 @@ export interface INativeScanCleanupOutputModeDiagnosticsV3 {
         | 'strong-single-line-text'
         | 'spatial-tone'
         | 'bilevel-fidelity'
+        | 'mixed-ownership-veto'
         | 'uncertain-fallback';
     fallbackUsed: boolean;
     analysisWidth: number;
@@ -288,6 +289,12 @@ export interface INativeScanCleanupOutputModeDiagnosticsV3 {
     outsideTonalLargestComponentHeightFraction: number;
     coherentOutsideTonalRegion: boolean;
     destructiveModeTonalVeto: boolean;
+    /** Analysis-resolution evidence that rejected a contradictory Auto Mixed recommendation. */
+    protectedTextBlockCount?: number;
+    protectedTextBlockPictureOverlapPixels?: number;
+    protectedTextBlockPictureOverlapFraction?: number;
+    mixedOwnershipIndependentPictureEvidence?: boolean;
+    mixedOwnershipVeto?: boolean;
     sourceDpi: number;
     analysisDpi: number;
     calibratedSourceStrokeWidthPx: number;
@@ -386,6 +393,10 @@ export interface INativeScanCleanupSplitDiagnosticsV3 {
     leftInkPixels: number;
     rightInkPixels: number;
     outerMarginScore: number;
+    /** Optional because persisted protocol-v3 states may predate bilateral margin diagnostics. */
+    leftOuterMarginScore?: number;
+    /** Optional because persisted protocol-v3 states may predate bilateral margin diagnostics. */
+    rightOuterMarginScore?: number;
     gutterScore: number;
     agreementScore: number;
     foldScore: number;
@@ -417,6 +428,10 @@ export interface INativeScanCleanupSplitDiagnosticsV3 {
     independentGutterGatePassed: boolean;
     aspectSupportGatePassed: boolean;
     evidenceAgreementGatePassed: boolean;
+    /** Optional because persisted protocol-v3 states may predate local recovery diagnostics. */
+    outerMarginRecovery?: boolean;
+    /** `null` is emitted by Rust when no edge was recovered. */
+    outerMarginWeakEdge?: 'left' | 'right' | null;
     sparseSpreadRecovered: boolean;
     abstained: boolean;
     foldBand: TNativeScanCleanupFoldBandV3;
@@ -732,6 +747,7 @@ const outputModeDiagnostics = s.object({
         'strong-single-line-text',
         'spatial-tone',
         'bilevel-fidelity',
+        'mixed-ownership-veto',
         'uncertain-fallback',
     ] as const, 'Invalid evb-scan-cleanup output mode diagnostics'),
     fallbackUsed: s.boolean(),
@@ -775,6 +791,11 @@ const outputModeDiagnostics = s.object({
     outsideTonalLargestComponentHeightFraction: s.number(),
     coherentOutsideTonalRegion: s.boolean(),
     destructiveModeTonalVeto: s.boolean(),
+    protectedTextBlockCount: s.optional(nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics')),
+    protectedTextBlockPictureOverlapPixels: s.optional(nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics')),
+    protectedTextBlockPictureOverlapFraction: s.optional(s.number()),
+    mixedOwnershipIndependentPictureEvidence: s.optional(s.boolean()),
+    mixedOwnershipVeto: s.optional(s.boolean()),
     sourceDpi: s.number({min: 0}),
     analysisDpi: s.number({min: 0}),
     calibratedSourceStrokeWidthPx: s.number({min: 0}),

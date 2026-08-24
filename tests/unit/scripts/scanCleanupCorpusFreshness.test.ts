@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {
     mkdir,
     mkdtemp,
@@ -92,6 +93,14 @@ interface ICorpusVerifyModule {
         fixture: Record<string, unknown>,
     ) => Record<string, unknown>;
     resolveFixturePages: (fixture: Record<string, unknown>) => number[];
+    inspectFixtureSource: (fixture: Record<string, unknown>) => Promise<{
+        actualSha256: string | null;
+        admissionStatus: 'admitted' | 'rejected' | 'skipped';
+        error: string | null;
+        expectedSha256: string | null;
+        fixturePath: string;
+        reason: string;
+    }>;
     scannerBoundaryComponents: (
         components: Array<{
             area: number;
@@ -132,6 +141,7 @@ const {
     resolveFixtureExpectations,
     resolveFixtureOptions,
     resolveFixturePages,
+    inspectFixtureSource,
     scannerBoundaryComponents,
 } = await import(
     pathToFileURL(path.join(process.cwd(), 'scripts/diagnostics/scan-cleanup-corpus-verify.mjs')).href
@@ -161,6 +171,17 @@ async function createFreshnessFixture() {
     await writeFile(sourcePath, 'fn main() {}');
     return {
         binaryPath,
+        sourcePath,
+        tempRoot,
+    };
+}
+
+async function createSourceFixture(contents = 'source') {
+    const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-scan-cleanup-source-'));
+    tempRoots.push(tempRoot);
+    const sourcePath = path.join(tempRoot, 'source.pdf');
+    await writeFile(sourcePath, contents);
+    return {
         sourcePath,
         tempRoot,
     };
@@ -480,5 +501,98 @@ page 2: 4 0 R
             stale: [],
             unexpected: [other],
         });
+    });
+});
+
+describe('scan-cleanup corpus source admission', () => {
+    it('admits a pinned source and reports both checksum values', async () => {
+        const fixture = await createSourceFixture();
+        const expectedSha256 = createHash('sha256').update('source').digest('hex');
+
+        await expect(inspectFixtureSource({
+            id: 'nabuco-external',
+            pdfPath: fixture.sourcePath,
+            required: true,
+            sha256: expectedSha256.toUpperCase(),
+        })).resolves.toEqual({
+            actualSha256: expectedSha256,
+            admissionStatus: 'admitted',
+            error: null,
+            expectedSha256,
+            fixturePath: fixture.sourcePath,
+            reason: 'source checksum matches',
+        });
+    });
+
+    it('rejects a checksum mismatch before a source can be converted', async () => {
+        const fixture = await createSourceFixture();
+        const actualSha256 = createHash('sha256').update('source').digest('hex');
+        const expectedSha256 = 'a'.repeat(64);
+
+        await expect(inspectFixtureSource({
+            id: 'nabuco-external',
+            pdfPath: fixture.sourcePath,
+            required: true,
+            sha256: expectedSha256,
+        })).resolves.toMatchObject({
+            actualSha256,
+            admissionStatus: 'rejected',
+            error: [
+                `Corpus fixture SHA-256 mismatch: ${fixture.sourcePath}`,
+                `Expected: ${expectedSha256}`,
+                `Actual:   ${actualSha256}`,
+            ].join('\n'),
+            expectedSha256,
+            reason: 'source checksum mismatch',
+        });
+    });
+
+    it('rejects a missing required source before native freshness checks', async () => {
+        const fixture = await createSourceFixture();
+        await rm(fixture.sourcePath);
+
+        await expect(inspectFixtureSource({
+            id: 'nabuco-external',
+            pdfPath: fixture.sourcePath,
+            required: true,
+            sha256: 'a'.repeat(64),
+        })).resolves.toEqual({
+            actualSha256: null,
+            admissionStatus: 'rejected',
+            error: `Required corpus fixture is absent: ${fixture.sourcePath}`,
+            expectedSha256: 'a'.repeat(64),
+            fixturePath: fixture.sourcePath,
+            reason: 'required source is absent',
+        });
+    });
+
+    it('keeps optional absent fixtures skipped and reports their expected checksum', async () => {
+        const fixture = await createSourceFixture();
+        await rm(fixture.sourcePath);
+        const expectedSha256 = 'b'.repeat(64);
+
+        await expect(inspectFixtureSource({
+            id: 'optional-external',
+            optional: true,
+            pdfPath: fixture.sourcePath,
+            sha256: expectedSha256,
+        })).resolves.toEqual({
+            actualSha256: null,
+            admissionStatus: 'skipped',
+            error: null,
+            expectedSha256,
+            fixturePath: fixture.sourcePath,
+            reason: 'optional source is absent',
+        });
+    });
+
+    it('rejects an invalid configured checksum', async () => {
+        const fixture = await createSourceFixture();
+
+        await expect(inspectFixtureSource({
+            id: 'invalid-external',
+            pdfPath: fixture.sourcePath,
+            sha256: 'not-a-checksum',
+        })).rejects.toThrow('Invalid SHA-256 checksum');
     });
 });

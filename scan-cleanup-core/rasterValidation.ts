@@ -128,6 +128,7 @@ export async function renderScanCleanupRasterToDisk(
     limits?: IScanCleanupRasterRenderLimits,
     errorContext = 'raster',
     pngErrorContext = 'raster',
+    renderBox: Parameters<TScanCleanupRenderPage>[10] = 'cropbox',
 ) {
     await (format === 'ppm' ? dependencies.renderPagePpm : dependencies.renderPage)(
         {pdftoppmBinary: dependencies.getPdftoppmBinary()},
@@ -140,6 +141,7 @@ export async function renderScanCleanupRasterToDisk(
         signal,
         crop,
         limits,
+        renderBox,
     );
     if (format === 'ppm') {
         const dimensions = await readPpmDimensions(outputPath);

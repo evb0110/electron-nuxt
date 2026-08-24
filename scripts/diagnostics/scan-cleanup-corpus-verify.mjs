@@ -11,7 +11,10 @@ import {
     stat,
     writeFile,
 } from 'node:fs/promises';
-import {constants as fsConstants} from 'node:fs';
+import {
+    constants as fsConstants,
+    createReadStream,
+} from 'node:fs';
 import {availableParallelism} from 'node:os';
 import {
     dirname,
@@ -745,7 +748,92 @@ async function extractMrcLayers(
 }
 
 async function sha256File(path) {
-    return createHash('sha256').update(await readFile(path)).digest('hex');
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(path)) {
+        hash.update(chunk);
+    }
+    return hash.digest('hex');
+}
+
+const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/iu;
+
+function resolveFixtureExpectedSha256(fixture) {
+    const configured = [
+        fixture.sha256,
+        fixture.expectedSha256,
+    ].filter(value => value !== undefined);
+    if (configured.length > 1 && configured[0] !== configured[1]) {
+        throw new Error(`Fixture "${String(fixture.id)}" must use one matching sha256 value`);
+    }
+    if (configured.length === 0) {
+        return null;
+    }
+    const expectedSha256 = configured[0];
+    if (typeof expectedSha256 !== 'string' || !SHA256_HEX_PATTERN.test(expectedSha256)) {
+        throw new Error(`Invalid SHA-256 checksum for fixture "${String(fixture.id)}"`);
+    }
+    return expectedSha256.toLowerCase();
+}
+
+function resolveFixtureRequired(fixture) {
+    if (fixture.optional !== undefined && typeof fixture.optional !== 'boolean') {
+        throw new Error(`Invalid optional flag for fixture "${String(fixture.id)}"`);
+    }
+    if (fixture.required !== undefined && typeof fixture.required !== 'boolean') {
+        throw new Error(`Invalid required flag for fixture "${String(fixture.id)}"`);
+    }
+    if (fixture.optional === true && fixture.required === true) {
+        throw new Error(`Fixture "${String(fixture.id)}" cannot be both optional and required`);
+    }
+    return fixture.required ?? fixture.optional !== true;
+}
+
+/**
+ * Admit a source file before any native tool is invoked. A checksum is
+ * optional for the standing local corpus, but when configured it pins the
+ * exact external source. Optional fixtures keep their existing absent-file
+ * skip behavior.
+ */
+export async function inspectFixtureSource(fixture) {
+    const expectedSha256 = resolveFixtureExpectedSha256(fixture);
+    const required = resolveFixtureRequired(fixture);
+    const fixturePath = fixture.pdfPath;
+    if (!await readableFile(fixturePath)) {
+        const admissionStatus = required ? 'rejected' : 'skipped';
+        return {
+            actualSha256: null,
+            admissionStatus,
+            error: required ? `Required corpus fixture is absent: ${fixturePath}` : null,
+            expectedSha256,
+            fixturePath,
+            reason: required ? 'required source is absent' : 'optional source is absent',
+        };
+    }
+    const actualSha256 = await sha256File(fixturePath);
+    if (expectedSha256 !== null && actualSha256 !== expectedSha256) {
+        return {
+            actualSha256,
+            admissionStatus: 'rejected',
+            error: [
+                `Corpus fixture SHA-256 mismatch: ${fixturePath}`,
+                `Expected: ${expectedSha256}`,
+                `Actual:   ${actualSha256}`,
+            ].join('\n'),
+            expectedSha256,
+            fixturePath,
+            reason: 'source checksum mismatch',
+        };
+    }
+    return {
+        actualSha256,
+        admissionStatus: 'admitted',
+        error: null,
+        expectedSha256,
+        fixturePath,
+        reason: expectedSha256 === null
+            ? 'source is readable; no checksum configured'
+            : 'source checksum matches',
+    };
 }
 
 function selectMrcStreamPair(images, pageNumber) {
@@ -1228,7 +1316,7 @@ function timingStats(records) {
     };
 }
 
-async function verifyFixture(fixture, expectedFixture, workRoot) {
+async function verifyFixture(fixture, expectedFixture, workRoot, sourceAdmission) {
     const fixtureOptions = resolveFixtureOptions(fixture);
     const report = assertionReporter(fixture.id);
     const fixtureDir = join(workRoot, fixture.id);
@@ -2371,13 +2459,22 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
     const fixtureReport = {
         ...report,
         actualModeDistribution,
+        actualSha256: sourceAdmission.actualSha256,
+        admissionStatus: sourceAdmission.admissionStatus,
         fixturePath: fixture.pdfPath,
+        expectedSha256: sourceAdmission.expectedSha256,
         outputBytes,
         outputToSourceRatio,
         outputPdfPath,
         pageCount: pageRuns.length,
         pageEvidencePath: join(fixtureDir, 'page-evidence.json'),
         artifactAuditSummaryPath,
+        sourceAdmission: {
+            actualSha256: sourceAdmission.actualSha256,
+            expectedSha256: sourceAdmission.expectedSha256,
+            reason: sourceAdmission.reason,
+            status: sourceAdmission.admissionStatus,
+        },
         timing: stats,
     };
     await writeFile(
@@ -2385,6 +2482,33 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         `${JSON.stringify(fixtureReport, null, 2)}\n`,
     );
     return fixtureReport;
+}
+
+async function writeFixtureAdmissionReport(fixture, admission, workRoot) {
+    const fixtureDir = join(workRoot, fixture.id);
+    await mkdir(fixtureDir, {recursive: true});
+    const report = {
+        actualSha256: admission.actualSha256,
+        admissionStatus: admission.admissionStatus,
+        error: admission.error,
+        expectedSha256: admission.expectedSha256,
+        fixtureId: fixture.id,
+        fixturePath: fixture.pdfPath,
+        reason: admission.reason,
+        sourceAdmission: {
+            actualSha256: admission.actualSha256,
+            expectedSha256: admission.expectedSha256,
+            reason: admission.reason,
+            status: admission.admissionStatus,
+        },
+    };
+    const reportPath = join(fixtureDir, 'fixture-admission.json');
+    const serialized = `${JSON.stringify(report, null, 2)}\n`;
+    await writeFile(reportPath, serialized);
+    return {
+        ...admission,
+        admissionReportPath: reportPath,
+    };
 }
 
 async function main() {
@@ -2418,26 +2542,59 @@ async function main() {
             },
         };
     });
-    await assertCorpusNativeBinariesFresh();
     const workRoot = args.workDir ?? join(
         projectRoot,
         '.devkit',
         `scan-cleanup-corpus-${new Date().toISOString().replaceAll(/[:.]/gu, '-')}`,
     );
     await mkdir(workRoot, {recursive: true});
+    const admittedRuns = [];
+    for (const fixtureRun of fixtureRuns) {
+        const admission = await writeFixtureAdmissionReport(
+            fixtureRun.fixture,
+            await inspectFixtureSource(fixtureRun.fixture),
+            workRoot,
+        );
+        if (admission.admissionStatus === 'rejected') {
+            throw new Error(admission.error);
+        }
+        admittedRuns.push({
+            ...fixtureRun,
+            admission,
+        });
+    }
+    await assertCorpusNativeBinariesFresh();
     const reports = [];
+    const skipped = [];
     for (const {
+        admission,
         expectations,
         fixture,
-    } of fixtureRuns) {
-        if (!await readableFile(fixture.pdfPath)) {
-            if (fixture.optional) {
-                console.log(`\n[SKIP] ${fixture.id}: optional fixture is absent (${fixture.pdfPath})`);
-                continue;
-            }
-            throw new Error(`Required corpus fixture is absent: ${fixture.pdfPath}`);
+    } of admittedRuns) {
+        if (admission.admissionStatus === 'skipped') {
+            console.log(`\n[SKIP] ${fixture.id}: optional fixture is absent (${fixture.pdfPath})`);
+            const skippedReport = {
+                actualSha256: admission.actualSha256,
+                admissionStatus: admission.admissionStatus,
+                assertions: [],
+                expectedSha256: admission.expectedSha256,
+                fixtureId: fixture.id,
+                fixturePath: fixture.pdfPath,
+                sourceAdmission: {
+                    actualSha256: admission.actualSha256,
+                    expectedSha256: admission.expectedSha256,
+                    reason: admission.reason,
+                    status: admission.admissionStatus,
+                },
+            };
+            await writeFile(
+                join(workRoot, fixture.id, 'fixture-report.json'),
+                `${JSON.stringify(skippedReport, null, 2)}\n`,
+            );
+            skipped.push(skippedReport);
+            continue;
         }
-        reports.push(await verifyFixture(fixture, expectations, workRoot));
+        reports.push(await verifyFixture(fixture, expectations, workRoot, admission));
     }
     const assertionCount = reports.flatMap(report => report.assertions).length;
     const failed = reports.flatMap(report => report.assertions).filter(assertion => !assertion.passed);
@@ -2451,6 +2608,9 @@ async function main() {
             failedAssertionCount: report.assertions.filter(assertion => !assertion.passed).length,
             fixtureId: report.fixtureId,
             fixturePath: report.fixturePath,
+            actualSha256: report.actualSha256,
+            admissionStatus: report.admissionStatus,
+            expectedSha256: report.expectedSha256,
             outputBytes: report.outputBytes,
             outputPdfPath: report.outputPdfPath,
             pageCount: report.pageCount,
@@ -2459,6 +2619,25 @@ async function main() {
             timing: report.timing,
         })),
         generatedAt: new Date().toISOString(),
+        fixtureAdmissions: admittedRuns.map(({
+            admission,
+            fixture,
+        }) => ({
+            actualSha256: admission.actualSha256,
+            admissionReportPath: admission.admissionReportPath,
+            admissionStatus: admission.admissionStatus,
+            expectedSha256: admission.expectedSha256,
+            fixtureId: fixture.id,
+            fixturePath: fixture.pdfPath,
+            reason: admission.reason,
+        })),
+        skippedFixtures: skipped.map(report => ({
+            actualSha256: report.actualSha256,
+            admissionStatus: report.admissionStatus,
+            expectedSha256: report.expectedSha256,
+            fixtureId: report.fixtureId,
+            fixturePath: report.fixturePath,
+        })),
         workRoot,
     };
     await writeFile(

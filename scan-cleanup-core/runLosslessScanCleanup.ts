@@ -139,6 +139,9 @@ export async function runLosslessScanCleanup(
             DETECTION_DPI,
             undefined,
             signal,
+            undefined,
+            undefined,
+            pageSizes[plan.pageNumber - 1]?.renderBox ?? 'cropbox',
         );
         rasterizedCount += 1;
         rasterizedPageNumbers.add(plan.pageNumber);

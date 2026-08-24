@@ -76,6 +76,162 @@ describe('createScanCleanupRenderers', () => {
         expect(mocks.readPngDimensions).toHaveBeenCalledWith('/tmp/page.png');
     });
 
+    it('renders the MediaBox for a suspicious crop on a dominant landscape document', async () => {
+        const pdfInfo = [
+            'Pages:           3',
+            'Page    1 size:  358.816 x 425.609 pts',
+            'Page    1 rot:   0',
+            'Page    1 MediaBox:      0.00     0.00   841.89   633.89',
+            'Page    1 CropBox:     411.63   122.85   770.44   548.46',
+            'Page    2 size:  616.667 x 452.792 pts',
+            'Page    2 rot:   0',
+            'Page    2 MediaBox:      0.00     0.00   841.89   633.89',
+            'Page    2 CropBox:      62.13   115.86   678.80   568.65',
+            'Page    3 size:  702.1 x 493.179 pts',
+            'Page    3 rot:   0',
+            'Page    3 MediaBox:      0.00     0.00   841.89   633.89',
+            'Page    3 CropBox:      76.89    59.94   778.99   553.12',
+        ].join('\n');
+        const runCommand = vi.fn(async (command: string) => {
+            if (command === '/bin/pdfinfo') {
+                return {
+                    exitCode: 0,
+                    stdout: pdfInfo,
+                    stderr: '',
+                };
+            }
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        const {renderPage} = createScanCleanupRenderers(runCommand, undefined, {pdfinfoBinary: '/bin/pdfinfo'});
+
+        await renderPage(
+            {pdftoppmBinary: '/bin/pdftoppm'},
+            vi.fn(),
+            1,
+            '/tmp/spread.pdf',
+            '/tmp/page.png',
+            300,
+        );
+
+        expect(runCommand).toHaveBeenLastCalledWith(
+            '/bin/pdftoppm',
+            [
+                '-png',
+                '-r',
+                '300',
+                '-f',
+                '1',
+                '-l',
+                '1',
+                '-singlefile',
+                '/tmp/spread.pdf',
+                '/tmp/page',
+            ],
+            expect.any(Object),
+        );
+    });
+
+    it('keeps an ordinary intentional crop on a landscape document', async () => {
+        const pdfInfo = [
+            'Pages:           3',
+            ...Array.from({length: 3}, (_, index) => [
+                `Page    ${String(index + 1)} size:  760 x 560 pts`,
+                `Page    ${String(index + 1)} rot:   0`,
+                `Page    ${String(index + 1)} MediaBox:      0.00     0.00   800.00   600.00`,
+                `Page    ${String(index + 1)} CropBox:     20.00    20.00   780.00   580.00`,
+            ].join('\n')),
+        ].join('\n');
+        const runCommand = vi.fn(async (command: string) => ({
+            exitCode: 0,
+            stdout: command === '/bin/pdfinfo' ? pdfInfo : '',
+            stderr: '',
+        }));
+        const {renderPage} = createScanCleanupRenderers(runCommand, undefined, {pdfinfoBinary: '/bin/pdfinfo'});
+
+        await renderPage(
+            {pdftoppmBinary: '/bin/pdftoppm'},
+            vi.fn(),
+            2,
+            '/tmp/cropped.pdf',
+            '/tmp/page.png',
+            300,
+        );
+
+        expect(runCommand).toHaveBeenLastCalledWith(
+            '/bin/pdftoppm',
+            expect.arrayContaining(['-cropbox']),
+            expect.any(Object),
+        );
+    });
+
+    it('does not broaden a materially smaller same-orientation crop', async () => {
+        const pdfInfo = [
+            'Pages:           3',
+            ...Array.from({length: 3}, (_, index) => [
+                `Page    ${String(index + 1)} size:  600 x 400 pts`,
+                `Page    ${String(index + 1)} rot:   0`,
+                `Page    ${String(index + 1)} MediaBox:      0.00     0.00   800.00   600.00`,
+                `Page    ${String(index + 1)} CropBox:     100.00   100.00   700.00   500.00`,
+            ].join('\n')),
+        ].join('\n');
+        const runCommand = vi.fn(async (command: string) => ({
+            exitCode: 0,
+            stdout: command === '/bin/pdfinfo' ? pdfInfo : '',
+            stderr: '',
+        }));
+        const {renderPage} = createScanCleanupRenderers(runCommand, undefined, {pdfinfoBinary: '/bin/pdfinfo'});
+
+        await renderPage(
+            {pdftoppmBinary: '/bin/pdftoppm'},
+            vi.fn(),
+            2,
+            '/tmp/same-orientation.pdf',
+            '/tmp/page.png',
+            300,
+        );
+
+        expect(runCommand).toHaveBeenLastCalledWith(
+            '/bin/pdftoppm',
+            expect.arrayContaining(['-cropbox']),
+            expect.any(Object),
+        );
+    });
+
+    it('does not broaden a true single-page crop', async () => {
+        const pdfInfo = [
+            'Pages:           1',
+            'Page    1 size:  300 x 400 pts',
+            'Page    1 rot:   0',
+            'Page    1 MediaBox:      0.00     0.00   800.00   600.00',
+            'Page    1 CropBox:     250.00   100.00   550.00   500.00',
+        ].join('\n');
+        const runCommand = vi.fn(async (command: string) => ({
+            exitCode: 0,
+            stdout: command === '/bin/pdfinfo' ? pdfInfo : '',
+            stderr: '',
+        }));
+        const {renderPage} = createScanCleanupRenderers(runCommand, undefined, {pdfinfoBinary: '/bin/pdfinfo'});
+
+        await renderPage(
+            {pdftoppmBinary: '/bin/pdftoppm'},
+            vi.fn(),
+            1,
+            '/tmp/single.pdf',
+            '/tmp/page.png',
+            300,
+        );
+
+        expect(runCommand).toHaveBeenLastCalledWith(
+            '/bin/pdftoppm',
+            expect.arrayContaining(['-cropbox']),
+            expect.any(Object),
+        );
+    });
+
     it('preserves the renderer error when failed cleanup cannot remove the output', async () => {
         const runCommand = vi.fn().mockResolvedValue(undefined);
         const rendererError = new Error('renderer produced an invalid PNG');

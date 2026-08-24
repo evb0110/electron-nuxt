@@ -40,6 +40,23 @@ export interface IPdfPageSize {
     widthPoints: number;
     heightPoints: number;
     rotation: number;
+    /**
+     * The page's physical MediaBox, when a PDF tool exposed it separately
+     * from the CropBox view. Most consumers should use the effective
+     * x/width fields above. These fields let the raster adapter reject a
+     * clearly broken, undersized CropBox without changing ordinary crops.
+     */
+    mediaXPoints?: number;
+    mediaYPoints?: number;
+    mediaWidthPoints?: number;
+    mediaHeightPoints?: number;
+    /** The original CropBox, retained when a compatibility fallback chose MediaBox. */
+    cropXPoints?: number;
+    cropYPoints?: number;
+    cropWidthPoints?: number;
+    cropHeightPoints?: number;
+    /** The rectangle the caller must ask Poppler to render for this page. */
+    renderBox?: 'cropbox' | 'mediabox';
     dominantImageWidthPx?: number;
     dominantImageHeightPx?: number;
     dominantImageWidthPoints?: number;
@@ -201,6 +218,8 @@ export interface IReadPdfPageSizesOptions {
     signal?: AbortSignal;
     log: TScanCleanupLog;
     runCommand: TScanCleanupRunCommand;
+    /** Detection reads raw CropBoxes so its native retry can test MediaBox. */
+    resolveSuspiciousCropBoxFallback?: boolean;
 }
 
 export type TScanCleanupGetPageSizes = (
@@ -243,6 +262,7 @@ export type TScanCleanupRenderPage = (
         height: number
     },
     limits?: IScanCleanupRasterRenderLimits,
+    renderBox?: 'auto' | 'cropbox' | 'mediabox',
 ) => Promise<void>;
 
 /**
@@ -393,6 +413,7 @@ export interface IScanCleanupOutputPageForSummary {
         | 'canvasHeightPx'
         | 'canvasWidthPx'
         | 'cropRect'
+        | 'dewarpMapping'
         | 'foldClipLeftPx'
         | 'foldClipRightPx'
         | 'forwardTransform'

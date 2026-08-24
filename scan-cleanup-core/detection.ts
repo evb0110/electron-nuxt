@@ -1,4 +1,5 @@
 import {
+    mkdir,
     readFile,
     rm,
     stat,
@@ -50,12 +51,20 @@ import {
     resolveScanCleanupProvisionalDocumentCanvas,
     scanCleanupDocumentCanvasSignature,
 } from '@scan-cleanup-core/policy/documentCanvas';
+import {
+    isCropBoxOrientationMismatch,
+    isMateriallySmallerCropBox,
+    toCropBoxPageSize,
+    toMediaBoxPageSize,
+} from '@scan-cleanup-core/pdfPageSizes';
 
 export const DETECTION_DPI = 150;
 export const PREVIEW_DPI = DETECTION_DPI;
 // Native mode selection, preview, and final rendering share this canonical
 // analysis grid. The separate working raster remains free to follow source DPI.
 const BASE_PREVIEW_MAX_PIXELS = 4_000_000;
+const MAX_MEDIA_BOX_RETRY_PAGES = 16;
+const MEDIA_BOX_RETRY_MIN_CONFIDENCE = 0.75;
 
 /**
  * Binary cleanup needs the source's stroke samples even though the UI presents
@@ -373,6 +382,72 @@ function createDetectionPagePlanEvidence(
     };
 }
 
+/**
+ * MediaBox retries are deliberately content-gated. An undersized CropBox is
+ * common in hand-authored PDFs, so area alone may never start another native
+ * process. The portrait mismatch is the one metadata-only exception because
+ * it cannot be an intentional crop of a dominant landscape document.
+ */
+export function shouldRetryMediaBoxPage(
+    page: IPdfPageSize,
+    result: IScanCleanupDetectionResult,
+) {
+    if (!isMateriallySmallerCropBox(page)) {
+        return false;
+    }
+    if (isCropBoxOrientationMismatch(page)) {
+        return true;
+    }
+    const diagnostics = result.splitDiagnostics;
+    return result.tier1Verdict === 'two-page-spread'
+        || (result.reconciled && result.classification === 'two-page-spread')
+        || (
+            diagnostics !== undefined
+            && diagnostics.aspectSpreadScore >= 0.75
+            && diagnostics.independentSpreadCues >= 3
+        );
+}
+
+/** The second pass must prove a spread locally before its wider box is used. */
+export function isStrongMediaBoxSpread(
+    progress: TNativeScanCleanupProgressV3,
+    metadata: INativeScanCleanupPageMetadataV3,
+    rasterWidth: number,
+    rasterHeight: number,
+) {
+    const diagnostics = metadata.splitDiagnostics;
+    const verdict = progress.tier1Verdict ?? progress.classification;
+    const confidence = progress.confidence ?? metadata.layoutConfidence ?? 0;
+    const cutter = progress.cutterXPx ?? metadata.cutterXPx;
+    const decisionX = diagnostics?.decisionX;
+    if (
+        verdict !== 'two-page-spread'
+        || metadata.layoutClassification !== 'two-page-spread'
+        || !Number.isFinite(confidence)
+        || confidence < MEDIA_BOX_RETRY_MIN_CONFIDENCE
+        || diagnostics === undefined
+        || diagnostics.abstained
+        || diagnostics.independentSpreadCues < 3
+        || diagnostics.centralPositionGatePassed !== true
+        || diagnostics.bilateralGatePassed !== true
+        || diagnostics.aspectSupportGatePassed !== true
+        || diagnostics.evidenceAgreementGatePassed !== true
+        || !Number.isFinite(rasterWidth)
+        || !Number.isFinite(rasterHeight)
+        || rasterWidth <= 0
+        || rasterHeight <= 0
+        || !Number.isFinite(cutter ?? NaN)
+        || (cutter ?? 0) <= rasterWidth * 0.15
+        || (cutter ?? 0) >= rasterWidth * 0.85
+        || !Number.isFinite(decisionX)
+        || (decisionX ?? 0) <= rasterWidth * 0.15
+        || (decisionX ?? 0) >= rasterWidth * 0.85
+    ) {
+        return false;
+    }
+    return true;
+}
+
 export async function runScanCleanupDetection<TDocument>(
     request: IScanCleanupDetectionRequest,
     signal: AbortSignal,
@@ -398,7 +473,13 @@ export async function runScanCleanupDetection<TDocument>(
         scratchDir = scratch;
         const totalPages = await retention.pageCount(document, signal);
         const pageNumbers = Array.from({length: totalPages}, (_, index) => index + 1);
-        const pageSizes = await retention.pageSizes(document, signal);
+        const measuredPageSizes = await retention.pageSizes(document, signal);
+        const previouslyBroadenedPages = new Set(
+            measuredPageSizes
+                .filter(page => page.renderBox === 'mediabox')
+                .map(page => page.pageNumber),
+        );
+        const pageSizes = measuredPageSizes.map(toCropBoxPageSize);
         // Detection reads the whole document, so a native page number is a
         // source page number and this array is indexed by it directly.
         assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup detection');
@@ -474,7 +555,13 @@ export async function runScanCleanupDetection<TDocument>(
                 pageNumber,
                 raster,
             ] of await retention.retainedPaths(document, pages, dpi)) {
-                retained.set(pageNumber, raster);
+                // A preview opened before detection may have cached the
+                // compatibility MediaBox render. It cannot be reused for the
+                // CropBox-first pass, so force those pages through Poppler
+                // once with the explicit CropBox request below.
+                if (!previouslyBroadenedPages.has(pageNumber)) {
+                    retained.set(pageNumber, raster);
+                }
             }
         }
         const rasterScope = pageNumbers.filter(pageNumber => !retained.has(pageNumber));
@@ -623,6 +710,7 @@ export async function runScanCleanupDetection<TDocument>(
                         rasterLimitsByPage.get(pageNumber),
                         'detection raster',
                         'detection',
+                        'cropbox',
                     );
                     return retention.retain({
                         document,
@@ -866,6 +954,238 @@ export async function runScanCleanupDetection<TDocument>(
             }
             if (results.size !== totalPages) {
                 throw new Error(`evb-scan-cleanup returned ${results.size} classifications for ${totalPages} pages`);
+            }
+            let mediaBoxRetryCandidates = manifestPages
+                .filter(page => {
+                    const sourcePage = pageSizeByNumber.get(page.pageNumber);
+                    const result = results.get(page.pageNumber);
+                    return sourcePage !== undefined
+                        && result !== undefined
+                        && result.classification === 'single-uncut-page'
+                        && shouldRetryMediaBoxPage(sourcePage, result);
+                })
+                .slice(0, MAX_MEDIA_BOX_RETRY_PAGES);
+            if (mediaBoxRetryCandidates.length > 0) {
+                const retryPlans = mediaBoxRetryCandidates.map(candidate => {
+                    const mediaPage = toMediaBoxPageSize(pageSizeByNumber.get(candidate.pageNumber)!);
+                    const limits = resolveRasterRenderLimits(mediaPage, DETECTION_DPI);
+                    return {
+                        renderDpi: DETECTION_DPI,
+                        raster: {
+                            dpi: DETECTION_DPI,
+                            width: limits.expectedWidthPx,
+                            height: limits.expectedHeightPx,
+                        },
+                    };
+                });
+                const retryAdmission = await resolveStagedRasterWindow(
+                    retryPlans,
+                    retryPlans.length,
+                    scratch,
+                    dependencies.getAvailableScratchBytes ?? readAvailableScratchBytes,
+                );
+                if (
+                    !retryAdmission.admitted
+                    || retryAdmission.windowPages < mediaBoxRetryCandidates.length
+                ) {
+                    log(
+                        'warn',
+                        'Scan cleanup skipped optional MediaBox retry because its rasters do not fit the remaining scratch budget',
+                    );
+                    mediaBoxRetryCandidates = [];
+                }
+                const retryRoot = join(scratch, 'mediabox-retry');
+                await mkdir(retryRoot, {recursive: true});
+                const renderedRetryPages: Array<{
+                    sourcePage: IPdfPageSize;
+                    pageNumber: number;
+                    path: string;
+                    metadataPath: string;
+                    width: number;
+                    height: number;
+                }> = [];
+                try {
+                    for (const candidate of mediaBoxRetryCandidates) {
+                        operationSignal.throwIfAborted();
+                        const sourcePage = pageSizeByNumber.get(candidate.pageNumber);
+                        if (sourcePage === undefined) continue;
+                        const mediaPage = toMediaBoxPageSize(sourcePage);
+                        const path = join(retryRoot, `page-${String(candidate.pageNumber)}.png`);
+                        let dimensions;
+                        try {
+                            dimensions = await renderRasterToDisk(
+                                request.sourcePdfPath,
+                                candidate.pageNumber,
+                                path,
+                                operationSignal,
+                                dependencies,
+                                log,
+                                DETECTION_DPI,
+                                undefined,
+                                undefined,
+                                'png',
+                                resolveRasterRenderLimits(mediaPage, DETECTION_DPI),
+                                'MediaBox retry raster',
+                                'MediaBox retry',
+                                'mediabox',
+                            );
+                        } catch (error) {
+                            if (operationSignal.aborted) throw error;
+                            log(
+                                'warn',
+                                `Scan cleanup kept the first-pass classification for page ${String(candidate.pageNumber)} because its optional MediaBox retry failed: ${getErrorMessage(error)}`,
+                            );
+                            continue;
+                        }
+                        renderedRetryPages.push({
+                            sourcePage,
+                            pageNumber: candidate.pageNumber,
+                            path,
+                            metadataPath: join(retryRoot, `page-${String(candidate.pageNumber)}.json`),
+                            width: dimensions.width,
+                            height: dimensions.height,
+                        });
+                    }
+                    const retryManifestPages = renderedRetryPages.map((page, index) => {
+                        const sourceBackgroundDpi = sourceRasterStructure.backgroundDpiByPage?.get(page.pageNumber);
+                        return {
+                            inputPath: page.path,
+                            pageNumber: index + 1,
+                            dpi: DETECTION_DPI,
+                            sourceDpi: previewRasterPlan.pageDpiByNumber.get(page.pageNumber)
+                                ?? DETECTION_DPI,
+                            sourceHasBilevelLayer: sourceRasterStructure.bilevelLayerPages
+                                ?.has(page.pageNumber) ?? false,
+                            ...(sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi}),
+                            pageMetadataPath: page.metadataPath,
+                        };
+                    });
+                    if (retryManifestPages.length > 0) {
+                        const retryManifestPath = join(retryRoot, 'classify-manifest.json');
+                        await writeFile(retryManifestPath, JSON.stringify(buildRunnableNativeScanCleanupManifest({
+                            operation: 'analyze',
+                            analysisPurpose: 'page-plan',
+                            renderMode: 'preview',
+                            canvasScope: 'page',
+                            qualityPath: request.options.preserveOriginalQuality ? 'lossless' : 'raster',
+                            options: request.options,
+                            experimental: {
+                                autoDewarp: request.options.autoDewarp ?? false,
+                                ...(request.options.autoDewarpDepth === undefined
+                                    ? {}
+                                    : {autoDewarpDepth: request.options.autoDewarpDepth}),
+                            },
+                            pages: retryManifestPages,
+                            allowedPathRoot: dependencies.getTempDir(),
+                        })));
+                        const retryProgressByManifestPage = new Map<number, TNativeScanCleanupProgressV3>();
+                        await dependencies.runSidecar(
+                            binary,
+                            retryManifestPath,
+                            operationSignal,
+                            log,
+                            nativeProgress => {
+                                if (nativeProgress.totalPages !== retryManifestPages.length) {
+                                    throw new ScanCleanupContractError(
+                                        `MediaBox retry reported ${String(nativeProgress.totalPages)} pages for ${String(retryManifestPages.length)} inputs`,
+                                    );
+                                }
+                                if (
+                                    nativeProgress.stage === 'page-complete'
+                                    && nativeProgress.pageNumber !== undefined
+                                    && nativeProgress.pageNumber >= 1
+                                    && nativeProgress.pageNumber <= retryManifestPages.length
+                                ) {
+                                    retryProgressByManifestPage.set(nativeProgress.pageNumber, nativeProgress);
+                                }
+                            },
+                            {
+                                priority: 'background',
+                                allowedPathRoot: dependencies.getTempDir(),
+                            },
+                        );
+                        for (const [
+                            index,
+                            page,
+                        ] of renderedRetryPages.entries()) {
+                            const retryProgress = retryProgressByManifestPage.get(index + 1);
+                            if (retryProgress === undefined) continue;
+                            const retryMetadata = decodeNativeScanCleanupPageMetadataJson(
+                                await readFile(page.metadataPath, 'utf8'),
+                            );
+                            if (!isStrongMediaBoxSpread(
+                                retryProgress,
+                                retryMetadata,
+                                page.width,
+                                page.height,
+                            )) {
+                                continue;
+                            }
+                            const mediaPage = toMediaBoxPageSize(page.sourcePage);
+                            pageSizes[page.pageNumber - 1] = mediaPage;
+                            pageSizeByNumber.set(page.pageNumber, mediaPage);
+                            const result = results.get(page.pageNumber);
+                            if (result === undefined) continue;
+                            const accepted: IScanCleanupDetectionResult = {
+                                ...result,
+                                revision: (result.revision ?? 0) + 1,
+                                classification: retryProgress.classification
+                                    ?? retryMetadata.layoutClassification,
+                                confidence: retryProgress.confidence
+                                    ?? retryMetadata.layoutConfidence
+                                    ?? result.confidence,
+                                cutterXPx: retryProgress.cutterXPx
+                                    ?? retryMetadata.cutterXPx,
+                                tier1Verdict: retryProgress.tier1Verdict
+                                    ?? retryMetadata.layoutClassification,
+                                reconciled: retryProgress.reconciled ?? false,
+                                clusterAgreement: retryProgress.clusterAgreement ?? 0,
+                                documentPrior: retryProgress.documentPrior ?? null,
+                                sourcePageMetadata: {
+                                    ...mediaPage,
+                                    sourceDpi: previewRasterPlan.pageDpiByNumber.get(page.pageNumber)
+                                        ?? DETECTION_DPI,
+                                    renderBox: 'mediabox',
+                                },
+                                ...(retryMetadata.splitDiagnostics === undefined
+                                    ? {}
+                                    : {splitDiagnostics: retryMetadata.splitDiagnostics}),
+                                ...(retryProgress.textAxis === undefined ? {} : {textAxis: retryProgress.textAxis}),
+                                ...(retryProgress.recommendedOutputMode === undefined
+                                    ? {}
+                                    : {recommendedOutputMode: retryProgress.recommendedOutputMode}),
+                                ...(retryProgress.recommendedOutputModeConfidence === undefined
+                                    ? {}
+                                    : {recommendedOutputModeConfidence: retryProgress.recommendedOutputModeConfidence}),
+                                ...(retryProgress.recommendedOutputModeReason === undefined
+                                    ? {}
+                                    : {recommendedOutputModeReason: retryProgress.recommendedOutputModeReason}),
+                                ...(retryProgress.softAlphaForegroundRecommendation === undefined
+                                    ? {}
+                                    : {softAlphaForegroundRecommendation:
+                                        retryProgress.softAlphaForegroundRecommendation}),
+                                ...(retryProgress.outputModeDiagnostics === undefined
+                                    ? {}
+                                    : {outputModeDiagnostics: retryProgress.outputModeDiagnostics}),
+                            };
+                            accepted.pagePlanEvidence = createDetectionPagePlanEvidence(
+                                accepted,
+                                retryMetadata,
+                                request.options.autoDewarp !== true,
+                            );
+                            results.set(page.pageNumber, accepted);
+                            log(
+                                'debug',
+                                `MediaBox retry accepted page ${String(page.pageNumber)} as a two-page spread`,
+                            );
+                        }
+                    }
+                } finally {
+                    await rm(retryRoot, {
+                        recursive: true,
+                        force: true,
+                    });
+                }
             }
             published = true;
             return {results: publishedResults()};

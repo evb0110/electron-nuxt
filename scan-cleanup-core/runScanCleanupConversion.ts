@@ -483,6 +483,12 @@ export async function runScanCleanupConversion(
         // page number. It is admitted once, here, whether it was measured or
         // handed to the run.
         assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup conversion');
+        const renderBoxByPage = new Map(
+            pageSizes.map(page => [
+                page.pageNumber,
+                page.renderBox ?? 'cropbox',
+            ] as const),
+        );
         const dpiProbePages = request.options.matchPageSize ? documentPageNumbers : pageNumbers;
         emitProgress('probing', 0, dpiProbePages.length, []);
         // For scan PDFs the fast geometry pass above also reports the dominant
@@ -675,6 +681,9 @@ export async function runScanCleanupConversion(
                     SCAN_CLEANUP_SIZE_PROBE_DPI,
                     undefined,
                     signal,
+                    undefined,
+                    undefined,
+                    renderBoxByPage.get(pageNumber) ?? 'cropbox',
                 );
                 guardrailByPage.set(pageNumber, {
                     dpi: SCAN_CLEANUP_SIZE_PROBE_DPI,
@@ -1093,6 +1102,7 @@ export async function runScanCleanupConversion(
                     operationSignal,
                     undefined,
                     analysisLimits,
+                    renderBoxByPage.get(plan.pageNumber) ?? 'cropbox',
                 );
                 await renderer(
                     paths,
@@ -1105,6 +1115,7 @@ export async function runScanCleanupConversion(
                     operationSignal,
                     undefined,
                     limits,
+                    renderBoxByPage.get(plan.pageNumber) ?? 'cropbox',
                 );
                 if (!canStreamRasters) {
                     const dimensions = rasterHandoff.format === 'ppm'
@@ -1861,6 +1872,9 @@ export async function runScanCleanupConversion(
                         ...(output.metadata.cropRect === undefined
                             ? {}
                             : {cropRect: output.metadata.cropRect}),
+                        ...(output.metadata.dewarpMapping === undefined
+                            ? {}
+                            : {dewarpMapping: output.metadata.dewarpMapping}),
                         ...(output.metadata.foldClipLeftPx === undefined
                             ? {}
                             : {foldClipLeftPx: output.metadata.foldClipLeftPx}),

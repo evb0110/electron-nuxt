@@ -8,9 +8,10 @@ use crate::engine::render_plan::{
 use crate::engine::text_axis::{detect_text_axis, TextAxisHint};
 use crate::mode_select::{
     has_pale_tonal_structure, independent_chroma_mask, is_blank_scan_candidate,
-    is_line_art_picture, protect_bilevel_text_fidelity, recommend_output_mode_with_tone,
-    should_veto_bilevel_fidelity, text_soft_edge_to_ink_ratio, OutputModeDiagnostics,
-    OutputModeRecommendation, PreparedModeEvidence,
+    is_line_art_picture, protect_bilevel_text_fidelity, qualifies_independent_outside_tone,
+    recommend_output_mode_with_tone, should_veto_bilevel_fidelity, text_soft_edge_to_ink_ratio,
+    veto_contradictory_mixed_ownership, OutputModeDiagnostics, OutputModeRecommendation,
+    PreparedModeEvidence,
 };
 use crate::{
     auto_dewarp::detect_curves_at_dpi_with_depth,
@@ -3599,6 +3600,9 @@ fn prepare_analysis_page(
         let text_line_count = content_evidence
             .as_ref()
             .map_or(0, |evidence| evidence.diagnostics.text_mask.line_count);
+        let protected_text_blocks = content_evidence.as_ref().map_or_else(Vec::new, |evidence| {
+            evidence.diagnostics.protected_blocks.clone()
+        });
         let (text_mask, text_vicinity_mask) = content_evidence.map_or((None, None), |evidence| {
             (
                 Some(Arc::new(evidence.text_mask)),
@@ -3745,6 +3749,14 @@ fn prepare_analysis_page(
                 .as_deref()
                 .is_some_and(|mask| mask.count_black() > 0)
             || !options.manual_zones.picture.is_empty();
+        let independent_picture_evidence = trusted_mrc_owned_tone_mask
+            .as_deref()
+            .is_some_and(|mask| mask.count_black() > 0)
+            || spatial_tone_mask
+                .as_deref()
+                .is_some_and(|mask| mask.count_black() > 0)
+            || !options.manual_zones.picture.is_empty()
+            || qualifies_independent_outside_tone(outside_tone);
         // These masks are protection/normalization evidence, not picture
         // ownership. The semantic owner remains `picture_mask`; keeping the
         // channels separate prevents show-through and fold tone from being
@@ -3828,6 +3840,12 @@ fn prepare_analysis_page(
                         text_line_count,
                     },
                     outside_tone,
+                );
+                let recommendation = veto_contradictory_mixed_ownership(
+                    recommendation,
+                    options.output_mode == OutputMode::Auto,
+                    &protected_text_blocks,
+                    independent_picture_evidence,
                 );
                 protect_bilevel_text_fidelity(
                     recommendation,

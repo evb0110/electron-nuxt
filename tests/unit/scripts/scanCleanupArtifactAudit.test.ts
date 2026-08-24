@@ -25,6 +25,51 @@ afterEach(async () => {
 });
 
 describe('scan cleanup artifact acceptance', () => {
+    it('measures registration from the stable header instead of repeated body patterns', () => {
+        const scriptPath = resolve('scripts/diagnostics/scan-cleanup-artifact-audit.py');
+        const python = String.raw`
+import importlib.util, json, sys
+from PIL import Image, ImageDraw
+spec = importlib.util.spec_from_file_location("scan_cleanup_artifact_audit", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+
+def page():
+    image = Image.new("RGB", (500, 800), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((180, 32, 260, 42), fill="black")
+    draw.rectangle((220, 60, 280, 67), fill="black")
+    for y in range(180, 760, 24):
+        for x in range(70, 410, 34):
+            draw.rectangle((x, y, x + 12, y + 4), fill="black")
+    return image
+
+source = page()
+ambiguous = Image.new("RGB", source.size, "white")
+ambiguous.paste(source.crop((0, 0, 500, 120)), (0, 0))
+ambiguous.paste(source.crop((0, 120, 490, 800)), (10, 120))
+translated = Image.new("RGB", source.size, "white")
+translated.paste(source.crop((0, 0, 495, 800)), (5, 0))
+stable = module._edge_registration_shift(source, ambiguous, 150)
+moved = module._edge_registration_shift(source, translated, 150)
+print(json.dumps({"stable": stable, "moved": moved}))
+`;
+        const result = spawnSync('python3', [
+            '-c',
+            python,
+            scriptPath,
+        ], {encoding: 'utf8'});
+        expect(result.status, result.stderr).toBe(0);
+        const report = JSON.parse(result.stdout);
+        expect(report.stable.slice(0, 2)).toEqual([
+            0,
+            0,
+        ]);
+        expect(Math.abs(report.moved[0])).toBe(5);
+        expect(report.moved[1]).toBe(0);
+    });
+
     it('fails gray Mixed paper, destroyed color, and missing metadata', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-scan-audit-test-'));
         temporaryDirectories.push(directory);

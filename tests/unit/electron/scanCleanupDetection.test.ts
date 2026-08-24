@@ -57,6 +57,8 @@ function splitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
         leftInkPixels: 31_717,
         rightInkPixels: 20_784,
         outerMarginScore: 1,
+        leftOuterMarginScore: 1,
+        rightOuterMarginScore: 1,
         gutterScore: 1,
         agreementScore: 1,
         foldScore: 0.086,
@@ -88,6 +90,8 @@ function splitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
         independentGutterGatePassed: true,
         aspectSupportGatePassed: true,
         evidenceAgreementGatePassed: true,
+        outerMarginRecovery: false,
+        outerMarginWeakEdge: null,
         sparseSpreadRecovered: true,
         abstained: false,
         foldBand: {
@@ -98,12 +102,66 @@ function splitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
     };
 }
 
+describe('scan-cleanup split diagnostic IPC compatibility', () => {
+    it('round-trips optional outer-margin recovery fields and accepts legacy state', () => {
+        const diagnostics = {
+            ...splitDiagnostics(),
+            leftOuterMarginScore: 0.004,
+            rightOuterMarginScore: 0.64,
+            outerMarginRecovery: true,
+            outerMarginWeakEdge: 'left' as const,
+        };
+        const makeState = (splitDiagnostics: INativeScanCleanupSplitDiagnosticsV3) => ({
+            jobId: 'split-diagnostics-optional-fields',
+            status: 'completed' as const,
+            progress: {
+                stage: 'detecting' as const,
+                completedUnits: 1,
+                totalUnits: 1,
+                percent: 100,
+                completedPageNumbers: [1],
+            },
+            results: [{
+                pageNumber: 1,
+                classification: 'two-page-spread' as const,
+                confidence: 0.91,
+                cutterXPx: 100,
+                splitDiagnostics,
+            }],
+            updatedAtMs: 1,
+        });
+
+        const decoded = decodeScanCleanupDetectionJobState(makeState(diagnostics));
+        expect(decoded?.results[0]?.splitDiagnostics).toEqual(diagnostics);
+
+        const {
+            leftOuterMarginScore: _leftOuterMarginScore,
+            rightOuterMarginScore: _rightOuterMarginScore,
+            outerMarginRecovery: _outerMarginRecovery,
+            outerMarginWeakEdge: _outerMarginWeakEdge,
+            ...legacyDiagnostics
+        } = diagnostics;
+        const legacyDecoded = decodeScanCleanupDetectionJobState(makeState(legacyDiagnostics));
+        expect(legacyDecoded?.results[0]?.splitDiagnostics).toEqual(legacyDiagnostics);
+        expect(() => decodeScanCleanupDetectionJobState(makeState({
+            ...diagnostics,
+            leftOuterMarginScore: 'weak' as never,
+        }))).toThrow('invalid scan-cleanup split diagnostics');
+        expect(() => decodeScanCleanupDetectionJobState(makeState({
+            ...diagnostics,
+            outerMarginWeakEdge: 'middle' as never,
+        }))).toThrow('invalid scan-cleanup split diagnostics');
+    });
+});
+
 const PNG_1X1 = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     'base64',
 );
 
 interface IStagedManifestPages {pages: Array<Pick<INativeScanCleanupPageV3, 'inputPath' | 'sourcePageIndex' | 'pageMetadataPath'>>;}
+
+type IRetryManifest = Pick<INativeScanCleanupManifestV3, 'pages'>;
 
 /**
  * The part of the real manifest this fake reads, derived from the protocol type
@@ -979,5 +1037,160 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         expect(renderPage).not.toHaveBeenCalled();
         expect(retention.retain).not.toHaveBeenCalled();
         expect(retention.release).toHaveBeenCalledOnce();
+    });
+
+    it('retries suspicious single pages with MediaBox', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-mediabox-retry-test-'));
+        dirs.push(tempDir);
+        const renderBoxes: unknown[] = [];
+        const renderPage = vi.fn(async (...args: unknown[]) => {
+            renderBoxes.push(args[10]);
+            await writeFile(String(args[4]), PNG_1X1);
+        });
+        const pageSizes = [
+            [
+                1,
+                358.8,
+                425.6,
+            ],
+            [
+                2,
+                616.7,
+                452.8,
+            ],
+            [
+                3,
+                702.1,
+                493.2,
+            ],
+        ].map(([
+            pageNumber,
+            widthPoints,
+            heightPoints,
+        ]) => ({
+            pageNumber: pageNumber!,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: widthPoints!,
+            heightPoints: heightPoints!,
+            rotation: 0,
+            mediaXPoints: 0,
+            mediaYPoints: 0,
+            mediaWidthPoints: 841.89,
+            mediaHeightPoints: 633.89,
+        }));
+        const retention: IScanCleanupDetectionRetention<{id: string}> = {
+            openDocument: vi.fn(async () => ({id: 'document'})),
+            pageCount: vi.fn(async () => pageSizes.length),
+            pageSizes: vi.fn(async () => pageSizes),
+            rasterPages: vi.fn(async () => ({
+                detected: false,
+                pages: new Set<number>(),
+            })),
+            retainedPaths: vi.fn(async () => new Map()),
+            rasterScratchPath: vi.fn(async (_document, pageNumber) => join(
+                tempDir,
+                `scratch-${String(pageNumber)}.png`,
+            )),
+            stagedRasterPath: vi.fn(async (_document, pageNumber) => join(
+                tempDir,
+                `staged-${String(pageNumber)}.png`,
+            )),
+            retain: vi.fn(async input => {
+                await rename(input.scratchPath, join(tempDir, `staged-${String(input.pageNumber)}.png`));
+                return {
+                    dpi: input.dpi,
+                    height: input.height,
+                    pageNumber: input.pageNumber,
+                    path: join(tempDir, `staged-${String(input.pageNumber)}.png`),
+                    sizeBytes: input.sizeBytes,
+                    width: input.width,
+                };
+            }),
+            releaseRaster: vi.fn(async () => undefined),
+            release: vi.fn(async () => undefined),
+        };
+        let sidecarCalls = 0;
+        const runSidecar = vi.fn(async (
+            _binary: string,
+            manifestPath: string,
+            _signal: AbortSignal,
+            _log: unknown,
+            onProgress: (progress: TNativeScanCleanupProgressV3) => void,
+        ) => {
+            sidecarCalls += 1;
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as IRetryManifest;
+            await Promise.all(manifest.pages.map(async page => {
+                const retry = sidecarCalls === 2;
+                const pageNumber = page.sourcePageIndex + 1;
+                const diagnostics = splitDiagnostics();
+                diagnostics.decisionX = 0.5;
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    layoutClassification: retry
+                        ? 'two-page-spread'
+                        : 'single-uncut-page',
+                    layoutConfidence: 0.9,
+                    cutterXPx: retry ? 0.5 : null,
+                    rotationDegrees: 0,
+                    canvasScope: 'page',
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 0,
+                    ...(retry || pageNumber === 2 ? {splitDiagnostics: diagnostics} : {}),
+                }));
+                onProgress({
+                    stage: 'page-complete',
+                    completedPages: pageNumber,
+                    totalPages: manifest.pages.length,
+                    pageNumber,
+                    classification: retry
+                        ? 'two-page-spread'
+                        : 'single-uncut-page',
+                    confidence: retry ? 0.9 : 0.5,
+                    ...(retry ? {cutterXPx: 0.5} : {}),
+                    tier1Verdict: retry
+                        ? 'two-page-spread'
+                        : 'single-uncut-page',
+                    reconciled: false,
+                });
+            }));
+        });
+
+        const detection = await runScanCleanupDetection(
+            createRequest(),
+            new AbortController().signal,
+            retention,
+            {
+                getAvailableScratchBytes: vi.fn(async () => 4 * 1024 * 1024 * 1024),
+                getTempDir: () => tempDir,
+                getPdftoppmBinary: () => 'pdftoppm',
+                resolveBinary: () => 'evb-scan-cleanup',
+                renderPage,
+                renderPagePpm: vi.fn(),
+                runSidecar,
+            },
+            {rasterConcurrency: 3},
+            () => undefined,
+        );
+
+        expect(sidecarCalls).toBe(2);
+        expect(renderBoxes).toEqual([
+            'cropbox',
+            'cropbox',
+            'cropbox',
+            'mediabox',
+            'mediabox',
+        ]);
+        expect(detection.results).toHaveLength(3);
+        expect(detection.results.map(result => result.classification)).toEqual([
+            'two-page-spread',
+            'two-page-spread',
+            'single-uncut-page',
+        ]);
+        expect(detection.results.map(result => result.sourcePageMetadata?.renderBox)).toEqual([
+            'mediabox',
+            'mediabox',
+            undefined,
+        ]);
     });
 });
