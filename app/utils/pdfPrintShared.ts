@@ -42,21 +42,12 @@ export interface IBrowserPrintDocument {
         | IBrowserPrintStyleElement;
 }
 
-function escapeHtmlText(value: string) {
-    return value
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;');
-}
-
 export function buildBrowserPrintFrameMarkup(title = 'Printable PDF') {
-    const escapedTitle = escapeHtmlText(title);
-
     return `<!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>${escapedTitle}</title>
+    <title>${escapeHtmlText(title)}</title>
     <style>
         @page {
             margin: 0;
@@ -207,4 +198,14 @@ export function normalizePrintPageNumbers(
     return uniq(pageNumbers)
         .filter(page => Number.isInteger(page) && page >= 1 && page <= normalizedTotalPages)
         .sort((left, right) => left - right);
+}
+
+const HTML_TEXT_ENTITIES: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+};
+
+function escapeHtmlText(value: string) {
+    return value.replace(/[&<>]/g, character => HTML_TEXT_ENTITIES[character] ?? character);
 }
