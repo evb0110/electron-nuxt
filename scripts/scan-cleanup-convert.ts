@@ -11,6 +11,7 @@ import {
     join,
     resolve,
 } from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {
     availableParallelism,
     tmpdir,
@@ -683,7 +684,7 @@ function getProgressKey(progress: TScanCleanupProgress) {
     return `${progress.stage}:${String(progress.completedUnits)}:${String(progress.totalUnits)}`;
 }
 
-async function main() {
+export async function main() {
     const argumentsValue = parseArguments(process.argv.slice(2));
     const sourceStats = await stat(argumentsValue.sourcePdfPath);
     const qpdfBinary = resolveTool('qpdf', 'qpdf');
@@ -1124,10 +1125,12 @@ async function main() {
     }
 }
 
-void main().catch(error => {
-    if (error instanceof Error && error.message === '') {
-        return;
-    }
-    process.stderr.write(`[scan-cleanup] error: ${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
-});
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    void main().catch(error => {
+        if (error instanceof Error && error.message === '') {
+            return;
+        }
+        process.stderr.write(`[scan-cleanup] error: ${error instanceof Error ? error.message : String(error)}\n`);
+        process.exitCode = 1;
+    });
+}

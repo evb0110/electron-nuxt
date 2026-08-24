@@ -37,7 +37,6 @@ import {
 const execFileAsync = promisify(execFile);
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const auditScript = join(projectRoot, 'scripts/diagnostics/scan-cleanup-word-loss-audit.mjs');
-const rgbFixtureGenerator = join(projectRoot, 'scripts/diagnostics/generate-scan-cleanup-rgb-fixture.mjs');
 const qpdfBinary = resolveCliNativeToolPath('qpdf', 'qpdf', projectRoot) ?? 'qpdf';
 const pdfimagesBinary = resolveCliNativeToolPath('pdfimages', 'poppler', projectRoot) ?? 'pdfimages';
 
@@ -950,11 +949,10 @@ describe('scan-cleanup RGB source support', () => {
             const source = join(temporaryDirectory, 'source.pdf');
             const cleaned = join(temporaryDirectory, 'cleaned.pdf');
             const reportPath = join(temporaryDirectory, 'report.json');
-            await execFileAsync(process.execPath, [
-                rgbFixtureGenerator,
-                '--out',
-                source,
-            ]);
+            const {generateScanCleanupRgbFixture} = await import(
+                '@scripts/diagnostics/generate-scan-cleanup-rgb-fixture.mjs'
+            );
+            await generateScanCleanupRgbFixture(source);
             await writeFile(cleaned, buildRasterPdf({
                 bitsPerComponent: 1,
                 height: 240,

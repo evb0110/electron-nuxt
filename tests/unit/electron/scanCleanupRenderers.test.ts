@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import type * as FsPromises from 'node:fs/promises';
 import {createScanCleanupRenderers} from '@scan-cleanup-adapters/createScanCleanupRenderers';
+import type {TScanCleanupRunCommand} from '@scan-cleanup-core/types';
 
 const mocks = vi.hoisted(() => ({
     readPngDimensions: vi.fn(),
@@ -92,7 +93,7 @@ describe('createScanCleanupRenderers', () => {
             'Page    3 MediaBox:      0.00     0.00   841.89   633.89',
             'Page    3 CropBox:      76.89    59.94   778.99   553.12',
         ].join('\n');
-        const runCommand = vi.fn(async (command: string) => {
+        const runCommand = vi.fn<TScanCleanupRunCommand>(async command => {
             if (command === '/bin/pdfinfo') {
                 return {
                     exitCode: 0,
@@ -133,6 +134,81 @@ describe('createScanCleanupRenderers', () => {
             ],
             expect.any(Object),
         );
+    });
+
+    it('shares an in-flight geometry read without sharing caller cancellation', async () => {
+        const pdfInfo = [
+            'Pages:           3',
+            ...Array.from({length: 3}, (_, index) => [
+                `Page    ${String(index + 1)} size:  300 x 400 pts`,
+                `Page    ${String(index + 1)} rot:   0`,
+                `Page    ${String(index + 1)} MediaBox:      0.00     0.00   800.00   600.00`,
+                `Page    ${String(index + 1)} CropBox:     250.00   100.00   550.00   500.00`,
+            ].join('\n')),
+        ].join('\n');
+        const geometryRead = Promise.withResolvers<{
+            exitCode: number;
+            stdout: string;
+            stderr: string
+        }>();
+        const runCommand = vi.fn<TScanCleanupRunCommand>(async command => {
+            if (command === '/bin/pdfinfo') {
+                return geometryRead.promise;
+            }
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        const {
+            renderPage,
+            renderPagePpm,
+        } = createScanCleanupRenderers(runCommand, undefined, {pdfinfoBinary: '/bin/pdfinfo'});
+        const cancelled = new AbortController();
+        const retained = new AbortController();
+        const cancelledRender = renderPage(
+            {pdftoppmBinary: '/bin/pdftoppm'},
+            vi.fn(),
+            1,
+            '/tmp/concurrent.pdf',
+            '/tmp/cancelled.png',
+            300,
+            undefined,
+            cancelled.signal,
+        );
+        await vi.waitFor(() => {
+            expect(runCommand.mock.calls.some(([command]) => command === '/bin/pdfinfo')).toBe(true);
+        });
+        const pdfInfoCall = runCommand.mock.calls.find(([command]) => command === '/bin/pdfinfo');
+        expect(pdfInfoCall?.[2]).not.toHaveProperty('signal');
+        const retainedRender = renderPagePpm(
+            {pdftoppmBinary: '/bin/pdftoppm'},
+            vi.fn(),
+            2,
+            '/tmp/concurrent.pdf',
+            '/tmp/retained.ppm',
+            300,
+            undefined,
+            retained.signal,
+        );
+        cancelled.abort(new Error('cancel only this caller'));
+        await expect(cancelledRender).rejects.toThrow('cancel only this caller');
+        geometryRead.resolve({
+            exitCode: 0,
+            stdout: pdfInfo,
+            stderr: '',
+        });
+        await retainedRender;
+
+        expect(runCommand.mock.calls.filter(([command]) => command === '/bin/pdfinfo')).toHaveLength(2);
+        expect(runCommand).toHaveBeenLastCalledWith(
+            '/bin/pdftoppm',
+            expect.any(Array),
+            expect.objectContaining({signal: retained.signal}),
+        );
+        expect(runCommand.mock.lastCall?.[1]).not.toContain('-png');
+        expect(runCommand.mock.lastCall?.[1]).not.toContain('-cropbox');
     });
 
     it('keeps an ordinary intentional crop on a landscape document', async () => {

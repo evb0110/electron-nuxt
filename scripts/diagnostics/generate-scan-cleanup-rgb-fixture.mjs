@@ -14,6 +14,7 @@ import {
     dirname,
     resolve,
 } from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 const WIDTH = 320;
 const HEIGHT = 240;
@@ -280,7 +281,14 @@ function makePdf(image) {
     return Buffer.concat(chunks);
 }
 
-const output = parseOutput(process.argv.slice(2));
-await mkdir(dirname(output), {recursive: true});
-await writeFile(output, makePdf(makeRaster()));
-process.stdout.write(`Wrote RGB oracle fixture: ${output}\n`);
+export async function generateScanCleanupRgbFixture(outputPath) {
+    const output = resolve(outputPath);
+    await mkdir(dirname(output), {recursive: true});
+    await writeFile(output, makePdf(makeRaster()));
+    return output;
+}
+
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    const output = await generateScanCleanupRgbFixture(parseOutput(process.argv.slice(2)));
+    process.stdout.write(`Wrote RGB oracle fixture: ${output}\n`);
+}
