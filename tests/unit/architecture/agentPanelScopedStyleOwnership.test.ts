@@ -10,6 +10,7 @@ import {
 } from 'vitest';
 
 const COMPONENTS_DIR = join(process.cwd(), 'app/modules/agent-panel/components');
+const GLOBAL_STYLESHEET = join(process.cwd(), 'app/assets/css/main.css');
 
 const PANEL_STYLESHEETS = [
     'AgentAssistantPanel.shell.css',
@@ -17,17 +18,10 @@ const PANEL_STYLESHEETS = [
 ];
 
 const CLASS_SELECTOR_PATTERN = /\.([A-Za-z][\w-]*)/gu;
+// Static class attributes only. A `:class` binding is an expression, not a list
+// of names, and its tokens are checked where the expression is written.
 const CLASS_ATTRIBUTE_PATTERN = /\sclass="([^"]*)"/gu;
 
-/**
- * The panel imports both stylesheets with `<style scoped>`, so every rule in
- * them is compiled with the panel's own `data-v-*` attribute. A child component
- * never carries that attribute on anything but its root element, and a child
- * that renders a fragment carries it nowhere at all. A class the child puts on
- * its own markup therefore has to be defined by the child (or by a global
- * stylesheet), never only by the panel: the panel's copy silently does not
- * match, and the element renders unstyled at the browser's default type size.
- */
 function collectClassNames(css: string) {
     return new Set([...css.matchAll(CLASS_SELECTOR_PATTERN)].map(match => match[1]!));
 }
@@ -46,35 +40,57 @@ function collectTemplateClasses(source: string) {
 }
 
 function collectOwnStyleClasses(source: string) {
-    const ownStyles = source.split('<style').slice(1).join('<style');
-    return collectClassNames(ownStyles);
+    return collectClassNames(source.split('<style').slice(1).join('<style'));
 }
 
+/**
+ * The panel imports both of its stylesheets with `<style scoped>`, so every rule
+ * in them compiles with the panel's own `data-v-*` attribute. A child component
+ * never carries that attribute on anything but its root element, and a child
+ * that renders a fragment carries it nowhere at all. So a class a child puts on
+ * its own markup has to be styled by the child itself or by the global
+ * stylesheet: a rule left behind in the panel silently stops matching, and the
+ * element renders unstyled at the browser's default type size.
+ *
+ * This holds the whole condition rather than just the panel half. Deleting a
+ * child's local rule fails here too, which is the same defect arriving by a
+ * different route.
+ */
 describe('agent panel scoped style ownership', () => {
-    it('keeps child component classes out of the panel-only scoped stylesheets', async () => {
-        const panelClasses = collectClassNames(
-            (await Promise.all(
-                PANEL_STYLESHEETS.map(file => readFile(join(COMPONENTS_DIR, file), 'utf8')),
-            )).join('\n'),
-        );
+    it('styles every child component class locally or globally, never from the panel stylesheets', async () => {
+        const [
+            panelCss,
+            globalCss,
+            componentDirectory,
+        ] = await Promise.all([
+            Promise.all(PANEL_STYLESHEETS.map(file => readFile(join(COMPONENTS_DIR, file), 'utf8'))),
+            readFile(GLOBAL_STYLESHEET, 'utf8'),
+            readdir(COMPONENTS_DIR),
+        ]);
+        const panelClasses = collectClassNames(panelCss.join('\n'));
+        const globalClasses = collectClassNames(globalCss);
         expect(panelClasses.size).toBeGreaterThan(0);
+        expect(globalClasses.size).toBeGreaterThan(0);
 
-        const childComponents = (await readdir(COMPONENTS_DIR))
+        const childComponents = componentDirectory
             .filter(file => file.startsWith('Assistant') && file.endsWith('.vue'));
         expect(childComponents.length).toBeGreaterThan(0);
 
-        const borrowed: Record<string, string[]> = {};
+        const unstyled: Record<string, string[]> = {};
         for (const file of childComponents) {
             const source = await readFile(join(COMPONENTS_DIR, file), 'utf8');
             const ownClasses = collectOwnStyleClasses(source);
-            const unowned = [...collectTemplateClasses(source)]
-                .filter(token => panelClasses.has(token) && !ownClasses.has(token))
+            const missing = [...collectTemplateClasses(source)]
+                .filter(token => !ownClasses.has(token) && !globalClasses.has(token))
+                .map(token => (panelClasses.has(token)
+                    ? `${token} (styled only by the panel stylesheets)`
+                    : token))
                 .sort();
-            if (unowned.length > 0) {
-                borrowed[file] = unowned;
+            if (missing.length > 0) {
+                unstyled[file] = missing;
             }
         }
 
-        expect(borrowed).toEqual({});
+        expect(unstyled).toEqual({});
     });
 });
