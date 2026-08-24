@@ -7,7 +7,7 @@ import {
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
 
-const MIN_POINT_MARKER_SIZE = 0.0016;
+export const MIN_MARKER_RECT_SIZE = 0.0016;
 
 
 function getPageRectBounds(pageView: number[] | null | undefined): IPageRectBounds | null {
@@ -110,15 +110,15 @@ export function toMarkerRectFromPdfRect(
     // with minimal content (e.g. ZWS placeholder for sticky-note style comments).
     // Expand to a minimum point-marker size centered on the annotation position so
     // the annotation still produces a valid markerRect for the overlay system.
-    if (normWidth < MIN_POINT_MARKER_SIZE) {
+    if (normWidth < MIN_MARKER_RECT_SIZE) {
         const centerX = normLeft + normWidth / 2;
-        normLeft = centerX - MIN_POINT_MARKER_SIZE / 2;
-        normWidth = MIN_POINT_MARKER_SIZE;
+        normLeft = centerX - MIN_MARKER_RECT_SIZE / 2;
+        normWidth = MIN_MARKER_RECT_SIZE;
     }
-    if (normHeight < MIN_POINT_MARKER_SIZE) {
+    if (normHeight < MIN_MARKER_RECT_SIZE) {
         const centerY = normTop + normHeight / 2;
-        normTop = centerY - MIN_POINT_MARKER_SIZE / 2;
-        normHeight = MIN_POINT_MARKER_SIZE;
+        normTop = centerY - MIN_MARKER_RECT_SIZE / 2;
+        normHeight = MIN_MARKER_RECT_SIZE;
     }
 
     return normalizeMarkerRectBounds({

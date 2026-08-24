@@ -1,6 +1,7 @@
 import type {
     AnnotationEntity,
     AnnotationId,
+    ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IAnnotationSaveFrontier } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import type {TAnnotationMutationOperation} from '@app/modules/pdf-viewer/engine/annotations/persistence/backendAnnotationMutation';
@@ -8,6 +9,11 @@ import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
+import {
+    matchCanonicalTextMarkupGeometry,
+    TEXT_MARKUP_COORDINATE_TOLERANCE,
+    toCanonicalTextMarkupGeometry,
+} from '@app/modules/pdf-viewer/engine/annotation-geometry/canonicalTextMarkupGeometry';
 export type {TAnnotationMutationOperation} from '@app/modules/pdf-viewer/engine/annotations/persistence/backendAnnotationMutation';
 
 export type TSerializationBackend = 'native-append' | 'pdfjs-save-document' | 'pdf-lib-rewrite';
@@ -325,6 +331,103 @@ function assertValidAnnotationSerializationPlan(steps: readonly IAnnotationMutat
 
 export interface IAnnotationReopenReader {reopen(bytes: Uint8Array): Promise<readonly AnnotationEntity[]>;}
 
+/** Privacy-safe stand-in for annotation text: presence, length, and a digest. */
+export interface IAnnotationTextFingerprint {
+    readonly present: boolean;
+    readonly length: number;
+    readonly hash: string;
+}
+
+/**
+ * What a semantic reopen saw, field by field. Everything here is safe to log:
+ * annotation text is reduced to {@link IAnnotationTextFingerprint}, and
+ * geometry to counts and a bounded coordinate delta.
+ */
+export interface IAnnotationVerificationDiagnostic {
+    readonly annotationId: string;
+    readonly kind: AnnotationEntity['kind'];
+    /** What the reopened file turned out to hold, which is the other half of a kind mismatch. */
+    readonly reopenedKind: AnnotationEntity['kind'];
+    readonly pageIndex: number;
+    readonly expectedSubtype: string | null;
+    readonly reopenedSubtype: string | null;
+    readonly expectedText: IAnnotationTextFingerprint;
+    readonly reopenedText: IAnnotationTextFingerprint;
+    readonly expectedGeometryCount: number;
+    readonly reopenedGeometryCount: number;
+    readonly maxCoordinateDelta: number | null;
+    readonly worstRectIndex: number | null;
+    readonly coordinateTolerance: number;
+    readonly failedFields: readonly string[];
+}
+
+/**
+ * How many per-annotation diagnostics one rejected save carries, and how many
+ * failure clauses its message names.
+ *
+ * A plan can hold every dirty annotation in a document, and a systematic
+ * regression fails all of them at once, so an unbounded record would put
+ * thousands of structured entries into a log line written on the failure path.
+ * Twelve is enough to see whether one annotation moved or the whole page did —
+ * the point of the record — while the total count, which stays exact, carries
+ * the scale. This mirrors the bounded annotation inventory snapshots: keep a
+ * useful sample, report the true size, retain neither without a ceiling.
+ */
+const MAX_ANNOTATION_VERIFICATION_DIAGNOSTICS = 12;
+
+/**
+ * Largest per-coordinate difference a faithful sticky-note anchor round trip
+ * may show, in page-normalized units.
+ *
+ * It starts at the same number as
+ * {@link TEXT_MARKUP_COORDINATE_TOLERANCE} because both cover the same
+ * representation loss — a writer that emits two decimals of a PDF unit — but
+ * an anchor is one `/Rect` written by whichever backend served the save, while
+ * the markup tolerance also absorbs PDF.js's `Float32Array` quad storage. They
+ * are separate constants so tightening or loosening one path cannot silently
+ * move the other.
+ */
+const STICKY_NOTE_ANCHOR_COORDINATE_TOLERANCE = 0.0001;
+
+function describeVerificationFailures(failures: readonly string[]) {
+    const named = failures.slice(0, MAX_ANNOTATION_VERIFICATION_DIAGNOSTICS);
+    const remaining = failures.length - named.length;
+    return remaining > 0
+        ? `${named.join('; ')}; and ${remaining} more`
+        : named.join('; ');
+}
+
+export class AnnotationReopenVerificationError extends Error {
+    constructor(
+        message: string,
+        /** A bounded sample of the failures, not necessarily all of them. */
+        readonly diagnostics: readonly IAnnotationVerificationDiagnostic[],
+        /** How many fields failed in total, however few are described above. */
+        readonly failureCount: number,
+    ) {
+        super(message);
+        this.name = 'AnnotationReopenVerificationError';
+    }
+}
+
+/**
+ * Reduces annotation text to something a log may carry. The digest is a
+ * 32-bit FNV-1a value: enough to tell "the same text came back" from "different
+ * text came back", useless for recovering the text itself.
+ */
+function fingerprintAnnotationText(text: string): IAnnotationTextFingerprint {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < text.length; index += 1) {
+        hash ^= text.charCodeAt(index);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return {
+        present: text.length > 0,
+        length: text.length,
+        hash: (hash >>> 0).toString(36),
+    };
+}
+
 export async function verifyAnnotationSave(
     bytes: Uint8Array,
     plan: ISerializationPlan,
@@ -336,8 +439,9 @@ export async function verifyAnnotationSave(
         entity,
     ]));
     const failures: string[] = [];
+    const diagnostics: IAnnotationVerificationDiagnostic[] = [];
     const differs = (left: unknown, right: unknown) => JSON.stringify(left) !== JSON.stringify(right);
-    const rectDiffers = (left: {
+    const anchorRectDiffers = (left: {
         left: number;
         top: number;
         width: number;
@@ -348,10 +452,10 @@ export async function verifyAnnotationSave(
         width: number;
         height: number
     }) => (
-        Math.abs(left.left - right.left) > 0.0001
-        || Math.abs(left.top - right.top) > 0.0001
-        || Math.abs(left.width - right.width) > 0.0001
-        || Math.abs(left.height - right.height) > 0.0001
+        Math.abs(left.left - right.left) > STICKY_NOTE_ANCHOR_COORDINATE_TOLERANCE
+        || Math.abs(left.top - right.top) > STICKY_NOTE_ANCHOR_COORDINATE_TOLERANCE
+        || Math.abs(left.width - right.width) > STICKY_NOTE_ANCHOR_COORDINATE_TOLERANCE
+        || Math.abs(left.height - right.height) > STICKY_NOTE_ANCHOR_COORDINATE_TOLERANCE
     );
     plan.expected.forEach((expected) => {
         const reopened = byId.get(expected.identity.id);
@@ -364,7 +468,11 @@ export async function verifyAnnotationSave(
             return;
         }
         if (reopened.kind !== expected.kind || reopened.pageIndex !== expected.pageIndex) {
-            failures.push(`${expected.identity.id}: kind/page mismatch`);
+            failures.push(
+                `${expected.identity.id}: kind/page mismatch`
+                + ` (expected ${expected.kind} on page ${expected.pageIndex + 1},`
+                + ` reopened ${reopened.kind} on page ${reopened.pageIndex + 1})`,
+            );
         }
         const expectedBindings = expected.identity;
         if (
@@ -377,21 +485,102 @@ export async function verifyAnnotationSave(
         if (expected.kind === 'sticky-note' && (reopened.kind !== 'sticky-note' || reopened.text !== expected.text)) {
             failures.push(`${expected.identity.id}: text mismatch`);
         }
-        if (expected.kind === 'sticky-note' && reopened.kind === 'sticky-note' && rectDiffers(reopened.anchor, expected.anchor)) {
+        if (expected.kind === 'sticky-note' && reopened.kind === 'sticky-note' && anchorRectDiffers(reopened.anchor, expected.anchor)) {
             failures.push(`${expected.identity.id}: anchor mismatch`);
         }
-        if (expected.kind === 'text-markup' && (
-            reopened.kind !== 'text-markup'
-            || reopened.subtype !== expected.subtype
-            || reopened.text !== expected.text
-            || reopened.geometry.length !== expected.geometry.length
-            || reopened.geometry.some((rect, index) => !expected.geometry[index] || rectDiffers(rect, expected.geometry[index]))
-        )) {
-            failures.push(`${expected.identity.id}: markup fidelity mismatch`);
+        if (expected.kind === 'text-markup') {
+            const diagnostic = verifyTextMarkupFidelity(expected, reopened, failures);
+            if (diagnostic.failedFields.length && diagnostics.length < MAX_ANNOTATION_VERIFICATION_DIAGNOSTICS) {
+                diagnostics.push(diagnostic);
+            }
         }
         if (expected.kind === 'shape' && (reopened.kind !== 'shape' || differs(reopened.geometry, expected.geometry))) {
             failures.push(`${expected.identity.id}: shape geometry mismatch`);
         }
     });
-    if (failures.length) throw new Error(`Annotation reopen verification failed: ${failures.join('; ')}`);
+    if (failures.length) {
+        throw new AnnotationReopenVerificationError(
+            `Annotation reopen verification failed: ${describeVerificationFailures(failures)}`,
+            diagnostics,
+            failures.length,
+        );
+    }
+}
+
+/**
+ * Compares one text-markup annotation field by field and reports each
+ * difference separately. A single combined verdict cannot say whether the
+ * subtype, the note text, or one rectangle moved, and that is exactly what the
+ * next failure report needs to say.
+ *
+ * Selected-text fidelity is defined here: a text-markup entity's `text` is the
+ * annotation's own note, never the document text under the selection.
+ * Selection-created markup starts with empty text, so a writer that pushed the
+ * selected words into `/Contents` is reported as a text mismatch rather than
+ * silently accepted. Which stored bytes hold that note — `/Contents`, a linked
+ * popup, or neither once the text merely repeats the page — is the reader's
+ * question, and both sides of this comparison ask it the same way.
+ */
+function verifyTextMarkupFidelity(
+    expected: ITextMarkupEntity,
+    reopened: AnnotationEntity,
+    failures: string[],
+): IAnnotationVerificationDiagnostic {
+    const failedFields: string[] = [];
+    const expectedGeometry = toCanonicalTextMarkupGeometry(expected.geometry);
+    const isMarkup = reopened.kind === 'text-markup';
+    const reopenedGeometry = isMarkup ? toCanonicalTextMarkupGeometry(reopened.geometry) : [];
+    const match = matchCanonicalTextMarkupGeometry(expectedGeometry, reopenedGeometry);
+    if (!isMarkup) {
+        // The kind/page check above already failed this annotation; recording
+        // the field here keeps the diagnostic without a duplicate message.
+        failedFields.push('kind');
+    } else {
+        if (reopened.subtype !== expected.subtype) {
+            failedFields.push('subtype');
+            failures.push(
+                `${expected.identity.id}: markup subtype mismatch (expected ${expected.subtype}, reopened ${reopened.subtype})`,
+            );
+        }
+        if (reopened.text !== expected.text) {
+            failedFields.push('text');
+            failures.push(
+                `${expected.identity.id}: markup text mismatch (expected ${describeTextPresence(expected.text)}, reopened ${describeTextPresence(reopened.text)})`,
+            );
+        }
+        if (!match.countMatches) {
+            failedFields.push('geometryCount');
+            failures.push(
+                `${expected.identity.id}: markup geometry count mismatch (expected ${match.expectedCount}, reopened ${match.reopenedCount})`,
+            );
+        } else if (!match.matched) {
+            failedFields.push('geometry');
+            failures.push(
+                `${expected.identity.id}: markup geometry mismatch (rect ${match.worstRectIndex ?? 0} moved by ${match.maxCoordinateDelta.toExponential(3)}, tolerance ${TEXT_MARKUP_COORDINATE_TOLERANCE})`,
+            );
+        }
+    }
+    return {
+        annotationId: expected.identity.id,
+        kind: expected.kind,
+        reopenedKind: reopened.kind,
+        pageIndex: expected.pageIndex,
+        expectedSubtype: expected.subtype,
+        reopenedSubtype: isMarkup ? reopened.subtype : null,
+        expectedText: fingerprintAnnotationText(expected.text),
+        reopenedText: fingerprintAnnotationText(isMarkup ? reopened.text : ''),
+        expectedGeometryCount: match.expectedCount,
+        reopenedGeometryCount: match.reopenedCount,
+        maxCoordinateDelta: match.expectedCount > 0 && match.reopenedCount > 0
+            ? match.maxCoordinateDelta
+            : null,
+        worstRectIndex: match.worstRectIndex,
+        coordinateTolerance: TEXT_MARKUP_COORDINATE_TOLERANCE,
+        failedFields,
+    };
+}
+
+/** Text never reaches a message or a log; only whether there was any, and how much. */
+function describeTextPresence(text: string) {
+    return text.length === 0 ? 'empty' : `${text.length} chars`;
 }

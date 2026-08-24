@@ -34,7 +34,10 @@ import type {
     ISerializationPlan,
     ISerializationPlanInputs,
 } from '@app/modules/pdf-viewer/serialization/serializationPlan';
-import { buildSerializationPlan } from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import {
+    AnnotationReopenVerificationError,
+    buildSerializationPlan,
+} from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import { projectAnnotationBackendMutations } from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import type {ICanonicalAnnotationIdentityBinding} from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings';
 import {bindCanonicalAnnotationIdentitiesOffThread} from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/bindCanonicalAnnotationIdentitiesOffThread';
@@ -175,6 +178,26 @@ async function collectPreexistingPdfAnnotationRefs(
         });
     }));
     return Array.from(refs);
+}
+
+/**
+ * Surfaces which field of which annotation failed the semantic reopen. The
+ * verifier already reduced text to a length and a digest, so this record is
+ * safe to log: no document text and no annotation note text reaches it.
+ */
+async function withAnnotationVerificationDiagnostics<T>(run: () => Promise<T>) {
+    try {
+        return await run();
+    } catch (error) {
+        if (error instanceof AnnotationReopenVerificationError) {
+            BrowserLogger.warn('workspace', 'Annotation reopen verification rejected the staged PDF', {
+                failures: error.failureCount,
+                describedFailures: error.diagnostics.length,
+                diagnostics: error.diagnostics,
+            });
+        }
+        throw error;
+    }
 }
 
 class PdfViewerSaveDocumentTimeoutError extends Error {
@@ -556,15 +579,18 @@ export const usePdfViewerSaveTransaction = (
         const canonicalSaveCallbacks = {
             verifyAnnotationSave: async (bytes: Uint8Array) => {
                 assertSaveTargetCurrent();
-                await canonicalSave?.verify(bytes);
+                await withAnnotationVerificationDiagnostics(async () => canonicalSave?.verify(bytes));
                 assertSaveTargetCurrent();
             },
             verifyAnnotationSavePath: async (path: string, knownSize: number) => {
                 assertSaveTargetCurrent();
-                if (!canonicalSave?.verifyPath) {
+                const verifyPath = canonicalSave?.verifyPath;
+                if (!verifyPath) {
                     throw new Error('Path-backed annotation verification is unavailable');
                 }
-                await canonicalSave.verifyPath(path, knownSize, nativeVerificationOptions);
+                await withAnnotationVerificationDiagnostics(
+                    async () => verifyPath(path, knownSize, nativeVerificationOptions),
+                );
                 assertSaveTargetCurrent();
             },
             commitAnnotationSave: () => {

@@ -184,6 +184,13 @@ interface IAnnotationCommentSummaryFields {
     annotationName?: string | null | undefined;
     hasNote?: boolean;
     markerRect?: IAnnotationMarkerRect | null | undefined;
+    /**
+     * Canonical text-markup geometry: one marker rect per `/QuadPoints` quad,
+     * so a multi-line highlight survives ingest as the lines it was drawn from
+     * instead of collapsing into its bounding box. Absent for everything that
+     * is not text markup read from a PDF.
+     */
+    markupGeometry?: readonly IAnnotationMarkerRect[] | null | undefined;
 }
 
 export type IAnnotationCommentSummary = TaggedUnion<'source', {

@@ -1,6 +1,5 @@
 import type {
     IAnnotationCommentSummary,
-    IAnnotationMarkerRect,
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
@@ -44,6 +43,21 @@ import {
     getReplayableFreeTextNoteName,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import {toMarkerRectFromPdfRect} from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
+import {toCanonicalTextMarkupGeometryFromRecord} from '@app/modules/pdf-viewer/engine/annotation-geometry/canonicalTextMarkupGeometry';
+import type {TPageRotation} from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
+import {normalizePageRotation} from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
+import type {IPdfAnnotationRecord} from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
+import {buildPopupIndex} from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPopupIndex';
+import {resolvePdfAnnotationCommentText} from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary';
+import {resolveCombinedAnnotationText} from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveCombinedAnnotationText';
+import {resolvePdfAnnotationPreviewText} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/resolvePdfAnnotationPreviewText';
+import type {
+    IPdfTextPreviewItem,
+    IPdfTextPreviewViewport,
+} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/pdfAnnotationPreviewTextTypes';
+import {getOptionalNumber} from '@app/services/pdfjs/runtime';
+import {isTextMarkupSubtype} from '@app/services/pdf/annotationSubtype';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 const ANNOTATION_VERIFICATION_RANGE_BYTES = 1024 * 1024;
 
@@ -64,13 +78,19 @@ export interface IAnnotationSaveSession {
 /** Evidence used to distinguish a newly appended annotation from prior identical content. */
 export interface IAnnotationSaveVerificationOptions {readonly preexistingPdfAnnotationRefs?: readonly string[];}
 
-interface IPdfjsReopenedAnnotation {
-    readonly id?: string;
-    readonly subtype?: string;
-    readonly contents?: string;
-    readonly contentsObj?: { readonly str?: string };
-    readonly rect?: readonly number[];
-    readonly quadPoints?: ArrayLike<number>;
+/**
+ * One reopened page, read exactly the way the opened document reads a page: the
+ * same records, the same popup pairing, the same page view box and `/Rotate`.
+ * Verification compares a store entity against the file, and the entity was
+ * built from these same inputs, so anything the reopen resolves differently
+ * would be reported as a save failure that never happened.
+ */
+interface IVerificationPage {
+    readonly records: readonly IPdfAnnotationRecord[];
+    readonly pageView: number[];
+    readonly pageRotation: TPageRotation;
+    /** The annotation's own note text, popup-linked notes included. */
+    resolveNoteText(record: IPdfAnnotationRecord): Promise<string>;
 }
 
 function persistentIdentity(comment: IAnnotationCommentSummary) {
@@ -192,7 +212,13 @@ export class AnnotationApplication {
                     kind: 'text-markup',
                     subtype: markupSubtype,
                     text: normalizeAnnotationText(comment.text ?? ''),
-                    geometry: [structuredClone(comment.markerRect)],
+                    // One rect per stored quad. A multi-line highlight that
+                    // arrived as its bounding box would be reported as a
+                    // geometry-count failure the moment the save verifier read
+                    // the file's own /QuadPoints back.
+                    geometry: comment.markupGeometry?.length
+                        ? comment.markupGeometry.map(rect => structuredClone(rect))
+                        : [structuredClone(comment.markerRect)],
                     color: comment.color ?? null,
                     opacity: comment.opacity ?? null,
                 } as const;
@@ -623,7 +649,8 @@ export class AnnotationApplication {
         options: IAnnotationSaveVerificationOptions,
     ) {
         const reopened: AnnotationEntity[] = [];
-        const matchedRecords = new Set<IPdfjsReopenedAnnotation>();
+        const matchedRecords = new Set<IPdfAnnotationRecord>();
+        const verificationPages = new Map<number, Promise<IVerificationPage>>();
         const preexistingPdfRefs = options.preexistingPdfAnnotationRefs === undefined
             ? null
             : new Set(options.preexistingPdfAnnotationRefs
@@ -633,8 +660,16 @@ export class AnnotationApplication {
             if (expected.deleted && expected.pageIndex >= document.numPages) {
                 continue;
             }
-            const page = await document.getPage(expected.pageIndex + 1);
-            const records: readonly IPdfjsReopenedAnnotation[] = await page.getAnnotations();
+            const verificationPage = await this.#verificationPage(
+                document,
+                expected.pageIndex,
+                verificationPages,
+            );
+            const {
+                pageRotation,
+                pageView,
+                records,
+            } = verificationPage;
             // The plan freezes expected content, not identity: bindings still
             // advance while the save runs (the managed-shape rescan of the
             // saved bytes learns each shape's ref before commit). The store
@@ -675,25 +710,33 @@ export class AnnotationApplication {
                 && !identity.pdfRef
                 && !identity.pdfName
             ) {
-                const semanticCandidates = records.filter((candidate) => {
+                const semanticCandidates: IPdfAnnotationRecord[] = [];
+                for (const candidate of records) {
                     if (matchedRecords.has(candidate) || candidate.subtype !== 'FreeText') {
-                        return false;
+                        continue;
                     }
                     const candidateRef = normalizePdfJsAnnotationId(candidate.id);
                     if (!candidateRef || preexistingPdfRefs.has(candidateRef)) {
-                        return false;
+                        continue;
                     }
-                    const candidateText = normalizeAnnotationText(
-                        candidate.contentsObj?.str ?? candidate.contents ?? '',
-                    );
-                    const candidateRect = this.#normalizePdfRect(candidate.rect, page.view);
-                    return candidateText === expected.text
-                        && Boolean(candidateRect)
-                        && Math.abs(candidateRect!.left - expected.anchor.left) <= 0.0001
-                        && Math.abs(candidateRect!.top - expected.anchor.top) <= 0.0001
-                        && Math.abs(candidateRect!.width - expected.anchor.width) <= 0.0001
-                        && Math.abs(candidateRect!.height - expected.anchor.height) <= 0.0001;
-                });
+                    const candidateRect = this.#normalizePdfRect(candidate.rect, pageView, pageRotation);
+                    if (
+                        !candidateRect
+                        || Math.abs(candidateRect.left - expected.anchor.left) > 0.0001
+                        || Math.abs(candidateRect.top - expected.anchor.top) > 0.0001
+                        || Math.abs(candidateRect.width - expected.anchor.width) > 0.0001
+                        || Math.abs(candidateRect.height - expected.anchor.height) > 0.0001
+                    ) {
+                        continue;
+                    }
+                    // The same text rule the comparison below applies, so a
+                    // candidate can never be adopted and then rejected for text
+                    // this match had read differently.
+                    if (await verificationPage.resolveNoteText(candidate) !== expected.text) {
+                        continue;
+                    }
+                    semanticCandidates.push(candidate);
+                }
                 if (semanticCandidates.length === 1) {
                     [record] = semanticCandidates;
                 }
@@ -716,26 +759,24 @@ export class AnnotationApplication {
                 continue;
             }
             if (!record) continue;
-            const rect = this.#normalizePdfRect(record.rect, page.view);
             if (expected.kind === 'sticky-note') {
+                const rect = this.#normalizePdfRect(record.rect, pageView, pageRotation);
                 reopened.push({
                     ...expected,
-                    text: normalizeAnnotationText(record.contentsObj?.str ?? record.contents ?? ''),
+                    text: await verificationPage.resolveNoteText(record),
                     ...(rect ? {anchor: rect} : {}),
                 });
             } else if (expected.kind === 'text-markup') {
                 const subtype = toMarkupSubtype(record.subtype);
                 if (!subtype) continue;
-                const quadGeometry = this.#normalizePdfQuadPoints(record.quadPoints, page.view);
+                // Canonical geometry, not overlay geometry: the save verifier
+                // compares what the file holds against what the store authored,
+                // so both sides cross the same documented boundary.
                 reopened.push({
                     ...expected,
                     subtype,
-                    text: normalizeAnnotationText(record.contentsObj?.str ?? record.contents ?? ''),
-                    ...(quadGeometry.length
-                        ? {geometry: quadGeometry}
-                        : rect
-                            ? {geometry: [rect]}
-                            : {}),
+                    text: await verificationPage.resolveNoteText(record),
+                    geometry: toCanonicalTextMarkupGeometryFromRecord(record, pageView, pageRotation),
                 });
             } else {
                 reopened.push(expected);
@@ -767,45 +808,106 @@ export class AnnotationApplication {
         this.store.assertSaveFrontierCurrent(session.frontier, currentDocumentRevisionToken);
     }
 
-    #normalizePdfRect(rect: readonly number[] | undefined, view: readonly number[]) {
+    #normalizePdfRect(
+        rect: readonly number[] | undefined,
+        view: readonly number[],
+        pageRotation: TPageRotation,
+    ) {
         return toMarkerRectFromPdfRect(
             rect ? [...rect] : undefined,
             [...view],
+            pageRotation,
         );
     }
 
-    #normalizePdfQuadPoints(quadPoints: ArrayLike<number> | undefined, view: readonly number[]) {
-        const geometry: IAnnotationMarkerRect[] = [];
-        if (!quadPoints || quadPoints.length < 8) {
-            return geometry;
+    /**
+     * Reads one reopened page once and memoizes it, so several dirty
+     * annotations on the same page share its records, its popup index and — at
+     * most once, and only when some annotation actually carries `/Contents` —
+     * its extracted text.
+     */
+    async #verificationPage(
+        document: PDFDocumentProxy,
+        pageIndex: number,
+        cache: Map<number, Promise<IVerificationPage>>,
+    ) {
+        const cached = cache.get(pageIndex);
+        if (cached) {
+            return cached;
         }
-        for (let index = 0; index + 7 < quadPoints.length; index += 8) {
-            const points = Array.from({length: 8}, (_unused, offset) => quadPoints[index + offset]);
-            if (!points.every(value => typeof value === 'number' && Number.isFinite(value))) {
-                continue;
-            }
-            const xs = [
-                points[0]!,
-                points[2]!,
-                points[4]!,
-                points[6]!,
-            ];
-            const ys = [
-                points[1]!,
-                points[3]!,
-                points[5]!,
-                points[7]!,
-            ];
-            const rect = this.#normalizePdfRect([
-                Math.min(...xs),
-                Math.min(...ys),
-                Math.max(...xs),
-                Math.max(...ys),
-            ], view);
-            if (rect) {
-                geometry.push(rect);
-            }
-        }
-        return geometry;
+        const loading = (async (): Promise<IVerificationPage> => {
+            const page = await document.getPage(pageIndex + 1);
+            const records = await page.getAnnotations() as IPdfAnnotationRecord[];
+            const popupById = buildPopupIndex(records);
+            const pageView = [...page.view];
+            const pageRotation = normalizePageRotation(getOptionalNumber(page, 'rotate') ?? 0);
+            let pageText: Promise<{
+                items: IPdfTextPreviewItem[];
+                viewport: IPdfTextPreviewViewport | null;
+            }> | null = null;
+            const readPageText = () => {
+                pageText ??= (async () => {
+                    try {
+                        const viewport = page.getViewport({scale: 1});
+                        const textContent = await page.getTextContent();
+                        return {
+                            items: Array.isArray(textContent.items)
+                                ? textContent.items as IPdfTextPreviewItem[]
+                                : [],
+                            viewport: {
+                                transform: [...viewport.transform],
+                                width: viewport.width,
+                                height: viewport.height,
+                                scale: viewport.scale,
+                            },
+                        };
+                    } catch (error) {
+                        // The opened document falls back to no preview text the
+                        // same way, so a page whose text will not extract still
+                        // compares against the same answer on both sides.
+                        BrowserLogger.debug(
+                            'annotations',
+                            `Failed to collect verification preview text for page ${pageIndex + 1}`,
+                            error,
+                        );
+                        return {
+                            items: [],
+                            viewport: null,
+                        };
+                    }
+                })();
+                return pageText;
+            };
+            return {
+                records,
+                pageView,
+                pageRotation,
+                resolveNoteText: async (record) => {
+                    const popup = record.popupRef
+                        ? popupById.get(record.popupRef) ?? null
+                        : null;
+                    // Extracting page text is the expensive part, and it only
+                    // changes the answer for text markup whose /Contents repeats
+                    // the words underneath it. Notes and empty /Contents need
+                    // none of it.
+                    const mayRepeatPageText = isTextMarkupSubtype(record.subtype)
+                        && resolveCombinedAnnotationText(record, popup).trim().length > 0;
+                    const previewText = mayRepeatPageText
+                        ? await readPageText().then(text => resolvePdfAnnotationPreviewText(
+                            record,
+                            text.items,
+                            pageView,
+                            pageRotation,
+                            text.viewport,
+                        ))
+                        : null;
+                    return normalizeAnnotationText(
+                        resolvePdfAnnotationCommentText(record, popup, previewText),
+                    );
+                },
+            };
+        })();
+        cache.set(pageIndex, loading);
+        return loading;
     }
 }

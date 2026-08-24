@@ -49,6 +49,13 @@ export interface IStickyNoteEntity extends IAnnotationEntityBase {
 export interface ITextMarkupEntity extends IAnnotationEntityBase {
     readonly kind: 'text-markup';
     readonly subtype: TMarkupSubtype;
+    /**
+     * The annotation's own note, never the document text under the selection.
+     * Selection-created markup starts empty and stays empty until someone
+     * writes a note; the selected words are derived for display and are never
+     * serialized. A note stored in a linked popup rather than in `/Contents`
+     * still belongs here, because that is the note the reader shows.
+     */
     readonly text: string;
     readonly geometry: readonly IAnnotationMarkerRect[];
     readonly color: string | null;

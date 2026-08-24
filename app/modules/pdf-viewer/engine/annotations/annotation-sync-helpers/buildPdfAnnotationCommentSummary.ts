@@ -20,6 +20,7 @@ import { pickEarliestAnnotationCreationTimestamp } from '@app/modules/pdf-viewer
 import { pickLatestAnnotationTimestamp } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/pickLatestAnnotationTimestamp';
 import { resolveCombinedAnnotationText } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveCombinedAnnotationText';
 import { isPointNoteMarkerSizedRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/pointNoteMarkerPolicy';
+import { toCanonicalTextMarkupGeometryFromRecord } from '@app/modules/pdf-viewer/engine/annotation-geometry/canonicalTextMarkupGeometry';
 
 const FREE_TEXT_SUBTYPE_LOWER = 'freetext';
 
@@ -127,6 +128,34 @@ function shouldTreatTextMarkupContentsAsPreview(
         && looksLikeGeneratedTextMarkupContents(text, previewText);
 }
 
+/**
+ * The one rule that turns a stored annotation into the note text this project
+ * treats as the annotation's own: a linked popup's text stands in for empty
+ * `/Contents`, and `/Contents` that merely repeats the highlighted document
+ * text is not note text at all.
+ *
+ * Save verification reopens the staged file and needs the same answer the
+ * opened document gave, so it calls this rather than reading `/Contents`
+ * directly — a markup whose note lives in its popup would otherwise look like
+ * text the save had dropped.
+ */
+export function resolvePdfAnnotationCommentText(
+    annotation: IPdfAnnotationRecord,
+    popupAnnotation: IPdfAnnotationRecord | null,
+    extractedPreviewText: string | null,
+) {
+    const rawText = resolveCombinedAnnotationText(annotation, popupAnnotation);
+    const hasLinkedPopup = Boolean(annotation.popupRef) || Boolean(popupAnnotation);
+    return shouldTreatTextMarkupContentsAsPreview(
+        annotation.subtype ?? null,
+        hasLinkedPopup,
+        rawText,
+        extractedPreviewText,
+    )
+        ? ''
+        : rawText;
+}
+
 export function buildPdfAnnotationCommentSummary(
     annotation: IPdfAnnotationRecord,
     popupAnnotation: IPdfAnnotationRecord | null,
@@ -138,7 +167,6 @@ export function buildPdfAnnotationCommentSummary(
     textItems: readonly IPdfTextPreviewItem[] = [],
     textViewport: IPdfTextPreviewViewport | null = null,
 ): IAnnotationCommentSummary {
-    const rawText = resolveCombinedAnnotationText(annotation, popupAnnotation);
     const subtype = annotation.subtype ?? null;
     const {
         id,
@@ -158,14 +186,7 @@ export function buildPdfAnnotationCommentSummary(
         pageRotation,
         textViewport,
     );
-    const text = shouldTreatTextMarkupContentsAsPreview(
-        subtype,
-        hasLinkedPopup,
-        rawText,
-        extractedPreviewText,
-    )
-        ? ''
-        : rawText;
+    const text = resolvePdfAnnotationCommentText(annotation, popupAnnotation, extractedPreviewText);
     const previewText = text.trim() ? null : extractedPreviewText;
 
     return {
@@ -195,5 +216,8 @@ export function buildPdfAnnotationCommentSummary(
         source: 'pdf',
         hasNote: hasPdfAnnotationNote(subtype, hasLinkedPopup, text, rawMarkerRect),
         markerRect: rawMarkerRect,
+        markupGeometry: isTextMarkupSubtype(subtype)
+            ? toCanonicalTextMarkupGeometryFromRecord(annotation, pageView, pageRotation)
+            : null,
     };
 }

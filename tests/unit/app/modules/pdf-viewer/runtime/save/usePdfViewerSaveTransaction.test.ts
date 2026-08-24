@@ -4,6 +4,7 @@ import {
     shallowRef,
 } from 'vue';
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -12,7 +13,11 @@ import {
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {requireDocumentRevisionToken} from '@contracts';
-import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import {
+    AnnotationReopenVerificationError,
+    buildSerializationPlan,
+} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 vi.mock(
@@ -24,6 +29,10 @@ vi.mock(
 );
 
 describe('usePdfViewerSaveTransaction', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     it('serializes the synchronous canonical frontier and CAS-preserves a newer mutation', async () => {
         const application = new AnnotationApplication('save-transaction-document');
         const created = application.store.createStickyNote({
@@ -139,6 +148,61 @@ describe('usePdfViewerSaveTransaction', () => {
 
         expect(verify).toHaveBeenCalledOnce();
         expect(commit).toHaveBeenCalledOnce();
+    });
+
+    it('logs privacy-safe verification diagnostics before a rejected save propagates', async () => {
+        const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => undefined);
+        const diagnostics = [{
+            annotationId: 'anno_diagnostic',
+            kind: 'text-markup' as const,
+            reopenedKind: 'text-markup' as const,
+            pageIndex: 184,
+            expectedSubtype: 'Highlight',
+            reopenedSubtype: 'Highlight',
+            expectedText: {
+                present: false,
+                length: 0,
+                hash: '0',
+            },
+            reopenedText: {
+                present: false,
+                length: 0,
+                hash: '0',
+            },
+            expectedGeometryCount: 3,
+            reopenedGeometryCount: 3,
+            maxCoordinateDelta: 0.0007,
+            worstRectIndex: 2,
+            coordinateTolerance: 0.0001,
+            failedFields: ['geometry'],
+        }];
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({
+            materializePdfJsDocumentForInternalUse: vi.fn(async () => new Uint8Array([1])),
+            prepareAnnotationSave: () => ({
+                verify: vi.fn(async () => {
+                    throw new AnnotationReopenVerificationError(
+                        'Annotation reopen verification failed: anno_diagnostic: markup geometry mismatch',
+                        diagnostics,
+                        1,
+                    );
+                }),
+                commit: vi.fn(),
+            }),
+        });
+
+        const result = await runSaveTransaction({mode: 'persist'});
+
+        await expect(result.verifyAnnotationSave?.(new Uint8Array([2])))
+            .rejects.toThrow('markup geometry mismatch');
+        expect(warn).toHaveBeenCalledWith(
+            'workspace',
+            'Annotation reopen verification rejected the staged PDF',
+            {
+                failures: 1,
+                describedFailures: 1,
+                diagnostics,
+            },
+        );
     });
 
     it('projects a canonical editor FreeText note to bounded native mutations', async () => {
