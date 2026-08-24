@@ -33,6 +33,24 @@ const MAX_NEAR_MATCH_COMPONENT_AREA: usize = 16_384;
 /// still decodes, while a hostile count such as `0xffffffff` is rejected before
 /// any allocation.
 const MAX_DICTIONARY_SYMBOLS: usize = 500_000;
+/// Upper bound on the synthesized bits an intact text region consumes past its
+/// arithmetic payload while the MQ decoder drains its C register at the
+/// terminating marker (T.88 Annex E).
+///
+/// This was measured across roughly fifty thousand decoded pages: the
+/// checked-in scans plus randomized glyph layouts from 40x40 to 440x440, with
+/// and without refinement. The largest draw a well-formed page ever made was
+/// exactly three bits, and only once its region had ended. Three is therefore
+/// the tightest bound that still admits every intact page. A stream that
+/// fabricates placements its payload never encoded runs well past it, because
+/// each fabricated placement keeps shifting bits out of a register that no
+/// real byte refills.
+///
+/// The allowance belongs to that closing drain alone, so
+/// [`check_placement_budget`] spends one bit less than
+/// [`check_final_termination_budget`]: over the same layouts no intact page
+/// ever reached a placement having drawn more than two.
+const MAX_TERMINATION_SYNTHESIZED_BITS: u32 = 3;
 
 /// Defensive limits for lossless symbol extraction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -334,6 +352,13 @@ pub fn encode_pdf_symbol_pages_verified(
 /// Decodes the symbol-dictionary/text-region subset emitted by this module.
 /// This is kept public so acceptance and regression tests verify encoded page
 /// streams independently from the encoder's in-memory representation.
+///
+/// This is deliberately not a general T.88 decoder. The arithmetic payload
+/// must use the encoder's exact `ff ac` termination and reach it on payload
+/// bits, with at most the three-bit closing C-register drain defined by
+/// `MAX_TERMINATION_SYNTHESIZED_BITS`. The MQ decoder still supplies 1 bits
+/// past end-of-data as T.88 requires; the separate budget rejects a payload
+/// that no longer matches its declared placements as [`Jbig2Error::Truncated`].
 pub fn decode_pdf_symbol_page(
     globals: &[u8],
     page: &[u8],
@@ -503,6 +528,7 @@ pub fn decode_pdf_symbol_page(
             } else {
                 exemplar
             };
+            check_placement_budget(&decoder)?;
             place_symbol(&mut rows, width, height, stride, current_s, strip_t, symbol)?;
             decoded_instances += 1;
             if decoded_instances > instances {
@@ -517,6 +543,7 @@ pub fn decode_pdf_symbol_page(
             current_s = checked_add_i64(current_s, delta_s)?;
         }
     }
+    check_final_termination_budget(&decoder)?;
 
     if !trailing.is_empty() {
         return Err(Jbig2Error::InvalidSegment(
@@ -529,6 +556,45 @@ pub fn decode_pdf_symbol_page(
         height,
         rows,
     })
+}
+
+/// Rejects a placement whose own decisions were read off synthesized padding
+/// rather than off the arithmetic payload's bytes.
+///
+/// The generic-region path bounds the same padding at byte resolution, which
+/// is enough there because its iteration count comes from validated region
+/// dimensions. The text-region loop instead runs for the instance count read
+/// off the wire, and a placement can cost far less than a byte: measured
+/// against this crate's own pages, two fabricated placements fit inside a
+/// two-byte flush allowance. Bounding the padding in bits closes that gap
+/// while leaving intact pages untouched.
+///
+/// The call site sits immediately before [`place_symbol`], after this
+/// instance's symbol id and refinement have been decoded, because those
+/// decisions are the ones a fabricated placement pays for. Checking earlier
+/// would let a placement be committed on bits drawn after the check passed.
+///
+/// The bound here is one bit tighter than [`check_final_termination_budget`]:
+/// the three-bit allowance exists for the drain that follows the *last* real
+/// placement, so a decode still owing a placement must not have spent it.
+fn check_placement_budget(decoder: &Decoder<'_>) -> Result<(), Jbig2Error> {
+    if decoder.synthesized_bits() >= MAX_TERMINATION_SYNTHESIZED_BITS {
+        return Err(Jbig2Error::Truncated);
+    }
+    Ok(())
+}
+
+/// Rejects a completed text region that drained more synthesized padding than
+/// a well-formed stream's terminating flush accounts for.
+///
+/// This is the post-loop counterpart to [`check_placement_budget`] and spends
+/// the full allowance, since by this point every declared placement is done
+/// and the remaining draws are the flush itself.
+fn check_final_termination_budget(decoder: &Decoder<'_>) -> Result<(), Jbig2Error> {
+    if decoder.synthesized_bits() > MAX_TERMINATION_SYNTHESIZED_BITS {
+        return Err(Jbig2Error::Truncated);
+    }
+    Ok(())
 }
 
 /// Verifies dimensions, per-component difference density, and the absence of

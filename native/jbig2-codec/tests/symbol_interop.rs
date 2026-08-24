@@ -401,6 +401,204 @@ fn rejects_every_terminated_symbol_page_arithmetic_prefix_without_panicking() {
     }
 }
 
+/// Six copies of one 8x8 glyph stepped down a 128x128 page, each on its own
+/// strip. Every placement therefore costs real arithmetic bytes for its own
+/// coordinates instead of collapsing into one compressible run, so the text
+/// region carries a payload long enough to truncate meaningfully while the
+/// page stays small enough for byte-level assertions.
+fn lattice_symbol_document() -> (jbig2_codec::SymbolDocument, Vec<u8>) {
+    const SIZE: u32 = 128;
+    let stride = SIZE.div_ceil(8) as usize;
+    let mut rows = vec![0u8; stride * SIZE as usize];
+    for index in 0..6u32 {
+        let left = 4 + (index % 3) * 12;
+        let top = 4 + index * 12;
+        for y in top..top + 8 {
+            for x in left..left + 8 {
+                rows[y as usize * stride + (x as usize) / 8] |= 0x80 >> (x & 7);
+            }
+        }
+    }
+    let page = Bilevel {
+        width: SIZE,
+        height: SIZE,
+        rows: &rows,
+    };
+    let document =
+        encode_pdf_symbol_pages_verified(&[page, page], SymbolEncodeLimits::default()).unwrap();
+    assert!(
+        document.fallback_pages.is_empty(),
+        "unexpected symbol fallbacks: {:?}",
+        document.fallback_pages
+    );
+    assert_eq!(document.symbol_count, 1);
+    (document, rows)
+}
+
+/// The same lattice with a single pixel punched out of every second glyph, so
+/// the encoder classes them together and refinement-codes the odd ones. That
+/// puts a refinement bitmap decode between a placement's first decision and
+/// the placement itself, which is the window the pre-placement budget has to
+/// cover.
+fn refined_lattice_symbol_document() -> (jbig2_codec::SymbolDocument, Vec<u8>) {
+    const SIZE: u32 = 128;
+    let stride = SIZE.div_ceil(8) as usize;
+    let mut rows = vec![0u8; stride * SIZE as usize];
+    for index in 0..7u32 {
+        let top = 4 + index * 12;
+        for y in top..top + 10 {
+            for x in 4..14u32 {
+                rows[y as usize * stride + (x as usize) / 8] |= 0x80 >> (x & 7);
+            }
+        }
+        if index % 2 == 1 {
+            let hole_y = top + 1 + index;
+            rows[hole_y as usize * stride] &= !(0x80 >> 5);
+        }
+    }
+    let page = Bilevel {
+        width: SIZE,
+        height: SIZE,
+        rows: &rows,
+    };
+    let document =
+        encode_pdf_symbol_pages_verified(&[page, page], SymbolEncodeLimits::default()).unwrap();
+    assert!(
+        document.fallback_pages.is_empty(),
+        "unexpected symbol fallbacks: {:?}",
+        document.fallback_pages
+    );
+    assert_eq!(document.symbol_count, 1);
+    (document, rows)
+}
+
+/// Locates the text-region segment of a symbol page, its declared instance
+/// count, and the first byte of its arithmetic payload.
+fn text_region_bounds(page: &[u8], refined: bool) -> (SegmentBounds, usize, usize) {
+    const TEXT_REGION_HEADER_LENGTH: usize = 23;
+    const REFINED_TEXT_REGION_HEADER_LENGTH: usize = 27;
+    let bounds = segment_bounds(page, segment_bounds(page, 0).data_end);
+    assert_eq!(bounds.data_end, page.len());
+    let (flags, header_length) = if refined {
+        ([0, 2], REFINED_TEXT_REGION_HEADER_LENGTH)
+    } else {
+        ([0, 0], TEXT_REGION_HEADER_LENGTH)
+    };
+    assert_eq!(
+        page[bounds.data_start + 17..bounds.data_start + 19],
+        flags,
+        "fixture does not use the expected text-region layout"
+    );
+    (
+        bounds,
+        bounds.data_start + header_length - 4,
+        bounds.data_start + header_length,
+    )
+}
+
+#[test]
+fn rejects_a_symbol_page_whose_trailing_text_region_arithmetic_bytes_are_truncated() {
+    let (document, rows) = lattice_symbol_document();
+    let page = &document.pages[0].as_ref().unwrap().data;
+    let (text_region, instances, arithmetic_start) = text_region_bounds(page, false);
+    assert_eq!(
+        u32::from_be_bytes(page[instances..instances + 4].try_into().unwrap()),
+        6,
+        "unexpected declared instance count"
+    );
+    assert_eq!(
+        text_region.data_end - 2 - arithmetic_start,
+        10,
+        "unexpected arithmetic payload length"
+    );
+
+    // Keep four of the ten arithmetic payload bytes and re-terminate the
+    // stream. The surviving prefix cannot encode six placements, so every
+    // placement past the prefix comes from the decoder's synthesized padding.
+    // Without a flush budget on the text-region loop this decodes to Ok with
+    // pixels that are not the encoded page.
+    let truncated = terminated_prefix(page, text_region, arithmetic_start + 4);
+    assert_eq!(
+        decode_pdf_symbol_page(&document.globals, &truncated, DecodeLimits::default()),
+        Err(jbig2_codec::Jbig2Error::Truncated)
+    );
+
+    // The intact page still decodes to the exact source pixels.
+    let decoded = decode_pdf_symbol_page(&document.globals, page, DecodeLimits::default()).unwrap();
+    assert_eq!(decoded.rows, rows);
+}
+
+#[test]
+fn rejects_a_symbol_page_declaring_more_instances_than_its_arithmetic_payload_encodes() {
+    let (document, rows) = lattice_symbol_document();
+    let page = &document.pages[0].as_ref().unwrap().data;
+    let (_, instances, _) = text_region_bounds(page, false);
+
+    // Raise only the declared instance count. The arithmetic payload is
+    // untouched and still ends at its real terminating marker, so the two
+    // extra placements can only come from synthesized padding.
+    let mut inflated = page.clone();
+    inflated[instances..instances + 4].copy_from_slice(&8u32.to_be_bytes());
+    assert_eq!(
+        decode_pdf_symbol_page(&document.globals, &inflated, DecodeLimits::default()),
+        Err(jbig2_codec::Jbig2Error::Truncated)
+    );
+
+    let decoded = decode_pdf_symbol_page(&document.globals, page, DecodeLimits::default()).unwrap();
+    assert_eq!(decoded.rows, rows);
+}
+
+/// Pins both halves of the pre-placement budget: where it is taken, and how
+/// much it allows.
+///
+/// One extra declared placement on this refined page is reached with exactly
+/// three synthesized bits drawn -- the whole allowance, which a well-formed
+/// region only ever spends on the drain that follows its last real placement.
+/// Widening the bound to `>` accepts it, and so does taking the check at the
+/// top of the placement loop instead, because the symbol id and refinement
+/// bitmap decoded in between are what push the draw from under budget to
+/// exactly on it. Either way the page decodes to `Ok` carrying a glyph its
+/// payload never encoded.
+#[test]
+fn rejects_an_extra_declared_placement_that_lands_exactly_on_the_termination_allowance() {
+    let (document, rows) = refined_lattice_symbol_document();
+    let page = &document.pages[0].as_ref().unwrap().data;
+    let (text_region, instances, arithmetic_start) = text_region_bounds(page, true);
+    assert_eq!(
+        u32::from_be_bytes(page[instances..instances + 4].try_into().unwrap()),
+        7,
+        "unexpected declared instance count"
+    );
+    assert_eq!(
+        text_region.data_end - 2 - arithmetic_start,
+        21,
+        "unexpected arithmetic payload length"
+    );
+
+    // Declare one placement more than the untouched payload encodes.
+    let mut inflated = page.clone();
+    inflated[instances..instances + 4].copy_from_slice(&8u32.to_be_bytes());
+    assert_eq!(
+        inflated[..instances],
+        page[..instances],
+        "only the declared instance count may differ"
+    );
+    assert_eq!(
+        inflated[instances + 4..],
+        page[instances + 4..],
+        "only the declared instance count may differ"
+    );
+    assert_eq!(
+        decode_pdf_symbol_page(&document.globals, &inflated, DecodeLimits::default()),
+        Err(jbig2_codec::Jbig2Error::Truncated)
+    );
+
+    // The same payload, honestly declared, still decodes to the source pixels,
+    // so the bound rejects the fabricated placement and not the flush itself.
+    let decoded = decode_pdf_symbol_page(&document.globals, page, DecodeLimits::default()).unwrap();
+    assert_eq!(decoded.rows, rows);
+}
+
 fn parse_p4(data: &[u8]) -> (u32, u32, &[u8]) {
     assert_eq!(&data[..2], b"P4");
     let mut position = 2usize;
