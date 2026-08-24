@@ -1009,10 +1009,18 @@ export async function installCommittedSurfaceSampler(
                 ) ?? null;
                 const canvasRect = canvas?.getBoundingClientRect() ?? null;
                 const pageSourceImageRect = pageSourceImage?.getBoundingClientRect() ?? null;
-                const skeletons = Array.from(host?.querySelectorAll<HTMLElement>(
+                const skeletonCandidates = Array.from(host?.querySelectorAll<HTMLElement>(
                     '.document-page-skeleton, .document-source-viewer__skeleton',
                 ) ?? [])
                     .filter(isVisible);
+                // The page-source skeleton wrapper renders the shared
+                // DocumentPageSkeleton inside itself, so both selectors match
+                // one logical skeleton. Keep only the outermost element of
+                // each nest; competing ownership means separate skeletons,
+                // not a wrapper and its own content.
+                const skeletons = skeletonCandidates.filter(candidate => !skeletonCandidates.some(
+                    other => other !== candidate && other.contains(candidate),
+                ));
                 const viewportRect = viewport?.getBoundingClientRect() ?? null;
                 const intersectsViewport = (candidate: HTMLElement) => {
                     const rect = candidate.getBoundingClientRect();
