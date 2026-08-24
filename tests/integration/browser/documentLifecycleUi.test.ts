@@ -138,7 +138,9 @@ describe('browser document lifecycle UI', () => {
                     throw new Error('Active browser document did not settle');
                 }
             });
-            const activeTab = page.locator('[role="tab"][aria-selected="true"]');
+            const activeTab = page.locator(
+                '[data-tab-list] [role="tab"][aria-selected="true"]',
+            );
             await expect.poll(() => activeTab.textContent()).toContain('generated-text.pdf');
             const canvasCountBefore = await page.locator('.page_container--rendered canvas').count();
 
