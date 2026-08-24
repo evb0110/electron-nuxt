@@ -1179,7 +1179,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     return getFreeTextEditorCount(page);
 }
 
-export interface IAnnotationUndoBoundarySample {
+interface IAnnotationUndoBoundarySample {
     label: string;
     highlightEditorCount: number;
     highlightAnnotationCount: number;
