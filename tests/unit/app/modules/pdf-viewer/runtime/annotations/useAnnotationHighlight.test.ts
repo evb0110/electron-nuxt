@@ -13,6 +13,10 @@ import {
     shallowRef,
 } from 'vue';
 import { useAnnotationHighlight } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight';
+import {
+    runInTrackedScope,
+    stopTrackedScopes,
+} from '@tests/helpers/trackedEffectScope';
 
 vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {FREETEXT: 3}}));
 
@@ -58,7 +62,7 @@ function createViewerContainer(pages: HTMLElement[]) {
 }
 
 function createHighlightHarness(viewerContainer: HTMLElement) {
-    return useAnnotationHighlight({
+    return runInTrackedScope(() => useAnnotationHighlight({
         viewerContainer: ref(viewerContainer),
         isActive: ref(true),
         annotationUiManager: shallowRef(null),
@@ -99,7 +103,7 @@ function createHighlightHarness(viewerContainer: HTMLElement) {
         stopDrag: () => {},
         emitAnnotationOpenNote: () => {},
         emitAnnotationNotePlacementChange: () => {},
-    });
+    }));
 }
 
 function createTarget(page: HTMLElement | null) {
@@ -122,6 +126,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    stopTrackedScopes();
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();

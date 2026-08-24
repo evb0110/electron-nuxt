@@ -16,6 +16,10 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { cast } from '@tests/helpers/cast';
 import type { IAnnotationCreationFailureReport } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import { useAnnotationHighlight } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight';
+import {
+    runInTrackedScope,
+    stopTrackedScopes,
+} from '@tests/helpers/trackedEffectScope';
 
 vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {
     FREETEXT: 3,
@@ -162,7 +166,7 @@ function createHarness(options: IHighlightHarnessOptions = {}) {
     const modeCalls: unknown[] = [];
     const annotationUiManager = shallowRef(uiManager as never);
 
-    const highlight = useAnnotationHighlight({
+    const highlight = runInTrackedScope(() => useAnnotationHighlight({
         viewerContainer: ref(viewer),
         isActive: ref(true),
         annotationUiManager,
@@ -200,7 +204,7 @@ function createHarness(options: IHighlightHarnessOptions = {}) {
         stopDrag: () => {},
         emitAnnotationOpenNote,
         emitAnnotationNotePlacementChange: () => {},
-    });
+    }));
 
     function rangeOnPage(page: 1 | 2) {
         const target = page === 1 ? first.text : second.text;
@@ -260,6 +264,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    stopTrackedScopes();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
@@ -564,6 +569,49 @@ describe('useAnnotationHighlight point comment fallback', () => {
         await vi.advanceTimersByTimeAsync(EDITOR_BINDING_RETRY_WINDOW_MS);
 
         expect(harness.failures).toEqual([expect.objectContaining({reason: 'editor-binding-failed'})]);
+    });
+
+    it('drops the pending editor retry when its scope is disposed', async () => {
+        vi.useFakeTimers();
+        const harness = createHarness({createdEditor: null});
+        stubSelection(null);
+
+        const placement = harness.highlight.commentAtPoint(1, 0.5, 0.5, {preferTextAnchor: false});
+        await vi.advanceTimersByTimeAsync(60);
+        await placement;
+        harness.uiManager.getEditors.mockClear();
+
+        stopTrackedScopes();
+        await vi.advanceTimersByTimeAsync(EDITOR_BINDING_RETRY_WINDOW_MS);
+
+        // Nothing may run after disposal. A surviving retry reaches for the DOM
+        // long after the viewer that owned it is gone: in a test run that is an
+        // unhandled error against a torn-down environment, and in the app it is
+        // work charged to a document the user already closed.
+        expect(harness.failures).toEqual([]);
+        expect(harness.uiManager.getEditors).not.toHaveBeenCalled();
+    });
+
+    it('refuses to schedule an editor retry once its scope is disposed', async () => {
+        vi.useFakeTimers();
+        const harness = createHarness({createdEditor: null});
+        stubSelection(null);
+
+        // Disposal lands first; the placement that follows resolves from an
+        // async continuation, which is exactly when a late retry used to be
+        // scheduled with nothing left to clear it.
+        stopTrackedScopes();
+        const placement = harness.highlight.commentAtPoint(1, 0.5, 0.5, {preferTextAnchor: false});
+        await vi.advanceTimersByTimeAsync(60);
+        await placement;
+        harness.uiManager.getEditors.mockClear();
+
+        await vi.advanceTimersByTimeAsync(EDITOR_BINDING_RETRY_WINDOW_MS);
+
+        expect(harness.uiManager.getEditors).not.toHaveBeenCalled();
+        // The retry never ran, so it also never gave up: a disposed viewer must
+        // not toast a binding failure for a document nobody is looking at.
+        expect(harness.failures).toEqual([]);
     });
 
     it('cancels the late point-note binding when the editor manager is replaced', async () => {

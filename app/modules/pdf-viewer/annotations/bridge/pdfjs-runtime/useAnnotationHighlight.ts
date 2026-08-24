@@ -248,13 +248,19 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
     }
 
     const subtypeRetryTimers = new Set<ReturnType<typeof setTimeout>>();
+    // A retry scheduled after teardown has nothing left to clear it.
+    let retriesDisposed = false;
 
     tryOnScopeDispose(() => {
+        retriesDisposed = true;
         subtypeRetryTimers.forEach(timer => clearTimeout(timer));
         subtypeRetryTimers.clear();
     });
 
     function scheduleSubtypeRetry(run: () => void, delayMs: number) {
+        if (retriesDisposed) {
+            return;
+        }
         const timer = setTimeout(() => {
             subtypeRetryTimers.delete(timer);
             run();

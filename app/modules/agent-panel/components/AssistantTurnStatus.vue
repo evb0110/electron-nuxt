@@ -4,7 +4,7 @@
         <span>{{ statusText }}</span>
     </div>
     <details v-if="reasoning" class="agent-assistant-reasoning" open>
-        <summary>Thinking…</summary>
+        <summary>{{ t('assistant.thinking') }}</summary>
         <pre class="app-scrollbar app-scroll-region--balanced">{{ reasoning }}</pre>
     </details>
     <div
@@ -13,17 +13,23 @@
         class="agent-assistant-tool-activity"
     >
         <UIcon :name="tool.phase === 'running' ? 'i-ph-circle-notch' : 'i-ph-check-circle'" />
-        <span>{{ tool.name }} — {{ tool.phase }}</span>
+        <span>{{ t('assistant.toolActivity', {
+            name: tool.name,
+            phase: toolPhaseLabel(tool.phase),
+        }) }}</span>
     </div>
     <span v-if="usage" class="agent-assistant-tool-activity">
-        {{ usage.inputTokens }} input · {{ usage.outputTokens }} output tokens
+        {{ t('assistant.turnUsage', {
+            input: usage.inputTokens,
+            output: usage.outputTokens,
+        }) }}
     </span>
     <p v-if="stalled" class="agent-assistant-turn-error">
-        No signal from the assistant. It may be stuck; stop the turn or retry.
+        {{ t('assistant.turnStalled') }}
     </p>
     <UButton
         v-if="canRetry"
-        label="Retry"
+        :label="t('assistant.turnRetry')"
         icon="i-ph-arrow-clockwise"
         color="neutral"
         variant="outline"
@@ -33,7 +39,11 @@
 </template>
 
 <script setup lang="ts">
-import type { IAgentAssistantTurnState } from '@contracts/agent';
+import type {
+    IAgentAssistantToolActivity,
+    IAgentAssistantTurnState,
+} from '@contracts/agent';
+import { useTypedI18n } from '@app/composables/useTypedI18n';
 
 defineProps<{
     active: boolean;
@@ -46,6 +56,18 @@ defineProps<{
 }>();
 
 defineEmits<{retry: []}>();
+
+const { t } = useTypedI18n();
+
+const TOOL_PHASE_KEYS = {
+    completed: 'assistant.toolPhaseCompleted',
+    failed: 'assistant.toolPhaseFailed',
+    running: 'assistant.toolPhaseRunning',
+} as const;
+
+function toolPhaseLabel(phase: IAgentAssistantToolActivity['phase']) {
+    return t(TOOL_PHASE_KEYS[phase]);
+}
 </script>
 
 <style scoped>

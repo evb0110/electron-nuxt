@@ -14,6 +14,10 @@ import {
 import AssistantMessageSegments from '@app/modules/agent-panel/components/AssistantMessageSegments.vue';
 import AssistantTurnStatus from '@app/modules/agent-panel/components/AssistantTurnStatus.vue';
 
+// `tests/setup.ts` translates to the key itself (with parameters appended) and
+// throws on a key the English schema does not define, so these assertions read
+// as message identity and also fail if a key is ever dropped from the schema.
+
 /**
  * Both components render fragments, so the panel's scoped stylesheet cannot
  * reach their nodes and each has to carry its own styles. These mounts pin the
@@ -91,12 +95,19 @@ describe('AssistantTurnStatus', () => {
         expect(progress?.querySelector('.agent-assistant-working-icon.is-spinning')).not.toBeNull();
         expect(host.querySelector('.agent-assistant-reasoning pre')?.textContent)
             .toBe('weighing the page range');
+        expect(host.querySelector('.agent-assistant-reasoning summary')?.textContent)
+            .toBe('assistant.thinking');
         const activity = [...host.querySelectorAll('.agent-assistant-tool-activity')];
         expect(activity).toHaveLength(2);
-        expect(activity[0]?.textContent).toContain('set_page_labels');
-        expect(activity[1]?.textContent).toContain('12 input');
-        expect(host.querySelector('.agent-assistant-turn-error')).not.toBeNull();
-        expect(host.querySelector('button')?.textContent).toBe('Retry');
+        expect(activity[0]?.textContent).toContain(
+            'assistant.toolActivity:{"name":"set_page_labels","phase":"assistant.toolPhaseRunning"}',
+        );
+        expect(activity[1]?.textContent).toContain(
+            'assistant.turnUsage:{"input":12,"output":34}',
+        );
+        expect(host.querySelector('.agent-assistant-turn-error')?.textContent)
+            .toBe('assistant.turnStalled');
+        expect(host.querySelector('button')?.textContent).toBe('assistant.turnRetry');
     });
 
     it('renders nothing for an idle turn with no activity', () => {
