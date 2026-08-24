@@ -75,6 +75,7 @@
         "devalue",
         "entities",
         "estree-walker",
+        "eslint",
         "eslint-import-resolver-typescript",
         "eslint-plugin-import",
         "hookable",
