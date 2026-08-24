@@ -415,6 +415,8 @@ export default {
             'detectionSubscriptionFailed': 'Não foi possível acompanhar a detecção das páginas após a falha da assinatura.',
             'runSubscriptionFailed': 'Não foi possível acompanhar a limpeza da digitalização após a falha da assinatura.',
             'runRecoveryFailed': 'Não foi possível recuperar a limpeza da digitalização após a restauração da sessão do renderizador.',
+            'insufficientScratch': 'Não há espaço livre suficiente no disco temporário para analisar este documento.',
+            'insufficientScratchSpace': 'Libere espaço em disco e tente novamente: são necessários {required} e há {available} livres.',
         },
         'cancelingDetection': 'Interrompendo a análise em segundo plano…',
         'startingCleanup': 'Iniciando a limpeza…',

@@ -415,6 +415,8 @@ export default {
             'detectionSubscriptionFailed': 'La détection des pages n’a pas pu être observée après l’échec de l’abonnement.',
             'runSubscriptionFailed': 'Le nettoyage du scan n’a pas pu être observé après l’échec de l’abonnement.',
             'runRecoveryFailed': 'Le nettoyage du scan n’a pas pu être récupéré après la restauration de la session du moteur de rendu.',
+            'insufficientScratch': 'Espace libre insuffisant sur le disque temporaire pour analyser ce document.',
+            'insufficientScratchSpace': 'Libérez de l’espace disque et réessayez : {required} sont nécessaires, {available} sont libres.',
         },
         'cancelingDetection': 'Arrêt de l’analyse en arrière-plan…',
         'startingCleanup': 'Démarrage du nettoyage…',

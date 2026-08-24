@@ -33,6 +33,7 @@ import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
 import {useScanCleanupPageEta} from '@app/modules/scan-cleanup/composables/useScanCleanupPageEta';
 import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
+import {formatScanCleanupScratchMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupScratchMessage';
 
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
 
@@ -482,10 +483,15 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             softAlphaForegroundRecommendationByPage,
         );
         if (accumulatedState.status === 'failed') {
-            error.value = formatScanCleanupErrorMessage(
-                t('scanCleanup.detectAll.failed'),
-                accumulatedState.error,
-            );
+            // A scratch refusal is the one detection failure the user can act
+            // on, so it is stated in full instead of a generic headline with
+            // the English exception appended to it.
+            error.value = accumulatedState.errorCode === 'insufficient-scratch'
+                ? formatScanCleanupScratchMessage(t, accumulatedState.scratchShortfall)
+                : formatScanCleanupErrorMessage(
+                    t('scanCleanup.detectAll.failed'),
+                    accumulatedState.error,
+                );
             errorCode.value = accumulatedState.errorCode;
         } else if (accumulatedState.status === 'completed') {
             error.value = '';

@@ -415,6 +415,8 @@ export default {
             'detectionSubscriptionFailed': 'Paginadetectie kon niet worden gevolgd nadat het abonnement was mislukt.',
             'runSubscriptionFailed': 'Scanopschoning kon niet worden gevolgd nadat het abonnement was mislukt.',
             'runRecoveryFailed': 'Scanopschoning kon niet worden hersteld nadat de renderersessie was hersteld.',
+            'insufficientScratch': 'Er is niet genoeg vrije ruimte op de tijdelijke schijf om dit document te analyseren.',
+            'insufficientScratchSpace': 'Maak schijfruimte vrij en probeer het opnieuw: {required} is nodig, {available} is vrij.',
         },
         'cancelingDetection': 'Achtergrondanalyse stoppen…',
         'startingCleanup': 'Opschoning starten…',

@@ -415,6 +415,8 @@ export default {
             'detectionSubscriptionFailed': 'No se pudo observar la detección de páginas después de que fallara la suscripción.',
             'runSubscriptionFailed': 'No se pudo observar la limpieza del escaneo después de que fallara la suscripción.',
             'runRecoveryFailed': 'No se pudo recuperar la limpieza del escaneo después de restaurar la sesión del proceso de renderizado.',
+            'insufficientScratch': 'No hay suficiente espacio libre en el disco temporal para analizar este documento.',
+            'insufficientScratchSpace': 'Libere espacio en disco e inténtelo de nuevo: se necesitan {required} y hay {available} libres.',
         },
         'cancelingDetection': 'Deteniendo el análisis en segundo plano…',
         'startingCleanup': 'Iniciando la limpieza…',

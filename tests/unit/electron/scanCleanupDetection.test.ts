@@ -1,6 +1,7 @@
 import {
     mkdtemp,
     readFile,
+    rename,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -18,7 +19,12 @@ import {
     type IScanCleanupDetectionRetention,
 } from '@scan-cleanup-core/detection';
 import type {IScanCleanupDetectionRequest} from '@contracts/electronApiScanCleanup';
-import type {INativeScanCleanupSplitDiagnosticsV3} from '@contracts/scan-cleanup/nativeProtocolV3';
+import type {
+    INativeScanCleanupManifestV3,
+    INativeScanCleanupPageV3,
+    INativeScanCleanupSplitDiagnosticsV3,
+    TNativeScanCleanupProgressV3,
+} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {decodeNativeScanCleanupPageMetadata} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {compactScanCleanupDetectionVerdicts} from '@scripts/scanCleanupCliAdapters';
@@ -89,6 +95,147 @@ function splitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
             reason: 'fold-evidence-unquantified',
             nominalHalfWidthPx: 6,
         },
+    };
+}
+
+const PNG_1X1 = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64',
+);
+
+interface IStagedManifestPages {pages: Array<Pick<INativeScanCleanupPageV3, 'inputPath' | 'sourcePageIndex' | 'pageMetadataPath'>>;}
+
+/**
+ * The part of the real manifest this fake reads, derived from the protocol type
+ * so a renamed field fails to compile here instead of silently parsing as
+ * `undefined` and taking the fallback path.
+ */
+type TStagedManifest = Pick<INativeScanCleanupManifestV3, 'stagedInputWindow' | 'stagedInputPeakPixels'> & IStagedManifestPages;
+
+/**
+ * A sidecar that speaks the staged-input lease protocol.
+ *
+ * It mirrors what the Rust binary does: announce `page-input-required`, block
+ * until the producer publishes that raster, read it, classify, then announce
+ * `page-input-released`. Nothing here is allowed to read an input it has not
+ * leased, which is what makes the residency assertions meaningful.
+ */
+function createStagedSidecar(options: {
+    /** Pages leased at once. Never more than the declared window. */
+    concurrency?: number;
+    /** Extra lease taken after every page, as document reconciliation does. */
+    reconcilePages?: readonly number[];
+    onManifest?: (manifest: TStagedManifest) => void;
+    onLease?: (event: 'acquired' | 'released', pageNumber: number) => void;
+} = {}) {
+    const leaseHistory: Array<{
+        event: 'acquired' | 'released';
+        pageNumber: number
+    }> = [];
+    const readInputs = new Map<number, string>();
+    const runSidecar = vi.fn(async (
+        _binary: string,
+        manifestPath: string,
+        signal: AbortSignal,
+        _log: unknown,
+        onProgress: (progress: TNativeScanCleanupProgressV3) => void,
+    ) => {
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as TStagedManifest;
+        options.onManifest?.(manifest);
+        const totalPages = manifest.pages.length;
+        const lease = async (pageNumber: number, inputPath: string) => {
+            leaseHistory.push({
+                event: 'acquired',
+                pageNumber,
+            });
+            options.onLease?.('acquired', pageNumber);
+            onProgress({
+                stage: 'page-input-required' as const,
+                completedPages: 0,
+                totalPages,
+                pageNumber,
+            });
+            const deadline = Date.now() + 5_000;
+            for (;;) {
+                signal.throwIfAborted();
+                try {
+                    readInputs.set(pageNumber, (await readFile(inputPath)).toString('base64'));
+                    return;
+                } catch (error) {
+                    if (Date.now() > deadline) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 1));
+                }
+            }
+        };
+        const release = (pageNumber: number) => {
+            leaseHistory.push({
+                event: 'released',
+                pageNumber,
+            });
+            options.onLease?.('released', pageNumber);
+            onProgress({
+                stage: 'page-input-released' as const,
+                completedPages: 0,
+                totalPages,
+                pageNumber,
+            });
+        };
+        let completedPages = 0;
+        let nextIndex = 0;
+        const workers = Array.from(
+            {length: Math.min(options.concurrency ?? 1, manifest.stagedInputWindow ?? 1, totalPages)},
+            async () => {
+                while (nextIndex < totalPages) {
+                    const page = manifest.pages[nextIndex]!;
+                    nextIndex += 1;
+                    await lease(page.sourcePageIndex + 1, page.inputPath);
+                    await writeFile(page.pageMetadataPath, JSON.stringify({
+                        layoutClassification: 'single-uncut-page',
+                        cutterXPx: null,
+                        rotationDegrees: 0,
+                        canvasScope: 'page',
+                        excluded: false,
+                        blankOutputsSkipped: 0,
+                        outputCount: 0,
+                    }));
+                    completedPages += 1;
+                    onProgress({
+                        stage: 'page-analyzed' as const,
+                        completedPages,
+                        totalPages,
+                        pageNumber: page.sourcePageIndex + 1,
+                        classification: 'single-uncut-page',
+                        confidence: 0.9,
+                    });
+                    release(page.sourcePageIndex + 1);
+                }
+            },
+        );
+        await Promise.all(workers);
+        // Document reconciliation revisits pages the window may already have
+        // dropped, which is exactly the replay the lease protocol exists for.
+        for (const pageNumber of options.reconcilePages ?? []) {
+            const page = manifest.pages.find(candidate => candidate.sourcePageIndex + 1 === pageNumber)!;
+            await lease(pageNumber, page.inputPath);
+            release(pageNumber);
+        }
+        for (const page of manifest.pages) {
+            onProgress({
+                stage: 'page-complete' as const,
+                completedPages: totalPages,
+                totalPages,
+                pageNumber: page.sourcePageIndex + 1,
+                classification: 'single-uncut-page',
+                confidence: 0.9,
+                reconciled: true,
+                clusterAgreement: 1,
+            });
+        }
+    });
+    return {
+        runSidecar,
+        leaseHistory,
+        readInputs,
     };
 }
 
@@ -175,15 +322,25 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 pages: new Set<number>(),
             })),
             retainedPaths: vi.fn(async () => new Map()),
-            rasterScratchPath: vi.fn(async (_document, pageNumber) => join(tempDir, `analysis-${String(pageNumber)}.png`)),
-            retain: vi.fn(async input => ({
-                dpi: input.dpi,
-                height: input.height,
-                pageNumber: input.pageNumber,
-                path: input.scratchPath,
-                sizeBytes: input.sizeBytes,
-                width: input.width,
-            })),
+            rasterScratchPath: vi.fn(async (_document, pageNumber) => join(tempDir, `analysis-${String(pageNumber)}.part.png`)),
+            stagedRasterPath: vi.fn(async (_document, pageNumber) => join(tempDir, `analysis-${String(pageNumber)}.png`)),
+            // Publication is a rename, exactly as production retention does it:
+            // the sidecar only ever sees a complete raster at the input path.
+            retain: vi.fn(async input => {
+                const path = join(tempDir, `analysis-${String(input.pageNumber)}.png`);
+                await rename(input.scratchPath, path);
+                return {
+                    dpi: input.dpi,
+                    height: input.height,
+                    pageNumber: input.pageNumber,
+                    path,
+                    sizeBytes: input.sizeBytes,
+                    width: input.width,
+                };
+            }),
+            releaseRaster: vi.fn(async (_document, pageNumber) => {
+                await rm(join(tempDir, `analysis-${String(pageNumber)}.png`), {force: true});
+            }),
             release: vi.fn(async () => undefined),
         };
         const result = await runScanCleanupDetection(
@@ -327,6 +484,11 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 },
             ]])),
             rasterScratchPath: vi.fn(async () => join(tempDir, 'unexpected.png')),
+            stagedRasterPath: vi.fn(async (_document, pageNumber, dpi) => join(
+                tempDir,
+                `staged-${String(pageNumber)}-${String(dpi)}.png`,
+            )),
+            releaseRaster: vi.fn(async () => undefined),
             retain: vi.fn(),
             release: vi.fn(async () => undefined),
         };
@@ -520,6 +682,11 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 },
             ]])),
             rasterScratchPath: vi.fn(async () => join(tempDir, 'unexpected.png')),
+            stagedRasterPath: vi.fn(async (_document, pageNumber, dpi) => join(
+                tempDir,
+                `staged-${String(pageNumber)}-${String(dpi)}.png`,
+            )),
+            releaseRaster: vi.fn(async () => undefined),
             retain: vi.fn(),
             release: vi.fn(async () => undefined),
         };
@@ -591,7 +758,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             .toThrow('invalid scan-cleanup split diagnostics');
     });
 
-    it('rejects a Windows-style whole-document staging footprint before rendering', async () => {
+    it('refuses only when not even one page raster fits, with the figures to act on', async () => {
         const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-test-'));
         dirs.push(tempDir);
         const pageCount = 30;
@@ -603,8 +770,9 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 pageNumber: index + 1,
                 xPoints: 0,
                 yPoints: 0,
-                // 3,000 × 3,000 at 150 DPI: plausible individually, but the
-                // non-stream document total cannot fit the cache budget.
+                // 3,000 × 3,000 at 150 DPI. One byte of free scratch cannot
+                // hold a single one of them, which is the only condition left
+                // that refuses a document outright.
                 widthPoints: 1_440,
                 heightPoints: 1_440,
                 rotation: 0,
@@ -615,6 +783,11 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             })),
             retainedPaths: vi.fn(async () => new Map()),
             rasterScratchPath: vi.fn(async () => join(tempDir, 'unexpected.png')),
+            stagedRasterPath: vi.fn(async (_document, pageNumber, dpi) => join(
+                tempDir,
+                `staged-${String(pageNumber)}-${String(dpi)}.png`,
+            )),
+            releaseRaster: vi.fn(async () => undefined),
             retain: vi.fn(),
             release: vi.fn(async () => undefined),
         };
@@ -634,25 +807,37 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             },
             {rasterConcurrency: 2},
             () => undefined,
-        )).rejects.toThrow('raster cache/scratch budget');
+        )).rejects.toMatchObject({
+            code: 'insufficient-scratch',
+            availableBytes: 1,
+            // One 3,000 × 3,000 page costs a producer copy and a native copy.
+            // Below the 512-MiB floor the binding constraint is the reserve
+            // the run refuses to spend, so that is what the figure asks for.
+            requiredBytes: 2 * (3_000 * 3_000 * 3 + Math.ceil(3_000 * 3_000 * 3 * 0.01)) + 512 * MIB,
+        });
 
         expect(renderPage).not.toHaveBeenCalled();
         expect(retention.retain).not.toHaveBeenCalled();
         expect(retention.release).toHaveBeenCalledOnce();
     });
 
-    it('counts retained rasters together with new pages against the whole-manifest budget', async () => {
+    it('never charges an already-retained raster to the staged window', async () => {
         const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-test-'));
         dirs.push(tempDir);
-        const renderPage = vi.fn();
+        const retainedPath = join(tempDir, 'retained-page-1.png');
+        await writeFile(retainedPath, PNG_1X1);
         const retainedRaster = {
             dpi: 150,
             height: 1_000,
             pageNumber: 1,
-            path: join(tempDir, 'retained-page-1.png'),
+            path: retainedPath,
             sizeBytes: 6 * MIB,
             width: 1_000,
         };
+        const stagedPath = (pageNumber: number) => join(tempDir, `staged-${String(pageNumber)}.png`);
+        const renderPage = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath: string) => {
+            await writeFile(outputPath, PNG_1X1);
+        });
         const retention: IScanCleanupDetectionRetention<{id: string}> = {
             openDocument: vi.fn(async () => ({id: 'document'})),
             pageCount: vi.fn(async () => 2),
@@ -673,33 +858,64 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 1,
                 retainedRaster,
             ]])),
-            rasterScratchPath: vi.fn(async () => join(tempDir, 'unexpected.png')),
-            retain: vi.fn(),
+            rasterScratchPath: vi.fn(async (_document, pageNumber) => `${stagedPath(pageNumber)}.part`),
+            stagedRasterPath: vi.fn(async (_document, pageNumber) => stagedPath(pageNumber)),
+            retain: vi.fn(async input => {
+                await rename(input.scratchPath, stagedPath(input.pageNumber));
+                return {
+                    dpi: input.dpi,
+                    height: input.height,
+                    pageNumber: input.pageNumber,
+                    path: stagedPath(input.pageNumber),
+                    sizeBytes: input.sizeBytes,
+                    width: input.width,
+                };
+            }),
+            releaseRaster: vi.fn(async (_document, pageNumber) => {
+                await rm(stagedPath(pageNumber), {force: true});
+            }),
             release: vi.fn(async () => undefined),
         };
+        const sidecar = createStagedSidecar();
 
-        await expect(runScanCleanupDetection(
+        const detection = await runScanCleanupDetection(
             createRequest(),
             new AbortController().signal,
             retention,
             {
                 getTempDir: () => tempDir,
-                // 520 MiB available leaves an 8-MiB budget after the reserve.
-                // The missing page fits alone (~3 MiB), but not together with
-                // the already-retained 6-MiB page.
+                // 520 MiB free leaves an 8-MiB budget after the reserve. One
+                // staged page and its native copy fit; the retained page was
+                // already on disk when that space was measured, so charging it
+                // again would refuse a document that fits.
                 getAvailableScratchBytes: vi.fn(async () => 520 * MIB),
                 getPdftoppmBinary: () => 'pdftoppm',
                 resolveBinary: () => 'evb-scan-cleanup',
                 renderPage,
                 renderPagePpm: vi.fn(),
-                runSidecar: vi.fn(),
+                runSidecar: sidecar.runSidecar,
             },
             {rasterConcurrency: 2},
             () => undefined,
-        )).rejects.toThrow('raster cache/scratch budget');
+        );
 
-        expect(renderPage).not.toHaveBeenCalled();
-        expect(retention.retain).not.toHaveBeenCalled();
+        expect(detection.results.map(result => result.pageNumber)).toEqual([
+            1,
+            2,
+        ]);
+        // Page 1 is read straight from the cache entry and never re-rendered;
+        // only page 2 occupies the one-page window.
+        expect(renderPage).toHaveBeenCalledOnce();
+        expect(retention.releaseRaster).not.toHaveBeenCalledWith(
+            expect.anything(),
+            1,
+            expect.anything(),
+        );
+        expect(sidecar.leaseHistory.filter(entry => entry.event === 'acquired').map(entry => entry.pageNumber))
+            .toEqual([
+                1,
+                2,
+            ]);
         expect(retention.release).toHaveBeenCalledOnce();
     });
 
@@ -731,6 +947,11 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             })),
             retainedPaths: vi.fn(async () => new Map()),
             rasterScratchPath: vi.fn(async () => join(tempDir, 'unexpected.png')),
+            stagedRasterPath: vi.fn(async (_document, pageNumber, dpi) => join(
+                tempDir,
+                `staged-${String(pageNumber)}-${String(dpi)}.png`,
+            )),
+            releaseRaster: vi.fn(async () => undefined),
             retain: vi.fn(),
             release: vi.fn(async () => undefined),
         };

@@ -2364,6 +2364,35 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('states an insufficient-scratch refusal in localized wording only', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`insufficient-scratch-${Date.now()}`);
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        const refused: TScanCleanupDetectionJobState = {
+            ...detectionState('detect-1', 'queued'),
+            status: 'failed',
+            error: 'uniform detection failed',
+            errorCode: 'insufficient-scratch',
+            scratchShortfall: {
+                availableBytes: 520 * 1024 * 1024,
+                requiredBytes: 1_100 * 1024 * 1024,
+            },
+        };
+        harness.emitDetection(refused);
+        await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
+
+        // The harness resolves every key to itself, so the assertion is about
+        // which wording the renderer chose: both localized sentences, and no
+        // part of the native exception.
+        expect(mounted.session.detection.error.value).toBe(
+            'scanCleanup.errors.insufficientScratch scanCleanup.errors.insufficientScratchSpace',
+        );
+        expect(mounted.session.detection.error.value).not.toContain('uniform detection failed');
+        expect(mounted.session.detection.errorCode.value).toBe('insufficient-scratch');
+        mounted.unmount();
+    });
+
     it('keeps detection idle when the global run stops without the surface re-activating', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

@@ -11,6 +11,10 @@ import type {
     TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
 import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/electronApiScanCleanup';
+import {
+    SCAN_CLEANUP_MAX_STAGED_INPUT_PEAK_PIXELS,
+    SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW,
+} from '@contracts/scan-cleanup/stagedInputWindow';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import {
     resolveEffectiveScanCleanupOptions,
@@ -68,6 +72,17 @@ export interface IBuildNativeScanCleanupManifestInput {
     experimental?: IScanCleanupExperimentalOptions;
     hostMemoryBytes?: number;
     rasterWindow?: number;
+    /**
+     * Bounded number of replayable Analyze page rasters this process keeps
+     * staged at once. Declaring it moves the sidecar onto the staged-input
+     * lease protocol, so an input that is absent at admission is expected.
+     */
+    stagedInputWindow?: number;
+    /**
+     * Pixels in the largest raster that window will stage. The sidecar sizes
+     * its page pool from it while most inputs are still unrendered.
+     */
+    stagedInputPeakPixels?: number;
 }
 
 /**
@@ -332,6 +347,8 @@ function assembleNativeScanCleanupManifest({
     experimental,
     hostMemoryBytes,
     rasterWindow,
+    stagedInputWindow,
+    stagedInputPeakPixels,
 }: IBuildNativeScanCleanupManifestInput, allowedPathRoot: string | null): INativeScanCleanupManifestV3 {
     // One canonical root per manifest: every field is judged against the same
     // resolved directory instead of re-resolving the root for each path.
@@ -348,6 +365,20 @@ function assembleNativeScanCleanupManifest({
         ...(rasterWindow === undefined
             ? {}
             : {rasterWindow: clampNativeLimit(rasterWindow, 16, 'rasterWindow')}),
+        ...(stagedInputWindow === undefined
+            ? {}
+            : {stagedInputWindow: clampNativeLimit(
+                stagedInputWindow,
+                SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW,
+                'stagedInputWindow',
+            )}),
+        ...(stagedInputWindow === undefined || stagedInputPeakPixels === undefined
+            ? {}
+            : {stagedInputPeakPixels: clampNativeLimit(
+                stagedInputPeakPixels,
+                SCAN_CLEANUP_MAX_STAGED_INPUT_PEAK_PIXELS,
+                'stagedInputPeakPixels',
+            )}),
         pages: pages.map((page, pageIndex) => {
             assertManifestOutputContract(page, pageIndex);
             if (

@@ -33,9 +33,7 @@ import {detectSourceDpiDetails} from '@scan-cleanup-core/sourceDpiDetection';
 import {
     runScanCleanupDetection,
     type IScanCleanupDetectionDependencies,
-    type IScanCleanupDetectionRetention,
     type IScanCleanupDocumentRasterPages,
-    type IScanCleanupRetainedRaster,
 } from '@scan-cleanup-core/detection';
 import {
     runScanCleanupConversion,
@@ -72,6 +70,7 @@ import {
     type ICliPdfCombineWasmPage,
     type ICliRawMaskEvidence,
 } from '@scripts/scanCleanupCliAdapters';
+import {createCliRetention} from '@scripts/createCliRetention';
 import {flattenLayeredManifestPage} from '@scripts/flattenLayeredManifestPage';
 import {
     createScanCleanupDetectionCacheKey,
@@ -92,11 +91,6 @@ interface IScanCleanupCliArguments {
     detectionCachePath?: string;
     refreshDetection: boolean;
     options: IScanCleanupOptions;
-}
-
-interface IScanCleanupCliDocument {
-    directory: string;
-    sourcePdfPath: string;
 }
 
 function buildSourcePageToOutputPages(report: IScanCleanupRepresentationReport) {
@@ -685,67 +679,6 @@ async function runPageOpsFallback(
     } satisfies IScanCleanupProcessResult;
 }
 
-function createCliRetention(
-    temporaryRoot: string,
-    sourcePdfPath: string,
-    revision: string,
-    getPageCount: (path: string, signal: AbortSignal) => Promise<number>,
-    getPageSizes: (path: string, signal: AbortSignal) => Promise<Awaited<ReturnType<typeof readPdfPageSizes>>>,
-    detectRasterPages: (
-        path: string,
-        signal: AbortSignal,
-        pages: readonly number[],
-    ) => Promise<IScanCleanupDocumentRasterPages>,
-): IScanCleanupDetectionRetention<IScanCleanupCliDocument> {
-    return {
-        async openDocument() {
-            return {
-                // Analyze manifests are confined to the run's temporary root.
-                // Retained replayable rasters must live below that same root,
-                // not in a sibling directory created directly under os.tmpdir.
-                directory: await mkdtemp(join(temporaryRoot, 'document-')),
-                sourcePdfPath,
-            };
-        },
-        async pageCount(_document, signal) {
-            return getPageCount(sourcePdfPath, signal);
-        },
-        async pageSizes(_document, signal) {
-            return getPageSizes(sourcePdfPath, signal);
-        },
-        async rasterPages(_document, signal) {
-            const totalPages = await getPageCount(sourcePdfPath, signal);
-            return detectRasterPages(
-                sourcePdfPath,
-                signal,
-                Array.from({length: totalPages}, (_, index) => index + 1),
-            );
-        },
-        retainedPaths() {
-            return Promise.resolve(new Map<number, IScanCleanupRetainedRaster>());
-        },
-        rasterScratchPath(document, pageNumber, dpi) {
-            return Promise.resolve(join(document.directory, `page-${String(pageNumber)}-${String(dpi)}.png`));
-        },
-        retain(input) {
-            return Promise.resolve({
-                dpi: input.dpi,
-                height: input.height,
-                pageNumber: input.pageNumber,
-                path: input.scratchPath,
-                sizeBytes: input.sizeBytes,
-                width: input.width,
-            } satisfies IScanCleanupRetainedRaster);
-        },
-        async release(document) {
-            await rm(document.directory, {
-                force: true,
-                recursive: true,
-            });
-        },
-    };
-}
-
 function getProgressKey(progress: TScanCleanupProgress) {
     return `${progress.stage}:${String(progress.completedUnits)}:${String(progress.totalUnits)}`;
 }
@@ -919,7 +852,6 @@ async function main() {
     const retention = createCliRetention(
         temporaryRoot,
         argumentsValue.sourcePdfPath,
-        `${String(sourceStats.mtimeMs)}:${String(sourceStats.size)}`,
         (pdfPath, signal) => getPageCount(pdfPath, {signal}),
         getPageSizesForDetection,
         detectRasterPages,

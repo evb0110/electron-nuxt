@@ -19,8 +19,13 @@ import type {
 import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
+import {SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW} from '@contracts/scan-cleanup/stagedInputWindow';
 import {buildRunnableNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
-import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
+import {
+    ScanCleanupContractError,
+    ScanCleanupInsufficientScratchError,
+    ScanCleanupNativeToolUnavailableError,
+} from '@scan-cleanup-core/errors';
 import {preserveScanCleanupJsonEvidence} from '@scan-cleanup-core/preserveScanCleanupJsonEvidence';
 import {
     assertCanonicalPdfPageSizes,
@@ -34,8 +39,9 @@ import {
 import {createScanCleanupScratchDir} from '@scan-cleanup-core/scratchCleanup';
 import {
     readAvailableScratchBytes,
-    resolveRasterHandoff,
+    resolveStagedRasterWindow,
 } from '@scan-cleanup-core/resolveRasterHandoff';
+import {createStagedRasterWindow} from '@scan-cleanup-core/createStagedRasterWindow';
 import {
     renderScanCleanupRasterToDisk as renderRasterToDisk,
     resolveScanCleanupRasterRenderLimits as resolveRasterRenderLimits,
@@ -75,20 +81,6 @@ export function resolvePreviewProcessingDpi({
         return displayDpi;
     }
     return Math.max(displayDpi, Math.floor(Math.min(sourceDpi, displayDpi * 2)));
-}
-
-function sumByteFootprint(values: Iterable<number>) {
-    let total = 0;
-    for (const value of values) {
-        if (!Number.isSafeInteger(value) || value < 0) {
-            return null;
-        }
-        total += value;
-        if (!Number.isSafeInteger(total)) {
-            return null;
-        }
-    }
-    return total;
 }
 
 export function resolvePagePreviewDpi(
@@ -233,9 +225,32 @@ export interface IScanCleanupDetectionRetention<TDocument> {
         pageNumber: number,
         dpi: number,
     ) => Promise<string>;
+    /**
+     * Where `retain` will publish this page's raster, before it is rendered.
+     *
+     * Detection writes the Analyze manifest before it stages a single page, so
+     * it has to name each input up front. The path is a function of the
+     * document, the page and the DPI alone, which is also why re-rendering a
+     * released page republishes exactly the same file.
+     */
+    stagedRasterPath: (
+        document: TDocument,
+        pageNumber: number,
+        dpi: number,
+    ) => Promise<string>;
     retain: (
         rendered: IScanCleanupRetainedRasterInput<TDocument>,
     ) => Promise<IScanCleanupRetainedRaster>;
+    /**
+     * Drop one staged raster and its cache entry. The bounded window calls this
+     * when it needs the slot back and when a failed run rolls its staging back,
+     * so a page released here must be re-renderable at the same path.
+     */
+    releaseRaster: (
+        document: TDocument,
+        pageNumber: number,
+        dpi: number,
+    ) => Promise<void>;
     release: (document: TDocument) => Promise<void>;
 }
 
@@ -258,30 +273,6 @@ export interface IScanCleanupDetectionDependencies {
         log: TScanCleanupLog,
     ) => Promise<void>;
     runSidecar: TScanCleanupRunSidecar;
-}
-
-async function mapDetectionPages<T>(
-    pages: readonly number[],
-    task: (pageNumber: number) => Promise<T>,
-    onCompleted: ((pageNumber: number, completedPages: number) => void) | undefined,
-    concurrency: number,
-) {
-    const results = new Array<T>(pages.length);
-    let nextIndex = 0;
-    let completedPages = 0;
-    const workers = Array.from({length: Math.min(concurrency, pages.length)}, async () => {
-        while (nextIndex < pages.length) {
-            const index = nextIndex;
-            nextIndex += 1;
-            results[index] = await task(pages[index]!);
-            completedPages += 1;
-            onCompleted?.(pages[index]!, completedPages);
-        }
-    });
-    const settled = await Promise.allSettled(workers);
-    const rejected = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
-    if (rejected) throw rejected.reason;
-    return results;
 }
 
 function normalizeDetectionContentBox(
@@ -487,45 +478,73 @@ export async function runScanCleanupDetection<TDocument>(
             }
         }
         const rasterScope = pageNumbers.filter(pageNumber => !retained.has(pageNumber));
-        if (pageNumbers.length > 0) {
-            // Detection always stages replayable PNGs before native starts. The
-            // complete manifest must fit the same scratch budget as retained
-            // cache entries; no FIFO transport can bypass this admission check.
-            const handoff = await resolveRasterHandoff(
-                rasterScope.map(pageNumber => {
-                    const pageSize = pageSizeByNumber.get(pageNumber)!;
-                    const dpi = detectionDpiForPage(pageNumber);
-                    const limits = resolveRasterRenderLimits(pageSize, dpi);
-                    return {
-                        renderDpi: dpi,
-                        raster: {
-                            dpi,
-                            width: limits.expectedWidthPx,
-                            height: limits.expectedHeightPx,
-                        },
-                    };
-                }),
-                scratch,
-                dependencies.getAvailableScratchBytes ?? readAvailableScratchBytes,
+        const rasterLimitsByPage = new Map(pageNumbers.map(pageNumber => [
+            pageNumber,
+            resolveRasterRenderLimits(
+                pageSizeByNumber.get(pageNumber),
+                detectionDpiForPage(pageNumber),
+            ),
+        ]));
+        // Detection stages replayable PNGs, but only a bounded window of them
+        // is ever resident: the sidecar leases each page before it reads it and
+        // hands it back afterwards, and a released page is re-rendered rather
+        // than reused from memory. Admission therefore budgets that window, not
+        // the document, so length decides how long a run takes and not whether
+        // it may start. Pages already retained cost nothing here because their
+        // rasters were on disk before free space was measured.
+        const stagingPlans = rasterScope.map(pageNumber => {
+            const dpi = detectionDpiForPage(pageNumber);
+            const limits = rasterLimitsByPage.get(pageNumber)!;
+            return {
+                renderDpi: dpi,
+                // A page in flight exists twice for as long as its private
+                // render has not been published over the staged path.
+                renderCopies: 2,
+                raster: {
+                    dpi,
+                    width: limits.expectedWidthPx,
+                    height: limits.expectedHeightPx,
+                },
+            };
+        });
+        // The window is wider than the producer's own raster concurrency so the
+        // sidecar, which may never lease more pages than are staged, keeps a
+        // page pool worth having. Renders stay bounded by the runtime policy.
+        const requestedWindowPages = Math.min(
+            SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW,
+            Math.max(2, Math.max(1, policy.rasterConcurrency) * 2),
+        );
+        const admission = await resolveStagedRasterWindow(
+            stagingPlans,
+            requestedWindowPages,
+            scratch,
+            dependencies.getAvailableScratchBytes ?? readAvailableScratchBytes,
+        );
+        const renderConcurrency = Math.max(
+            1,
+            Math.min(policy.rasterConcurrency, Math.max(1, admission.windowPages)),
+        );
+        log(
+            'debug',
+            'Scan cleanup detection staged raster admission '
+            + JSON.stringify({
+                pages: totalPages,
+                stagedPages: rasterScope.length,
+                retainedPages: retained.size,
+                freeScratchBytes: admission.availableBytes,
+                budgetBytes: admission.budgetBytes,
+                wholeDocumentBytes: admission.wholeDocumentBytes,
+                windowPages: admission.windowPages,
+                windowBytes: admission.windowBytes,
+                renderConcurrency,
+                admitted: admission.admitted,
+            }),
+        );
+        if (!admission.admitted) {
+            throw new ScanCleanupInsufficientScratchError(
+                admission.availableBytes,
+                admission.requiredBytes,
             );
-            const retainedBytes = sumByteFootprint(
-                [...retained.values()].map(raster => raster.sizeBytes),
-            );
-            const manifestBytes = handoff.estimatedBytes === null || retainedBytes === null
-                ? null
-                : sumByteFootprint([
-                    retainedBytes,
-                    handoff.estimatedBytes,
-                ]);
-            if (
-                manifestBytes === null
-                || handoff.budgetBytes === null
-                || manifestBytes > handoff.budgetBytes
-            ) {
-                throw new Error(
-                    'Scan cleanup detection cannot stage this document without exceeding the raster cache/scratch budget',
-                );
-            }
         }
         const rasterizedPageNumbers = new Set<number>(retained.keys());
         const publishRasterizing = () => publish([], {
@@ -536,49 +555,131 @@ export async function runScanCleanupDetection<TDocument>(
             completedPageNumbers: [...rasterizedPageNumbers],
         }, documentCanvasSignature());
         publishRasterizing();
-        const renderedPaths = new Map<number, string>();
-        const rasterize = async (operationSignal: AbortSignal) => {
-            await mapDetectionPages(rasterScope, async pageNumber => {
+        // Every page's staged path is a function of the document, the page and
+        // the DPI, so the manifest can name inputs that do not exist yet and a
+        // re-render lands on exactly the same file.
+        const stagedPathByPage = new Map(await Promise.all(pageNumbers.map(async pageNumber => [
+            pageNumber,
+            retained.get(pageNumber)?.path
+                ?? await retention.stagedRasterPath(
+                    document,
+                    pageNumber,
+                    detectionDpiForPage(pageNumber),
+                ),
+        ] as const)));
+        const stagingAbort = new AbortController();
+        const operationSignal = AbortSignal.any([
+            signal,
+            stagingAbort.signal,
+        ]);
+        let stagingError: unknown;
+        // Renders stay inside the runtime policy's raster concurrency even
+        // though the window may hold more pages than that: residency and
+        // production are separate bounds.
+        let activeRenders = 0;
+        const waitingRenders: Array<() => void> = [];
+        const renderSlot = async <T>(render: () => Promise<T>) => {
+            // A finishing render hands its slot straight to the longest-waiting
+            // one instead of releasing the count: a released count would let a
+            // render that arrives in the same tick take the slot as well, and
+            // the producer would briefly run above the admitted concurrency.
+            if (activeRenders >= renderConcurrency) {
+                await new Promise<void>(resolve => waitingRenders.push(resolve));
+            } else {
+                activeRenders += 1;
+            }
+            try {
+                return await render();
+            } finally {
+                const next = waitingRenders.shift();
+                if (next) {
+                    next();
+                } else {
+                    activeRenders -= 1;
+                }
+            }
+        };
+        const stagedWindow = createStagedRasterWindow({
+            pages: rasterScope,
+            alreadyStaged: [...retained.keys()],
+            window: Math.max(1, admission.windowPages),
+            log,
+            stage: pageNumber => renderSlot(async () => {
                 operationSignal.throwIfAborted();
                 const pageDpi = detectionDpiForPage(pageNumber);
                 const scratchPath = await retention.rasterScratchPath(document, pageNumber, pageDpi);
-                const dimensions = await renderRasterToDisk(
-                    request.sourcePdfPath,
-                    pageNumber,
-                    scratchPath,
-                    operationSignal,
-                    dependencies,
-                    log,
-                    pageDpi,
-                    undefined,
-                    undefined,
-                    'png',
-                    resolveRasterRenderLimits(pageSizeByNumber.get(pageNumber), pageDpi),
-                    'detection raster',
-                    'detection',
-                );
-                const raster = await retention.retain({
-                    document,
-                    dpi: pageDpi,
-                    height: dimensions.height,
-                    pageNumber,
-                    scratchPath,
-                    sizeBytes: (await stat(scratchPath)).size,
-                    width: dimensions.width,
+                const raster = await (async () => {
+                    const dimensions = await renderRasterToDisk(
+                        request.sourcePdfPath,
+                        pageNumber,
+                        scratchPath,
+                        operationSignal,
+                        dependencies,
+                        log,
+                        pageDpi,
+                        undefined,
+                        undefined,
+                        'png',
+                        rasterLimitsByPage.get(pageNumber),
+                        'detection raster',
+                        'detection',
+                    );
+                    return retention.retain({
+                        document,
+                        dpi: pageDpi,
+                        height: dimensions.height,
+                        pageNumber,
+                        scratchPath,
+                        sizeBytes: (await stat(scratchPath)).size,
+                        width: dimensions.width,
+                    });
+                })().catch(async (error: unknown) => {
+                    // The scratch file is private to this render, so an aborted
+                    // or failed one owns the half-written raster it leaves and
+                    // must not charge it to the scratch budget.
+                    await rm(scratchPath, {force: true}).catch((cleanupError: unknown) => {
+                        // Only a refused unlink reaches here: a render that
+                        // aborted before writing anything leaves no file, and
+                        // `force` already answers that. What is left is scratch
+                        // this run can no longer account for, which is worth
+                        // naming -- but never in place of the failure that
+                        // brought the render here, which is rethrown below.
+                        log(
+                            'warn',
+                            `Scan cleanup could not drop the partial detection raster at ${scratchPath}: ${getErrorMessage(cleanupError)}`,
+                        );
+                    });
+                    throw error;
                 });
-                renderedPaths.set(pageNumber, raster.path);
-            }, pageNumber => {
+                if (raster.path !== stagedPathByPage.get(pageNumber)) {
+                    throw new ScanCleanupContractError(
+                        `page ${String(pageNumber)} was staged at ${raster.path} instead of its manifest input path`,
+                    );
+                }
+            }),
+            unstage: pageNumber => retention.releaseRaster(
+                document,
+                pageNumber,
+                detectionDpiForPage(pageNumber),
+            ),
+            isStaged: async pageNumber => {
+                try {
+                    return (await stat(stagedPathByPage.get(pageNumber)!)).isFile();
+                } catch {
+                    return false;
+                }
+            },
+            onStaged: pageNumber => {
                 rasterizedPageNumbers.add(pageNumber);
                 // Once classifications are arriving, publishing raster progress
                 // would replace them with an older-stage empty snapshot.
                 if (results.size === 0) publishRasterizing();
-            }, policy.rasterConcurrency);
-        };
-        await rasterize(signal);
+            },
+        });
         const manifestPages = pageNumbers.map(pageNumber => {
             const sourceBackgroundDpi = sourceRasterStructure.backgroundDpiByPage?.get(pageNumber);
             return {
-                inputPath: renderedPaths.get(pageNumber) ?? retained.get(pageNumber)!.path,
+                inputPath: stagedPathByPage.get(pageNumber)!,
                 pageNumber,
                 dpi: detectionDpiForPage(pageNumber),
                 sourceDpi: previewRasterPlan.pageDpiByNumber.get(pageNumber)
@@ -590,6 +691,16 @@ export async function runScanCleanupDetection<TDocument>(
             };
         });
         signal.throwIfAborted();
+        // Reduced rather than spread into Math.max: a long document has one
+        // entry per page, and an argument list that long is a call-stack limit
+        // rather than a page count the sidecar could not handle.
+        let stagedInputPeakPixels = 1;
+        for (const limits of rasterLimitsByPage.values()) {
+            stagedInputPeakPixels = Math.max(
+                stagedInputPeakPixels,
+                limits.expectedWidthPx * limits.expectedHeightPx,
+            );
+        }
         // Every page stays in one replayable manifest because final
         // reconciliation clusters the document's independent verdicts.
         const manifestPath = join(scratch, 'classify-manifest.json');
@@ -607,6 +718,18 @@ export async function runScanCleanupDetection<TDocument>(
                     : {autoDewarpDepth: request.options.autoDewarpDepth}),
             },
             pages: manifestPages,
+            // Declaring the window is what puts the sidecar on the lease
+            // protocol: it may then read an input that is not on disk yet, and
+            // it never holds more pages at once than are staged. The peak is
+            // the document's largest analysis raster, so the sidecar's
+            // memory-derived page pool stays a document fact rather than an
+            // accident of which pages happened to be staged when it started.
+            ...(rasterScope.length === 0
+                ? {}
+                : {
+                    stagedInputWindow: admission.windowPages,
+                    stagedInputPeakPixels: stagedInputPeakPixels,
+                }),
             // Detection classifies rasters the preview retention rendered
             // into its own document directory, a sibling of this scratch:
             // the temp root is the narrowest root that holds them both.
@@ -666,6 +789,21 @@ export async function runScanCleanupDetection<TDocument>(
             operationSignal,
             log,
             nativeProgress => {
+                // Lease frames are transport, not classification. They arrive
+                // while the sidecar is blocked on a raster, so the answer has
+                // to be scheduled rather than awaited here; a staging failure
+                // stops the sidecar and becomes the run's error.
+                if (nativeProgress.stage === 'page-input-required' && nativeProgress.pageNumber !== undefined) {
+                    void stagedWindow.acquire(nativeProgress.pageNumber).catch((error: unknown) => {
+                        stagingError ??= error;
+                        stagingAbort.abort(error);
+                    });
+                    return;
+                }
+                if (nativeProgress.stage === 'page-input-released' && nativeProgress.pageNumber !== undefined) {
+                    stagedWindow.release(nativeProgress.pageNumber);
+                    return;
+                }
                 if (
                     (nativeProgress.stage === 'page-analyzed' || nativeProgress.stage === 'page-complete')
                     && nativeProgress.pageNumber !== undefined
@@ -705,26 +843,42 @@ export async function runScanCleanupDetection<TDocument>(
                 allowedPathRoot: dependencies.getTempDir(),
             },
         );
-        await runAnalysis(signal);
-        for (const page of manifestPages) {
-            const result = results.get(page.pageNumber);
-            if (!result) continue;
-            const metadata = decodeNativeScanCleanupPageMetadataJson(
-                await readFile(page.pageMetadataPath, 'utf8'),
-            );
-            result.pagePlanEvidence = createDetectionPagePlanEvidence(
-                result,
-                metadata,
-                request.options.autoDewarp !== true,
-            );
-            if (metadata.splitDiagnostics !== undefined) {
-                result.splitDiagnostics = metadata.splitDiagnostics;
+        let published = false;
+        try {
+            // Fill the window before the sidecar starts so its first pages are
+            // already readable and its page pool has real rasters to measure.
+            await stagedWindow.prime();
+            await runAnalysis(operationSignal);
+            for (const page of manifestPages) {
+                const result = results.get(page.pageNumber);
+                if (!result) continue;
+                const metadata = decodeNativeScanCleanupPageMetadataJson(
+                    await readFile(page.pageMetadataPath, 'utf8'),
+                );
+                result.pagePlanEvidence = createDetectionPagePlanEvidence(
+                    result,
+                    metadata,
+                    request.options.autoDewarp !== true,
+                );
+                if (metadata.splitDiagnostics !== undefined) {
+                    result.splitDiagnostics = metadata.splitDiagnostics;
+                }
             }
+            if (results.size !== totalPages) {
+                throw new Error(`evb-scan-cleanup returned ${results.size} classifications for ${totalPages} pages`);
+            }
+            published = true;
+            return {results: publishedResults()};
+        } catch (error) {
+            // A staging failure stops the sidecar, so the abort it reports is a
+            // consequence rather than the cause worth surfacing.
+            throw stagingError ?? error;
+        } finally {
+            // A run that published its results leaves the rasters still inside
+            // the window to the raster cache; cancellation and failure destroy
+            // every one this run staged.
+            await stagedWindow.dispose({retainStaged: published});
         }
-        if (results.size !== totalPages) {
-            throw new Error(`evb-scan-cleanup returned ${results.size} classifications for ${totalPages} pages`);
-        }
-        return {results: publishedResults()};
     } finally {
         await retention.release(document);
         if (scratchDir !== null) {

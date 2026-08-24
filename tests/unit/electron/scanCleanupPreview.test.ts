@@ -8,6 +8,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import type * as FsPromises from 'fs/promises';
+import {existsSync} from 'fs';
 import {EventEmitter} from 'node:events';
 import {tmpdir} from 'os';
 import {
@@ -38,6 +39,7 @@ import {
     rememberRetiredWorkingCopyOriginal,
 } from '@electron/file-access/workingCopyStore';
 import {
+    createRawRasterRetention,
     createScanCleanupPreviewService,
     type IScanCleanupDetectionSubscriber,
     type IScanCleanupPreviewDependencies,
@@ -4461,6 +4463,221 @@ describe('scan cleanup preview', () => {
         });
         await previewOf(service, sender(), request);
         expect(deps.renderPage).toHaveBeenCalledTimes(3);
+    });
+
+    it('never unlinks an adopted raster however often its slot is given back', async () => {
+        const dir = await setup();
+        const retention = createRawRasterRetention(dependencies(dir));
+        const document = await retention.openDocument({
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'revision-1',
+        });
+        // What detection's bounded window does for one page: render into a
+        // private scratch file, then publish it at the page's stable path.
+        const stagePageOne = async () => {
+            const scratchPath = await retention.rasterScratchPath(document, 1, 150);
+            await writeFile(scratchPath, PNG);
+            return retention.retain({
+                document,
+                dpi: 150,
+                height: 1,
+                pageNumber: 1,
+                scratchPath,
+                sizeBytes: PNG.byteLength,
+                width: 1,
+            });
+        };
+        const staged = await stagePageOne();
+        expect(staged.path).toBe(await retention.stagedRasterPath(document, 1, 150));
+        // A preview adopts that exact file: from here it is named in a manifest
+        // of its own and fed to a sidecar, so it belongs to that consumer.
+        expect(await retention.readPath(document, 1, 150)).toMatchObject({path: staged.path});
+
+        // The window gives the slot back more than once -- a retried eviction,
+        // then the rollback that drops whatever it still had admitted -- and
+        // the file the other consumer is reading survives every one of them.
+        await retention.releaseRaster(document, 1, 150);
+        await retention.releaseRaster(document, 1, 150);
+        await retention.releaseRaster(document, 1, 150);
+        expect(existsSync(staged.path)).toBe(true);
+        expect([...(await retention.retainedPaths(document, [1], 150)).keys()]).toEqual([1]);
+
+        // Republishing the page is what returns it to the window: the raster at
+        // that path is the one this render produced, so the next release drops
+        // it exactly as an unadopted page would be dropped.
+        await stagePageOne();
+        await retention.releaseRaster(document, 1, 150);
+        expect(existsSync(staged.path)).toBe(false);
+        expect((await retention.retainedPaths(document, [1], 150)).size).toBe(0);
+        await retention.dispose();
+    });
+
+    it('stops protecting an adopted raster once the index has forgotten it', async () => {
+        const dir = await setup();
+        const retention = createRawRasterRetention(dependencies(dir));
+        const document = await retention.openDocument({
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'revision-1',
+        });
+        const scratchPath = await retention.rasterScratchPath(document, 2, 150);
+        await writeFile(scratchPath, PNG);
+        const staged = await retention.retain({
+            document,
+            dpi: 150,
+            height: 1,
+            pageNumber: 2,
+            scratchPath,
+            sizeBytes: PNG.byteLength,
+            width: 1,
+        });
+        expect(await retention.readPath(document, 2, 150)).toMatchObject({path: staged.path});
+
+        // Something outside this index removed the file, so the entry and the
+        // adoption that went with it are dropped when the index next looks.
+        await rm(staged.path);
+        expect((await retention.retainedPaths(document, [2], 150)).size).toBe(0);
+
+        // A stale adoption would make this page permanently unreclaimable: a
+        // leftover at its path would survive every release the window makes.
+        await writeFile(staged.path, PNG);
+        await retention.releaseRaster(document, 2, 150);
+        expect(existsSync(staged.path)).toBe(false);
+        await retention.dispose();
+    });
+
+    it('keeps a staged raster a preview adopted while detection recycles its slot', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const pageCount = 12;
+        deps.getPageCount = vi.fn(async () => pageCount);
+        deps.getPageSizes = vi.fn(async () => Array.from({length: pageCount}, (_, index) => ({
+            pageNumber: index + 1,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0,
+        })));
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        const previewSidecar = deps.runSidecar;
+        const pageOneAdopted = Promise.withResolvers<undefined>();
+        const pageOneReleased = Promise.withResolvers<undefined>();
+        // The await further down is what reports a failed handover; this only
+        // stops an early one from being seen as an unhandled rejection before
+        // that await exists.
+        void pageOneReleased.promise.catch(() => undefined);
+        let observedWindow: number | undefined;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress, options) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                operation: string;
+                stagedInputWindow?: number;
+                pages: Array<{
+                    inputPath: string;
+                    sourcePageIndex: number
+                }>;
+            };
+            if (manifest.operation !== 'analyze') {
+                await previewSidecar(binary, manifestPath, signal, log, onProgress, options);
+                return;
+            }
+            // Recorded rather than asserted here: an assertion that throws
+            // inside the fake sidecar would leave the test awaiting a handover
+            // that can no longer happen, reported as a timeout instead of as
+            // the window it disagreed with.
+            observedWindow = manifest.stagedInputWindow;
+            try {
+                await writeDetectionMetadata(manifestPath);
+                for (const page of manifest.pages) {
+                    const pageNumber = page.sourcePageIndex + 1;
+                    onProgress({
+                        stage: 'page-input-required',
+                        completedPages: 0,
+                        totalPages: pageCount,
+                        pageNumber,
+                    });
+                    await vi.waitFor(() => expect(existsSync(page.inputPath)).toBe(true));
+                    onProgress({
+                        stage: 'page-analyzed',
+                        completedPages: pageNumber,
+                        totalPages: pageCount,
+                        pageNumber,
+                        classification: 'single-uncut-page',
+                        confidence: 0.8,
+                    });
+                    onProgress({
+                        stage: 'page-input-released',
+                        completedPages: pageNumber,
+                        totalPages: pageCount,
+                        pageNumber,
+                    });
+                    if (pageNumber === 1) {
+                        // Hand the run over to a preview of the page detection
+                        // just staged, then keep going so the window needs that
+                        // slot back.
+                        pageOneReleased.resolve(undefined);
+                        await pageOneAdopted.promise;
+                    }
+                }
+                for (const page of manifest.pages) {
+                    onProgress({
+                        stage: 'page-complete',
+                        completedPages: pageCount,
+                        totalPages: pageCount,
+                        pageNumber: page.sourcePageIndex + 1,
+                        classification: 'single-uncut-page',
+                        confidence: 0.9,
+                    });
+                }
+            } catch (error) {
+                // A failure before the handover is a failure the test has to
+                // see: without this the analysis dies and the test blocks on a
+                // promise nothing will ever settle. Settling it after the
+                // handover already happened is a no-op.
+                pageOneReleased.reject(error);
+                throw error;
+            }
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+
+        // Renders of page 1 only: detection keeps staging later pages while the
+        // preview runs, and those are not what this assertion is about.
+        const pageOneRenders = () => vi.mocked(deps.renderPage).mock.calls
+            .filter(call => call[2] === 1).length;
+        await pageOneReleased.promise;
+        let adopted: string[] = [];
+        try {
+            const renderedBeforePreview = pageOneRenders();
+            // Detection staged page 1, so the comparison below is about a page
+            // that was rendered once and must not be rendered again.
+            expect(renderedBeforePreview).toBe(1);
+            await previewOf(service, sender(), request);
+            // The preview read the raster detection staged rather than making one.
+            expect(pageOneRenders()).toBe(renderedBeforePreview);
+            adopted = (await readdir(dir, {recursive: true}))
+                .filter(entry => entry.endsWith(`${sep}page-1-150.png`));
+            expect(adopted).toHaveLength(1);
+        } finally {
+            // The sidecar is parked on this promise, so a failure above has to
+            // let the run finish rather than strand it until the test times out.
+            pageOneAdopted.resolve(undefined);
+        }
+
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('completed'));
+
+        // The whole point of the run: detection staged a window narrower than
+        // the document rather than every page at once.
+        expect(observedWindow).toBeDefined();
+        expect(observedWindow!).toBeLessThan(pageCount);
+        // Detection recycled that slot for later pages, but the file stays:
+        // a preview named it in a manifest of its own.
+        expect((await readdir(dir, {recursive: true}))
+            .filter(entry => entry.endsWith(`${sep}page-1-150.png`))).toEqual(adopted);
     });
 
     it('rasterizes detection pages as wide as the 11-core host allows and leases that width', async () => {

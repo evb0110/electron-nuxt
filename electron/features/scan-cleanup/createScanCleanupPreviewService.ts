@@ -28,7 +28,6 @@ import type {
     TScanCleanupPreviewWireResult,
     TScanCleanupDetectionStartResult,
     TScanCleanupDetectionJobState,
-    TScanCleanupErrorCode,
     TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
 import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
@@ -114,6 +113,8 @@ import {
 import {
     SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
     classifyScanCleanupError,
+    type IScanCleanupJobErrorEnvelope,
+    scanCleanupScratchShortfall,
     type IScanCleanupRasterAdmissionPolicy,
     resolveScanCleanupRasterAdmissionPolicy,
     resolveScanCleanupPath,
@@ -138,7 +139,6 @@ import type {IPdfMrcLayers} from '@scan-cleanup-core/types';
 import {shouldExtractTrustedMrcForeground} from '@scan-cleanup-core/policy/scanCleanupRepresentationPolicy';
 import {
     createMainJobRegistry,
-    type IMainJobErrorEnvelope,
     type IMainJobSender,
     type TMainJobSnapshot,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
@@ -259,7 +259,7 @@ interface IPreviewOwnerBinding {
 
 interface IDetectionResult {results: TScanCleanupDetectionJobState['results'];}
 
-type TDetectionError = IMainJobErrorEnvelope<TScanCleanupErrorCode>;
+type TDetectionError = IScanCleanupJobErrorEnvelope;
 type TDetectionSnapshot = TMainJobSnapshot<TScanCleanupDetectionJobState, IDetectionResult, TDetectionError>;
 export interface IScanCleanupDetectionSubscriber extends IMainJobSender {id: number;}
 
@@ -507,19 +507,32 @@ async function materializeScanCleanupPreviewRequest<
 // The directory holds paths and dimensions only: the bytes are read on demand
 // and never held, and the retained footprint is bounded by the same scratch
 // budget the final-run pipeline spends through resolveRasterHandoff.
-function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies) {
+// Exported because this is the object detection's bounded window drives as its
+// retention: its ownership rules are a contract between the two and are pinned
+// directly rather than through whichever window happens to exercise them.
+export function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies) {
     const documents = new Map<string, IRetainedDocument>();
     const opening = new Map<string, Promise<IRetainedDocument>>();
     const rasters = new Map<string, IRetainedRawRaster>();
+    // Rasters another consumer has taken since detection staged them. A preview
+    // that adopts one names its path in a manifest of its own and then runs a
+    // sidecar against it, so detection's bounded window must give up its claim
+    // instead of unlinking the file mid-read. Ownership passes to this index,
+    // which is where every other retained raster already lives.
+    const adoptedRasters = new Set<string>();
     let retainedBytes = 0;
     let root: Promise<string> | null = null;
     let budget: Promise<number> | null = null;
 
+    // Unlinking a retained raster is best effort: the index has already given
+    // the file up, and a filesystem that refuses the unlink must not turn a
+    // reclaimed slot into a failed run.
+    const removeQuietly = (path: string) => rm(path, {
+        force: true,
+        recursive: true,
+    }).catch(error => logger.warn(`Failed to drop a retained scan cleanup raster: ${getErrorMessage(error)}`));
     const remove = (path: string) => {
-        void rm(path, {
-            force: true,
-            recursive: true,
-        }).catch(error => logger.warn(`Failed to drop a retained scan cleanup raster: ${getErrorMessage(error)}`));
+        void removeQuietly(path);
     };
     // A raster is a function of the document identity, the page and the DPI
     // alone, so it has exactly one path inside the document's directory. A
@@ -539,6 +552,7 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
     ]);
     const forget = (key: string, raster: IRetainedRawRaster) => {
         rasters.delete(key);
+        adoptedRasters.delete(key);
         retainedBytes -= raster.sizeBytes;
     };
     const ensureRoot = () => {
@@ -848,6 +862,40 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
         async rasterScratchPath(document: IRetainedDocument, pageNumber: number, dpi: number) {
             return join(await document.dir, `page-${pageNumber}-${dpi}.${randomUUID()}.part.png`);
         },
+        // Where that render will land once it is published. A raster has one
+        // path per document, page and DPI, so detection can name every Analyze
+        // input in its manifest before it stages the first one, and a page the
+        // bounded window dropped is republished at the identical path.
+        async stagedRasterPath(document: IRetainedDocument, pageNumber: number, dpi: number) {
+            return stableRasterPath(await document.dir, pageNumber, dpi);
+        },
+        // Drops one staged raster and its index entry. The bounded detection
+        // window calls this to reclaim a slot and to roll a failed run back, so
+        // the page must remain re-renderable at the same path afterwards.
+        async releaseRaster(document: IRetainedDocument, pageNumber: number, dpi: number) {
+            const key = rasterKey(document, pageNumber, dpi);
+            if (adoptedRasters.has(key)) {
+                // Someone else is reading this exact file. The window gives its
+                // slot back either way; the raster itself stays in the index and
+                // leaves with the ordinary budget sweep, which skips it for as
+                // long as that consumer keeps the document pinned.
+                //
+                // The adoption outlives this call. Clearing it here would make
+                // the release non-idempotent: a second release of the same page
+                // -- a retried eviction, or a rollback that drops what the
+                // window still had admitted -- would then unlink a path another
+                // consumer has already named in a sidecar manifest. Ownership
+                // returns to the window only when `retain` republishes the path
+                // or `forget` drops the entry.
+                return;
+            }
+            const raster = rasters.get(key);
+            if (raster) forget(key, raster);
+            // The index entry is already gone, so the slot is reclaimed even if
+            // the unlink is refused; the stale file is then dropped with the
+            // document's directory instead of failing the window's rollback.
+            await removeQuietly(raster?.path ?? stableRasterPath(await document.dir, pageNumber, dpi));
+        },
         // Which of these pages the index can hand over as a file, without
         // reading a byte. A raster is a function of the source, the revision,
         // the mtime, the page and the DPI alone, so a caller that re-renders a
@@ -884,6 +932,7 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
             try {
                 const bytes = await readPreviewBytes(raster.path);
                 rasters.set(key, raster);
+                adoptedRasters.add(key);
                 return {
                     bytes,
                     raster,
@@ -912,6 +961,7 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
                 };
                 retainedBytes += refreshed.sizeBytes - raster.sizeBytes;
                 rasters.set(key, refreshed);
+                adoptedRasters.add(key);
                 return refreshed;
             } catch (error) {
                 if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -934,6 +984,7 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
             const key = rasterKey(rendered.document, rendered.pageNumber, rendered.dpi);
             const previous = rasters.get(key);
             if (previous) forget(key, previous);
+            adoptedRasters.delete(key);
             const raster: IRetainedRawRaster = {
                 document: rendered.document,
                 dpi: rendered.dpi,
@@ -973,6 +1024,7 @@ function createRawRasterRetention(dependencies: IScanCleanupPreviewDependencies)
             documents.clear();
             opening.clear();
             rasters.clear();
+            adoptedRasters.clear();
             retainedBytes = 0;
             const rootPath = await root?.catch(() => null);
             if (rootPath !== null && rootPath !== undefined) {
@@ -2716,6 +2768,7 @@ export function createScanCleanupPreviewService(
         toError: (cause, kind) => ({
             code: classifyScanCleanupError(cause, kind === 'canceled'),
             message: getErrorMessage(cause),
+            ...scanCleanupScratchShortfall(cause),
         }),
         terminalProgress: {
             completed: (latest, result) => ({
@@ -2742,6 +2795,12 @@ export function createScanCleanupPreviewService(
                 status: 'failed',
                 error: error.message,
                 errorCode: error.code,
+                // The renderer states this refusal in the user's language, so
+                // the figures behind it travel typed rather than in the
+                // English message.
+                ...(error.scratchShortfall === undefined
+                    ? {}
+                    : {scratchShortfall: error.scratchShortfall}),
                 updatedAtMs: Date.now(),
             }),
         },

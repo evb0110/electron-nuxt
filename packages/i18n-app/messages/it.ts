@@ -415,6 +415,8 @@ export default {
             'detectionSubscriptionFailed': 'Non è stato possibile osservare il rilevamento delle pagine dopo il fallimento della sottoscrizione.',
             'runSubscriptionFailed': 'Non è stato possibile osservare la pulizia della scansione dopo il fallimento della sottoscrizione.',
             'runRecoveryFailed': 'Non è stato possibile recuperare la pulizia della scansione dopo il ripristino della sessione del renderer.',
+            'insufficientScratch': 'Spazio libero insufficiente sul disco temporaneo per analizzare questo documento.',
+            'insufficientScratchSpace': 'Libera spazio su disco e riprova: servono {required}, sono liberi {available}.',
         },
         'cancelingDetection': 'Arresto dell’analisi in background…',
         'startingCleanup': 'Avvio della pulizia…',

@@ -10,6 +10,12 @@ use std::{
 
 pub const VERSION: u32 = 3;
 pub const MAX_RASTER_WINDOW: usize = 16;
+/// A staged-input window is a residency bound, not a queue: it may never grow
+/// past the number of pages the sidecar can hold leases for at once.
+pub const MAX_STAGED_INPUT_WINDOW: usize = 16;
+/// One gigapixel is far above any page a 150-DPI analysis raster can reach and
+/// still keeps the declared peak inside the arithmetic the pool sizing uses.
+pub const MAX_STAGED_INPUT_PEAK_PIXELS: u64 = 1_000_000_000;
 pub const MAX_MANIFEST_PAGES: usize = 20_000;
 pub const MAX_MANIFEST_PATH_BYTES: usize = 4_096;
 
@@ -271,6 +277,27 @@ pub struct ManifestV3 {
     /// coordinate producers retain the one-page acknowledgement turnstile.
     #[serde(default = "default_raster_window")]
     pub raster_window: usize,
+    /// Number of Analyze page inputs the owning process keeps staged at once.
+    ///
+    /// Present only when that process stages replayable page rasters through
+    /// the lease protocol: the sidecar announces `page-input-required` for an
+    /// absent input, waits for the producer to publish it, and announces
+    /// `page-input-released` once it has finished reading it. Because the
+    /// producer can always re-render the same deterministic raster, an input
+    /// released here is replayable rather than consumed, which is what keeps a
+    /// bounded window from changing any classification. Absent means every
+    /// Analyze input must already exist, which is the direct-CLI contract.
+    #[serde(default)]
+    pub staged_input_window: Option<usize>,
+    /// Largest staged Analyze input the owning process will publish, in pixels.
+    ///
+    /// The sidecar sizes its page pool from the largest input it can measure,
+    /// but under a staged window most inputs are still unrendered when that
+    /// decision is made. The producer already knows every page's raster
+    /// geometry, so it declares the document's peak here and the memory-derived
+    /// bound stays a document fact instead of a staging-order accident.
+    #[serde(default)]
+    pub staged_input_peak_pixels: Option<u64>,
     #[serde(deserialize_with = "deserialize_manifest_pages")]
     pub pages: Vec<Page>,
 }
@@ -311,6 +338,32 @@ impl ManifestV3 {
             return Err(invalid(format!(
                 "Raster window must be between 1 and {MAX_RASTER_WINDOW}",
             )));
+        }
+        if let Some(window) = self.staged_input_window {
+            if self.operation != Operation::Analyze {
+                return Err(invalid(
+                    "stagedInputWindow is only valid for analyze manifests",
+                ));
+            }
+            if !(1..=MAX_STAGED_INPUT_WINDOW).contains(&window) {
+                return Err(invalid(format!(
+                    "Staged input window must be between 1 and {MAX_STAGED_INPUT_WINDOW}",
+                )));
+            }
+        }
+        match (self.staged_input_window, self.staged_input_peak_pixels) {
+            (Some(_), Some(pixels)) if (1..=MAX_STAGED_INPUT_PEAK_PIXELS).contains(&pixels) => {}
+            (Some(_), None) | (None, None) => {}
+            (None, Some(_)) => {
+                return Err(invalid(
+                    "stagedInputPeakPixels requires a stagedInputWindow",
+                ));
+            }
+            (Some(_), Some(_)) => {
+                return Err(invalid(format!(
+                    "Staged input peak pixels must be between 1 and {MAX_STAGED_INPUT_PEAK_PIXELS}",
+                )));
+            }
         }
         if self.operation == Operation::Render
             && self.document_canvas.is_none()
@@ -449,9 +502,16 @@ impl ManifestV3 {
     /// primary input must already be an existing regular file. Render keeps
     /// its one-shot FIFO input contract, and producer-created auxiliary paths
     /// remain optional until the corresponding Render stage consumes them.
+    ///
+    /// A manifest that declares `stagedInputWindow` is the one exception: its
+    /// owning process stages a bounded window of replayable rasters and
+    /// publishes each page on request, so an input that is absent at admission
+    /// is expected rather than missing. Replayability is preserved because the
+    /// producer re-renders the identical raster whenever the sidecar asks for
+    /// it again.
     pub(crate) fn validate_for_execution(&self) -> Result<(), NativeError> {
         self.validate()?;
-        if self.operation == Operation::Analyze {
+        if self.operation == Operation::Analyze && self.staged_input_window.is_none() {
             for page in &self.pages {
                 validate_required_regular_path(
                     &page.input_path,
@@ -788,6 +848,105 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Raster window"));
+    }
+
+    #[test]
+    fn staged_input_window_is_an_analyze_only_bounded_additive_field() {
+        let json = r#"{
+            "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
+            "pages":[{"inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
+              "outputs":[],"options":{}}]
+        }"#;
+        let absent: ManifestV3 = serde_json::from_str(json).unwrap();
+        absent.validate().unwrap();
+        assert_eq!(absent.staged_input_window, None);
+        assert_eq!(absent.staged_input_peak_pixels, None);
+
+        let windowed: ManifestV3 = serde_json::from_str(&json.replace(
+            "\"pages\"",
+            "\"stagedInputWindow\":4,\"stagedInputPeakPixels\":7000000,\"pages\"",
+        ))
+        .unwrap();
+        windowed.validate().unwrap();
+        assert_eq!(windowed.staged_input_window, Some(4));
+        assert_eq!(windowed.staged_input_peak_pixels, Some(7_000_000));
+
+        let oversized: ManifestV3 =
+            serde_json::from_str(&json.replace("\"pages\"", "\"stagedInputWindow\":17,\"pages\""))
+                .unwrap();
+        assert!(oversized
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("Staged input window"));
+
+        let empty: ManifestV3 =
+            serde_json::from_str(&json.replace("\"pages\"", "\"stagedInputWindow\":0,\"pages\""))
+                .unwrap();
+        assert!(empty
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("Staged input window"));
+
+        let unwindowed_peak: ManifestV3 = serde_json::from_str(
+            &json.replace("\"pages\"", "\"stagedInputPeakPixels\":7000000,\"pages\""),
+        )
+        .unwrap();
+        assert!(unwindowed_peak
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("requires a stagedInputWindow"));
+
+        let oversized_peak: ManifestV3 = serde_json::from_str(&json.replace(
+            "\"pages\"",
+            "\"stagedInputWindow\":4,\"stagedInputPeakPixels\":1000000001,\"pages\"",
+        ))
+        .unwrap();
+        assert!(oversized_peak
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("Staged input peak pixels"));
+
+        let rendering: ManifestV3 = serde_json::from_str(
+            &json
+                .replace("\"operation\":\"analyze\"", "\"operation\":\"render\"")
+                .replace(
+                    "\"outputs\":[]",
+                    "\"outputs\":[{\"outputPath\":\"out.png\",\"metadataPath\":\"out.json\"}]",
+                )
+                .replace("\"pages\"", "\"stagedInputWindow\":4,\"pages\""),
+        )
+        .unwrap();
+        assert!(rendering
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("only valid for analyze manifests"));
+    }
+
+    /// Whole-document staging is the direct-CLI contract, and a staged window
+    /// is the one documented exception to it.
+    #[test]
+    fn only_a_staged_window_admits_an_analyze_input_that_is_not_on_disk_yet() {
+        let json = r#"{
+            "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
+            "pages":[{"inputPath":"absent-page.png","sourcePageIndex":0,
+              "pageMetadataPath":"page.json","outputs":[],"options":{}}]
+        }"#;
+        let direct: ManifestV3 = serde_json::from_str(json).unwrap();
+        assert!(direct
+            .validate_for_execution()
+            .unwrap_err()
+            .to_string()
+            .contains("must be an existing regular file"));
+
+        let staged: ManifestV3 =
+            serde_json::from_str(&json.replace("\"pages\"", "\"stagedInputWindow\":2,\"pages\""))
+                .unwrap();
+        staged.validate_for_execution().unwrap();
     }
 
     #[test]

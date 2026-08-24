@@ -1,5 +1,6 @@
 import { isRecord } from '@contracts/runtimeGuards';
 import {
+    decodeScanCleanupScratchShortfall,
     SCAN_CLEANUP_ERROR_CODES,
     SCAN_CLEANUP_SUMMARY_SCHEMA,
 } from '@contracts/scan-cleanup/ipc';
@@ -1187,6 +1188,9 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
             status: 'failed',
             error: value.error,
             errorCode: value.errorCode,
+            ...(value.scratchShortfall === undefined
+                ? {}
+                : {scratchShortfall: decodeScanCleanupScratchShortfall(value.scratchShortfall)}),
         };
     }
     throw new Error('invalid scan-cleanup detection job status');

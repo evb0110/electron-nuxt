@@ -415,6 +415,8 @@ export default {
             'detectionSubscriptionFailed': 'Die Seitenerkennung konnte nach dem Fehlschlagen der Abonnementverbindung nicht beobachtet werden.',
             'runSubscriptionFailed': 'Die Scanbereinigung konnte nach dem Fehlschlagen der Abonnementverbindung nicht beobachtet werden.',
             'runRecoveryFailed': 'Die Scanbereinigung konnte nach der Wiederherstellung der Renderersitzung nicht wiederhergestellt werden.',
+            'insufficientScratch': 'Auf dem temporären Datenträger ist nicht genug freier Speicher, um dieses Dokument zu analysieren.',
+            'insufficientScratchSpace': 'Geben Sie Speicherplatz frei und versuchen Sie es erneut: {required} werden benötigt, {available} sind frei.',
         },
         'cancelingDetection': 'Hintergrundanalyse wird beendet…',
         'startingCleanup': 'Bereinigung wird gestartet…',

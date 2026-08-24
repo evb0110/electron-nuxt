@@ -193,6 +193,10 @@ const projectConfig = withNuxt(
         ['electron/features/djvu/main/pdfExport.ts', 1288],
         ['packages/contracts/djvuPlatformFeature.ts', 1328],
         ['packages/contracts/ocrPlatformFeature.ts', 1368],
+        // The v3 protocol contract is one shared schema with its native
+        // counterpart; splitting it would fork the pairing rather than shorten
+        // it. The staged Analyze input window is the growth this budget covers.
+        ['packages/contracts/scan-cleanup/nativeProtocolV3.ts', 1221],
     ].map(([
         file,
         max,

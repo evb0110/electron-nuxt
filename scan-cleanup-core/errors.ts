@@ -59,3 +59,31 @@ export class ScanCleanupNativeToolUnavailableError extends Error {
         this.toolName = toolName;
     }
 }
+
+/**
+ * Detection could not stage even one page raster inside the scratch budget.
+ *
+ * This is the only remaining storage refusal: a document is never rejected for
+ * its length, because it is analysed through a bounded window that is replayed.
+ * The two figures travel with the error so the renderer can state how much
+ * space is free and how much is needed without parsing an English sentence.
+ */
+export class ScanCleanupInsufficientScratchError extends Error {
+    readonly code = 'insufficient-scratch' as const;
+    readonly availableBytes: number | null;
+    readonly requiredBytes: number | null;
+
+    constructor(availableBytes: number | null, requiredBytes: number | null) {
+        const figures = [
+            availableBytes === null ? null : `${String(availableBytes)} bytes free`,
+            requiredBytes === null ? null : `${String(requiredBytes)} bytes required`,
+        ].filter(figure => figure !== null);
+        super(
+            'Scan cleanup detection cannot stage one page raster within the available scratch space'
+            + (figures.length === 0 ? '' : ` (${figures.join(', ')})`),
+        );
+        this.name = 'ScanCleanupInsufficientScratchError';
+        this.availableBytes = availableBytes;
+        this.requiredBytes = requiredBytes;
+    }
+}

@@ -164,6 +164,55 @@ describe('scan-cleanup native protocol codec', () => {
         }))).toThrow('text axis');
     });
 
+    it('decodes the staged-input lease frames the sidecar emits for a bounded window', () => {
+        const golden = readFileSync(
+            'native/scan-cleanup/tests/fixtures/protocol/staged-input-lease-progress-v3.json',
+            'utf8',
+        );
+        expect(decodeNativeScanCleanupEnvelope(golden)).toEqual({
+            version: 3,
+            type: 'progress',
+            progress: {
+                stage: 'page-input-required',
+                completedPages: 0,
+                totalPages: 148,
+                pageNumber: 147,
+            },
+        });
+
+        expect(decodeNativeScanCleanupEnvelope(JSON.stringify({
+            version: 3,
+            type: 'progress',
+            progress: {
+                stage: 'page-input-released',
+                completedPages: 0,
+                totalPages: 148,
+                pageNumber: 147,
+            },
+        }))).toMatchObject({progress: {
+            stage: 'page-input-released',
+            pageNumber: 147,
+        }});
+
+        // A lease is about one page, so a frame without page identity is not a
+        // lease the producer could answer. Both ends of the lease say which
+        // page they mean, or the producer would not know which slot to free.
+        for (const stage of [
+            'page-input-required',
+            'page-input-released',
+        ]) {
+            expect(() => decodeNativeScanCleanupEnvelope(JSON.stringify({
+                version: 3,
+                type: 'progress',
+                progress: {
+                    stage,
+                    completedPages: 0,
+                    totalPages: 148,
+                },
+            }))).toThrow('page number');
+        }
+    });
+
     it('rejects an invalid spread prior without a cutter median', () => {
         expect(() => decodeNativeScanCleanupEnvelope(JSON.stringify({
             version: 3,

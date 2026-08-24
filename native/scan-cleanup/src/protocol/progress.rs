@@ -126,12 +126,21 @@ impl AddAssign for PageStageTimings {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProgressStage {
     Started,
     PageAnalyzed,
     PageComplete,
+    /// The sidecar is about to read a staged page input that is not on disk
+    /// yet. Only manifests that declare `stagedInputWindow` can emit this: the
+    /// owning process replies by re-rendering that page's replayable raster to
+    /// the manifest path.
+    PageInputRequired,
+    /// The sidecar has finished every read of a staged page input. The owning
+    /// process may drop it; asking for it again is a re-render, never a
+    /// different raster.
+    PageInputReleased,
     Completed,
 }
 
@@ -173,6 +182,35 @@ pub struct Progress {
     pub soft_alpha_foreground_recommendation: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_mode_diagnostics: Option<OutputModeDiagnostics>,
+}
+
+impl Progress {
+    /// A staged-input lease frame. It carries page identity only: leases are a
+    /// transport concern and must never restate a classification a later
+    /// page-analyzed or page-complete frame owns.
+    pub fn page_input(stage: ProgressStage, page_number: usize, total_pages: usize) -> Self {
+        Self {
+            stage,
+            completed_pages: 0,
+            total_pages,
+            page_number: Some(page_number),
+            output_paths: None,
+            classification: None,
+            confidence: None,
+            cutter_x_px: None,
+            tier1_verdict: None,
+            reconciled: None,
+            cluster_agreement: None,
+            document_prior: None,
+            text_axis: None,
+            stage_timings: None,
+            recommended_output_mode: None,
+            recommended_output_mode_confidence: None,
+            recommended_output_mode_reason: None,
+            soft_alpha_foreground_recommendation: None,
+            output_mode_diagnostics: None,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -332,6 +370,37 @@ mod tests {
         .unwrap();
 
         assert_eq!(actual, expected);
+    }
+
+    /// The lease frames are transport: they carry page identity and nothing
+    /// else, so a bounded staging window can never restate a classification a
+    /// page-analyzed or page-complete frame owns.
+    #[test]
+    fn staged_input_lease_progress_matches_shared_v3_golden() {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/protocol/staged-input-lease-progress-v3.json");
+        let expected: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(fixture).unwrap()).unwrap();
+        let actual = serde_json::to_value(ProgressEnvelope::new(Progress::page_input(
+            ProgressStage::PageInputRequired,
+            147,
+            148,
+        )))
+        .unwrap();
+
+        assert_eq!(actual, expected);
+        let released = serde_json::to_value(ProgressEnvelope::new(Progress::page_input(
+            ProgressStage::PageInputReleased,
+            147,
+            148,
+        )))
+        .unwrap();
+        assert_eq!(released["progress"]["stage"], "page-input-released");
+        assert_eq!(
+            released["progress"].as_object().unwrap().len(),
+            4,
+            "a lease frame carries stage, page identity and totals only"
+        );
     }
 
     #[test]

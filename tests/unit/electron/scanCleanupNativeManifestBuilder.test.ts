@@ -732,6 +732,54 @@ describe('native scan-cleanup manifest builder', () => {
         expect(build(99).rasterWindow).toBe(16);
         expect(build()).not.toHaveProperty('rasterWindow');
     });
+
+    it('bounds the staged Analyze window and only declares a peak alongside it', () => {
+        const build = (stagedInputWindow?: number, stagedInputPeakPixels?: number) =>
+            buildGeometryOnlyNativeScanCleanupManifest({
+                operation: 'analyze',
+                analysisPurpose: 'page-plan',
+                renderMode: 'preview',
+                canvasScope: 'page',
+                qualityPath: 'raster',
+                options,
+                ...(stagedInputWindow === undefined ? {} : {stagedInputWindow}),
+                ...(stagedInputPeakPixels === undefined ? {} : {stagedInputPeakPixels}),
+                pages: [{
+                    inputPath: '/fixtures/input/page-1.png',
+                    pageNumber: 1,
+                    dpi: 150,
+                    pageMetadataPath: '/fixtures/output/page-1.json',
+                    outputs: [],
+                }],
+            });
+
+        expect(build(4, 2_317_034).stagedInputWindow).toBe(4);
+        expect(build(4, 2_317_034).stagedInputPeakPixels).toBe(2_317_034);
+        // The sidecar enforces the same ceilings, so the producer can never ask
+        // for a residency or a pool larger than the protocol admits. The
+        // maxima themselves pass through untouched, and the first value above
+        // each one is what the clamp starts answering for.
+        expect(build(16, 1_000_000_000).stagedInputWindow).toBe(16);
+        expect(build(16, 1_000_000_000).stagedInputPeakPixels).toBe(1_000_000_000);
+        expect(build(17, 1_000_000_001).stagedInputWindow).toBe(16);
+        expect(build(17, 1_000_000_001).stagedInputPeakPixels).toBe(1_000_000_000);
+        expect(build(99, 5_000_000_000).stagedInputWindow).toBe(16);
+        expect(build(99, 5_000_000_000).stagedInputPeakPixels).toBe(1_000_000_000);
+        // Below the floor a window would promise a residency that cannot serve
+        // a single lease, so the smallest window the sidecar can work against
+        // is what a zero or negative request becomes.
+        expect(build(0).stagedInputWindow).toBe(1);
+        expect(build(-4).stagedInputWindow).toBe(1);
+        // A window without a peak is the ordinary case for a producer that has
+        // not measured its largest page yet; the sidecar falls back to its own
+        // pool sizing rather than being denied the lease protocol.
+        expect(build(4).stagedInputWindow).toBe(4);
+        expect(build(4)).not.toHaveProperty('stagedInputPeakPixels');
+        // A declared peak without a window would size a pool for a residency
+        // nobody promised to keep.
+        expect(build(undefined, 2_317_034)).not.toHaveProperty('stagedInputPeakPixels');
+        expect(build()).not.toHaveProperty('stagedInputWindow');
+    });
 });
 
 describe('runnable native scan-cleanup manifest path containment', () => {

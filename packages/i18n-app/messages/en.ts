@@ -778,6 +778,8 @@ export default {
             'detectionSubscriptionFailed': 'Page detection could not be observed after the subscription failed.',
             'runSubscriptionFailed': 'Scan cleanup could not be observed after the subscription failed.',
             'runRecoveryFailed': 'Scan cleanup could not be recovered after the renderer session was restored.',
+            'insufficientScratch': 'Not enough free space on the temporary disk to analyze this document.',
+            'insufficientScratchSpace': 'Free up disk space and try again: {required} is needed, {available} is free.',
         },
         'cancelingDetection': 'Stopping background analysis…',
         'startingCleanup': 'Starting cleanup…',

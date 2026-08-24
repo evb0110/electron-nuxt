@@ -53,15 +53,50 @@ export interface IScanCleanupOwnerContext {
 export type TScanCleanupErrorCode =
     | TNativeErrorCode
     | 'tools-unavailable'
+    /** Not even one page raster fits the scratch budget. Carries scratch figures. */
+    | 'insufficient-scratch'
     | 'canceled'
     | 'internal';
 
 export const SCAN_CLEANUP_ERROR_CODES = [
     ...NATIVE_ERROR_CODES,
     'tools-unavailable',
+    'insufficient-scratch',
     'canceled',
     'internal',
 ] as const satisfies readonly TScanCleanupErrorCode[];
+
+/**
+ * Free and required scratch space for an `insufficient-scratch` failure.
+ *
+ * The renderer owns every word the user reads, so the numbers travel typed
+ * beside the error code instead of inside its English message.
+ */
+export interface IScanCleanupScratchShortfall {
+    availableBytes: number | null;
+    requiredBytes: number | null;
+}
+
+function decodeOptionalByteCount(value: unknown) {
+    if (value === null) {
+        return null;
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+        throw new Error('invalid scan-cleanup scratch shortfall');
+    }
+    return value;
+}
+
+/** Normalizes the two scratch figures, or rejects a payload that is not one. */
+export function decodeScanCleanupScratchShortfall(value: unknown): IScanCleanupScratchShortfall {
+    if (!isRecord(value)) {
+        throw new Error('invalid scan-cleanup scratch shortfall');
+    }
+    return {
+        availableBytes: decodeOptionalByteCount(value.availableBytes),
+        requiredBytes: decodeOptionalByteCount(value.requiredBytes),
+    };
+}
 
 export interface IScanCleanupErrorEnvelope extends ISerializableErrorEnvelope<TScanCleanupErrorCode> {}
 
@@ -462,7 +497,13 @@ export type TScanCleanupDetectionJobState =
     | IScanCleanupDetectionJobBase & {
         status: 'failed';
         error: string;
-        errorCode: TScanCleanupErrorCode
+        errorCode: TScanCleanupErrorCode;
+        /**
+         * Free and required scratch space for an `insufficient-scratch`
+         * failure. The renderer states both figures in the user's language
+         * instead of quoting the English exception.
+         */
+        scratchShortfall?: IScanCleanupScratchShortfall
     };
 
 export type TScanCleanupDetectionStartResult =

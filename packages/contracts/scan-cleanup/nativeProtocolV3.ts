@@ -615,6 +615,20 @@ export interface INativeScanCleanupManifestV3 {
      * manifests retain the one-page turnstile.
      */
     rasterWindow?: number;
+    /**
+     * Analyze page inputs the owning process keeps staged at once. Present only
+     * when it stages a bounded window of replayable rasters instead of the
+     * whole document, which puts the sidecar on the lease protocol below.
+     * Omitted means every Analyze input must already exist, the direct-CLI
+     * contract. See docs/scan-cleanup/staged-analyze-window.md.
+     */
+    stagedInputWindow?: number;
+    /**
+     * Pixels in the largest raster that window will stage. The sidecar sizes
+     * its page pool from it while most inputs are still unrendered, so the
+     * memory bound stays a fact about the document. Needs a window.
+     */
+    stagedInputPeakPixels?: number;
     pages: INativeScanCleanupPageV3[];
 }
 
@@ -775,6 +789,11 @@ const progress = s.refine(s.refine(s.object({
     stage: s.oneOf([
         'started',
         'page-analyzed',
+        // Staged-input lease frames, carrying page identity only: the producer
+        // answers `page-input-required` by publishing that page's raster and
+        // may drop it after `page-input-released`.
+        'page-input-required',
+        'page-input-released',
         'page-complete',
         'completed',
     ] as const, 'Invalid evb-scan-cleanup progress envelope'),
@@ -821,7 +840,10 @@ const progress = s.refine(s.refine(s.object({
 }), value => value.completedPages <= value.totalPages,
 'Invalid evb-scan-cleanup progress envelope'), value =>
     value.pageNumber === undefined
-        ? value.stage !== 'page-analyzed' && value.stage !== 'page-complete'
+        ? value.stage !== 'page-analyzed'
+            && value.stage !== 'page-complete'
+            && value.stage !== 'page-input-required'
+            && value.stage !== 'page-input-released'
         : value.pageNumber <= value.totalPages,
 'Invalid evb-scan-cleanup progress page number');
 const successResult = s.object({

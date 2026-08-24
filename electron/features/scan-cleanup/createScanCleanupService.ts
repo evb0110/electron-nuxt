@@ -14,6 +14,7 @@ import type {
     TScanCleanupProgress,
     TScanCleanupSummary,
     TScanCleanupStartResult,
+    IScanCleanupScratchShortfall,
     TScanCleanupErrorCode,
     TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
@@ -63,7 +64,10 @@ import {
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
+import {
+    ScanCleanupInsufficientScratchError,
+    ScanCleanupNativeToolUnavailableError,
+} from '@scan-cleanup-core/errors';
 
 interface IScanCleanupJobResult {
     completedPageNumbers: number[];
@@ -280,7 +284,10 @@ export function classifyScanCleanupError(error: unknown, aborted: boolean): TSca
     if (aborted) {
         return 'canceled';
     }
-    if (error instanceof ScanCleanupNativeToolUnavailableError) {
+    if (
+        error instanceof ScanCleanupNativeToolUnavailableError
+        || error instanceof ScanCleanupInsufficientScratchError
+    ) {
         return error.code;
     }
     const errorCode = error && typeof error === 'object' && 'code' in error
@@ -299,6 +306,25 @@ export function classifyScanCleanupError(error: unknown, aborted: boolean): TSca
         return 'invalid-request';
     }
     return 'internal';
+}
+
+/**
+ * Scratch figures for the one storage refusal that survives the bounded window.
+ *
+ * They travel typed beside the error code so the renderer can say how much
+ * space is free and how much is needed in the user's own language.
+ */
+export interface IScanCleanupJobErrorEnvelope extends IMainJobErrorEnvelope<TScanCleanupErrorCode> {scratchShortfall?: IScanCleanupScratchShortfall;}
+
+export function scanCleanupScratchShortfall(
+    error: unknown,
+): Pick<IScanCleanupJobErrorEnvelope, 'scratchShortfall'> {
+    return error instanceof ScanCleanupInsufficientScratchError
+        ? {scratchShortfall: {
+            availableBytes: error.availableBytes,
+            requiredBytes: error.requiredBytes,
+        }}
+        : {};
 }
 
 export async function materializeScanCleanupSourcePath(

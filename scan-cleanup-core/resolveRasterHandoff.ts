@@ -110,6 +110,122 @@ function estimateRawRasterBytes(
     return Number.isSafeInteger(estimatedBytes) ? estimatedBytes : null;
 }
 
+function resolveRasterBudgetBytes(availableBytes: number | null) {
+    return availableBytes === null
+        ? RAW_RASTER_BUDGET_FLOOR_BYTES
+        : Math.min(
+            Math.max(
+                RAW_RASTER_BUDGET_FLOOR_BYTES,
+                Math.floor(availableBytes * RAW_RASTER_FREE_SPACE_SHARE),
+            ),
+            Math.max(0, availableBytes - RAW_RASTER_FREE_SPACE_RESERVE_BYTES),
+        );
+}
+
+/**
+ * Free scratch space that would admit `windowBytes`.
+ *
+ * The budget keeps a fixed reserve off the filesystem and, above the floor,
+ * never spends more than a quarter of what is free. Inverting it turns a
+ * refusal into the one number a user can act on: how much space to make
+ * available.
+ */
+export function resolveRequiredScratchBytes(windowBytes: number) {
+    return windowBytes <= RAW_RASTER_BUDGET_FLOOR_BYTES
+        ? windowBytes + RAW_RASTER_FREE_SPACE_RESERVE_BYTES
+        : Math.ceil(windowBytes / RAW_RASTER_FREE_SPACE_SHARE);
+}
+
+export interface IScanCleanupStagedWindowAdmission {
+    admitted: boolean;
+    /** Pages that may be staged at once. Zero only when nothing must be staged. */
+    windowPages: number;
+    /**
+     * Scratch the selected window occupies, or the smallest window when
+     * refused. Null when the pages cannot be measured at all.
+     */
+    windowBytes: number | null;
+    budgetBytes: number;
+    availableBytes: number | null;
+    /** What whole-document staging would have cost. Diagnostics only. */
+    wholeDocumentBytes: number | null;
+    /** Free scratch that would admit the smallest safe window. */
+    requiredBytes: number | null;
+}
+
+/**
+ * Choose how many page rasters may be staged at once.
+ *
+ * Admission is a question about one bounded window, never about the document:
+ * a long document is processed by replaying that window, so its length changes
+ * how long detection runs and not whether it may run. Scratch pressure narrows
+ * the window — and with it the producer's concurrency — until only one page
+ * fits; below that the run is genuinely out of space and says so.
+ */
+export async function resolveStagedRasterWindow(
+    plans: readonly IScanCleanupRasterHandoffPlan[],
+    requestedWindowPages: number,
+    scratch: string,
+    getAvailableScratchBytes: typeof readAvailableScratchBytes,
+): Promise<IScanCleanupStagedWindowAdmission> {
+    const availableBytes = await getAvailableScratchBytes(scratch);
+    const budgetBytes = resolveRasterBudgetBytes(availableBytes);
+    const wholeDocumentBytes = estimateRawRasterBytes(plans, plans.length);
+    if (plans.length === 0) {
+        return {
+            admitted: true,
+            windowPages: 0,
+            windowBytes: 0,
+            budgetBytes,
+            availableBytes,
+            wholeDocumentBytes,
+            requiredBytes: null,
+        };
+    }
+    const ceiling = Math.max(1, Math.min(Math.floor(requestedWindowPages), plans.length));
+    for (let windowPages = ceiling; windowPages >= 1; windowPages -= 1) {
+        const windowBytes = estimateRawRasterBytes(plans, windowPages);
+        if (windowBytes !== null && windowBytes <= budgetBytes) {
+            return {
+                admitted: true,
+                windowPages,
+                windowBytes,
+                budgetBytes,
+                availableBytes,
+                wholeDocumentBytes,
+                requiredBytes: null,
+            };
+        }
+    }
+    const smallestWindowBytes = estimateRawRasterBytes(plans, 1);
+    if (smallestWindowBytes === null) {
+        // Nothing here says the space is short: the geometry of at least one
+        // page could not be measured, so no window has a cost to compare. A
+        // refusal would be a storage figure the caller invented, and the run
+        // would be blocked over an unknown. The narrowest window is admitted
+        // instead, which is the same single-page footprint an unmeasurable
+        // handoff already falls back to.
+        return {
+            admitted: true,
+            windowPages: 1,
+            windowBytes: null,
+            budgetBytes,
+            availableBytes,
+            wholeDocumentBytes,
+            requiredBytes: null,
+        };
+    }
+    return {
+        admitted: false,
+        windowPages: 1,
+        windowBytes: smallestWindowBytes,
+        budgetBytes,
+        availableBytes,
+        wholeDocumentBytes,
+        requiredBytes: resolveRequiredScratchBytes(smallestWindowBytes),
+    };
+}
+
 export async function resolveRasterHandoff(
     plans: readonly IScanCleanupRasterHandoffPlan[],
     scratch: string,
@@ -125,15 +241,7 @@ export async function resolveRasterHandoff(
         };
     }
     const availableBytes = await getAvailableScratchBytes(scratch);
-    const budgetBytes = availableBytes === null
-        ? RAW_RASTER_BUDGET_FLOOR_BYTES
-        : Math.min(
-            Math.max(
-                RAW_RASTER_BUDGET_FLOOR_BYTES,
-                Math.floor(availableBytes * RAW_RASTER_FREE_SPACE_SHARE),
-            ),
-            Math.max(0, availableBytes - RAW_RASTER_FREE_SPACE_RESERVE_BYTES),
-        );
+    const budgetBytes = resolveRasterBudgetBytes(availableBytes);
     return {
         format: estimatedBytes > budgetBytes ? 'png' as const : 'ppm' as const,
         estimatedBytes,
