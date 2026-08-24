@@ -1200,10 +1200,21 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:wasm:portable');
         expectSplitQualitySteps(workflowJob(workflow, 'nightly_maintenance'));
         expect(workflow).toContain('run: pnpm run test:rust');
-        expect(workflowJob(workflow, 'pr_scan_cleanup_heavy'))
+        // The real-corpus suite is nightly-only: two blocking days, ~18
+        // minutes per native push, zero catches (anti-accretion rule).
+        expect(workflowJob(workflow, 'nightly_maintenance'))
             .toContain('run: node scripts/run-native-corpus-tests.mjs');
         expect(workflowJob(workflow, 'pr_scan_cleanup_heavy'))
+            .not.toContain('run: node scripts/run-native-corpus-tests.mjs');
+        expect(workflowJob(workflow, 'pr_scan_cleanup_heavy'))
             .toContain('run: pnpm run test:scan-cleanup:canonical-identity');
+        // Push-lane rust caches are accelerators; nightly stays cache-cold.
+        expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('name: Restore Rust build caches');
+        expect(workflowJob(workflow, 'nightly_maintenance')).not.toContain('name: Restore Rust build caches');
+        // The parallel heavy lane must stay wired into the aggregate gate.
+        const gatesOkJob = workflowJob(workflow, 'gates_ok');
+        expect(gatesOkJob).toContain('- pr_scan_cleanup_heavy');
+        expect(gatesOkJob).toContain('[\'pr_scan_cleanup_heavy\', process.env.NATIVE_OR_BUILD_CHANGED],');
         const rustFuzz = workflowJob(workflow, 'nightly_rust_fuzz');
         expect(rustFuzz).toContain('cargo install cargo-fuzz --version 0.13.1 --locked');
         expect(rustFuzz).toContain('for target in decode roundtrip; do');

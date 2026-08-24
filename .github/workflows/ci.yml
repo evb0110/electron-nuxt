@@ -322,6 +322,18 @@ jobs:
       - name: Install Rust lint components
         run: rustup component add rustfmt clippy
 
+      - name: Restore Rust build caches
+        # Push-lane accelerator only. The nightly lanes stay cache-cold on
+        # purpose as the cache-poisoning tripwire.
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/target
+          key: rust-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: rust-native-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Rust tests
         run: pnpm run test:rust
 
@@ -347,12 +359,12 @@ jobs:
         run: pnpm run test:electron-bundle-static-integrity:no-build
 
   pr_scan_cleanup_heavy:
-    # The two cargo-release-heavy scan-cleanup gates (real-corpus, canonical
-    # identity) measured 18.0m and 7.7m serially inside Native And Build
-    # Safety, pushing that lane to 45-49 minutes (issue #109's root growth).
-    # Running them as a parallel sibling keeps them blocking through gates_ok
-    # while the native lane's serial path returns to ~26 minutes; within this
-    # job the two share one cargo target directory.
+    # The cargo-release-heavy canonical identity gate ran serially inside
+    # Native And Build Safety and helped push that lane to 45-49 minutes
+    # (issue #109's root growth). It runs as a parallel sibling, blocking
+    # through gates_ok, off the native lane's serial path. The 18-minute
+    # real-corpus suite was demoted to nightly after two blocking days with
+    # zero catches (anti-accretion rule, docs/releasing.md).
     name: Scan Cleanup Heavy Gates
     if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
     needs: pr_changed_areas
@@ -381,8 +393,17 @@ jobs:
         timeout-minutes: 15
         run: scripts/ci/apt-install.sh poppler-utils
 
-      - name: Scan-cleanup real-corpus tests
-        run: node scripts/run-native-corpus-tests.mjs
+      - name: Restore Rust build caches
+        # Push-lane accelerator only. The nightly lanes stay cache-cold on
+        # purpose as the cache-poisoning tripwire.
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/target
+          key: rust-scan-heavy-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: rust-scan-heavy-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Canonical scan-cleanup identity
         run: pnpm run test:scan-cleanup:canonical-identity
@@ -415,6 +436,18 @@ jobs:
       - name: Install PDF text test tools
         timeout-minutes: 15
         run: scripts/ci/apt-install.sh poppler-utils
+
+      - name: Restore Rust build caches
+        # Push-lane accelerator only. The nightly lanes stay cache-cold on
+        # purpose as the cache-poisoning tripwire.
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/target
+          key: rust-arm64-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: rust-arm64-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Rust tests
         run: pnpm run test:rust
@@ -800,6 +833,12 @@ jobs:
       - name: Rust tests
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run test:rust
+
+      - name: Scan-cleanup real-corpus tests
+        # Demoted from blocking push CI: ~18 minutes per native push with
+        # zero catches in its blocking lifetime (issue #109).
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: node scripts/run-native-corpus-tests.mjs
 
       - name: Coverage
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
