@@ -130,6 +130,7 @@ function mountAnnotationSession() {
             emitAnnotationModified: vi.fn(),
             emitAnnotationState: vi.fn(),
             emitAnnotationComments: vi.fn(),
+            emitAnnotationEnrichmentState: vi.fn(),
             emitAnnotationInventory: vi.fn(),
             emitAnnotationOpenNote: vi.fn(),
             emitAnnotationContextMenu: vi.fn(),
