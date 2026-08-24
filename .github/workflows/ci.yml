@@ -171,7 +171,7 @@ jobs:
     if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.electron_smoke == 'true' }}
     needs: pr_changed_areas
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -292,7 +292,7 @@ jobs:
     if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
     needs: pr_changed_areas
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -369,7 +369,7 @@ jobs:
     if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
     needs: pr_changed_areas
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -413,7 +413,7 @@ jobs:
     if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
     needs: pr_changed_areas
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -457,7 +457,7 @@ jobs:
     if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.scan_cleanup_export == 'true' }}
     needs: pr_changed_areas
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - name: Checkout

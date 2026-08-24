@@ -870,17 +870,52 @@ describe('CI topology policy', () => {
         // slowest blocking CI job's declared timeout plus a queueing margin,
         // so growing CI can never silently outlive the release wait again.
         const ciJobs = parseWorkflowJobs(await readProjectFile('.github/workflows/ci.yml'));
-        const blockingTimeoutMinutes = Object.entries(ciJobs)
-            .filter(([jobName]) => jobName.startsWith('pr_') || jobName === 'commit_attribution' || jobName === 'gates_ok')
-            .map(([
-                , job,
-            ]) => {
-                const timeout = (job as Record<string, unknown>)['timeout-minutes'];
-                return typeof timeout === 'number' ? timeout : 0;
-            });
-        expect(Math.max(...blockingTimeoutMinutes)).toBeGreaterThan(0);
+        // Duration budgets for every blocking lane, pinned at roughly twice
+        // each lane's measured post-#109 duration. timeout-minutes IS the
+        // duration budget: a gate addition that pushes a lane past it fails
+        // the commit that introduced it, and raising a budget is a deliberate
+        // edit here - which also feeds the release wait-budget assertion
+        // below, so CI growth can never again silently outrun the release.
+        // Measured baselines: cold-cache maxima from the 2026-08-24 runs
+        // right after the #109 split; remeasure before judging a trip stale.
+        const blockingLaneTimeoutBudgetMinutes: Record<string, number> = {
+            commit_attribution: 5, // measured <1m
+            gates_ok: 5, // measured <1m
+            pr_browser_integration: 10, // measured 1.9m
+            pr_changed_areas: 5, // measured <1m
+            pr_electron_blocking_smoke: 30, // measured 4.0m; Electron boot variance
+            pr_landing_quality: 15, // measured ~7m
+            pr_native_build_safety: 35, // measured 18.9m cold-cache
+            pr_quality: 20, // measured 13.4m
+            pr_rust_tests_arm64: 20, // measured 9.6m
+            pr_scan_cleanup_heavy: 25, // measured 10.1m cold-cache
+            pr_scan_cleanup_oracles: 15, // measured 3.2m
+        };
+        // Blocking = what actually gates the release: gates_ok plus its
+        // needs graph. Derived, not name-matched, so a newly wired blocking
+        // lane cannot dodge its budget by not starting with pr_.
+        const gatesOkNeeds = (ciJobs['gates_ok'] as Record<string, unknown>).needs;
+        expect(Array.isArray(gatesOkNeeds)).toBe(true);
+        const blockingJobNames = [
+            ...(gatesOkNeeds as string[]),
+            'gates_ok',
+        ].sort();
+        expect(blockingJobNames).toEqual(Object.keys(blockingLaneTimeoutBudgetMinutes).sort());
+        const blockingTimeoutMinutes = blockingJobNames.map((jobName) => {
+            const timeout = (ciJobs[jobName] as Record<string, unknown>)['timeout-minutes'];
+            expect(
+                Number.isInteger(timeout) && (timeout as number) > 0,
+                `${jobName} must declare a positive integer timeout-minutes`,
+            ).toBe(true);
+            expect(timeout as number, `${jobName} timeout-minutes exceeds its pinned duration budget`)
+                .toBeLessThanOrEqual(blockingLaneTimeoutBudgetMinutes[jobName] ?? 0);
+            return timeout as number;
+        });
         const completionBudgetMatch = /EXACT_SHA_CI_COMPLETION_TIMEOUT_MS = (\d+) \* 60_000/u.exec(waitScript);
         expect(completionBudgetMatch).not.toBeNull();
+        // The 10-minute margin covers runner queueing before the slowest
+        // lane starts plus the gates_ok aggregation tail; a lane's own
+        // timeout-minutes clock only starts once its runner is assigned.
         expect(Number(completionBudgetMatch?.[1]))
             .toBeGreaterThanOrEqual(Math.max(...blockingTimeoutMinutes) + 10);
         // Push CI's gates_ok (hard-required by prepare) is the single

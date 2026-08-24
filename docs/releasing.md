@@ -45,7 +45,11 @@ Incident-response guards start advisory (`continue-on-error` plus a warning
 annotation) and are promoted only after catching a real defect twice. Prefer a
 cheap continuously-running contract in push CI over any release-time-only
 proof: release-path code that never executes between releases is where
-campaigns die.
+campaigns die. Every blocking CI lane's `timeout-minutes` is its duration
+budget, pinned by the topology policy test at roughly twice measured
+reality: an addition that outgrows its lane fails the commit introducing
+it, and raising a budget is a deliberate, reviewed edit that also feeds
+the release wait-budget assertion.
 
 ## Recovery flow
 
