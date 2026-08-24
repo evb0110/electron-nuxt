@@ -1049,8 +1049,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         pdfjsAnnotationEditorState,
         canvasHiddenAnnotationIds,
         scheduleSetAnnotationTool,
-        undoAnnotation: () => appAnnotationHistory.undo(),
-        redoAnnotation: () => appAnnotationHistory.redo(),
         ...saveTransaction,
         ...portalHandlers,
     };

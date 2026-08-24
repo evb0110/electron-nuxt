@@ -165,8 +165,6 @@ export interface IPdfViewerAnnotationCommandExpose {
     ) => Promise<ICreateShapeAnnotationResult>;
     startCommentPlacement: () => void;
     cancelCommentPlacement: () => void;
-    undoAnnotation: () => boolean | undefined;
-    redoAnnotation: () => boolean | undefined;
     registerAnnotationHistoryCommand?: (command: {
         cmd: () => void;
         undo: () => void;

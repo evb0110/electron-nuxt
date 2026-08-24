@@ -205,6 +205,44 @@ describe('AnnotationApplication', () => {
         expect(application.store.get(transientId)?.deleted).toBe(false);
     });
 
+    it('projects a redone saved annotation as persisted, with its saved ref', () => {
+        const application = new AnnotationApplication('document');
+        const annotationId = asAnnotationId('anno_saved_highlight');
+        application.store.createTextMarkup(textMarkup({
+            identity: {
+                id: annotationId,
+                pdfjsUid: 'editor-uid-1',
+            },
+            subtype: 'Highlight',
+            persistedRevision: -1,
+        }));
+        application.store.acknowledgeSave(application.store.beginSave(), new Map([[
+            annotationId,
+            '31R',
+        ]]));
+        const [saved] = application.listCommentSummaries();
+
+        expect(application.store.undo()).toBe(true);
+        expect(application.store.redo()).toBe(true);
+
+        // The sidebar and every save projection read this: a redone annotation
+        // the file still holds must project as the saved annotation it is, with
+        // no rescan needed to repair it.
+        const [redone] = application.listCommentSummaries();
+
+        expect(saved).toMatchObject({
+            source: 'pdf',
+            annotationId: '31R',
+            stableKey: 'ann:0:31R',
+        });
+        expect(redone).toMatchObject({
+            appAnnotationId: annotationId,
+            source: 'pdf',
+            annotationId: '31R',
+            stableKey: 'ann:0:31R',
+        });
+    });
+
     it('rejects a pre-existing identical markup when the new canonical annotation identity is missing', async () => {
         const application = new AnnotationApplication('document');
         application.store.createTextMarkup({

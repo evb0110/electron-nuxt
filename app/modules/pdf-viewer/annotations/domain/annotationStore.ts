@@ -27,12 +27,14 @@ import {
     semanticSnapshotsEqual,
     snapshotOfKind,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import { AnnotationPersistenceIdentityLedger } from '@app/modules/pdf-viewer/annotations/domain/annotationPersistenceIdentityLedger';
 import { ExternalIdentityIndex } from '@app/modules/pdf-viewer/annotations/domain/externalIdentityIndex';
 import {
     findImportedShapeMatchIndex,
     getNormalizedShapeStableKey,
     shapeStableRefsMatch,
 } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-identity/shapeAnnotationIdentity';
+import { estimateRetainedAnnotationBytes } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/estimateAnnotationSnapshotBytes';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import {
     LocalAnnotationHistoryAuthority,
@@ -103,6 +105,7 @@ export class AnnotationStore {
     readonly #saveFrontiers = new WeakMap<IAnnotationSaveFrontier, ISaveFrontierState>();
     readonly #pdfjsObservedTransientIds = new Set<AnnotationId>();
     readonly #pendingMarkupSubtypes = new Map<string, IPendingMarkupSubtypeIntent>();
+    readonly #persistenceIdentities = new AnnotationPersistenceIdentityLedger();
     #savedSemanticSnapshot = new Map<AnnotationId, ISavedSemanticEntry>();
     #mutationEpoch = 0;
     #shapeImportSource: IShapeImportSource = {
@@ -193,7 +196,7 @@ export class AnnotationStore {
             before: null,
             after: cloneEntity(created),
         });
-        this.#commitBatch(entries);
+        this.#commit(entries);
         return plan.projection;
     }
 
@@ -212,6 +215,7 @@ export class AnnotationStore {
             }
             this.#savedSemanticSnapshot.delete(id);
             this.#pdfjsObservedTransientIds.delete(id);
+            this.#persistenceIdentities.forget(id);
             if (entity) {
                 this.forgetPendingMarkupSubtypes(this.#externalIdentityKeys(entity.identity));
             }
@@ -225,6 +229,10 @@ export class AnnotationStore {
         this.#emit();
     }
 
+    /**
+     * One committed note text is one undo step, deliberately; the reasoning for
+     * not coalescing is in the L6 decision of the annotations audit ledger.
+     */
     setNoteText(id: AnnotationId, text: string) {
         return this.#update(id, (entity) => {
             if (entity.kind === 'shape') throw new Error('setNoteText requires a note-bearing annotation');
@@ -288,11 +296,11 @@ export class AnnotationStore {
             revision: current.revision + 1,
             modifiedAt: Date.now(),
         };
-        this.#commit({
+        this.#commit([{
             id,
             before,
             after,
-        });
+        }]);
         return cloneEntity(after);
     }
 
@@ -748,6 +756,9 @@ export class AnnotationStore {
         });
         this.#replaceEntities(updates);
         this.#savedSemanticSnapshot = semanticSnapshot(this.#entities.values());
+        // Outstanding snapshots rebase onto this acknowledgement when they
+        // replay; what an undo already removed is no longer evidence of it.
+        this.#persistenceIdentities.clear();
         this.#emit();
     }
 
@@ -833,11 +844,11 @@ export class AnnotationStore {
         if (entity.revision !== 0 || entity.persistedRevision !== -1) {
             throw new Error('New annotations must start at revision 0 with persistedRevision -1');
         }
-        this.#commit({
+        this.#commit([{
             id: entity.identity.id,
             before: null,
             after: cloneEntity(entity),
-        });
+        }]);
         return entity;
     }
 
@@ -853,35 +864,19 @@ export class AnnotationStore {
             revision: before.revision + 1,
             modifiedAt: Date.now(),
         };
-        this.#commit({
+        this.#commit([{
             id,
             before: cloneEntity(before),
             after,
-        });
+        }]);
         return cloneEntity(after);
     }
 
-    #commit(entry: IHistoryEntry) {
-        const apply = (
-            value: AnnotationEntity | null,
-            registerFailureRollback?: TRegisterAnnotationHistoryFailureRollback,
-        ) => {
-            this.#applyHistoryEntries([{
-                id: entry.id,
-                before: this.#entities.get(entry.id) ?? null,
-                after: value,
-            }], registerFailureRollback);
-        };
-        apply(entry.after);
-        this.#history.registerCommand({
-            cmd: register => apply(entry.after, register),
-            undo: register => apply(entry.before, register),
-            annotationIds: [entry.id],
-        });
-    }
-    #commitBatch(entries: readonly IHistoryEntry[]) {
+    /** The one canonical commit; a single entry is a batch of one. */
+    #commit(entries: readonly IHistoryEntry[]) {
         const apply = (
             side: 'before' | 'after',
+            mode: 'commit' | 'replay',
             registerFailureRollback?: TRegisterAnnotationHistoryFailureRollback,
         ) => {
             const ordered = side === 'before' ? [...entries].reverse() : entries;
@@ -889,24 +884,31 @@ export class AnnotationStore {
                 id: entry.id,
                 before: this.#entities.get(entry.id) ?? null,
                 after: entry[side],
-            })), registerFailureRollback);
+            })), mode, registerFailureRollback);
         };
-        apply('after');
+        apply('after', 'commit');
         this.#history.registerCommand({
-            cmd: register => apply('after', register),
-            undo: register => apply('before', register),
+            cmd: register => apply('after', 'replay', register),
+            undo: register => apply('before', 'replay', register),
+            estimatedBytes: estimateRetainedAnnotationBytes(entries),
             annotationIds: entries.map(entry => entry.id),
         });
     }
     #applyHistoryEntries(
         entries: readonly IHistoryEntry[],
+        mode: 'commit' | 'replay',
         registerFailureRollback?: TRegisterAnnotationHistoryFailureRollback,
     ) {
         const previousEpoch = this.#mutationEpoch;
-        this.#replaceEntities(entries);
+        // A replay restores authored content onto the persistence identity of
+        // record; only a fresh commit carries its own.
+        const applied = mode === 'commit'
+            ? entries
+            : this.#persistenceIdentities.rebaseReplay(entries, id => this.#entities.get(id));
+        this.#replaceEntities(applied);
         this.#mutationEpoch += 1;
         registerFailureRollback?.(() => {
-            this.#replaceEntities([...entries].reverse().map(entry => ({
+            this.#replaceEntities([...applied].reverse().map(entry => ({
                 id: entry.id,
                 before: entry.after,
                 after: entry.before,

@@ -35,6 +35,8 @@ import {
     callWorkspaceCommand,
     collectWorkspaceExposeDebugState,
     getWorkspaceToolbarSnapshot,
+    installWorkspaceExposeProbe,
+    type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
@@ -299,6 +301,57 @@ async function getVisibleSidebarAnnotationCount(page: Page) {
             .filter(isVisible)
             .length;
     });
+}
+
+/**
+ * The canonical identity the workspace publishes for one annotation. `source`
+ * reports whether the entity claims a persisted revision and `annotationId`
+ * carries its PDF object ref, so a replayed history entry that lost either one
+ * is visible here without reaching into renderer internals.
+ */
+interface ICanonicalAnnotationIdentity {
+    appAnnotationId: string | undefined;
+    annotationId: string | null;
+    source: string;
+    stableKey: string;
+    subtype: string | undefined;
+}
+
+async function readCanonicalHighlightIdentities(page: Page) {
+    // The published summaries are reactive proxies, which do not survive the
+    // structured transfer out of the page; the projection is copied in-page.
+    await installWorkspaceExposeProbe(page);
+    const identities = await page.evaluate((): ICanonicalAnnotationIdentity[] => {
+        const state = (window as IWorkspaceExposeProbeWindow).__evbTestApi
+            ?.readActiveWorkspaceStateValues<{annotationComments?: ICanonicalAnnotationIdentity[]}>(
+                ['annotationComments'],
+            );
+        return (state?.annotationComments ?? []).map(comment => ({
+            appAnnotationId: comment.appAnnotationId,
+            annotationId: comment.annotationId ?? null,
+            source: String(comment.source),
+            stableKey: String(comment.stableKey),
+            subtype: comment.subtype,
+        }));
+    });
+    return identities.filter(identity => identity.subtype === 'Highlight');
+}
+
+async function waitForCanonicalHighlightIdentity(
+    page: Page,
+    matches: (identities: ICanonicalAnnotationIdentity[]) => boolean,
+    description: string,
+) {
+    const startedAt = Date.now();
+    let identities = await readCanonicalHighlightIdentities(page);
+    while (Date.now() - startedAt < 10_000) {
+        if (matches(identities)) {
+            return identities;
+        }
+        await delay(100);
+        identities = await readCanonicalHighlightIdentities(page);
+    }
+    throw new Error(`Timed out waiting for ${description}: ${JSON.stringify(identities)}`);
 }
 
 async function waitForSidebarAnnotationCount(page: Page, expectedCount: number) {
@@ -1500,6 +1553,13 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForHighlightEditorCount(page, baselineCount + 1);
         await waitForPdfAnnotationSubtypeCount(highlightFixturePath, 'Highlight', 1);
         await waitForActiveTabDirtyState(page, false);
+        const [savedIdentity] = await waitForCanonicalHighlightIdentity(
+            page,
+            identities => identities.length === 1 && identities[0]?.source === 'pdf',
+            'the saved highlight to carry its persisted identity',
+        );
+        expect(savedIdentity?.annotationId).toEqual(expect.any(String));
+        expect(savedIdentity?.stableKey).toMatch(/^ann:0:/u);
 
         await clickEnabledToolbarAction(page, 'Undo');
         await waitForHighlightEditorCount(page, baselineCount);
@@ -1521,6 +1581,77 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await clickEnabledToolbarAction(page, 'Redo');
         await waitForHighlightEditorCount(page, baselineCount + 1);
         await waitForActiveTabDirtyState(page, true);
+
+        await saveViaWindowHandle(page);
+        const summary = await waitForPdfAnnotationSubtypeCount(highlightFixturePath, 'Highlight', 1);
+        expect(summary.bySubtype.Highlight ?? 0).toBe(1);
+        await waitForActiveTabDirtyState(page, false);
+        // The intervening save wrote the document without the undone create, so
+        // the redone annotation was rebound to the ref this revision holds.
+        const [reboundIdentity] = await waitForCanonicalHighlightIdentity(
+            page,
+            identities => identities.length === 1 && identities[0]?.source === 'pdf',
+            'the re-saved highlight to carry a persisted identity again',
+        );
+        expect(reboundIdentity?.annotationId).toEqual(expect.any(String));
+        expect(reboundIdentity?.stableKey).toMatch(/^ann:0:/u);
+    });
+
+    it('keeps the saved highlight identity across an undo and redo', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            throw new Error('Annotation lifecycle Electron E2E session failed to start');
+        }
+        const { page } = session;
+
+        const highlightFixturePath = await createMultiPageTextFixturePdf(
+            `annotation-lifecycle-${Date.now()}-highlight-identity.pdf`,
+            1,
+        );
+        await openPdfInApp(page, highlightFixturePath);
+        await waitForPdfLoaded(page);
+        await openAnnotationsTab(page);
+
+        const baselineCount = await getVisibleHighlightEditorCount(page);
+        await createHighlightWithPdfjsManager(page);
+        await waitForHighlightEditorCount(page, baselineCount + 1);
+
+        await saveViaWindowHandle(page);
+        await waitForPdfAnnotationSubtypeCount(highlightFixturePath, 'Highlight', 1);
+        await waitForActiveTabDirtyState(page, false);
+        const [savedIdentity] = await waitForCanonicalHighlightIdentity(
+            page,
+            identities => identities.length === 1 && identities[0]?.source === 'pdf',
+            'the saved highlight to carry its persisted identity',
+        );
+        // The comparisons below are only evidence if the save actually bound a
+        // ref: matching two absent ids would pass while proving nothing.
+        expect(savedIdentity?.annotationId).toEqual(expect.any(String));
+        expect(savedIdentity?.appAnnotationId).toEqual(expect.any(String));
+
+        await clickEnabledToolbarAction(page, 'Undo');
+        await waitForHighlightEditorCount(page, baselineCount);
+        await clickEnabledToolbarAction(page, 'Redo');
+        await waitForHighlightEditorCount(page, baselineCount + 1);
+
+        // No save ran between the undo and the redo, so the file still holds the
+        // annotation the acknowledgement bound: the redone entity has to come
+        // back as that saved annotation, not as a fresh unsaved one.
+        const redoneIdentities = await waitForCanonicalHighlightIdentity(
+            page,
+            identities => identities.some(identity => (
+                identity.appAnnotationId === savedIdentity?.appAnnotationId
+            )),
+            'the redone highlight to be projected under its canonical id',
+        );
+        const redoneIdentity = redoneIdentities.find(identity => (
+            identity.appAnnotationId === savedIdentity?.appAnnotationId
+        ));
+        expect(redoneIdentity).toMatchObject({
+            annotationId: savedIdentity?.annotationId,
+            source: 'pdf',
+            stableKey: savedIdentity?.stableKey,
+        });
 
         await saveViaWindowHandle(page);
         const summary = await waitForPdfAnnotationSubtypeCount(highlightFixturePath, 'Highlight', 1);

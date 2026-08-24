@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TWorkspaceUndoSource } from '@app/types/workspaceUndoSource';
+import type { IPdfReloadWaiterViewer } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
 import { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -19,11 +20,7 @@ const HISTORY_LOG_SECTION = 'pdf-history';
 
 export const usePdfHistory = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;
-    pdfViewerRef: Ref<{
-        scrollToPage: (page: number) => void;
-        undoAnnotation: () => void;
-        redoAnnotation: () => void;
-    } | null>;
+    pdfViewerRef: Ref<IPdfReloadWaiterViewer | null>;
     currentPage: Ref<number>;
     isAnySaving: Ref<boolean>;
     isHistoryBusy: Ref<boolean>;

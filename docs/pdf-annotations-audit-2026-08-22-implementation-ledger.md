@@ -423,6 +423,22 @@ standalone change:
 - V6: e2e asserting undo of a deferred delete restores editor and DOM state,
   not only the canonical entity.
 
+### L6 decision, taken with the M1 slice (#98): accept per-commit entries
+
+Successive note-text commands stay separate undo steps. The note window
+debounces keystrokes into one commit per quiet period
+(`app/modules/workspace-shell/composables/useAnnotationNoteWindows.ts:339-363`),
+so each entry already marks a pause the user can recognise, and merging them
+would let one undo swallow a whole typing session. Merging would also have to
+rewrite the top of the shared workspace timeline, where the previous entry may
+belong to another producer, weakening the ordering that timeline exists to
+keep. The eviction pressure the audit worried about is answered by L5 instead:
+canonical snapshot commands now carry the bytes they retain
+(`annotations/domain/annotationStore.ts`, `estimateRetainedAnnotationBytes`), so
+the ledger's byte cap prices note edits honestly rather than at the flat 1 KiB
+default. The boundary is pinned by
+`tests/unit/app/modules/pdf-viewer/annotations/annotationStoreSaveIdentityRebase.test.ts`.
+
 ## Resolved open questions
 
 ### Q1, overlapping save transactions: proven, print bypasses the lease

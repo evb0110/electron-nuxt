@@ -276,8 +276,6 @@ export const usePdfViewerPublicApiController = (
         setWorkspaceCommandSink: annotationSession.appAnnotationHistory.setWorkspaceCommandSink,
         startCommentPlacement: annotationRuntime.highlightComposable.startCommentPlacement,
         cancelCommentPlacement: annotationRuntime.highlightComposable.cancelCommentPlacement,
-        undoAnnotation: annotationSession.undoAnnotation,
-        redoAnnotation: annotationSession.redoAnnotation,
         registerAnnotationHistoryCommand: annotationRuntime.registerShapeHistoryCommand,
         ensurePdfAnnotationNameReconciliation: annotations.commentSync.ensurePdfAnnotationNameReconciliation,
         focusAnnotationComment,

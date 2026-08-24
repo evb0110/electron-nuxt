@@ -26,11 +26,7 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
 function createMockDeps(overrides: Partial<Parameters<typeof usePdfHistory>[0]> = {}) {
     return cast<Parameters<typeof usePdfHistory>[0]>({
         pdfDocument: ref<PDFDocumentProxy | null>(null),
-        pdfViewerRef: ref<{
-            scrollToPage: (page: number) => void;
-            undoAnnotation: () => void;
-            redoAnnotation: () => void;
-        } | null>(null),
+        pdfViewerRef: ref<{scrollToPage: (page: number) => void} | null>(null),
         currentPage: ref(1),
         isAnySaving: ref(false),
         isHistoryBusy: ref(false),
@@ -127,118 +123,64 @@ describe('usePdfHistory', () => {
         expect(deps.undoHistory).not.toHaveBeenCalled();
     });
 
-    it('routes annotation undo through the sole workspace command stack', async () => {
-        const undoAnnotation = vi.fn();
-        const deps = createMockDeps({
-            nextUndoSource: ref<TWorkspaceUndoSource | null>('annotation'),
-            pdfViewerRef: ref({
-                scrollToPage: vi.fn(),
-                undoAnnotation,
-                redoAnnotation: vi.fn(),
-            }),
+    // Every timeline source runs the same workspace command stack: the viewer
+    // holds no second annotation-only stack for these sources to route around.
+    describe.each<TWorkspaceUndoSource>([
+        'annotation',
+        'metadata',
+    ])('%s timeline source', (source) => {
+        it('runs undo on the sole workspace command stack', async () => {
+            const deps = createMockDeps({
+                nextUndoSource: ref<TWorkspaceUndoSource | null>(source),
+                pdfViewerRef: ref({scrollToPage: vi.fn()}),
+            });
+            const { handleUndo } = usePdfHistory(deps);
+
+            await handleUndo();
+
+            expect(deps.undoHistory).toHaveBeenCalledOnce();
         });
-        const { handleUndo } = usePdfHistory(deps);
 
-        await handleUndo();
+        it('runs redo on the sole workspace command stack', async () => {
+            const deps = createMockDeps({
+                nextRedoSource: ref<TWorkspaceUndoSource | null>(source),
+                pdfViewerRef: ref({scrollToPage: vi.fn()}),
+            });
+            const { handleRedo } = usePdfHistory(deps);
 
-        expect(undoAnnotation).not.toHaveBeenCalled();
-        expect(deps.undoHistory).toHaveBeenCalledOnce();
+            await handleRedo();
+
+            expect(deps.redoHistory).toHaveBeenCalledOnce();
+        });
     });
 
-    it('routes annotation redo through the sole workspace command stack', async () => {
-        const redoAnnotation = vi.fn();
-        const deps = createMockDeps({
-            nextRedoSource: ref<TWorkspaceUndoSource | null>('annotation'),
-            pdfViewerRef: ref({
-                scrollToPage: vi.fn(),
-                undoAnnotation: vi.fn(),
-                redoAnnotation,
-            }),
-        });
-        const { handleRedo } = usePdfHistory(deps);
-
-        await handleRedo();
-
-        expect(redoAnnotation).not.toHaveBeenCalled();
-        expect(deps.redoHistory).toHaveBeenCalledOnce();
-    });
-
-    it('routes metadata undo through timeline when annotation context has no undoable annotation', async () => {
-        const undoAnnotation = vi.fn();
-        const deps = createMockDeps({
-            nextUndoSource: ref('metadata'),
-            pdfViewerRef: ref({
-                scrollToPage: vi.fn(),
-                undoAnnotation,
-                redoAnnotation: vi.fn(),
-            }),
-        });
-        const { handleUndo } = usePdfHistory(deps);
-
-        await handleUndo();
-
-        expect(undoAnnotation).not.toHaveBeenCalled();
-        expect(deps.undoHistory).toHaveBeenCalledOnce();
-    });
-
-    it('routes metadata redo through timeline when annotation context has no redoable annotation', async () => {
-        const redoAnnotation = vi.fn();
-        const deps = createMockDeps({
-            nextRedoSource: ref('metadata'),
-            pdfViewerRef: ref({
-                scrollToPage: vi.fn(),
-                undoAnnotation: vi.fn(),
-                redoAnnotation,
-            }),
-        });
-        const { handleRedo } = usePdfHistory(deps);
-
-        await handleRedo();
-
-        expect(redoAnnotation).not.toHaveBeenCalled();
-        expect(deps.redoHistory).toHaveBeenCalledOnce();
-    });
-
-    it('routes annotation-context undo to the top timeline source', async () => {
-        const undoAnnotation = vi.fn();
+    it('still runs undo on the command stack when it reports nothing undone', async () => {
         const deps = createMockDeps({
             undoHistory: vi.fn(async () => false),
-            pdfViewerRef: ref({
-                scrollToPage: vi.fn(),
-                undoAnnotation,
-                redoAnnotation: vi.fn(),
-            }),
+            pdfViewerRef: ref({scrollToPage: vi.fn()}),
         });
         const { handleUndo } = usePdfHistory(deps);
 
         await handleUndo();
 
-        expect(undoAnnotation).not.toHaveBeenCalled();
         expect(deps.undoHistory).toHaveBeenCalledOnce();
     });
 
-    it('routes annotation-context redo to the top timeline source', async () => {
-        const redoAnnotation = vi.fn();
+    it('still runs redo on the command stack when it reports nothing redone', async () => {
         const deps = createMockDeps({
             redoHistory: vi.fn(async () => false),
-            pdfViewerRef: ref({
-                scrollToPage: vi.fn(),
-                undoAnnotation: vi.fn(),
-                redoAnnotation,
-            }),
+            pdfViewerRef: ref({scrollToPage: vi.fn()}),
         });
         const { handleRedo } = usePdfHistory(deps);
 
         await handleRedo();
 
-        expect(redoAnnotation).not.toHaveBeenCalled();
         expect(deps.redoHistory).toHaveBeenCalledOnce();
     });
 
     it('keeps redo on the timeline after a timeline undo', async () => {
         const nextUndoSource = ref<TWorkspaceUndoSource | null>('file');
         const nextRedoSource = ref<TWorkspaceUndoSource | null>(null);
-        const redoAnnotation = vi.fn();
         const deps = createMockDeps({
             nextUndoSource,
             nextRedoSource,
@@ -248,11 +190,7 @@ describe('usePdfHistory', () => {
                 return true;
             }),
             redoHistory: vi.fn(async () => true),
-            pdfViewerRef: ref({
-                scrollToPage: vi.fn(),
-                undoAnnotation: vi.fn(),
-                redoAnnotation,
-            }),
+            pdfViewerRef: ref({scrollToPage: vi.fn()}),
         });
         const {
             handleUndo,
@@ -266,8 +204,6 @@ describe('usePdfHistory', () => {
         const redoPromise = handleRedo();
         await vi.advanceTimersByTimeAsync(9000);
         await redoPromise;
-
-        expect(redoAnnotation).not.toHaveBeenCalled();
         expect(deps.redoHistory).toHaveBeenCalledOnce();
     });
 
@@ -374,11 +310,7 @@ describe('usePdfHistory', () => {
     it('resolves waitForPdfReload early when pdfDocument changes', async () => {
         const deps = createMockDeps();
         const scrollToPage = vi.fn();
-        deps.pdfViewerRef.value = {
-            scrollToPage,
-            undoAnnotation: vi.fn(),
-            redoAnnotation: vi.fn(),
-        };
+        deps.pdfViewerRef.value = {scrollToPage};
         const { waitForPdfReload } = usePdfHistory(deps);
 
         const promise = waitForPdfReload(5);
@@ -394,11 +326,7 @@ describe('usePdfHistory', () => {
     it('restores the semantic page after reload', async () => {
         const deps = createMockDeps();
         const scrollToPage = vi.fn();
-        deps.pdfViewerRef.value = {
-            scrollToPage,
-            undoAnnotation: vi.fn(),
-            redoAnnotation: vi.fn(),
-        };
+        deps.pdfViewerRef.value = {scrollToPage};
         const { waitForPdfReload } = usePdfHistory(deps);
 
         const promise = waitForPdfReload(5);
@@ -415,11 +343,7 @@ describe('usePdfHistory', () => {
         const doc = cast<PDFDocumentProxy>({ numPages: 3 });
         const deps = createMockDeps({ pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(doc)) });
         const scrollToPage = vi.fn();
-        deps.pdfViewerRef.value = {
-            scrollToPage,
-            undoAnnotation: vi.fn(),
-            redoAnnotation: vi.fn(),
-        };
+        deps.pdfViewerRef.value = {scrollToPage};
         const { waitForPdfReload } = usePdfHistory(deps);
 
         const promise = waitForPdfReload(2);

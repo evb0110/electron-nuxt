@@ -116,6 +116,25 @@ function estimateValueBytes(value: unknown, depth: number, seen: WeakSet<object>
 }
 
 /**
+ * Approximate bytes retained by the canonical snapshots one annotation history
+ * command holds.
+ *
+ * Those commands close over before/after clones of every entity they replay,
+ * and the annotation undo ledger evicts on retained bytes; unpriced, a command
+ * falls back to a flat 1 KiB default, which under-reports an ink shape carrying
+ * thousands of points by orders of magnitude. One `seen` set spans the whole
+ * record, so a sub-object two snapshots share is priced once, matching what the
+ * clones actually retain.
+ */
+export function estimateRetainedAnnotationBytes(records: readonly unknown[]): number {
+    const seen = new WeakSet<object>();
+    return records.reduce<number>(
+        (total, record) => total + estimateValueBytes(record, 0, seen),
+        OBJECT_HEADER_BYTES,
+    );
+}
+
+/**
  * Approximate bytes retained by one cached annotation snapshot payload.
  *
  * Cost is one linear walk of the comment and link records, so it is safe to
