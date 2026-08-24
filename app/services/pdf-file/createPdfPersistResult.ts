@@ -7,11 +7,13 @@ export function createPdfPersistResult(
     saveMode: TPdfSaveMode,
     didSaveAs: boolean,
     outPath: TDocumentRef | null,
+    abortReason?: IPdfPersistResult['abortReason'],
 ): IPdfPersistResult {
     return {
         success,
         outPath,
         saveMode,
         didSaveAs,
+        ...(abortReason ? {abortReason} : {}),
     };
 }

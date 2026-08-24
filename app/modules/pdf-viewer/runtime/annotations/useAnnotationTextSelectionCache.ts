@@ -116,6 +116,42 @@ export const useAnnotationTextSelectionCache = ({
             ?? null;
     }
 
+    /**
+     * True when a range starts in one page's text layer and ends in another.
+     * pdf.js refuses such a range outright, so the caller has to recognize it
+     * to explain the rejection.
+     */
+    function doesRangeSpanTextLayers(activeRange: Range) {
+        const container = viewerContainer.value;
+        const startLayer = getElementFromRangeNode(activeRange.startContainer)
+            ?.closest<HTMLElement>('.text-layer, .textLayer');
+        const endLayer = getElementFromRangeNode(activeRange.endContainer)
+            ?.closest<HTMLElement>('.text-layer, .textLayer');
+        return Boolean(
+            container
+            && startLayer
+            && endLayer
+            && startLayer !== endLayer
+            && container.contains(startLayer)
+            && container.contains(endLayer),
+        );
+    }
+
+    /**
+     * Explains why `getSelectionRangeForCommentAction` came back empty. The
+     * cache rejects a cross-page range before pdf.js ever sees it, so a `null`
+     * range alone cannot tell "nothing selected" from "selection refused".
+     * Markup shortcuts fire on every pointer release, so only a genuine
+     * cross-page selection is worth telling the user about.
+     */
+    function classifyUnavailableSelection(): 'none' | 'cross-page' {
+        const selection = document.getSelection();
+        if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+            return 'none';
+        }
+        return doesRangeSpanTextLayers(selection.getRangeAt(0)) ? 'cross-page' : 'none';
+    }
+
     function getPageNumberForTextLayer(textLayer: HTMLElement) {
         const pageContainer = textLayer.closest<HTMLElement>('.page_container');
         return pageContainer?.dataset.page
@@ -125,7 +161,9 @@ export const useAnnotationTextSelectionCache = ({
 
     return {
         cacheCurrentTextSelection,
+        classifyUnavailableSelection,
         clearSelectionCache,
+        doesRangeSpanTextLayers,
         getPageNumberForTextLayer,
         getSelectionRangeForCommentAction,
         resolveTextLayerForRange,

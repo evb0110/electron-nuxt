@@ -10,6 +10,10 @@ export type {
     TAgentTextMarkupKind,
     TPdfSidebarTab,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
+export type {
+    IAnnotationCreationFailureReport,
+    TAnnotationCreationFailureReason,
+} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 export { useBookmarkState } from '@app/modules/pdf-viewer/runtime/composables/pdf/useBookmarkState';
 export { useOcrTextContent } from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
 export { usePageContextMenu } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageContextMenu';

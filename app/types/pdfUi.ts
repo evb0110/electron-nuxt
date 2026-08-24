@@ -128,6 +128,13 @@ export interface IPdfPersistResult {
     outPath: TDocumentRef | null;
     saveMode: TPdfSaveMode;
     didSaveAs: boolean;
+    /**
+     * Why a `success: false` result stopped when nothing went wrong:
+     * `cancelled` for a dismissed Save As dialog, `stale` for a document that
+     * was replaced before the write completed. Absent means the write was
+     * attempted and refused.
+     */
+    abortReason?: 'cancelled' | 'stale' | undefined;
 }
 
 export function mapPdfSearchResultToUiMatch(result: IPdfSearchResult): IPdfUiSearchMatch {

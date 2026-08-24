@@ -1,4 +1,5 @@
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
+import type { IAnnotationCreationFailureReport } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
@@ -82,6 +83,7 @@ export interface IPdfViewerEmit {
     (e: 'annotation-comment-click', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-tool-cancel'): void;
     (e: 'annotation-note-placement-change', active: boolean): void;
+    (e: 'annotation-failure', failure: IAnnotationCreationFailureReport): void;
     (e: 'shape-context-menu', payload: {
         shapeId: string;
         clientX: number;

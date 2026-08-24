@@ -19,6 +19,7 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 
 /** @deprecated Use the format-neutral document sidebar tab contract. */
 export type TPdfSidebarTab = TDocumentSidebarTab;
@@ -42,6 +43,13 @@ export interface ICreateTextMarkupFromTextResult {
     occurrence: number;
     subtype: TMarkupSubtype;
     reason?: string | undefined;
+    /** Machine-readable counterpart of `reason` for automation callers. */
+    failureReason?: TAnnotationCreationFailureReason | undefined;
+    /**
+     * The canonical annotation exists but no editor is bound to it yet, so it
+     * is neither a clean success nor safe to retry: retrying mints a duplicate.
+     */
+    pendingEditor?: boolean | undefined;
 }
 
 export interface ICreatePointNoteAnnotationOptions {
@@ -57,6 +65,13 @@ export interface ICreatePointNoteAnnotationResult {
     pageX: number;
     pageY: number;
     reason?: string | undefined;
+    /** Machine-readable counterpart of `reason` for automation callers. */
+    failureReason?: TAnnotationCreationFailureReason | undefined;
+    /**
+     * The canonical annotation exists but no editor is bound to it yet, so it
+     * is neither a clean success nor safe to retry: retrying mints a duplicate.
+     */
+    pendingEditor?: boolean | undefined;
 }
 
 export interface ICreateShapeAnnotationOptions extends IShapeAnnotationConstructionOptions {pageNumber: number;}

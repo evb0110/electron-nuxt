@@ -50,7 +50,7 @@ function createComment(index: number): IAnnotationCommentSummary {
     };
 }
 
-export const ANNOTATION_COMMENT_FIXTURES = Array.from(
+const ANNOTATION_COMMENT_FIXTURES = Array.from(
     {length: ANNOTATION_COMMENT_FIXTURE_COUNT},
     (_unused, index) => createComment(index),
 );

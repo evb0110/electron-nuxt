@@ -20,7 +20,10 @@ const mocks = vi.hoisted(() => ({
         canMutatePages?: unknown;
         documentRevisionToken?: unknown;
     },
-    statusBarDeps: null as null | {workingCopyPath?: unknown},
+    statusBarDeps: null as null | {
+        hasSaveFailure?: unknown;
+        workingCopyPath?: unknown;
+    },
 }));
 
 vi.mock('@app/modules/workspace-shell/composables/usePageStatusBar', () => ({usePageStatusBar: (deps: {workingCopyPath?: unknown}) => {
@@ -62,6 +65,7 @@ function createOptions() {
         currentPage: ref(1),
         effectiveZoom: ref(1),
         canSave: ref(false),
+        hasSaveFailure: ref(false),
         isAnySaving: ref(false),
         isHistoryBusy: ref(false),
         canMutatePages: ref(true),
@@ -134,6 +138,8 @@ describe('useWorkspaceDocumentControls', () => {
         const controls = useWorkspaceDocumentControls(options);
 
         expect(mocks.statusBarDeps?.workingCopyPath).toBe(options.workingCopyPath);
+        // Without this the status bar cannot express a failed save at all.
+        expect(mocks.statusBarDeps?.hasSaveFailure).toBe(options.hasSaveFailure);
         expect(controls.statusMaterializationLabel.value).toBe('Preparing document');
     });
 });

@@ -21,8 +21,7 @@ import type {
     ILazyHistoryBaseline,
     IPdfLoadedState,
 } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
-import { createFailedPdfPersistResult } from '@app/services/pdf-file/createFailedPdfPersistResult';
-import { createPdfPersistResult } from '@app/services/pdf-file/createPdfPersistResult';
+import { createDocumentPersistResults } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistResults';
 import { savePdfBytesAs } from '@app/services/pdf-file/savePdfBytesAs';
 import { savePdfBytesToWorkingCopy } from '@app/services/pdf-file/savePdfBytesToWorkingCopy';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -304,28 +303,12 @@ export function createDocumentPersistence(
         return true;
     }
 
-    function createPersistResult(
-        success: boolean,
-        saveMode: TPdfSaveMode,
-        didSaveAs: boolean,
-        outPath: TDocumentRef | null = success && !didSaveAs ? state.originalPath.value : null,
-    ): IPdfPersistResult {
-        return createPdfPersistResult(success, saveMode, didSaveAs, outPath);
-    }
-
-    function createFailedPersistResult(
-        saveMode: TPdfSaveMode,
-        didSaveAs: boolean,
-    ): IPdfPersistResult {
-        return createFailedPdfPersistResult(saveMode, didSaveAs);
-    }
-
-    function createStalePersistResult(
-        saveMode: TPdfSaveMode,
-        didSaveAs: boolean,
-    ): IPdfPersistResult {
-        return createPersistResult(false, saveMode, didSaveAs, null);
-    }
+    const {
+        createPersistResult,
+        createFailedPersistResult,
+        createStalePersistResult,
+        createCancelledPersistResult,
+    } = createDocumentPersistResults(() => state.originalPath.value);
 
     function roundDurationMs(durationMs: number) {
         return Math.round(durationMs * 10) / 10;
@@ -778,9 +761,10 @@ export function createDocumentPersistence(
                     return createStalePersistResult(requestedSaveMode, true);
                 }
                 state.lastSaveMode.value = requestedSaveMode;
+                return createPersistResult(true, requestedSaveMode, true, savedPath);
             }
 
-            return createPersistResult(Boolean(savedPath), requestedSaveMode, true, savedPath);
+            return createCancelledPersistResult(requestedSaveMode);
         }, opts?.expectedWorkingPath);
     }
 
@@ -1168,8 +1152,9 @@ export function createDocumentPersistence(
                     return createStalePersistResult(requestedSaveMode, true);
                 }
                 state.lastSaveMode.value = requestedSaveMode;
+                return createPersistResult(true, requestedSaveMode, true, savedPath);
             }
-            return createPersistResult(Boolean(savedPath), requestedSaveMode, true, savedPath);
+            return createCancelledPersistResult(requestedSaveMode);
         }, opts?.expectedWorkingPath);
     }
 

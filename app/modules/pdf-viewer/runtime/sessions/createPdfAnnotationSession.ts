@@ -44,6 +44,7 @@ import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessio
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { TPdfRenderingSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
+import type { IAnnotationCreationFailureReport } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import {
     asAnnotationId,
@@ -98,6 +99,7 @@ export interface ICreatePdfAnnotationSessionOptions {
     emitAnnotationCommentClick: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationToolCancel: () => void;
     emitAnnotationNotePlacementChange: (active: boolean) => void;
+    reportAnnotationFailure?: (failure: IAnnotationCreationFailureReport) => void;
     emitShapeContextMenu: Parameters<typeof usePdfShapeTool>[0]['emitShapeContextMenu'];
 }
 
@@ -678,6 +680,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         stopDrag: options.stopDrag,
         emitAnnotationOpenNote: emitAnnotationOpenNoteWithReconciliation,
         emitAnnotationNotePlacementChange: options.emitAnnotationNotePlacementChange,
+        ...(options.reportAnnotationFailure
+            ? {reportAnnotationFailure: options.reportAnnotationFailure}
+            : {}),
         ensureAnnotationEditorLayerReady: async (pageNumber) => {
             if (await rendering.renderAnnotationEditorLayerForPage(pageNumber)) {
                 return;

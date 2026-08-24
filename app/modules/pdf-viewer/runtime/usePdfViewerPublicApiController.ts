@@ -4,10 +4,14 @@ import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessio
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { TPdfAnnotationSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
 import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
+import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
+import { projectAnnotationCreationOutcome } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/projectAnnotationCreationOutcome';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { toSelectedTextMarkupComment } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
+
+const POINT_NOTE_CANCELLED_REASON = 'The document changed before the point note was created.';
 
 type TPdfViewerPublicApiRefBackedKeys =
     | 'annotationHistoryMutationVersion'
@@ -168,7 +172,18 @@ export const usePdfViewerPublicApiController = (
             await ensurePublicAnnotationTargetPageReady(pageNumber);
             return annotationRuntime.highlightComposable.createTextMarkupFromText(normalizedTarget);
         },
-        commentAtPoint: annotationRuntime.highlightComposable.commentAtPoint,
+        // The narrow boolean surface predates typed outcomes. It answers the
+        // same question as `createPointNoteAnnotation`, so it derives its
+        // answer from the same rule rather than testing the status by hand.
+        commentAtPoint: async (pageNumber, pageX, pageY, pointOptions) => projectAnnotationCreationOutcome(
+            await annotationRuntime.highlightComposable.commentAtPoint(
+                pageNumber,
+                pageX,
+                pageY,
+                pointOptions ?? {},
+            ),
+            POINT_NOTE_CANCELLED_REASON,
+        ).created,
         createPointNoteAnnotation: async (target) => {
             const pageNumber = Number.isFinite(target.pageNumber)
                 ? Math.max(1, Math.trunc(target.pageNumber))
@@ -178,12 +193,16 @@ export const usePdfViewerPublicApiController = (
             const result = (
                 created: boolean,
                 reason?: string,
+                failureReason?: TAnnotationCreationFailureReason,
+                pendingEditor?: boolean,
             ) => ({
                 created,
                 pageNumber,
                 pageX,
                 pageY,
                 ...(reason ? {reason} : {}),
+                ...(failureReason ? {failureReason} : {}),
+                ...(pendingEditor ? {pendingEditor} : {}),
             });
 
             if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
@@ -197,13 +216,19 @@ export const usePdfViewerPublicApiController = (
             const pointOptions = target.preferTextAnchor === undefined
                 ? {}
                 : {preferTextAnchor: target.preferTextAnchor};
-            const created = await annotationRuntime.highlightComposable.commentAtPoint(
+            const outcome = await annotationRuntime.highlightComposable.commentAtPoint(
                 pageNumber,
                 pageX,
                 pageY,
                 pointOptions,
             );
-            return result(created, created ? undefined : 'Point note could not be created.');
+            const projection = projectAnnotationCreationOutcome(outcome, POINT_NOTE_CANCELLED_REASON);
+            return result(
+                projection.created,
+                projection.reason,
+                projection.failureReason,
+                projection.pendingEditor,
+            );
         },
         createShapeAnnotation: async (target) => {
             const pageNumber = Number.isFinite(target.pageNumber)

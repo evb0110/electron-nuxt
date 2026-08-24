@@ -43,6 +43,7 @@ function createDeps(overrides: Partial<Parameters<typeof usePageStatusBar>[0]> =
         workingCopyPath: ref<string | null>(null),
         effectiveZoom: ref(1),
         canSave: ref(false),
+        hasSaveFailure: ref(false),
         isAnySaving: ref(false),
         isHistoryBusy: ref(false),
         handleSave: vi.fn(async () => {}),
@@ -79,6 +80,47 @@ describe('usePageStatusBar', () => {
 
         expect(browserStatusBar.statusCanShowInFolder.value).toBe(false);
         expect(fileStatusBar.statusCanShowInFolder.value).toBe(true);
+    });
+
+    it('presents a failed save instead of a clean document', () => {
+        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        const hasSaveFailure = ref(true);
+        const statusBar = usePageStatusBar(createDeps({
+            pdfSrc: ref({
+                kind: 'path' as const,
+                path: '/tmp/example.pdf',
+                size: 1024,
+            }),
+            canSave: ref(false),
+            hasSaveFailure,
+        }));
+
+        expect(statusBar.statusSaveDotClass.value).toBe('is-failed');
+        expect(statusBar.statusSaveDotTooltip.value).toBe('status.saveFailed');
+        expect(statusBar.statusSaveDotAriaLabel.value).toBe('status.saveFailed');
+        expect(statusBar.statusSaveDotCanSave.value).toBe(true);
+
+        hasSaveFailure.value = false;
+
+        expect(statusBar.statusSaveDotClass.value).toBe('is-clean');
+        expect(statusBar.statusSaveDotTooltip.value).toBe('status.allSaved');
+    });
+
+    it('keeps the saving indicator ahead of a stale failure', () => {
+        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        const statusBar = usePageStatusBar(createDeps({
+            pdfSrc: ref({
+                kind: 'path' as const,
+                path: '/tmp/example.pdf',
+                size: 1024,
+            }),
+            canSave: ref(true),
+            isAnySaving: ref(true),
+            hasSaveFailure: ref(true),
+        }));
+
+        expect(statusBar.statusSaveDotClass.value).toBe('is-saving');
+        expect(statusBar.statusSaveDotCanSave.value).toBe(false);
     });
 
     it('does not invoke show-in-folder for browser-backed refs', async () => {

@@ -1257,6 +1257,7 @@ export default {
         'noFileOpen': 'Keine Datei geöffnet',
         'unsavedChanges': 'Ungespeicherte Änderungen – zum Speichern klicken',
         'allSaved': 'Alle Änderungen gespeichert',
+        'saveFailed': 'Letztes Speichern fehlgeschlagen',
         'saveChanges': 'Änderungen speichern',
         'savingChanges': 'Änderungen werden gespeichert',
         'fileSizeUnknown': 'Größe: -',
@@ -1462,6 +1463,12 @@ export default {
             'browserStorageTitle': 'Browserspeicher ist nicht verfügbar',
             'browserStorageDescription': '„{name}“ ist im Arbeitsspeicher geöffnet, erscheint nach dem Neuladen aber nicht wieder.',
         },
+        'save': {
+            'validation': 'Das Dokument hat die Gültigkeitsprüfung nicht bestanden, es wurde nichts geschrieben.',
+            'openNotes': 'Offene Notizen konnten nicht gespeichert werden, das Dokument wurde nicht geschrieben.',
+            'documentChanged': 'Das Dokument hat sich vor dem Ende des Speicherns geändert, es wurde nichts geschrieben.',
+            'notCompleted': 'Das Dokument konnte nicht geschrieben werden.',
+        },
         'export': {
             'images': 'Bilderexport fehlgeschlagen',
             'multiPageTiff': 'TIFF-Export fehlgeschlagen',
@@ -1510,6 +1517,8 @@ export default {
             'removeCrop': 'Zuschnitt konnte nicht entfernt werden',
         },
         'annotation': {
+            'create': 'Diese Anmerkung konnte nicht erstellt werden.',
+            'selectionSpansPages': 'Markieren Sie Text auf einer einzelnen Seite, um diese Anmerkung hinzuzufügen.',
             'delete': 'Diese Anmerkung konnte nicht aus dem aktuellen Dokument gelöscht werden.',
             'updateNote': 'Diese Notiz konnte nicht aktualisiert werden.',
         },

@@ -493,4 +493,29 @@ describe('createWorkspaceExpose', () => {
         expect(highlightSelection).toHaveBeenCalledOnce();
         expect(commentAtPoint).toHaveBeenCalledWith(1, 20, 30, {preferTextAnchor: true});
     });
+
+    it('hands automation the real annotation creation outcome', async () => {
+        const commentAtPoint = vi.fn(async (): Promise<boolean> => false);
+        const highlightSelection = vi.fn(async (): Promise<boolean> => false);
+        const pdfAutomationViewerRef = ref({
+            commentAtPoint,
+            highlightSelection,
+        });
+        const exposed = createWorkspaceExpose(createDeps({pdfAutomationViewerRef}));
+
+        await expect(exposed.highlightSelection?.()).resolves.toBe(false);
+        await expect(
+            exposed.commentAtPoint?.(1, 20, 30, {preferTextAnchor: false}),
+        ).resolves.toBe(false);
+
+        // A hard-coded refusal would pass the assertions above, so the same
+        // calls have to carry a success through once the viewer reports one.
+        commentAtPoint.mockResolvedValue(true);
+        highlightSelection.mockResolvedValue(true);
+
+        await expect(exposed.highlightSelection?.()).resolves.toBe(true);
+        await expect(
+            exposed.commentAtPoint?.(1, 20, 30, {preferTextAnchor: false}),
+        ).resolves.toBe(true);
+    });
 });

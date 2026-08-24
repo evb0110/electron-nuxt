@@ -444,6 +444,8 @@
     --app-status-save-dot-clean-ring: oklch(44% 0.11 147);
     --app-status-save-dot-saving-bg: oklch(61% 0.18 259);
     --app-status-save-dot-saving-ring: oklch(43% 0.10 259);
+    --app-status-save-dot-failed-bg: oklch(58% 0.20 27);
+    --app-status-save-dot-failed-ring: oklch(41% 0.13 27);
     --app-document-viewer-bg: var(--ui-bg-muted);
     --app-document-page-bg: var(--ui-bg);
     --app-document-thumbnails-background: var(--ui-bg-muted);
@@ -896,6 +898,8 @@
     --app-status-save-dot-clean-ring: oklch(53% 0.10 147);
     --app-status-save-dot-saving-bg: oklch(68% 0.16 259);
     --app-status-save-dot-saving-ring: oklch(51% 0.10 259);
+    --app-status-save-dot-failed-bg: oklch(65% 0.19 27);
+    --app-status-save-dot-failed-ring: oklch(48% 0.12 27);
     --app-document-viewer-bg: color-mix(in oklab, var(--ui-bg-muted) 88%, var(--ui-text) 12%);
     --app-document-page-bg: var(--ui-bg);
     --app-document-thumbnails-background: var(--ui-bg-muted);

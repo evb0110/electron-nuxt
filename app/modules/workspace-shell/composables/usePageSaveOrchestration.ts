@@ -20,6 +20,7 @@ import {
     type IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
+import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
@@ -86,6 +87,7 @@ interface IPageSaveOrchestrationDeps {
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
     ) => Promise<T>;
+    failureSurface?: TWorkspaceFailureSurface;
 }
 
 export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
@@ -284,6 +286,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             },
         },
         ...(runWithDocumentOperationLease ? {runWithDocumentOperationLease} : {}),
+        ...(deps.failureSurface ? {failureSurface: deps.failureSurface} : {}),
     };
 
     const {
@@ -292,6 +295,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         handleOptimizePdfForInteraction: handleOptimizePdfForInteractionWithReload,
         handleOptimizePdfAsCopy: handleOptimizePdfAsCopyWithReload,
         handleSaveAs: handleSaveAsWithReload,
+        hasSaveFailure,
     } = useWorkspaceSaveService(saveDependencies);
 
     const isAnySaving = computed(() => isSaving.value || isSavingAs.value);
@@ -448,5 +452,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         createRecoverySnapshotBytes,
         isAnySaving,
         canSave,
+        hasSaveFailure,
     };
 };

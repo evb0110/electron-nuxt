@@ -1257,6 +1257,7 @@ export default {
         'noFileOpen': 'Geen bestand geopend',
         'unsavedChanges': 'Niet-opgeslagen wijzigingen – klik om op te slaan',
         'allSaved': 'Alle wijzigingen opgeslagen',
+        'saveFailed': 'De laatste opslagpoging is mislukt',
         'saveChanges': 'Wijzigingen opslaan',
         'savingChanges': 'Wijzigingen opslaan',
         'fileSizeUnknown': 'Grootte: -',
@@ -1462,6 +1463,12 @@ export default {
             'browserStorageTitle': 'Browseropslag is niet beschikbaar',
             'browserStorageDescription': '‘{name}’ is in het geheugen geopend, maar verschijnt niet opnieuw na herladen.',
         },
+        'save': {
+            'validation': 'Het document doorstond de geldigheidscontrole niet, dus er is niets weggeschreven.',
+            'openNotes': 'Open notities konden niet worden opgeslagen, dus het document is niet weggeschreven.',
+            'documentChanged': 'Het document veranderde voordat het opslaan klaar was, dus er is niets weggeschreven.',
+            'notCompleted': 'Het document kon niet worden weggeschreven.',
+        },
         'export': {
             'images': 'Afbeeldingsexport mislukt',
             'multiPageTiff': 'TIFF-export mislukt',
@@ -1510,6 +1517,8 @@ export default {
             'removeCrop': 'Bijsnijden kon niet worden verwijderd',
         },
         'annotation': {
+            'create': 'Kan deze annotatie niet maken.',
+            'selectionSpansPages': 'Selecteer tekst op één pagina om deze annotatie toe te voegen.',
             'delete': 'Kan deze annotatie niet uit het huidige document verwijderen.',
             'updateNote': 'Kan deze notitie niet bijwerken.',
         },

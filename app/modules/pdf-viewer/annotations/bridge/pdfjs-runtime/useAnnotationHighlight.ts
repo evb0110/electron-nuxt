@@ -17,24 +17,27 @@ import type {
     TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import type { IPdfjsEditor } from '@app/types/pdfjs';
 import type {
-    IPdfjsEditor,
-    IPdfjsHighlightBox,
-} from '@app/types/pdfjs';
-import type {
-    ICreateTextMarkupFromTextOptions,
-    ICreateTextMarkupFromTextResult,
-    TAgentTextMarkupKind,
-} from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
+    IAnnotationCreationFailureReport,
+    TAnnotationCreationFailureReason,
+    TAnnotationCreationOutcome,
+    TAnnotationPendingEditorReason,
+} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
+import { didCreateAnnotation } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/didCreateAnnotation';
 import { getCommentText } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/getCommentText';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import { clamp01 } from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
+import {
+    cloneHighlightBoxes,
+    highlightBoxesFromMarkerRects,
+    markerRectsFromHighlightBoxes,
+} from '@app/modules/pdf-viewer/engine/annotation-geometry/highlightBoxMarkerRects';
 import { errorToLogText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/errorToLogText';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import {
     addUndoableEditorToLayer,
-    clearSelectedEditorState,
     createAnnotationEditorAtPoint,
     createAnnotationEditorWithSyntheticPointer,
     dispatchAnnotationEditorPointerTap,
@@ -43,7 +46,6 @@ import {
     getAnnotationEditorLayerDiv,
     getEditorsOnPage,
     getPdfjsEditorFacadeState,
-    isEditorCommentDeleted,
     isPdfjsEditorWithEditComment,
 } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import {
@@ -54,12 +56,17 @@ import { createPdfPagePointResolver } from '@app/modules/pdf-viewer/engine/annot
 import { markerRectFromPoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
 import type { INotePlacementDiagnosticsContext } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/notePlacementDiagnosticsContext';
 import { buildRangeFromPagePoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPagePoint';
-import { buildRangeFromPageText } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
 import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveCommentWithRenderedTextMarkupColorAtPoint';
 import {
     markCommentMarkerAnchorEditor,
     syncCommentMarkerAnchorEditor,
 } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
+import { clearEditorSelectionVisuals } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/clearEditorSelectionVisuals';
+import {
+    captureEditorSnapshot,
+    pickCreatedEditorCandidate,
+} from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/createdEditorSnapshot';
+import { createTextMarkupFromTextRunner } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/createTextMarkupFromTextRunner';
 import { useAnnotationTextSelectionCache } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
 import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 
@@ -139,16 +146,19 @@ interface IUseAnnotationHighlightOptions {
     };
     ensureAnnotationEditorLayerReady?: (pageNumber: number) => Promise<void>;
     deferCreatedEditorUndoToStorage?: boolean;
+    /**
+     * Single sink for creation failures. The bridge never renders UI, so it
+     * hands typed reasons to the workspace surface that owns localization and
+     * toasts.
+     */
+    reportAnnotationFailure?: (failure: IAnnotationCreationFailureReport) => void;
     stopDrag: () => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationNotePlacementChange: (active: boolean) => void;
 }
 
-interface IEditorSnapshot {editorsBeforeIds: Set<string>;}
-
 const ANNOTATION_EDITOR_RETRY_ATTEMPTS = 12;
 const ANNOTATION_EDITOR_RETRY_DELAY_MS = 80;
-const SELECTION_CLEAR_FALLBACK_DELAY_MS = 80;
 const CREATED_EDITOR_SETTLE_DELAY_MS = 60;
 
 export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) => {
@@ -167,6 +177,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         annotationIntentSink,
         ensureAnnotationEditorLayerReady,
         deferCreatedEditorUndoToStorage = false,
+        reportAnnotationFailure,
         stopDrag,
         emitAnnotationOpenNote,
         emitAnnotationNotePlacementChange,
@@ -186,7 +197,9 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
     } = pagePointResolver;
     const {
         cacheCurrentTextSelection,
+        classifyUnavailableSelection,
         clearSelectionCache,
+        doesRangeSpanTextLayers,
         getPageNumberForTextLayer,
         getSelectionRangeForCommentAction,
         resolveTextLayerForRange,
@@ -195,6 +208,40 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         viewerContainer,
         currentPage,
     });
+
+    let annotationCreationAttempts = 0;
+
+    function nextAnnotationOperationId() {
+        annotationCreationAttempts += 1;
+        return `annotation-create-${annotationCreationAttempts}`;
+    }
+
+    function reportCreationFailure(
+        operationId: string,
+        reason: TAnnotationCreationFailureReason,
+        pageNumber: number | null,
+    ) {
+        reportAnnotationFailure?.({
+            operationId,
+            reason,
+            pageNumber,
+        });
+    }
+
+    function failCreation(
+        operationId: string,
+        reason: TAnnotationCreationFailureReason,
+        pageNumber: number | null,
+        options: {silent?: boolean} = {},
+    ): TAnnotationCreationOutcome {
+        if (!options.silent) {
+            reportCreationFailure(operationId, reason, pageNumber);
+        }
+        return {
+            status: 'failed',
+            reason,
+        };
+    }
 
     function isAnnotationUiManagerCurrent(uiManager: AnnotationEditorUIManager) {
         return annotationUiManager.value === uiManager;
@@ -213,28 +260,6 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             run();
         }, delayMs);
         subtypeRetryTimers.add(timer);
-    }
-
-    function cloneHighlightBoxes(boxes: readonly IPdfjsHighlightBox[]) {
-        return boxes.map(box => ({ ...box }));
-    }
-
-    function markerRectsFromBoxes(boxes: readonly IPdfjsHighlightBox[]) {
-        return boxes.map(box => ({
-            left: box.x,
-            top: box.y,
-            width: box.width,
-            height: box.height,
-        }));
-    }
-
-    function boxesFromMarkerRects(rects: readonly IAnnotationMarkerRect[]) {
-        return rects.map(rect => ({
-            x: rect.left,
-            y: rect.top,
-            width: rect.width,
-            height: rect.height,
-        }));
     }
 
     function getEditorMarkupBoxes(editor: IPdfjsEditor) {
@@ -293,11 +318,21 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
     async function highlightSelectionInternal(
         withComment: boolean,
         explicitRange: Range | null = null,
-        selectionOptions: {markupSubtype?: TMarkupSubtype | null} = {},
-    ) {
+        selectionOptions: {
+            markupSubtype?: TMarkupSubtype | null;
+            operationId?: string;
+            /**
+             * Set for speculative attempts whose caller owns the final report,
+             * so a fallback that succeeds cannot leave a stray failure behind.
+             */
+            suppressFailureReport?: boolean;
+        } = {},
+    ): Promise<TAnnotationCreationOutcome> {
+        const operationId = selectionOptions.operationId ?? nextAnnotationOperationId();
+        const suppressed = selectionOptions.suppressFailureReport === true;
         const uiManager = annotationUiManager.value;
         if (!uiManager) {
-            return false;
+            return failCreation(operationId, 'viewer-not-ready', null, {silent: suppressed});
         }
 
         const identity = getIdentity();
@@ -307,7 +342,15 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
 
         const activeRange = explicitRange?.cloneRange() ?? getSelectionRangeForCommentAction();
         if (!activeRange) {
-            return false;
+            // A markup shortcut can fire on any pointer release; an absent
+            // selection is an ordinary no-op, not something to tell the user.
+            const cause = classifyUnavailableSelection();
+            return failCreation(
+                operationId,
+                cause === 'cross-page' ? 'selection-spans-pages' : 'no-selection',
+                currentPage.value,
+                {silent: suppressed || cause !== 'cross-page'},
+            );
         }
 
         const selection = restoreSelectionRange(activeRange);
@@ -321,14 +364,28 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         const text = activeRange.toString();
         const selectionPreviewText = text.trim();
 
+        const spansPages = doesRangeSpanTextLayers(activeRange);
         const textLayer = resolveTextLayerForRange(activeRange);
         if (!textLayer) {
-            return false;
+            return failCreation(
+                operationId,
+                spansPages ? 'selection-spans-pages' : 'selection-not-in-text-layer',
+                currentPage.value,
+                {silent: suppressed},
+            );
         }
 
         const boxes = uiManager.getSelectionBoxes(textLayer);
         if (!boxes) {
-            return false;
+            // pdf.js returns null for a range whose common ancestor sits
+            // outside the start page's text layer, which is how a cross-page
+            // drag arrives here.
+            return failCreation(
+                operationId,
+                spansPages ? 'selection-spans-pages' : 'selection-not-in-text-layer',
+                getPageNumberForTextLayer(textLayer),
+                {silent: suppressed},
+            );
         }
 
         const pageNumber = getPageNumberForTextLayer(textLayer);
@@ -350,13 +407,13 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 editor,
                 summary: commentSync.toEditorSummary(editor, pageIndex, getCommentText(editor)),
                 subtype: observedSubtype,
-                geometry: markerRectsFromBoxes(editorBoxes),
+                geometry: markerRectsFromHighlightBoxes(editorBoxes),
             }];
         });
         const canonicalPlan = annotationIntentSink.submitSelectionMarkupIntent({
             pageIndex,
             requestedSubtype: selectionOptions.markupSubtype ?? null,
-            geometry: markerRectsFromBoxes(boxes),
+            geometry: markerRectsFromHighlightBoxes(boxes),
             observedEditors: observedEditors.map(candidate => ({
                 summary: candidate.summary,
                 subtype: candidate.subtype,
@@ -364,7 +421,6 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             })),
         });
         const projectedSubtype = canonicalPlan.subtype;
-        const createdAnnotation = true;
         let editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
 
         const resolveCreatedEditor = async (createdEditor: IPdfjsEditor | null) => {
@@ -413,79 +469,25 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             return true;
         };
 
-        const getViewerSelectionCleanupScope = () => {
-            const container = viewerContainer.value;
-            return container?.closest<HTMLElement>('[data-pdf-viewer-host]') ?? container;
+        let outcome: TAnnotationCreationOutcome = {
+            status: 'pending-editor',
+            annotationId: canonicalPlan.annotationId,
+            reason: 'editor-unavailable',
         };
-
-        const selectionHasEndpointInScope = (selection: Selection, scope: HTMLElement) => {
-            if (
-                (selection.anchorNode && scope.contains(selection.anchorNode))
-                || (selection.focusNode && scope.contains(selection.focusNode))
-            ) {
-                return true;
-            }
-            for (let index = 0; index < selection.rangeCount; index += 1) {
-                const range = selection.getRangeAt(index);
-                if (scope.contains(range.startContainer) || scope.contains(range.endContainer)) {
-                    return true;
-                }
-            }
-            return false;
-        };
-
-        const clearEditorSelectionVisuals = (editor: IPdfjsEditor | null) => {
-            if (!isAnnotationUiManagerCurrent(uiManager)) {
-                return;
-            }
-            const editorElement = editor?.div ?? null;
-            const cleanupScope = getViewerSelectionCleanupScope();
-            clearSelectedEditorState(uiManager);
-
-            const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-            if (activeElement && cleanupScope?.contains(activeElement) && activeElement !== document.body) {
-                const insidePdfViewer = activeElement.closest(
-                    '.annotationEditorLayer, .annotation-editor-layer, .pdfViewer, .pdf-viewer',
-                );
-                if (insidePdfViewer) {
-                    activeElement.blur();
-                }
-            }
-
-            const clearSelectionClasses = () => {
-                if (typeof document === 'undefined' || !cleanupScope) {
-                    return;
-                }
-                cleanupScope.querySelectorAll<HTMLElement>(
-                    '.annotationEditorLayer .selectedEditor, .annotationEditorLayer .selected, .annotation-editor-layer .selectedEditor, .annotation-editor-layer .selected',
-                ).forEach((element) => {
-                    element.classList.remove('selectedEditor', 'selected');
-                });
-                cleanupScope.querySelectorAll<HTMLElement>(
-                    '.textLayer .highlight.selected, .text-layer .highlight.selected, .highlightOutline.selected',
-                ).forEach((element) => {
-                    element.classList.remove('selected');
-                });
-                const selection = document.getSelection();
-                if (selection && selectionHasEndpointInScope(selection, cleanupScope)) {
-                    selection.removeAllRanges();
-                }
-                editorElement?.classList.remove('selectedEditor', 'selected');
-            };
-
-            clearSelectionClasses();
-            if (typeof window !== 'undefined') {
-                window.requestAnimationFrame(clearSelectionClasses);
-                window.setTimeout(clearSelectionClasses, 0);
-                window.setTimeout(clearSelectionClasses, SELECTION_CLEAR_FALLBACK_DELAY_MS);
-            }
-        };
-
+        const modeSwitchError = await toolManager.updateModeWithRetry(
+            uiManager,
+            AnnotationEditorType.HIGHLIGHT,
+            pageNumber,
+        ).catch((error: unknown) => error ?? new Error('Annotation mode switch failed'));
         try {
-            await switchToAnnotationModeOrThrow(toolManager, uiManager, AnnotationEditorType.HIGHLIGHT, pageNumber);
+            if (modeSwitchError) {
+                throw modeSwitchError instanceof Error
+                    ? modeSwitchError
+                    : new Error(String(modeSwitchError));
+            }
             await uiManager.waitForEditorsRendered(pageNumber);
             if (!isAnnotationUiManagerCurrent(uiManager)) {
-                return createdAnnotation;
+                return {status: 'cancelled'};
             }
 
             const layer = getAnnotationEditorLayer(uiManager, pageNumber - 1);
@@ -523,7 +525,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                     return;
                 }
                 if (!replacement.deleted && replacement.geometry.length > 0) {
-                    const replacementBoxes = boxesFromMarkerRects(replacement.geometry);
+                    const replacementBoxes = highlightBoxesFromMarkerRects(replacement.geometry);
                     const replacementEditor = createAnnotationEditorWithSyntheticPointer(layer, {
                         methodOfCreation: 'toolbar',
                         boxes: replacementBoxes,
@@ -560,7 +562,15 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             registerCreatedEditorUndo(targetEditor);
             attachSelectionPreviewText(targetEditor, selectionPreviewText);
             applySubtypeOverrideToEditor(targetEditor);
-            bindCanonicalEditor(targetEditor, canonicalPlan.annotationId);
+            const bound = bindCanonicalEditor(targetEditor, canonicalPlan.annotationId);
+            if (bound) {
+                outcome = {
+                    status: 'created',
+                    annotationId: canonicalPlan.annotationId,
+                };
+            } else if (!isAnnotationUiManagerCurrent(uiManager)) {
+                outcome = {status: 'cancelled'};
+            }
 
             if (!targetEditor) {
                 let attempts = 0;
@@ -578,35 +588,74 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                     attempts += 1;
                     if (attempts < ANNOTATION_EDITOR_RETRY_ATTEMPTS) {
                         scheduleSubtypeRetry(hydrateEditorLater, ANNOTATION_EDITOR_RETRY_DELAY_MS);
+                        return;
+                    }
+                    // The caller that suppressed this attempt owns its report
+                    // and has already spoken for the same operation id by now.
+                    // Speaking again here would either double-toast one gesture
+                    // or blame a fallback that went on to succeed.
+                    if (!suppressed) {
+                        reportCreationFailure(operationId, 'editor-binding-failed', pageNumber);
                     }
                 };
                 scheduleSubtypeRetry(hydrateEditorLater, ANNOTATION_EDITOR_RETRY_DELAY_MS);
             }
 
-            clearEditorSelectionVisuals(targetEditor);
+            clearEditorSelectionVisuals({
+                viewerContainer,
+                uiManager,
+                isUiManagerCurrent: () => isAnnotationUiManagerCurrent(uiManager),
+                editor: targetEditor,
+            });
         } catch (error) {
+            const reason: TAnnotationPendingEditorReason = modeSwitchError
+                ? 'mode-switch-failed'
+                : 'projection-failed';
             BrowserLogger.warn('annotations', `Failed to highlight selection: ${errorToLogText(error)}`);
+            // The document or its editor manager was replaced mid-flight. The
+            // annotation belongs to a document that is gone, so blaming the one
+            // now on screen would be a failure the user cannot act on.
+            if (!isAnnotationUiManagerCurrent(uiManager)) {
+                return {status: 'cancelled'};
+            }
+            if (!suppressed) {
+                reportCreationFailure(operationId, reason, pageNumber);
+            }
+            // The canonical intent was submitted before this point, so the
+            // annotation exists even though no editor was projected for it.
+            // Calling it `failed` would let a fallback mint a duplicate.
+            outcome = {
+                status: 'pending-editor',
+                annotationId: canonicalPlan.annotationId,
+                reason,
+            };
         }
 
-        if (createdAnnotation) {
+        if (didCreateAnnotation(outcome)) {
             toolManager.maybeAutoResetAnnotationTool();
         }
 
-        await restoreHighlightModeAfterSelection(toolManager, uiManager, previousMode, pageNumber);
+        try {
+            await restoreHighlightModeAfterSelection(toolManager, uiManager, previousMode, pageNumber);
+        } catch (error) {
+            // Restoring the previous tool mode is cleanup; it must not rewrite
+            // the outcome the caller is waiting on.
+            BrowserLogger.warn('annotations', `Failed to restore annotation mode after selection: ${errorToLogText(error)}`);
+        }
 
-        if (withComment && isAnnotationUiManagerCurrent(uiManager)) {
+        if (withComment && didCreateAnnotation(outcome) && isAnnotationUiManagerCurrent(uiManager)) {
             emitAnnotationOpenNote(canonicalPlan.comment);
         }
 
-        return createdAnnotation;
+        return outcome;
     }
 
-    function highlightSelection() {
-        return highlightSelectionInternal(false);
+    async function highlightSelection() {
+        return (await highlightSelectionInternal(false)).status === 'created';
     }
 
     async function commentSelection() {
-        return highlightSelectionInternal(true);
+        return (await highlightSelectionInternal(true)).status === 'created';
     }
 
     async function maybeApplySelectionMarkup(explicitRange: Range | null = null) {
@@ -624,9 +673,16 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 selectionRangeCount: document.getSelection()?.rangeCount ?? 0,
                 selectionCollapsed: document.getSelection()?.isCollapsed ?? null,
             }));
+            if (classifyUnavailableSelection() === 'cross-page') {
+                reportCreationFailure(
+                    nextAnnotationOperationId(),
+                    'selection-spans-pages',
+                    currentPage.value,
+                );
+            }
             return false;
         }
-        return highlightSelectionInternal(false, range);
+        return (await highlightSelectionInternal(false, range)).status === 'created';
     }
 
     function getPageClientPoint(pageRect: DOMRect, pageX: number, pageY: number) {
@@ -683,90 +739,15 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             : new Error(String(modeError));
     }
 
-    function resolveTextMarkupSubtype(markup: TAgentTextMarkupKind | undefined): TMarkupSubtype {
-        switch (markup) {
-            case 'underline':
-                return 'Underline';
-            case 'strikethrough':
-                return 'StrikeOut';
-            case 'squiggly':
-                return 'Squiggly';
-            case 'highlight':
-            case undefined:
-                return 'Highlight';
-        }
-    }
-
-    function getPageContainerByNumber(pageNumber: number) {
-        return viewerContainer.value?.querySelector<HTMLElement>(
-            `.page_container[data-page="${pageNumber}"]`,
-        ) ?? null;
-    }
-
-    function normalizePositiveInteger(value: number | undefined, fallback: number) {
-        return typeof value === 'number' && Number.isFinite(value)
-            ? Math.max(1, Math.trunc(value))
-            : fallback;
-    }
-
-    async function createTextMarkupFromText(
-        textMarkupOptions: ICreateTextMarkupFromTextOptions,
-    ): Promise<ICreateTextMarkupFromTextResult> {
-        const pageNumber = normalizePositiveInteger(textMarkupOptions.pageNumber, currentPage.value);
-        const occurrence = normalizePositiveInteger(textMarkupOptions.occurrence, 1);
-        const requestedText = textMarkupOptions.text.trim();
-        const subtype = resolveTextMarkupSubtype(textMarkupOptions.markup);
-        const createResult = (
-            created: boolean,
-            matchedText: string | null,
-            reason?: string,
-        ): ICreateTextMarkupFromTextResult => ({
-            created,
-            pageNumber,
-            requestedText,
-            matchedText,
-            occurrence,
-            subtype,
-            ...(reason ? {reason} : {}),
-        });
-
-        if (!requestedText) {
-            return createResult(false, null, 'Text is required.');
-        }
-
-        if (pageNumber > numPages.value) {
-            return createResult(false, null, `Page ${pageNumber} is outside the document.`);
-        }
-
-        try {
-            await ensureAnnotationEditorLayerReady?.(pageNumber);
-            await nextTick();
-        } catch (error) {
-            BrowserLogger.warn('annotations', `Failed to prepare page ${pageNumber} for text markup: ${errorToLogText(error)}`);
-        }
-
-        const pageContainer = getPageContainerByNumber(pageNumber);
-        if (!pageContainer) {
-            return createResult(false, null, `Page ${pageNumber} is not rendered.`);
-        }
-
-        const match = buildRangeFromPageText(pageContainer, {
-            text: requestedText,
-            occurrence,
-            caseSensitive: textMarkupOptions.caseSensitive,
-            wholeWord: textMarkupOptions.wholeWord,
-        });
-        if (!match) {
-            return createResult(false, null, `Text was not found on page ${pageNumber}.`);
-        }
-
-        const created = await highlightSelectionInternal(
-            textMarkupOptions.withNote === true,
-            match.range,
-            {markupSubtype: subtype},
-        );
-        return createResult(created, match.matchedText, created ? undefined : 'Text markup could not be created.');
-    }
+    const createTextMarkupFromText = createTextMarkupFromTextRunner({
+        viewerContainer,
+        currentPage,
+        numPages,
+        ...(ensureAnnotationEditorLayerReady ? {ensureAnnotationEditorLayerReady} : {}),
+        applySelectionMarkup: (withComment, range, markupSubtype) => (
+            highlightSelectionInternal(withComment, range, {markupSubtype})
+        ),
+    });
 
     async function waitForEditorsRenderedWithTimeout(
         uiManager: AnnotationEditorUIManager,
@@ -850,9 +831,10 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         pageX: number,
         pageY: number,
         preferTextAnchor: boolean,
-    ) {
+        operationId: string,
+    ): Promise<TAnnotationCreationOutcome | null> {
         if (!preferTextAnchor) {
-            return false;
+            return null;
         }
         const range = buildRangeFromPagePoint({
             pageContainer,
@@ -860,9 +842,13 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             pageX: clamp01(pageX),
             pageY: clamp01(pageY),
         });
-        return range
-            ? highlightSelectionInternal(true, range)
-            : false;
+        if (!range) {
+            return null;
+        }
+        return highlightSelectionInternal(true, range, {
+            operationId,
+            suppressFailureReport: true,
+        });
     }
 
     function pinViewerScrollAroundEditorComment(editor: IPdfjsEditor) {
@@ -885,31 +871,6 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         }
     }
 
-    function captureEditorSnapshot(
-        pageIndex: number,
-        getEditorsForPage: (pageIndex: number) => IPdfjsEditor[],
-        getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string,
-    ): IEditorSnapshot {
-        const editorsBefore = getEditorsForPage(pageIndex);
-        return {editorsBeforeIds: new Set<string>(editorsBefore.map(editor => getEditorIdentity(editor, pageIndex)))};
-    }
-
-    function isDeletedEditor(editor: IPdfjsEditor) {
-        return isEditorCommentDeleted(editor);
-    }
-
-    function pickCreatedEditorCandidate(
-        pageIndex: number,
-        snapshot: IEditorSnapshot,
-        getEditorsForPage: (pageIndex: number) => IPdfjsEditor[],
-        getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string,
-    ) {
-        const editorsAfter = getEditorsForPage(pageIndex).filter(editor => !isDeletedEditor(editor));
-        return editorsAfter.find(editor => (
-            !snapshot.editorsBeforeIds.has(getEditorIdentity(editor, pageIndex))
-        )) ?? null;
-    }
-
     async function commentAtPoint(
         pageNumber: number,
         pageX: number,
@@ -918,12 +879,13 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             preferTextAnchor?: boolean;
             diagnosticsContext?: INotePlacementDiagnosticsContext;
         } = {},
-    ) {
+    ): Promise<TAnnotationCreationOutcome> {
+        const operationId = pointOptions.diagnosticsContext?.attemptId ?? nextAnnotationOperationId();
         const container = viewerContainer.value;
         const uiManager = annotationUiManager.value;
         const diagnosticsContext = pointOptions.diagnosticsContext;
         if (!container || !uiManager) {
-            return false;
+            return failCreation(operationId, 'viewer-not-ready', pageNumber);
         }
 
         const identity = getIdentity();
@@ -932,26 +894,35 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
 
         const pageContainer = container.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
         if (!pageContainer) {
-            return false;
+            return failCreation(operationId, 'page-not-rendered', pageNumber);
         }
         const pageRect = pageContainer.getBoundingClientRect();
         const pageClientPoint = getPageClientPoint(pageRect, pageX, pageY);
 
-        const createdTextAnchor = await tryCreateTextAnchorComment(
+        const textAnchorOutcome = await tryCreateTextAnchorComment(
             pageContainer,
             pageNumber,
             pageX,
             pageY,
             pointOptions.preferTextAnchor ?? true,
+            operationId,
         );
-        if (createdTextAnchor) {
-            return true;
+        // Only an attempt that minted nothing may fall through; otherwise the
+        // sticky-note path would add a second annotation for one gesture.
+        if (textAnchorOutcome && textAnchorOutcome.status !== 'failed') {
+            // The attempt ran with its report suppressed so a fallback could
+            // own the outcome. No fallback follows, so the reason has to be
+            // handed over here or the annotation stays invisible in silence.
+            if (textAnchorOutcome.status === 'pending-editor') {
+                reportCreationFailure(operationId, textAnchorOutcome.reason, pageNumber);
+            }
+            return textAnchorOutcome;
         }
 
         const pageIndex = Math.max(0, pageNumber - 1);
         const clickMarkerRect = markerRectFromPoint(pageX, pageY);
         if (!clickMarkerRect) {
-            return false;
+            return failCreation(operationId, 'point-outside-page', pageNumber);
         }
         const canonicalNote = annotationIntentSink.submitStickyNoteIntent({
             pageIndex,
@@ -1005,6 +976,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
 
         const previousMode = uiManager.getMode();
         let preparedEditor: IPdfjsEditor | null = null;
+        let pointProjectionFailure: TAnnotationPendingEditorReason | null = null;
         try {
             await switchToAnnotationModeOrThrow(toolManager, uiManager, AnnotationEditorType.FREETEXT, pageNumber);
             if (isAnnotationUiManagerCurrent(uiManager)) {
@@ -1028,17 +1000,38 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 }
             }
         } catch (error) {
+            pointProjectionFailure = 'projection-failed';
             BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'Point-note projection failed after canonical creation', {
                 attemptId: diagnosticsContext?.attemptId ?? null,
                 pageNumber,
                 error: errorToLogText(error),
             });
         } finally {
-            await restorePreviousAnnotationMode(toolManager, uiManager, previousMode, pageNumber);
+            try {
+                await restorePreviousAnnotationMode(toolManager, uiManager, previousMode, pageNumber);
+            } catch (error) {
+                BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'Failed to restore annotation mode after note placement', {
+                    attemptId: diagnosticsContext?.attemptId ?? null,
+                    pageNumber,
+                    error: errorToLogText(error),
+                });
+            }
+        }
+        // The document or its editor manager was replaced mid-flight. Whatever
+        // pdf.js handed back belongs to a document that is gone: it was never
+        // bound to the canonical note, so reporting it as created would be a
+        // success the user cannot see. A retry loop would fare no better - it
+        // would hunt editors on another document and end by blaming the new
+        // one for this failure.
+        if (!isAnnotationUiManagerCurrent(uiManager)) {
+            return {status: 'cancelled'};
         }
         if (!preparedEditor) {
             let attempts = 0;
             const bindLateEditor = () => {
+                if (!isAnnotationUiManagerCurrent(uiManager)) {
+                    return;
+                }
                 const lateEditor = pickCreatedEditorCandidate(
                     pageIndex,
                     editorSnapshot,
@@ -1054,14 +1047,23 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 attempts += 1;
                 if (attempts < ANNOTATION_EDITOR_RETRY_ATTEMPTS) {
                     scheduleSubtypeRetry(bindLateEditor, ANNOTATION_EDITOR_RETRY_DELAY_MS);
+                    return;
                 }
+                reportCreationFailure(operationId, 'editor-binding-failed', pageNumber);
             };
             scheduleSubtypeRetry(bindLateEditor, ANNOTATION_EDITOR_RETRY_DELAY_MS);
             emitAnnotationOpenNote(canonicalNote.comment);
-        } else {
-            openPointNoteSummary(preparedEditor, canonicalNote.comment);
+            return {
+                status: 'pending-editor',
+                annotationId: canonicalNote.annotationId,
+                reason: pointProjectionFailure ?? 'editor-unavailable',
+            };
         }
-        return true;
+        openPointNoteSummary(preparedEditor, canonicalNote.comment);
+        return {
+            status: 'created',
+            annotationId: canonicalNote.annotationId,
+        };
     }
 
     function setCommentPlacementMode(active: boolean) {
@@ -1097,7 +1099,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         if (!target) {
             return false;
         }
-        const created = await commentAtPoint(
+        const outcome = await commentAtPoint(
             target.pageNumber,
             target.pageX,
             target.pageY,
@@ -1106,10 +1108,13 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 diagnosticsContext: enrichedDiagnosticsContext,
             },
         );
-        if (created) {
+        // Placement mode ends as soon as the annotation exists. Keeping it
+        // armed while an editor is still resolving would invite a second note
+        // for the same click.
+        if (didCreateAnnotation(outcome)) {
             setCommentPlacementMode(false);
         }
-        return created;
+        return outcome.status === 'created';
     }
 
     function handleDocumentPointerUp(event: PointerEvent) {

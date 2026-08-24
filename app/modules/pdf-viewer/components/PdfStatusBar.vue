@@ -227,6 +227,11 @@ function onSave() {
     box-shadow: 0 0 0 1px var(--app-status-save-dot-clean-ring);
 }
 
+.status-save-dot-button.is-failed .status-save-dot {
+    background: var(--app-status-save-dot-failed-bg);
+    box-shadow: 0 0 0 1px var(--app-status-save-dot-failed-ring);
+}
+
 .status-save-dot-button.is-saving .status-save-dot {
     background: var(--app-status-save-dot-saving-bg);
     box-shadow: 0 0 0 1px var(--app-status-save-dot-saving-ring);

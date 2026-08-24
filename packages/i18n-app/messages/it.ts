@@ -1257,6 +1257,7 @@ export default {
         'noFileOpen': 'Nessun file aperto',
         'unsavedChanges': 'Modifiche non salvate – fai clic per salvare',
         'allSaved': 'Tutte le modifiche salvate',
+        'saveFailed': 'Ultimo salvataggio non riuscito',
         'saveChanges': 'Salva modifiche',
         'savingChanges': 'Salvataggio modifiche',
         'fileSizeUnknown': 'Dimensione: -',
@@ -1462,6 +1463,12 @@ export default {
             'browserStorageTitle': 'Lo spazio di archiviazione del browser non è disponibile',
             'browserStorageDescription': '“{name}” è aperto in memoria, ma non riapparirà dopo il ricaricamento.',
         },
+        'save': {
+            'validation': 'Il documento non ha superato il controllo di validità, quindi non è stato scritto nulla.',
+            'openNotes': 'Non è stato possibile salvare le note aperte, quindi il documento non è stato scritto.',
+            'documentChanged': 'Il documento è cambiato prima della fine del salvataggio, quindi non è stato scritto nulla.',
+            'notCompleted': 'Non è stato possibile scrivere il documento.',
+        },
         'export': {
             'images': 'Esportazione immagini non riuscita',
             'multiPageTiff': 'Esportazione TIFF non riuscita',
@@ -1510,6 +1517,8 @@ export default {
             'removeCrop': 'Impossibile rimuovere il ritaglio',
         },
         'annotation': {
+            'create': 'Impossibile creare questa annotazione.',
+            'selectionSpansPages': 'Seleziona il testo di una sola pagina per aggiungere questa annotazione.',
             'delete': 'Impossibile eliminare questa annotazione dal documento corrente.',
             'updateNote': 'Impossibile aggiornare questa nota.',
         },

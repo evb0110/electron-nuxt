@@ -33,6 +33,7 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     knownFileSizeBytes?: TReadableRef<number | null> | undefined;
     isDocumentVisualPending?: Ref<boolean>;
     canSave: Ref<boolean>;
+    hasSaveFailure: TReadableRef<boolean>;
     handleSave: () => Promise<unknown>;
     requestThumbnailInvalidation: (pages: number[]) => void;
     pdfViewerRef: Ref<IWorkspacePdfViewerDocumentControlsPort | null>;
@@ -60,6 +61,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         knownFileSizeBytes,
         isDocumentVisualPending,
         canSave,
+        hasSaveFailure,
         isAnySaving,
         isHistoryBusy,
         handleSave,
@@ -110,6 +112,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         ...(knownFileSizeBytes ? {knownFileSizeBytes} : {}),
         ...(isDocumentVisualPending ? { isDocumentVisualPending } : {}),
         canSave,
+        hasSaveFailure,
         isAnySaving,
         isHistoryBusy,
         handleSave,

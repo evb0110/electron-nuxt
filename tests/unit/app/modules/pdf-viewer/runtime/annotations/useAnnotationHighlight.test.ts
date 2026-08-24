@@ -324,9 +324,13 @@ describe('useAnnotationHighlight commentAtPoint', () => {
             emitAnnotationNotePlacementChange: () => {},
         });
 
-        const created = await highlight.commentAtPoint(1, 0.5, 0.5, { preferTextAnchor: false });
+        const outcome = await highlight.commentAtPoint(1, 0.5, 0.5, { preferTextAnchor: false });
 
-        expect(created).toBe(true);
+        expect(outcome).toEqual({
+            status: 'pending-editor',
+            annotationId: 'canonical-note',
+            reason: 'editor-unavailable',
+        });
         expect(order[0]).toBe('store-command');
         expect(order[1]).toBe('pdfjs-mode');
         expect(emitAnnotationOpenNote).toHaveBeenCalledWith(canonicalComment);
@@ -489,7 +493,10 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
             emitAnnotationNotePlacementChange: () => {},
         });
 
-        await expect(highlight.highlightSelectionInternal(false, ownerRange)).resolves.toBe(true);
+        await expect(highlight.highlightSelectionInternal(false, ownerRange)).resolves.toEqual({
+            status: 'created',
+            annotationId: 'canonical-highlight',
+        });
 
         expect(ownerSelectedEditor.classList.contains('selectedEditor')).toBe(false);
         expect(ownerSelectedEditor.classList.contains('selected')).toBe(false);
@@ -639,9 +646,12 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
             emitAnnotationNotePlacementChange: () => {},
         });
 
-        const created = await highlight.highlightSelectionInternal(false, range);
+        const outcome = await highlight.highlightSelectionInternal(false, range);
 
-        expect(created).toBe(true);
+        expect(outcome).toEqual({
+            status: 'created',
+            annotationId: 'canonical-highlight',
+        });
         expect(order).toEqual([
             'store-command',
             'pdfjs-create',

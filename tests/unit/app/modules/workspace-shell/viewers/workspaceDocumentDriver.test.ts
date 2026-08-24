@@ -86,6 +86,7 @@ function createBindingHarness() {
     const isWorkspaceLayoutResizing = ref(false);
     const onAnnotationInventory = vi.fn<TAnnotationInventoryListener>();
     const onAnnotationEnrichmentState = vi.fn<TAnnotationEnrichmentStateListener>();
+    const onAnnotationFailure = vi.fn();
     const onPageSourceUpdate = vi.fn();
     const onRasterSchedulerUpdate = vi.fn();
     const onSourceCapabilitiesUpdate = vi.fn();
@@ -93,6 +94,7 @@ function createBindingHarness() {
     const options = new Proxy({
         activeDocumentDriver: computed(() => activeDocumentDriver.value),
         djvuViewerRef,
+        onAnnotationFailure,
         isInteractionActive,
         isRenderActive,
         isWorkspaceLayoutResizing,
@@ -123,6 +125,7 @@ function createBindingHarness() {
         binding: useWorkspaceDocumentDriverBinding(options),
         createDriver,
         djvuViewerRef,
+        onAnnotationFailure,
         isInteractionActive,
         isRenderActive,
         isWorkspaceLayoutResizing,
@@ -267,6 +270,20 @@ describe('WorkspaceDocumentDriver', () => {
             createLifecycleHooks: expect.any(Function),
         });
     });
+    it('routes annotation creation failures to the workspace for the PDF.js driver only', () => {
+        const harness = createBindingHarness();
+
+        // The bridge renders no failure UI itself, so an unbound listener
+        // means every rejected annotation reaches nobody.
+        expect(harness.binding.activeViewerListeners.value.annotationFailure)
+            .toBe(harness.onAnnotationFailure);
+
+        harness.activeDocumentDriver.value = harness.createDriver('djvu');
+
+        // DjVu has no annotation editor, so it emits no failures to route.
+        expect(harness.binding.activeViewerListeners.value).not.toHaveProperty('annotationFailure');
+    });
+
     it('owns viewer bindings, source listeners, and reactive presentation behind the driver', () => {
         const harness = createBindingHarness();
         expect(harness.binding.activeViewerProps.value.isActive).toBe(false);

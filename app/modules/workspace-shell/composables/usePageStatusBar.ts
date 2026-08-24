@@ -16,7 +16,7 @@ import {
     getDocumentWindowCapability,
 } from '@app/utils/platformDocuments';
 
-type TSaveDotState = 'idle' | 'saving' | 'dirty' | 'clean';
+type TSaveDotState = 'idle' | 'saving' | 'failed' | 'dirty' | 'clean';
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 const WORKING_COPY_BACKING_STATUS_REFRESH_INTERVAL_MS = 1_000;
 
@@ -39,6 +39,8 @@ interface IPageStatusBarDeps {
     canSave: Ref<boolean>;
     isAnySaving: Ref<boolean>;
     isHistoryBusy: Ref<boolean>;
+    /** Set while the last save attempt on this document failed. */
+    hasSaveFailure: TReadableRef<boolean>;
     handleSave: () => Promise<unknown>;
 }
 
@@ -55,6 +57,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         canSave,
         isAnySaving,
         isHistoryBusy,
+        hasSaveFailure,
         handleSave,
     } = deps;
     const { t } = useTypedI18n();
@@ -238,6 +241,11 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         if (isAnySaving.value) {
             return 'saving';
         }
+        // A failed save outranks the dirty flag: a document can look clean
+        // after a rejected save and still hold unwritten changes.
+        if (hasSaveFailure.value) {
+            return 'failed';
+        }
         if (canSave.value) {
             return 'dirty';
         }
@@ -246,7 +254,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
     const statusSaveDotClass = computed(() => `is-${statusSaveDotState.value}`);
     const statusSaveDotCanSave = computed(() => (
         !!pdfSrc.value
-        && canSave.value
+        && (canSave.value || statusSaveDotState.value === 'failed')
         && !isAnySaving.value
         && !isHistoryBusy.value
     ));
@@ -257,12 +265,18 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         if (statusSaveDotState.value === 'saving') {
             return t('status.savingChanges');
         }
+        if (statusSaveDotState.value === 'failed') {
+            return t('status.saveFailed');
+        }
         if (statusSaveDotState.value === 'dirty') {
             return t('status.unsavedChanges');
         }
         return t('status.allSaved');
     });
     const statusSaveDotAriaLabel = computed(() => {
+        if (statusSaveDotState.value === 'failed') {
+            return t('status.saveFailed');
+        }
         if (statusSaveDotState.value === 'dirty') {
             return t('status.saveChanges');
         }

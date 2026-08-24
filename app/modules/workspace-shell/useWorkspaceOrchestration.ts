@@ -18,6 +18,7 @@ import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/comp
 import { useWorkspaceDocumentControls } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentControls';
 import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
+import { useWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import { useWorkspaceInteractionControls } from '@app/modules/workspace-shell/composables/useWorkspaceInteractionControls';
 import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController';
 import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-shell/composables/useWorkspaceSidebarSearchSyncController';
@@ -421,7 +422,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         ?? workingCopyPath.value
     ));
 
+    // Every workspace failure that reaches the user goes through this one
+    // surface, so save aborts and annotation creation failures cannot drift
+    // into separate, half-wired reporting.
+    const failureSurface = useWorkspaceFailureSurface();
+
     const pageSaveOrchestration = usePageSaveOrchestration({
+        failureSurface,
         pdfData,
         pdfDocument,
         pdfViewerRef,
@@ -474,6 +481,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleSave,
         isAnySaving,
         canSave,
+        hasSaveFailure,
         embedPlacedImageToPage,
         getSourcePdfData,
         serializePdfForSave,
@@ -690,6 +698,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         effectiveZoom,
         knownFileSizeBytes: djvuSourceSizeBytes,
         canSave,
+        hasSaveFailure,
         isAnySaving,
         isHistoryBusy,
         handleSave,
@@ -1031,6 +1040,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             onAnnotationEnrichmentState: applyAnnotationEnrichmentState,
             onAnnotationContextMenu: annotationActions.handleViewerAnnotationContextMenu,
             onAnnotationModified: handleAnnotationModifiedWithThumbnailInvalidation,
+            onAnnotationFailure: failureSurface.reportAnnotationFailure,
             onAnnotationNotePlacementChange: value => { annotationPlacingPageNote.value = value; },
             onAnnotationOpenNote: annotationActions.handleOpenAnnotationNote,
             onAnnotationSetting: annotationSession.handleAnnotationSettingChange,

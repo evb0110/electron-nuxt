@@ -18,6 +18,7 @@ import type {
 import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type {
+    IAnnotationCreationFailureReport,
     IDocumentViewerExpose,
     IPdfPageRasterScheduler,
     IPdfViewerExpose,
@@ -519,6 +520,7 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onAnnotationEnrichmentState: TAnnotationEnrichmentStateListener;
     onAnnotationContextMenu: unknown;
     onAnnotationModified: unknown;
+    onAnnotationFailure: (failure: IAnnotationCreationFailureReport) => void;
     onAnnotationNotePlacementChange: (value: boolean) => void;
     onAnnotationOpenNote: unknown;
     onAnnotationSetting: unknown;
@@ -655,6 +657,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             annotationToolCancel: options.onAnnotationToolCancel,
             annotationSetting: options.onAnnotationSetting,
             annotationNotePlacementChange: options.onAnnotationNotePlacementChange,
+            annotationFailure: options.onAnnotationFailure,
             shapeContextMenu: options.onShapeContextMenu,
             imagePlacementFinalize: options.onImagePlacementFinalize,
         };

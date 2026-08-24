@@ -697,6 +697,37 @@ describe('useDocumentWorkspaceAgent', () => {
         expect(rawViewerColorUpdate).not.toHaveBeenCalled();
     });
 
+    it('propagates a failed text-markup creation with its typed reason', async () => {
+        const createTextMarkupFromText = vi.fn(async () => ({
+            created: false,
+            pageNumber: 2,
+            requestedText: 'chapter one',
+            matchedText: 'chapter one',
+            occurrence: 1,
+            subtype: 'Highlight' as const,
+            reason: 'The PDF viewer could not switch into the annotation editing mode.',
+            failureReason: 'mode-switch-failed' as const,
+            // The canonical annotation is already in the document; only its
+            // editor is missing. The agent has to see that, or a caller
+            // retrying on `created: false` mints a duplicate.
+            pendingEditor: true,
+        }));
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({pdfViewerRef: ref(
+            cast<IWorkspacePdfViewerAgentPort>({createTextMarkupFromText}),
+        )}));
+
+        await expect(agent.runAgentAction('annotation.create_text_markup', {
+            pageNumber: 2,
+            text: 'chapter one',
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'annotation.create_text_markup',
+            created: false,
+            failureReason: 'mode-switch-failed',
+            pendingEditor: true,
+        });
+    });
+
     it('registers annotation history for assistant note text edits', async () => {
         const comment = createAnnotationComment({
             text: 'Original note',

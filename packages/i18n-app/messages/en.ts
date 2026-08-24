@@ -1257,6 +1257,7 @@ export default {
         'noFileOpen': 'No file open',
         'unsavedChanges': 'Unsaved changes – click to save',
         'allSaved': 'All changes saved',
+        'saveFailed': 'Last save failed',
         'saveChanges': 'Save changes',
         'savingChanges': 'Saving changes',
         'fileSizeUnknown': 'Size: -',
@@ -1462,6 +1463,12 @@ export default {
             'browserStorageTitle': 'Browser storage is unavailable',
             'browserStorageDescription': '“{name}” is open in memory, but it will not reappear after reload.',
         },
+        'save': {
+            'validation': 'The document did not pass its validity check, so nothing was written.',
+            'openNotes': 'Open notes could not be saved, so the document was not written.',
+            'documentChanged': 'The document changed before the save finished, so nothing was written.',
+            'notCompleted': 'The document could not be written.',
+        },
         'export': {
             'images': 'Failed to export images',
             'multiPageTiff': 'Failed to export TIFF',
@@ -1510,6 +1517,8 @@ export default {
             'removeCrop': 'Failed to remove crop',
         },
         'annotation': {
+            'create': 'Unable to create this annotation.',
+            'selectionSpansPages': 'Select text on a single page to add this annotation.',
             'delete': 'Unable to delete this annotation from the current document.',
             'updateNote': 'Unable to update this note.',
         },

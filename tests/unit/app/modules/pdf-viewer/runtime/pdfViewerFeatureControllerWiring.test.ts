@@ -108,6 +108,21 @@ describe('usePdfViewerFeatureController wiring', () => {
         expect(harness.controller.pdfViewerPublicApi.getViewerContainer()).toBeNull();
     });
 
+    it('emits a rejected annotation creation to the workspace', async () => {
+        const harness = mountFeatureController();
+
+        // No document is loaded, so the annotation editor manager is absent.
+        await expect(harness.controller.pdfViewerPublicApi.commentAtPoint(1, 0.5, 0.5))
+            .resolves.toBe(false);
+
+        const failures = harness.emitted.filter(([event]) => event === 'annotation-failure');
+        expect(failures).toHaveLength(1);
+        expect(failures[0]?.[1]).toMatchObject({
+            reason: 'viewer-not-ready',
+            pageNumber: 1,
+        });
+    });
+
     it('routes a modifier wheel packet into the zoom path', () => {
         const harness = mountFeatureController({src: new Blob([], {type: 'application/pdf'})});
         harness.controller.handleViewerContainerRef(document.createElement('div'));

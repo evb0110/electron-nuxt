@@ -313,6 +313,7 @@ export const usePdfViewerFeatureController = (
         emitAnnotationCommentClick: viewerEvents.annotationCommentClick,
         emitAnnotationToolCancel: viewerEvents.annotationToolCancel,
         emitAnnotationNotePlacementChange: viewerEvents.annotationNotePlacementChange,
+        reportAnnotationFailure: viewerEvents.annotationFailure,
         emitShapeContextMenu: viewerEvents.shapeContextMenu,
     });
     annotationSessionRef.value = annotationSession;

@@ -1257,6 +1257,7 @@ export default {
         'noFileOpen': 'Ningún archivo abierto',
         'unsavedChanges': 'Cambios sin guardar – haga clic para guardar',
         'allSaved': 'Todos los cambios guardados',
+        'saveFailed': 'El último guardado falló',
         'saveChanges': 'Guardar cambios',
         'savingChanges': 'Guardando cambios',
         'fileSizeUnknown': 'Tamaño: -',
@@ -1462,6 +1463,12 @@ export default {
             'browserStorageTitle': 'El almacenamiento del navegador no está disponible',
             'browserStorageDescription': '“{name}” está abierto en memoria, pero no volverá a aparecer tras recargar.',
         },
+        'save': {
+            'validation': 'El documento no superó la comprobación de validez, así que no se escribió nada.',
+            'openNotes': 'No se pudieron guardar las notas abiertas, así que el documento no se escribió.',
+            'documentChanged': 'El documento cambió antes de terminar de guardar, así que no se escribió nada.',
+            'notCompleted': 'No se pudo escribir el documento.',
+        },
         'export': {
             'images': 'No se pudieron exportar las imágenes',
             'multiPageTiff': 'No se pudo exportar el TIFF',
@@ -1510,6 +1517,8 @@ export default {
             'removeCrop': 'No se pudo quitar el recorte',
         },
         'annotation': {
+            'create': 'No se pudo crear esta anotación.',
+            'selectionSpansPages': 'Selecciona texto de una sola página para añadir esta anotación.',
             'delete': 'No se pudo eliminar esta anotación del documento actual.',
             'updateNote': 'No se pudo actualizar esta nota.',
         },
