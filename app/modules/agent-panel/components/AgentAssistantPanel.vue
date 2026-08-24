@@ -75,14 +75,15 @@
             </section>
 
             <section
-                v-else-if="panelView === 'unsupported'"
+                v-else-if="panelView === 'unsupported' || panelView === 'error'"
                 class="agent-assistant-placeholder"
             >
                 <span class="agent-assistant-glyph">
                     <UIcon name="i-ph-warning-circle" class="agent-assistant-glyph-icon" />
                 </span>
-                <h2>{{ t('assistant.unsupportedTitle') }}</h2>
-                <p>{{ t('assistant.unsupportedDescription') }}</p>
+                <h2>{{ t(panelView === 'error' ? 'assistant.runtimeErrorTitle' : 'assistant.unsupportedTitle') }}</h2>
+                <p>{{ t(panelView === 'error' ? 'assistant.runtimeErrorDescription' : 'assistant.unsupportedDescription') }}</p>
+                <UButton v-if="panelView === 'error'" :label="t('assistant.refresh')" icon="i-ph-arrows-clockwise" color="primary" @click="handleRefreshState" />
             </section>
 
             <section

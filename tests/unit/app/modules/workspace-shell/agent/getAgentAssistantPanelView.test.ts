@@ -31,15 +31,15 @@ describe('getAgentAssistantPanelView', () => {
         expect(getAgentAssistantPanelView(status, true)).toBe('checking');
     });
 
-    it('does not keep a failed auth probe in the checking view', () => {
+    it('keeps runtime failures separate from authentication setup', () => {
         const status = createStatus({
             authState: 'unknown',
             account: null,
             runtimeState: 'error',
-            error: 'Could not verify Codex authentication.',
+            error: 'Codex app-server exited: invalid transport.',
         });
 
-        expect(getAgentAssistantPanelView(status, true)).toBe('sign-in');
+        expect(getAgentAssistantPanelView(status, true)).toBe('error');
     });
 
     it('shows sign-in only for confirmed signed-out or pending login states', () => {

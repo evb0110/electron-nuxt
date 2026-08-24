@@ -10,10 +10,12 @@ export type TSettingsAssistantStatusTone = 'neutral' | 'ready' | 'warning';
 export type TSettingsAssistantStaticCopyKey =
     | 'assistant.loginPending'
     | 'settings.assistantPanelCheckingHint'
+    | 'settings.assistantPanelErrorHint'
     | 'settings.assistantPanelNeedsCodexHint'
     | 'settings.assistantPanelReadyHint'
     | 'settings.assistantPanelSignedOutHint'
     | 'settings.assistantPanelStatusChecking'
+    | 'settings.assistantPanelStatusError'
     | 'settings.assistantPanelStatusLoginPending'
     | 'settings.assistantPanelStatusNeedsCodex'
     | 'settings.assistantPanelStatusNeedsUpdate'
@@ -70,6 +72,19 @@ export function getSettingsAssistantStatusModel(
                 }
                 : { key: 'settings.assistantPanelStatusReady' },
             hint: { key: 'settings.assistantPanelReadyHint' },
+            primaryAction: null,
+            primaryActionLabelKey: null,
+            primaryActionIcon: null,
+            showCancelLogin: false,
+        };
+    }
+
+    if (panelView === 'error') {
+        return {
+            tone: 'warning',
+            icon: 'i-ph-warning-circle',
+            label: { key: 'settings.assistantPanelStatusError' },
+            hint: { key: 'settings.assistantPanelErrorHint' },
             primaryAction: null,
             primaryActionLabelKey: null,
             primaryActionIcon: null,

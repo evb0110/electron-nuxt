@@ -24,8 +24,8 @@ export function getAgentAssistantPanelView(
         return 'checking';
     }
 
-    if (status.runtimeState === 'error' && status.authState === 'unknown') {
-        return 'sign-in';
+    if (status.runtimeState === 'error') {
+        return 'error';
     }
 
     if (status.authState === 'unknown') {

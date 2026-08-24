@@ -62,6 +62,21 @@ describe('getSettingsAssistantStatusModel', () => {
         expect(model.showCancelLogin).toBe(false);
     });
 
+    it('reports a runtime failure without misdirecting the user to ChatGPT sign-in', () => {
+        const model = getSettingsAssistantStatusModel(createStatus({
+            authState: 'unknown',
+            account: null,
+            runtimeState: 'error',
+            error: 'Codex app-server exited: invalid transport',
+            providers: notReadyProviders(),
+        }), true);
+
+        expect(model.label.key).toBe('settings.assistantPanelStatusError');
+        expect(model.tone).toBe('warning');
+        expect(model.primaryAction).toBeNull();
+        expect(model.showCancelLogin).toBe(false);
+    });
+
     it('shows cancel instead of a second sign-in action while login is pending', () => {
         const model = getSettingsAssistantStatusModel(createStatus({
             authState: 'login-pending',
