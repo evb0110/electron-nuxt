@@ -854,18 +854,40 @@ describe('CI topology policy', () => {
         expect(prepareJob).toContain('git merge-base --is-ancestor "$WORKFLOW_SHA" refs/remotes/origin/main');
         expect(releaseWorkflow).toContain('git rev-parse --verify "${DISPATCH_TARGET_REF}^{commit}"');
         expect(releaseWorkflow).toContain('"repos/${GITHUB_REPOSITORY}/commits/${DISPATCH_TARGET_REF}"');
-        expect(releaseWorkflow).toContain('git checkout --detach "$target_sha"');
+        // The target detach happens only after ancestry and exact-SHA CI
+        // vouched for the operator-supplied ref.
+        expect(workflowJob(releaseWorkflow, 'prepare')).toContain(
+            'git checkout --detach "${{ steps.target.outputs.target_sha }}"',
+        );
         expect(prepareJob).toContain('git merge-base --is-ancestor "$TARGET_SHA" refs/remotes/origin/main');
-        expect(prepareJob).toContain('actions/workflows/ci.yml/runs?head_sha=${TARGET_SHA}&event=push');
-        expect(prepareJob).toContain('--paginate');
-        expect(prepareJob).toContain('select(.name == "gates_ok")');
+        // The CI wait lives in a dependency-free, unit-tested script (issue
+        // #109); prepare calls it from the trusted dispatch-ref checkout.
+        expect(prepareJob).toContain('node scripts/release/wait-for-exact-sha-ci.mjs "$TARGET_SHA"');
+        const waitScript = await readProjectFile('scripts/release/wait-for-exact-sha-ci.mjs');
+        expect(waitScript).toContain('/runs?head_sha=${targetSha}&event=push');
+        expect(waitScript).toContain('select(.name == "gates_ok")');
+        // Policy, not a literal: the completion budget must stay ahead of the
+        // slowest blocking CI job's declared timeout plus a queueing margin,
+        // so growing CI can never silently outlive the release wait again.
+        const ciJobs = parseWorkflowJobs(await readProjectFile('.github/workflows/ci.yml'));
+        const blockingTimeoutMinutes = Object.entries(ciJobs)
+            .filter(([jobName]) => jobName.startsWith('pr_') || jobName === 'commit_attribution' || jobName === 'gates_ok')
+            .map(([
+                , job,
+            ]) => {
+                const timeout = (job as Record<string, unknown>)['timeout-minutes'];
+                return typeof timeout === 'number' ? timeout : 0;
+            });
+        expect(Math.max(...blockingTimeoutMinutes)).toBeGreaterThan(0);
+        const completionBudgetMatch = /EXACT_SHA_CI_COMPLETION_TIMEOUT_MS = (\d+) \* 60_000/u.exec(waitScript);
+        expect(completionBudgetMatch).not.toBeNull();
+        expect(Number(completionBudgetMatch?.[1]))
+            .toBeGreaterThanOrEqual(Math.max(...blockingTimeoutMinutes) + 10);
         // Push CI's gates_ok (hard-required by prepare) is the single
         // validation authority; the release workflow never reruns the
         // release:verify:checks list.
         expect(releaseWorkflow).not.toContain('run: pnpm run release:verify:checks');
         expect(releaseWorkflow).not.toContain('\n  quality:\n');
-        expect(prepareJob).toContain('for attempt in $(seq 1 90)');
-        expect(prepareJob).toContain('within 45 minutes');
         expect(releaseWorkflow).not.toContain('secrets: inherit');
         expect(releaseWorkflow).not.toContain('build_win7_legacy:');
         expect(releaseWorkflow).not.toContain('publish_win7_legacy:');

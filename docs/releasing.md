@@ -15,8 +15,10 @@ verifies artifacts, and publishes — it revalidates nothing.
    scan always run. Pass `--full-verify` to force the full local gate after
    changing packaging configuration (electron-builder, bundlers, native tool
    packaging); without the fast path the full gate runs automatically.
-3. The workflow waits for the release commit's own push CI (up to 45 minutes,
-   so an immediate post-push dispatch self-serves the wait), builds the core
+3. The workflow waits for the release commit's own push CI to finish; the
+   wait budget is policy-tested to stay ahead of the slowest blocking CI
+   lane's declared timeout, so an immediate post-push dispatch self-serves
+   the wait (issue #109). It then builds the core
    five-target matrix, stages and finalizes the draft with `SHA256SUMS` and
    provenance attestations, stages the mirror, promotes, and attaches the
    supplemental Intel ZIP afterward. The local command exits once the run is

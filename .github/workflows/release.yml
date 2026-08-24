@@ -111,7 +111,6 @@ jobs:
           fi
 
           git fetch --no-tags --depth=1 origin "$target_sha"
-          git checkout --detach "$target_sha"
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
@@ -134,48 +133,13 @@ jobs:
             exit 1
           fi
 
-          # Push CI for a release commit measures ~33-34 minutes, and the cut
-          # dispatches this workflow seconds after the push. Poll for up to 45
-          # minutes so the dispatch never has to be manually re-timed around
-          # the CI run; a completed failing run still fails fast below.
-          run_id=''
-          for attempt in $(seq 1 90); do
-            runs="$(gh api \
-              -H 'Accept: application/vnd.github+json' \
-              "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${TARGET_SHA}&event=push&per_page=20")"
-            run_id="$(jq -r --arg sha "$TARGET_SHA" \
-              '[.workflow_runs[] | select(.head_sha == $sha and .event == "push")] | sort_by(.run_number) | last | .id // empty' \
-              <<< "$runs")"
-            status="$(jq -r --argjson id "${run_id:-0}" \
-              '.workflow_runs[] | select(.id == $id) | .status // empty' <<< "$runs")"
-            conclusion="$(jq -r --argjson id "${run_id:-0}" \
-              '.workflow_runs[] | select(.id == $id) | .conclusion // empty' <<< "$runs")"
-
-            if [ "$status" = 'completed' ]; then
-              if [ "$conclusion" != 'success' ]; then
-                echo "::error::Exact-SHA CI run $run_id completed with conclusion '$conclusion'."
-                exit 1
-              fi
-              break
-            fi
-            if [ "$attempt" = 90 ]; then
-              echo "::error::No successful completed push CI run appeared for exact target $TARGET_SHA within 45 minutes."
-              exit 1
-            fi
-            echo "Waiting for exact-SHA push CI for $TARGET_SHA (attempt $attempt/90)."
-            sleep 30
-          done
-
-          gates_conclusion="$(gh api \
-            --paginate \
-            -H 'Accept: application/vnd.github+json' \
-            "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" \
-            --jq '.jobs[] | select(.name == "gates_ok") | .conclusion' | tail -n 1)"
-          if [ "$gates_conclusion" != 'success' ]; then
-            echo "::error::Exact-SHA CI run $run_id did not contain a successful gates_ok aggregate."
-            exit 1
-          fi
-          echo "::notice::Release target $TARGET_SHA is on protected main and passed exact-SHA CI run $run_id."
+          # The wait script runs from this job's dispatch-ref checkout (the
+          # trusted main-tip revision; the target detach happens only in the
+          # later Validate step). Its budgets are policy-tested against the
+          # blocking CI job timeouts so the release wait can never fall
+          # behind its own CI graph again (issue #109).
+          node scripts/release/wait-for-exact-sha-ci.mjs "$TARGET_SHA"
+          echo "::notice::Release target $TARGET_SHA is on protected main and passed exact-SHA CI."
 
       - name: Validate target
         id: validate
@@ -186,6 +150,9 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Only now, after ancestry and exact-SHA CI vouched for the target,
+          # does this job check out operator-input content.
+          git checkout --detach "${{ steps.target.outputs.target_sha }}"
           target_sha="$(git rev-parse HEAD)"
           if [ "$target_sha" != "${{ steps.target.outputs.target_sha }}" ]; then
             echo "::error::Resolved target changed during checkout: expected ${{ steps.target.outputs.target_sha }}, got $target_sha."
