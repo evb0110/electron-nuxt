@@ -1,4 +1,5 @@
 import {
+    afterAll,
     describe,
     expect,
     it,
@@ -12,12 +13,17 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
+    clickHistoryActionAcrossAnimationBoundaries,
     clickLatestVisibleNoteWindowClose,
     collectStickyNoteDebugState,
     createFreeTextAnnotation,
     createHighlightWithPdfjsManager,
+    disconnectAnnotationUndoBoundaryProbe,
     getFreeTextEditorCount,
     getVisibleHighlightEditorCount,
+    readAnnotationSyncRequestSeq,
+    readAnnotationUndoBoundaryProbe,
+    waitForAnnotationSyncIdle,
     waitForHighlightEditorCount,
     waitForNoOpenNoteWindows,
     waitForPdfAnnotationSubtypeCount,
@@ -1302,6 +1308,16 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         sessionName: () => `e2e-annotation-lifecycle-${Date.now()}`,
     });
 
+    // The undo boundary probe keeps its MutationObserver attached past the
+    // sampled boundaries, so release it before the session shuts down.
+    afterAll(async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        await disconnectAnnotationUndoBoundaryProbe(session.page);
+    });
+
     it('creates and edits a FreeText annotation in the active workspace', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
@@ -1720,5 +1736,217 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(restoredSummary.bySubtype.Highlight ?? 0).toBe(1);
         await waitForActiveTabDirtyState(page, false);
     });
+
+    it('keeps an undone toolbar highlight create removed across frames and the deferred sync', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const { page } = session;
+
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `annotation-lifecycle-${Date.now()}-undo-create-orphan.pdf`,
+            1,
+        );
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
+
+        const baselineSidebarCount = await getVisibleSidebarAnnotationCount(page);
+        await createHighlightWithPdfjsManager(page);
+        await waitForHighlightEditorCount(page, 1);
+        await waitForSidebarAnnotationCount(page, baselineSidebarCount + 1);
+        await waitForCanonicalHighlightIdentity(
+            page,
+            identities => identities.length === 1,
+            'the live highlight to be projected canonically',
+        );
+
+        const boundary = await clickHistoryActionAcrossAnimationBoundaries(page, 'Undo');
+        const trace = `undo boundary trace: ${JSON.stringify(boundary.samples)}`;
+
+        expect(boundary.at('before'), trace).toMatchObject({
+            highlightEditorCount: 1,
+            highlightAnnotationCount: 0,
+            canonicalHighlightCount: 1,
+        });
+        // One undo has to retire the annotation and its PDF.js editor in the
+        // same task: an editor that outlives the annotation is the orphan a
+        // later comment sync rescans back into existence.
+        expect(boundary.at('synchronous'), trace).toMatchObject({
+            highlightEditorCount: 0,
+            highlightAnnotationCount: 0,
+            canonicalHighlightCount: 0,
+        });
+        // Removal records are delivered after the synchronous task, so the
+        // first frame is the earliest sample that can name the removed node.
+        expect(boundary.at('frame-1').removedHighlightNodeIds, trace).toHaveLength(1);
+        // Same layer tags before and after: the editor node went away, the
+        // editor layer did not get torn down and rebuilt under it.
+        expect(boundary.at('frame-2').editorLayerTags, trace).toEqual(boundary.at('before').editorLayerTags);
+        [
+            'frame-1',
+            'frame-2',
+            'deferred-task',
+        ].forEach((label) => {
+            const sample = boundary.at(label);
+            expect(sample.highlightEditorCount, `${label}: ${trace}`).toBe(0);
+            expect(sample.highlightAnnotationCount, `${label}: ${trace}`).toBe(0);
+            expect(sample.canonicalHighlightCount, `${label}: ${trace}`).toBe(0);
+            expect(sample.addedHighlightNodeIds, `${label}: ${trace}`).toEqual([]);
+        });
+
+        await waitForCanonicalHighlightIdentity(
+            page,
+            identities => identities.length === 0,
+            'the undone highlight to leave the canonical projection',
+        );
+        // A later annotation mutation forces a full deferred comment sync to
+        // run and finish after the undo. If the editor had survived, that scan
+        // would recreate the entity it carries.
+        const syncBaselineSeq = await readAnnotationSyncRequestSeq(page);
+        await placeEmptyNote(page);
+        await waitForSidebarAnnotationCount(page, baselineSidebarCount + 1);
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        // The sidebar settles from the canonical projection, which the sync's
+        // editor scan could still overwrite once its PDF snapshot resolves, so
+        // the resurrection check waits for that sync to actually finish.
+        await waitForAnnotationSyncIdle(page, syncBaselineSeq);
+
+        const afterDeferredSync = await readAnnotationUndoBoundaryProbe(page);
+        expect(afterDeferredSync.added).toEqual([]);
+        expect(afterDeferredSync.highlightEditorCount).toBe(0);
+        expect(afterDeferredSync.highlightAnnotationCount).toBe(0);
+        expect(await readCanonicalHighlightIdentities(page)).toEqual([]);
+    });
+
+    it('restores the editor, DOM, and canonical entity when a deferred delete is undone', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const { page } = session;
+
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `annotation-lifecycle-${Date.now()}-deferred-delete-undo.pdf`,
+            1,
+        );
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
+
+        await createHighlightWithPdfjsManager(page);
+        await saveViaWindowHandle(page);
+        await waitForPdfAnnotationSubtypeCount(fixturePath, 'Highlight', 1);
+        await waitForActiveTabDirtyState(page, false);
+
+        const reopenFixturePath = fixturePath.replace(/\.pdf$/u, '-reopen.pdf');
+        copyFileSync(fixturePath, reopenFixturePath);
+        await openPdfInApp(page, reopenFixturePath);
+        await waitForPdfLoaded(page);
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
+        await waitForHighlightEditorCount(page, 1);
+        const [persistedIdentity] = await waitForCanonicalHighlightIdentity(
+            page,
+            identities => identities.length === 1 && identities[0]?.source === 'pdf',
+            'the reopened highlight to carry its persisted identity',
+        );
+
+        // The sidebar delete of a persisted annotation takes the deferred path:
+        // a canonical tombstone plus DOM removal, with no save in between.
+        await clickFirstSidebarAnnotationDelete(page);
+        await waitForHighlightEditorCount(page, 0);
+        await waitForActiveTabDirtyState(page, true);
+
+        const boundary = await clickHistoryActionAcrossAnimationBoundaries(page, 'Undo');
+        const trace = `deferred-delete undo boundary trace: ${JSON.stringify(boundary.samples)}`;
+        expect(boundary.at('before'), trace).toMatchObject({
+            highlightEditorCount: 0,
+            highlightAnnotationCount: 0,
+        });
+
+        await waitForCanonicalHighlightIdentity(
+            page,
+            identities => identities.some(identity => (
+                identity.appAnnotationId === persistedIdentity?.appAnnotationId
+            )),
+            'the undone delete to restore the canonical entity',
+        );
+        await waitForHighlightEditorCount(page, 1);
+
+        const afterRestore = await readAnnotationUndoBoundaryProbe(page);
+        expect(
+            afterRestore.added.length,
+            `expected a restored highlight node: ${JSON.stringify(afterRestore)}`,
+        ).toBeGreaterThan(0);
+        expect(afterRestore.highlightEditorCount + afterRestore.highlightAnnotationCount).toBe(1);
+
+        const restored = (await readCanonicalHighlightIdentities(page))
+            .find(identity => identity.appAnnotationId === persistedIdentity?.appAnnotationId);
+        expect(restored).toMatchObject({
+            annotationId: persistedIdentity?.annotationId,
+            source: 'pdf',
+            stableKey: persistedIdentity?.stableKey,
+        });
+    });
+
+
+    it('keeps an undone sticky note removed across frames and the deferred sync', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const { page } = session;
+
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `annotation-lifecycle-${Date.now()}-undo-note-orphan.pdf`,
+            1,
+        );
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
+
+        const baselineSidebarCount = await getVisibleSidebarAnnotationCount(page);
+        const baselineFreeTextCount = await getFreeTextEditorCount(page);
+        await placeEmptyNote(page);
+        await waitForSidebarAnnotationCount(page, baselineSidebarCount + 1);
+        expect(await getFreeTextEditorCount(page)).toBe(baselineFreeTextCount + 1);
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+
+        const boundary = await clickHistoryActionAcrossAnimationBoundaries(page, 'Undo');
+        const trace = `sticky-note undo boundary trace: ${JSON.stringify(boundary.samples)}`;
+        expect(boundary.at('before').canonicalAnnotationCount, trace).toBe(baselineSidebarCount + 1);
+        // A FreeText anchor editor has no PDF.js creation command of its own, so
+        // the canonical undo is the only thing that can retire it. If it stays
+        // attached, the next comment sync rescans it and mints the note back.
+        expect(boundary.at('synchronous'), trace).toMatchObject({
+            canonicalAnnotationCount: baselineSidebarCount,
+            freeTextEditorCount: baselineFreeTextCount,
+        });
+        [
+            'frame-1',
+            'frame-2',
+            'deferred-task',
+        ].forEach((label) => {
+            expect(boundary.at(label).freeTextEditorCount, `${label}: ${trace}`).toBe(baselineFreeTextCount);
+        });
+
+        await waitForSidebarAnnotationCount(page, baselineSidebarCount);
+        // Force a full comment sync to run and finish after the undo.
+        const syncBaselineSeq = await readAnnotationSyncRequestSeq(page);
+        await createHighlightWithPdfjsManager(page);
+        await waitForSidebarAnnotationCount(page, baselineSidebarCount + 1);
+        // Same reason as the highlight scenario: only the sync ledger proves
+        // the pass that rescans the editor layer has completed.
+        await waitForAnnotationSyncIdle(page, syncBaselineSeq);
+        expect(await getFreeTextEditorCount(page)).toBe(baselineFreeTextCount);
+    });
+
 
 });

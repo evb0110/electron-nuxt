@@ -1,4 +1,5 @@
 import type { Page } from 'puppeteer-core';
+import type { IAnnotationSyncAutomationActivity } from '@app/types/annotations';
 import { delay } from 'es-toolkit/promise';
 import { readPdfAnnotationSummary } from '@tests/e2e/electron/helpers/fixtures';
 import {
@@ -1176,4 +1177,296 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     }
 
     return getFreeTextEditorCount(page);
+}
+
+export interface IAnnotationUndoBoundarySample {
+    label: string;
+    highlightEditorCount: number;
+    highlightAnnotationCount: number;
+    canonicalHighlightCount: number;
+    canonicalAnnotationCount: number;
+    freeTextEditorCount: number;
+    editorLayerTags: string[];
+    removedHighlightNodeIds: string[];
+    addedHighlightNodeIds: string[];
+}
+
+interface ICanonicalAnnotationProjection {
+    subtype?: string;
+    deleted?: boolean;
+}
+
+interface IAnnotationUndoBoundaryProbe {
+    removed: string[];
+    added: string[];
+    host: HTMLElement;
+    disconnect: () => void;
+}
+
+interface IAnnotationUndoBoundaryProbeWindow extends Window {__evbAnnotationUndoBoundaryProbe?: IAnnotationUndoBoundaryProbe;}
+
+/**
+ * Clicks a history toolbar action and records what the annotation editor layer
+ * looks like at the synchronous replay, across two animation frames, and in a
+ * following macrotask. A MutationObserver records which highlight nodes the
+ * replay actually removed or restored, so an assertion can name the node rather
+ * than infer it from a count.
+ *
+ * Every count, layer tag, and observed record is scoped to the active workspace
+ * host, resolved once up front: inactive tabs keep their viewers mounted, and a
+ * document-wide count would fold their editors into the comparison.
+ */
+export async function clickHistoryActionAcrossAnimationBoundaries(page: Page, label: 'Undo' | 'Redo') {
+    // The canonical projection below reads the shared workspace expose test API,
+    // so it has to be installed before the page evaluation starts.
+    await installWorkspaceExposeProbe(page);
+    const samples = await page.evaluate(async (targetLabel: string) => {
+        const probeWindow = window as IAnnotationUndoBoundaryProbeWindow & IWorkspaceExposeProbeWindow;
+        probeWindow.__evbAnnotationUndoBoundaryProbe?.disconnect();
+
+        // A missing test API would make every canonical count read as zero, which
+        // is exactly the value an undo assertion expects, so fail instead.
+        const testApi = probeWindow.__evbTestApi;
+        if (typeof testApi?.readActiveWorkspaceStateValues !== 'function') {
+            throw new Error('Annotation undo boundary probe requires window.__evbTestApi.readActiveWorkspaceStateValues');
+        }
+
+        // Resolved once and reused by every sample: re-resolving per boundary
+        // could silently switch hosts mid-run, and an unresolvable host would
+        // otherwise degrade into document-wide counts.
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        if (!host) {
+            throw new Error('Annotation undo boundary probe could not resolve the active workspace host');
+        }
+
+        const isVisible = (candidate: HTMLElement) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && rect.width > 0
+                && rect.height > 0
+            );
+        };
+        const highlightNodeId = (node: Node) => {
+            if (!(node instanceof HTMLElement)) {
+                return null;
+            }
+            const match = node.matches('.highlightEditor, .highlightAnnotation')
+                ? node
+                : node.querySelector<HTMLElement>('.highlightEditor, .highlightAnnotation');
+            return match ? (match.id || '(anonymous)') : null;
+        };
+
+        // Tag the editor layers before the replay: a sample whose tags still
+        // match proves the node disappeared from a surviving layer instead of
+        // the whole layer being torn down and rebuilt.
+        Array.from(host.querySelectorAll<HTMLElement>('.annotationEditorLayer'))
+            .forEach((layer, index) => {
+                layer.dataset.evbUndoProbeLayer ??= `layer-${index}-${layer.childElementCount}`;
+            });
+
+        const removed: string[] = [];
+        const added: string[] = [];
+        const observer = new MutationObserver((records) => {
+            records.forEach((record) => {
+                // Belt and braces with the scoped observe() below: a record
+                // whose target left the active host describes another viewer.
+                if (!host.contains(record.target)) {
+                    return;
+                }
+                record.removedNodes.forEach((node) => {
+                    const id = highlightNodeId(node);
+                    if (id) removed.push(id);
+                });
+                record.addedNodes.forEach((node) => {
+                    const id = highlightNodeId(node);
+                    if (id) added.push(id);
+                });
+            });
+        });
+        observer.observe(host, {
+            childList: true,
+            subtree: true,
+        });
+
+        // The canonical projection is read in-page at each boundary: an editor
+        // and its entity have to disappear together, and only a same-task read
+        // can show whether they did.
+        const canonicalAnnotations = () => {
+            const state = testApi.readActiveWorkspaceStateValues<{annotationComments?: ICanonicalAnnotationProjection[]}>(
+                ['annotationComments'],
+            );
+            const comments = state?.annotationComments;
+            if (!Array.isArray(comments)) {
+                observer.disconnect();
+                throw new Error(`Annotation undo boundary probe read no canonical annotationComments projection: ${JSON.stringify(state ?? null)}`);
+            }
+            return comments.filter(comment => comment.deleted !== true);
+        };
+
+        const collected: IAnnotationUndoBoundarySample[] = [];
+        const sample = (sampleLabel: string) => {
+            collected.push({
+                label: sampleLabel,
+                highlightEditorCount: host.querySelectorAll('.highlightEditor').length,
+                highlightAnnotationCount: host.querySelectorAll('.highlightAnnotation').length,
+                canonicalHighlightCount: canonicalAnnotations()
+                    .filter(comment => comment.subtype === 'Highlight').length,
+                canonicalAnnotationCount: canonicalAnnotations().length,
+                freeTextEditorCount: host.querySelectorAll('.freeTextEditor').length,
+                editorLayerTags: Array.from(host.querySelectorAll<HTMLElement>('.annotationEditorLayer'))
+                    .map(layer => layer.dataset.evbUndoProbeLayer ?? '(untagged)'),
+                removedHighlightNodeIds: [...removed],
+                addedHighlightNodeIds: [...added],
+            });
+        };
+
+        // The workspace toolbar is teleported into the shell toolbar host, so it
+        // sits outside the workspace host; the visible-and-enabled filter is
+        // what keeps this on the active document's action.
+        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
+            .find(candidate => (
+                candidate.getAttribute('aria-label')?.trim() === targetLabel
+                && isVisible(candidate)
+                && !candidate.disabled
+                && candidate.getAttribute('aria-disabled') !== 'true'
+            ));
+        if (!button) {
+            observer.disconnect();
+            throw new Error(`Enabled toolbar action not found: ${targetLabel}`);
+        }
+        sample('before');
+        button.click();
+        sample('synchronous');
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        sample('frame-1');
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        sample('frame-2');
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        sample('deferred-task');
+
+        // The observer stays attached past the sampled boundaries so a later
+        // deferred sync that resurrects a node is still recorded.
+        probeWindow.__evbAnnotationUndoBoundaryProbe = {
+            removed,
+            added,
+            host,
+            disconnect: () => observer.disconnect(),
+        };
+        return collected;
+    }, label);
+    return {
+        samples,
+        at: (sampleLabel: string) => {
+            const sample = samples.find(candidate => candidate.label === sampleLabel);
+            if (!sample) {
+                throw new Error(`Missing ${sampleLabel} sample: ${JSON.stringify(samples)}`);
+            }
+            return sample;
+        },
+    };
+}
+
+/**
+ * Disconnects the retained boundary probe. The observer deliberately outlives the
+ * sampled boundaries so a later deferred sync is still recorded, so a suite that
+ * uses the probe has to release it during cleanup.
+ */
+export async function disconnectAnnotationUndoBoundaryProbe(page: Page) {
+    await page.evaluate(() => {
+        const probeWindow = window as IAnnotationUndoBoundaryProbeWindow;
+        probeWindow.__evbAnnotationUndoBoundaryProbe?.disconnect();
+        delete probeWindow.__evbAnnotationUndoBoundaryProbe;
+    });
+}
+
+/**
+ * Reads everything the still-attached MutationObserver has seen so far, counted
+ * inside the same workspace host the probe was installed against. An absent
+ * probe would read as "nothing was added" — exactly what the callers assert —
+ * so a missing or relocated probe throws instead of passing vacuously.
+ */
+export async function readAnnotationUndoBoundaryProbe(page: Page) {
+    return page.evaluate((): {
+        removed: string[];
+        added: string[];
+        highlightEditorCount: number;
+        highlightAnnotationCount: number;
+    } => {
+        const probe = (window as IAnnotationUndoBoundaryProbeWindow).__evbAnnotationUndoBoundaryProbe;
+        if (!probe) {
+            throw new Error('Annotation undo boundary probe is not installed');
+        }
+        if (!probe.host.isConnected) {
+            throw new Error('Annotation undo boundary probe host left the document');
+        }
+        const activeHost = globalThis.__evbE2E.getActiveWorkspaceHost();
+        if (activeHost && activeHost !== probe.host) {
+            throw new Error('Annotation undo boundary probe host is no longer the active workspace host');
+        }
+        return {
+            removed: [...probe.removed],
+            added: [...probe.added],
+            highlightEditorCount: probe.host.querySelectorAll('.highlightEditor').length,
+            highlightAnnotationCount: probe.host.querySelectorAll('.highlightAnnotation').length,
+        };
+    });
+}
+
+interface IAnnotationSyncActivityWindow extends Window {__evbAnnotationSyncActivity?: IAnnotationSyncAutomationActivity;}
+
+const ANNOTATION_SYNC_IDLE_TIMEOUT_MS = 15_000;
+
+function readAnnotationSyncActivity(page: Page) {
+    return page.evaluate((): IAnnotationSyncAutomationActivity | null => {
+        const activity = (window as IAnnotationSyncActivityWindow).__evbAnnotationSyncActivity;
+        return activity ? { ...activity } : null;
+    });
+}
+
+/**
+ * Reads the annotation sync ledger's request counter. Captured before a
+ * mutation, it is the baseline `waitForAnnotationSyncIdle` uses to tell the
+ * sync that mutation triggers from one that had already finished.
+ */
+export async function readAnnotationSyncRequestSeq(page: Page) {
+    return (await readAnnotationSyncActivity(page))?.requestSeq ?? 0;
+}
+
+/**
+ * Waits until a comment sync requested after `afterRequestSeq` has run to
+ * completion — editor scan, awaited PDF snapshot, and applied state — and
+ * nothing further is queued or debounced.
+ *
+ * A sidebar count settles from the canonical projection, which moves before the
+ * sync that could still overwrite it, so it cannot stand in for this. The
+ * ledger only exists under the renderer automation grant, so a run without it
+ * times out here rather than asserting against an unfinished sync.
+ */
+export async function waitForAnnotationSyncIdle(
+    page: Page,
+    afterRequestSeq: number,
+    timeoutMs = ANNOTATION_SYNC_IDLE_TIMEOUT_MS,
+) {
+    try {
+        await page.waitForFunction((baselineSeq: number) => {
+            const activity = (window as IAnnotationSyncActivityWindow).__evbAnnotationSyncActivity;
+            if (!activity) {
+                return false;
+            }
+            return activity.requestSeq > baselineSeq
+                && activity.servicedSeq >= activity.requestSeq
+                && activity.runningPasses === 0
+                && activity.pendingDebounces === 0;
+        }, {timeout: timeoutMs}, afterRequestSeq);
+    } catch (error) {
+        const activity = await readAnnotationSyncActivity(page);
+        throw new Error(
+            `Timed out waiting for an annotation sync after request ${afterRequestSeq} to settle: ${JSON.stringify(activity)}`,
+            {cause: error},
+        );
+    }
+    return readAnnotationSyncActivity(page);
 }

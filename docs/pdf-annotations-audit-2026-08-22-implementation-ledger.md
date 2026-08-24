@@ -186,9 +186,10 @@ Found during verification, not in the audit:
 | V3 | — | Confirmed, narrow | Low | P3 | Landed (#103): the in-flight import fence compares the document revision. |
 | V4 | — | Confirmed | — | — | Evidence for L8's P1; no separate item. |
 | V5 | — | Confirmed | Low | P2 | Landed (#103) as part of the M10 slice. |
-| V6 | — | Confirmed | Low | P3 | Add an e2e asserting undo of a deferred delete restores editor/DOM state. |
+| V6 | — | Confirmed | Low | P3 | Closed in #100: e2e asserts undo of a deferred delete restores editor/DOM state. |
 | Q1 | Risk (unverified) | Proven: print bypasses the save lease | Medium | P1 | Route dirty print through the document operation lease; add a race test. |
-| Q2 | Risk (unverified) | Proven for live sessions | Medium | P2 | Run the MutationObserver experiment; fix editor removal on undo-of-create if confirmed. |
+| Q2 | Risk (unverified) | Refuted by experiment: editor removal precedes the canonical delete | Low | P2 | Closed in #100: removal mechanism recorded, boundary regression tests added, in-flight sync fenced. |
+| V7 | — | Confirmed (#100) | Medium | P2 | One authored create leaves two undo steps; the first leaves the document dirty with nothing visible left. Needs the store-side fix, not a history transaction. |
 
 ## P1 items
 
@@ -322,11 +323,9 @@ Acceptance checks:
 
 ### Q2, orphan editor and entity resurrection after undoing a create
 
-Evidence, mechanism, and the exact closing experiment in "Resolved open
-questions" below. Diagnose first; the fix (editor removal in the canonical
-undo pair, or DOM-removal effects on hard delete) lands in the same slice if
-the orphan reproduces. This interacts with the M1 history slice; sequence Q2
-after M1's tests exist.
+Closed in #100 without the conditional fix: the experiment refuted the orphan.
+See "Resolved open questions" below for the recorded removal mechanism, the
+regression tests that pin it, and V7, the defect the experiment did surface.
 
 ### M4, import clamping rewrites off-page geometry
 
@@ -420,8 +419,9 @@ standalone change:
   the pdf-lib and the native shape writers.
 - V3: landed with #103; the in-flight import fence now compares the document
   revision token as well as the import token and working copy path.
-- V6: e2e asserting undo of a deferred delete restores editor and DOM state,
-  not only the canonical entity.
+- V6 (done, #100): `annotationLifecycle.e2e.test.ts` asserts that undoing a
+  deferred delete of a persisted highlight restores the editor node and the
+  canonical entity under its persisted identity, with no save in between.
 
 ### L6 decision, taken with the M1 slice (#98): accept per-commit entries
 
@@ -466,31 +466,91 @@ reference. Whether the race can produce duplicate durable bytes is still
 open; the guard hole itself is proven. Disposition: P1, route dirty print
 through the same lease.
 
-### Q2, orphan editor after undoing a create: proven for live sessions
+### Q2, orphan editor after undoing a create: refuted by the experiment (#100)
 
-Toolbar-highlight creates install their pdf.js undo pair with
-`skipAppHistory: true` (`app/services/pdfjs/annotationEditorAdapter.ts:415-452`),
-so canonical undo (`before: null` applied at
-`annotationStore.ts:882-927`) hard-deletes the entity without any editor
-removal: `finishReplay` reconciliation mutates entities only
-(`createPdfAnnotationSession.ts:705-727`, `annotationStore.ts:546-578`),
-presentation-cleared strips styles not elements, and the hidden-id set only
-covers tombstoned entities, which a hard delete is not. Worse, the deferred
-comment resync can rescan the orphan editor and recreate the deleted entity
-(`annotations/bridge/pdfjs-runtime/useAnnotationSync.ts:725-736,801-803`,
-`annotationApplication.ts:109-132`), so an undone create can come back.
+The closing experiment ran as specified: an e2e MutationObserver records the
+highlight nodes a replay removes, the editor-layer identity, the DOM counts,
+and the canonical projection at the synchronous undo, after two animation
+frames, and in a following macrotask
+(`tests/e2e/electron/helpers/viewerAnnotations.ts`,
+`clickHistoryActionAcrossAnimationBoundaries`). No orphan reproduces, for
+either authored creation path.
 
-The existing e2e does assert the count drops
-(`tests/e2e/electron/annotationLifecycle.e2e.test.ts:1499-1518`), but its
-helper counts `.highlightEditor` and `.highlightAnnotation` together across
-visible hosts (`helpers/viewerAnnotations.ts:203-233`), so it cannot say
-which node disappeared, and the traced canonical path contains no removal
-call. Closing experiment (specified during verification): wrap the undo in a
-test-only MutationObserver recording removed editor nodes, manager identity,
-and counts at the synchronous undo, two animation frames, and the deferred
-sync task. Disposition: P2, diagnose first; if the orphan reproduces, the fix
-is to register editor removal in the canonical undo pair (or run the existing
-DOM-removal effects on hard delete), which also kills the resurrection path.
+Removal mechanism, recorded so the next reader does not re-derive it:
+
+- **Highlight and drawings.** `AnnotationEditorLayer.add` calls
+  `editor.onceAdded`, and `HighlightEditor.onceAdded` / `DrawingEditor
+  .onceAdded` call `layer.addUndoableEditor(this)` when the editor is not an
+  existing annotation, which reaches `uiManager.addCommands({cmd: rebuild, undo:
+  remove})`. That command carries no `__evbSkipAppHistory` marker, so the
+  bridge records it as an app executor command
+  (`annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts`, `addCommands`
+  interception). It sits above the canonical create in the same stack, so the
+  first undo runs PDF.js' own removal synchronously and the editor node is gone
+  in the same task. The replay effect's presence reconciliation then sees the
+  editor absent and tombstones the still-transient entity
+  (`runtime/sessions/createPdfAnnotationSession.ts` replay effect →
+  `annotationStore.reconcileEditorPresence`), so the canonical entity leaves
+  the projection in that same task too. The `skipAppHistory` pair the bridge
+  installs from the storage hook is a redundant second PDF.js entry for this
+  path and is never replayed.
+- **FreeText sticky notes.** `FreeTextEditor.onceAdded` installs no PDF.js
+  undo command, so the canonical entry is the only app history entry. The
+  anchor editor is not orphaned because it is projected from canonical state
+  rather than owned by PDF.js history: the canonical delete takes the anchor
+  with it inside the same task. The experiment pins this by counting
+  `.freeTextEditor` nodes at every boundary.
+
+Regression tests (`tests/e2e/electron/annotationLifecycle.e2e.test.ts`):
+"keeps an undone toolbar highlight create removed across frames and the
+deferred sync", "keeps an undone sticky note removed across frames and the
+deferred sync", and V6's "restores the editor, DOM, and canonical entity when a
+deferred delete is undone". Each drives a real comment sync to completion after
+the undo and asserts that nothing the observer recorded as removed comes back.
+"To completion" is measured, not waited out: the renderer publishes an
+automation-only sync ledger (`app/utils/createAnnotationSyncAutomationBarrier.ts`,
+inert without the renderer automation grant) counting requested, running, and
+serviced comment syncs, and the two undo scenarios block on
+`waitForAnnotationSyncIdle` until a sync requested after their mutation has
+finished its awaited PDF snapshot with nothing left queued or debounced. The
+observer and every count it is compared against are scoped to the active
+workspace host, so an inactive tab's mounted viewer cannot answer for the one
+under test.
+
+One hole was real and is closed: a comment sync reads the editor layer
+synchronously and then awaits the PDF snapshot, so a replay landing inside that
+await could apply a pre-replay editor scan on top of the result. Because an
+editor summary carries `appAnnotationId` from the editor's facade state,
+`ingestLegacySummaries` would mint the undone annotation back under its own
+canonical id. The replay effect now retires such a scan
+(`useAnnotationSync.discardInFlightSync`), keeping the parsed PDF snapshot,
+which a replay does not invalidate. Pinned by
+`tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.test.ts`,
+"does not apply an editor scan collected before an annotation history replay".
+
+### V7, one authored create leaves two undo steps
+
+Found while running the Q2 experiment. A toolbar highlight registers the
+canonical create and PDF.js' own `addUndoableEditor` command as two independent
+app history entries. The first undo pops the PDF.js entry and removes the
+editor; the presence reconciliation tombstones the entity, so nothing is
+visible any more, but the document stays dirty and a second undo is still
+queued for the canonical entry. Sticky notes show the same two-step shape.
+Evidence: with the fixture freshly opened and one highlight created, the
+toolbar reports `canUndo: true, canSave: true` after the first undo with
+`annotationComments: []`, and only the second undo reports `canSave: false`.
+
+A history transaction around the authored creation is *not* the fix. It was
+tried and reverted in #100: merging the two entries makes one undo reach the
+canonical hard delete, and hard-deleting an entity the file already holds drops
+the persistence identity that survives an undo only while the save
+acknowledgement has not cleared it
+(`annotations/domain/annotationPersistenceIdentityLedger.ts`, `clear`). The
+"keeps highlight undo and redo coherent after saving" e2e fails deterministically
+under that change: after undo, save, redo, save the file holds the highlight but
+the canonical projection holds nothing. The fix belongs in the store, where undo
+of a create must tombstone rather than hard-delete an entity whose persistence
+record says the file holds it. Sequence it with the M1/#98 history work.
 
 ## Suggested implementation order
 
@@ -502,9 +562,10 @@ DOM-removal effects on hard delete), which also kills the resurrection path.
    closes the only proven overlap path before any history work changes
    timing.
 4. **History integrity slice** (#97, #98): M6, then M1 with the M2/M3 pin
-   tests and the L1/L5/L6 fold, then the Q2 diagnostic and conditional fix
-   (#100, blocked by #98). M1 is the deepest change; its failing tests define
-   the contract before the rebase lands.
+   tests and the L1/L5/L6 fold, then the Q2 diagnostic (#100, blocked by #98),
+   which refuted the orphan and left V7 for a later store-side step. M1 is the
+   deepest change; its failing tests define the contract before the rebase
+   lands.
 5. **Layout slice** (#99): L8.
 6. **P2 hardening**: M4 fixture then fix (#101, with L7); M7+V1 completeness
    (#102); M10+V5 worker routing (#103, with V3).

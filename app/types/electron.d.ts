@@ -2,6 +2,7 @@ import type { IElectronAPI } from '@contracts/electronApi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type { IEvbTestApi } from '@app/types/evbTestApi';
+import type { IAnnotationSyncAutomationActivity } from '@app/types/annotations';
 
 declare global {
     interface Window {
@@ -10,6 +11,7 @@ declare global {
         __deferDocumentOpenForAutomation?: (path: TDocumentRef) => boolean;
         __releaseDocumentOpenForAutomation?: (path: TDocumentRef) => boolean;
         __evbTestApi?: IEvbTestApi;
+        __evbAnnotationSyncActivity?: IAnnotationSyncAutomationActivity;
         __stagedPdfNativeMutationCommitBarrierForAutomation?: (
             stagedArtifact: ITypedStagedArtifact,
         ) => Promise<void> | void;

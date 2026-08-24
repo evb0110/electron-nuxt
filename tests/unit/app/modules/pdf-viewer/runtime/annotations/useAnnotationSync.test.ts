@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -15,6 +16,7 @@ import type { Ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
     IAnnotationInventoryCompleteness,
+    IAnnotationSyncAutomationActivity,
     ILinkAnnotation,
 } from '@app/types/annotations';
 import { useAnnotationIdentity } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationIdentity';
@@ -1192,6 +1194,328 @@ describe('useAnnotationSync', () => {
             );
         });
     });
+
+    it('does not apply an editor scan collected before an annotation history replay', async () => {
+        // A comment sync reads the editor layer synchronously and then awaits
+        // the PDF snapshot. An undo landing inside that await retires both the
+        // canonical entity and its editor, so applying the pre-undo scan would
+        // mint the undone annotation back from the editor it no longer has.
+        let releaseSnapshot: (() => void) | null = null;
+        loadPdfPageAnnotations.mockImplementation(async () => {
+            await new Promise<void>((resolve) => {
+                releaseSnapshot = resolve;
+            });
+            return createEmptyPageBundle();
+        });
+        const editors = new Set<object>([{
+            id: 'pdfjs_internal_editor_0',
+            uid: 'editor-uid-0',
+            parentPageIndex: 0,
+        }]);
+        const annotationUiManager = shallowRef({getEditors: () => editors});
+
+        await withAnnotationSyncScope(async () => {
+            const {
+                sync,
+                setAnnotations,
+            } = await createSyncHarness({ annotationUiManager });
+
+            const pending = sync.syncAnnotationComments();
+            await vi.waitFor(() => {
+                expect(releaseSnapshot).not.toBeNull();
+            });
+
+            editors.clear();
+            sync.discardInFlightSync();
+            releaseSnapshot?.();
+            await pending;
+
+            expect(setAnnotations).not.toHaveBeenCalled();
+        });
+    });
+
+    it('applies a comment sync started after the replay fence', async () => {
+        loadPdfPageAnnotations.mockResolvedValue(createEmptyPageBundle());
+        const editors = new Set<object>([{
+            id: 'pdfjs_internal_editor_1',
+            uid: 'editor-uid-1',
+            parentPageIndex: 0,
+        }]);
+        const annotationUiManager = shallowRef({getEditors: () => editors});
+
+        await withAnnotationSyncScope(async () => {
+            const {
+                sync,
+                setAnnotations,
+            } = await createSyncHarness({ annotationUiManager });
+
+            sync.discardInFlightSync();
+            await sync.syncAnnotationComments();
+
+            expect(setAnnotations).toHaveBeenCalledTimes(1);
+            expect(setAnnotations.mock.calls[0]?.[0]).toEqual([expect.objectContaining({uid: 'editor-uid-1'})]);
+        });
+    });
+
+    it('collects a fresh PDF snapshot for the resync when the replay fences a running collection', async () => {
+        // An interactive reconciliation runs outside the sync drain loop, so it
+        // is the pass that can still be inside its page scan when the replay
+        // effect fires. That scan is fenced by the same token and resolves
+        // null; the resync must not adopt that null as its own snapshot.
+        let releaseFirstPage: (() => void) | null = null;
+        loadPdfPageAnnotations.mockImplementation(async () => {
+            if (!releaseFirstPage) {
+                await new Promise<void>((resolve) => {
+                    releaseFirstPage = resolve;
+                });
+            }
+            return createEmptyPageBundle();
+        });
+        const editors = new Set<object>([{
+            id: 'pdfjs_internal_editor_2',
+            uid: 'editor-uid-2',
+            parentPageIndex: 0,
+        }]);
+        const annotationUiManager = shallowRef({getEditors: (pageIndex: number) => (
+            pageIndex === 0 ? editors : new Set<object>()
+        )});
+
+        await withAnnotationSyncScope(async () => {
+            const limits = resolvePdfAnnotationNameReadLimits('medium');
+            const {
+                sync,
+                setAnnotations,
+            } = await createSyncHarness({
+                annotationUiManager,
+                documentIdentity: ref('replay-resync-document'),
+                limits,
+                getPdfSourceByteSize: () => 1024,
+                // A second page gives the fenced collection a checkpoint to
+                // notice the replay at; a single-page scan would finish before
+                // it could be discarded.
+                numPages: ref(2),
+            });
+
+            const reconciliation = sync.ensurePdfAnnotationNameReconciliation('annotations-ui-open');
+            await vi.waitFor(() => {
+                expect(releaseFirstPage).not.toBeNull();
+            });
+
+            sync.discardInFlightSync();
+            const resync = sync.syncAnnotationComments();
+            releaseFirstPage?.();
+            await Promise.all([
+                reconciliation,
+                resync,
+            ]);
+
+            expect(await reconciliation).toBe('stale');
+            expect(loadPdfPageAnnotations.mock.calls.length).toBeGreaterThan(1);
+            expect(setAnnotations).toHaveBeenCalledTimes(1);
+            expect(setAnnotations.mock.calls[0]?.[0]).toEqual([expect.objectContaining({uid: 'editor-uid-2'})]);
+        });
+    });
+
+    it('keeps a completed PDF snapshot cached across the replay fence', async () => {
+        // Only the running collection is retired. A replay moves editors, not
+        // the document bytes, so a finished snapshot must not be re-parsed.
+        loadPdfPageAnnotations.mockResolvedValue(createEmptyPageBundle());
+
+        await withAnnotationSyncScope(async () => {
+            const { sync } = await createSyncHarness({
+                documentIdentity: ref('replay-cached-snapshot-document'),
+                numPages: ref(2),
+            });
+
+            await sync.syncAnnotationComments();
+            const collectedPageCount = loadPdfPageAnnotations.mock.calls.length;
+            expect(collectedPageCount).toBe(2);
+
+            sync.discardInFlightSync();
+            await sync.syncAnnotationComments();
+
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(collectedPageCount);
+        });
+    });
+});
+
+/**
+ * The automation barrier is what an end-to-end test reads to know a deferred
+ * comment sync finished instead of guessing from a sidebar count, so these
+ * cover the two ways it could lie: reporting idle while a pass is still inside
+ * its awaited PDF snapshot, and staying busy forever once a debounce is
+ * superseded.
+ */
+describe('useAnnotationSync automation barrier', () => {
+    const originalWindow = Reflect.get(globalThis, 'window') as unknown;
+
+    function setRendererWindow(value: unknown) {
+        Object.defineProperty(globalThis, 'window', {
+            configurable: true,
+            value,
+            writable: true,
+        });
+    }
+
+    function installAutomationGrantWindow() {
+        const rendererWindow: Record<string, unknown> = {__allowRendererFileOpenForAutomation: async () => true};
+        setRendererWindow(rendererWindow);
+        return rendererWindow;
+    }
+
+    function readActivity(rendererWindow: Record<string, unknown>) {
+        return rendererWindow.__evbAnnotationSyncActivity as IAnnotationSyncAutomationActivity | undefined;
+    }
+
+    function isQuiescent(rendererWindow: Record<string, unknown>) {
+        const activity = readActivity(rendererWindow);
+        return Boolean(
+            activity
+            && activity.servicedSeq >= activity.requestSeq
+            && activity.runningPasses === 0
+            && activity.pendingDebounces === 0,
+        );
+    }
+
+    afterEach(() => {
+        setRendererWindow(originalWindow);
+    });
+
+    it('stays busy until the awaited PDF snapshot of a running pass resolves', async () => {
+        const rendererWindow = installAutomationGrantWindow();
+        let releaseSnapshot: (() => void) | null = null;
+        loadPdfPageAnnotations.mockImplementation(async () => {
+            await new Promise<void>((resolve) => {
+                releaseSnapshot = resolve;
+            });
+            return createEmptyPageBundle();
+        });
+
+        await withAnnotationSyncScope(async () => {
+            const { sync } = await createSyncHarness();
+
+            const pending = sync.syncAnnotationComments();
+            await vi.waitFor(() => {
+                expect(releaseSnapshot).not.toBeNull();
+            });
+
+            const running = readActivity(rendererWindow);
+            expect(running?.runningPasses).toBe(1);
+            expect(running?.requestSeq).toBeGreaterThan(running?.servicedSeq ?? 0);
+            expect(isQuiescent(rendererWindow)).toBe(false);
+
+            releaseSnapshot?.();
+            await pending;
+
+            const settled = readActivity(rendererWindow);
+            expect(settled?.runningPasses).toBe(0);
+            expect(settled?.servicedSeq).toBe(settled?.requestSeq);
+            expect(isQuiescent(rendererWindow)).toBe(true);
+        });
+    });
+
+    it('decrements the same ledger when the automation grant disappears mid-pass', async () => {
+        const rendererWindow = installAutomationGrantWindow();
+        let releaseSnapshot: (() => void) | null = null;
+        loadPdfPageAnnotations.mockImplementation(async () => {
+            await new Promise<void>((resolve) => {
+                releaseSnapshot = resolve;
+            });
+            return createEmptyPageBundle();
+        });
+
+        await withAnnotationSyncScope(async () => {
+            const { sync } = await createSyncHarness();
+
+            const pending = sync.syncAnnotationComments();
+            await vi.waitFor(() => {
+                expect(releaseSnapshot).not.toBeNull();
+            });
+            const activity = readActivity(rendererWindow);
+            expect(activity?.runningPasses).toBe(1);
+
+            delete rendererWindow.__allowRendererFileOpenForAutomation;
+            releaseSnapshot?.();
+            await pending;
+
+            expect(activity?.runningPasses).toBe(0);
+        });
+    });
+
+    it('does not report a rejected sync as serviced', async () => {
+        const rendererWindow = installAutomationGrantWindow();
+        loadPdfPageAnnotations.mockRejectedValue(new Error('snapshot read failed'));
+        const { BrowserLogger } = await import('@app/utils/browserLogger');
+        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(() => {});
+
+        await withAnnotationSyncScope(async () => {
+            const { sync } = await createSyncHarness();
+
+            await sync.syncAnnotationComments();
+
+            expect(errorSpy).toHaveBeenCalledOnce();
+            expect(readActivity(rendererWindow)).toMatchObject({
+                requestSeq: 1,
+                servicedSeq: 0,
+                runningPasses: 0,
+                pendingDebounces: 0,
+            });
+            expect(isQuiescent(rendererWindow)).toBe(false);
+        });
+    });
+
+    it('stays busy while a debounced sync is armed but not yet run', async () => {
+        const rendererWindow = installAutomationGrantWindow();
+        loadPdfPageAnnotations.mockResolvedValue(createEmptyPageBundle());
+
+        await withAnnotationSyncScope(async () => {
+            const { sync } = await createSyncHarness();
+
+            sync.scheduleAnnotationCommentsSync();
+
+            expect(readActivity(rendererWindow)?.pendingDebounces).toBe(1);
+            expect(isQuiescent(rendererWindow)).toBe(false);
+
+            await vi.waitFor(() => {
+                expect(isQuiescent(rendererWindow)).toBe(true);
+            });
+            expect(readActivity(rendererWindow)?.pendingDebounces).toBe(0);
+        });
+    });
+
+    it('releases the armed debounce when an immediate sync supersedes it', async () => {
+        const rendererWindow = installAutomationGrantWindow();
+        loadPdfPageAnnotations.mockResolvedValue(createEmptyPageBundle());
+
+        await withAnnotationSyncScope(async () => {
+            const { sync } = await createSyncHarness();
+
+            sync.scheduleAnnotationCommentsSync();
+            expect(readActivity(rendererWindow)?.pendingDebounces).toBe(1);
+
+            sync.scheduleAnnotationCommentsSync(true);
+
+            expect(readActivity(rendererWindow)?.pendingDebounces).toBe(0);
+            await vi.waitFor(() => {
+                expect(isQuiescent(rendererWindow)).toBe(true);
+            });
+        });
+    });
+
+    it('publishes nothing on a renderer without the automation grant', async () => {
+        const rendererWindow: Record<string, unknown> = {};
+        setRendererWindow(rendererWindow);
+        loadPdfPageAnnotations.mockResolvedValue(createEmptyPageBundle());
+
+        await withAnnotationSyncScope(async () => {
+            const { sync } = await createSyncHarness();
+
+            sync.scheduleAnnotationCommentsSync();
+            await sync.syncAnnotationComments();
+
+            expect('__evbAnnotationSyncActivity' in rendererWindow).toBe(false);
+        });
+    });
 });
 
 describe('useAnnotationSync inventory completeness', () => {
@@ -1497,4 +1821,5 @@ describe('useAnnotationSync inventory completeness', () => {
             expect(setInventoryCompleteness).toHaveBeenLastCalledWith(null);
         });
     });
+
 });

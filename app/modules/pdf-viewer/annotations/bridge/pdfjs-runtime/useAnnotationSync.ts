@@ -30,6 +30,8 @@ import { toCssColor } from '@app/modules/pdf-viewer/engine/annotation-css-utils/
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
+import { logPendingAnchorSummary } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/logPendingAnchorSummary';
+import { createAnnotationSyncAutomationBarrier } from '@app/utils/createAnnotationSyncAutomationBarrier';
 import {
     getEditorsOnPage,
     getPdfjsEditorFacadeState,
@@ -159,6 +161,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     } = options;
 
     const annotationEnrichmentState = ref<IAnnotationEnrichmentState>(PENDING_ANNOTATION_ENRICHMENT_STATE);
+    const automationBarrier = createAnnotationSyncAutomationBarrier();
     let syncToken = 0;
     let syncRunPromise: Promise<void> | null = null;
     let syncRerunRequested = false;
@@ -323,37 +326,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             return;
         }
         markupSubtype.rememberMarkupSubtypeColorOverride(annotationId, color);
-    }
-
-    function logPendingAnchorSummary(
-        pageIndex: number,
-        id: string,
-        uid: string | null,
-        annotationId: string | null,
-        resolvedSubtype: string | null | undefined,
-        hasNote: boolean,
-        text: string,
-        rectResult: ReturnType<typeof resolveEditorMarkerRect>,
-    ) {
-        if (!rectResult.shouldUsePendingAnchor) {
-            return;
-        }
-
-        BrowserLogger.debug('note-anchor', 'toEditorSummary', {
-            pageIndex,
-            pageNumber: pageIndex + 1,
-            id,
-            uid,
-            annotationId,
-            subtype: resolvedSubtype ?? null,
-            hasNote,
-            textLength: text.length,
-            markerRectFromEditor: rectResult.markerRectFromEditor,
-            pendingAnchorRect: rectResult.pendingAnchorRect,
-            markerDistanceFromPending: rectResult.markerDistanceFromPending,
-            shouldUsePendingAnchor: rectResult.shouldUsePendingAnchor,
-            markerRect: rectResult.markerRect,
-        });
     }
 
     function resolveEditorSummaryText(editor: IPdfjsEditor, textOverride?: string) {
@@ -1057,7 +1029,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         }
 
         
-        const promise = syncAnnotationCommentsInternal('interactive')
+        const promise = automationBarrier.trackPass(() => syncAnnotationCommentsInternal('interactive'))
             .then((snapshot): TPdfAnnotationNameReconciliationResult => {
                 if (
                     pdfDocument.value !== doc
@@ -1104,6 +1076,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     }
 
     async function syncAnnotationComments() {
+        automationBarrier.noteRequested();
         syncRerunRequested = true;
         if (syncRunPromise) {
             return syncRunPromise;
@@ -1112,7 +1085,9 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         syncRunPromise = (async () => {
             while (syncRerunRequested) {
                 syncRerunRequested = false;
-                await syncAnnotationCommentsInternal();
+                const servicedSeq = automationBarrier.readRequestSeq();
+                await automationBarrier.trackPass(() => syncAnnotationCommentsInternal());
+                automationBarrier.noteServiced(servicedSeq);
             }
         })().finally(() => {
             syncRunPromise = null;
@@ -1130,15 +1105,27 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     }
 
     const {
-        start: startDebouncedSync,
-        stop: cancelDebouncedSync,
+        start: startDebouncedSyncTimer,
+        stop: stopDebouncedSyncTimer,
     } = useTimeoutFn(() => {
+        automationBarrier.releaseDebounce();
         runGuardedTask(() => syncAnnotationComments(), {
             category: 'background-diagnostic',
             scope: 'annotations',
             message: 'Failed to synchronize annotation comments (debounced)',
         });
     }, debounceMs, { immediate: false });
+
+    function startDebouncedSync() {
+        automationBarrier.noteRequested();
+        automationBarrier.armDebounce();
+        startDebouncedSyncTimer();
+    }
+
+    function cancelDebouncedSync() {
+        automationBarrier.releaseDebounce();
+        stopDebouncedSyncTimer();
+    }
 
     function scheduleAnnotationCommentsSync(immediate = false) {
         if (immediate) {
@@ -1162,6 +1149,27 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         resetPdfAnnotationSnapshot();
     }
 
+    /**
+     * Retires any sync whose editor scan predates this call. A sync reads the
+     * editor layer synchronously and then awaits the PDF snapshot; an
+     * annotation history replay landing inside that await moves canonical
+     * entities and PDF.js editors together, so the collected scan describes a
+     * layer that no longer exists and must not be applied over the replay. The
+     * parsed PDF snapshot is kept: a replay changes editors, not the document
+     * bytes those pages were parsed from.
+     *
+     * A snapshot collection that is still running is fenced by the same token
+     * and now resolves `null`, so its registration is retired too. Leaving it
+     * behind would hand that `null` to the post-replay resync as a reusable
+     * result and end the pass before it applies anything. A snapshot that
+     * already finished stays cached: it is document bytes, which the replay
+     * did not touch.
+     */
+    function discardInFlightSync() {
+        syncToken += 1;
+        pdfAnnotationSnapshotPromise = null;
+    }
+
     function clearSyncState() {
         syncToken += 1;
         cancelDebouncedSync();
@@ -1183,6 +1191,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         toEditorSummary,
         syncAnnotationComments,
         scheduleAnnotationCommentsSync,
+        discardInFlightSync,
         ensurePdfAnnotationNameReconciliation,
         setActiveCommentStableKey,
         incrementSyncToken,

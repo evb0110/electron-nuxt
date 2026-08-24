@@ -735,6 +735,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         crud,
     };
     appAnnotationHistory.setReplayEffect(() => {
+        // A replay retires or restores canonical entities and their PDF.js
+        // editors together. A comment sync that already scanned the editor
+        // layer would apply that pre-replay view on top of the result and mint
+        // an undone annotation back from the editor it no longer has, so its
+        // outcome is dropped here; the resync below re-reads the settled layer.
+        annotations.commentSync.discardInFlightSync();
         const manager = annotationUiManager.value;
         if (manager) {
             const presentExternalIds = new Set<string>();

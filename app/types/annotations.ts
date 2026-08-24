@@ -25,6 +25,27 @@ export type TAnnotationTool = TContractAnnotationTool;
 export type TAnnotationCommentsStatus = 'loading' | 'ready';
 
 /**
+ * Automation-only progress counters for the annotation comment sync.
+ *
+ * A comment sync reads the PDF.js editor layer synchronously and then awaits
+ * the parsed PDF snapshot, so nothing observable in the DOM or in the canonical
+ * projection tells an automation client that the deferred pass has finished.
+ * The ledger is quiescent — every requested sync has been fully serviced —
+ * when `servicedSeq >= requestSeq`, `runningPasses === 0` and
+ * `pendingDebounces === 0`.
+ */
+export interface IAnnotationSyncAutomationActivity {
+    /** Debounce timers armed by a schedule call and not yet fired or cancelled. */
+    pendingDebounces: number;
+    /** Incremented once per requested sync, whether debounced or immediate. */
+    requestSeq: number;
+    /** Sync passes currently between their editor scan and their applied state. */
+    runningPasses: number;
+    /** Highest `requestSeq` a completed pass has covered. */
+    servicedSeq: number;
+}
+
+/**
  * Why a background annotation inventory stopped short of the whole document.
  *
  * `page-cap` and `record-cap` are deterministic: rescanning the same revision
