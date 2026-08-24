@@ -475,7 +475,7 @@ describe('useWorkspacePrint', () => {
             expect(shouldPrintSourcePdfDirectlyMock).not.toHaveBeenCalled();
             expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalled();
             expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
-            expect(toastAddMock).toHaveBeenCalledWith({
+            expect(toastAddMock).not.toHaveBeenCalledWith({
                 color: 'success',
                 title: 'print.requestSent',
             });
@@ -753,7 +753,14 @@ describe('useWorkspacePrint', () => {
             appFrame.frame.trigger('load');
             await printPromise;
 
+            expect(buildBrowserPrintFrameMarkupMock).toHaveBeenCalledWith(
+                'current-page - print.fileNamePage:{"page":4}.pdf',
+            );
             expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalled();
+            expect(toastAddMock).not.toHaveBeenCalledWith({
+                color: 'success',
+                title: 'print.requestSent',
+            });
             expect(state.isPreparingPrint.value).toBe(false);
             expect(state.printError.value).toBeNull();
         } finally {
@@ -945,7 +952,7 @@ describe('useWorkspacePrint', () => {
         }
     });
 
-    it('falls back to a one-page printable PDF when native current-page extraction rejects', async () => {
+    it('does not claim browser-print success when the system dialog returns no result', async () => {
         documentsCapabilityMock.printPdfPath.mockRejectedValue(new Error('Path is outside the allowed working directory'));
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(4, 5, 6));
         const appFrame = stubDocumentWithFrame();
@@ -979,7 +986,7 @@ describe('useWorkspacePrint', () => {
 
             expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalled();
             expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
-            expect(toastAddMock).toHaveBeenCalledWith({
+            expect(toastAddMock).not.toHaveBeenCalledWith({
                 color: 'success',
                 title: 'print.requestSent',
             });

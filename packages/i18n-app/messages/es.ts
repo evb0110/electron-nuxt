@@ -908,6 +908,7 @@ export default {
         'summary': 'Imprimiendo {count} páginas con diseño {layout} y orientación {orientation}.',
         'systemDialogHint': 'La impresora, el tamaño del papel, las copias, el dúplex, los márgenes y el destino se configuran en el cuadro de diálogo del sistema.',
         'preparing': 'Preparando la impresión...',
+        'fileNamePage': 'página {page}',
         'requestSent': 'Solicitud de impresión enviada.',
         'failed': 'No se pudo preparar el documento para imprimir.',
         'failedWithReason': 'No se pudo preparar el documento para imprimir: {reason}',

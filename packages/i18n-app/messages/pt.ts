@@ -909,6 +909,7 @@ export default {
         'summary': 'A imprimir {count} páginas com {layout} e orientação {orientation}.',
         'systemDialogHint': 'A impressora, o tamanho do papel, as cópias, a impressão frente e verso, as margens e o destino continuam na caixa de diálogo do sistema.',
         'preparing': 'A preparar impressão...',
+        'fileNamePage': 'página {page}',
         'requestSent': 'Pedido de impressão enviado.',
         'failed': 'Não foi possível preparar o documento para impressão.',
         'failedWithReason': 'Não foi possível preparar o documento para impressão: {reason}',

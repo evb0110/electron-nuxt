@@ -814,9 +814,18 @@ describe('pdfPrint', () => {
     });
 
     it('builds a browser-print frame shell with a dedicated print root', () => {
-        expect(buildBrowserPrintFrameMarkup()).toContain('data-browser-print-root');
-        expect(buildBrowserPrintFrameMarkup()).toContain('.browser-print-page');
-        expect(buildBrowserPrintFrameMarkup()).toContain('break-before: page');
-        expect(buildBrowserPrintFrameMarkup()).toContain('max-height: 100%');
+        const markup = buildBrowserPrintFrameMarkup('report - page 4.pdf');
+
+        expect(markup).toContain('<title>report - page 4.pdf</title>');
+        expect(markup).toContain('data-browser-print-root');
+        expect(markup).toContain('.browser-print-page');
+        expect(markup).toContain('break-before: page');
+        expect(markup).toContain('max-height: 100%');
+    });
+
+    it('escapes the browser-print title before inserting it into markup', () => {
+        expect(buildBrowserPrintFrameMarkup('one & <two>.pdf')).toContain(
+            '<title>one &amp; &lt;two&gt;.pdf</title>',
+        );
     });
 });

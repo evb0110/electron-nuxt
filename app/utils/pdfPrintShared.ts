@@ -42,12 +42,21 @@ export interface IBrowserPrintDocument {
         | IBrowserPrintStyleElement;
 }
 
-export function buildBrowserPrintFrameMarkup() {
+function escapeHtmlText(value: string) {
+    return value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+}
+
+export function buildBrowserPrintFrameMarkup(title = 'Printable PDF') {
+    const escapedTitle = escapeHtmlText(title);
+
     return `<!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Printable PDF</title>
+    <title>${escapedTitle}</title>
     <style>
         @page {
             margin: 0;

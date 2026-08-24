@@ -908,6 +908,7 @@ export default {
         'summary': '{count} pagina\'s afdrukken met {layout} en {orientation} oriëntatie.',
         'systemDialogHint': 'Printer, papierformaat, aantal exemplaren, dubbelzijdig, marges en bestemming volgen in het systeemvenster.',
         'preparing': 'Afdruk voorbereiden...',
+        'fileNamePage': 'pagina {page}',
         'requestSent': 'Afdrukverzoek verzonden.',
         'failed': 'Kan het document niet voorbereiden voor afdrukken.',
         'failedWithReason': 'Kan het document niet voorbereiden voor afdrukken: {reason}',
