@@ -310,7 +310,7 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.pagesToRender.value.length).toBeLessThan(2_000);
     });
 
-    it('makes a far continuous-navigation anchor the sole structural window', () => {
+    it('keeps the committed window mounted beside a far offscreen navigation target', () => {
         const visibleRange = ref({
             start: 1,
             end: 2,
@@ -337,12 +337,12 @@ describe('usePdfViewerVirtualization', () => {
             zoomVirtualizationFreeze: ref(null),
         });
 
-        expect(virtualization.virtualPageSegments.value).toHaveLength(1);
-        expect(virtualization.pagesToRender.value).not.toContain(1);
+        expect(virtualization.virtualPageSegments.value).toHaveLength(2);
+        expect(virtualization.pagesToRender.value).toContain(1);
         expect(virtualization.pagesToRender.value).toContain(928);
-        expect(virtualization.pagesToRender.value.length).toBeLessThan(60);
+        expect(virtualization.pagesToRender.value.length).toBeLessThan(120);
         expect(virtualization.pagesToRender.value).not.toContain(500);
-        const targetSegment = virtualization.virtualPageSegments.value[0];
+        const targetSegment = virtualization.virtualPageSegments.value[1];
         expect(targetSegment?.spacerBeforeStyle).toMatchObject({
             height: expect.any(String),
             minHeight: expect.any(String),
@@ -355,19 +355,15 @@ describe('usePdfViewerVirtualization', () => {
             targetSegment?.spacerBeforeStyle?.height,
         );
 
-        const structuralSnapshot = {
-            segment: targetSegment,
-            topSpacer: virtualization.topVirtualSpacerStyle.value,
-            bottomSpacer: virtualization.bottomVirtualSpacerStyle.value,
-        };
         visibleRange.value = {
             start: 450,
             end: 452,
         };
 
-        expect(virtualization.virtualPageSegments.value).toEqual([structuralSnapshot.segment]);
-        expect(virtualization.topVirtualSpacerStyle.value).toEqual(structuralSnapshot.topSpacer);
-        expect(virtualization.bottomVirtualSpacerStyle.value).toEqual(structuralSnapshot.bottomSpacer);
+        expect(virtualization.virtualPageSegments.value).toHaveLength(2);
+        expect(virtualization.pagesToRender.value).toContain(450);
+        expect(virtualization.pagesToRender.value).toContain(928);
+        expect(virtualization.pagesToRender.value).not.toContain(700);
     });
 
     it('ignores a zoom freeze that would hide the active navigation anchor', () => {
@@ -451,9 +447,9 @@ describe('usePdfViewerVirtualization', () => {
         });
 
         expect(virtualization.virtualWindowStart.value).toBe(40 - radius);
-        expect(virtualization.virtualWindowEnd.value).toBe(40 + radius);
-        expect(virtualization.pagesToRender.value.at(0)).toBe(40 - radius);
-        expect(virtualization.pagesToRender.value.at(-1)).toBe(40 + radius);
+        expect(virtualization.virtualWindowEnd.value).toBe(60 + radius);
+        expect(virtualization.pagesToRender.value).toContain(40);
+        expect(virtualization.pagesToRender.value).toContain(60);
     });
 
     it.each([
@@ -553,17 +549,17 @@ describe('usePdfViewerVirtualization', () => {
             }),
         });
 
-        expect(virtualization.virtualWindowStart.value).toBe(14);
+        expect(virtualization.virtualWindowStart.value).toBe(12);
         expect(virtualization.virtualWindowEnd.value).toBe(50);
         expect(virtualization.virtualPageSegments.value).toHaveLength(1);
-        expect(virtualization.topVirtualSpacerStyle.value).toMatchObject({height: '1540px'});
+        expect(virtualization.topVirtualSpacerStyle.value).toMatchObject({height: '1300px'});
         expect(virtualization.bottomVirtualSpacerStyle.value).toMatchObject({height: '1180px'});
 
         effectiveScale.value = 2;
 
-        expect(virtualization.virtualWindowStart.value).toBe(14);
+        expect(virtualization.virtualWindowStart.value).toBe(12);
         expect(virtualization.virtualWindowEnd.value).toBe(50);
-        expect(virtualization.topVirtualSpacerStyle.value).toMatchObject({height: '2840px'});
+        expect(virtualization.topVirtualSpacerStyle.value).toMatchObject({height: '2400px'});
         expect(virtualization.bottomVirtualSpacerStyle.value).toMatchObject({height: '2180px'});
     });
 });

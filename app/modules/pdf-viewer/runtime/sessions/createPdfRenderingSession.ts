@@ -42,6 +42,7 @@ import { usePdfViewerInitialRenderRecovery } from '@app/modules/pdf-viewer/runti
 import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore';
 import { createPdfInitialVisualCommit } from '@app/modules/pdf-viewer/runtime/lifecycle/createPdfInitialVisualCommit';
 import { createPdfRasterQualityRefineGate } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRasterQualityRefineGate';
+import { resolvePdfRasterJobPages } from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfRasterJobPages';
 import type { ICurrentPageSyncOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import type { IZoomViewportAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
@@ -391,10 +392,13 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         const scale = viewport.scale.effectiveScale.value;
         const outputScale = options.outputScale.value;
         const jobs: IViewportRasterJob[] = [];
-        for (let pageNumber = start; pageNumber <= end; pageNumber += 1) {
-            if (renderOptions.rasterDemandPages && !renderOptions.rasterDemandPages.includes(pageNumber)) {
-                continue;
-            }
+        const pageNumbers = resolvePdfRasterJobPages({
+            start,
+            end,
+            totalPages: documentSession.numPages.value,
+            explicitPages: renderOptions.rasterDemandPages,
+        });
+        for (const pageNumber of pageNumbers) {
             const metric = documentSession.pageMetrics.value[pageNumber - 1];
             const width = metric?.width ?? documentSession.basePageWidth.value ?? 1;
             const height = metric?.height ?? documentSession.basePageHeight.value ?? 1;
@@ -404,6 +408,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const distance = Math.min(Math.abs(pageNumber - range.start), Math.abs(pageNumber - range.end));
             const lane: TPdfRasterLane = visible
                 ? renderOptions.transactionRequest?.priority === 'authoritative'
+                    || renderOptions.authoritativeRaster === true
                     ? 'navigation-target' : 'viewport-visible'
                 : distance <= 1 ? 'viewport-nearby' : 'prefetch';
             const pageRenderOptions = lane === 'viewport-nearby' || lane === 'prefetch' ? {
@@ -509,10 +514,31 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     end: Math.max(...latestDemand.residentPages),
                 },
             }, scheduler) : [];
+        const residentPages = new Set(residentJobs.map(job => job.demand.pageNumber));
+        const preservedRenderedJobs = renderOptions.preserveRenderedPages === true
+            ? [...pageCanvases.keys()]
+                .filter(pageNumber => !residentPages.has(pageNumber))
+                .flatMap(pageNumber => buildViewportRasterJobs({
+                    start: pageNumber,
+                    end: pageNumber,
+                }, {
+                    ...renderOptions,
+                    bufferOverride: 0,
+                    rasterDemandPages: [pageNumber],
+                    renderWindowOverride: {
+                        start: pageNumber,
+                        end: pageNumber,
+                    },
+                }, scheduler))
+            : [];
         const requestedJobs = buildViewportRasterJobs(range, renderOptions, scheduler);
         const requestedPages = new Set(requestedJobs.map(job => job.demand.pageNumber));
         const jobs = [
             ...residentJobs.filter(job => (
+                !requestedPages.has(job.demand.pageNumber)
+                && (!renderOptions.retainOnlyCurrentResidentRaster || job.rasterState === 'current')
+            )),
+            ...preservedRenderedJobs.filter(job => (
                 !requestedPages.has(job.demand.pageNumber)
                 && (!renderOptions.retainOnlyCurrentResidentRaster || job.rasterState === 'current')
             )),
@@ -539,7 +565,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         const schedulableJobs = jobs
             .filter(job => job.rasterState !== 'failed' || job.renderOptions.forceRerender === true);
         const rasterJobs = schedulableJobs.filter(shouldRasterizeViewportJob);
-        const waits = rasterJobs.map(job => waitForViewportRaster(job.demand.pageNumber));
+        const waits = schedulableJobs.filter(job => (
+            shouldRasterizeViewportJob(job) || (job.rasterState === 'in-flight'
+                && renderOptions.preserveInFlightRequiredPages === true && requestedPages.has(job.demand.pageNumber))
+        )).map(job => waitForViewportRaster(job.demand.pageNumber));
         rasterJobs.forEach((job) => {
             job.rasterState = 'in-flight';
         });

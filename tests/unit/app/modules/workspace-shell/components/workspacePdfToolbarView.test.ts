@@ -48,7 +48,9 @@ describe('workspace PDF toolbar wiring', () => {
         expect(appShell).toContain('v-on="fallbackToolbarCommandListeners"');
         expect(shellToolbar).toContain('@go-to-page="emit(\'go-to-page\', $event)"');
         expect(deferredHost).toContain('handleGoToPage: page => {');
+        expect(deferredHost).toContain('if (isDocumentOpenInFlight.value || !mountedWorkspace.value)');
         expect(deferredHost).toContain('activeDocumentSession.value.requestDocumentPage(page);');
+        expect(deferredHost).toContain('mountedWorkspace.value.handleGoToPage(page);');
     });
 
     it('uses the same opening-document state for live and shell toolbar snapshots', () => {

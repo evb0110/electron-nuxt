@@ -41,7 +41,7 @@ import {
     waitForAnimationFrames,
     wheelPdfViewportAndWaitForSettlement,
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
-import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
+import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 
 const OPEN_TIMEOUT_MS = 60_000;
 const SETTLE_TIMEOUT_MS = 30_000;
@@ -910,7 +910,7 @@ describe('standard PDF.js fit-mode continuity', () => {
             `standard-pdf-fit-deep-${Date.now()}.pdf`,
             DEEP_PDF_PAGE_COUNT,
         );
-        expect(statSync(deepPdfPath).size).toBeLessThan(PDFJS_NATIVE_PREVIEW_MIN_BYTES);
+        expect(statSync(deepPdfPath).size).toBeLessThan(PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES);
 
         // The trace has to be armed before the open is claimed: the phases that
         // decide the first-useful-pixel time all run before the first canvas.

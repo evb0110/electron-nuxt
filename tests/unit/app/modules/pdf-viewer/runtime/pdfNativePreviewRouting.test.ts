@@ -4,35 +4,12 @@ import {
     it,
 } from 'vitest';
 import {
-    PDFJS_NATIVE_PREVIEW_MIN_BYTES,
+    PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
     isPathPdfSource,
     shouldStageNativePdfOpeningPreview,
-    shouldUseNativePdfPreview,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 
 describe('pdfNativePreviewRouting', () => {
-    it('routes only oversized desktop path-backed PDFs to native preview', () => {
-        expect(shouldUseNativePdfPreview({
-            kind: 'path',
-            path: '/tmp/huge.pdf',
-            size: PDFJS_NATIVE_PREVIEW_MIN_BYTES,
-        })).toBe(true);
-
-        expect(shouldUseNativePdfPreview({
-            kind: 'path',
-            path: '/tmp/normal.pdf',
-            size: PDFJS_NATIVE_PREVIEW_MIN_BYTES - 1,
-        })).toBe(false);
-
-        expect(shouldUseNativePdfPreview({
-            kind: 'path',
-            path: 'browser://documents/source/huge.pdf',
-            size: PDFJS_NATIVE_PREVIEW_MIN_BYTES,
-        })).toBe(false);
-
-        expect(shouldUseNativePdfPreview(new Blob([Uint8Array.of(1, 2, 3)]))).toBe(false);
-    });
-
     it('recognizes path-backed PDF source objects', () => {
         expect(isPathPdfSource({
             kind: 'path',
@@ -61,7 +38,6 @@ describe('pdfNativePreviewRouting', () => {
             linearized: false,
         };
 
-        expect(shouldUseNativePdfPreview(source)).toBe(false);
         expect(shouldStageNativePdfOpeningPreview(source, openingGeometry)).toBe(true);
         expect(shouldStageNativePdfOpeningPreview(source, {
             ...openingGeometry,
@@ -70,6 +46,51 @@ describe('pdfNativePreviewRouting', () => {
         expect(shouldStageNativePdfOpeningPreview(source, {
             ...openingGeometry,
             pageCount: 999,
+        })).toBe(false);
+    });
+
+    it('stages an opening raster for an oversized PDF without changing the final PDF.js viewer', () => {
+        const source = {
+            kind: 'path' as const,
+            path: '/tmp/native-dictionary.pdf',
+            size: 722_049_367,
+        };
+        const openingGeometry = {
+            pageNumber: 1 as const,
+            pageCount: 882,
+            width: 612,
+            height: 792,
+            rotation: 0 as const,
+            size: source.size,
+            modifiedAt: 1_776_000_000_000,
+            linearized: false,
+        };
+
+        expect(source.size).toBeGreaterThan(PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES);
+        expect(shouldStageNativePdfOpeningPreview(source, openingGeometry)).toBe(true);
+        expect(shouldStageNativePdfOpeningPreview(source, {
+            ...openingGeometry,
+            linearized: true,
+        })).toBe(true);
+
+        const atThreshold = {
+            ...source,
+            size: PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
+        };
+        expect(shouldStageNativePdfOpeningPreview(atThreshold, {
+            ...openingGeometry,
+            linearized: true,
+            size: atThreshold.size,
+        })).toBe(true);
+
+        const belowThreshold = {
+            ...source,
+            size: PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES - 1,
+        };
+        expect(shouldStageNativePdfOpeningPreview(belowThreshold, {
+            ...openingGeometry,
+            linearized: true,
+            size: belowThreshold.size,
         })).toBe(false);
     });
 });

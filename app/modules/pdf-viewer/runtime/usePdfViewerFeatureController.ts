@@ -174,6 +174,9 @@ export const usePdfViewerFeatureController = (
         isResizing,
         requestedCurrentPage,
         outputScale,
+        isPageFreshlyRenderedForNavigation: pageNumber => (
+            renderingSessionRef.value?.isPageVisualReady(pageNumber) ?? false
+        ),
         selectionMarkupStyle,
         classState: {
             isAnySaving,

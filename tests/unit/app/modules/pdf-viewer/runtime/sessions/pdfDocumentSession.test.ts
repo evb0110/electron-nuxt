@@ -956,7 +956,8 @@ describe('PdfDocumentSession range loading', () => {
         await expect(loadPromise).resolves.not.toBeNull();
     });
 
-    it('rejects files above the PDF.js-safe native preview threshold before invoking PDF.js', async () => {
+    it('loads oversized path-backed files through the bounded PDF.js range transport', async () => {
+        const size = 2 * 1024 * 1024 * 1024;
         electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
@@ -967,18 +968,30 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/native-preview-required.pdf',
-            size: 2 * 1024 * 1024 * 1024,
+            path: '/tmp/native-opening-preview.pdf',
+            size,
         });
 
-        expect(result).toBeNull();
-        expect(pdfjsState.getDocument).not.toHaveBeenCalled();
-        expect(electronApi.documentFiles.readFileRange).not.toHaveBeenCalled();
-        expect(loggerError).toHaveBeenCalledWith(
-            'pdf-document',
-            'Failed to load PDF',
-            expect.any(Error),
+        expect(result).not.toBeNull();
+        expect(pdfjsState.getDocument).toHaveBeenCalledWith(expect.objectContaining({
+            disableAutoFetch: true,
+            disableStream: true,
+            length: size,
+            range: expect.any(MockPdfDataRangeTransport),
+            rangeChunkSize: 1024 * 1024,
+        }));
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledTimes(2);
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith(
+            '/tmp/native-opening-preview.pdf',
+            0,
+            1024 * 1024,
         );
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith(
+            '/tmp/native-opening-preview.pdf',
+            size - (1024 * 1024),
+            1024 * 1024,
+        );
+        expect(loggerError).not.toHaveBeenCalled();
     });
 
     it('rejects pathological aggregate PDF.js range requests before reading or allocating them', async () => {

@@ -132,4 +132,66 @@ describe('PdfViewerViewport virtual page identity', () => {
         expect(first[0]?.key).toBe('spacer:0');
         expect(distant[0]?.key).toBe(first[0]?.key);
     });
+
+    it('keeps the target spacer identity when committed and target windows collapse', async () => {
+        const segments = ref<IPdfVirtualPageSegment[]>([
+            {
+                start: 1,
+                end: 3,
+                key: '1:3',
+                pages: [
+                    1,
+                    2,
+                    3,
+                ],
+                spacerBeforeStyle: null,
+            },
+            {
+                start: 63,
+                end: 65,
+                key: '63:65',
+                pages: [
+                    63,
+                    64,
+                    65,
+                ],
+                spacerBeforeStyle: {height: '5900px'},
+            },
+        ]);
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp(defineComponent({setup() {
+            return () => flattenPdfVirtualPageSegments(segments.value).map(item => h('div', {
+                key: item.key,
+                'data-page': item.kind === 'page' ? String(item.page) : undefined,
+                'data-spacer': item.kind === 'spacer' ? item.key : undefined,
+                style: item.kind === 'spacer' ? item.style : undefined,
+            }));
+        }}));
+
+        app.mount(host);
+        await nextTick();
+        const targetPage = host.querySelector('[data-page="64"]');
+        const targetSpacer = host.querySelector('[data-spacer="spacer:0"]');
+
+        segments.value = [{
+            start: 62,
+            end: 66,
+            key: '62:66',
+            pages: [
+                62,
+                63,
+                64,
+                65,
+                66,
+            ],
+            spacerBeforeStyle: {height: '6100px'},
+        }];
+        await nextTick();
+
+        expect(host.querySelector('[data-page="64"]')).toBe(targetPage);
+        expect(host.querySelector('[data-spacer="spacer:0"]')).toBe(targetSpacer);
+
+        app.unmount();
+    });
 });

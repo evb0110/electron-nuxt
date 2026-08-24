@@ -15,15 +15,11 @@ export function shouldShowPdfNavigationSkeleton(options: IShouldShowPdfNavigatio
         return false;
     }
 
-    if (options.shouldShowSkeleton(options.pageNumber)) {
-        return true;
-    }
-
     if (
         options.navigationAnchorPage === null
         || options.totalPages <= 0
     ) {
-        return false;
+        return options.shouldShowSkeleton(options.pageNumber);
     }
 
     const rowBounds = getPageRowBoundsForViewMode({
@@ -32,5 +28,8 @@ export function shouldShowPdfNavigationSkeleton(options: IShouldShowPdfNavigatio
         totalPages: options.totalPages,
     });
 
+    // The committed page remains visible while the destination row paints.
+    // Do not let ordinary near-viewport skeletons from adjacent buffered rows
+    // appear at the edge when the atomic viewport write lands.
     return options.pageNumber >= rowBounds.start && options.pageNumber <= rowBounds.end;
 }

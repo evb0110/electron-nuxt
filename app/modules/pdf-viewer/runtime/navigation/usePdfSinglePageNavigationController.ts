@@ -378,7 +378,12 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 });
                 return;
             }
-            await options.renderVisiblePages(range);
+            await options.renderVisiblePages(range, {
+                authoritativeRaster: true,
+                preserveRenderedPages: true,
+                retainOnlyCurrentResidentRaster: true,
+                suppressResidentRasterDemand: false,
+            });
             if (container && !isPdfNavigationReady(
                 container,
                 page,

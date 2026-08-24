@@ -24,10 +24,7 @@ import type {
     IPdfViewerExpose,
     IAnnotationEnrichmentState,
 } from '@app/modules/pdf-viewer/public';
-import {
-    isPathPdfSource,
-    shouldUseNativePdfPreview,
-} from '@app/modules/pdf-viewer/public';
+import {isPathPdfSource} from '@app/modules/pdf-viewer/public';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
 import type {
     IPdfConformanceProfile,
@@ -429,26 +426,8 @@ export function createWorkspaceDocumentDriverForAdapter(
 export const useWorkspaceDocumentDriver = (
     options: IWorkspaceDocumentDriverOptions,
 ) => {
-    const nativePdfSourcePath = computed(() => {
-        const source = options.pdfSrc.value;
-        if (!shouldUseNativePdfPreview(source) || !isPathPdfSource(source)) {
-            return null;
-        }
-        return source.path;
-    });
+    const nativePdfSourcePath = computed<TDocumentRef | null>(() => null);
     const pendingDocumentKind = computed(() => getDocumentKindFromPath(options.pendingDocumentPath?.value ?? ''));
-    const pendingNativePdf = computed(() => {
-        const path = options.pendingDocumentPath?.value ?? null;
-        const size = options.pendingDocumentSize?.value ?? null;
-        return pendingDocumentKind.value === 'pdf'
-            && path !== null
-            && size !== null
-            && shouldUseNativePdfPreview({
-                kind: 'path',
-                path,
-                size,
-            });
-    });
     const sources = {
         djvuSourcePath: options.djvuSourcePath,
         nativePdfSourcePath,
@@ -471,7 +450,10 @@ export const useWorkspaceDocumentDriver = (
                     : pendingDocumentKind.value === 'pdf'
                         ? options.pendingDocumentPath?.value ?? null
                         : null,
-            shouldUseNativePdf: Boolean(nativePdfSourcePath.value) || pendingNativePdf.value,
+            // Native PDF rendering owns only the staged opening preview. The
+            // document driver remains PDF.js so selection, annotations, page
+            // edits, save, and the full sidebar become available at handoff.
+            shouldUseNativePdf: false,
         });
         if (adapter?.id === 'djvu') {
             return drivers.djvu;

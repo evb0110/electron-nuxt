@@ -21,7 +21,7 @@ import {
 } from 'pdf-lib';
 import { join } from 'node:path';
 import { statSync } from 'node:fs';
-import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
+import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import { resolveE2EGlobalSetupSessionName } from '@tests/e2e/electron/resolveE2EGlobalSetupSessionName';
 import {
@@ -362,7 +362,7 @@ describe('Electron E2E fixture policy', () => {
 
             expect(fixture.path).not.toBeNull();
             expect(fixture.path).not.toBe(undersizedPath);
-            expect(statSync(fixture.path!).size).toBeGreaterThanOrEqual(PDFJS_NATIVE_PREVIEW_MIN_BYTES);
+            expect(statSync(fixture.path!).size).toBeGreaterThanOrEqual(PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES);
             const describeLike = createDescribeSelectorDouble();
             expect(selectFixtureDescribe(describeLike, fixture)).toBe(describeLike);
         } finally {
@@ -380,21 +380,16 @@ describe('Electron E2E fixture policy', () => {
 
             expect(fixture.path).not.toBeNull();
             const size = statSync(fixture.path!).size;
-            // Above the shape-scan cap the lane covers saving an unscannable shape
-            // layer; below the native-preview cap it still reaches PDF.js.
+            // Above the shape-scan cap the lane covers saving an unscannable shape layer.
             expect(size).toBeGreaterThan(EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES);
-            expect(size).toBeLessThan(PDFJS_NATIVE_PREVIEW_MIN_BYTES);
         } finally {
             restoreEnvVar('EVB_E2E_LARGE_PDF_FIXTURE', previousFixture);
         }
     });
 
-    it('refuses an annotation-save fixture that would open through the native preview', async () => {
+    it('accepts an oversized annotation-save fixture because PDF.js remains the final viewer', async () => {
         const previousFixture = process.env.EVB_E2E_LARGE_PDF_FIXTURE;
         const previousRequire = process.env.EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE;
-        // The oversized native-preview fixture is the cheapest oversized PDF on
-        // hand, and pointing the annotation-save lane at it is exactly the
-        // mistake this precondition exists to catch.
         const oversizedPath = resolveNativeLargePdfFixtureAvailability().path;
         expect(oversizedPath).not.toBeNull();
         process.env.EVB_E2E_LARGE_PDF_FIXTURE = oversizedPath!;
@@ -403,10 +398,8 @@ describe('Electron E2E fixture policy', () => {
             process.env.EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE = '1';
             const fixture = resolveLargePdfFixtureAvailability();
 
-            expect(fixture.path).toBeNull();
-            expect(fixture.reason).toContain('native-preview cap');
-            expect(() => selectFixtureDescribe(createDescribeSelectorDouble(), fixture))
-                .toThrow(/Required fixture missing/u);
+            expect(fixture.path).toBe(oversizedPath);
+            expect(selectFixtureDescribe(createDescribeSelectorDouble(), fixture)).toBeDefined();
         } finally {
             restoreEnvVar('EVB_E2E_LARGE_PDF_FIXTURE', previousFixture);
             restoreEnvVar('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE', previousRequire);

@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { createPdfOpenSurfaceViewportCallbacks } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import { createPdfOpenSurfaceViewportCallbacks } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpenSurfaceViewportCallbacks';
 import {
     commitDocumentOpenSurfaceViewport,
     createDocumentOpenSurfaceSession,

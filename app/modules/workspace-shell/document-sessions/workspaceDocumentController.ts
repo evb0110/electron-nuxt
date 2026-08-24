@@ -134,10 +134,10 @@ interface IWorkspaceWaiter {
     resolve: (workspace: IWorkspaceExpose | null) => void;
     timer: ReturnType<typeof setTimeout>;
 }
-// Large documents can legitimately take well over four seconds to mount their
-// workspace host on production hardware. Keep this aligned with the document
-// visual-settle policies so routing does not manufacture a false open failure.
-const DEFAULT_DOCUMENT_OPEN_STAGE_TIMEOUT_MS = 30_000;
+// A native opening preview keeps a large PDF usable while whole-file validation
+// continues. Leave enough time for that validation to finish so the controller
+// does not abort a visible open and route the same document into a second tab.
+const DEFAULT_DOCUMENT_OPEN_STAGE_TIMEOUT_MS = 120_000;
 let nextSessionIndex = 0;
 let nextGlobalDocumentSessionKeyIndex = 0;
 function createDefaultSessionId(tabId: string) {

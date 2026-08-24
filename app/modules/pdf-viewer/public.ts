@@ -57,8 +57,5 @@ export { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom
 export { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomSelectors';
 export { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
 export { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public/openGeometry';
-export {
-    isPathPdfSource,
-    shouldUseNativePdfPreview,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
+export {isPathPdfSource} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 export type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';

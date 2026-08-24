@@ -270,6 +270,114 @@ describe('createDocumentOpenFlow', () => {
         expect(terminate).toHaveBeenCalledOnce();
     });
 
+    it('waits for the host to claim an idle opening surface and commit its late page frame', async () => {
+        const originalPath = '/documents/late-frame-dictionary.pdf';
+        const workingPath = '/tmp/late-frame-dictionary-working.pdf';
+        const size = 722_049_367;
+        const modifiedAt = 1_776_000_000_000;
+        const openingGeometry = {
+            pageNumber: 1 as const,
+            pageCount: 882,
+            width: 612,
+            height: 792,
+            rotation: 0 as const,
+            size,
+            modifiedAt,
+            linearized: false,
+        };
+        const openSurface = createDocumentOpenSurfaceSession();
+        const validationGate = Promise.withResolvers<{
+            isValid: true;
+            tool: 'qpdf';
+            errors: never[];
+            warnings: never[];
+        }>();
+        const geometryGate = Promise.withResolvers<typeof openingGeometry>();
+        mocks.documentPdf.validatePdfPath.mockReturnValue(validationGate.promise);
+        mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(geometryGate.promise);
+        mocks.documentFiles.statFile.mockImplementation(async path => path === originalPath
+            ? {
+                size,
+                modifiedAt,
+            }
+            : {size});
+        const renderPageObjectUrl = vi.fn(async () => ({
+            objectUrl: 'blob:native-opening-late-frame',
+            renderedPx: 1_800,
+        }));
+        mocks.nativePreview.createSource.mockReturnValue({
+            cancelPagePreview: vi.fn(),
+            getPageSizes: vi.fn(),
+            renderPageObjectUrl,
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        });
+        const {openFlow} = createOpenFlowHarness({openSurface});
+
+        const opening = openFlow.openFile({
+            kind: 'pdf',
+            originalPath,
+            workingPath,
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith(workingPath);
+        });
+        geometryGate.resolve(openingGeometry);
+        await vi.waitFor(() => {
+            expect(mocks.documentFiles.getPdfOpeningGeometry).toHaveBeenCalledWith(workingPath);
+        });
+        expect(openSurface.snapshot.value.phase).toBe('idle');
+        expect(renderPageObjectUrl).not.toHaveBeenCalled();
+
+        const generation = openSurface.begin({
+            documentId: originalPath,
+            documentRevision: 'open-intent:late-frame',
+        });
+        expect(generation).not.toBeNull();
+        await vi.waitFor(() => {
+            expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
+                documentId: originalPath,
+                pageCount: 882,
+            });
+        });
+        if (generation === null) {
+            throw new Error('Expected the host opening surface to accept the transaction');
+        }
+        expect(openSurface.snapshot.value.identity).toEqual({
+            documentId: originalPath,
+            documentRevision: 'open-intent:late-frame',
+        });
+        expect(renderPageObjectUrl).not.toHaveBeenCalled();
+
+        expect(openSurface.commitOpeningPageFrame(generation, {
+            generation,
+            ownerId: 'late-test-chassis',
+            pageNumber: 1,
+            intentKey: 'fit-width:1',
+            sourceRevisionKey: `${String(size)}:${String(modifiedAt)}`,
+            style: {
+                width: '900px',
+                height: '1165px',
+            },
+        })).toBe(true);
+        await vi.waitFor(() => {
+            expect(openSurface.snapshot.value.openingPageFrame?.preview).toMatchObject({
+                objectUrl: 'blob:native-opening-late-frame',
+                pageNumber: 1,
+            });
+        });
+        expect(renderPageObjectUrl).toHaveBeenCalledOnce();
+
+        validationGate.resolve({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: [],
+        });
+        await expect(opening).resolves.toMatchObject({status: 'opened'});
+    });
+
     it('cancels an in-flight native opening raster when validation rejects the PDF', async () => {
         const originalPath = '/documents/corrupt-dictionary.pdf';
         const size = 170_496_793;

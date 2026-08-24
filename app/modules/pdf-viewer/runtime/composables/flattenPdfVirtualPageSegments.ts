@@ -21,28 +21,33 @@ export function flattenPdfVirtualPageSegments(
         initialPageShellPage?: number;
     } = {},
 ): TPdfVirtualPageItem[] {
-    const items: TPdfVirtualPageItem[] = segments.flatMap((segment, segmentIndex): TPdfVirtualPageItem[] => {
+    const items: TPdfVirtualPageItem[] = [];
+    // The call-local ordinal keeps each structural spacer stable across
+    // projections with the same segment order. It is not a global counter.
+    let spacerIndex = 0;
+    for (const segment of segments) {
         const pages: TPdfVirtualPageItem[] = segment.pages.map(page => ({
             key: `page:${page}`,
             kind: 'page',
             page,
         }));
         if (!segment.spacerBeforeStyle) {
-            return pages;
+            items.push(...pages);
+            continue;
         }
-        return [
+        items.push(
             {
                 // Keep the structural spacer node stable while its height and
                 // page window move. Replacing it lets the browser observe a
                 // transiently shortened scroll tree and clamp scrollTop before
                 // the new far-window spacer is inserted.
-                key: `spacer:${segmentIndex}`,
+                key: `spacer:${spacerIndex++}`,
                 kind: 'spacer',
                 style: segment.spacerBeforeStyle,
             },
             ...pages,
-        ];
-    });
+        );
+    }
     if (items.length > 0 || options.initialPageShell !== true) {
         return items;
     }

@@ -63,6 +63,31 @@ const VIRTUAL_MOUNT_BUFFER_MIN = 6;
 const PAGED_MOUNT_ROW_BUFFER_BEFORE_MIN = 1;
 const PAGED_MOUNT_ROW_BUFFER_AFTER_MIN = 2;
 
+interface IPageWindow {
+    start: number;
+    end: number;
+}
+
+function mergePdfRowWindows(
+    layout: NonNullable<ReturnType<typeof buildPageLayoutMetrics>>,
+    windows: readonly IPageWindow[],
+) {
+    const rowWindows = windows.map((window) => ({
+        start: getPageRowBounds(layout, window.start)?.start ?? window.start,
+        end: getPageRowBounds(layout, window.end)?.end ?? window.end,
+    })).sort((left, right) => left.start - right.start);
+    const mergedWindows: IPageWindow[] = [];
+    for (const window of rowWindows) {
+        const previous = mergedWindows.at(-1);
+        if (previous && window.start <= previous.end + 1) {
+            previous.end = Math.max(previous.end, window.end);
+        } else {
+            mergedWindows.push({...window});
+        }
+    }
+    return mergedWindows;
+}
+
 function createVirtualSpacerStyle(height: number) {
     const value = `${height}px`;
     return {
@@ -321,13 +346,8 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (!virtualizedContinuousMode.value) {
             return pagedWindowBounds.value.start;
         }
-        // A navigation transaction owns the continuous-scroll structure until
-        // its target viewport has been applied. Keeping the stale visible
-        // window in this range can make an intervening scroll observation
-        // replace the target segment and clamp scrollTop before awaitSlots has
-        // finished mounting the destination row.
         if (navigationAnchorWindow.value) {
-            return navigationAnchorWindow.value.start;
+            return Math.min(baseVirtualWindowStart.value, navigationAnchorWindow.value.start);
         }
         if (activeZoomVirtualizationFreeze.value) {
             return activeZoomVirtualizationFreeze.value.windowStart;
@@ -345,7 +365,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             return pagedWindowBounds.value.end;
         }
         if (navigationAnchorWindow.value) {
-            return navigationAnchorWindow.value.end;
+            return Math.max(baseVirtualWindowEnd.value, navigationAnchorWindow.value.end);
         }
         if (activeZoomVirtualizationFreeze.value) {
             return activeZoomVirtualizationFreeze.value.windowEnd;
@@ -434,6 +454,19 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
                 : [];
         }
 
+        if (navigationAnchorWindow.value) {
+            // This list is intentionally non-contiguous. Consumers that need
+            // DOM spacing use virtualPageSegments below; raster demand may
+            // safely iterate the flattened page identities.
+            return mergePdfRowWindows(layout, [
+                {
+                    start: baseVirtualWindowStart.value,
+                    end: baseVirtualWindowEnd.value,
+                },
+                navigationAnchorWindow.value,
+            ]).flatMap(window => range(window.start, window.end + 1));
+        }
+
         const startBounds = getPageRowBounds(layout, virtualWindowStart.value);
         const endBounds = getPageRowBounds(layout, virtualWindowEnd.value);
         const renderStartPage = startBounds?.start ?? virtualWindowStart.value;
@@ -474,7 +507,17 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             end: number;
         }>;
         if (navigationAnchorWindow.value) {
-            requestedWindows = [navigationAnchorWindow.value];
+            // Keep the physically visible committed row mounted while the
+            // requested row paints in a disjoint offscreen segment. Once the
+            // viewport write lands, visibleRange moves to the target and the
+            // two windows collapse into one without mounting the pages between.
+            requestedWindows = [
+                {
+                    start: baseVirtualWindowStart.value,
+                    end: baseVirtualWindowEnd.value,
+                },
+                navigationAnchorWindow.value,
+            ];
         } else if (activeZoomVirtualizationFreeze.value) {
             requestedWindows = [{
                 start: activeZoomVirtualizationFreeze.value.windowStart,
@@ -493,24 +536,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             } => window !== null);
         }
 
-        const rowWindows = requestedWindows
-            .map((window) => ({
-                start: getPageRowBounds(layout, window.start)?.start ?? window.start,
-                end: getPageRowBounds(layout, window.end)?.end ?? window.end,
-            }))
-            .sort((left, right) => left.start - right.start);
-        const mergedWindows: Array<{
-            start: number;
-            end: number;
-        }> = [];
-        for (const window of rowWindows) {
-            const previous = mergedWindows.at(-1);
-            if (previous && window.start <= previous.end + 1) {
-                previous.end = Math.max(previous.end, window.end);
-            } else {
-                mergedWindows.push({...window});
-            }
-        }
+        const mergedWindows = mergePdfRowWindows(layout, requestedWindows);
 
         return mergedWindows.map((window, index) => {
             const previous = mergedWindows[index - 1];
@@ -533,6 +559,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         });
     });
 
+    // The scheduler consumes page identities, not a continuous numeric range.
     const disjointPagesToRender = computed(() =>
         virtualPageSegments.value.flatMap(segment => segment.pages),
     );

@@ -13,10 +13,6 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { maxCachedPdfPages } from '@app/modules/pdf-viewer/engine/maxCachedPdfPages';
-import {
-    PDFJS_NATIVE_PREVIEW_MIN_BYTES,
-    shouldUseNativePdfPreview,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 import {
     createPdfRangeRequestBridge,
@@ -304,6 +300,11 @@ type TPdfDataRangeTransportCtor = new (
 ) => PDFDataRangeTransport;
 
 const RANGE_CHUNK_BYTES = 1024 * 1024;
+// This caps the memory-backed PDF.js transport. It is intentionally separate
+// from the native opening-preview threshold, even while both default to 512
+// MiB: preview routing is a first-paint policy, while this is a Blob safety
+// limit and either may change without changing the other.
+const PDFJS_BLOB_URL_MAX_BYTES = 512 * 1024 * 1024;
 
 interface ICreatePdfjsDocumentSourceLoaderOptions {
     getRenderVersion: () => number;
@@ -373,9 +374,9 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
     }
 
     async function openBlob(src: Blob, version: number) {
-        if (src.size >= PDFJS_NATIVE_PREVIEW_MIN_BYTES) {
+        if (src.size >= PDFJS_BLOB_URL_MAX_BYTES) {
             throw new RangeError(
-                `Blob-backed PDF is ${src.size} bytes; PDF.js blob loading is capped at ${PDFJS_NATIVE_PREVIEW_MIN_BYTES} bytes`,
+                `Blob-backed PDF is ${src.size} bytes; PDF.js blob loading is capped at ${PDFJS_BLOB_URL_MAX_BYTES} bytes`,
             );
         }
         if (version !== options.getRenderVersion()) {
@@ -424,11 +425,6 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
 
     async function openPath(src: Extract<TPdfSource, {kind: 'path'}>, version: number) {
         const length = src.size;
-        if (shouldUseNativePdfPreview(src)) {
-            throw new Error(
-                `PDF is ${length} bytes; PDF.js is capped at ${PDFJS_NATIVE_PREVIEW_MIN_BYTES} bytes for path-backed documents. Native preview should handle this file.`,
-            );
-        }
         const initialLength = Math.min(RANGE_CHUNK_BYTES, length);
         const tailStart = Math.max(initialLength, length - RANGE_CHUNK_BYTES);
         const documentFiles = getDocumentFilesCapability();

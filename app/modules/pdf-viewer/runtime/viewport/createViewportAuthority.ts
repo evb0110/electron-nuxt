@@ -175,6 +175,25 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 commit = await deps.refine(next, commit, signal);
                 assertCurrent(next, signal, expectedGeometryRevision);
             }
+            const stagedNavigationVisual = next.navigation !== undefined;
+            if (stagedNavigationVisual) {
+                // Requested rows mount from semantic navigation demand before
+                // the physical viewport moves. Paint that offscreen row first
+                // so a fast page jump never replaces the committed canvas with
+                // a visible skeleton while PDF.js catches up.
+                phase.value = 'awaiting-visual';
+                try {
+                    await deps.awaitVisual(next, signal);
+                    assertCurrentIntent(next, signal);
+                } catch (error) {
+                    if (!(error instanceof DOMException && error.name === 'AbortError')) {
+                        throw error;
+                    }
+                    // A current target whose raster failed must remain
+                    // navigable. Genuine supersession still fails this fence.
+                    assertCurrent(next, signal, expectedGeometryRevision);
+                }
+            }
             phase.value = 'applying';
             const applied = deps.apply(next, commit);
             committedAnchor.value = commit.anchor;
@@ -197,9 +216,11 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 top: appliedPosition.top,
             });
             deps.onPositionCommitted?.(positionCommit);
-            phase.value = 'awaiting-visual';
-            await deps.awaitVisual(next, signal);
-            assertCurrentIntent(next, signal);
+            if (!stagedNavigationVisual) {
+                phase.value = 'awaiting-visual';
+                await deps.awaitVisual(next, signal);
+                assertCurrentIntent(next, signal);
+            }
             if (next.navigation && deps.postArrival) await deps.postArrival(next.navigation, signal);
             assertCurrentIntent(next, signal);
             finish(next, 'settled');

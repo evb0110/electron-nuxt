@@ -33,10 +33,9 @@ The resolver also supports these alternatives:
 - Set `EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1` to make a missing fixture fail the
   lane instead of skipping it. `pnpm run test:e2e:electron:large` sets it.
 
-The fixture must stay below `PDFJS_NATIVE_PREVIEW_MIN_BYTES` (512 MiB). At or
-above that cap the document opens through the native preview and never reaches
-the PDF.js annotation surface this lane covers, so the resolver refuses it with
-that explanation rather than letting the lane time out.
+The checked-in fixture stays below the 512 MiB opening-preview threshold because
+this lane tests annotation content, not the native first-paint bridge. Oversized
+path-backed PDFs still finish in PDF.js and can use the same annotation surface.
 
 Known local provenance is limited to the fixture filename and the audit note that
 identifies this as a local-only large PDF fixture, about 172 MB, for the
@@ -45,18 +44,16 @@ recorded in this checkout. A replacement fixture should be a large PDF that open
 in the Electron viewer and preserves an existing FreeText note while allowing the
 suite to add, save, reopen, and verify another FreeText popup note.
 
-## Native-preview lane
+## Native opening-preview handoff lane
 
 `tests/e2e/electron/largePdfNativePreview.e2e.test.ts` proves that a path-backed
-PDF above the PDF.js size cap opens through the native preview instead of failing
-allocation. Only the byte count decides that route, so this lane needs *size*, not
-content, and it never reads `EVB_E2E_LARGE_PDF_FIXTURE`: the annotation-save
-document is far below the cap, and a document above the cap could not drive the
-annotation-save lane at all.
+PDF above the opening-preview threshold paints a native raster first and hands
+the same viewport to PDF.js. Only the byte count decides whether this synthetic
+fixture exercises that bridge, so the lane needs *size*, not document content.
 
 Instead the lane provisions its own fixture with
 `scripts/generate-large-pdf-e2e-fixture.mjs`, which writes a small pdf-lib
-document and sparse-pads it to `PDFJS_NATIVE_PREVIEW_MIN_BYTES + 1 MiB`. It runs
+document and sparse-pads it to `PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES + 1 MiB`. It runs
 in well under a second, costs a few hundred KiB of real disk, and is cached under
 `.devkit/tmp/e2e-fixture-cache/`. The lane therefore cannot be handed an
 undersized PDF, and it needs no local binary and no CI download step:

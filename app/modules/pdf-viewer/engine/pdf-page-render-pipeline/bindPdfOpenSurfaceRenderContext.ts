@@ -12,6 +12,7 @@ export type TPdfPageRenderContentIntent =
     | 'layers-only-promotion';
 
 export interface IRenderVisiblePagesOptions {
+    authoritativeRaster?: boolean;
     openSurfaceGeneration?: number;
     openSurfaceRevision?: string;
     preserveRenderedPages?: boolean;

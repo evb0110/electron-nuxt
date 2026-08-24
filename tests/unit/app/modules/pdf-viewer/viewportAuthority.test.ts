@@ -137,7 +137,7 @@ describe('ViewportAuthority', () => {
         expect(onPositionCommitted).toHaveBeenCalledWith(commit);
     });
 
-    it('commits the semantic destination before waiting for visual readiness', async () => {
+    it('keeps the committed destination until a navigation target is visually ready', async () => {
         let releaseVisual!: () => void;
         const events: string[] = [];
         const authority = createViewportAuthority({
@@ -162,18 +162,79 @@ describe('ViewportAuthority', () => {
 
         const pending = authority.submit(intent('visual', 2));
         await vi.waitFor(() => expect(events).toContain('visual-requested'));
-        expect(events).toContain('applied');
-        expect(authority.currentPage.value).toBe(2);
+        expect(events).not.toContain('applied');
+        expect(authority.currentPage.value).toBe(1);
         releaseVisual();
         await expect(pending).resolves.toMatchObject({outcome: 'settled'});
         expect(events).toEqual([
             'metrics',
             'slots',
-            'applied',
             'visual-requested',
+            'applied',
         ]);
         expect(authority.currentPage.value).toBe(2);
         expect(authority.pendingTargetPage.value).toBeNull();
+    });
+
+    it('applies a current navigation target when staged raster readiness fails', async () => {
+        const writes: string[] = [];
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => 1,
+            resolve: async request => ({
+                anchor: {
+                    ...anchor,
+                    page: request.navigation!.target.kind === 'page' ? request.navigation!.target.page : 1,
+                },
+                left: 0,
+                top: 900,
+            }),
+            awaitMetrics: async () => {},
+            awaitSlots: async () => {},
+            awaitVisual: async () => {
+                throw new DOMException('PDF navigation readiness not reached', 'AbortError');
+            },
+            apply: request => writes.push(request.id),
+        });
+
+        await expect(authority.submit(intent('readiness-fallback', 2)))
+            .resolves
+            .toMatchObject({outcome: 'settled'});
+        expect(writes).toEqual(['readiness-fallback']);
+        expect(authority.currentPage.value).toBe(2);
+    });
+
+    it('cancels a staged target when a newer navigation supersedes its visual wait', async () => {
+        const writes: string[] = [];
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => 1,
+            resolve: async request => ({
+                anchor: {
+                    ...anchor,
+                    page: request.navigation!.target.kind === 'page' ? request.navigation!.target.page : 1,
+                },
+                left: 0,
+                top: 900,
+            }),
+            awaitMetrics: async () => {},
+            awaitSlots: async () => {},
+            awaitVisual: (request, signal) => request.id === 'stale-visual'
+                ? new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => {
+                    reject(new DOMException('superseded', 'AbortError'));
+                }, {once: true}))
+                : Promise.resolve(),
+            apply: request => writes.push(request.id),
+        });
+
+        const stale = authority.submit(intent('stale-visual', 2));
+        await vi.waitFor(() => expect(authority.phase.value).toBe('awaiting-visual'));
+        const latest = authority.submit(intent('latest-visual', 3));
+
+        await expect(stale).resolves.toMatchObject({outcome: 'cancelled'});
+        await expect(latest).resolves.toMatchObject({outcome: 'settled'});
+        expect(writes).toEqual(['latest-visual']);
+        expect(authority.currentPage.value).toBe(3);
     });
 
     it('refines against mounted slots before the single terminal viewport write', async () => {

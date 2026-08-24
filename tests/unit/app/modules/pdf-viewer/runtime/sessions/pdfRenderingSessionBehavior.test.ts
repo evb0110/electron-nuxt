@@ -145,6 +145,7 @@ function createTransition(
 
 function createRenderingFixture(fixtureOptions: {
     autoResolve?: boolean;
+    authoritativeRaster?: boolean;
     bufferPages?: number;
     clampBufferedPages?: readonly number[];
     residentPages?: readonly number[];
@@ -173,6 +174,9 @@ function createRenderingFixture(fixtureOptions: {
                 end: 3,
             },
             options: {
+                ...(fixtureOptions.authoritativeRaster === undefined
+                    ? {}
+                    : {authoritativeRaster: fixtureOptions.authoritativeRaster}),
                 bufferOverride: 0,
                 suppressResidentRasterDemand: true,
             },
@@ -960,6 +964,56 @@ describe('PdfRenderingSession behavior', () => {
             fixture.renderTasks[0]!.resolve();
             await vi.waitFor(() => expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull());
             await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('runs an authoritative mandatory raster as one-shot scheduler work', async () => {
+        const fixture = createRenderingFixture({
+            autoResolve: false,
+            authoritativeRaster: true,
+        });
+        try {
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
+            expect(fixture.rasterScheduler.snapshot().inFlightByLane['navigation-target']).toBe(1);
+            expect(fixture.settleMandatoryRaster).not.toHaveBeenCalled();
+
+            fixture.renderTasks[0]!.resolve();
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+            await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('joins in-flight target work before settling a superseding mandatory raster', async () => {
+        const fixture = createRenderingFixture({autoResolve: false});
+        try {
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 2,
+                mandatoryRaster: {
+                    id: 2,
+                    range: {
+                        start: 3,
+                        end: 3,
+                    },
+                    options: {
+                        authoritativeRaster: true,
+                        bufferOverride: 0,
+                        preserveInFlightRequiredPages: true,
+                    },
+                },
+            };
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            expect(fixture.renderTasks).toHaveLength(1);
+            expect(fixture.settleMandatoryRaster).not.toHaveBeenCalledWith(2);
+            fixture.renderTasks[0]!.resolve();
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+            await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(2));
         } finally {
             await fixture.dispose();
         }

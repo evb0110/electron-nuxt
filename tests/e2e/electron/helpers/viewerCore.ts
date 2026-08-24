@@ -21,8 +21,6 @@ import {
 
 export {
     installNativePdfOpeningSampler,
-    readNativePdfPreviewLoadingState,
-    readNativePdfPreviewState,
     stopNativePdfOpeningSampler,
 } from '@tests/e2e/electron/helpers/viewerNativePdfState';
 
@@ -344,7 +342,7 @@ export async function waitForDjvuLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_
     });
 }
 
-export async function waitForNativePdfPreviewLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
+async function waitForNativePdfPreviewLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await runWithExecutionContextRetry(page, async () => {
         await waitForActiveWorkspaceHost(page, timeoutMs);
 

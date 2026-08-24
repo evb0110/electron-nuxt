@@ -27,15 +27,9 @@ function createWorkspace() {
 
 describe('createDeferredWorkspaceHostBindings', () => {
     it('keeps the current handle when a replaced workspace releases, so mode changes reach its snapshot', () => {
-        const attachWorkspace = vi.fn();
-        const detachWorkspace = vi.fn();
         const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
         const bindings = createDeferredWorkspaceHostBindings({
             emit: vi.fn(),
-            activeDocumentSession: cast({value: {
-                attachWorkspace,
-                detachWorkspace,
-            }}),
             mountedWorkspace,
         });
         const replacedWorkspace = createWorkspace();
@@ -48,6 +42,5 @@ describe('createDeferredWorkspaceHostBindings', () => {
 
         expect(mountedWorkspace.value).toBe(currentWorkspace);
         expect(mountedWorkspace.value?.getToolbarSnapshot().continuousScroll).toBe(false);
-        expect(detachWorkspace).not.toHaveBeenCalled();
     });
 });

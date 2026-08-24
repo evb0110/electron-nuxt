@@ -208,7 +208,6 @@ const {
     handleWorkspaceExposeReleased: releaseWorkspaceExposeBinding,
 } = createDeferredWorkspaceHostBindings({
     emit,
-    activeDocumentSession,
     mountedWorkspace,
 });
 const splitCacheSession = computed(() => createWorkspaceSplitCacheSessionState(activeDocumentSession.value));
@@ -748,7 +747,12 @@ const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
         // as potential stale projections, so the host retains the genuine
         // user command and replays it when the generation begins.
         handleGoToPage: page => {
-            activeDocumentSession.value.requestDocumentPage(page);
+            if (isDocumentOpenInFlight.value || !mountedWorkspace.value) {
+                activeDocumentSession.value.requestDocumentPage(page);
+                return;
+            }
+
+            mountedWorkspace.value.handleGoToPage(page);
         },
         handleOpenFileFromUi,
         hasPdf,

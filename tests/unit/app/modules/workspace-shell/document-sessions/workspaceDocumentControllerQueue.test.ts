@@ -66,7 +66,7 @@ describe('WorkspaceDocumentController transaction queue', () => {
                 target: null,
             }, secondRun);
 
-            await vi.advanceTimersByTimeAsync(29_999);
+            await vi.advanceTimersByTimeAsync(119_999);
             expect(secondRun).not.toHaveBeenCalled();
 
             await vi.advanceTimersByTimeAsync(1);

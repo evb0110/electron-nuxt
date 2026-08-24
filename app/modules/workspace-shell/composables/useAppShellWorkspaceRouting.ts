@@ -15,7 +15,10 @@ import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import { getDocumentOpenCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentFilesCapability,
+    getDocumentOpenCapability,
+} from '@app/utils/platformDocuments';
 import { readRecentOpenExactGeometry } from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
@@ -62,6 +65,45 @@ interface ISeededTabDocumentHint {
 
 const DOCUMENT_OPEN_RECOVERY_TIMEOUT_MS = 800;
 const DOCUMENT_OPEN_RECOVERY_POLL_INTERVAL_MS = 50;
+const COLD_OPEN_GEOMETRY_TIMEOUT_MS = 750;
+const COLD_OPEN_GEOMETRY_TIMEOUT = Symbol('cold-open-geometry-timeout');
+
+async function resolveColdOpenGeometry(result: TOpenFileResult) {
+    if (result.kind !== 'pdf' || result.openingGeometry) {
+        return result;
+    }
+    const readOpeningGeometry = getDocumentFilesCapability().getPdfOpeningGeometry;
+    if (!readOpeningGeometry) {
+        return result;
+    }
+    try {
+        const openingGeometry = await Promise.race([
+            readOpeningGeometry(result.workingPath),
+            new Promise<typeof COLD_OPEN_GEOMETRY_TIMEOUT>((resolve) => {
+                setTimeout(() => resolve(COLD_OPEN_GEOMETRY_TIMEOUT), COLD_OPEN_GEOMETRY_TIMEOUT_MS);
+            }),
+        ]);
+        if (openingGeometry === COLD_OPEN_GEOMETRY_TIMEOUT) {
+            BrowserLogger.debug('workspace-routing', 'Cold PDF opening geometry timed out', {
+                timeoutMs: COLD_OPEN_GEOMETRY_TIMEOUT_MS,
+                workingPath: result.workingPath,
+            });
+            return result;
+        }
+        return openingGeometry
+            ? {
+                ...result,
+                openingGeometry,
+            }
+            : result;
+    } catch (error) {
+        BrowserLogger.debug('workspace-routing', 'Cold PDF opening geometry unavailable', {
+            error,
+            workingPath: result.workingPath,
+        });
+        return result;
+    }
+}
 
 function readWorkspaceToolbarSnapshot(workspace: IWorkspaceExpose) {
     try {
@@ -483,6 +525,9 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         let result: TOpenFileResult | null;
         try {
             result = await getDocumentOpenCapability().openDocumentDirect(path);
+            if (result) {
+                result = await resolveColdOpenGeometry(result);
+            }
         } catch (error) {
             // A rejected preflight ends the open here. Closing the span keeps
             // the phase ledger complete: a refused file reports as a measured
@@ -503,6 +548,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             path,
             elapsedMs: performance.now() - routeStartedAt,
             failed: false,
+            hasOpeningGeometry: result?.kind === 'pdf' && result.openingGeometry !== undefined,
             resultKind: result?.kind ?? null,
             warmGeometry,
         });

@@ -12,7 +12,7 @@ import {
 } from 'vitest';
 import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
+import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import {
     createWorkspaceDocumentDriverForAdapter,
     useWorkspaceDocumentDriver,
@@ -157,18 +157,21 @@ describe('WorkspaceDocumentDriver', () => {
         vi.clearAllMocks();
     });
 
-    it('preserves pending native-PDF threshold routing', () => {
-        const native = selectPendingDocument(
+    it('keeps oversized pending PDFs on the PDF.js driver', () => {
+        const oversized = selectPendingDocument(
             '/managed/document.pdf',
-            PDFJS_NATIVE_PREVIEW_MIN_BYTES,
+            PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
         ).activeDocumentDriver.value;
-        expect(native).toMatchObject({
-            id: 'native-pdf',
-            view: {startupVisualSource: 'native-pdf-src'},
+        expect(oversized).toMatchObject({
+            id: 'pdfjs',
+            capabilities: {
+                save: true,
+                sidebar: true,
+            },
         });
         expect(selectPendingDocument(
             '/managed/document.pdf',
-            PDFJS_NATIVE_PREVIEW_MIN_BYTES - 1,
+            PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES - 1,
         ).activeDocumentDriver.value?.id).toBe('pdfjs');
         expect(selectPendingDocument(
             '/managed/document.pdf',

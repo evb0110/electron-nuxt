@@ -689,10 +689,16 @@ describe('usePdfSinglePageNavigationController', () => {
                         start: 2,
                         end: 2,
                     },
+                    {
+                        authoritativeRaster: true,
+                        preserveRenderedPages: true,
+                        retainOnlyCurrentResidentRaster: true,
+                        suppressResidentRasterDemand: false,
+                    },
                 );
             });
-            expect(viewportWrites.writes).toHaveLength(1);
-            expect(controller.viewportAuthority.currentPage.value).toBe(2);
+            expect(viewportWrites.writes).toHaveLength(0);
+            expect(controller.viewportAuthority.currentPage.value).toBe(1);
             expect(controller.navigationState.value).toMatchObject({
                 source: 'continuous',
                 status: 'settling',
@@ -703,7 +709,7 @@ describe('usePdfSinglePageNavigationController', () => {
 
             expect(controller.scrollToPage(3)).toBe(true);
             await vi.waitFor(() => {
-                expect(viewportWrites.writes).toHaveLength(2);
+                expect(viewportWrites.writes).toHaveLength(1);
             });
             expect(controller.viewportAuthority.currentPage.value).toBe(3);
             expect(controller.navigationState.value.status).toBe('idle');
@@ -716,7 +722,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 expect(controller.viewportAuthority.getTerminalOutcome('viewport-navigation-1'))
                     .toBe('cancelled');
             });
-            expect(viewportWrites.writes).toHaveLength(2);
+            expect(viewportWrites.writes).toHaveLength(1);
             expect(emitCurrentPage).toHaveBeenLastCalledWith(3);
         } finally {
             pageSlots.dispose();
@@ -871,6 +877,12 @@ describe('usePdfSinglePageNavigationController', () => {
                 {
                     start: 6,
                     end: 6,
+                },
+                {
+                    authoritativeRaster: true,
+                    preserveRenderedPages: true,
+                    retainOnlyCurrentResidentRaster: true,
+                    suppressResidentRasterDemand: false,
                 },
             );
             expect(controller.viewportAuthority.currentPage.value).toBe(6);

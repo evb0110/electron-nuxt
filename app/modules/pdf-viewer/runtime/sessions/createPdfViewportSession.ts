@@ -10,12 +10,7 @@ import type {
 import type { IPageRange } from '@app/types/pdfUi';
 import type { ILinkAnnotation } from '@app/types/annotations';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import {
-    commitDocumentOpenSurfaceViewport,
-    hasCommittedDocumentOpeningLayout,
-    shouldProjectDocumentViewportCommitPage,
-    type IDocumentOpenSurfaceSession,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { hasCommittedDocumentOpeningLayout } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { createPageNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
@@ -51,8 +46,8 @@ import { usePdfViewportViewModel } from '@app/modules/pdf-viewer/runtime/viewpor
 import { usePdfOpenVirtualSurfaceGeometry } from '@app/modules/pdf-viewer/runtime/viewport/usePdfOpenVirtualSurfaceGeometry';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
-import type { IPdfViewportPositionCommit } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import { createPdfOpenSurfaceViewportCallbacks } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpenSurfaceViewportCallbacks';
 import { reconcilePdfOpeningViewportCommit } from '@app/modules/pdf-viewer/runtime/viewport/reconcilePdfOpeningViewportCommit';
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
 import { createPdfViewportUserNavigationEpochs } from '@app/modules/pdf-viewer/runtime/viewport/createPdfViewportUserNavigationEpochs';
@@ -88,6 +83,7 @@ interface IPdfViewportReloadPlacement {
 }
 export interface ICreatePdfViewportSessionOptions {
     document: TPdfDocumentSession;
+    isPageFreshlyRenderedForNavigation: (pageNumber: number) => boolean;
     chassisAuthority: IDocumentViewerChassisAuthority | null;
     performancePolicy: IPdfRenderPerformancePolicy;
     maxBufferCanvasPixels: number;
@@ -112,63 +108,6 @@ export interface ICreatePdfViewportSessionOptions {
     emitEffectiveZoom: (value: number) => void;
     summarizeViewerStateForLog: () => unknown;
     clearPendingImagePlacement: () => void;
-}
-function projectSettledProgrammaticPage(
-    authority: IDocumentViewerChassisAuthority | null | undefined,
-    commit: IPdfViewportPositionCommit,
-    emitCurrentPage: (page: number) => void,
-) {
-    const surface = authority?.openSurface;
-    if (
-        !surface
-        || surface.viewportSession.value.lifecycle !== 'ready'
-        || ![
-            'navigate',
-            'search',
-            'wheel-page',
-        ].includes(commit.intentKind)
-    ) {
-        return false;
-    }
-    emitCurrentPage(authority.observePage(commit.page));
-    return true;
-}
-function projectPdfViewportPositionCommit(
-    surface: IDocumentOpenSurfaceSession | null | undefined,
-    commit: IPdfViewportPositionCommit,
-    emitCurrentPage: (page: number) => void,
-) {
-    if (!surface) {
-        emitCurrentPage(commit.page);
-        return false;
-    }
-    if (!shouldProjectDocumentViewportCommitPage(surface, commit)) {
-        return false;
-    }
-    surface.requestNavigation(commit.page);
-    emitCurrentPage(commit.page);
-    return commitDocumentOpenSurfaceViewport(surface, commit);
-}
-export function createPdfOpenSurfaceViewportCallbacks(
-    authority: IDocumentViewerChassisAuthority | null | undefined,
-    emitCurrentPage: (page: number) => void,
-    onNavigationViewportCommitted: (page: number) => void,
-) {
-    return {
-        onUserViewportPageObserved: (page: number) => {
-            emitCurrentPage(authority?.observePage(page, {supersedeNavigation: true}) ?? page);
-        },
-        onViewportPositionCommitted: (commit: IPdfViewportPositionCommit) => {
-            if (commit.intentKind === 'user-scroll') {
-                return;
-            }
-            if (projectPdfViewportPositionCommit(authority?.openSurface, commit, emitCurrentPage)) {
-                onNavigationViewportCommitted(commit.page);
-                return;
-            }
-            projectSettledProgrammaticPage(authority, commit, emitCurrentPage);
-        },
-    };
 }
 export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptions) => {
     const documentSession = options.document;
@@ -369,7 +308,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         renderVisiblePages: (range, renderOptions) => requestMandatoryRaster(range, renderOptions),
         ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
         prepareNavigationLayout,
-        isPageFreshlyRenderedForNavigation: () => true,
+        isPageFreshlyRenderedForNavigation: options.isPageFreshlyRenderedForNavigation,
         visibleRange,
         emitCurrentPage: options.emitCurrentPage,
         emitNavigationFeedbackPage: options.emitNavigationFeedbackPage,
@@ -530,15 +469,27 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         const mounted = new Set(mountedPages);
         const requiredPages = plan.visiblePages.filter(page => mounted.has(page));
         const nearbyPages = plan.bufferPages.filter(page => mounted.has(page));
+        const committedViewportPages = getNavigationRenderTargetPage() === null
+            ? []
+            : mountedPages.filter(page => (
+                page >= visibleRange.value.start
+                && page <= visibleRange.value.end
+            ));
         return {
             revision: demandRevision,
             visibleRange: range,
             requiredPages,
             nearbyPages,
-            residentPages: [
+            residentPages: [...new Set([
                 ...requiredPages,
                 ...nearbyPages,
-            ],
+                // Semantic navigation protects the destination range, but
+                // the old physical viewport remains on screen until that
+                // destination raster is committed. Retain both demand sets
+                // so the scheduler cannot release the visible canvas in
+                // the short interval before mandatory rendering starts.
+                ...committedViewportPages,
+            ])],
             mountedPages,
             currentPage: currentPage.value,
             destinationPage: getNavigationRenderTargetPage(),
@@ -597,7 +548,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 range,
                 options: {
                     ...renderOptions,
-                    suppressResidentRasterDemand: true,
+                    // Mandatory work normally isolates its exact range. The
+                    // semantic navigation path explicitly opts out so the old
+                    // visible raster remains resident until the target paints.
+                    suppressResidentRasterDemand: renderOptions.suppressResidentRasterDemand ?? true,
                     bufferOverride: renderOptions.bufferOverride ?? 0,
                     preserveInFlightRequiredPages: renderOptions.preserveInFlightRequiredPages ?? true,
                     preserveRenderedPages: renderOptions.preserveRenderedPages ?? true,

@@ -25,12 +25,16 @@ import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/stat
 import { cast } from '@tests/helpers/cast';
 
 const routingMocks = vi.hoisted(() => ({
+    getPdfOpeningGeometry: vi.fn(),
     readRecentOpenExactGeometry: vi.fn(),
     openDocumentDirect: vi.fn(),
 }));
 
 vi.mock('@app/modules/workspace-shell/host/recentOpenGeometryReadiness', () => ({readRecentOpenExactGeometry: routingMocks.readRecentOpenExactGeometry}));
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentOpenCapability: () => ({openDocumentDirect: routingMocks.openDocumentDirect})}));
+vi.mock('@app/utils/platformDocuments', () => ({
+    getDocumentFilesCapability: () => ({getPdfOpeningGeometry: routingMocks.getPdfOpeningGeometry}),
+    getDocumentOpenCapability: () => ({openDocumentDirect: routingMocks.openDocumentDirect}),
+}));
 
 interface IWorkspaceRecord {
     workspace: IWorkspaceExpose;
@@ -185,6 +189,7 @@ describe('useAppShellWorkspaceRouting', () => {
             size: 1,
             modifiedAt: 1,
         });
+        routingMocks.getPdfOpeningGeometry.mockResolvedValue(null);
         routingMocks.openDocumentDirect.mockResolvedValue(null);
     });
 
@@ -206,18 +211,19 @@ describe('useAppShellWorkspaceRouting', () => {
             kind: 'pdf' as const,
             workingPath: '/managed/cold.pdf',
             originalPath: '/docs/cold.pdf',
-            openingGeometry: {
-                pageNumber: 1 as const,
-                pageCount: 431,
-                width: 612,
-                height: 792,
-                rotation: 0 as const,
-                size: 538_000_000,
-                modifiedAt: 1_720_000_000_000,
-            },
+        };
+        const openingGeometry = {
+            pageNumber: 1 as const,
+            pageCount: 431,
+            width: 612,
+            height: 792,
+            rotation: 0 as const,
+            size: 538_000_000,
+            modifiedAt: 1_720_000_000_000,
         };
         routingMocks.readRecentOpenExactGeometry.mockReturnValueOnce(null);
         routingMocks.openDocumentDirect.mockResolvedValueOnce(result);
+        routingMocks.getPdfOpeningGeometry.mockResolvedValueOnce(openingGeometry);
         const routingOptions = createRoutingOptions({
             activePaneId,
             activeTabId,
@@ -232,8 +238,50 @@ describe('useAppShellWorkspaceRouting', () => {
         await expect(routing.openPathInAppropriateTab('/docs/cold.pdf')).resolves.toBe(true);
 
         expect(routingMocks.openDocumentDirect).toHaveBeenCalledWith('/docs/cold.pdf');
+        expect(routingMocks.getPdfOpeningGeometry).toHaveBeenCalledWith('/managed/cold.pdf');
         expect(initialWorkspace.openPath).not.toHaveBeenCalled();
-        expect(initialWorkspace.openResult).toHaveBeenCalledWith(result);
+        expect(initialWorkspace.openResult).toHaveBeenCalledWith({
+            ...result,
+            openingGeometry,
+        });
+    });
+
+    it('continues a cold direct open when opening geometry does not settle', async () => {
+        vi.useFakeTimers();
+        try {
+            const activePaneId = ref('pane-1');
+            const activeTabId = ref('tab-1');
+            const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+            const initialWorkspace = createWorkspace(false);
+            const activeTab = createTabStub('tab-1');
+            workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+            const result = {
+                kind: 'pdf' as const,
+                workingPath: '/managed/slow-geometry.pdf',
+                originalPath: '/docs/slow-geometry.pdf',
+            };
+            routingMocks.readRecentOpenExactGeometry.mockReturnValueOnce(null);
+            routingMocks.openDocumentDirect.mockResolvedValueOnce(result);
+            routingMocks.getPdfOpeningGeometry.mockImplementationOnce(() => new Promise(() => {}));
+            const routingOptions = createRoutingOptions({
+                activePaneId,
+                activeTabId,
+                workspaceRefs,
+                createTab: () => {
+                    throw new Error('should reuse placeholder tab');
+                },
+            });
+            routingOptions.getTabById = vi.fn(() => activeTab);
+            const routing = useAppShellWorkspaceRouting(routingOptions);
+
+            const opening = routing.openPathInAppropriateTab('/docs/slow-geometry.pdf');
+            await vi.advanceTimersByTimeAsync(750);
+
+            await expect(opening).resolves.toBe(true);
+            expect(initialWorkspace.openResult).toHaveBeenCalledWith(result);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('closes the open-route capability span when the direct open resolves', async () => {

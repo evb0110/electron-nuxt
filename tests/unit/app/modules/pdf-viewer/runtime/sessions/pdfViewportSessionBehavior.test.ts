@@ -123,6 +123,7 @@ function createViewportFixture(input: {
     continuousScroll?: boolean;
     fitMode?: Ref<'width' | 'height'>;
     isActive?: Ref<boolean>;
+    isPageFreshlyRenderedForNavigation?: (pageNumber: number) => boolean;
     pageCount?: number;
     viewMode?: 'single' | 'facing' | 'facing-first-single';
     zoom?: Ref<number>;
@@ -166,6 +167,8 @@ function createViewportFixture(input: {
                 isResizing: computed(() => false),
                 requestedCurrentPage: ref(undefined),
                 outputScale,
+                isPageFreshlyRenderedForNavigation:
+                    input.isPageFreshlyRenderedForNavigation ?? (() => true),
                 selectionMarkupStyle: computed(() => null),
                 classState: {
                     isAnySaving: computed(() => false),
@@ -473,6 +476,40 @@ describe('PdfViewportSession behavior', () => {
             ]);
             expect(fixture.viewport.demand.value.residentPages).not.toContain(44);
         } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('retains the physical viewport raster while a distant navigation target paints', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            isPageFreshlyRenderedForNavigation: () => false,
+            pageCount: 100,
+        });
+        try {
+            fixture.documentSession.basePageHeight.value = 100;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 100}, () => ({
+                width: 600,
+                height: 100,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            fixture.viewport.visibleRange.value = {
+                start: 1,
+                end: 1,
+            };
+            fixture.viewport.markPageMounted(1);
+            fixture.viewport.markPageMounted(64);
+
+            expect(fixture.viewport.singlePageScroll.scrollToPage(64)).toBe(true);
+            await vi.waitFor(() => {
+                expect(fixture.viewport.demand.value.requiredPages).toContain(64);
+            });
+            expect(fixture.viewport.demand.value.residentPages).toEqual(expect.arrayContaining([
+                1,
+                64,
+            ]));
+        } finally {
+            fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
             fixture.app.unmount();
         }
     });

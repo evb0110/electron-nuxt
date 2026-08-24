@@ -554,7 +554,7 @@ describe('WorkspaceDocumentController', () => {
                 settled = true;
             });
 
-            await vi.advanceTimersByTimeAsync(29_999);
+            await vi.advanceTimersByTimeAsync(119_999);
             expect(settled).toBe(false);
 
             await vi.advanceTimersByTimeAsync(1);

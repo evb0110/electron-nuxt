@@ -17,6 +17,7 @@ import { readRecentOpenExactGeometry } from '@app/modules/workspace-shell/host/r
 import { DEFERRED_WORKSPACE_HOST_POLICY } from '@app/modules/workspace-shell/host/deferredWorkspaceHostPolicy';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentOpeningPageFrameAuthority } from '@app/utils/document-viewer/chassis/documentOpeningPageFrameAuthority';
 
@@ -139,6 +140,15 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             || currentSurface.phase === 'ready'
             || currentSurface.phase === 'failed'
         );
+        logPdfRenderTrace('pdf-open-surface-transaction-start', {
+            action: intent.action,
+            currentDocumentId: currentSurface.identity?.documentId ?? null,
+            currentGeneration: currentSurface.generation,
+            currentPhase: currentSurface.phase,
+            hasPreparedOpeningGeometry: intent.preparedOpeningGeometry !== undefined,
+            targetDocumentId: target?.originalPath ?? transactionDocumentRef ?? null,
+            transactionId,
+        });
         const canUsePreparedRecentFrame = intent.action === 'openRecentFromPlaceholder'
             && surfaceAcceptsOpeningTransaction;
         const cachedRecentGeometry = canUsePreparedRecentFrame && target?.originalPath
@@ -210,6 +220,16 @@ export function createWorkspaceDocumentOpenTransactions(options: {
                 }
                 pendingPreOwnerGoToPage = null;
             }
+            const claimedSurface = openHost.documentOpenSurface.snapshot.value;
+            logPdfRenderTrace('pdf-open-surface-transaction-claimed', {
+                action: intent.action,
+                documentId: claimedSurface.identity?.documentId ?? null,
+                generation: claimedSurface.generation,
+                hasOpeningFrame: claimedSurface.openingPageFrame !== null,
+                hasOpeningGeometry: claimedSurface.openingPageGeometry !== null,
+                phase: claimedSurface.phase,
+                transactionId,
+            });
         }
 
         if (transaction.seededTabHint && target) {

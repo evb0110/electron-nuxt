@@ -33,7 +33,7 @@ import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
-import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
+import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
@@ -45,10 +45,12 @@ const PROJECT_ROOT_FIXTURE_DIR = resolve(process.cwd(), '.devkit');
 const LARGE_PDF_FIXTURE_ENV_VAR = 'EVB_E2E_LARGE_PDF_FIXTURE';
 const LARGE_PDF_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE';
 const DEFAULT_LARGE_PDF_FIXTURE = 'large-pdf-fixtures/turkish-english-lexicon-letter-bookmarks.pdf';
-const NATIVE_LARGE_PDF_FIXTURE_BYTES = PDFJS_NATIVE_PREVIEW_MIN_BYTES + (1024 * 1024);
+// Above the preview threshold so the fixture exercises native first paint and
+// the handoff to PDF.js.
+const NATIVE_LARGE_PDF_FIXTURE_BYTES = PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES + (1024 * 1024);
 // Above the shape-scan cap, so the annotation-save lane covers saving a document
 // whose embedded shape layer is too large to scan, and far below the
-// native-preview cap so it still opens through the PDF.js annotation surface.
+// opening-preview threshold so this fixture does not pay the native render cost.
 const ANNOTATION_LARGE_PDF_FIXTURE_BYTES = EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES * 2;
 const DJVU_FIXTURE_ENV_VAR = 'EVB_E2E_DJVU_FIXTURE';
 const DEFAULT_DJVU_FIXTURE = 'djvu-fixtures/viewer-smoke.djvu';
@@ -484,30 +486,15 @@ function provisionLargePdfFixture(
 }
 
 // The two large-PDF lanes sit on opposite sides of the same threshold: the
-// native-preview lane only takes the route it covers above the PDF.js size cap,
-// while the annotation-save lane edits through PDF.js and is therefore only
-// meaningful below it. One document cannot serve both, so they no longer share a
-// fixture. This env override names the realistic document for the annotation-save
-// lane; when it is absent the lane provisions a synthetic stand-in rather than
-// skipping, and the native-preview lane always provisions its own.
+// The opening-preview lane needs an oversized sparse fixture to exercise the
+// native-raster-to-PDF.js handoff. The annotation-save lane uses a smaller,
+// content-rich fixture so it can verify existing and newly added notes.
 export function resolveLargePdfFixtureAvailability(): IFixtureAvailability {
     const fixturePath = resolveLargePdfFixturePath();
     const required = isEnvFlagEnabled(LARGE_PDF_REQUIRE_ENV_VAR);
 
     if (fixturePath) {
         const size = statSync(fixturePath).size;
-        if (size >= PDFJS_NATIVE_PREVIEW_MIN_BYTES) {
-            return {
-                path: null,
-                reason: `Large PDF fixture is ${formatFixtureSize(size)}, at or above the`
-                    + ` ${formatFixtureSize(PDFJS_NATIVE_PREVIEW_MIN_BYTES)} native-preview cap, so it opens through the`
-                    + ' native preview instead of the PDF.js annotation surface this lane covers. Set'
-                    + ` ${LARGE_PDF_FIXTURE_ENV_VAR} to a large PDF below that cap; the native-preview lane provisions`
-                    + ' its own oversized fixture.',
-                required,
-            };
-        }
-
         return {
             path: fixturePath,
             reason: `Using large PDF fixture: ${fixturePath} (${formatFixtureSize(size)})`,

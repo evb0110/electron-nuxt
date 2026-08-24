@@ -61,4 +61,15 @@ describe('shouldShowPdfNavigationSkeleton', () => {
             shouldShowSkeleton: vi.fn(() => false),
         })).toBe(true);
     });
+
+    it('suppresses an ordinary skeleton from an adjacent row during navigation', () => {
+        expect(shouldShowPdfNavigationSkeleton({
+            pageNumber: 63,
+            navigationAnchorPage: 64,
+            totalPages: 100,
+            viewMode: 'single',
+            isPageRendered: vi.fn(() => false),
+            shouldShowSkeleton: vi.fn(() => true),
+        })).toBe(false);
+    });
 });

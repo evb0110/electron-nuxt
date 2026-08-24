@@ -1,6 +1,9 @@
 import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
 import type { IPdfPathSource } from '@app/types/pdfUi';
-import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type {
+    IDocumentOpenSurfaceSession,
+    IDocumentOpenSurfaceSnapshot,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { getErrorMessage } from '@app/utils/error';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
@@ -15,6 +18,13 @@ export interface IPdfOpeningGeometryResolution {
 }
 
 export interface IStagedPdfOpeningPreview {cancel(reason: string): void;}
+
+function isOpeningTransitionPhase(phase: IDocumentOpenSurfaceSnapshot['phase']) {
+    return phase === 'pending'
+        || phase === 'geometry-committed'
+        || phase === 'canvas-committed'
+        || phase === 'viewport-committed';
+}
 
 function resolveTargetWidth(
     surface: IDocumentOpenSurfaceSession,
@@ -44,19 +54,32 @@ export function stagePdfOpeningPreview(options: {
     let disposed = false;
     let objectUrl: string | null = null;
     let source: ReturnType<typeof createNativePdfPreviewSourceFromPath> | null = null;
+    let stopWatchingOpeningFrame: (() => void) | null = null;
     let stopWatchingSurface: (() => void) | null = null;
     let stopWatchingInvalidation: (() => void) | null = null;
+    let resolveOpeningFrameWait: ((snapshot: IDocumentOpenSurfaceSnapshot | null) => void) | null = null;
     let generation: number | null = null;
+
+    function cancelOpeningFrameWait() {
+        const resolveWait = resolveOpeningFrameWait;
+        resolveOpeningFrameWait = null;
+        resolveWait?.(null);
+        stopWatchingOpeningFrame?.();
+        stopWatchingOpeningFrame = null;
+    }
 
     function dispose(reason: string, clearPreview = true) {
         if (disposed) {
             return;
         }
         disposed = true;
+        cancelOpeningFrameWait();
         stopWatchingSurface?.();
         stopWatchingSurface = null;
         stopWatchingInvalidation?.();
         stopWatchingInvalidation = null;
+        resolveOpeningFrameWait?.(null);
+        resolveOpeningFrameWait = null;
         if (clearPreview && generation !== null && objectUrl !== null) {
             options.openSurface.clearOpeningPagePreview(generation, objectUrl);
         }
@@ -68,28 +91,140 @@ export function stagePdfOpeningPreview(options: {
         });
     }
 
+    function waitForOpeningFrame(input: {
+        documentId: string;
+        openingGeometry: IPdfOpeningGeometry;
+        pageNumber: number;
+        sourceRevisionKey: string;
+    }): Promise<IDocumentOpenSurfaceSnapshot | null> {
+        // One preview attempt owns one generation-bound watcher. Replacement,
+        // cancellation, and disposal all settle it through
+        // cancelOpeningFrameWait, so no observer can survive its attempt.
+        cancelOpeningFrameWait();
+        let boundGeneration: number | null = null;
+        const inspect = (snapshot: IDocumentOpenSurfaceSnapshot) => {
+            if (
+                canceled
+                || disposed
+                || !options.isCurrent()
+            ) {
+                return null;
+            }
+            if (!isOpeningTransitionPhase(snapshot.phase)) {
+                return snapshot.identity?.documentId === input.documentId
+                    && (snapshot.phase === 'ready' || snapshot.phase === 'failed')
+                    ? null
+                    : undefined;
+            }
+            if (snapshot.identity?.documentId !== input.documentId) {
+                return undefined;
+            }
+            boundGeneration ??= snapshot.generation;
+            if (snapshot.generation !== boundGeneration) {
+                return null;
+            }
+            if (snapshot.openingPageGeometry === null && snapshot.phase === 'pending') {
+                options.openSurface.commitOpeningPageGeometry(snapshot.generation, {
+                    documentId: input.documentId,
+                    ...input.openingGeometry,
+                });
+                return undefined;
+            }
+            const frame = snapshot.openingPageFrame;
+            if (
+                frame?.generation === boundGeneration
+                && frame.pageNumber === input.pageNumber
+                && frame.sourceRevisionKey === input.sourceRevisionKey
+            ) {
+                return snapshot;
+            }
+            return undefined;
+        };
+        const initial = inspect(options.openSurface.snapshot.value);
+        if (initial !== undefined) {
+            return Promise.resolve(initial);
+        }
+        return new Promise((resolve) => {
+            let settled = false;
+            const settle = (snapshot: IDocumentOpenSurfaceSnapshot | null) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                stopWatchingOpeningFrame?.();
+                stopWatchingOpeningFrame = null;
+                resolveOpeningFrameWait = null;
+                resolve(snapshot);
+            };
+            resolveOpeningFrameWait = settle;
+            stopWatchingOpeningFrame = watch(
+                () => options.openSurface.snapshot.value,
+                (snapshot) => {
+                    const result = inspect(snapshot);
+                    if (result !== undefined) {
+                        settle(result);
+                    }
+                },
+                {flush: 'sync'},
+            );
+            const current = inspect(options.openSurface.snapshot.value);
+            if (current !== undefined) {
+                settle(current);
+            }
+        });
+    }
+
     void (async () => {
+        logPdfRenderTrace('pdf-open-native-preview-resolution-start', options.traceContext);
         const resolution = await options.geometryResolution;
+        const shouldStage = shouldStageNativePdfOpeningPreview(options.source, resolution.openingGeometry);
+        const resolvedSnapshot = options.openSurface.snapshot.value;
+        logPdfRenderTrace('pdf-open-native-preview-resolution-end', {
+            ...options.traceContext,
+            canceled,
+            current: options.isCurrent(),
+            documentId: resolvedSnapshot.identity?.documentId ?? null,
+            hasOpeningGeometry: resolution.openingGeometry !== null,
+            hasSourceRevision: resolution.sourceRevision !== null,
+            pageCount: resolution.openingGeometry?.pageCount ?? null,
+            phase: resolvedSnapshot.phase,
+            size: resolution.openingGeometry?.size ?? null,
+            sourceSize: options.source.size,
+            sourceRevisionDocumentId: resolution.sourceRevision?.documentId ?? null,
+            shouldStage,
+        });
         if (
             canceled
             || !options.isCurrent()
             || resolution.openingGeometry === null
             || resolution.sourceRevision === null
-            || !shouldStageNativePdfOpeningPreview(options.source, resolution.openingGeometry)
+            || !shouldStage
         ) {
             return;
         }
-        const snapshot = options.openSurface.snapshot.value;
-        const identity = snapshot.identity;
-        if (
-            identity === null
-            || identity.documentId !== resolution.sourceRevision.documentId
-            || snapshot.openingPageFrame?.pageNumber !== resolution.openingGeometry.pageNumber
-        ) {
-            return;
-        }
-        generation = snapshot.generation;
         const sourceRevisionKey = `${String(resolution.sourceRevision.size)}:${String(resolution.sourceRevision.modifiedAt)}`;
+        logPdfRenderTrace('pdf-open-native-preview-frame-wait-start', {
+            ...options.traceContext,
+            pageNumber: resolution.openingGeometry.pageNumber,
+            sourceRevisionKey,
+        });
+        const snapshot = await waitForOpeningFrame({
+            documentId: resolution.sourceRevision.documentId,
+            openingGeometry: resolution.openingGeometry,
+            pageNumber: resolution.openingGeometry.pageNumber,
+            sourceRevisionKey,
+        });
+        generation = snapshot?.generation ?? null;
+        logPdfRenderTrace('pdf-open-native-preview-frame-wait-end', {
+            ...options.traceContext,
+            generation,
+            matched: snapshot !== null,
+            pageNumber: resolution.openingGeometry.pageNumber,
+            sourceRevisionKey,
+        });
+        if (snapshot === null || canceled || !options.isCurrent()) {
+            return;
+        }
         const targetWidthPx = resolveTargetWidth(options.openSurface, resolution.openingGeometry);
         logPdfRenderTrace('pdf-open-native-preview-submit', {
             ...options.traceContext,
