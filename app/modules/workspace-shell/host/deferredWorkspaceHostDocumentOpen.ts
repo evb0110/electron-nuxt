@@ -134,18 +134,31 @@ export function createWorkspaceDocumentOpenTransactions(options: {
         transactionId: string, transactionDocumentRef: TDocumentRef | null) {
         const target = intent.target ?? null;
         const currentSurface = openHost.documentOpenSurface.snapshot.value;
+        const surfaceAcceptsOpeningTransaction = (
+            currentSurface.phase === 'idle'
+            || currentSurface.phase === 'ready'
+            || currentSurface.phase === 'failed'
+        );
         const canUsePreparedRecentFrame = intent.action === 'openRecentFromPlaceholder'
-            && (
-                currentSurface.phase === 'idle'
-                || currentSurface.phase === 'ready'
-                || currentSurface.phase === 'failed'
-            );
+            && surfaceAcceptsOpeningTransaction;
         const cachedRecentGeometry = canUsePreparedRecentFrame && target?.originalPath
             ? readRecentOpenExactGeometry(target.originalPath, {
                 modifiedAt: intent.preparedSourceModifiedAt,
                 size: intent.preparedSourceSize,
             })
             : null;
+        const documentId = resolveOpenSurfaceDocumentId(
+            target,
+            transactionDocumentRef,
+            options.tabId,
+        );
+        const preparedOpeningGeometry = resolvePreparedPdfOpeningGeometry(
+            documentId,
+            intent.preparedOpeningGeometry,
+        ) ?? cachedRecentGeometry;
+        const exactOpeningGeometry = surfaceAcceptsOpeningTransaction
+            ? preparedOpeningGeometry ?? readRecentOpenExactGeometry(documentId)
+            : preparedOpeningGeometry;
         const transaction: IDocumentOpenTransactionRun = {
             transactionId,
             action: intent.action,
@@ -157,29 +170,15 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             ),
         };
 
-        if (
-            currentSurface.phase === 'idle'
-            || currentSurface.phase === 'ready'
-            || currentSurface.phase === 'failed'
-        ) {
-            const documentId = resolveOpenSurfaceDocumentId(
-                target,
-                transactionDocumentRef,
-                options.tabId,
-            );
+        if (surfaceAcceptsOpeningTransaction) {
             const identity = {
                 documentId,
                 documentRevision: `open-intent:${transactionId}`,
             };
-            const preparedOpeningGeometry = resolvePreparedPdfOpeningGeometry(
-                documentId,
-                intent.preparedOpeningGeometry,
-            ) ?? cachedRecentGeometry;
             const initialViewState = openHost.getInitialViewState();
             const restoredInitialPage = intent.action.toLowerCase().includes('restore')
                 ? Math.max(1, Math.trunc(initialViewState?.currentPage ?? 1))
                 : null;
-            const exactOpeningGeometry = preparedOpeningGeometry ?? readRecentOpenExactGeometry(documentId);
             const ownedOpeningGeometry = restoredInitialPage === null
                 || exactOpeningGeometry?.pageNumber === restoredInitialPage
                 ? exactOpeningGeometry
@@ -216,7 +215,10 @@ export function createWorkspaceDocumentOpenTransactions(options: {
         if (transaction.seededTabHint && target) {
             openHost.publishDocumentRecord(createPendingWorkspaceDocumentRecord(
                 target,
-                openHost.getSeedToolbarSnapshot(),
+                {
+                    openingPageCount: exactOpeningGeometry?.pageCount,
+                    previousToolbarSnapshot: openHost.getSeedToolbarSnapshot(),
+                },
             ));
         }
 

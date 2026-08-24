@@ -268,6 +268,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
         const documentOpenSurface = createDocumentOpenSurfaceSession();
         const ownerGate = Promise.withResolvers<undefined>();
+        const publishDocumentRecord = vi.fn(record => controller.applyWorkspaceRecord(record, 'host'));
         controller.attachOpenTransactionHost({
             documentOpenSurface,
             openingPageFrameAuthority: shallowRef(null),
@@ -283,7 +284,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
             hasSessionOpenedDocument: () => false,
             isHostUnmounted: () => false,
             isViewerOwnerMounted: () => false,
-            publishDocumentRecord: vi.fn(),
+            publishDocumentRecord,
             requestWorkspaceMount: vi.fn(),
         });
         const run = vi.fn(async () => true);
@@ -296,6 +297,14 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
 
         expect(documentOpenSurface.snapshot.value.identity?.documentId).toBe('/documents/scan.pdf');
         expect(documentOpenSurface.viewportSession.value.requestedPage).toBe(2);
+        expect(publishDocumentRecord).toHaveBeenCalledWith(expect.objectContaining(
+            {toolbarSnapshot: expect.objectContaining({
+                currentPage: 1,
+                totalPages: 431,
+                isOpeningDocument: true,
+            })},
+        ));
+        expect(controller.snapshot.value.toolbarSnapshot.totalPages).toBe(431);
         expect(run).not.toHaveBeenCalled();
         ownerGate.resolve(undefined);
         await expect(opening).resolves.toBe(false);

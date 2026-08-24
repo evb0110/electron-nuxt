@@ -33,6 +33,12 @@ interface ICreateWorkspaceDocumentRecordOptions {
     viewState?: ITabViewSessionState | undefined;
 }
 
+interface ICreatePendingWorkspaceDocumentRecordOptions {
+    openingPageCount?: number | null | undefined;
+    previousToolbarSnapshot?: IWorkspaceToolbarSnapshot | undefined;
+    previousViewState?: ITabViewSessionState | undefined;
+}
+
 function normalizeTabState(tab?: TTabUpdate | TWorkspaceDocumentTabState): TWorkspaceDocumentTabState {
     return {
         fileName: tab?.fileName ?? null,
@@ -55,7 +61,10 @@ function normalizeWorkspaceToolbarSnapshot(
         },
     };
 
-    if (!normalized.isOpeningDocument && normalized.hasPdf) {
+    // An opening snapshot with zero pages is still waiting for metadata. A
+    // positive count came from prepared geometry and is safe to expose before
+    // the first visual commits.
+    if (normalized.hasPdf && (!normalized.isOpeningDocument || normalized.totalPages > 0)) {
         normalized.currentPage = Math.max(1, Math.floor(normalized.currentPage));
         normalized.totalPages = Math.max(normalized.currentPage, Math.floor(normalized.totalPages));
         return normalized;
@@ -88,15 +97,21 @@ export function createWorkspaceDocumentRecordFromTab(tab: ITab): IWorkspaceDocum
 
 export function createPendingWorkspaceDocumentRecord(
     tab: TTabUpdate,
-    previousToolbarSnapshot: IWorkspaceToolbarSnapshot = createDefaultWorkspaceToolbarSnapshot(),
-    previousViewState: ITabViewSessionState = createTabViewSessionState(previousToolbarSnapshot),
+    options: ICreatePendingWorkspaceDocumentRecordOptions = {},
 ): IWorkspaceDocumentRecord {
+    const previousToolbarSnapshot = options.previousToolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot();
+    const previousViewState = options.previousViewState ?? createTabViewSessionState(previousToolbarSnapshot);
+    const openingPageCount = options.openingPageCount ?? 0;
     const tabState = normalizeTabState(tab);
     const toolbarSnapshot = normalizeWorkspaceToolbarSnapshot({
         ...previousToolbarSnapshot,
         hasPdf: Boolean(tabState.fileName) || Boolean(tabState.originalPath) || tabState.isDjvu,
         isOpeningDocument: true,
         isDjvuMode: tabState.isDjvu,
+        // The prepared count belongs to the incoming document. Page position
+        // still starts at one so the replaced document cannot leak into it.
+        currentPage: 1,
+        totalPages: openingPageCount,
         viewerCapabilities: getWorkspaceViewerCapabilitiesForDocumentType(tabState.isDjvu ? 'djvu' : 'pdf'),
     });
     return createWorkspaceDocumentRecord({

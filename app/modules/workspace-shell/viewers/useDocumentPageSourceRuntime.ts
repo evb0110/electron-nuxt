@@ -589,6 +589,7 @@ export const useDocumentPageSourceRuntime = (options: {
             heightPoints: geometry.height,
             rotation: geometry.rotation as IDocumentPageMetrics['rotation'],
         });
+        emit('update:totalPages', geometry.pageCount);
         return true;
     }
     function applyOpenTransition(transition: IDocumentPageSourceTransition) {

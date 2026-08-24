@@ -44,12 +44,14 @@ const mountedApps = new Set<() => void>();
 
 interface IWorkspaceOpenSettleHarness {
     initialVisualReady: Ref<boolean>;
+    totalPages: Ref<number>;
     waitForDocumentOpenSettled: () => Promise<void>;
 }
 
 function createWorkspaceOpenSettleHarness(): IWorkspaceOpenSettleHarness {
     return {
         initialVisualReady: ref(false),
+        totalPages: ref(0),
         waitForDocumentOpenSettled: () => Promise.reject(new Error('Workspace host is not mounted')),
     };
 }
@@ -104,6 +106,7 @@ function createFeaturePackHost(
                 markAnnotationCommentsLoading: vi.fn(),
             });
             settleHarness.initialVisualReady = settle.initialDocumentVisualReady;
+            settleHarness.totalPages = totalPages;
             settleHarness.waitForDocumentOpenSettled = settle.waitForDocumentOpenSettled;
             provide(documentViewerChassisAuthorityKey, authority);
             return () => {
@@ -153,6 +156,49 @@ afterEach(() => {
 });
 
 describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
+    it('publishes prepared opening page count before the page source resolves', async () => {
+        const documentRef = '/documents/large.djvu' as TDocumentRef;
+        const surface = createDocumentOpenSurfaceSession();
+        surface.begin({
+            documentId: documentRef,
+            documentRevision: 'open-intent:large',
+        }, {
+            documentId: documentRef,
+            height: 800,
+            pageCount: 1_859,
+            pageNumber: 1,
+            rotation: 0,
+            width: 600,
+        });
+        const previewGate = Promise.withResolvers<{path: TDocumentRef}>();
+        mocks.createDjvuPagePreviewSourceFromPath.mockImplementation(() => previewGate.promise);
+        mocks.createDjvuPageSource.mockImplementation(async (path: TDocumentRef) => createPageSource(path));
+        const settle = createWorkspaceOpenSettleHarness();
+        const Host = createFeaturePackHost(
+            surface,
+            documentRef,
+            ref<unknown[]>([]),
+            settle,
+            ref(false),
+        );
+        const root = document.createElement('div');
+        document.body.append(root);
+        const app = createApp(Host);
+        app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
+        app.mount(root);
+        const unmount = () => {
+            app.unmount();
+            root.remove();
+            mountedApps.delete(unmount);
+        };
+        mountedApps.add(unmount);
+
+        expect(settle.totalPages.value).toBe(1_859);
+
+        previewGate.resolve({path: documentRef});
+        await vi.waitFor(() => expect(mocks.createDjvuPageSource).toHaveBeenCalled());
+    });
+
     it('settles a cold second workspace after its opening image is relocated', async () => {
         vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
         vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(700);

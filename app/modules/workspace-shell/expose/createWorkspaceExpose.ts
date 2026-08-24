@@ -162,11 +162,11 @@ function normalizeToolbarSnapshotPage(page: number | undefined) {
     return Math.max(1, Math.floor(page));
 }
 
-function normalizeToolbarSnapshotTotalPages(totalPages: number | undefined, fallbackPage: number) {
+function normalizeToolbarSnapshotTotalPages(totalPages: number | undefined, minimum: number) {
     if (typeof totalPages !== 'number' || !Number.isFinite(totalPages)) {
-        return fallbackPage;
+        return minimum;
     }
-    return Math.max(fallbackPage, Math.floor(totalPages));
+    return Math.max(minimum, Math.floor(totalPages));
 }
 
 function clampZoomLevel(level: number) {
@@ -257,12 +257,13 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         const currentPage = isOpeningDocument
             ? 1
             : normalizeToolbarSnapshotPage(deps.currentPage.value);
-        const totalPages = isOpeningDocument
-            ? 0
-            : normalizeToolbarSnapshotTotalPages(deps.totalPages.value, currentPage);
-        // Page/total metadata stays pending until the opening visual commits,
-        // but the prepared opening frame already owns visible geometry. Publish
-        // its live scale instead of labeling a fit-width page as 100%.
+        const totalPages = normalizeToolbarSnapshotTotalPages(
+            deps.totalPages.value,
+            isOpeningDocument ? 0 : currentPage,
+        );
+        // The opening frame owns its known count and live scale before the
+        // visual commits. Keep the current page at one so stale position from
+        // a replaced document cannot leak into the new open.
         const zoom = deps.zoom.value;
         const effectiveZoom = deps.effectiveZoom.value;
         return {

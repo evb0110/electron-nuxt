@@ -31,13 +31,18 @@ describe('workspace document record opening view state', () => {
         const previous = createWorkspaceDocumentRecord({toolbarSnapshot: {
             hasPdf: true,
             continuousScroll: false,
+            currentPage: 73,
             effectiveZoom: 0.72,
+            totalPages: 700,
             zoomMode: 'fit-width',
         }});
         const pending = createPendingWorkspaceDocumentRecord({
             fileName: 'replacement.pdf',
             originalPath: '/docs/replacement.pdf',
-        }, previous.toolbarSnapshot, previous.viewState);
+        }, {
+            previousToolbarSnapshot: previous.toolbarSnapshot,
+            previousViewState: previous.viewState,
+        });
 
         expect(pending.toolbarSnapshot.continuousScroll).toBe(false);
         expect(pending.toolbarSnapshot).toMatchObject({
@@ -46,5 +51,32 @@ describe('workspace document record opening view state', () => {
         });
         expect(pending.viewState.continuousScroll).toBe(false);
         expect(pending.viewState.currentPage).toBe(1);
+        expect(pending.toolbarSnapshot).toMatchObject({
+            currentPage: 1,
+            totalPages: 0,
+        });
+    });
+
+    it('publishes authoritative opening pagination without waiting for the viewer', () => {
+        const previous = createWorkspaceDocumentRecord({toolbarSnapshot: {
+            hasPdf: true,
+            currentPage: 73,
+            totalPages: 700,
+        }});
+        const pending = createPendingWorkspaceDocumentRecord({
+            fileName: 'large.pdf',
+            originalPath: '/docs/large.pdf',
+        }, {
+            openingPageCount: 1_859,
+            previousToolbarSnapshot: previous.toolbarSnapshot,
+            previousViewState: previous.viewState,
+        });
+
+        expect(pending.toolbarSnapshot).toMatchObject({
+            hasPdf: true,
+            isOpeningDocument: true,
+            currentPage: 1,
+            totalPages: 1_859,
+        });
     });
 });

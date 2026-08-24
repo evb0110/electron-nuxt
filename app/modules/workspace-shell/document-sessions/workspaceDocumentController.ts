@@ -716,8 +716,10 @@ export function createWorkspaceDocumentController(
         applyWorkspaceRecord(pending
             ? createPendingWorkspaceDocumentRecord(
                 tab,
-                current.toolbarSnapshot,
-                current.viewState,
+                {
+                    previousToolbarSnapshot: current.toolbarSnapshot,
+                    previousViewState: current.viewState,
+                },
             )
             : createWorkspaceDocumentRecord({
                 tab,

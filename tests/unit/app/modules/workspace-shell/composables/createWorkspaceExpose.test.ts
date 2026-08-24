@@ -433,7 +433,7 @@ describe('createWorkspaceExpose', () => {
         expect(snapshot.value.currentPage).toBe(6);
     });
 
-    it('keeps page metadata pending while publishing the prepared opening scale', () => {
+    it('publishes known page count and prepared scale while the first visual is pending', () => {
         const documentViewerRef = ref<IWorkspaceDocumentViewerNavigationPort | null>({
             getCurrentPage: () => 99,
             scrollToPage: vi.fn(),
@@ -452,9 +452,24 @@ describe('createWorkspaceExpose', () => {
         expect(exposed.getToolbarSnapshot()).toMatchObject({
             isOpeningDocument: true,
             currentPage: 1,
-            totalPages: 0,
+            totalPages: 564,
             zoom: 2.38,
             effectiveZoom: 2.38,
+        });
+    });
+
+    it('keeps opening pagination empty when no authoritative count exists', () => {
+        const exposed = createWorkspaceExpose(createDeps({
+            hasPdf: ref(true),
+            isOpeningDocument: ref(true),
+            currentPage: ref(42),
+            totalPages: ref(0),
+        }));
+
+        expect(exposed.getToolbarSnapshot()).toMatchObject({
+            isOpeningDocument: true,
+            currentPage: 1,
+            totalPages: 0,
         });
     });
 
