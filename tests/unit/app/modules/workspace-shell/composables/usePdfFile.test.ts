@@ -233,7 +233,9 @@ describe('usePdfFile façade', () => {
     });
 
     it('rejects an empty PDF before it can claim the document session', async () => {
-        mocks.stat.mockResolvedValueOnce({size: 0});
+        mocks.stat.mockImplementation(async (path: string) => path === '/tmp/empty.pdf'
+            ? {size: 0}
+            : {size: PDF_BYTES.byteLength});
         const file = createFacade();
 
         await expect(file.openFile(pdfResult('empty'))).resolves.toEqual({
@@ -250,7 +252,12 @@ describe('usePdfFile façade', () => {
     it('keeps the active working copy when its replacement fails to load', async () => {
         const file = createFacade();
         await file.openFile(pdfResult('active'));
-        mocks.stat.mockRejectedValueOnce(new Error('read failed'));
+        mocks.stat.mockImplementation(async (path: string) => {
+            if (path === '/tmp/failed.pdf') {
+                throw new Error('read failed');
+            }
+            return {size: PDF_BYTES.byteLength};
+        });
 
         await expect(file.openFile(pdfResult('failed'))).resolves.toMatchObject({status: 'failed'});
         expect(file.workingCopyPath.value).toBe('/tmp/active.pdf');

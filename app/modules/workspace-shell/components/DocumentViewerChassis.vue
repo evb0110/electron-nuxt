@@ -59,8 +59,16 @@
                     :data-page-source-visual="chassisAuthority.openingPageVisual.value"
                     data-testid="document-page-source-page"
                 >
+                    <img
+                        v-if="chassisAuthority.openSurface.snapshot.value.openingPageFrame?.preview"
+                        class="document-viewer-chassis__opening-preview"
+                        :src="chassisAuthority.openSurface.snapshot.value.openingPageFrame.preview.objectUrl"
+                        alt=""
+                        aria-hidden="true"
+                        data-testid="document-opening-native-preview"
+                    >
                     <DocumentPageSkeleton
-                        v-if="chassisAuthority.openingPageVisual.value !== 'fresh'"
+                        v-else-if="chassisAuthority.openingPageVisual.value !== 'fresh'"
                         :content-height="chassisOpeningPageShell.height"
                     />
                 </section>
@@ -691,6 +699,13 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
     background: var(--app-document-page-bg);
     border-radius: var(--app-document-page-radius);
     box-shadow: var(--app-document-page-shadow);
+}
+
+.document-viewer-chassis__opening-preview {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
 }
 
 /* The opening shell is the sole visible page-frame owner until commit. The

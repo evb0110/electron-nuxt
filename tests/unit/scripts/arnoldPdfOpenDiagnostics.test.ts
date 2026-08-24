@@ -9,6 +9,7 @@ import {
     collectArnoldWorkingCopyPaths,
     isArnoldOwnedFrameWithinBudget,
     isExpectedArnoldDiagnosticWarning,
+    summarizeArnoldOpenTrace,
 } from '@scripts/diagnostics/runArnoldPdfOpenDiagnostics';
 
 describe('Arnold PDF-open diagnostic acceptance helpers', () => {
@@ -95,5 +96,97 @@ describe('Arnold PDF-open diagnostic acceptance helpers', () => {
     it('keeps the 500 ms product budget against browser-presentable RAF timing', () => {
         expect(isArnoldOwnedFrameWithinBudget(500)).toBe(true);
         expect(isArnoldOwnedFrameWithinBudget(501)).toBe(false);
+    });
+
+    it('records the staged visual, validation cache, PDF.js milestones, and requested bytes', () => {
+        const trace = [
+            [
+                'viewport-session-open-requested',
+                100,
+                {},
+            ],
+            [
+                'pdf-open-native-preview-submit',
+                180,
+                {},
+            ],
+            [
+                'pdf-open-validate-start',
+                190,
+                {},
+            ],
+            [
+                'pdf-document-get-document-submit',
+                220,
+                {},
+            ],
+            [
+                'pdf-open-native-preview-committed',
+                410,
+                {},
+            ],
+            [
+                'pdf-open-validate-end',
+                1_000,
+                {cacheResult: 'miss'},
+            ],
+            [
+                'pdf-document-range-request',
+                1_100,
+                {length: 1_048_576},
+            ],
+            [
+                'pdf-document-range-request',
+                1_200,
+                {length: 512},
+            ],
+            [
+                'pdf-document-range-request',
+                1_250,
+                {length: -1},
+            ],
+            [
+                'pdf-document-get-document-resolve',
+                1_300,
+                {},
+            ],
+            [
+                'renderer-canvas-mounted',
+                1_400,
+                {},
+            ],
+            [
+                'pdf-open-native-preview-retired',
+                1_450,
+                {reason: 'pdfjs-handoff'},
+            ],
+        ].map(([
+            event,
+            traceAtMs,
+            payload,
+        ]) => ({
+            event: event as string,
+            payload: {
+                traceAtMs: traceAtMs as number,
+                ...(payload as Record<string, unknown>),
+            },
+        }));
+
+        expect(summarizeArnoldOpenTrace(trace)).toEqual({
+            selectedVisualPath: 'native-staged-then-pdfjs',
+            validationCacheResult: 'miss',
+            pdfjsRequestedByteTotal: 1_049_088,
+            milestonesMs: {
+                openingClaim: 0,
+                nativeRenderSubmit: 80,
+                nativeRenderCommit: 310,
+                validationStart: 90,
+                validationEnd: 900,
+                pdfjsSubmit: 120,
+                pdfjsResolve: 1_200,
+                firstPdfjsCanvas: 1_300,
+                finalHandoff: 1_350,
+            },
+        });
     });
 });

@@ -406,6 +406,7 @@ export interface IPdfOpeningGeometry {
     rotation: 0 | 90 | 180 | 270;
     size: number;
     modifiedAt: number;
+    linearized?: boolean;
 }
 
 export interface IPdfNativePagePreviewOptions {

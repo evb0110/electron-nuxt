@@ -98,6 +98,8 @@ export const useWorkspaceFileLifecycleController = (
 ) => {
     const {
         pdfSrc,
+        pdfOpeningSrc,
+        pdfOpeningRevisionToken,
         pdfReloadSrc,
         pdfData,
         workingCopyPath,
@@ -322,6 +324,8 @@ export const useWorkspaceFileLifecycleController = (
 
     return {
         pdfSrc,
+        pdfOpeningSrc,
+        pdfOpeningRevisionToken,
         pdfReloadSrc,
         pdfData,
         workingCopyPath,

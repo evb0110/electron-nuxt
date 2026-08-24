@@ -208,6 +208,9 @@ export function createDocumentOpeningPageFrameAuthority(
                 ownerId,
                 pageNumber: geometry.pageNumber,
                 intentKey: preparedFrame.intentKey,
+                ...(preparedFrame.sourceRevisionKey === null
+                    ? {}
+                    : {sourceRevisionKey: preparedFrame.sourceRevisionKey}),
                 style: preparedFrame.style,
             });
         },

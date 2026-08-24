@@ -29,6 +29,8 @@ import {
     stopCommittedSurfaceSampler,
     summarizeCommittedSurfaceTiming,
 } from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
+import {summarizeArnoldOpenTrace} from '@scripts/diagnostics/summarizeArnoldOpenTrace';
+export {summarizeArnoldOpenTrace} from '@scripts/diagnostics/summarizeArnoldOpenTrace';
 
 const TARGET_PDF_PATH = process.env.EVB_E2E_ARNOLD_PDF_PATH?.length
     ? process.env.EVB_E2E_ARNOLD_PDF_PATH
@@ -44,9 +46,8 @@ const CONSOLE_OUTPUT_PATH = resolve(
     'arnold-pdf-open-console.log',
 );
 const CONSOLE_MESSAGE_LIMIT = 2_000;
-const ARNOLD_OPEN_TRIGGER_BUDGET_MS = 2_500;
 const ARNOLD_FIRST_OWNED_PAGE_FRAME_BUDGET_MS = 500;
-const ARNOLD_FIRST_NONBLANK_CANVAS_BUDGET_MS = 4_000;
+const ARNOLD_FIRST_MEANINGFUL_PIXELS_BUDGET_MS = 1_500;
 const ARNOLD_SETTLED_GEOMETRY_TOLERANCE_PX = 2;
 const ARNOLD_PLACEHOLDER_TRANSITION_TOLERANCE_PX = 8;
 const ARNOLD_HIGH_ZOOM = 5.03;
@@ -55,6 +56,7 @@ const SAMPLE_OFFSETS_MS = [
     250,
     500,
     1_000,
+    1_500,
     2_000,
     3_000,
     4_000,
@@ -203,6 +205,7 @@ interface IArnoldSnapshot {
     initialPlaceholderPageRect: unknown;
     ownedPageFrameRect: unknown;
     ownedPageFrameHasSkeleton: boolean;
+    openingPreview: unknown;
     pages: unknown[];
 }
 
@@ -468,15 +471,16 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
                 && rect.left < window.innerWidth;
         };
 
-        const sampleCanvas = (canvas: HTMLCanvasElement | null) => {
-            if (!canvas) {
+        const sampleVisual = (visual: HTMLCanvasElement | HTMLImageElement | null) => {
+            if (!visual) {
                 return null;
             }
-
-            const rect = canvas.getBoundingClientRect();
+            const intrinsicWidth = visual instanceof HTMLCanvasElement ? visual.width : visual.naturalWidth;
+            const intrinsicHeight = visual instanceof HTMLCanvasElement ? visual.height : visual.naturalHeight;
+            const rect = visual.getBoundingClientRect();
             const result = {
-                width: canvas.width,
-                height: canvas.height,
+                width: intrinsicWidth,
+                height: intrinsicHeight,
                 cssWidth: Math.round(rect.width),
                 cssHeight: Math.round(rect.height),
                 sampleCount: 0,
@@ -490,9 +494,8 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
             };
 
             try {
-                const context = canvas.getContext('2d');
-                if (!context || canvas.width <= 0 || canvas.height <= 0) {
-                    result.error = 'canvas context unavailable or empty';
+                if (intrinsicWidth <= 0 || intrinsicHeight <= 0) {
+                    result.error = 'visual source unavailable or empty';
                     return result;
                 }
 
@@ -505,9 +508,9 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
                     result.error = 'bounded sample canvas context unavailable';
                     return result;
                 }
-                sampleContext.drawImage(canvas, 0, 0, sampleSize, sampleSize);
+                sampleContext.drawImage(visual, 0, 0, sampleSize, sampleSize);
                 const pixels = sampleContext.getImageData(0, 0, sampleSize, sampleSize).data;
-                result.stride = Math.max(canvas.width, canvas.height) / sampleSize;
+                result.stride = Math.max(intrinsicWidth, intrinsicHeight) / sampleSize;
                 let minLuminance = 255;
                 let maxLuminance = 0;
                 for (let y = 0; y < sampleSize; y += 1) {
@@ -569,6 +572,9 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
             legacyInitialPageFrame,
             firstPage?.querySelector<HTMLElement>('.page_canvas.canvasWrapper') ?? null,
         ].find((candidate): candidate is HTMLElement => Boolean(candidate && isVisibleElement(candidate))) ?? null;
+        const openingPreview = document.querySelector<HTMLImageElement>(
+            '[data-testid="document-opening-native-preview"]',
+        );
 
         return {
             label: snapshotLabel,
@@ -594,6 +600,9 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
                 visibleOpeningFallbacks: Array.from(document.querySelectorAll<HTMLElement>(
                     '.workspace-host-document-open-fallback',
                 )).filter(intersectsViewport).length,
+                visibleOpeningNativePreviews: Array.from(document.querySelectorAll<HTMLElement>(
+                    '[data-testid="document-opening-native-preview"]',
+                )).filter(intersectsViewport).length,
             },
             workspace: {
                 loadingText: document.querySelector<HTMLElement>('.document-loading, .pdf-loading, .pdf-loading-overlay')?.textContent?.trim() ?? null,
@@ -617,6 +626,12 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
             initialPlaceholderPageRect: rectSnapshot(legacyInitialPageFrame),
             ownedPageFrameRect: rectSnapshot(ownedPageFrame),
             ownedPageFrameHasSkeleton: Boolean(ownedPageFrame?.querySelector('.document-page-skeleton')),
+            openingPreview: {
+                complete: openingPreview?.complete ?? false,
+                intersectsViewport: openingPreview ? intersectsViewport(openingPreview) : false,
+                rect: rectSnapshot(openingPreview),
+                pixels: sampleVisual(openingPreview),
+            },
             pages: pagesToSample.map((pageContainer) => {
                 const canvas = pageContainer.querySelector<HTMLCanvasElement>('.page_canvas canvas');
                 const skeleton = pageContainer.querySelector<HTMLElement>('.document-page-skeleton');
@@ -634,7 +649,7 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
                     canvasCount: pageContainer.querySelectorAll('.page_canvas canvas').length,
                     canvasIntersectsViewport: canvas ? intersectsViewport(canvas) : false,
                     textSpanCount: pageContainer.querySelectorAll('.text-layer span, .textLayer span').length,
-                    canvas: sampleCanvas(canvas),
+                    canvas: sampleVisual(canvas),
                 };
             }),
         };
@@ -699,6 +714,37 @@ function readSnapshotCanvasLuminanceRange(snapshot: IArnoldSnapshot) {
         );
     }
     return maximum;
+}
+
+function readSnapshotOpeningPreviewPixels(snapshot: IArnoldSnapshot) {
+    if (!isRecord(snapshot.openingPreview)) {
+        return null;
+    }
+    const preview = snapshot.openingPreview;
+    const pixels = preview.pixels;
+    if (
+        preview.complete !== true
+        || preview.intersectsViewport !== true
+        || !isRecord(pixels)
+    ) {
+        return null;
+    }
+    return {
+        nonWhitePixelCount: readFiniteNumber(pixels.nonWhitePixelCount) ?? 0,
+        luminanceRange: readFiniteNumber(pixels.luminanceRange) ?? 0,
+    };
+}
+
+function hasMeaningfulPagePixels(snapshot: IArnoldSnapshot) {
+    const preview = readSnapshotOpeningPreviewPixels(snapshot);
+    return Boolean(
+        preview
+        && preview.nonWhitePixelCount > 0
+        && preview.luminanceRange > 8,
+    ) || (
+        readSnapshotCanvasNonWhitePixels(snapshot) > 0
+        && readSnapshotCanvasLuminanceRange(snapshot) > 8
+    );
 }
 
 function readSnapshotPageRect(snapshot: IArnoldSnapshot) {
@@ -787,13 +833,20 @@ function assertArnoldAcceptance(input: {
             ownedPageFrameHasSkeleton: snapshot.ownedPageFrameHasSkeleton,
             nonWhitePixels: readSnapshotCanvasNonWhitePixels(snapshot),
             luminanceRange: readSnapshotCanvasLuminanceRange(snapshot),
+            openingPreview: snapshot.openingPreview,
         })),
     });
 
     assert.equal(input.triggerResult.status, 'resolved', evidence());
     assert.equal(input.triggerResult.opened, true, evidence());
     assert.equal(input.triggerResult.attempts.length, 1, evidence());
-    assert.ok(input.triggerResult.elapsedMs <= ARNOLD_OPEN_TRIGGER_BUDGET_MS, evidence());
+
+    const firstMeaningfulPixels = input.snapshots.find(hasMeaningfulPagePixels);
+    assert.ok(firstMeaningfulPixels, evidence());
+    assert.ok(
+        firstMeaningfulPixels.sampledAtMs <= ARNOLD_FIRST_MEANINGFUL_PIXELS_BUDGET_MS,
+        evidence(),
+    );
 
     const firstNonblank = input.snapshots.find(snapshot => (
         (snapshot.counts.visibleViewers ?? 0) === 1
@@ -802,10 +855,6 @@ function assertArnoldAcceptance(input: {
         && readSnapshotCanvasLuminanceRange(snapshot) > 8
     ));
     assert.ok(firstNonblank, evidence());
-    assert.ok(
-        firstNonblank.sampledAtMs <= ARNOLD_FIRST_NONBLANK_CANVAS_BUDGET_MS,
-        evidence(),
-    );
 
     const visuallySettled = allSnapshots.filter(snapshot => snapshot.sampledAtMs >= firstNonblank.sampledAtMs);
     assert.ok(visuallySettled.length > 0, evidence());
@@ -1091,6 +1140,7 @@ export const arnoldPdfOpenScenario = {
             surfaceTraceErrors: surfaceTrace.errors ?? [],
             navLog,
             renderTrace,
+            openTraceSummary: summarizeArnoldOpenTrace(renderTrace),
             consoleEntries,
             mainProcessLog,
             recentOpenWarnings,

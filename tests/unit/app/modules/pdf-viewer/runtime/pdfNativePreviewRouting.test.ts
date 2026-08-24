@@ -6,6 +6,7 @@ import {
 import {
     PDFJS_NATIVE_PREVIEW_MIN_BYTES,
     isPathPdfSource,
+    shouldStageNativePdfOpeningPreview,
     shouldUseNativePdfPreview,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 
@@ -41,5 +42,34 @@ describe('pdfNativePreviewRouting', () => {
 
         expect(isPathPdfSource(new Blob([Uint8Array.of(1)]))).toBe(false);
         expect(isPathPdfSource(null)).toBe(false);
+    });
+
+    it('stages a sub-threshold page-heavy non-linearized PDF without changing its final viewer route', () => {
+        const source = {
+            kind: 'path' as const,
+            path: '/tmp/dictionary.pdf',
+            size: 170_496_793,
+        };
+        const openingGeometry = {
+            pageNumber: 1 as const,
+            pageCount: 1_859,
+            width: 612,
+            height: 792,
+            rotation: 0 as const,
+            size: source.size,
+            modifiedAt: 1_724_000_000_000,
+            linearized: false,
+        };
+
+        expect(shouldUseNativePdfPreview(source)).toBe(false);
+        expect(shouldStageNativePdfOpeningPreview(source, openingGeometry)).toBe(true);
+        expect(shouldStageNativePdfOpeningPreview(source, {
+            ...openingGeometry,
+            linearized: true,
+        })).toBe(false);
+        expect(shouldStageNativePdfOpeningPreview(source, {
+            ...openingGeometry,
+            pageCount: 999,
+        })).toBe(false);
     });
 });

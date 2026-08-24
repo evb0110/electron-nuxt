@@ -15,6 +15,7 @@ export interface IPdfTrustedOpenGeometry {
     height: number;
     rotation: number;
     savedAt: number;
+    linearized?: boolean;
 }
 
 function isFinitePositive(value: unknown): value is number {
@@ -42,6 +43,7 @@ function decode(value: unknown): IPdfTrustedOpenGeometry | null {
             270,
         ].includes(record.rotation ?? -1)
         || !Number.isSafeInteger(record.savedAt)
+        || record.linearized !== undefined && typeof record.linearized !== 'boolean'
     ) {
         return null;
     }

@@ -11,6 +11,7 @@ import {
     vi,
 } from 'vitest';
 import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import {
     createWorkspaceDocumentDriverForAdapter,
@@ -90,6 +91,13 @@ function createBindingHarness() {
     const onPageSourceUpdate = vi.fn();
     const onRasterSchedulerUpdate = vi.fn();
     const onSourceCapabilitiesUpdate = vi.fn();
+    const pdfOpeningSrc = ref<null | {
+        kind: 'path';
+        path: string;
+        size: number
+    }>(null);
+    const pdfOpeningRevisionToken = ref<TDocumentRevisionToken | null>(null);
+    const documentRevisionToken = ref<TDocumentRevisionToken | null>(null);
     const fallbacks = new Map<PropertyKey, unknown>();
     const options = new Proxy({
         activeDocumentDriver: computed(() => activeDocumentDriver.value),
@@ -109,6 +117,9 @@ function createBindingHarness() {
             path: '/tmp/source.pdf',
             size: 1,
         }),
+        pdfOpeningSrc,
+        pdfOpeningRevisionToken,
+        documentRevisionToken,
         pdfViewerRef,
         workingCopyPath: sources.workingCopyPath,
     } as Partial<IWorkspaceDocumentDriverBindingOptions>, {get(target, property) {
@@ -136,6 +147,8 @@ function createBindingHarness() {
         onRasterSchedulerUpdate,
         onSourceCapabilitiesUpdate,
         pdfViewerRef,
+        pdfOpeningSrc,
+        pdfOpeningRevisionToken,
     };
 }
 
@@ -310,6 +323,24 @@ describe('WorkspaceDocumentDriver', () => {
         expect(harness.binding.activeViewerListeners.value['update:rasterScheduler'])
             .toBe(harness.onRasterSchedulerUpdate);
         expect(harness.binding.activeViewerListeners.value['update:sourceCapabilities']).toBe(harness.onSourceCapabilitiesUpdate);
+    });
+
+    it('feeds an unvalidated opening source only to PDF.js with its fenced revision and path', () => {
+        const harness = createBindingHarness();
+        const revision = 'working-copy:opening' as TDocumentRevisionToken;
+        harness.pdfOpeningRevisionToken.value = revision;
+        harness.pdfOpeningSrc.value = {
+            kind: 'path',
+            path: '/tmp/staged-dictionary.pdf',
+            size: 170_496_793,
+        };
+
+        expect(harness.binding.activeViewerProps.value).toMatchObject({
+            src: harness.pdfOpeningSrc.value,
+            documentRevisionToken: revision,
+            workingCopyPath: '/tmp/staged-dictionary.pdf',
+        });
+        expect(harness.activeDocumentDriver.value.id).toBe('pdfjs');
     });
     it('routes annotation inventory completeness only from the pdf.js driver', () => {
         const harness = createBindingHarness();

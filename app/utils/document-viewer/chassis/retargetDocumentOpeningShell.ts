@@ -13,7 +13,18 @@ export interface IDocumentOpenSurfacePageFrame {
     readonly ownerId: string;
     readonly pageNumber: number;
     readonly intentKey: string;
+    readonly sourceRevisionKey?: string;
     readonly style: Readonly<Record<string, string>>;
+    readonly preview?: IDocumentOpenSurfacePagePreview;
+}
+
+export interface IDocumentOpenSurfacePagePreview {
+    readonly documentId: string;
+    readonly documentRevision: string;
+    readonly pageNumber: number;
+    readonly sourceRevisionKey: string;
+    readonly objectUrl: string;
+    readonly renderedWidth: number;
 }
 
 export interface IDocumentOpenSurfacePageGeometry {
@@ -57,6 +68,7 @@ export function retargetDocumentOpeningShell<TVisual extends IDocumentOpenSurfac
             : Object.freeze({
                 ...visual.openingPageFrame,
                 pageNumber,
+                preview: undefined,
             }),
         committedViewportPosition: null,
     };

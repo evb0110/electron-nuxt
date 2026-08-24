@@ -56,6 +56,7 @@ const PAGE_COUNT_RE = /^Pages:\s+(\d+)\s*$/imu;
 const DEFAULT_PAGE_SIZE_RE = /^Page size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts\b/imu;
 const PAGE_SIZE_RE = /^Page\s+(\d+)\s+size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts\b/gimu;
 const PAGE_ROTATION_RE = /^Page\s+(\d+)\s+rot:\s+(-?\d+)\s*$/gimu;
+const OPTIMIZED_RE = /^Optimized:\s+(yes|no)\s*$/imu;
 
 const activePreviewAborters = new Map<string, (reason: string) => void>();
 const activePreviewPromises = new Map<string, Promise<IPdfNativePagePreview>>();
@@ -170,6 +171,7 @@ export function parsePdfOpeningGeometryMetadata(
     PAGE_ROTATION_RE.lastIndex = 0;
     const firstPageRotationMatch = Array.from(pdfInfoOutput.matchAll(PAGE_ROTATION_RE))
         .find(match => Number.parseInt(match[1] ?? '', 10) === 1);
+    const optimized = OPTIMIZED_RE.exec(pdfInfoOutput)?.[1]?.toLowerCase();
     return {
         pageNumber: 1,
         pageCount,
@@ -178,6 +180,7 @@ export function parsePdfOpeningGeometryMetadata(
         rotation: normalizeRightAngleRotation(firstPageRotationMatch?.[2]),
         size: identity.size,
         modifiedAt: identity.modifiedAt,
+        ...(optimized === undefined ? {} : {linearized: optimized === 'yes'}),
     };
 }
 

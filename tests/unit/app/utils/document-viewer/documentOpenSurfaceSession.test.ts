@@ -1605,6 +1605,127 @@ describe('document open surface session', () => {
         });
     });
 
+    it('keeps a committed PDF.js canvas behind the staged frame until validation authorizes it', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = session.beginPrepared({
+            documentId: 'dictionary.pdf',
+            documentRevision: 'open-intent:held',
+        }, {
+            documentId: 'dictionary.pdf',
+            ownerId: 'test-chassis',
+            pageNumber: 1,
+            intentKey: 'fit-width:1',
+            layoutKey: '1000x800',
+            policyKey: 'width:single:fit-width:1',
+            sourceRevisionKey: '170496793:1724000000000',
+            style: {
+                width: '900px',
+                height: '1165px',
+            },
+            geometry: {
+                documentId: 'dictionary.pdf',
+                pageNumber: 1,
+                pageCount: 1_859,
+                width: 612,
+                height: 792,
+                rotation: 0,
+                size: 170_496_793,
+                modifiedAt: 1_724_000_000_000,
+            },
+        });
+        expect(generation).not.toBeNull();
+        if (generation === null) throw new Error('Expected prepared opening generation');
+        expect(session.holdReadyForValidation(generation, '170496793:1724000000000')).toBe(true);
+        expect(session.commitGeometry(generation, {
+            height: 1_165,
+            margin: 16,
+            width: 900,
+        })).toBe(true);
+        const fence = createRenderFence(session, generation, 'open-intent:held');
+        expect(session.commitCanvas(fence)).toBe(true);
+        expect(session.commitViewport(createViewportCommit(fence))).toBe(true);
+
+        expect(session.markReady(fence)).toBe(false);
+        expect(session.snapshot.value.openingPageFrame).not.toBeNull();
+        expect(session.authorizeReadyAfterValidation(
+            generation,
+            '170496793:1724000000000',
+        )).toBe(true);
+        expect(session.markReady(fence)).toBe(true);
+        expect(session.snapshot.value).toMatchObject({
+            openingPageFrame: null,
+            phase: 'ready',
+            presentation: 'committed',
+        });
+    });
+
+    it('fails closed when validation rejects an already-rendered speculative canvas', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'dictionary.pdf', 'open-intent:invalid');
+        expect(session.commitOpeningPageFrame(generation, {
+            ...openingFrame(generation),
+            sourceRevisionKey: '170496793:1724000000000',
+        })).toBe(true);
+        expect(session.holdReadyForValidation(generation, '170496793:1724000000000')).toBe(true);
+        commitDefaultGeometry(session, generation);
+        const fence = createRenderFence(session, generation, 'open-intent:invalid');
+        expect(session.commitCanvas(fence)).toBe(true);
+        expect(session.commitViewport(createViewportCommit(fence))).toBe(true);
+
+        expect(session.fail(generation, 'parser validation failed')).toBe(true);
+        expect(session.snapshot.value).toMatchObject({
+            committedRender: fence,
+            failure: 'parser validation failed',
+            openingPageFrame: null,
+            phase: 'failed',
+        });
+        expect(session.markReady(fence)).toBe(false);
+    });
+
+    it('fences a staged opening raster by generation, document revision, and page', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'dictionary.pdf', 'open-intent:111');
+        expect(session.commitOpeningPageFrame(generation, {
+            ...openingFrame(generation),
+            sourceRevisionKey: '170496793:1724000000000',
+        })).toBe(true);
+        const preview = {
+            documentId: 'dictionary.pdf',
+            documentRevision: 'open-intent:111',
+            objectUrl: 'blob:native-page-one',
+            pageNumber: 1,
+            renderedWidth: 1_200,
+            sourceRevisionKey: '170496793:1724000000000',
+        };
+
+        expect(session.commitOpeningPagePreview(generation, {
+            ...preview,
+            documentRevision: 'open-intent:stale',
+        })).toBe(false);
+        expect(session.commitOpeningPagePreview(generation, {
+            ...preview,
+            pageNumber: 2,
+        })).toBe(false);
+        expect(session.commitOpeningPagePreview(generation, {
+            ...preview,
+            documentId: 'other.pdf',
+        })).toBe(false);
+        expect(session.commitOpeningPagePreview(generation, {
+            ...preview,
+            sourceRevisionKey: '170496793:1724000000001',
+        })).toBe(false);
+        expect(session.commitOpeningPagePreview(generation, preview)).toBe(true);
+        expect(session.snapshot.value.openingPageFrame?.preview).toEqual(preview);
+
+        const replacementGeneration = session.begin({
+            documentId: 'replacement.pdf',
+            documentRevision: 'open-intent:replacement',
+        });
+        expect(replacementGeneration).toBeGreaterThan(generation);
+        expect(session.commitOpeningPagePreview(generation, preview)).toBe(false);
+        expect(session.snapshot.value.openingPageFrame).toBeNull();
+    });
+
     it('presents the canonical shell when its owned frame arrives after geometry', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'scan.djvu', 'open-intent:1');

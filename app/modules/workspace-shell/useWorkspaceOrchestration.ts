@@ -123,6 +123,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeFileWithViewerLifecycle,
         hasPdf,
         pdfSrc,
+        pdfOpeningSrc,
+        pdfOpeningRevisionToken,
         pdfData,
         workingCopyPath,
         documentRevisionInfo,
@@ -1019,6 +1021,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             isWorkspaceLayoutResizing: options.isWorkspaceLayoutResizing,
             pageMatches: viewerSearchPageMatches,
             pdfReloadSrc: fileLifecycle.pdfReloadSrc,
+            pdfOpeningSrc,
+            pdfOpeningRevisionToken,
             pdfRasterDisplayProfile: fileLifecycle.pdfRasterDisplayProfile,
             pdfSrc,
             ...(deps.pendingDocumentPath === undefined

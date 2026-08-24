@@ -871,6 +871,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         ? watch(
             [
                 () => chassisOpenSurface.snapshot.value.generation,
+                () => chassisOpenSurface.readyAuthorizationRevision.value,
                 () => chassisOpenSurface.viewportSession.value.requestedPage,
                 renderedPageStateVersion,
                 options.viewerContainer,
@@ -886,6 +887,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     )
                 ) {
                     initialVisual.adoptResidentCanvas(chassisOpenSurface.viewportSession.value.requestedPage);
+                } else if (snapshot.committedRender !== null) {
+                    initialVisual.reconcileInitialVisual();
                 }
             },
             {

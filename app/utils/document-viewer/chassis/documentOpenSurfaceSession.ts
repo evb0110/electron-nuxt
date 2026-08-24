@@ -16,11 +16,13 @@ import {
     retargetDocumentOpeningShell,
     type IDocumentOpenSurfaceGeometry,
     type IDocumentOpenSurfacePageFrame,
+    type IDocumentOpenSurfacePagePreview,
     type IDocumentOpenSurfacePageGeometry,
     type IDocumentOpenSurfaceVisualState,
     type TDocumentOpenSurfacePresentation,
     type TDocumentOpenSurfaceVisualPresentation,
 } from '@app/utils/document-viewer/chassis/retargetDocumentOpeningShell';
+import {createDocumentOpeningPreviewGate} from '@app/utils/document-viewer/chassis/createDocumentOpeningPreviewGate';
 export type {
     IDocumentViewportCommitFence,
     IDocumentViewportIdentity,
@@ -46,6 +48,7 @@ export {
 export type {
     IDocumentOpenSurfaceGeometry,
     IDocumentOpenSurfacePageFrame,
+    IDocumentOpenSurfacePagePreview,
     IDocumentOpenSurfacePageGeometry,
     TDocumentOpenSurfacePresentation,
 } from '@app/utils/document-viewer/chassis/retargetDocumentOpeningShell';
@@ -106,10 +109,29 @@ export interface IDocumentOpenSurfaceSnapshot {
 }
 
 export type { IDocumentOpenSurfaceDiagnosticEntry } from '@app/utils/document-viewer/chassis/createDocumentOpenSurfaceDiagnostics';
+export {
+    commitDocumentOpenSurfaceViewport,
+    shouldProjectDocumentViewportCommitPage,
+    shouldProjectDocumentViewportScroll,
+    type IDocumentViewportPositionProjection,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceProjection';
+
+export function resolveDocumentOpenSurfaceViewportPolicy(snapshot: IDocumentOpenSurfaceSnapshot) {
+    const isTransitioning = snapshot.phase === 'pending'
+        || snapshot.phase === 'geometry-committed'
+        || snapshot.phase === 'canvas-committed'
+        || snapshot.phase === 'viewport-committed';
+    return {
+        overflow: isTransitioning ? 'hidden' : 'auto',
+        scrollbarGutter: 'stable',
+        committedMargin: snapshot.geometry?.margin ?? null,
+    } as const;
+}
 
 export interface IDocumentOpenSurfaceSession {
     readonly snapshot: Readonly<Ref<IDocumentOpenSurfaceSnapshot>>;
     readonly viewportSession: Readonly<Ref<IDocumentViewportSessionState>>;
+    readonly readyAuthorizationRevision: Readonly<Ref<number>>;
     getDiagnosticHistory(): readonly IDocumentOpenSurfaceDiagnosticEntry[];
     begin(
         identity: IDocumentOpenSurfaceIdentity,
@@ -127,6 +149,10 @@ export interface IDocumentOpenSurfaceSession {
     claim(identity: IDocumentOpenSurfaceIdentity): number;
     supersede(): number | null;
     commitOpeningPageFrame(generation: number, frame: IDocumentOpenSurfacePageFrame): boolean;
+    commitOpeningPagePreview(generation: number, preview: IDocumentOpenSurfacePagePreview): boolean;
+    clearOpeningPagePreview(generation: number, objectUrl: string): boolean;
+    holdReadyForValidation(generation: number, sourceRevisionKey: string): boolean;
+    authorizeReadyAfterValidation(generation: number, sourceRevisionKey: string): boolean;
     clearOpeningPageFrame(generation: number, ownerId: string): boolean;
     commitGeometry(generation: number, geometry: IDocumentOpenSurfaceGeometry): boolean;
     claimRenderOwner(): IDocumentOpenSurfaceRenderOwner;
@@ -155,86 +181,6 @@ export interface IDocumentOpenSurfaceSession {
     invalidateResidentVisual(pageNumber: number): boolean;
     requestNavigation(pageNumber: number, skeletonDelayMs?: number): number;
     observeViewportPage(pageNumber: number, options?: {supersedeNavigation?: boolean}): number;
-}
-
-export function resolveDocumentOpenSurfaceViewportPolicy(snapshot: IDocumentOpenSurfaceSnapshot) {
-    const isTransitioning = snapshot.phase === 'pending'
-        || snapshot.phase === 'geometry-committed'
-        || snapshot.phase === 'canvas-committed'
-        || snapshot.phase === 'viewport-committed';
-    return {
-        overflow: isTransitioning ? 'hidden' : 'auto',
-        scrollbarGutter: 'stable',
-        committedMargin: snapshot.geometry?.margin ?? null,
-    } as const;
-}
-
-/**
- * Scroll position is a projection of an already-committed viewport, never an
- * alternate command channel while an open or navigation intent is pending.
- * Feature packs use this fence before translating layout/scroll events back
- * into page changes. This prevents provisional tracks and restored DOM scroll
- * offsets from superseding the page owned by the viewport session.
- */
-export function shouldProjectDocumentViewportScroll(
-    snapshot: IDocumentOpenSurfaceSnapshot,
-    viewportSession: IDocumentViewportSessionState,
-) {
-    return snapshot.phase === 'ready'
-        && snapshot.presentation === 'committed'
-        && viewportSession.lifecycle === 'ready'
-        && viewportSession.committedPage !== null
-        && viewportSession.requestedPage === viewportSession.committedPage;
-}
-
-export interface IDocumentViewportPositionProjection {
-    readonly geometryRevision: number;
-    readonly interactionEpoch: number;
-    readonly left: number;
-    readonly page: number;
-    readonly top: number;
-}
-
-export function shouldProjectDocumentViewportCommitPage(
-    surface: IDocumentOpenSurfaceSession,
-    commit: IDocumentViewportPositionProjection,
-) {
-    const viewport = surface.viewportSession.value;
-    return viewport.requestedPage === commit.page
-        && resolveDocumentViewportCurrentPage(viewport) === commit.page;
-}
-
-/**
- * Commits a feature-local viewport position against the shared surface's
- * exact live navigation intent. Feature-local intent ids never cross this
- * boundary, so a late position cannot be relabelled as a newer command.
- */
-export function commitDocumentOpenSurfaceViewport(
-    surface: IDocumentOpenSurfaceSession,
-    commit: IDocumentViewportPositionProjection,
-) {
-    const snapshot = surface.snapshot.value;
-    const viewport = surface.viewportSession.value;
-    const intent = viewport.viewportIntent;
-    if (
-        snapshot.identity === null
-        || intent === null
-        || intent.generation !== viewport.generation
-        || viewport.requestedPage !== commit.page
-        || intent.pageNumber !== commit.page
-    ) {
-        return false;
-    }
-    return surface.commitViewport({
-        generation: snapshot.generation,
-        documentRevision: snapshot.identity.documentRevision,
-        viewportIntentId: intent.id,
-        documentGeometryRevision: commit.geometryRevision,
-        interactionEpoch: commit.interactionEpoch,
-        pageNumber: commit.page,
-        left: commit.left,
-        top: commit.top,
-    });
 }
 
 const idleVisualState = (): IDocumentOpenSurfaceVisualState => ({
@@ -492,6 +438,14 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         };
     }
 
+    const openingPreviewGate = createDocumentOpeningPreviewGate({
+        readSnapshot: () => snapshot.value,
+        replaceFrame: frame => commitVisual(visual => ({
+            ...visual,
+            openingPageFrame: frame,
+        })),
+    });
+
     function createViewportIntentId(prefix: string) {
         nextViewportIntent += 1;
         return `${prefix}:${String(nextViewportIntent)}`;
@@ -507,6 +461,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         ) => IDocumentOpenSurfaceVisualState,
         initialPage = openingPageGeometry?.pageNumber ?? preparedFrame?.pageNumber ?? 1,
     ) {
+        openingPreviewGate.reset();
         const opened = dispatchViewport({
             type: 'open-requested',
             identity: {
@@ -631,6 +586,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
     return {
         snapshot: readonly(snapshot),
         viewportSession,
+        readyAuthorizationRevision: openingPreviewGate.readyAuthorizationRevision,
         getDiagnosticHistory: diagnostics.getHistory,
         begin(identity, openingPageGeometry = null, initialPage) {
             const normalizedOpeningPageGeometry = normalizeOpeningPageGeometry(openingPageGeometry);
@@ -685,6 +641,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                     ownerId: preparedFrame.ownerId,
                     pageNumber: preparedFrame.pageNumber,
                     intentKey: preparedFrame.intentKey,
+                    sourceRevisionKey: preparedFrame.sourceRevisionKey ?? '',
                     style: Object.freeze({...preparedFrame.style}),
                 }),
                 committedViewportPosition: null,
@@ -742,7 +699,15 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                             documentId: identity.documentId,
                             revision: identity.documentRevision,
                         },
-                    });
+                    }, visual => visual.openingPageFrame
+                        ? {
+                            ...visual,
+                            openingPageFrame: openingPreviewGate.refineFrameRevision(
+                                visual.openingPageFrame,
+                                identity.documentRevision,
+                            ),
+                        }
+                        : visual);
                     return refined ? snapshot.value.generation : this.begin(identity);
                 }
                 return this.begin(identity);
@@ -793,6 +758,18 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 }),
             }));
             return true;
+        },
+        commitOpeningPagePreview(generation, preview) {
+            return openingPreviewGate.commit(generation, preview);
+        },
+        clearOpeningPagePreview(generation, objectUrl) {
+            return openingPreviewGate.clear(generation, objectUrl);
+        },
+        holdReadyForValidation(generation, sourceRevisionKey) {
+            return openingPreviewGate.hold(generation, sourceRevisionKey);
+        },
+        authorizeReadyAfterValidation(generation, sourceRevisionKey) {
+            return openingPreviewGate.authorize(generation, sourceRevisionKey);
         },
         clearOpeningPageFrame(generation, ownerId) {
             const current = snapshot.value;
@@ -962,6 +939,12 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             const committed = snapshot.value.committedRender;
             const viewport = snapshot.value.committedViewport;
             if (
+                openingPreviewGate.isReadyHeld(fence.generation)
+            ) {
+                diagnostics.reportRejected('mark-ready', 'validation-authorization-pending', {fence});
+                return false;
+            }
+            if (
                 ![
                     'opening',
                     'transitioning',
@@ -1041,14 +1024,16 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             });
         },
         fail(generation, reason) {
+            const current = snapshot.value;
             if (
-                snapshot.value.generation !== generation
-                || snapshot.value.phase === 'idle'
-                || snapshot.value.committedRender !== null
+                current.generation !== generation
+                || current.phase === 'idle'
+                || current.committedRender !== null
+                && !openingPreviewGate.isReadyHeld(generation)
             ) {
                 return false;
             }
-            return dispatchViewport({
+            const failed = dispatchViewport({
                 type: 'open-failed',
                 generation: sessionState.value.viewport.generation,
                 error: reason,
@@ -1056,8 +1041,11 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 ...visual,
                 openingPageFrame: null,
             }));
+            if (failed) openingPreviewGate.retire(generation);
+            return failed;
         },
         reset() {
+            openingPreviewGate.reset();
             const closingGeneration = sessionState.value.viewport.generation;
             if (!transitionViewport([
                 {type: 'close-requested'},

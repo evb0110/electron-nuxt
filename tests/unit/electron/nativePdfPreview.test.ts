@@ -78,6 +78,7 @@ Page    2 size:  400 x 500 pts
     it('parses normalized first-page geometry without allocating all page sizes', () => {
         expect(parsePdfOpeningGeometryMetadata(`
 Pages:           431
+Optimized:       no
 Page    1 size:  612 x 792 pts (letter)
 Page    1 rot:   -90
 `, {
@@ -91,6 +92,7 @@ Page    1 rot:   -90
             rotation: 270,
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
+            linearized: false,
         });
     });
 });

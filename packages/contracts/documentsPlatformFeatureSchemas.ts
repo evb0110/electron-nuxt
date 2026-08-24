@@ -52,7 +52,6 @@ import {
     normalizePdfNativeMutationSet,
     normalizePdfNativeWorkingCopyExpectation,
 } from '@contracts/nativePdfMutations';
-
 const fixtureNativeMutation = {pageLabels: {
     totalPages: 1,
     ranges: [],
@@ -83,7 +82,7 @@ function decodeOpeningGeometry(value: unknown) {
         || value.size < 0
         || typeof value.modifiedAt !== 'number'
         || !Number.isSafeInteger(value.modifiedAt)
-        || value.modifiedAt < 0
+        || value.modifiedAt < 0 || value.linearized !== undefined && typeof value.linearized !== 'boolean'
     ) {
         fail('invalid PDF opening geometry result');
     }
@@ -95,6 +94,7 @@ function decodeOpeningGeometry(value: unknown) {
         rotation: value.rotation as 0 | 90 | 180 | 270,
         size: value.size,
         modifiedAt: value.modifiedAt,
+        ...(value.linearized === undefined ? {} : {linearized: value.linearized}),
     };
 }
 function decodeOpenFileResult(value: unknown): TOpenFileResult | null {

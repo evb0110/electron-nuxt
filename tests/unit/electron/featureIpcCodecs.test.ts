@@ -388,6 +388,7 @@ describe('feature IPC codec maps', () => {
             rotation: 90,
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
+            linearized: false,
         };
         expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult(validGeometry))
             .toEqual(validGeometry);
@@ -410,6 +411,17 @@ describe('feature IPC codec maps', () => {
             ...validGeometry,
             rotation: 45,
         })).toThrow('invalid PDF opening geometry result');
+        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult({
+            ...validGeometry,
+            linearized: 'no',
+        })).toThrow('invalid PDF opening geometry result');
+        const {
+            linearized: _linearized,
+            ...geometryWithoutLinearization
+        } = validGeometry;
+        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry]
+            .decodeResult(geometryWithoutLinearization))
+            .toEqual(geometryWithoutLinearization);
         expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeResult({
             kind: 'pdf',
             workingPath: '/managed/scan.pdf',

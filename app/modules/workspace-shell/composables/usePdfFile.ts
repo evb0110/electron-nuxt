@@ -45,6 +45,8 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         pdfConformanceProfile,
         pdfData,
         pdfRasterDisplayProfile,
+        pdfOpeningSrc,
+        pdfOpeningRevisionToken,
         pdfReloadSrc,
         pdfSrc,
         pendingDjvu,
@@ -193,6 +195,8 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
 
     return {
         pdfSrc,
+        pdfOpeningSrc,
+        pdfOpeningRevisionToken,
         pdfReloadSrc,
         pdfData,
         pdfRasterDisplayProfile,
