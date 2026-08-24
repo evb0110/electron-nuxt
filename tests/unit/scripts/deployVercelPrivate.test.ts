@@ -57,6 +57,7 @@ function createProjectFixture() {
     mkdirSync(path.join(projectRoot, 'landing', 'app'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'native'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'packages', 'contracts'), {recursive: true});
+    mkdirSync(path.join(projectRoot, 'scripts', 'lib'), {recursive: true});
     writeFileSync(path.join(projectRoot, '.git', 'config'), '[core]\n');
     writeFileSync(path.join(projectRoot, '.env.local'), 'SECRET=value\n');
     writeFileSync(path.join(projectRoot, '.env.example'), 'SAFE=value\n');
@@ -76,6 +77,14 @@ function createProjectFixture() {
     writeFileSync(
         path.join(projectRoot, 'packages', 'contracts', 'index.ts'),
         'export const contract = true;\n',
+    );
+    writeFileSync(
+        path.join(projectRoot, 'scripts', 'check-electron-install.mjs'),
+        'import {getCliErrorMessage} from \'./lib/cli-error.mjs\';\n',
+    );
+    writeFileSync(
+        path.join(projectRoot, 'scripts', 'lib', 'cli-error.mjs'),
+        'export const getCliErrorMessage = String;\n',
     );
     writeFileSync(
         path.join(projectRoot, 'pnpm-workspace.yaml'),
@@ -112,6 +121,21 @@ describe('private Vercel deployment source', () => {
             expect(existsSync(
                 path.join(prepared.sourceRoot, 'packages', 'contracts', 'index.ts'),
             )).toBe(true);
+            const electronInstallCheckPath = path.join(
+                prepared.sourceRoot,
+                'scripts',
+                'check-electron-install.mjs',
+            );
+            const electronInstallCheck = readFileSync(electronInstallCheckPath, 'utf8');
+            const importedRelativePath = electronInstallCheck.match(/from '([^']+)'/u)?.[1];
+
+            expect(importedRelativePath).toBe('./lib/cli-error.mjs');
+            expect(existsSync(path.join(
+                prepared.sourceRoot,
+                'scripts',
+                'lib',
+                'cli-error.mjs',
+            ))).toBe(true);
             expect(readFileSync(
                 path.join(prepared.sourceRoot, 'pnpm-workspace.yaml'),
                 'utf8',

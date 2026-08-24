@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { assertPackagedToolSmoke } from './native-tool-smoke-policy.mjs';
-import { getCliErrorMessage } from './cli-error.mjs';
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 
 function main() {
     const [

@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { getCliErrorMessage } from './release/cli-error.mjs';
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 
 const require = createRequire(import.meta.url);
 

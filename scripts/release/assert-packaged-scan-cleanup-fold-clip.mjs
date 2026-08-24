@@ -7,7 +7,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getCliErrorMessage } from './cli-error.mjs';
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 
 // A packaged sidecar that is merely stale reports the same identity as a fresh
 // one: the batch manifest stays v3 across schema-additive protocol changes,
