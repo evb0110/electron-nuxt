@@ -18,6 +18,7 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { SIDEBAR } from '@app/constants/pdfLayout';
 import type { TPdfSidebarTab } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import PdfSidebar from '@app/modules/pdf-viewer/components/PdfSidebar.vue';
+import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
 
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
 
@@ -126,7 +127,7 @@ async function mountSidebar(overrides: {
     });
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({setup: () => () => h(PdfSidebar, {
+    const renderSidebar = () => h(PdfSidebar, {
         activeTab: state.activeTab,
         annotationComments: [],
         annotationCommentsStatus: 'ready',
@@ -157,7 +158,13 @@ async function mountSidebar(overrides: {
         'onUpdate:activeTab': (value: TPdfSidebarTab) => {
             state.activeTab = value;
         },
-    })}));
+    });
+    const app = createApp(defineComponent({setup: () => () => h(WorkspaceSidebarHost, {
+        isResizingSidebar: false,
+        resizeAriaLabel: 'Resize sidebar',
+        showSidebar: state.isOpen,
+        sidebarWrapperStyle: {width: `${(overrides.width ?? SIDEBAR.DEFAULT_WIDTH) + SIDEBAR.RESIZER_WIDTH}px`},
+    }, {sidebar: renderSidebar})}));
     app.mount(host);
     await nextTick();
     const unmount = () => {
@@ -216,15 +223,34 @@ describe('PdfSidebar bookmark panel retention', () => {
         expect(host.querySelector<HTMLInputElement>('[data-outline-state]')?.value).toBe('chapter three');
     });
 
-    it('discards bookmark panel state when the sidebar host unmounts', async () => {
-        const first = await mountSidebar();
-        await first.selectTab('bookmarks');
-        first.unmount();
+    it('keeps panel-local bookmark state across sidebar close and reopen', async () => {
+        const {
+            host,
+            selectTab,
+            state,
+        } = await mountSidebar();
+        await selectTab('bookmarks');
+        const panelState = host.querySelector<HTMLInputElement>('[data-outline-state]')!;
+        panelState.value = 'chapter seven';
+        panelState.dispatchEvent(new Event('input'));
+        await nextTick();
 
-        expect(outlineLifecycle.unmounts).toBe(1);
+        state.isOpen = false;
+        await nextTick();
+        expect(outlineLifecycle.unmounts).toBe(0);
+        const sidebarWrapper = host.querySelector<HTMLElement>('.sidebar-wrapper')!;
+        expect(sidebarWrapper.style.width).toBe('0px');
+        expect(sidebarWrapper.classList.contains('is-closed')).toBe(true);
+        expect(sidebarWrapper.hasAttribute('inert')).toBe(true);
 
-        const second = await mountSidebar();
-        expect(outlinePanel(second.host)).toBeNull();
+        state.isOpen = true;
+        await nextTick();
+        expect(outlineLifecycle.mounts).toBe(1);
+        expect(sidebarWrapper.style.width)
+            .toBe(`${SIDEBAR.DEFAULT_WIDTH + SIDEBAR.RESIZER_WIDTH}px`);
+        expect(sidebarWrapper.classList.contains('is-closed')).toBe(false);
+        expect(sidebarWrapper.hasAttribute('inert')).toBe(false);
+        expect(host.querySelector<HTMLInputElement>('[data-outline-state]')?.value).toBe('chapter seven');
     });
 
     it('falls back to the shared default sidebar width', async () => {

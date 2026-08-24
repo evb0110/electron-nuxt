@@ -96,11 +96,30 @@ function toolbar(host: HTMLElement) {
 }
 
 describe('PdfOutline bookmark toolbar state', () => {
-    it('hides the toolbar while bookmarks are loading', async () => {
+    it('defers the loading spinner while bookmarks are loading', async () => {
         const outline = await mountOutline(() => new Promise(() => undefined));
 
         expect(toolbar(outline.host)).toBeNull();
-        expect(outline.host.querySelector('[data-spinner-stub]')).not.toBeNull();
+        expect(outline.host.querySelector('[data-spinner-stub]')).toBeNull();
+    });
+
+    it('shows the loading spinner when bookmark loading outlasts the delay', async () => {
+        vi.useFakeTimers();
+        try {
+            const outline = await mountOutline(() => new Promise(() => undefined));
+
+            expect(outline.host.querySelector('[data-spinner-stub]')).toBeNull();
+            await vi.advanceTimersByTimeAsync(149);
+            await nextTick();
+            expect(outline.host.querySelector('[data-spinner-stub]')).toBeNull();
+
+            await vi.advanceTimersByTimeAsync(1);
+            await nextTick();
+
+            expect(outline.host.querySelector('[data-spinner-stub]')).not.toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('hides the toolbar and exposes an error state when loading fails', async () => {
@@ -116,9 +135,13 @@ describe('PdfOutline bookmark toolbar state', () => {
     it('shows the toolbar once an empty outline has loaded successfully', async () => {
         const outline = await mountOutline(() => Promise.resolve([]));
 
+        expect(outline.host.querySelector('[data-spinner-stub]')).toBeNull();
         await outline.settle();
 
         expect(toolbar(outline.host)).not.toBeNull();
+        expect(outline.host.querySelector('[data-spinner-stub]')).toBeNull();
+        expect(outline.host.querySelector('[data-empty-state-stub]')?.getAttribute('title'))
+            .toBe('bookmarks.noBookmarks');
     });
 
     it('recovers from a load error when external bookmarks arrive', async () => {

@@ -1,12 +1,18 @@
 <template>
     <main ref="workspaceMainRef" class="workspace-main">
         <div
-            v-if="showSidebar"
             class="sidebar-wrapper"
-            :style="sidebarWrapperStyle"
+            :class="{
+                'is-closed': !showSidebar,
+                'is-resizing': isResizingSidebar,
+            }"
+            :style="sidebarPresentationStyle"
+            :aria-hidden="showSidebar ? undefined : 'true'"
+            :inert="showSidebar ? undefined : true"
         >
             <slot name="sidebar" />
             <div
+                v-show="showSidebar"
                 class="sidebar-resizer"
                 :class="{ 'is-active': isResizingSidebar }"
                 role="separator"
@@ -42,6 +48,10 @@ const emit = defineEmits<{
     'container-resize': [width: number];
 }>();
 const workspaceMainRef = useTemplateRef<HTMLElement>('workspaceMainRef');
+const sidebarPresentationStyle = computed<CSSProperties>(() => ({
+    ...(sidebarWrapperStyle ?? {}),
+    width: showSidebar ? sidebarWrapperStyle?.width : '0px',
+}));
 
 useResizeObserver(workspaceMainRef, (entries) => {
     const width = entries[0]?.contentRect.width;
@@ -123,7 +133,17 @@ watch(
     min-width: 0;
     max-width: 100%;
     flex-shrink: 0;
+    overflow: hidden;
     background: var(--app-sidebar-bg);
+    transition: width var(--app-transition-reorder);
+}
+
+.sidebar-wrapper.is-closed {
+    pointer-events: none;
+}
+
+.sidebar-wrapper.is-resizing {
+    transition: none;
 }
 
 .sidebar-resizer {
@@ -141,5 +161,11 @@ watch(
 .sidebar-resizer:hover,
 .sidebar-resizer.is-active {
     background: var(--app-editor-sash-bg-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sidebar-wrapper {
+        transition: none;
+    }
 }
 </style>

@@ -105,4 +105,5 @@ describe('shared sidebar shell integration', () => {
         expect(shell).toMatch(/\.app-sidebar-shell\s*\{[^}]*flex: 1;/su);
         expect(shell).not.toMatch(/\.app-sidebar-shell\s*\{[^}]*border-inline-end:/su);
     });
+
 });

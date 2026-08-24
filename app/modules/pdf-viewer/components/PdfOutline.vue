@@ -12,13 +12,15 @@
             @remove-selected-bookmarks="removeSelectedBookmarks"
         />
 
-        <div
-            v-if="bookmarkStatus === 'loading'"
-            class="pdf-bookmarks-loading"
-        >
-            <AppSpinner size="md" tone="muted" />
-            <span>{{ t('bookmarks.loading') }}</span>
-        </div>
+        <template v-if="bookmarkStatus === 'loading'">
+            <div
+                v-if="isLoadingIndicatorVisible"
+                class="pdf-bookmarks-loading"
+            >
+                <AppSpinner size="md" tone="muted" />
+                <span>{{ t('bookmarks.loading') }}</span>
+            </div>
+        </template>
 
         <DocumentPanelEmptyState
             v-else-if="bookmarkStatus === 'error'"
@@ -179,6 +181,7 @@ const { t } = useTypedI18n();
 
 const bookmarks = ref<IBookmarkItem[]>([]);
 const isLoading = ref(false);
+const isLoadingIndicatorVisible = ref(false);
 const outlineError = ref(false);
 const activeItemId = ref<string | null>(null);
 const displayMode = ref<TBookmarkDisplayMode>('current-expanded');
@@ -243,6 +246,36 @@ function createBookmarkIdentity() {
 }
 
 let bookmarkIdentity = createBookmarkIdentity();
+
+const BOOKMARK_LOADING_INDICATOR_DELAY_MS = 150;
+let loadingIndicatorTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelLoadingIndicatorDelay() {
+    if (loadingIndicatorTimer !== null) {
+        clearTimeout(loadingIndicatorTimer);
+        loadingIndicatorTimer = null;
+    }
+}
+
+function stopOutlineLoading() {
+    cancelLoadingIndicatorDelay();
+    isLoading.value = false;
+    isLoadingIndicatorVisible.value = false;
+}
+
+function beginOutlineLoading() {
+    cancelLoadingIndicatorDelay();
+    isLoading.value = true;
+    isLoadingIndicatorVisible.value = false;
+    loadingIndicatorTimer = setTimeout(() => {
+        loadingIndicatorTimer = null;
+        if (isLoading.value) {
+            isLoadingIndicatorVisible.value = true;
+        }
+    }, BOOKMARK_LOADING_INDICATOR_DELAY_MS);
+}
+
+onScopeDispose(cancelLoadingIndicatorDelay);
 
 function resetBookmarkIdentity() {
     bookmarkIdentity = createBookmarkIdentity();
@@ -583,7 +616,7 @@ function applyPendingBookmarkItemsIfDirty() {
         return false;
     }
 
-    isLoading.value = false;
+    stopOutlineLoading();
     applyPendingBookmarkItems(pendingBookmarkEntries);
     return true;
 }
@@ -602,7 +635,7 @@ function clearLoadedOutline() {
         return;
     }
 
-    isLoading.value = false;
+    stopOutlineLoading();
     outlineError.value = false;
     bookmarks.value = [];
     activeItemId.value = null;
@@ -671,12 +704,12 @@ function handleOutlineLoadError(
 
 function finishOutlineLoading(runId: number) {
     if (runId === outlineRunId) {
-        isLoading.value = false;
+        stopOutlineLoading();
     }
 }
 
 async function loadUsableOutline(pdfDocument: PDFDocumentProxy, runId: number) {
-    isLoading.value = true;
+    beginOutlineLoading();
     outlineError.value = false;
     try {
         const resolved = await resolveBookmarksFromPdf(pdfDocument);
