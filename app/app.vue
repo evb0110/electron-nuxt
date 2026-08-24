@@ -1,5 +1,5 @@
 <template>
-    <UApp>
+    <UApp :toaster="toasterOptions">
         <AppFatalRuntimeDialog
             :open="Boolean(fatalRuntimeError)"
             :title="fatalRuntimeTitle"
@@ -15,7 +15,7 @@
             <NuxtPage />
             <div
                 v-if="runtimeErrorReports.length > 0"
-                class="runtime-error-reports fixed bottom-4 right-4 z-40"
+                class="runtime-error-reports fixed top-4 right-4 z-40"
             >
                 <div
                     class="runtime-error-reports-card overflow-hidden rounded-lg border border-default bg-default p-4 shadow-[var(--shadow-popup)]"
@@ -149,6 +149,20 @@ import {
     scheduleIdleWork,
     type TCancelIdleWork,
 } from '@app/utils/scheduleIdleWork';
+
+// Nuxt UI stacks toasts upward from the bottom-right corner and keeps at most
+// this many on screen. The shell pins both numbers instead of inheriting the
+// library defaults, because the band the runtime diagnostic card has to stay out
+// of is derived from them in CSS. This constant is the single source of that
+// number: the toaster gets it as `max`, and `useHead` publishes it to the
+// stylesheet as `--app-toast-stack-max`, so the reserve cannot describe a stack
+// depth the toaster does not use.
+const APP_TOAST_STACK_MAX = 3;
+const toasterOptions = {
+    position: 'bottom-right' as const,
+    max: APP_TOAST_STACK_MAX,
+    ui: {base: 'app-toast'},
+};
 
 // The <DevOnly> template block is stripped from production builds, but a static
 // import would still pull agentation-vue3 into the production entry chunk.
@@ -331,7 +345,7 @@ useHead(() => ({
         ...localeHead.value.htmlAttrs,
         dir: 'ltr',
         'data-platform': uiHostSnapshot.value.platform,
-        style: `--app-ui-scale: ${uiEffectiveScale.value};`,
+        style: `--app-ui-scale: ${uiEffectiveScale.value}; --app-toast-stack-max: ${APP_TOAST_STACK_MAX};`,
         class: [
             localeHead.value.htmlAttrs?.class,
             settings.value.theme,
@@ -508,12 +522,27 @@ onMounted(async () => {
     width: min(var(--app-runtime-report-width), calc(100vw - var(--app-runtime-report-viewport-gutter)));
 }
 
+/* Anchored under the top edge, bounded so its lower edge stops above the tallest
+   toast stack Nuxt UI can render. A scan-cleanup failure toast and this card
+   report different things and must both stay readable.
+
+   `clamp()` rather than `min()`: on a window shorter than the reserve the
+   remaining viewport is negative, and the floor is what keeps the report on
+   screen there instead of collapsing it to nothing. */
 .runtime-error-reports-card {
-    max-height: min(var(--app-runtime-report-max-height), calc(100vh - var(--app-runtime-report-viewport-gutter)));
+    max-height: clamp(
+        var(--app-runtime-report-min-height),
+        calc(100vh - var(--app-runtime-report-notification-reserve)),
+        var(--app-runtime-report-max-height)
+    );
 }
 
 .runtime-error-report-details {
-    max-height: min(var(--app-runtime-report-details-max-height), calc(100vh - var(--app-runtime-report-details-viewport-reserve)));
+    max-height: clamp(
+        var(--app-runtime-report-min-height),
+        calc(100vh - var(--app-runtime-report-details-reserve)),
+        var(--app-runtime-report-details-max-height)
+    );
 }
 
 .copy-report-button--success {

@@ -13,6 +13,7 @@ import type {
     IScanCleanupWorkerPaths,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
 import {
+    hasWorkerTaskErrorBeenReported,
     resolveUnpackedWorkerPath,
     startStreamingWorkerTask,
 } from '@electron/utils/workerTask';
@@ -93,13 +94,17 @@ export async function runScanCleanupWorkerTask(
     try {
         return await task.promise;
     } catch (error) {
+        const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
         if (signal.aborted || isAbortError(error)) {
             logger.info('Scan cleanup worker task canceled');
+        } else if (hasWorkerTaskErrorBeenReported(error)) {
+            // The generic worker-task layer already reported this exact
+            // rejection at error level. Repeating it at error level would make
+            // the renderer count one fault twice, so keep the scan-cleanup
+            // context below the reporting threshold.
+            logger.warn(`Scan cleanup worker task rejected (already reported): ${detail}`);
         } else {
-            logger.error(
-                'Scan cleanup worker task rejected: '
-                + `${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
-            );
+            logger.error(`Scan cleanup worker task rejected: ${detail}`);
         }
         throw error;
     }

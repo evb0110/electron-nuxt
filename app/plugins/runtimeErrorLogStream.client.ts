@@ -1,5 +1,8 @@
-import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
+import {
+    createDebugLogRuntimeErrorReport,
+    isUiReportableDebugLog,
+} from '@app/utils/runtimeErrorFilter';
 import type {
     TLocale,
     TTranslateFn,
@@ -19,10 +22,6 @@ import {
 interface IRuntimeErrorLogStreamState { cleanup: () => void; }
 
 type TRuntimeErrorLogStreamWindow = Window & { __evbRuntimeErrorLogStreamState?: IRuntimeErrorLogStreamState };
-
-function isUiReportableLog(entry: IDebugLogEntry) {
-    return entry.message.startsWith('[ERROR]');
-}
 
 function createPluginTranslate(
     getLocaleMessages: (locale: TLocale) => Record<string, unknown>,
@@ -122,16 +121,14 @@ export default defineNuxtPlugin((nuxtApp) => {
                 }
 
                 unsubscribeDebugLog = getSettingsCapability().onDebugLog((entry) => {
-                    if (!isUiReportableLog(entry)) {
+                    if (!isUiReportableDebugLog(entry)) {
                         return;
                     }
 
-                    reportRuntimeError({
-                        title: t('errors.runtime.streamError'),
-                        source: entry.source,
-                        error: `${entry.timestamp}\n${entry.message}`,
-                        dedupeKey: `${entry.source}\n${entry.message}`,
-                    });
+                    reportRuntimeError(createDebugLogRuntimeErrorReport(
+                        entry,
+                        t('errors.runtime.streamError'),
+                    ));
                 });
             } catch (error) {
                 // The bridge readiness probe only checks for a raw electronAPI

@@ -13,12 +13,16 @@ const mocks = vi.hoisted(() => ({
         info: vi.fn(),
         warn: vi.fn(),
     },
+    reportedErrors: new WeakSet<object>(),
     startStreamingWorkerTask: vi.fn(),
 }));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 vi.mock('@electron/utils/workerTask', () => ({
+    hasWorkerTaskErrorBeenReported: (error: unknown) => (
+        typeof error === 'object' && error !== null && mocks.reportedErrors.has(error)
+    ),
     resolveUnpackedWorkerPath: (_baseDir: string, workerFileName: string) => workerFileName,
     startStreamingWorkerTask: mocks.startStreamingWorkerTask,
 }));
@@ -77,6 +81,34 @@ describe('runScanCleanupWorkerTask', () => {
 
         expect(mocks.logger.info).toHaveBeenCalledWith('Scan cleanup worker task canceled');
         expect(mocks.logger.error).not.toHaveBeenCalled();
+    });
+
+    it('leaves a failure the worker-task layer already reported below the error threshold', async () => {
+        // Both layers see the same rejected object. The renderer's runtime
+        // report stream keys diagnostics by source and message, so a second
+        // error-level line would count one underlying failure twice.
+        const failure = new Error('pdftoppm: No such file or directory');
+        mocks.reportedErrors.add(failure);
+        mocks.startStreamingWorkerTask.mockReturnValue({
+            worker: {},
+            promise: Promise.reject(failure),
+        });
+        const {runScanCleanupWorkerTask} = await import(
+            '@electron/features/scan-cleanup/runScanCleanupWorkerTask'
+        );
+
+        await expect(runScanCleanupWorkerTask(
+            {} as never,
+            {} as never,
+            {} as never,
+            new AbortController().signal,
+            vi.fn(),
+        )).rejects.toBe(failure);
+
+        expect(mocks.logger.error).not.toHaveBeenCalled();
+        expect(mocks.logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining('pdftoppm: No such file or directory'),
+        );
     });
 
     it('still reports a genuine worker rejection as an error', async () => {

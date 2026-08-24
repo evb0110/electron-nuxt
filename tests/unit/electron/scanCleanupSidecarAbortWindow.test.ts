@@ -12,7 +12,7 @@ import type { TWorkerLog } from '@electron/ocr/worker/types';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
-    terminateDetachedChildProcess: vi.fn(async () => {}),
+    terminateDetachedChildProcess: vi.fn(async (_proc: unknown, _graceMs: number): Promise<boolean> => false),
     verifyNativeToolProtocol: vi.fn(async () => {}),
 }));
 
@@ -35,7 +35,7 @@ describe('scan cleanup sidecar abort window', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
-        mocks.terminateDetachedChildProcess.mockResolvedValue(undefined);
+        mocks.terminateDetachedChildProcess.mockResolvedValue(true);
     });
 
     afterEach(() => {
@@ -105,5 +105,65 @@ describe('scan cleanup sidecar abort window', () => {
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
         child.emit('close', null, 'SIGKILL');
         await rejected;
+    });
+    // The worker turns an unproven stop into a quarantine of the source working
+    // copy, so what this adapter reports about its process tree decides whether
+    // the user's bytes survive a tab close.
+    it('marks an aborted run whose process tree was never proven dead', async () => {
+        vi.useFakeTimers();
+        mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise<boolean>(() => {}));
+        const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const child = new MockSidecarProcess();
+        mocks.spawn.mockReturnValue(child);
+        const controller = new AbortController();
+        const log = vi.fn<TWorkerLog>();
+
+        const rejection = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/canceled-manifest.json',
+            controller.signal,
+            log,
+            () => {},
+        ).catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(0);
+        controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
+        await vi.advanceTimersByTimeAsync(3_500);
+
+        const error = await rejection;
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
+        expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead within 3500ms');
+        expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('was not proven dead'));
+    });
+
+    it('leaves an aborted run whose process tree was confirmed dead unmarked', async () => {
+        vi.useFakeTimers();
+        mocks.terminateDetachedChildProcess.mockResolvedValue(true);
+        const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const child = new MockSidecarProcess();
+        mocks.spawn.mockReturnValue(child);
+        const controller = new AbortController();
+        const log = vi.fn<TWorkerLog>();
+        const abortError = new DOMException('Canceled scan cleanup detection', 'AbortError');
+
+        const rejection = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/canceled-manifest.json',
+            controller.signal,
+            log,
+            () => {},
+        ).catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(0);
+        controller.abort(abortError);
+        await vi.advanceTimersByTimeAsync(3_500);
+
+        const error = await rejection;
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
+        expect(error).toBe(abortError);
+        // A proven stop must not quarantine the working copy: the close path
+        // would then retain a temp directory nothing is reading on every cancel.
+        expect(getUnprovenNativeTerminationDetail(error)).toBeUndefined();
+        expect(log).not.toHaveBeenCalledWith('warn', expect.stringContaining('was not proven dead'));
     });
 });

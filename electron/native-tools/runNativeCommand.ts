@@ -19,6 +19,7 @@ import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
+import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 import { createLogger } from '@electron/utils/createLogger';
 import {
     isNativeErrorEnvelope,
@@ -273,8 +274,11 @@ function killProcessBestEffort(proc: TNativeProcess) {
     }
 }
 
+// Reports whether the process tree was proven dead, not whether the request was
+// sent. A rejected or non-affirmative termination is treated as "still alive"
+// because that is the only assumption that cannot lose a user's file.
 async function terminateNativeProcessBestEffort(proc: TNativeProcess, graceMs: number) {
-    await terminateDetachedChildProcess(proc, graceMs);
+    return await terminateDetachedChildProcess(proc, graceMs) === true;
 }
 
 function getTruncatedOutputMessage(label: 'stdout' | 'stderr', truncated: boolean, maxBytes: number, text: string) {
@@ -345,7 +349,7 @@ export async function runNativeCommand(
         let timeoutHandle: NodeJS.Timeout | null = null;
         let forceRejectHandle: NodeJS.Timeout | null = null;
         let pendingTerminationError: Error | null = null;
-        let terminationPromise: Promise<void> | null = null;
+        let terminationPromise: Promise<boolean> | null = null;
         let settled = false;
         let processAdmitted = false;
         const startedAt = performance.now();
@@ -389,6 +393,16 @@ export async function runNativeCommand(
             proc.on('error', ignoreLateProcessError);
         };
 
+        // The force-reject timer bounds how long the caller waits; it is not
+        // evidence the child died. Whichever path settles first records what it
+        // actually knows, so a caller that owns files the child was reading can
+        // tell "stopped" from "gave up waiting".
+        const markTerminationUnproven = (error: Error) => markUnprovenNativeTermination(
+            error,
+            `${context.displayName} process tree (pid=${String(proc?.pid)}) was not proven dead within `
+            + `${terminationGraceMs + 2_000}ms of termination; its inputs may still be open`,
+        );
+
         const requestTermination = (error: Error) => {
             if (settled || pendingTerminationError) {
                 return;
@@ -402,17 +416,26 @@ export async function runNativeCommand(
 
             cleanupProcessOutput(targetProc, true);
             terminationPromise = terminateNativeProcessBestEffort(targetProc, terminationGraceMs).then(
-                () => undefined,
-                () => undefined,
+                terminated => terminated,
+                () => false,
             );
-            void terminationPromise.finally(() => {
-                if (pendingTerminationError === error) {
-                    finalizeReject(error);
+            void terminationPromise.then((terminated) => {
+                if (pendingTerminationError !== error) {
+                    return;
                 }
+                if (!terminated) {
+                    log?.(
+                        'warn',
+                        `${context.displayName} did not confirm process-tree termination; cmd=${context.displayCommand}`,
+                    );
+                    finalizeReject(markTerminationUnproven(error));
+                    return;
+                }
+                finalizeReject(error);
             });
 
             forceRejectHandle = setTimeout(() => {
-                finalizeReject(error);
+                finalizeReject(markTerminationUnproven(error));
             }, terminationGraceMs + 2_000);
             forceRejectHandle.unref?.();
         };
@@ -544,10 +567,17 @@ export async function runNativeCommand(
         processCloseHandler = (code, closeSignal) => {
             if (pendingTerminationError) {
                 const terminationError = pendingTerminationError;
-                void (terminationPromise ?? Promise.resolve()).finally(() => {
-                    if (pendingTerminationError === terminationError) {
-                        finalizeReject(terminationError);
+                // `close` means this child's stdio is done, which does not
+                // prove the detached group it leads went with it; the
+                // termination result stays the authority on that. An absent
+                // result is an absent proof: the close arrived before the
+                // termination request could record what it observed, so this
+                // path has seen nothing that says the tree died.
+                void (terminationPromise ?? Promise.resolve(false)).then((terminated) => {
+                    if (pendingTerminationError !== terminationError) {
+                        return;
                     }
+                    finalizeReject(terminated ? terminationError : markTerminationUnproven(terminationError));
                 });
                 return;
             }

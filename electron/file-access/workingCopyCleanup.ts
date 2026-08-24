@@ -47,9 +47,17 @@ import {
     ensureWorkingCopyMaterialized,
 } from '@electron/file-access/workingCopyMaterialization';
 import {
-    cancelAbortableMainOperationsForWorkingCopy,
+    cancelMainOperationsForClosingWorkingCopy,
     snapshotMainOperations,
+    snapshotCancellableWorkingCopyDependents,
+    waitForMainOperationsSettled,
+    type IClosingWorkingCopyOwnership,
+    type IMainOperationSnapshot,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {
+    describeWorkingCopyQuarantine,
+    isWorkingCopyQuarantined,
+} from '@electron/file-access/workingCopyQuarantine';
 
 const logger = createLogger('working-copy');
 const STALE_WORK_DIR_MAX_AGE_MS = (() => {
@@ -59,6 +67,33 @@ const STALE_WORK_DIR_MAX_AGE_MS = (() => {
     }
     return parsed;
 })();
+const CLOSING_WORKING_COPY_REASON = 'Working copy is closing';
+// Closing a document cancels the jobs that read its working copy, and the
+// directory may only go away once they have actually stopped. Scan cleanup is
+// the slowest of them: a cooperative worker cancel gets a five second grace
+// period, and only then does the worker-task harness force terminate the
+// thread, so this bound clears that policy with room to spare. What it does not
+// do is turn expiry into permission. A dependent still running when the bound
+// expires keeps its directory; the close reports that and leaves the bytes
+// alone.
+const DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(
+        process.env.EVB_WORKING_COPY_DEPENDENT_SETTLE_TIMEOUT_MS ?? `${30_000}`,
+        10,
+    );
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        return 30_000;
+    }
+    return Math.min(parsed, 5 * 60_000);
+})();
+// Shutdown has already refused new operations and cancelled every running one,
+// so its dependents are unwinding rather than starting, and the app owes the
+// user a prompt exit. The bound is short for that reason and, like the close
+// bound, expiry retains the bytes instead of authorising their deletion.
+const SHUTDOWN_DEPENDENT_SETTLEMENT_TIMEOUT_MS = Math.min(
+    DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS,
+    5_000,
+);
 const STALE_WORK_DIR_SCAN_LIMIT = (() => {
     const parsed = Number.parseInt(process.env.EVB_WORKING_COPY_STALE_SCAN_LIMIT ?? '512', 10);
     if (!Number.isFinite(parsed) || parsed < 1) {
@@ -304,17 +339,196 @@ async function settleWorkingCopyMaterialization(
     await waitForOperationSettlement(abortableOperationIds);
 }
 
-async function retireWorkingCopyRegistration(
+export async function settleAllWorkingCopyMaterializations() {
+    const materializingEntries = [...workingCopyMap.entries()]
+        .filter(([
+            , entry,
+        ]) => entry.backingState === 'materializing');
+    await Promise.allSettled(materializingEntries.map(([
+        workingPath,
+        entry,
+    ]) => (
+        settleWorkingCopyMaterialization(workingPath, entry)
+    )));
+}
+
+type TDependentSettlementOutcome = 'settled' | 'unsettled' | 'ownership-lost';
+
+interface IWorkingCopyDependentSettlement {
+    outcome: TDependentSettlementOutcome;
+    pending: IMainOperationSnapshot[];
+}
+
+// A close owns one registration, never a path. `isRegistrationCurrent` is read
+// again before every cancellation round, and re-registering a path is a
+// synchronous transition in the store, so a replacement that appears at any
+// point is observed before the next round can cancel anything belonging to it.
+function createClosingOwnership(
+    workingPath: string,
+    registrationId: number,
+): IClosingWorkingCopyOwnership {
+    return {isRegistrationCurrent: () => workingCopyMap.get(workingPath)?.registrationId === registrationId};
+}
+
+// A dependent can register between the moment its predecessors were cancelled
+// and the moment the last of them stops, so one cancel-and-wait pass does not
+// prove the working copy is unused. Each round cancels whatever is cancellable
+// at that instant and waits for it; the loop ends when a round finds nothing
+// left to stop. The round count is bounded so a caller that keeps starting work
+// against a closing working copy cannot hold the close open forever, and an
+// exhausted budget reports as unsettled rather than as proof of safety.
+const MAX_DEPENDENT_CANCELLATION_ROUNDS = 4;
+
+async function stopWorkingCopyDependents(
+    workingPath: string,
+    ownership: IClosingWorkingCopyOwnership,
+    timeoutMs: number,
+): Promise<IWorkingCopyDependentSettlement> {
+    let canceled = cancelMainOperationsForClosingWorkingCopy(
+        workingPath,
+        CLOSING_WORKING_COPY_REASON,
+        ownership,
+    );
+    for (let round = 0; round < MAX_DEPENDENT_CANCELLATION_ROUNDS; round += 1) {
+        if (canceled === null) {
+            return {
+                outcome: 'ownership-lost',
+                pending: [],
+            };
+        }
+        if (canceled.length === 0) {
+            return {
+                outcome: 'settled',
+                pending: [],
+            };
+        }
+        if (round === 0) {
+            logger.debug(
+                `Cancelled ${canceled.length} dependent operation(s) for a closing working copy `
+                + `(${canceled.map(operation => operation.kind).join(', ')})`,
+            );
+        } else {
+            logger.debug(
+                `Cancelled ${canceled.length} dependent operation(s) that started while "${workingPath}" was closing`,
+            );
+        }
+        const settlement = await waitForMainOperationsSettled(canceled, {timeoutMs});
+        if (!settlement.settled) {
+            return {
+                outcome: 'unsettled',
+                pending: settlement.pending,
+            };
+        }
+        canceled = cancelMainOperationsForClosingWorkingCopy(
+            workingPath,
+            CLOSING_WORKING_COPY_REASON,
+            ownership,
+        );
+    }
+    // The round budget is spent. The last cancellation round still has to be
+    // read for what it says: if the caller lost the registration on it, the
+    // path belongs to a replacement and the close owes it nothing, which is a
+    // different answer from "dependents would not stop" even though both leave
+    // the bytes alone.
+    if (canceled === null) {
+        return {
+            outcome: 'ownership-lost',
+            pending: [],
+        };
+    }
+    // The last round found nothing left to stop, which is the same proof the
+    // loop accepts on any earlier round. Spending the budget is not itself a
+    // failure, and reporting one here would retain a working copy whose
+    // dependents demonstrably stopped.
+    if (canceled.length === 0) {
+        return {
+            outcome: 'settled',
+            pending: [],
+        };
+    }
+    const unsettledIds = new Set(canceled.map(operation => operation.id));
+    return {
+        outcome: 'unsettled',
+        pending: snapshotMainOperations().filter(operation => unsettledIds.has(operation.id)),
+    };
+}
+
+function describePendingDependents(pending: readonly IMainOperationSnapshot[]) {
+    if (pending.length === 0) {
+        return 'the operation records were gone before they could be described';
+    }
+    return pending
+        .map(operation => `${operation.kind}#${operation.id}${operation.aborted ? '' : ' (not aborted)'}`)
+        .join(', ');
+}
+
+// Deleting a working copy whose dependents have not stopped is the incident
+// this close path exists to prevent: a Poppler child mid-page keeps reading the
+// file and the user's cancellation turns into a failure. When settlement cannot
+// be proven the directory stays where it is. Nothing else in the session will
+// delete it, and the stale working-copy sweep reclaims it on a later run once
+// no process can possibly hold it.
+//
+// Retention is the designed outcome of an unprovable stop, not a fault, so it
+// is reported below the severity the renderer turns into a user-visible runtime
+// error while still reaching the log file and telemetry.
+function reportRetainedWorkingCopy(
+    workingPath: string,
+    reason: string,
+) {
+    logger.warn(`Retained the working copy directory for "${workingPath}" instead of deleting it: ${reason}`);
+}
+
+function describeUnsettledDependents(
+    settlement: IWorkingCopyDependentSettlement,
+    phase: string,
+    timeoutMs: number,
+) {
+    return `${settlement.pending.length} cancelled dependent operation(s) had not stopped ${phase} `
+        + `within ${timeoutMs}ms (${describePendingDependents(settlement.pending)})`;
+}
+
+type TWorkingCopyRetirementOutcome =
+    | {
+        status: 'deleted';
+        originalPath: string;
+    }
+    | {
+        status: 'retained';
+        reason: string;
+    }
+    | {
+        status: 'skipped';
+        reason: string;
+    };
+
+// Retirement and deletion run inside a single registration fence, so they are
+// one indivisible step against the store's own ownership mechanism: a
+// re-registration of this path cannot interleave between them, and one that
+// already happened fails the fence and leaves the bytes untouched. The last look
+// at the operation registry happens in the same synchronous turn as the
+// retirement, so an operation joining a replacement registration is seen before
+// anything is removed and keeps the bytes it reads.
+async function retireAndDeleteWorkingCopy(
     workingPath: string,
     entry: IWorkingCopyOriginalEntry,
-) {
+): Promise<TWorkingCopyRetirementOutcome> {
     const retirement = await runWithWorkingCopyRegistrationFence(
         workingPath,
         entry.registrationId,
-        (currentEntry) => {
+        async (currentEntry): Promise<TWorkingCopyRetirementOutcome> => {
+            const dependents = snapshotCancellableWorkingCopyDependents(workingPath);
+            if (dependents.length > 0) {
+                return {
+                    status: 'retained',
+                    reason: `${dependents.length} operation(s) still hold this working copy `
+                        + `(${describePendingDependents(dependents)})`,
+                };
+            }
+            const {originalPath} = currentEntry;
             rememberRetiredWorkingCopyOriginal(
                 workingPath,
-                currentEntry.originalPath,
+                originalPath,
                 currentEntry.ownerWebContentsId,
                 {
                     ...(currentEntry.admissionSnapshot ? {admissionSnapshot: currentEntry.admissionSnapshot} : {}),
@@ -329,23 +543,30 @@ async function retireWorkingCopyRegistration(
                 },
             );
             forgetWorkingCopyOriginalPath(workingPath);
-            return currentEntry.originalPath;
+            forgetWorkingCopyRevisionInitialization(workingPath);
+            forgetPageIdentityStoreInitialization(workingPath);
+            // The document is closed either way; only the bytes are in question.
+            // A quarantine says some native reader was never proven dead, so the
+            // directory outlives the registration and the stale sweep reclaims it.
+            if (isWorkingCopyQuarantined(workingPath)) {
+                return {
+                    status: 'retained',
+                    reason: `the working copy is quarantined (${describeWorkingCopyQuarantine(workingPath)})`,
+                };
+            }
+            await cleanupWorkingCopyDirectory(workingPath, originalPath);
+            return {
+                status: 'deleted',
+                originalPath,
+            };
         },
     );
-    return retirement.matched ? retirement.value : null;
-}
-
-export async function settleAllWorkingCopyMaterializations() {
-    const materializingEntries = [...workingCopyMap.entries()]
-        .filter(([
-            , entry,
-        ]) => entry.backingState === 'materializing');
-    await Promise.allSettled(materializingEntries.map(([
-        workingPath,
-        entry,
-    ]) => (
-        settleWorkingCopyMaterialization(workingPath, entry)
-    )));
+    return retirement.matched
+        ? retirement.value
+        : {
+            status: 'skipped',
+            reason: 'its registration changed while its dependents settled',
+        };
 }
 
 export async function cleanupWorkingCopy(workingPath: string, senderWebContentsId?: number) {
@@ -368,19 +589,36 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         return;
     }
 
-    const canceledOperations = cancelAbortableMainOperationsForWorkingCopy(
+    // Mutations already in flight own the bytes too. Draining before the
+    // dependents are stopped lets a write finish rather than be torn out from
+    // under itself, and draining again afterwards catches whatever the unwinding
+    // dependents enqueued on their way out.
+    await drainWorkingCopyMutations(normalizedPath);
+    const ownership = createClosingOwnership(normalizedPath, originalEntry.registrationId);
+    const settlement = await stopWorkingCopyDependents(
         normalizedPath,
-        'Working copy is closing',
+        ownership,
+        DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS,
     );
-    if (canceledOperations > 0) {
-        logger.debug(`Cancelled ${canceledOperations} abortable operation(s) for a closing working copy`);
+    if (settlement.outcome === 'ownership-lost') {
+        logger.warn(
+            `Skipped cleanup for a working copy re-registered while its dependents settled "${normalizedPath}"`,
+        );
+        return;
+    }
+    if (settlement.outcome === 'unsettled') {
+        reportRetainedWorkingCopy(
+            normalizedPath,
+            describeUnsettledDependents(
+                settlement,
+                'while its registration was still active',
+                DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS,
+            ),
+        );
+        return;
     }
 
     await drainWorkingCopyMutations(normalizedPath);
-    const currentEntry = workingCopyMap.get(normalizedPath);
-    if (!currentEntry) {
-        return;
-    }
     const currentOwnerWebContentsId = getWorkingCopyOwnerWebContentsId(normalizedPath);
     if (
         typeof currentOwnerWebContentsId === 'number'
@@ -390,15 +628,40 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         return;
     }
 
-    await settleWorkingCopyMaterialization(normalizedPath, currentEntry);
-    const originalPath = await retireWorkingCopyRegistration(normalizedPath, currentEntry);
-    if (!originalPath) {
-        logger.warn(`Skipped cleanup for a working copy whose registration changed while settling "${normalizedPath}"`);
+    await settleWorkingCopyMaterialization(normalizedPath, originalEntry);
+    // Materialization settling can admit new dependents, so the cancel-and-wait
+    // loop runs once more before the registration is retired.
+    const postMaterializationSettlement = await stopWorkingCopyDependents(
+        normalizedPath,
+        ownership,
+        DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS,
+    );
+    if (postMaterializationSettlement.outcome === 'ownership-lost') {
+        logger.warn(
+            `Skipped cleanup for a working copy re-registered while its dependents settled "${normalizedPath}"`,
+        );
         return;
     }
-    forgetWorkingCopyRevisionInitialization(normalizedPath);
-    forgetPageIdentityStoreInitialization(normalizedPath);
-    await cleanupWorkingCopyDirectory(normalizedPath, originalPath);
+    if (postMaterializationSettlement.outcome === 'unsettled') {
+        reportRetainedWorkingCopy(
+            normalizedPath,
+            describeUnsettledDependents(
+                postMaterializationSettlement,
+                'while its materialization settled',
+                DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS,
+            ),
+        );
+        return;
+    }
+
+    const retirement = await retireAndDeleteWorkingCopy(normalizedPath, originalEntry);
+    if (retirement.status === 'skipped') {
+        logger.warn(`Skipped cleanup for a working copy: ${retirement.reason} "${normalizedPath}"`);
+        return;
+    }
+    if (retirement.status === 'retained') {
+        reportRetainedWorkingCopy(normalizedPath, retirement.reason);
+    }
 }
 
 export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<string>} = {}) {
@@ -416,22 +679,53 @@ export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<strin
         ? paths
         : paths.filter(path => !skipPaths.has(path));
 
-    const retiredPaths = new Map<string, string>();
+    const retiredPaths = new Set<string>();
+    // Kept apart from `skipPaths`: a path retained because its readers could not
+    // be proven stopped is a designed outcome already reported at warn level,
+    // while `skipPaths` is the unsaved-work list that shutdown reports as a
+    // fault. Merging them would turn every quarantine into an application error.
+    const retainedPaths = new Set<string>();
     await Promise.all(pathsToDelete.map(async (workingPath) => {
         const entry = workingCopyMap.get(workingPath);
         if (!entry) {
             return;
         }
-        await settleWorkingCopyMaterialization(workingPath, entry);
-        const originalPath = await retireWorkingCopyRegistration(workingPath, entry);
-        if (!originalPath) {
-            skipPaths.add(workingPath);
+        // Shutdown cancels every main operation before this step, but a cancel
+        // is still only a request. The abortable dependents that read these
+        // bytes — OCR, search indexing, image export, DjVu conversion — have to
+        // be observed stopping before the directory can go, exactly as they do
+        // on a document close. The critical-write path keeps its own protection
+        // upstream: `main.ts` adds the paths of writes that failed to drain to
+        // `skipPaths`, so they never reach this loop.
+        const ownership = createClosingOwnership(workingPath, entry.registrationId);
+        const settlement = await stopWorkingCopyDependents(
+            workingPath,
+            ownership,
+            SHUTDOWN_DEPENDENT_SETTLEMENT_TIMEOUT_MS,
+        );
+        if (settlement.outcome !== 'settled') {
+            retainedPaths.add(workingPath);
+            reportRetainedWorkingCopy(
+                workingPath,
+                settlement.outcome === 'ownership-lost'
+                    ? 'its registration changed during shutdown'
+                    : describeUnsettledDependents(
+                        settlement,
+                        'during shutdown',
+                        SHUTDOWN_DEPENDENT_SETTLEMENT_TIMEOUT_MS,
+                    ),
+            );
             return;
         }
-        retiredPaths.set(workingPath, originalPath);
+        await settleWorkingCopyMaterialization(workingPath, entry);
+        const retirement = await retireAndDeleteWorkingCopy(workingPath, entry);
+        if (retirement.status !== 'deleted') {
+            retainedPaths.add(workingPath);
+            reportRetainedWorkingCopy(workingPath, retirement.reason);
+            return;
+        }
+        retiredPaths.add(workingPath);
         forgetRetiredWorkingCopyOriginal(workingPath);
-        forgetWorkingCopyRevisionInitialization(workingPath);
-        forgetPageIdentityStoreInitialization(workingPath);
     }));
 
     if (workingCopyMap.size === 0) {
@@ -446,13 +740,8 @@ export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<strin
             }`,
         );
     }
-
-    await Promise.allSettled(
-        Array.from(retiredPaths, ([
-            workingPath,
-            originalPath,
-        ]) => (
-            cleanupWorkingCopyDirectory(workingPath, originalPath)
-        )),
+    logger.debug(
+        `Deleted ${retiredPaths.size} working copy director(ies) during shutdown, `
+        + `retained ${retainedPaths.size}`,
     );
 }

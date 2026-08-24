@@ -8,13 +8,19 @@ import {
 import {getMainOperationErrorEnvelope} from '@contracts/mainOperationErrors';
 import {
     beginMainOperationShutdown,
-    cancelAbortableMainOperationsForWorkingCopy,
     cancelAllMainOperations,
+    cancelMainOperationsForClosingWorkingCopy,
     drainCriticalMainOperations,
     registerMainOperation,
     resetMainOperationLifecycleForTests,
+    snapshotCancellableWorkingCopyDependents,
     snapshotMainOperations,
+    waitForMainOperationsSettled,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
+
+// A close that still owns the registration it started on. The ownership check
+// is the caller's, so the lifecycle tests state it explicitly.
+const OWNS_REGISTRATION = {isRegistrationCurrent: () => true};
 
 describe('mainOperationLifecycle', () => {
     afterEach(() => {
@@ -76,12 +82,30 @@ describe('mainOperationLifecycle', () => {
         expect(result.pending).toHaveLength(1);
     });
 
-    it('cancels only the abortable work bound to a closing working copy', async () => {
+    it('cancels every cancellable pre-commit dependent of a closing working copy', async () => {
         const cleanupCancel = vi.fn();
         const cleanup = registerMainOperation({
             kind: 'abortable-work',
             workingCopyPath: '/tmp/closing.pdf',
             cancel: cleanupCancel,
+        });
+        // Scan cleanup registers as a critical write so its output publication
+        // owns a commit boundary, but until that boundary it is still reading
+        // the working copy the close is about to delete.
+        const scanCleanupCancel = vi.fn();
+        const scanCleanup = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/closing.pdf',
+            cancel: scanCleanupCancel,
+            cancelOnWorkingCopyClose: true,
+        });
+        // The working copy's own mutation queue carries a cancel hook for
+        // shutdown but must drain, not abort, when its document closes.
+        const mutationCancel = vi.fn();
+        const mutation = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/closing.pdf',
+            cancel: mutationCancel,
         });
         const otherDocument = registerMainOperation({
             kind: 'abortable-work',
@@ -96,15 +120,138 @@ describe('mainOperationLifecycle', () => {
             kind: 'critical-write',
             workingCopyPath: '/tmp/closing.pdf',
         });
+        const committedWriteCancel = vi.fn();
+        const committedWrite = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/closing.pdf',
+            cancel: committedWriteCancel,
+            cancelOnWorkingCopyClose: true,
+        });
+        committedWrite.markCommitStarted();
 
-        expect(cancelAbortableMainOperationsForWorkingCopy('/tmp/closing.pdf', 'Working copy is closing')).toBe(1);
+        const canceled = cancelMainOperationsForClosingWorkingCopy(
+            '/tmp/closing.pdf',
+            'Working copy is closing',
+            OWNS_REGISTRATION,
+        );
         await Promise.resolve();
 
+        expect(canceled).not.toBeNull();
+        expect(canceled!.map(operation => operation.id).sort()).toEqual([
+            cleanup.id,
+            scanCleanup.id,
+        ].sort());
         expect(cleanup.signal.aborted).toBe(true);
         expect(cleanupCancel).toHaveBeenCalledWith('Working copy is closing');
+        expect(scanCleanup.signal.aborted).toBe(true);
+        expect(scanCleanupCancel).toHaveBeenCalledWith('Working copy is closing');
         expect(otherDocument.signal.aborted).toBe(false);
         expect(materializationFlight.signal.aborted).toBe(false);
+        expect(mutation.signal.aborted).toBe(false);
+        expect(mutationCancel).not.toHaveBeenCalled();
         expect(pendingWrite.signal.aborted).toBe(false);
+        expect(committedWrite.signal.aborted).toBe(false);
+        expect(committedWriteCancel).not.toHaveBeenCalled();
+        // The same predicate answers "is anything still holding this path?" at
+        // retirement time, so the two can never disagree about what a close owes
+        // a wait to. A cancelled dependent still holds the path until it
+        // completes; only the operations the close never had to stop drop out.
+        expect(snapshotCancellableWorkingCopyDependents('/tmp/closing.pdf')
+            .map(operation => operation.id).sort()).toEqual([
+            cleanup.id,
+            scanCleanup.id,
+        ].sort());
+        cleanup.complete();
+        scanCleanup.complete();
+        expect(snapshotCancellableWorkingCopyDependents('/tmp/closing.pdf')).toEqual([]);
+    });
+
+    it('cancels nothing once the caller no longer owns the registration it is closing', () => {
+        const scanCleanupCancel = vi.fn();
+        const scanCleanup = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/closing.pdf',
+            cancel: scanCleanupCancel,
+            cancelOnWorkingCopyClose: true,
+        });
+
+        // The document was closed and the same path reopened while the close was
+        // waiting. This operation belongs to the replacement, and cancelling it
+        // would stop a document nobody asked to close.
+        expect(cancelMainOperationsForClosingWorkingCopy(
+            '/tmp/closing.pdf',
+            'Working copy is closing',
+            {isRegistrationCurrent: () => false},
+        )).toBeNull();
+        expect(scanCleanup.signal.aborted).toBe(false);
+        expect(scanCleanupCancel).not.toHaveBeenCalled();
+    });
+
+    it('reports a cancellable dependent that registered after the last cancellation round', () => {
+        const settled = registerMainOperation({
+            kind: 'abortable-work',
+            workingCopyPath: '/tmp/closing.pdf',
+            cancel: vi.fn(),
+        });
+        expect(cancelMainOperationsForClosingWorkingCopy(
+            '/tmp/closing.pdf',
+            'Working copy is closing',
+            OWNS_REGISTRATION,
+        )).toHaveLength(1);
+        settled.complete();
+        expect(snapshotCancellableWorkingCopyDependents('/tmp/closing.pdf')).toEqual([]);
+
+        const late = registerMainOperation({
+            kind: 'abortable-work',
+            workingCopyPath: '/tmp/closing.pdf',
+            cancel: vi.fn(),
+        });
+
+        expect(snapshotCancellableWorkingCopyDependents('/tmp/closing.pdf')).toEqual([expect.objectContaining({
+            id: late.id,
+            aborted: false,
+        })]);
+    });
+
+    it('reports settlement of closing-working-copy dependents only once they complete', async () => {
+        const operation = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/closing.pdf',
+            cancel: vi.fn(),
+            cancelOnWorkingCopyClose: true,
+        });
+        const canceled = cancelMainOperationsForClosingWorkingCopy(
+            '/tmp/closing.pdf',
+            'Working copy is closing',
+            OWNS_REGISTRATION,
+        );
+        expect(canceled).toHaveLength(1);
+
+        vi.useFakeTimers();
+        const pendingSettlement = waitForMainOperationsSettled(canceled!, {timeoutMs: 50});
+        await vi.advanceTimersByTimeAsync(50);
+        await expect(pendingSettlement).resolves.toEqual({
+            settled: false,
+            pending: [expect.objectContaining({
+                id: operation.id,
+                aborted: true,
+            })],
+        });
+        vi.useRealTimers();
+
+        operation.complete();
+
+        await expect(waitForMainOperationsSettled(canceled!, {timeoutMs: 50})).resolves.toEqual({
+            settled: true,
+            pending: [],
+        });
+    });
+
+    it('treats an empty dependent set as already settled', async () => {
+        await expect(waitForMainOperationsSettled([], {timeoutMs: 0})).resolves.toEqual({
+            settled: true,
+            pending: [],
+        });
     });
 
     it('completes operations idempotently', () => {

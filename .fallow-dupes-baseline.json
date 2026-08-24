@@ -1,6 +1,6 @@
 {
   "clone_groups": [
-    "app/assets/css/main.css:460-469|app/assets/css/main.css:909-918",
+    "app/assets/css/main.css:496-505|app/assets/css/main.css:953-962",
     "app/modules/agent-panel/components/AssistantEffortSwitcher.vue:127-149|app/modules/agent-panel/components/AssistantSpeedSwitcher.vue:113-135",
     "app/modules/agent-panel/components/AssistantEffortSwitcher.vue:215-232|app/modules/agent-panel/components/AssistantSpeedSwitcher.vue:195-212",
     "app/modules/pdf-viewer/components/PdfAnnotationProperties.vue:242-276|app/modules/pdf-viewer/components/PdfTextMarkupAnnotationProperties.vue:85-119",

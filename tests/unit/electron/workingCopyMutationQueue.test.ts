@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     warn: vi.fn(),
     complete: vi.fn(),
     nextOperationId: 0,
+    registrations: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
@@ -21,7 +22,8 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({normalizePathForLookup: (path: string) => path.trim().toLowerCase()}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({cancelNativeCommandGroup: vi.fn()}));
-vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({registerMainOperation: () => {
+vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({registerMainOperation: (registration: Record<string, unknown>) => {
+    mocks.registrations.push(registration);
     mocks.nextOperationId += 1;
     return {
         id: `operation-${mocks.nextOperationId}`,
@@ -56,6 +58,23 @@ describe('workingCopyMutationQueue telemetry', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.nextOperationId = 0;
+        mocks.registrations.length = 0;
+    });
+
+    it('keeps its critical write out of working-copy close cancellation', async () => {
+        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+
+        await enqueueWorkingCopyMutation('/tmp/Book.pdf', async () => undefined, {kind: 'ordinary-write'});
+
+        // The hook exists for shutdown. Closing the document has to drain this
+        // write, not abort it, so the registration never opts into the
+        // working-copy close predicate.
+        expect(mocks.registrations).toEqual([expect.objectContaining({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/Book.pdf',
+            cancel: expect.any(Function),
+        })]);
+        expect(mocks.registrations[0]).not.toHaveProperty('cancelOnWorkingCopyClose');
     });
 
     it('reports the queued and active owner and clears ownership after settlement', async () => {

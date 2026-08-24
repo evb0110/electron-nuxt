@@ -20,6 +20,7 @@ import {
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
 import {abortErrorFromSignal} from '@electron/utils/abort';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {
     decodeNativeScanCleanupEnvelope,
     parseNativeScanCleanupStderr,
@@ -159,7 +160,7 @@ async function streamScanCleanupSidecar(
     let terminalResult: 'success' | 'failure' | null = null;
     let protocolError: Error | null = null;
     let nativeFailure: NativeScanCleanupError | null = null;
-    let terminationPromise: Promise<void> | null = null;
+    let terminationPromise: Promise<boolean> | null = null;
     let settleFatal: (() => void) | null = null;
     // Analyze emits a provisional page-analyzed frame and then a terminal
     // page-complete frame for the same page. Keep only the terminal timing
@@ -167,6 +168,10 @@ async function streamScanCleanupSidecar(
     // diagnostic totals represent each page once and use reconciled timings.
     const terminalPageTimings = new Map<number, TNativeScanCleanupPageStageTimingsV3>();
     let terminalUnkeyedTimings: TNativeScanCleanupPageStageTimingsV3 | null = null;
+    // The fallback timer bounds how long this adapter waits, not whether the
+    // tree died. It resolves `false`, which every caller below turns into an
+    // error the working-copy owner can see, so a bound that expires quarantines
+    // the source bytes instead of authorising their deletion.
     const terminateForFatalError = () => {
         if (terminationPromise !== null) {
             return terminationPromise;
@@ -174,31 +179,41 @@ async function streamScanCleanupSidecar(
         const treeTermination = terminateDetachedChildProcess(
             child,
             SCAN_CLEANUP_TERMINATION_GRACE_MS,
-        ).catch(() => undefined);
-        terminationPromise = new Promise<void>(resolve => {
+        ).catch(() => false);
+        terminationPromise = new Promise<boolean>(resolve => {
             let settled = false;
-            const settle = () => {
+            const settle = (terminated: boolean) => {
                 if (settled) {
                     return;
                 }
                 settled = true;
                 clearTimeout(fallbackHandle);
-                resolve();
+                resolve(terminated);
             };
-            const fallbackHandle = setTimeout(settle, SCAN_CLEANUP_TERMINATION_FALLBACK_MS);
+            const fallbackHandle = setTimeout(() => settle(false), SCAN_CLEANUP_TERMINATION_FALLBACK_MS);
             fallbackHandle.unref?.();
-            void treeTermination.then(settle);
+            void treeTermination.then(terminated => settle(terminated === true));
         });
         return terminationPromise;
     };
+    const describeUnprovenTermination = () => (
+        `evb-scan-cleanup process tree (pid=${String(child.pid)}) was not proven dead within `
+        + `${SCAN_CLEANUP_TERMINATION_FALLBACK_MS}ms of termination; its inputs may still be open`
+    );
+    const withTerminationProof = <T>(error: T, terminated: boolean) => (
+        terminated ? error : markUnprovenNativeTermination(error, describeUnprovenTermination())
+    );
     const fatalSettlement = new Promise<never>((_resolve, reject) => {
         settleFatal = () => {
-            void terminateForFatalError().then(() => {
+            void terminateForFatalError().then((terminated) => {
+                if (!terminated) {
+                    log('warn', describeUnprovenTermination());
+                }
                 if (protocolError !== null) {
-                    reject(protocolError);
+                    reject(withTerminationProof(protocolError, terminated));
                     return;
                 }
-                reject(abortErrorFromSignal(signal));
+                reject(withTerminationProof(abortErrorFromSignal(signal), terminated));
             });
         };
     });
@@ -245,6 +260,20 @@ async function streamScanCleanupSidecar(
             protocol.failProtocol(error, line);
         }
     });
+    // A protocol failure or a timeout both end with the tree being stopped, and
+    // both report whether that stop was proven so the caller inherits the same
+    // quarantine decision an abort would have produced.
+    const settleTerminalFailure = async () => {
+        const terminal = protocolError ?? timeoutError;
+        if (terminal === null) {
+            return;
+        }
+        const terminated = await terminateForFatalError();
+        if (!terminated) {
+            log('warn', describeUnprovenTermination());
+        }
+        throw withTerminationProof(terminal, terminated);
+    };
     let aborting = false;
     const handleAbort = () => {
         aborting = true;
@@ -282,26 +311,28 @@ async function streamScanCleanupSidecar(
                             'native-failure',
                             `evb-scan-cleanup timed out after ${timeoutMs}ms`,
                         );
-                        void terminateForFatalError().then(() => reject(timeoutError));
+                        void terminateForFatalError().then(terminated => (
+                            reject(withTerminationProof(timeoutError, terminated))
+                        ));
                     }, timeoutMs);
                     timeoutHandle.unref?.();
                 }),
                 fatalSettlement,
             ]);
         } catch (error) {
-            throwIfError(protocolError);
-            if (timeoutError !== null) {
-                await terminateForFatalError();
-                throwIfError(timeoutError);
-            }
+            await settleTerminalFailure();
             throw error;
         }
-        throwIfError(protocolError);
-        if (timeoutError !== null) {
-            await terminateForFatalError();
-            throwIfError(timeoutError);
+        await settleTerminalFailure();
+        if (aborting || signal.aborted) {
+            // A signal that arrives while the child is still being observed goes
+            // through the same termination proof as every other stop path.
+            const terminated = await terminateForFatalError();
+            if (!terminated) {
+                log('warn', describeUnprovenTermination());
+            }
+            throw withTerminationProof(abortErrorFromSignal(signal), terminated);
         }
-        if (aborting || signal.aborted) throw abortErrorFromSignal(signal);
         throwIfError(nativeFailure);
         if (result.code !== 0) {
             const envelope = parseNativeScanCleanupStderr(protocol.stderr);

@@ -8,6 +8,10 @@ import { isRecord } from '@contracts/runtimeGuards';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
+import {
+    getUnprovenNativeTerminationDetail,
+    markUnprovenNativeTermination,
+} from '@electron/utils/nativeTerminationProof';
 
 const workerTaskLog = createLogger('worker-task');
 
@@ -18,6 +22,13 @@ export interface IWorkerTaskErrorFrame {
     canceled?: boolean;
     retryable?: boolean;
     source?: string;
+    /**
+     * Set when the worker stopped a native process tree without being able to
+     * prove it died. A symbol-tagged error cannot survive the structured clone
+     * between a worker and main, so the outcome travels as data on the frame and
+     * is re-attached to the `WorkerTaskError` main throws.
+     */
+    terminationUnproven?: string;
 }
 
 type TResultWorkerPayload =
@@ -79,6 +90,9 @@ export class WorkerTaskError extends Error {
         this.canceled = frame.canceled ?? false;
         this.retryable = frame.retryable ?? false;
         this.source = frame.source;
+        if (frame.terminationUnproven !== undefined) {
+            markUnprovenNativeTermination(this, frame.terminationUnproven);
+        }
     }
 }
 
@@ -117,6 +131,10 @@ export function createWorkerTaskErrorFrame(
     if (options.source) {
         frame.source = options.source;
     }
+    const terminationUnproven = getUnprovenNativeTerminationDetail(error);
+    if (terminationUnproven !== undefined) {
+        frame.terminationUnproven = terminationUnproven;
+    }
     return frame;
 }
 
@@ -148,6 +166,9 @@ function parseWorkerTaskErrorFrame(value: unknown): IWorkerTaskErrorFrame | null
     if (value.source !== undefined && typeof value.source !== 'string') {
         return null;
     }
+    if (value.terminationUnproven !== undefined && typeof value.terminationUnproven !== 'string') {
+        return null;
+    }
     return {
         message: value.message,
         ...(value.name === undefined ? {} : {name: value.name}),
@@ -155,6 +176,7 @@ function parseWorkerTaskErrorFrame(value: unknown): IWorkerTaskErrorFrame | null
         ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
         ...(value.retryable === undefined ? {} : {retryable: value.retryable}),
         ...(value.source === undefined ? {} : {source: value.source}),
+        ...(value.terminationUnproven === undefined ? {} : {terminationUnproven: value.terminationUnproven}),
     };
 }
 
@@ -185,6 +207,37 @@ function parseResultWorkerPayload(payload: unknown): TResultWorkerPayload | null
     }
 
     return null;
+}
+
+// One underlying worker failure is one diagnostic. This layer already logs the
+// rejection it produces at error level, and every wrapper above it re-throws the
+// same object, so a wrapper that logs the failure again would give the renderer's
+// runtime-report stream two entries, keyed by different sources and messages so
+// they dedupe apart, for a single fault. Wrappers ask this before deciding their
+// own severity.
+const reportedWorkerTaskErrors = new WeakSet<object>();
+
+function markWorkerTaskErrorReported<T>(error: T): T {
+    if (typeof error === 'object' && error !== null) {
+        reportedWorkerTaskErrors.add(error);
+    }
+    return error;
+}
+
+export function hasWorkerTaskErrorBeenReported(error: unknown) {
+    return typeof error === 'object' && error !== null && reportedWorkerTaskErrors.has(error);
+}
+
+// A cancelled worker still reports what it managed to stop. The frame is the
+// only channel that survives the structured clone, so the mark is lifted off it
+// and onto the rejection the caller actually sees.
+function withWorkerReportedTerminationProof<T>(error: T, payload: unknown): T {
+    const resultPayload = parseResultWorkerPayload(payload);
+    if (!resultPayload || resultPayload.ok) {
+        return error;
+    }
+    const detail = resultPayload.errorFrame?.terminationUnproven;
+    return detail === undefined ? error : markUnprovenNativeTermination(error, detail);
 }
 
 function toError(error: unknown) {
@@ -218,16 +271,135 @@ function createWorkerOptions(workerData: unknown, resourceLimits: ResourceLimits
     return workerOptions;
 }
 
-function terminateWorkerAfterTask(worker: Worker) {
-    const ignoreLateWorkerError = () => undefined;
+// `worker.terminate()` is asynchronous: it resolves once the thread has actually
+// stopped, and until then the thread can still be running the code that holds
+// this task's inputs open. Closing a document deletes the working copy the
+// worker was reading, so that caller needs the arrival and not the request. The
+// task promise therefore waits for it.
+//
+// A stopped thread is not the same as a stopped process tree. Nothing in Node
+// reaps the children a worker spawned, so this fence only proves the JavaScript
+// side is done; a worker that unwound cooperatively reports what happened to its
+// native children on its result frame, and one that had to be force terminated
+// never got the chance to stop them at all.
+//
+// There is no stronger kill than `terminate()` for a worker thread, so a thread
+// wedged in native code has no completion fence left to offer. This harness
+// re-issues termination on a bounded schedule and keeps waiting rather than
+// pretending the worker stopped: the task stays unsettled, the main operation
+// that owns it stays pending, and the close path that owns the working copy
+// decides what to do about a dependency that will not let go. Reporting a wedged
+// worker as stopped would let that path delete a directory a live Poppler child
+// is still reading, which is the failure this bound exists to prevent.
+export const WORKER_TERMINATION_ESCALATION_INTERVAL_MS = 10_000;
+export const WORKER_TERMINATION_ESCALATION_LIMIT = 3;
+
+interface ITerminateWorkerAfterTaskOptions {
+    workerPath: string;
+    hasExited: () => boolean;
+}
+
+function attachLateWorkerErrorHandler(worker: Worker, workerPath: string) {
+    // `Worker` is an `EventEmitter`, so an 'error' event with no listener is
+    // rethrown into the main process. A worker that is still unwinding can emit
+    // one long after its task stopped listening, so this listener stays attached
+    // for the rest of the worker's life and keeps the late error below the
+    // severity that turns into a user-facing diagnostic.
+    worker.on('error', (error: unknown) => {
+        workerTaskLog.info(
+            `Worker emitted an error after its task settled: path=${workerPath} `
+            + `message=${getErrorMessage(error)}`,
+        );
+    });
+}
+
+async function terminateWorkerAfterTask(
+    worker: Worker,
+    {
+        workerPath,
+        hasExited,
+    }: ITerminateWorkerAfterTaskOptions,
+) {
     worker.removeAllListeners('message');
     worker.removeAllListeners('online');
     worker.removeAllListeners('exit');
     worker.removeAllListeners('error');
-    worker.on('error', ignoreLateWorkerError);
-    void worker.terminate().catch(() => undefined).finally(() => {
-        worker.removeListener('error', ignoreLateWorkerError);
+    attachLateWorkerErrorHandler(worker, workerPath);
+    if (hasExited()) {
+        return;
+    }
+
+    let resolveStopped: (() => void) | null = null;
+    const stopped = new Promise<void>((resolve) => {
+        resolveStopped = resolve;
     });
+    const markStopped = () => {
+        resolveStopped?.();
+    };
+    // Two things prove the thread is gone: the 'exit' event, and `terminate()`
+    // resolving. A rejected termination request proves nothing about the thread,
+    // so it falls through to the exit event instead.
+    worker.once('exit', markStopped);
+    const reportUnprovenTermination = (attempt: number, error: unknown) => {
+        workerTaskLog.warn(
+            `Worker termination request did not complete: path=${workerPath} attempt=${attempt} `
+            + `message=${getErrorMessage(error)}; waiting for the worker to exit`,
+        );
+    };
+    // `worker.terminate()` can also fail synchronously. Evaluating the call
+    // inside `Promise.resolve(...)` lets that throw escape past the rejection
+    // handler and unwind `finalize`, where the task would look complete while
+    // the thread is still running. A synchronous throw proves exactly as little
+    // as a rejected promise, so both land in the same waiting state.
+    const requestTermination = (attempt: number) => {
+        let termination: Promise<number>;
+        try {
+            termination = Promise.resolve(worker.terminate());
+        } catch (error) {
+            reportUnprovenTermination(attempt, error);
+            return;
+        }
+        void termination.then(markStopped, (error: unknown) => {
+            reportUnprovenTermination(attempt, error);
+        });
+    };
+
+    let attempts = 1;
+    let escalationTimer: NodeJS.Timeout | null = null;
+    const scheduleEscalation = () => {
+        escalationTimer = setTimeout(() => {
+            if (attempts >= WORKER_TERMINATION_ESCALATION_LIMIT) {
+                // A wedged worker is a quarantine, not an application fault: the
+                // task stays unsettled and the working-copy owner retains the
+                // bytes. Reporting it at error level would turn a contained,
+                // correct outcome into a user-facing runtime report.
+                workerTaskLog.warn(
+                    `Worker has not stopped after ${attempts} termination requests over `
+                    + `${attempts * WORKER_TERMINATION_ESCALATION_INTERVAL_MS}ms: path=${workerPath}. `
+                    + 'Its task stays unsettled so nothing reclaims resources the worker may still be reading',
+                );
+                return;
+            }
+            attempts += 1;
+            workerTaskLog.warn(
+                `Worker has not stopped ${WORKER_TERMINATION_ESCALATION_INTERVAL_MS}ms after termination was `
+                + `requested: path=${workerPath}; re-issuing terminate (attempt ${attempts})`,
+            );
+            requestTermination(attempts);
+            scheduleEscalation();
+        }, WORKER_TERMINATION_ESCALATION_INTERVAL_MS);
+        escalationTimer.unref?.();
+    };
+
+    requestTermination(attempts);
+    scheduleEscalation();
+    try {
+        await stopped;
+    } finally {
+        if (escalationTimer) {
+            clearTimeout(escalationTimer);
+        }
+    }
 }
 
 function postWorkerCancelMessage(worker: Worker, message: unknown) {
@@ -264,6 +436,7 @@ function attachWorkerHandlers<T>({
     } = options;
     let settled = false;
     let online = false;
+    let workerExited = false;
     let timeout: NodeJS.Timeout | null = null;
     let inactivityTimeout: NodeJS.Timeout | null = null;
     let cooperativeCancelTimer: NodeJS.Timeout | null = null;
@@ -293,8 +466,10 @@ function attachWorkerHandlers<T>({
         }
         settled = true;
         cleanup();
-        terminateWorkerAfterTask(worker);
-        callback();
+        void terminateWorkerAfterTask(worker, {
+            workerPath: options.workerPath,
+            hasExited: () => workerExited,
+        }).then(callback, callback);
     };
 
     const requestCancel = (reason: 'abort' | 'timeout', error: unknown) => {
@@ -317,11 +492,24 @@ function attachWorkerHandlers<T>({
         hasPendingCancelError = true;
         cleanup();
         postWorkerCancelMessage(worker, cancelMessage);
+        const cooperativeCancelDelayMs = options.cooperativeCancelDelayMs ?? 1_000;
         cooperativeCancelTimer = setTimeout(() => {
+            // `worker.terminate()` stops the thread. It does not stop the
+            // processes that thread spawned, and a worker that never answered
+            // the cooperative cancel never got to stop them either. Whatever
+            // those children were reading has to be treated as still open.
+            workerTaskLog.warn(
+                `Worker did not acknowledge cancellation within ${cooperativeCancelDelayMs}ms: `
+                + `path=${options.workerPath}; force terminating with its native children unaccounted for`,
+            );
             finalize(() => {
-                reject(error);
+                reject(markUnprovenNativeTermination(
+                    error,
+                    `worker ${options.workerPath} was force terminated after ignoring cancellation for `
+                    + `${cooperativeCancelDelayMs}ms; native processes it spawned were never confirmed stopped`,
+                ));
             });
-        }, options.cooperativeCancelDelayMs ?? 1_000);
+        }, cooperativeCancelDelayMs);
         cooperativeCancelTimer.unref?.();
     };
 
@@ -374,7 +562,13 @@ function attachWorkerHandlers<T>({
         }
         finalize(() => {
             if (hasPendingCancelError) {
-                reject(pendingCancelError);
+                // The cancellation is the outcome, so the abort reason stays the
+                // rejection. What the worker reported about its own stop still
+                // matters though: a run that could not prove its native tree
+                // died is the reason the working-copy owner keeps the bytes, and
+                // dropping that here would strand the evidence on the discarded
+                // frame.
+                reject(withWorkerReportedTerminationProof(pendingCancelError, payload));
                 return;
             }
             const resultPayload = parseResultWorkerPayload(payload);
@@ -383,12 +577,19 @@ function attachWorkerHandlers<T>({
                 return;
             }
             if (!resultPayload.ok) {
-                workerTaskLog.error(
-                    `Worker reported failure: path=${options.workerPath} `
+                const workerError = createWorkerTaskError(resultPayload);
+                const summary = `path=${options.workerPath} `
                     + `elapsedMs=${Math.round(performance.now() - startedAt)} `
-                    + `message=${resultPayload.error}`,
-                );
-                reject(createWorkerTaskError(resultPayload));
+                    + `message=${resultPayload.error}`;
+                // A worker that reports its own abort is finishing the
+                // cancellation it was asked for, not failing.
+                if (workerError.canceled) {
+                    workerTaskLog.info(`Worker reported cancellation: ${summary}`);
+                } else {
+                    workerTaskLog.error(`Worker reported failure: ${summary}`);
+                    markWorkerTaskErrorReported(workerError);
+                }
+                reject(workerError);
                 return;
             }
             if (decodeResult) {
@@ -398,7 +599,7 @@ function attachWorkerHandlers<T>({
                         `Worker returned an invalid result: path=${options.workerPath} `
                         + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
                     );
-                    reject(new Error(invalidResultMessage ?? invalidPayloadMessage));
+                    reject(markWorkerTaskErrorReported(new Error(invalidResultMessage ?? invalidPayloadMessage)));
                     return;
                 }
                 workerTaskLog.debug(
@@ -423,47 +624,58 @@ function attachWorkerHandlers<T>({
     }
 
     worker.once('error', (error) => {
-        workerTaskLog.error(
-            `Worker emitted an error: path=${options.workerPath} `
+        const summary = `path=${options.workerPath} `
             + `online=${online} elapsedMs=${Math.round(performance.now() - startedAt)} `
-            + `message=${getErrorMessage(error)}`,
-        );
+            + `message=${getErrorMessage(error)}`;
+        // A worker torn down by a cancellation already in flight is expected to
+        // die noisily; the cancellation is the outcome, so it is not an app error.
+        if (hasPendingCancelError) {
+            workerTaskLog.info(`Worker emitted an error while cancelling: ${summary}`);
+        } else {
+            workerTaskLog.error(`Worker emitted an error: ${summary}`);
+        }
         finalize(() => {
             if (hasPendingCancelError) {
                 reject(pendingCancelError);
                 return;
             }
             if (!online && createStartupError) {
-                reject(createStartupError(getErrorMessage(error)));
+                reject(markWorkerTaskErrorReported(createStartupError(getErrorMessage(error))));
                 return;
             }
-            reject(toError(error));
+            reject(markWorkerTaskErrorReported(toError(error)));
         });
     });
 
     worker.once('exit', (code) => {
+        // Recorded before the settled check so a task that finalized on another
+        // event knows the thread is already gone and has nothing left to await.
+        workerExited = true;
         if (settled) {
             return;
         }
-        workerTaskLog.error(
-            `Worker exited before returning a result: path=${options.workerPath} `
+        const summary = `path=${options.workerPath} `
             + `code=${code} online=${online} `
-            + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
-        );
+            + `elapsedMs=${Math.round(performance.now() - startedAt)}`;
+        if (hasPendingCancelError) {
+            workerTaskLog.info(`Worker exited while cancelling: ${summary}`);
+        } else {
+            workerTaskLog.error(`Worker exited before returning a result: ${summary}`);
+        }
         finalize(() => {
             if (hasPendingCancelError) {
                 reject(pendingCancelError);
                 return;
             }
             if (code === 0) {
-                reject(new Error(invalidResultMessage ?? invalidPayloadMessage));
+                reject(markWorkerTaskErrorReported(new Error(invalidResultMessage ?? invalidPayloadMessage)));
                 return;
             }
             if (!online && createStartupExitError) {
-                reject(createStartupExitError(code));
+                reject(markWorkerTaskErrorReported(createStartupExitError(code)));
                 return;
             }
-            reject(createWorkerExitError(code));
+            reject(markWorkerTaskErrorReported(createWorkerExitError(code)));
         });
     });
 

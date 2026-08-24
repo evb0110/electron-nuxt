@@ -101,7 +101,7 @@ export interface IMainJobStartOptions<
 > {
     jobId?: string;
     owner: IMainJobActor<TSender>;
-    operation: Pick<IMainOperationRegistration, 'kind' | 'workingCopyPath'>;
+    operation: Pick<IMainOperationRegistration, 'kind' | 'workingCopyPath' | 'cancelOnWorkingCopyClose'>;
     initialProgress: TProgress;
     duplicate?: 'reject' | 'join';
     ownerLifecycle?: IMainJobOwnerLifecyclePolicy;

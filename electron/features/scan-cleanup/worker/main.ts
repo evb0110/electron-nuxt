@@ -7,6 +7,8 @@ import type {TScanCleanupProgress} from '@contracts/electronApiScanCleanup';
 import { decodeScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { createLogger } from '@electron/utils/createLogger';
 import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
+import { isAbortError } from '@electron/utils/abort';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import {
     runScanCleanupPipeline,
     type IRunScanCleanupPipelineRequest,
@@ -67,10 +69,22 @@ try {
         + `durationMs=${String(Math.round(performance.now() - startedAt))}`,
     );
 } catch (error) {
-    logger.error(
-        `Run failed after ${String(Math.round(performance.now() - startedAt))} ms: `
-        + (error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error)),
-    );
+    const elapsedMs = String(Math.round(performance.now() - startedAt));
+    // A cancelled run ends by throwing the abort reason. That is the requested
+    // outcome, so it is reported as the end of the run and not as a failure.
+    const unprovenTermination = getUnprovenNativeTerminationDetail(error);
+    if (unprovenTermination !== undefined) {
+        // Main quarantines the source working copy on this. It is a contained
+        // outcome rather than an application fault, so it stays at warn.
+        logger.warn(`Run stopped after ${elapsedMs} ms without proving its native tree died: ${unprovenTermination}`);
+    } else if (abortController.signal.aborted || isAbortError(error)) {
+        logger.info(`Run canceled after ${elapsedMs} ms`);
+    } else {
+        logger.error(
+            `Run failed after ${elapsedMs} ms: `
+            + (error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error)),
+        );
+    }
     port.postMessage({
         type: 'result',
         ok: false,

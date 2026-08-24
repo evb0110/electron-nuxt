@@ -10,6 +10,14 @@ export interface IMainOperationRegistration {
     ownerWebContentsId?: number | undefined;
     workingCopyPath?: string | undefined;
     cancel?: ((reason: string) => void | Promise<void>) | undefined;
+    /**
+     * Whether closing `workingCopyPath` may cancel this operation. Long-running
+     * work that only consumes the working copy says yes; the pipelines that
+     * write the working copy itself drain instead, so they stay out of the
+     * close predicate even though they carry a cancel hook for shutdown.
+     * Defaults to `kind === 'abortable-work'`.
+     */
+    cancelOnWorkingCopyClose?: boolean | undefined;
 }
 
 export interface IRegisteredMainOperation {
@@ -18,6 +26,23 @@ export interface IRegisteredMainOperation {
     markCommitStarted: () => void;
     complete: () => void;
 }
+
+export interface ICanceledMainOperation {
+    id: string;
+    kind: TMainOperationKind;
+    workingCopyPath: string;
+    settled: Promise<void>;
+}
+
+/**
+ * A working copy path is not an identity. The same path can be retired and
+ * re-registered while a close is unwinding the previous registration's
+ * dependents, and the operations that join the replacement belong to a document
+ * nobody asked to close. The closing caller owns the registration, so it is the
+ * only party that can say whether it still does, and it hands that check to
+ * every cancellation round rather than being trusted to have checked once.
+ */
+export interface IClosingWorkingCopyOwnership {isRegistrationCurrent: () => boolean;}
 
 export interface IMainOperationSnapshot {
     id: string;
@@ -34,6 +59,7 @@ interface IMainOperationRecord {
     ownerWebContentsId?: number | undefined;
     workingCopyPath?: string | undefined;
     cancel?: ((reason: string) => void | Promise<void>) | undefined;
+    cancelOnWorkingCopyClose: boolean;
     controller: AbortController;
     commitStarted: boolean;
     complete: () => void;
@@ -70,6 +96,7 @@ export function registerMainOperation(
         ownerWebContentsId: registration.ownerWebContentsId,
         workingCopyPath: registration.workingCopyPath,
         cancel: registration.cancel,
+        cancelOnWorkingCopyClose: registration.cancelOnWorkingCopyClose ?? registration.kind === 'abortable-work',
         controller,
         commitStarted: false,
         done,
@@ -129,20 +156,107 @@ export function cancelAllMainOperations(reason: string): void {
 // that keeps burning CPU for minutes afterwards. Only operations that carry
 // their own cancel hook qualify: a materialization flight registers without one
 // because the close path decides on its own whether to join or cancel it.
-export function cancelAbortableMainOperationsForWorkingCopy(workingCopyPath: string, reason: string) {
-    let canceled = 0;
+//
+// A `critical-write` qualifies too when it opts in. Scan cleanup registers as
+// one so its output publication owns a protected commit boundary, but before
+// that boundary it is still work reading the working copy, and closing the
+// source document is the user asking for it to stop. Once `markCommitStarted()`
+// has run the operation is publishing rather than reading and keeps its
+// protection.
+function isCancellableForClosingWorkingCopy(operation: IMainOperationRecord) {
+    if (!operation.cancel || !operation.cancelOnWorkingCopyClose) {
+        return false;
+    }
+    return operation.kind !== 'critical-write' || !operation.commitStarted;
+}
+
+// Returns `null` when the caller no longer owns the registration it is closing.
+// Nothing is cancelled in that case: the operations now sharing this path answer
+// to a registration that is not being closed, and stopping them would cancel a
+// document the user just opened. The caller treats `null` as "hands off": it
+// retires nothing and deletes nothing.
+export function cancelMainOperationsForClosingWorkingCopy(
+    workingCopyPath: string,
+    reason: string,
+    ownership: IClosingWorkingCopyOwnership,
+): ICanceledMainOperation[] | null {
+    // Read once, immediately before the loop. The loop itself has no await, so
+    // no registration can change between this check and the last cancel it
+    // issues.
+    if (!ownership.isRegistrationCurrent()) {
+        return null;
+    }
+    const canceled: ICanceledMainOperation[] = [];
     for (const operation of operations.values()) {
         if (
-            operation.kind !== 'abortable-work'
-            || operation.workingCopyPath !== workingCopyPath
-            || !operation.cancel
+            operation.workingCopyPath !== workingCopyPath
+            || !isCancellableForClosingWorkingCopy(operation)
         ) {
             continue;
         }
         requestOperationCancel(operation, reason);
-        canceled += 1;
+        canceled.push({
+            id: operation.id,
+            kind: operation.kind,
+            workingCopyPath,
+            settled: operation.done,
+        });
     }
     return canceled;
+}
+
+// The dependents a close would have stopped, as they stand right now. After a
+// settled cancel-and-wait loop this is empty; anything in it registered after
+// the last round, so it was never asked to stop and is still reading the bytes
+// the caller is about to delete. The pipelines that write the working copy
+// itself are excluded for the same reason they are excluded from cancellation:
+// they drain, and the drain has already run by the time this is asked.
+export function snapshotCancellableWorkingCopyDependents(workingCopyPath: string): IMainOperationSnapshot[] {
+    return [...operations.values()]
+        .filter(operation => (
+            operation.workingCopyPath === workingCopyPath
+            && isCancellableForClosingWorkingCopy(operation)
+        ))
+        .map(toMainOperationSnapshot);
+}
+
+// Cancellation is a request, not an arrival. A canceled scan-cleanup job still
+// has to unwind a cooperative worker cancel and, when the worker will not stop,
+// a bounded force termination before its Poppler children let go of the working
+// copy. The caller deleting that directory has to wait for the operation record
+// to be completed, not merely aborted.
+export async function waitForMainOperationsSettled(
+    canceledOperations: readonly ICanceledMainOperation[],
+    options: {timeoutMs: number},
+): Promise<{
+    settled: boolean;
+    pending: IMainOperationSnapshot[];
+}> {
+    if (canceledOperations.length === 0) {
+        return {
+            settled: true,
+            pending: [],
+        };
+    }
+    const outcome = await Promise.race([
+        Promise.allSettled(canceledOperations.map(operation => operation.settled))
+            .then(() => 'settled' as const),
+        createTimeoutPromise(options.timeoutMs),
+    ]);
+    if (outcome === 'settled') {
+        // Every operation completed, which is what removes its record. There is
+        // nothing left to describe, and the registry is only consulted on the
+        // timeout path, where the caller needs to name what would not stop.
+        return {
+            settled: true,
+            pending: [],
+        };
+    }
+    const pendingIds = new Set(canceledOperations.map(operation => operation.id));
+    return {
+        settled: false,
+        pending: snapshotMainOperations().filter(operation => pendingIds.has(operation.id)),
+    };
 }
 
 export async function drainCriticalMainOperations(options: {timeoutMs: number}): Promise<{
@@ -171,15 +285,19 @@ export async function drainCriticalMainOperations(options: {timeoutMs: number}):
     };
 }
 
-export function snapshotMainOperations(): IMainOperationSnapshot[] {
-    return [...operations.values()].map(operation => ({
+function toMainOperationSnapshot(operation: IMainOperationRecord): IMainOperationSnapshot {
+    return {
         id: operation.id,
         kind: operation.kind,
         ...(operation.ownerWebContentsId === undefined ? {} : {ownerWebContentsId: operation.ownerWebContentsId}),
         ...(operation.workingCopyPath === undefined ? {} : {workingCopyPath: operation.workingCopyPath}),
         commitStarted: operation.commitStarted,
         aborted: operation.controller.signal.aborted,
-    }));
+    };
+}
+
+export function snapshotMainOperations(): IMainOperationSnapshot[] {
+    return [...operations.values()].map(toMainOperationSnapshot);
 }
 
 export function resetMainOperationLifecycleForTests(): void {

@@ -61,6 +61,8 @@ import {
     isWorkingCopyOriginalPathRegistered,
 } from '@electron/file-access/workingCopyStore';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
+import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
 
 interface IScanCleanupJobResult {
@@ -485,6 +487,11 @@ export function createScanCleanupService(
                         // first enters a non-cancelable commit state.
                         kind: 'critical-write',
                         workingCopyPath: request.sourcePdfPath,
+                        // Before that commit boundary the job is reading the
+                        // source working copy, so closing the document tab is a
+                        // cancellation request the close path must be able to
+                        // make and then wait on.
+                        cancelOnWorkingCopyClose: true,
                     },
                     initialProgress: {
                         jobId,
@@ -596,6 +603,16 @@ export function createScanCleanupService(
                                 completedPageNumbers,
                             };
                         } catch (error) {
+                            // The run stopped, but its native tree may not have.
+                            // Whoever closes this document next must not delete
+                            // the source bytes a surviving Poppler child could
+                            // still be reading, so the unprovable stop is
+                            // recorded against the path rather than dropped with
+                            // the rejection.
+                            const unprovenTermination = getUnprovenNativeTerminationDetail(error);
+                            if (unprovenTermination !== undefined) {
+                                quarantineWorkingCopy(request.sourcePdfPath, unprovenTermination);
+                            }
                             await rm(dirname(outputPdfPath), {
                                 recursive: true,
                                 force: true,
