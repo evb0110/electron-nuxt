@@ -44,7 +44,13 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
     }
     function reconcileInitialVisual() {
         const current = readExactInitialCommit(true);
-        if (!current
+        if (
+            !current
+            || !isPdfInitialVisualCanvasReady(
+                options.viewerContainer.value,
+                current.pageNumber,
+                viewport.currentPage.value,
+            )
             || current.snapshot.phase === 'viewport-committed' && !current.surface.markReady(current.render)
         ) {
             return;
@@ -55,11 +61,6 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
             || (
                 pendingReadyToken === null
                 && lastEmittedReadyGeneration === ready.snapshot.generation
-            )
-            || !isPdfInitialVisualCanvasReady(
-                options.viewerContainer.value,
-                ready.pageNumber,
-                viewport.currentPage.value,
             )
         ) {
             return;

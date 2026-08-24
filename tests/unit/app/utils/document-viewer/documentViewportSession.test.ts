@@ -101,6 +101,10 @@ class SessionHarness {
             type: 'viewport-committed',
             fence: viewportFence(this.state),
         }).accepted).toBe(true);
+        expect(this.dispatch({
+            type: 'visual-ready',
+            fence: render,
+        }).accepted).toBe(true);
     }
 }
 
@@ -264,6 +268,10 @@ describe('DocumentViewportSession', () => {
         harness.dispatch({
             type: 'viewport-committed',
             fence: viewportFence(harness.state),
+        });
+        harness.dispatch({
+            type: 'visual-ready',
+            fence: render,
         });
         expect(harness.state.visual).toMatchObject({
             kind: 'page',

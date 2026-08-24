@@ -25,6 +25,7 @@ import {
     resolveDocumentViewportCurrentPage,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 export interface IDocumentViewerChassisAuthority {
     readonly instanceId: string;
@@ -182,12 +183,19 @@ export function createDocumentViewerChassisAuthority(
             // exposes the opening frame so a stale empty-state/native scroll
             // offset cannot move the shell before the renderer commits.
             const intent = viewportWritePort.beginIntent(`document-open:${String(generation)}`);
-            if (viewportWritePort.apply(viewport, {
+            const applied = viewportWritePort.apply(viewport, {
                 intent,
                 reason: 'document-open-origin',
                 left: 0,
                 top: 0,
-            })) {
+            });
+            logPdfRenderTrace('document-open-origin', {
+                generation,
+                applied,
+                actualLeft: viewport.scrollLeft,
+                actualTop: viewport.scrollTop,
+            });
+            if (applied) {
                 resetOpeningViewportGeneration = generation;
             }
         },

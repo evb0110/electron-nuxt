@@ -17,6 +17,7 @@ import {
     type IDocumentOpenSurfaceSession,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { createPageNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
@@ -54,6 +55,7 @@ import type { IPdfViewportPositionCommit } from '@app/modules/pdf-viewer/runtime
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import { reconcilePdfOpeningViewportCommit } from '@app/modules/pdf-viewer/runtime/viewport/reconcilePdfOpeningViewportCommit';
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
+import { createPdfViewportUserNavigationEpochs } from '@app/modules/pdf-viewer/runtime/viewport/createPdfViewportUserNavigationEpochs';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type { IResizeTransitionSignal } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
@@ -182,7 +184,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     const chassisAuthority = options.chassisAuthority;
     const viewportWritePort = options.viewportWritePort;
     const pageSlots = createPdfPageSlotRegistry();
-    const userViewportInteractionEpoch = ref(0);
+    const navigationEpochs = createPdfViewportUserNavigationEpochs();
+    const { userViewportInteractionEpoch } = navigationEpochs;
     const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
     const resizeTransitionVisible = ref(false);
     const resizeTransitionAnchorPage = ref<number | null>(null);
@@ -621,9 +624,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         pendingMandatoryRaster = null;
         publishDemand();
     }
-    // `pagesToRender` can be disjoint, so its watch key needs every page; caching
-    // the join keeps this sync watcher off an O(mounted pages) string build on
-    // every unrelated dependency change.
+    // `pagesToRender` can be disjoint, so its watch key needs every page. Cache
+    // the join to avoid an O(mounted pages) string build on unrelated changes.
     const renderedPagesKey = computed(() => viewModel.pagesToRender.value.join(','));
     watch(
         () => [
@@ -665,10 +667,13 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             scale.scaledMargin.value,
             scrollOptions,
         );
-        return singlePageScroll.commitCurrentViewportPosition(
+        const committed = singlePageScroll.commitCurrentViewportIfSettled(pageNumber);
+        logPdfRenderTrace('pdf-reload-viewport-reanchor', {
             pageNumber,
-            `reload-viewport-${String(documentSession.captureFence().loadToken)}-${String(pageNumber)}`,
-        );
+            afterScrollTop: options.viewerContainer.value?.scrollTop ?? null,
+            committed,
+        });
+        return committed;
     }
     function settleVisualReloadTransition(reason: string) {
         if (visualReloadTransitionToken === null) {
@@ -821,7 +826,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             options.emitCurrentPage(authority.currentPage.value);
             return;
         }
-        userViewportInteractionEpoch.value += 1;
+        navigationEpochs.markScrollInteraction();
         // A direct scroll can arrive without a preceding wheel/pointer event
         // (scrollbar drags, accessibility input, or automation). Clear the
         // retained navigation row at the scroll boundary so virtualization
@@ -864,7 +869,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         resizeTransitionAnchorPage.value = null;
     });
     function markUserViewportInteraction() {
-        userViewportInteractionEpoch.value += 1;
+        navigationEpochs.markPhysicalNavigation();
         singlePageScroll.cancelProgrammaticNavigation('user-viewport-interaction');
     }
     function handleLinkDestination(dest: NonNullable<ILinkAnnotation['dest']>) {
@@ -1137,6 +1142,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         navigationCommittedSignal: shallowReadonly(navigationCommittedSignal),
         pageSlots,
         userViewportInteractionEpoch,
+        userPhysicalNavigationEpoch: navigationEpochs.userPhysicalNavigationEpoch,
+        beginLayoutGeometryReplacement: navigationEpochs.beginLayoutGeometryReplacement,
         resizeTransitionVisible,
         resizeTransitionAnchorPage,
         zoomVirtualizationFreeze,

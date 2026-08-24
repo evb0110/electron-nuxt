@@ -136,6 +136,10 @@ export type TDocumentViewportSessionEvent =
         readonly fence: IDocumentViewportCommitFence
     }
     | {
+        readonly type: 'visual-ready';
+        readonly fence: IDocumentViewportRenderFence
+    }
+    | {
         readonly type: 'skeleton-delay-elapsed';
         readonly generation: number;
         readonly token: string;
@@ -368,7 +372,7 @@ function settleIfComplete(state: IDocumentViewportSessionState) {
     }
     return {
         ...state,
-        lifecycle: 'ready' as const,
+        lifecycle: state.lifecycle === 'failed' ? 'opening' as const : state.lifecycle,
         committedPage: render.pageNumber,
         observedPage: null,
         stagedRenderFence: null,
@@ -735,6 +739,27 @@ export function reduceDocumentViewportSession(
         case 'canvas-committed':
         case 'viewport-committed':
             return reduceCommit(state, event);
+        case 'visual-ready':
+            if (
+                ![
+                    'opening',
+                    'transitioning',
+                ].includes(state.lifecycle)
+                || !fenceTargetsCurrentIntent(state, event.fence)
+                || state.committedPage !== event.fence.pageNumber
+                || state.committedRenderFence === null
+                || !renderFenceMatches(state.committedRenderFence, event.fence)
+                || state.committedViewportFence?.pageNumber !== event.fence.pageNumber
+                || state.visual.kind !== 'page'
+                || state.visual.pageNumber !== event.fence.pageNumber
+                || state.visual.presentation !== 'canvas'
+            ) {
+                return reject(state);
+            }
+            return accept({
+                ...state,
+                lifecycle: 'ready',
+            });
         case 'skeleton-delay-elapsed': {
             const delay = state.skeletonDelay;
             if (!delay || delay.generation !== event.generation || delay.token !== event.token) {

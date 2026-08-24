@@ -41,6 +41,7 @@ import { usePdfViewerRenderStallRecovery } from '@app/modules/pdf-viewer/runtime
 import { usePdfViewerInitialRenderRecovery } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerInitialRenderRecovery';
 import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore';
 import { createPdfInitialVisualCommit } from '@app/modules/pdf-viewer/runtime/lifecycle/createPdfInitialVisualCommit';
+import { createPdfRasterQualityRefineGate } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRasterQualityRefineGate';
 import type { ICurrentPageSyncOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import type { IZoomViewportAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
@@ -50,7 +51,6 @@ import type {
     TPdfViewportSession,
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import { DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS } from '@app/utils/document-viewer/input/documentWheelInteraction';
-const QUALITY_REFINE_INPUT_IDLE_MS = 160;
 const PDF_RASTER_SCALE_RELATIVE_TOLERANCE = 0.000_1;
 export interface ICreatePdfRenderingSessionOptions {
     document: TPdfDocumentSession;
@@ -738,9 +738,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         return isCommittedVisual(pageNumber);
     }
     let frameId: number | null = null;
-    let qualityRefineIdleTimer: number | null = null;
-    let observedViewportInteractionEpoch = viewport.userViewportInteractionEpoch.value;
-    let lastViewportInteractionAtMs = Date.now();
     let activeMandatoryRasterId: number | null = null;
     let disposed = false;
     let mandatoryDemandTaskId: number | null = null;
@@ -753,42 +750,12 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             if (!disposed) reconcileDemand();
         }, 0);
     }
-    function clearQualityRefineIdleTimer() {
-        if (qualityRefineIdleTimer !== null) {
-            window.clearTimeout(qualityRefineIdleTimer);
-            qualityRefineIdleTimer = null;
-        }
-    }
-    function synchronizeViewportInteractionEpoch() {
-        const epoch = viewport.userViewportInteractionEpoch.value;
-        if (epoch !== observedViewportInteractionEpoch) {
-            observedViewportInteractionEpoch = epoch;
-            lastViewportInteractionAtMs = Date.now();
-            clearQualityRefineIdleTimer();
-        }
-    }
-    function canRefineVisibleRaster() {
-        if ((options.performancePolicy.clampedVisibleRefineMode ?? 'immediate') === 'immediate') {
-            return true;
-        }
-        synchronizeViewportInteractionEpoch();
-        const remainingIdleMs = QUALITY_REFINE_INPUT_IDLE_MS - (Date.now() - lastViewportInteractionAtMs);
-        const scheduling = typeof navigator === 'undefined'
-            ? undefined
-            : (navigator as Navigator & {scheduling?: {isInputPending?: () => boolean}}).scheduling;
-        if (
-            remainingIdleMs <= 0
-            && viewport.transactionController.activeTransaction.value === null
-            && !(typeof scheduling?.isInputPending === 'function' && scheduling.isInputPending())
-        ) {
-            return true;
-        }
-        qualityRefineIdleTimer ??= window.setTimeout(() => {
-            qualityRefineIdleTimer = null;
-            queueFrame();
-        }, Math.max(remainingIdleMs, QUALITY_REFINE_INPUT_IDLE_MS));
-        return false;
-    }
+    const qualityRefineGate = createPdfRasterQualityRefineGate({
+        getClampedVisibleRefineMode: () => options.performancePolicy.clampedVisibleRefineMode,
+        getUserViewportInteractionEpoch: () => viewport.userViewportInteractionEpoch.value,
+        hasActiveTransaction: () => viewport.transactionController.activeTransaction.value !== null,
+        requestReconcileFrame: () => queueFrame(),
+    });
     function queueFrame() {
         if (disposed || frameId !== null) {
             return;
@@ -799,7 +766,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         });
     }
     function reconcileDemand() {
-        synchronizeViewportInteractionEpoch();
+        qualityRefineGate.synchronizeViewportInteractionEpoch();
         const demand = latestDemand;
         if (!demand.operational) {
             if (demand.mandatoryRaster) {
@@ -852,7 +819,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         const promotion = pageRenderer.resolveLayerPromotionDemand(demand.requiredPages);
         if (promotion) {
-            clearQualityRefineIdleTimer();
+            qualityRefineGate.clearIdleTimer();
             void renderVisiblePages(promotion.range, promotion.options);
             return;
         }
@@ -862,10 +829,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 && slot.committedRasterQuality?.wasClamped === true
                 && slot.committedRasterQuality.intent === 'buffer-preview';
         });
-        if (refinePage === undefined || !canRefineVisibleRaster()) {
+        if (refinePage === undefined || !qualityRefineGate.canRefineVisibleRaster()) {
             return;
         }
-        clearQualityRefineIdleTimer();
+        qualityRefineGate.clearIdleTimer();
         void renderVisiblePages({
             start: refinePage,
             end: refinePage,
@@ -1017,6 +984,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         cancelDestinationNavigationTarget: () => viewport.singlePageScroll.cancelDestinationNavigationTarget(),
         resetZoomRerenderQueueState: reason => zoomRerenderQueue.resetZoomRerenderQueueState(reason),
         getUserViewportInteractionEpoch: () => viewport.userViewportInteractionEpoch.value,
+        getUserPhysicalNavigationEpoch: () => viewport.userPhysicalNavigationEpoch.value,
+        beginLayoutGeometryReplacement: viewport.beginLayoutGeometryReplacement,
         consumeZoomViewportAnchor: options.consumeZoomViewportAnchor,
         submitZoomViewportStateIntent: viewport.submitZoomViewportStateIntent,
         beginResizeTransition,
@@ -1156,7 +1125,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             window.cancelAnimationFrame(frameId);
         }
         if (mandatoryDemandTaskId !== null) window.clearTimeout(mandatoryDemandTaskId);
-        clearQualityRefineIdleTimer();
+        qualityRefineGate.clearIdleTimer();
         if (latestDemand.mandatoryRaster) {
             viewport.settleMandatoryRaster(latestDemand.mandatoryRaster.id);
         }

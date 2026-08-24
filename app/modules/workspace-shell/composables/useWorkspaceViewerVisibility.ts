@@ -54,7 +54,10 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
         || options.isRestoringSplitPayload.value
         || options.isExternallyRestoring.value
     ));
-    const toolbarShowSidebar = computed(() => (
+    // Whether a sidebar may exist at all: the user's persisted preference and
+    // the active driver's capability. Which document generation is allowed to
+    // present one is decided by `useWorkspaceSidebarOpenGeneration`.
+    const sidebarPresentationEnabled = computed(() => (
         options.showSidebar.value
         && activeDriverCapabilities.value?.sidebar === true
     ));
@@ -84,7 +87,7 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
         isDocumentBusy,
         toolbarDocumentBusy,
         toolbarHasPdf,
-        toolbarShowSidebar,
+        sidebarPresentationEnabled,
         canToggleSidebar,
         canRepairSave,
         canOptimizePdf: canRepairSave,

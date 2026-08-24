@@ -103,6 +103,18 @@ export interface IUsePdfViewerRerenderCoordinatorOptions {
     cancelDestinationNavigationTarget?: (() => void) | undefined;
     resetZoomRerenderQueueState: (reason: string) => void;
     getUserViewportInteractionEpoch?: (() => number) | undefined;
+    /**
+     * Advances only for scroll the user aimed at the viewport. A fit change
+     * rewrites every row's height and the browser answers with its own scroll,
+     * which advances the interaction epoch; guarding the fit re-anchor on that
+     * epoch makes the command cancel itself.
+     */
+    getUserPhysicalNavigationEpoch?: (() => number) | undefined;
+    /**
+     * Opens a window in which viewer-authored layout replacement, not the user,
+     * owns any scroll the browser emits. Returns the closer.
+     */
+    beginLayoutGeometryReplacement?: (() => () => void) | undefined;
     consumeZoomViewportAnchor?: (() => IZoomViewportAnchor | null) | undefined;
     submitZoomViewportStateIntent?: ((zoom: number) => void) | undefined;
     beginResizeTransition: (source: string, anchorPage: number | null) => number;

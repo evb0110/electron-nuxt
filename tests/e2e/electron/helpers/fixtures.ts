@@ -1305,6 +1305,26 @@ export function createPngFixture(filename: string) {
     return filePath;
 }
 
+export function createCorruptPdfFixture(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    // The PDF signature makes the direct-open route claim this as a PDF, but
+    // the truncated object and missing cross-reference table make it
+    // impossible for either preflight validation or PDF.js to accept.
+    writeFileSync(filePath, Buffer.from([
+        '%PDF-1.7',
+        '1 0 obj',
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        'endobj',
+        '2 0 obj',
+        '<< /Type /Pages /Count 1 /Kids [3 0 R] >>',
+        'endobj',
+        '3 0 obj',
+        '<< /Type /Page /Parent 2 0 R',
+    ].join('\n')));
+    return filePath;
+}
+
 export async function createBlankFixturePdf(filename: string, pageCount = 1) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);

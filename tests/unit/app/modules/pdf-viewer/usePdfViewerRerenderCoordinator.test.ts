@@ -15,9 +15,26 @@ import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runti
 import type { IResizeAnchorContext } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle';
 import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationMachineState';
+import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
+
+/**
+ * The anchor a fit change re-projects onto: the top of the preserved page.
+ * Typed as the production anchor so a change to that contract fails here at
+ * compile time instead of leaving the assertions matching a stale shape.
+ */
+function fitTopAnchor(page: number): IPdfSemanticAnchor {
+    return {
+        page,
+        pageXFraction: 0.5,
+        pageYFraction: 0,
+        viewportXFraction: 0.5,
+        viewportYFraction: 0,
+        affinity: 'start',
+    };
+}
 
 function createResizeAnchor(page: number): IResizeAnchorContext {
     return {
@@ -85,6 +102,25 @@ async function flushCurrentPageFitRerender() {
 async function flushZoomOrchestrationHostTask() {
     await nextTick();
     await new Promise(resolve => setTimeout(resolve, 0));
+}
+
+// A fit change reprojects geometry on one scheduler round and starts the
+// replacement render on the next, so both rounds have to drain before the
+// re-anchor and the render order can be read.
+async function flushFitModeReplacementStart() {
+    await nextTick();
+    await Promise.resolve();
+    await nextTick();
+    await Promise.resolve();
+}
+
+// Settlement runs the other way round: the resolved replacement render is a
+// microtask, and the confirmation it schedules lands on the next tick.
+async function flushFitModeReplacementSettled() {
+    await Promise.resolve();
+    await nextTick();
+    await Promise.resolve();
+    await nextTick();
 }
 
 type TCoordinatorDeps = Parameters<typeof usePdfViewerRerenderCoordinator>[0];
@@ -681,11 +717,359 @@ describe('usePdfViewerRerenderCoordinator', () => {
         },
     );
 
-    it('reprojects fit-mode height changes after the replacement render settles', async () => {
+    it.each([
+        [
+            'height',
+            'width',
+        ],
+        [
+            'width',
+            'height',
+        ],
+    ] as const)(
+        're-anchors the committed page when a fit-%s replacement layout emits its own scroll',
+        async (nextFitMode, initialFitMode) => {
+            const fitMode = ref<'width' | 'height'>(initialFitMode);
+            const interactionEpoch = ref(7);
+            const physicalNavigationEpoch = ref(3);
+            const computeFitWidthScale = vi.fn(() => true);
+            const applyResizeAnchorPreview = vi.fn(() => true);
+            const replacementRender = createDeferred();
+            const reRenderAllVisiblePages = vi.fn<TReRenderAllVisiblePagesMock>(async () => {
+                // Replacement geometry moves every row, and the browser emits
+                // its own scroll for the clamped offset.
+                interactionEpoch.value += 1;
+                return replacementRender.promise;
+            });
+
+            usePdfViewerRerenderCoordinator(createDeps({
+                currentPage: ref(500),
+                numPages: ref(1859),
+                visibleRange: ref({
+                    start: 500,
+                    end: 500,
+                }),
+                zoomMode: computed(() => fitMode.value === 'height' ? 'fit-height' as const : 'fit-width' as const),
+                fitMode: computed(() => fitMode.value),
+                getVisibleRange: () => ({
+                    start: 500,
+                    end: 500,
+                }),
+                reRenderAllVisiblePages,
+                buildResizeAnchorContext: vi.fn(() => createResizeAnchor(500)),
+                computeFitWidthScale,
+                applyResizeAnchorPreview,
+                getUserViewportInteractionEpoch: () => interactionEpoch.value,
+                getUserPhysicalNavigationEpoch: () => physicalNavigationEpoch.value,
+                getMostVisiblePage: vi.fn(() => 500),
+            }));
+
+            fitMode.value = nextFitMode;
+            await flushFitModeReplacementStart();
+
+            expect(applyResizeAnchorPreview).toHaveBeenCalledWith(fitTopAnchor(500));
+            expect(applyResizeAnchorPreview.mock.invocationCallOrder[0]!).toBeLessThan(
+                reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
+            );
+            expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
+                expect.any(Function),
+                expect.objectContaining({
+                    rerenderSource: 'zoom-mode',
+                    renderBufferOverride: 0,
+                }),
+            );
+
+            const anchorCallsBeforeSettle = applyResizeAnchorPreview.mock.calls.length;
+            replacementRender.resolve();
+            await flushFitModeReplacementSettled();
+
+            // The layout-generated scroll advanced the interaction epoch, but
+            // no physical navigation happened, so the settled confirmation
+            // still re-anchors page 500.
+            expect(applyResizeAnchorPreview.mock.calls.length).toBeGreaterThan(anchorCallsBeforeSettle);
+            expect(applyResizeAnchorPreview.mock.calls.at(-1)).toEqual([fitTopAnchor(500)]);
+        },
+    );
+
+    it('holds the committed pixels of the fit page before the replacement render releases them', async () => {
+        const fitMode = ref<'width' | 'height'>('width');
+        const computeFitWidthScale = vi.fn(() => true);
+        const captureResizeVisualSnapshots = vi.fn();
+        const setupPagePlaceholders = vi.fn();
+        const cancelInFlightPageRenders = vi.fn();
+        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+
+        usePdfViewerRerenderCoordinator(createDeps({
+            currentPage: ref(500),
+            numPages: ref(1859),
+            visibleRange: ref({
+                start: 500,
+                end: 500,
+            }),
+            zoomMode: computed(() => fitMode.value === 'height' ? 'fit-height' as const : 'fit-width' as const),
+            fitMode: computed(() => fitMode.value),
+            getVisibleRange: () => ({
+                start: 500,
+                end: 500,
+            }),
+            reRenderAllVisiblePages,
+            computeFitWidthScale,
+            captureResizeVisualSnapshots,
+            cancelInFlightPageRenders,
+            setupPagePlaceholders,
+            getMostVisiblePage: vi.fn(() => 500),
+        }));
+
+        fitMode.value = 'height';
+        await flushFitModeReplacementStart();
+
+        expect(captureResizeVisualSnapshots).toHaveBeenCalledWith(
+            expect.objectContaining({page: 500}),
+        );
+        // Cancelling the raster source releases the committed resident, which
+        // re-shows the page skeleton. The snapshot has to exist before that,
+        // and before the placeholder geometry changes under it.
+        expect(captureResizeVisualSnapshots.mock.invocationCallOrder[0]!).toBeLessThan(
+            setupPagePlaceholders.mock.invocationCallOrder[0]!,
+        );
+        expect(captureResizeVisualSnapshots.mock.invocationCallOrder[0]!).toBeLessThan(
+            cancelInFlightPageRenders.mock.invocationCallOrder[0]!,
+        );
+        expect(captureResizeVisualSnapshots.mock.invocationCallOrder[0]!).toBeLessThan(
+            reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
+        );
+    });
+
+    it('owns every scroll the replacement layout emits, from the first geometry write to settlement', async () => {
+        const fitMode = ref<'width' | 'height'>('width');
+        const physicalNavigationEpoch = ref(3);
+        const computeFitWidthScale = vi.fn(() => true);
+        const captureResizeVisualSnapshots = vi.fn();
+        const setupPagePlaceholders = vi.fn();
+        const applyResizeAnchorPreview = vi.fn(() => true);
+        const endLayoutGeometryReplacement = vi.fn();
+        const beginLayoutGeometryReplacement = vi.fn(() => endLayoutGeometryReplacement);
+        const replacementRender = createDeferred();
+        const reRenderAllVisiblePages = vi.fn<TReRenderAllVisiblePagesMock>(
+            async () => replacementRender.promise,
+        );
+
+        usePdfViewerRerenderCoordinator(createDeps({
+            currentPage: ref(500),
+            numPages: ref(1859),
+            visibleRange: ref({
+                start: 500,
+                end: 500,
+            }),
+            zoomMode: computed(() => fitMode.value === 'height' ? 'fit-height' as const : 'fit-width' as const),
+            fitMode: computed(() => fitMode.value),
+            getVisibleRange: () => ({
+                start: 500,
+                end: 500,
+            }),
+            reRenderAllVisiblePages,
+            buildResizeAnchorContext: vi.fn(() => createResizeAnchor(500)),
+            computeFitWidthScale,
+            captureResizeVisualSnapshots,
+            setupPagePlaceholders,
+            applyResizeAnchorPreview,
+            beginLayoutGeometryReplacement,
+            getUserPhysicalNavigationEpoch: () => physicalNavigationEpoch.value,
+            getMostVisiblePage: vi.fn(() => 500),
+        }));
+
+        fitMode.value = 'height';
+        await flushFitModeReplacementStart();
+
+        expect(beginLayoutGeometryReplacement).toHaveBeenCalledOnce();
+        // Shrinking every row clamps `scrollTop`, and the browser reports that
+        // clamp as an ordinary scroll. The window has to be open before the
+        // first geometry write or that scroll is credited to the user.
+        expect(beginLayoutGeometryReplacement.mock.invocationCallOrder[0]!).toBeLessThan(
+            captureResizeVisualSnapshots.mock.invocationCallOrder[0]!,
+        );
+        expect(beginLayoutGeometryReplacement.mock.invocationCallOrder[0]!).toBeLessThan(
+            setupPagePlaceholders.mock.invocationCallOrder[0]!,
+        );
+        expect(endLayoutGeometryReplacement).not.toHaveBeenCalled();
+
+        replacementRender.resolve();
+        await flushFitModeReplacementSettled();
+
+        // And it closes again, so an ordinary scroll after the fit settles is
+        // the user's once more.
+        expect(endLayoutGeometryReplacement).toHaveBeenCalledOnce();
+        expect(applyResizeAnchorPreview.mock.invocationCallOrder.at(-1)!).toBeLessThan(
+            endLayoutGeometryReplacement.mock.invocationCallOrder[0]!,
+        );
+    });
+
+    it('closes the layout replacement window when a superseding fit change abandons the run', async () => {
+        const fitMode = ref<'width' | 'height'>('width');
+        const computeFitWidthScale = vi.fn(() => true);
+        const closers: Array<ReturnType<typeof vi.fn>> = [];
+        const beginLayoutGeometryReplacement = vi.fn(() => {
+            const close = vi.fn();
+            closers.push(close);
+            return close;
+        });
+        const reRenderAllVisiblePages = vi.fn<TReRenderAllVisiblePagesMock>(async () => {});
+
+        usePdfViewerRerenderCoordinator(createDeps({
+            currentPage: ref(500),
+            numPages: ref(1859),
+            visibleRange: ref({
+                start: 500,
+                end: 500,
+            }),
+            zoomMode: computed(() => fitMode.value === 'height' ? 'fit-height' as const : 'fit-width' as const),
+            fitMode: computed(() => fitMode.value),
+            getVisibleRange: () => ({
+                start: 500,
+                end: 500,
+            }),
+            reRenderAllVisiblePages,
+            buildResizeAnchorContext: vi.fn(() => createResizeAnchor(500)),
+            computeFitWidthScale,
+            applyResizeAnchorPreview: vi.fn(() => true),
+            beginLayoutGeometryReplacement,
+            getMostVisiblePage: vi.fn(() => 500),
+        }));
+
+        fitMode.value = 'height';
+        await nextTick();
+        fitMode.value = 'width';
+        await flushFitModeReplacementStart();
+        await nextTick();
+        await Promise.resolve();
+
+        expect(closers.length).toBeGreaterThan(0);
+        // A leaked window would keep crediting the viewer for the user's own
+        // scrolling for the rest of the session.
+        for (const close of closers) {
+            expect(close).toHaveBeenCalled();
+        }
+    });
+
+    it('cancels the settled fit re-anchor after a genuine physical user scroll', async () => {
+        const fitMode = ref<'width' | 'height'>('width');
+        const interactionEpoch = ref(7);
+        const physicalNavigationEpoch = ref(3);
+        const computeFitWidthScale = vi.fn(() => true);
+        const applyResizeAnchorPreview = vi.fn(() => true);
+        const scrollToPage = vi.fn(() => true);
+        const replacementRender = createDeferred();
+        const reRenderAllVisiblePages = vi.fn<TReRenderAllVisiblePagesMock>(
+            async () => replacementRender.promise,
+        );
+
+        usePdfViewerRerenderCoordinator(createDeps({
+            currentPage: ref(500),
+            numPages: ref(1859),
+            visibleRange: ref({
+                start: 500,
+                end: 500,
+            }),
+            zoomMode: computed(() => fitMode.value === 'height' ? 'fit-height' as const : 'fit-width' as const),
+            fitMode: computed(() => fitMode.value),
+            getVisibleRange: () => ({
+                start: 500,
+                end: 500,
+            }),
+            reRenderAllVisiblePages,
+            buildResizeAnchorContext: vi.fn(() => createResizeAnchor(500)),
+            computeFitWidthScale,
+            applyResizeAnchorPreview,
+            scrollToPage,
+            getUserViewportInteractionEpoch: () => interactionEpoch.value,
+            getUserPhysicalNavigationEpoch: () => physicalNavigationEpoch.value,
+            getMostVisiblePage: vi.fn(() => 500),
+        }));
+
+        fitMode.value = 'height';
+        await flushFitModeReplacementStart();
+
+        expect(applyResizeAnchorPreview).toHaveBeenCalledWith(fitTopAnchor(500));
+        const anchorCallsBeforeSettle = applyResizeAnchorPreview.mock.calls.length;
+
+        interactionEpoch.value += 1;
+        physicalNavigationEpoch.value += 1;
+        replacementRender.resolve();
+        await flushFitModeReplacementSettled();
+
+        expect(applyResizeAnchorPreview.mock.calls.length).toBe(anchorCallsBeforeSettle);
+        expect(scrollToPage).not.toHaveBeenCalled();
+    });
+
+    it('settles rapid fit-mode changes on the latest fit mode and page', async () => {
+        const fitMode = ref<'width' | 'height'>('width');
+        const interactionEpoch = ref(1);
+        const physicalNavigationEpoch = ref(1);
+        const computeFitWidthScale = vi.fn(() => true);
+        const applyResizeAnchorPreview = vi.fn(
+            (_anchor?: IPdfSemanticAnchor | null) => true,
+        );
+        const renderDeferrals: Array<ReturnType<typeof createDeferred>> = [];
+        const reRenderAllVisiblePages = vi.fn<TReRenderAllVisiblePagesMock>(async () => {
+            const deferred = createDeferred();
+            renderDeferrals.push(deferred);
+            interactionEpoch.value += 1;
+            return deferred.promise;
+        });
+
+        usePdfViewerRerenderCoordinator(createDeps({
+            currentPage: ref(500),
+            numPages: ref(1859),
+            visibleRange: ref({
+                start: 500,
+                end: 500,
+            }),
+            zoomMode: computed(() => fitMode.value === 'height' ? 'fit-height' as const : 'fit-width' as const),
+            fitMode: computed(() => fitMode.value),
+            getVisibleRange: () => ({
+                start: 500,
+                end: 500,
+            }),
+            reRenderAllVisiblePages,
+            buildResizeAnchorContext: vi.fn(() => createResizeAnchor(500)),
+            computeFitWidthScale,
+            applyResizeAnchorPreview,
+            getUserViewportInteractionEpoch: () => interactionEpoch.value,
+            getUserPhysicalNavigationEpoch: () => physicalNavigationEpoch.value,
+            getMostVisiblePage: vi.fn(() => 500),
+        }));
+
+        fitMode.value = 'height';
+        await nextTick();
+        fitMode.value = 'width';
+        await nextTick();
+        fitMode.value = 'height';
+        await flushFitModeReplacementStart();
+
+        for (const deferred of renderDeferrals) {
+            deferred.resolve();
+        }
+        await flushFitModeReplacementSettled();
+
+        expect(applyResizeAnchorPreview.mock.calls.every(call => (
+            call[0]?.page === 500
+        ))).toBe(true);
+        expect(applyResizeAnchorPreview.mock.calls.at(-1)).toEqual([fitTopAnchor(500)]);
+        // Fit-height is the only mode that measures against a specific page, so
+        // the last measurement proves the surviving run is the latest fit mode
+        // and not a superseded fit-width claim that happened to land last.
+        expect(computeFitWidthScale.mock.calls.at(-1)).toEqual([
+            null,
+            {page: 500},
+        ]);
+    });
+
+    it('reprojects fit-mode height changes before rendering and confirms the anchor after settlement', async () => {
         const fitMode = ref<'width' | 'height'>('width');
         const computeFitWidthScale = vi.fn(() => true);
         const setupPagePlaceholders = vi.fn();
         const scrollToPage = vi.fn(() => true);
+        const applyResizeAnchorPreview = vi.fn(() => true);
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
 
         usePdfViewerRerenderCoordinator(createDeps({
@@ -705,12 +1089,12 @@ describe('usePdfViewerRerenderCoordinator', () => {
             computeFitWidthScale,
             setupPagePlaceholders,
             scrollToPage,
+            applyResizeAnchorPreview,
             getMostVisiblePage: vi.fn(() => 4),
         }));
 
         fitMode.value = 'height';
-        await nextTick();
-        await Promise.resolve();
+        await flushFitModeReplacementStart();
         await nextTick();
 
         expect(computeFitWidthScale).toHaveBeenCalled();
@@ -718,9 +1102,13 @@ describe('usePdfViewerRerenderCoordinator', () => {
         expect(setupPagePlaceholders.mock.invocationCallOrder[0]!).toBeLessThan(
             reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
         );
-        expect(reRenderAllVisiblePages.mock.invocationCallOrder[0]!).toBeLessThan(
-            scrollToPage.mock.invocationCallOrder[0]!,
+        expect(applyResizeAnchorPreview.mock.invocationCallOrder[0]!).toBeLessThan(
+            reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
         );
+        expect(reRenderAllVisiblePages.mock.invocationCallOrder[0]!).toBeLessThan(
+            applyResizeAnchorPreview.mock.invocationCallOrder.at(-1)!,
+        );
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(2);
         expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
             expect.any(Function),
             expect.objectContaining({
@@ -728,10 +1116,8 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 renderBufferOverride: 0,
             }),
         );
-        expect(scrollToPage).toHaveBeenCalledWith(4, {
-            preferExactDom: true,
-            suppressRenderAfterSnap: true,
-        });
+        expect(applyResizeAnchorPreview).toHaveBeenCalledWith(fitTopAnchor(4));
+        expect(scrollToPage).not.toHaveBeenCalled();
     });
 
     it('rerenders when zoom mode switches from custom 100% to fit-height without zoom or fit-mode changes', async () => {
@@ -739,6 +1125,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         const computeFitWidthScale = vi.fn(() => false);
         const setupPagePlaceholders = vi.fn();
         const scrollToPage = vi.fn(() => true);
+        const applyResizeAnchorPreview = vi.fn(() => true);
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
         const cancelInFlightPageRenders = vi.fn();
 
@@ -759,21 +1146,21 @@ describe('usePdfViewerRerenderCoordinator', () => {
             computeFitWidthScale,
             setupPagePlaceholders,
             scrollToPage,
+            applyResizeAnchorPreview,
             getMostVisiblePage: vi.fn(() => 4),
         }));
 
         zoomMode.value = 'fit-height';
-        await nextTick();
-        await Promise.resolve();
-        await nextTick();
+        await flushFitModeReplacementStart();
 
         expect(computeFitWidthScale).toHaveBeenCalledWith(null, { page: 4 });
         expect(setupPagePlaceholders.mock.invocationCallOrder[0]!).toBeLessThan(
             reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
         );
-        expect(reRenderAllVisiblePages.mock.invocationCallOrder[0]!).toBeLessThan(
-            scrollToPage.mock.invocationCallOrder[0]!,
+        expect(applyResizeAnchorPreview.mock.invocationCallOrder[0]!).toBeLessThan(
+            reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
         );
+        expect(scrollToPage).not.toHaveBeenCalled();
         expect(cancelInFlightPageRenders).toHaveBeenCalledOnce();
         expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
             expect.any(Function),

@@ -32,6 +32,26 @@ describe('shared sidebar shell integration', () => {
         expect(documentSourceSidebar).not.toContain('<nav');
     });
 
+    it('gates sidebar presentation on the open generation that owns the visual surface', () => {
+        const workspace = readWorkspaceFile('app/modules/workspace-shell/components/DocumentWorkspace.vue');
+        const visibility = readWorkspaceFile(
+            'app/modules/workspace-shell/composables/useWorkspaceViewerVisibility.ts',
+        );
+
+        const editorPane = readWorkspaceFile('app/modules/workspace-shell/components/EditorPaneView.vue');
+
+        expect(workspace).toContain(':show-sidebar="toolbarShowSidebarForDisplay"');
+        // The outgoing tab keeps overlaying its centre pixels during a new-tab
+        // open, so its sidebar has to stop being presented there too.
+        expect(editorPane).toContain('.editor-pane-content > .is-presentation-fallback :deep(.sidebar-wrapper)');
+        expect(editorPane).toContain('visibility: hidden;');
+        expect(workspace).toContain('useWorkspaceSidebarOpenGeneration({');
+        // Driver capability plus the persisted preference only decide whether a
+        // sidebar may exist, never which document it belongs to.
+        expect(visibility).not.toContain('toolbarShowSidebar');
+        expect(visibility).toContain('sidebarPresentationEnabled');
+    });
+
     it('keeps fit measurement and shared scroll policy inside the shell', () => {
         const shell = readWorkspaceFile('app/components/sidebar/AppSidebarShell.vue');
 

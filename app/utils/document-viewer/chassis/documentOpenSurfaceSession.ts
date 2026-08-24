@@ -21,7 +21,6 @@ import {
     type TDocumentOpenSurfacePresentation,
     type TDocumentOpenSurfaceVisualPresentation,
 } from '@app/utils/document-viewer/chassis/retargetDocumentOpeningShell';
-
 export type {
     IDocumentViewportCommitFence,
     IDocumentViewportIdentity,
@@ -50,7 +49,6 @@ export type {
     IDocumentOpenSurfacePageGeometry,
     TDocumentOpenSurfacePresentation,
 } from '@app/utils/document-viewer/chassis/retargetDocumentOpeningShell';
-
 export type TDocumentOpenSurfacePhase = 'idle' | 'pending' | 'geometry-committed'
     | 'canvas-committed' | 'viewport-committed' | 'ready' | 'failed';
 export interface IDocumentOpenSurfaceIdentity {
@@ -72,7 +70,6 @@ export interface IDocumentOpenSurfacePageGeometrySeed extends IDocumentOpenSurfa
     readonly size: number;
     readonly modifiedAt: number;
 }
-
 export interface IDocumentOpenSurfaceRenderFence {
     readonly generation: number;
     readonly documentRevision: string;
@@ -401,7 +398,6 @@ function projectDocumentOpenSurfaceSnapshot(
         failure: viewport.failure,
     };
 }
-
 export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession {
     const sessionState = shallowRef({
         viewport: createEmptyDocumentViewportSession(),
@@ -426,7 +422,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         snapshot: snapshot.value,
         viewport: sessionState.value.viewport,
     }));
-
     function cancelSkeletonTimer(token: string) {
         const timer = skeletonTimers.get(token);
         if (timer === undefined) {
@@ -435,7 +430,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         clearTimeout(timer);
         skeletonTimers.delete(token);
     }
-
     function applyViewportEffect(effect: TDocumentViewportSessionEffect) {
         if (effect.type === 'cancel-skeleton-delay') {
             cancelSkeletonTimer(effect.token);
@@ -452,7 +446,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         }, Math.max(0, effect.deadline - Date.now()));
         skeletonTimers.set(effect.token, timer);
     }
-
     function transitionViewport(
         events: readonly TDocumentViewportSessionEvent[],
         updateVisual?: (
@@ -962,14 +955,17 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             return accepted;
         },
         markReady(fence) {
-            if (snapshot.value.phase === 'ready') {
-                return sessionState.value.viewport.lifecycle === 'ready'
-                    && sessionState.value.viewport.committedPage === fence.pageNumber;
+            const viewportState = sessionState.value.viewport;
+            if (viewportState.lifecycle === 'ready') {
+                return viewportState.committedPage === fence.pageNumber;
             }
             const committed = snapshot.value.committedRender;
             const viewport = snapshot.value.committedViewport;
             if (
-                snapshot.value.phase !== 'viewport-committed'
+                ![
+                    'opening',
+                    'transitioning',
+                ].includes(viewportState.lifecycle)
                 || !committed
                 || !viewport
                 || !isCurrentFence(fence)
@@ -983,12 +979,21 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 });
                 return false;
             }
-            commitVisual(visual => ({
+            return dispatchViewport({
+                type: 'visual-ready',
+                fence: {
+                    generation: viewportState.generation,
+                    revision: fence.documentRevision,
+                    pageNumber: fence.pageNumber,
+                    viewportIntentId: fence.viewportIntentId,
+                    renderVersion: fence.renderVersion,
+                    requestId: fence.requestId,
+                },
+            }, visual => ({
                 ...visual,
                 openingPageFrame: null,
                 presentation: 'committed',
             }));
-            return true;
         },
         reject(fence, reason) {
             if (!isCurrentFence(fence)) {
@@ -1187,11 +1192,9 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         },
     };
 }
-
 export const documentOpenSurfaceSessionKey = Symbol('document-open-surface-session') as InjectionKey<
     IDocumentOpenSurfaceSession
 >;
-
 export function injectDocumentOpenSurfaceSession() {
     return inject(documentOpenSurfaceSessionKey, null);
 }

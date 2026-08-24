@@ -13,7 +13,10 @@ import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/cha
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { cast } from '@tests/helpers/cast';
 
-function createResidentCanvasFixture(connectCanvas = true) {
+function createResidentCanvasFixture(
+    connectCanvas = true,
+    canvasRect: Partial<DOMRect> = {},
+) {
     const surface = createDocumentOpenSurfaceSession();
     surface.begin({
         documentId: 'saved-result.pdf',
@@ -49,6 +52,7 @@ function createResidentCanvasFixture(connectCanvas = true) {
         left: 0,
         width: connectCanvas ? 511.459 : 0,
         height: connectCanvas ? 755 : 0,
+        ...canvasRect,
     }));
     if (connectCanvas) {
         canvasHost.append(canvas);
@@ -151,6 +155,24 @@ describe('createPdfInitialVisualCommit', () => {
         });
         expect(fixture.surface.viewportSession.value.renderFence).toBeNull();
         expect(fixture.commitCurrentViewportIfSettled).not.toHaveBeenCalled();
+        expect(fixture.emitInitialVisualReady).not.toHaveBeenCalled();
+
+        fixture.viewerContainer.remove();
+    });
+
+    it('does not publish ready when the committed page canvas is painted but physically offscreen', () => {
+        const fixture = createResidentCanvasFixture(true, {
+            top: 1_440_000,
+            bottom: 1_440_755,
+        });
+
+        fixture.initialVisual.adoptResidentCanvas(2);
+
+        expect(fixture.surface.snapshot.value.phase).toBe('viewport-committed');
+        expect(fixture.surface.viewportSession.value).toMatchObject({
+            lifecycle: 'opening',
+            committedPage: 2,
+        });
         expect(fixture.emitInitialVisualReady).not.toHaveBeenCalled();
 
         fixture.viewerContainer.remove();

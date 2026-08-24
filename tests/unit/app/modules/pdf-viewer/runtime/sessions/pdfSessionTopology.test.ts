@@ -58,6 +58,19 @@ describe('PDF viewer session topology', () => {
         expect(readSession('pdfDocumentSession')).toContain('[...disposables].reverse()');
     });
 
+    it('keeps both navigation epochs and the layout window on the viewport session', () => {
+        const viewport = readSession('createPdfViewportSession');
+
+        // Both epochs come from one owner, so scroll can be attributed to the
+        // viewer or the user rather than being collapsed into a single counter.
+        // That the rerender coordinator is actually handed the physical epoch
+        // and the layout window is proven at runtime by
+        // `pdfRenderingSessionBehavior.test.ts`, not by matching this source.
+        expect(viewport).toContain('createPdfViewportUserNavigationEpochs');
+        expect(viewport).toContain('userPhysicalNavigationEpoch');
+        expect(viewport).toContain('beginLayoutGeometryReplacement');
+    });
+
     it('keeps viewport demand and document transitions one-way', () => {
         const viewport = readSession('createPdfViewportSession');
         const rendering = readSession('createPdfRenderingSession');

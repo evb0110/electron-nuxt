@@ -15,11 +15,34 @@ import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/l
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
 
-function createHarness() {
+function rect(left: number, top: number, width: number, height: number): DOMRect {
+    return {
+        bottom: top + height,
+        height,
+        left,
+        right: left + width,
+        top,
+        width,
+        x: left,
+        y: top,
+        toJSON: () => ({}),
+    };
+}
+
+function createHarness(options: {
+    currentPage?: number;
+    currentPagePhysicallyVisible?: boolean;
+    numPages?: number;
+    visibleRange?: {
+        start: number;
+        end: number;
+    };
+} = {}) {
+    const currentPage = options.currentPage ?? 6;
     const documentA = cast<PDFDocumentProxy>({fingerprint: 'a'});
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(documentA);
     const isActive = ref(true);
-    const visibleRange = ref({
+    const visibleRange = ref(options.visibleRange ?? {
         start: 1,
         end: 2,
     });
@@ -31,13 +54,29 @@ function createHarness() {
         clientHeight: {value: 700},
         clientWidth: {value: 900},
     });
+    viewerContainer.getBoundingClientRect = () => rect(0, 0, 900, 700);
+    const pageContainer = document.createElement('div');
+    pageContainer.className = 'page_container';
+    pageContainer.dataset.page = String(currentPage);
+    const canvasHost = document.createElement('div');
+    canvasHost.className = 'page_canvas';
+    const canvas = document.createElement('canvas');
+    canvas.width = 600;
+    canvas.height = 800;
+    canvas.getBoundingClientRect = () => options.currentPagePhysicallyVisible === false
+        ? rect(0, 1_440_000, 600, 800)
+        : rect(0, 0, 600, 800);
+    canvasHost.append(canvas);
+    pageContainer.append(canvasHost);
+    viewerContainer.append(pageContainer);
+    document.body.append(viewerContainer);
     const restore = usePdfViewerActivationRestore({
         viewerContainer: ref(viewerContainer),
         pdfDocument,
         isActive: computed(() => isActive.value),
         isLoading: ref(false),
-        numPages: ref(8),
-        currentPage: ref(6),
+        numPages: ref(options.numPages ?? 8),
+        currentPage: ref(currentPage),
         visibleRange,
         viewMode: computed(() => 'facing'),
         getVisiblePageRange: () => visibleRange.value,
@@ -71,6 +110,27 @@ describe('usePdfViewerActivationRestore', () => {
             end: 6,
         }, {preserveRenderedPages: true});
         expect(harness.applySearchHighlights).toHaveBeenCalledOnce();
+    });
+
+    it('reanchors a restored deep page when cached visibility says it is visible but its canvas is physically offscreen', async () => {
+        const harness = createHarness({
+            currentPage: 500,
+            currentPagePhysicallyVisible: false,
+            numPages: 1_200,
+            visibleRange: {
+                start: 482,
+                end: 518,
+            },
+        });
+        const runId = harness.restore.nextActivationRestoreRunId();
+
+        await harness.restore.renderActiveDocumentAfterActivation(runId);
+
+        expect(harness.scrollToPage).toHaveBeenCalledExactlyOnceWith(500);
+        expect(harness.renderVisiblePages).toHaveBeenCalledExactlyOnceWith({
+            start: 499,
+            end: 500,
+        }, {preserveRenderedPages: true});
     });
 
     it('fences a late completion after a newer activation run', async () => {

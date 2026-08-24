@@ -893,8 +893,21 @@ export function createDocumentOpenFlow(
         // The open capability only stages a working copy. Keep the currently
         // displayed document intact until a real PDF parser accepts that copy.
         // This is intentionally before the transient source reset and before
-        // any working-copy/history ownership changes.
+        // any working-copy/history ownership changes, which also means a slow
+        // validation is time the user spends looking at the previous document
+        // under the new document's title.
+        const validateStartedAt = performance.now();
+        logPdfRenderTrace('pdf-open-validate-start', {
+            path,
+            ...traceContext,
+        });
         const validation = await getDocumentPdfCapability().validatePdfPath(path);
+        logPdfRenderTrace('pdf-open-validate-end', {
+            path,
+            ...traceContext,
+            isValid: validation.isValid,
+            elapsedMs: performance.now() - validateStartedAt,
+        });
         if (!isCurrent()) {
             return;
         }

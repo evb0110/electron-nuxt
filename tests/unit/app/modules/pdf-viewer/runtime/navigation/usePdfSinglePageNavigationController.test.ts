@@ -14,9 +14,18 @@ import {
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import { getLayoutPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import { createPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
+
+function requireLayoutPageTop(layout: IPdfPageLayoutMetrics, pageIndex: number) {
+    const top = getLayoutPageTop(layout, pageIndex);
+    if (top === null) {
+        throw new Error(`Expected a layout top for page index ${String(pageIndex)}`);
+    }
+    return top;
+}
 
 function createDeferred() {
     let resolve!: () => void;
@@ -345,6 +354,116 @@ describe('usePdfSinglePageNavigationController', () => {
                 outcome: 'settled',
                 positionCommit: {page: 2},
             });
+        } finally {
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
+    it('anchors a fit intent on the page the user scrolled to, not on the reinterpreted offset', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+            scrollHeight: {value: 5_000},
+            scrollWidth: {value: 900},
+            scrollLeft: {
+                value: 0,
+                writable: true,
+            },
+            scrollTop: {
+                value: 0,
+                writable: true,
+            },
+        });
+        const pageSlots = createPdfPageSlotRegistry();
+        for (let pageNumber = 1; pageNumber <= 6; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container page_container--rendered';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
+            viewer.append(page);
+            pageSlots.markMounted(pageNumber);
+        }
+        const buildLayout = (scale: number) => {
+            const layout = buildPageLayoutMetrics({
+                pageMetrics: Array.from({length: 6}, () => ({
+                    width: 600,
+                    height: 800,
+                })),
+                totalPages: 6,
+                viewMode: 'single',
+                scale,
+                gap: 20,
+                paddingTop: 20,
+                paddingBottom: 20,
+            });
+            if (!layout) {
+                throw new Error('Expected PDF layout metrics');
+            }
+            return layout;
+        };
+        // Fit width, then the fit-height replacement: every row shrinks, so the
+        // pre-change scroll offset now sits several pages further down.
+        const wideLayout = buildLayout(1);
+        const shortLayout = buildLayout(0.25);
+        let layout = wideLayout;
+        const viewportWrites = createTestPdfViewportWritePort();
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(6),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 6} as PDFDocumentProxy),
+                getMostVisiblePage: vi.fn(() => 3),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 3),
+                renderVisiblePages: vi.fn(async () => undefined),
+                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                visibleRange: ref({
+                    start: 3,
+                    end: 3,
+                }),
+                emitCurrentPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            // getLayoutPageTop takes a zero-based row index.
+            viewer.scrollTop = requireLayoutPageTop(wideLayout, 2) + 300;
+            const scrolledAnchor = controller.captureCurrentSemanticAnchor();
+            expect(scrolledAnchor?.page).toBe(3);
+            controller.viewportAuthority.observeUserScroll(scrolledAnchor!);
+            expect(controller.viewportAuthority.currentPage.value).toBe(3);
+
+            layout = shortLayout;
+            const fit = controller.submitViewportStateIntent('fit');
+            expect(controller.viewportAuthority.activeIntent.value?.anchor?.page).toBe(3);
+            await expect(fit).resolves.toMatchObject({
+                outcome: 'settled',
+                positionCommit: {page: 3},
+            });
+            // The viewport lands on page 3's row under the new metrics
+            // instead of staying at the offset that now points past page 6.
+            const settledTop = viewportWrites.writes.at(-1)?.top ?? -1;
+            const pageThreeTop = requireLayoutPageTop(shortLayout, 2);
+            expect(settledTop).toBeGreaterThanOrEqual(pageThreeTop - 20);
+            expect(settledTop).toBeLessThan(pageThreeTop + 200);
         } finally {
             pageSlots.dispose();
             scope.stop();

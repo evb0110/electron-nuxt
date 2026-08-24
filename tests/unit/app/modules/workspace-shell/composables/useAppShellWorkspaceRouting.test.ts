@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     computed,
     nextTick,
@@ -5,6 +7,7 @@ import {
 } from 'vue';
 import type { Ref } from 'vue';
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -120,6 +123,55 @@ function createRoutingOptions(options: {
     };
 }
 
+interface IRenderTraceEntry {
+    event: string;
+    payload: Record<string, unknown>;
+}
+
+type TRenderTraceWindow = Window & {
+    __pdfRenderTrace?: boolean;
+    __pdfRenderTraceBuffer?: IRenderTraceEntry[];
+};
+
+function resetPdfRenderTrace() {
+    const traceWindow = window as TRenderTraceWindow;
+    traceWindow.__pdfRenderTrace = false;
+    traceWindow.__pdfRenderTraceBuffer = [];
+}
+
+/**
+ * Runs one open with the render trace armed and hands back the entries it
+ * produced. The trace is a window flag the production code reads directly, so
+ * it is turned off again as soon as the call settles.
+ */
+function withPdfRenderTrace<T>(run: () => Promise<T>) {
+    const traceWindow = window as TRenderTraceWindow;
+    traceWindow.__pdfRenderTraceBuffer = [];
+    traceWindow.__pdfRenderTrace = true;
+    const settled = run().finally(() => {
+        traceWindow.__pdfRenderTrace = false;
+    });
+    return {
+        entries: () => traceWindow.__pdfRenderTraceBuffer ?? [],
+        settled,
+    };
+}
+
+interface ICapabilitySpanPayload {
+    elapsedMs?: unknown;
+    failed?: unknown;
+    resultKind?: unknown;
+}
+
+function readCapabilitySpan(entries: IRenderTraceEntry[], path: string) {
+    const span = entries.find(entry => (
+        entry.event === 'pdf-open-route-capability-end' && entry.payload.path === path
+    ));
+    return span === undefined
+        ? null
+        : span.payload as ICapabilitySpanPayload;
+}
+
 describe('useAppShellWorkspaceRouting', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -134,6 +186,13 @@ describe('useAppShellWorkspaceRouting', () => {
             modifiedAt: 1,
         });
         routingMocks.openDocumentDirect.mockResolvedValue(null);
+    });
+
+    // The trace is a live window flag shared by every test in this file. A test
+    // that fails before its own open settles would otherwise leave it armed and
+    // leave its entries in the buffer for whichever test reads it next.
+    afterEach(() => {
+        resetPdfRenderTrace();
     });
 
     it('resolves a cold direct path in main before the host claims its opening transaction', async () => {
@@ -175,6 +234,73 @@ describe('useAppShellWorkspaceRouting', () => {
         expect(routingMocks.openDocumentDirect).toHaveBeenCalledWith('/docs/cold.pdf');
         expect(initialWorkspace.openPath).not.toHaveBeenCalled();
         expect(initialWorkspace.openResult).toHaveBeenCalledWith(result);
+    });
+
+    it('closes the open-route capability span when the direct open resolves', async () => {
+        const activePaneId = ref('pane-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(false);
+        const activeTab = createTabStub('tab-1');
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+        routingMocks.readRecentOpenExactGeometry.mockReturnValueOnce(null);
+        routingMocks.openDocumentDirect.mockResolvedValueOnce({
+            kind: 'pdf' as const,
+            workingPath: '/managed/cold.pdf',
+            originalPath: '/docs/cold.pdf',
+        });
+        const routingOptions = createRoutingOptions({
+            activePaneId,
+            activeTabId,
+            workspaceRefs,
+            createTab: () => {
+                throw new Error('should reuse placeholder tab');
+            },
+        });
+        routingOptions.getTabById = vi.fn(() => activeTab);
+        const routing = useAppShellWorkspaceRouting(routingOptions);
+
+        const trace = withPdfRenderTrace(() => routing.openPathInAppropriateTab('/docs/cold.pdf'));
+        await trace.settled;
+
+        const span = readCapabilitySpan(trace.entries(), '/docs/cold.pdf');
+        expect(span, JSON.stringify(trace.entries())).toMatchObject({
+            failed: false,
+            resultKind: 'pdf',
+        });
+    });
+
+    it('closes the open-route capability span as failed when the direct open rejects', async () => {
+        const activePaneId = ref('pane-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(false);
+        const activeTab = createTabStub('tab-1');
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+        routingMocks.readRecentOpenExactGeometry.mockReturnValueOnce(null);
+        routingMocks.openDocumentDirect.mockRejectedValueOnce(new Error('preflight refused'));
+        const routingOptions = createRoutingOptions({
+            activePaneId,
+            activeTabId,
+            workspaceRefs,
+            createTab: () => {
+                throw new Error('should reuse placeholder tab');
+            },
+        });
+        routingOptions.getTabById = vi.fn(() => activeTab);
+        const routing = useAppShellWorkspaceRouting(routingOptions);
+
+        // A refused preflight still has to close the span it opened. Left open,
+        // the next open measures its phases from an origin that never ended.
+        const trace = withPdfRenderTrace(() => routing.openPathInAppropriateTab('/docs/refused.pdf'));
+        await expect(trace.settled).rejects.toThrow('preflight refused');
+
+        const span = readCapabilitySpan(trace.entries(), '/docs/refused.pdf');
+        expect(span, JSON.stringify(trace.entries())).toMatchObject({
+            failed: true,
+            resultKind: null,
+        });
+        expect(typeof span?.elapsedMs).toBe('number');
     });
 
     it('keeps a revision-validated Recent path on the immediate host-claim route', async () => {

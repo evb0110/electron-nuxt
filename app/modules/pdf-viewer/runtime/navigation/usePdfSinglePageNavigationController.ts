@@ -39,6 +39,10 @@ import {resolveRetainedPdfNavigationAnchor} from '@app/modules/pdf-viewer/engine
 import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 import {runGuardedTask} from '@app/utils/asyncGuard';
 import {createLatestWinsPdfMetricHydrator} from '@app/modules/pdf-viewer/runtime/navigation/createLatestWinsPdfMetricHydrator';
+import {
+    getRequestAnchor,
+    getRequestPage,
+} from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 
 interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePageScrollOptions {
     requestedCurrentPage: Ref<number | undefined>;
@@ -59,34 +63,6 @@ interface IPdfSinglePageWheelEvent {
     deltaY: number;
     timeStamp: number;
     preventDefault: () => void;
-}
-
-function getRequestPage(request: IPdfNavigationRequest | undefined, fallback: number) {
-    const target = request?.target;
-    return target && 'page' in target ? target.page : fallback;
-}
-
-function getRequestAnchor(request: IPdfNavigationRequest | undefined, fallbackPage: number): IPdfSemanticAnchor {
-    const target = request?.target;
-    const page = getRequestPage(request, fallbackPage);
-    if (target?.kind === 'rect') {
-        return {
-            page,
-            pageXFraction: target.rect.left + target.rect.width / 2,
-            pageYFraction: target.rect.top + target.rect.height / 2,
-            viewportXFraction: 0.5,
-            viewportYFraction: 0.5,
-            affinity: 'center',
-        };
-    }
-    return {
-        page,
-        pageXFraction: 0.5,
-        pageYFraction: 0,
-        viewportXFraction: 0.5,
-        viewportYFraction: 0,
-        affinity: 'start',
-    };
 }
 
 function getMountedPageElement(container: HTMLElement, pageNumber: number) {
@@ -709,31 +685,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                     : retainedNavigationAnchorPage.value !== null
                         ? getRequestAnchor(undefined, retainedNavigationAnchorPage.value)
                         : container && snapshot
-                            ? (() => {
-                                const liveAnchor = resolveAnchorForViewport(
-                                    snapshot,
-                                    viewportAuthority.currentPage.value,
-                                );
-                                const semanticPage = viewportAuthority.currentPage.value;
-                                // A zoom ref and page layout can update before
-                                // this watcher runs. Keep the live point
-                                // fractions, but do not reinterpret the old
-                                // pixel scroll against new-scale rows and jump
-                                // to an earlier page. The viewport authority's
-                                // committed page is the semantic owner here;
-                                // the outer requested-page prop can briefly lag
-                                // after a completed toolbar navigation.
-                                return kind === 'zoom'
-                                    ? {
-                                        ...liveAnchor,
-                                        page: clamp(
-                                            Math.trunc(semanticPage),
-                                            1,
-                                            Math.max(1, options.numPages.value),
-                                        ),
-                                    }
-                                    : liveAnchor;
-                            })()
+                            ? resolveGeometryChangeAnchor(snapshot, kind)
                             : viewportAuthority.committedAnchor.value
                                 ?? getRequestAnchor(undefined, options.currentPage.value));
         const absorbedNavigationSequence = queuedNavigation?.sequence ?? null;
@@ -765,6 +717,43 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             ...(state.viewMode === undefined ? {} : {viewMode: state.viewMode}),
             ...(state.dpr === undefined ? {} : {dpr: state.dpr}),
         });
+    }
+
+    /**
+     * The anchor a fit/zoom/view-mode change inherits when nothing else claims
+     * one. The pre-change pixel offset is about to stop describing anything, so
+     * the semantic page the viewport authority already committed is what the
+     * new geometry has to be built around.
+     */
+    function resolveGeometryChangeAnchor(
+        snapshot: IPdfViewportGeometry,
+        kind: TPdfViewportIntentKind,
+    ): IPdfSemanticAnchor {
+        const semanticPage = clamp(
+            Math.trunc(viewportAuthority.currentPage.value),
+            1,
+            Math.max(1, options.numPages.value),
+        );
+        if (kind === 'fit') {
+            // Fit replaces every row's height, so the pre-fit offset - and the
+            // point fractions read from it - describe nothing under the new
+            // metrics. Land on the top of the page the user was on rather than
+            // reinterpreting that offset and travelling hundreds of pages.
+            return getRequestAnchor(undefined, semanticPage);
+        }
+        const liveAnchor = resolveAnchorForViewport(snapshot, viewportAuthority.currentPage.value);
+        // A zoom ref and page layout can update before this watcher runs. Keep
+        // the live point fractions, but do not reinterpret the old pixel scroll
+        // against new-scale rows and jump to an earlier page. The viewport
+        // authority's committed page is the semantic owner here; the outer
+        // requested-page prop can briefly lag after a completed toolbar
+        // navigation.
+        return kind === 'zoom'
+            ? {
+                ...liveAnchor,
+                page: semanticPage,
+            }
+            : liveAnchor;
     }
 
     function observeNativeUserScroll() {
@@ -946,6 +935,12 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         ) {
             return false;
         }
+        logPdfRenderTrace('navigation-stale-viewport-intent-retired', {
+            intentId: activeIntent.id,
+            kind: activeIntent.kind,
+            intentDocumentRevision: activeIntent.documentRevision,
+            currentDocumentRevision,
+        });
         if (activeIntent.navigation !== undefined) {
             const staleNavigationSequence = activeNavigationSequence;
             if (

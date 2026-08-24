@@ -91,7 +91,7 @@
         />
         <WorkspaceSidebarHost
             v-show="surfaceMode === 'reader' || !scanCleanupWorkspaceMounted"
-            :show-sidebar="toolbarShowSidebar"
+            :show-sidebar="toolbarShowSidebarForDisplay"
             :sidebar-wrapper-style="sidebarWrapperStyle"
             :is-resizing-sidebar="isResizingSidebar"
             :resize-aria-label="t('sidebar.resize')"
@@ -408,6 +408,7 @@ import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorks
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useWorkspaceViewerVisibility } from '@app/modules/workspace-shell/composables/useWorkspaceViewerVisibility';
+import { useWorkspaceSidebarOpenGeneration } from '@app/modules/workspace-shell/composables/useWorkspaceSidebarOpenGeneration';
 import { useDocumentWorkspacePageSessionRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageSessionRestore';
 import { useDocumentWorkspaceViewerPresentation } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation';
 import { useDocumentWorkspaceVisualOpeningState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState';
@@ -874,7 +875,7 @@ const {
     isOpeningDocumentForToolbar,
     toolbarDocumentBusy,
     toolbarHasPdf,
-    toolbarShowSidebar,
+    sidebarPresentationEnabled,
     canToggleSidebar,
     canRepairSave,
     canOptimizePdf,
@@ -926,6 +927,13 @@ const {
     showNativePdfViewer: driverShowsNativePdf,
     openSurface: documentOpenSurface,
     markAnnotationCommentsLoading,
+});
+const { toolbarShowSidebarForDisplay } = useWorkspaceSidebarOpenGeneration({
+    sidebarPresentationEnabled,
+    isOpeningDocumentForToolbar,
+    initialDocumentVisualReady,
+    hasDocumentOpenError: computed(() => Boolean(pdfError.value) || Boolean(djvuError.value)),
+    openSurfaceSnapshot: documentOpenSurface.snapshot,
 });
 const {
     handleDocumentInitialVisualPending,

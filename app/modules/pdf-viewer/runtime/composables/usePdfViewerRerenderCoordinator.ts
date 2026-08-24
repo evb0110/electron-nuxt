@@ -9,6 +9,7 @@ import type { ICurrentPageSyncOptions } from '@app/modules/pdf-viewer/runtime/co
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import type { TPdfViewerTransactionState } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type { IUsePdfViewerRerenderCoordinatorOptions } from '@app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes';
+import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 import {
     PDF_RERENDER_SOURCE,
     isZoomRestorePdfRerenderSource,
@@ -56,6 +57,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         cancelDestinationNavigationTarget,
         resetZoomRerenderQueueState,
         getUserViewportInteractionEpoch,
+        getUserPhysicalNavigationEpoch,
+        beginLayoutGeometryReplacement,
         consumeZoomViewportAnchor,
         submitZoomViewportStateIntent,
         consumeSuppressedZoomRerender,
@@ -224,31 +227,16 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         return Number.isFinite(epoch) ? epoch : 0;
     }
 
-    function didUserViewportInteractionAdvance(capturedEpoch: number) {
-        return getCurrentUserViewportInteractionEpoch() !== capturedEpoch;
-    }
-
-    function canApplyDelayedViewportScroll(
-        source: string,
-        runId: number,
-        capturedEpoch: number,
-    ) {
-        if (!didUserViewportInteractionAdvance(capturedEpoch)) {
-            return true;
-        }
-
-        BrowserLogger.diagnostic('pdf-nav', `[${source}] skipped delayed scroll after user viewport interaction`, {
-            runId,
-            capturedEpoch,
-            currentEpoch: getCurrentUserViewportInteractionEpoch(),
-            currentPage: currentPage.value,
-            visibleRange: {
-                start: visibleRange.value.start,
-                end: visibleRange.value.end,
-            },
-            viewer: summarizeViewerMetricsForLog(viewerContainer.value),
-        });
-        return false;
+    /**
+     * Physical navigation - wheel, pointer, or a scroll the viewer did not
+     * cause - is the only thing allowed to supersede a fit re-anchor. Fit
+     * geometry replacement makes the browser emit its own scroll, so the
+     * interaction epoch always advances across a fit change and cannot be used
+     * to decide whether the user took the viewport.
+     */
+    function getCurrentUserPhysicalNavigationEpoch() {
+        const epoch = getUserPhysicalNavigationEpoch?.() ?? getCurrentUserViewportInteractionEpoch();
+        return Number.isFinite(epoch) ? epoch : 0;
     }
 
     function resolveRerenderBufferOverride(source: string) {
@@ -504,35 +492,92 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
     }
 
+    function canConfirmFitAnchor(
+        source: string,
+        runId: number,
+        capturedPhysicalEpoch: number,
+    ) {
+        const currentEpoch = getCurrentUserPhysicalNavigationEpoch();
+        if (currentEpoch === capturedPhysicalEpoch) {
+            return true;
+        }
+        BrowserLogger.diagnostic('pdf-nav', `[${source}] skipped fit re-anchor after physical navigation`, {
+            runId,
+            capturedPhysicalEpoch,
+            currentPhysicalEpoch: currentEpoch,
+            currentPage: currentPage.value,
+            visibleRange: {
+                start: visibleRange.value.start,
+                end: visibleRange.value.end,
+            },
+            viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+        });
+        return false;
+    }
+
     async function handleFitScaleModeChange(
         source: string,
         mode: TFitMode,
         runId: number,
         document: PDFDocumentProxy | null,
-        interactionEpoch: number,
+        physicalNavigationEpoch: number,
         isRunActive: () => boolean,
         options: {forceRerender?: boolean} = {},
     ) {
+        // A toolbar fit command moves `fitMode` and `zoomMode` together, so both
+        // watchers claim the same change. Yielding once before any geometry is
+        // touched lets the superseded claim retire without replacing the layout
+        // a second time, which is what turned a single fit change into two
+        // rounds of placeholder resizing and cancelled renders.
+        await Promise.resolve();
+        if (!isRunActive()) {
+            return;
+        }
         // Navigation/viewport authority owns the semantic anchor across fit
         // geometry changes. Cancelling it here reinterprets the pre-fit pixel
         // scroll position under changing page metrics and can advance the
         // current page without any user navigation.
         resetZoomRerenderQueueState(`${source}-change`);
         const pageToPreserve = navigationAnchorPage?.value ?? currentPage.value;
-        const pageToSnapTo =
-            mode === 'height'
-                ? pageToPreserve
-                : null;
+        const pageToSnapTo = mode === 'height'
+            ? pageToPreserve
+            : null;
         const updated = pageToSnapTo === null
             ? computeFitWidthScale(viewerContainer.value)
             : computeFitWidthScale(viewerContainer.value, { page: pageToSnapTo });
-        if ((updated || options.forceRerender === true) && document) {
-            if (pageToSnapTo !== null) {
-                setupPagePlaceholders();
-                if (!isRunActive()) {
-                    return;
-                }
+        if (!(updated || options.forceRerender === true) || !document) {
+            return;
+        }
+        // Both fit modes rewrite every row's physical top, so the pre-fit pixel
+        // scrollTop stops describing anything. Re-project the semantic page
+        // before the replacement render, so the row the user was reading is
+        // already under the viewport when the first replacement pixels land and
+        // no intermediate frame shows a different page.
+        const fitAnchor = getRequestAnchor(undefined, pageToPreserve);
+        // Every scroll the browser emits while the replacement layout settles
+        // belongs to the viewer, not to the user. The window has to open before
+        // the first geometry write: shrinking every row clamps `scrollTop`, and
+        // that clamp is dispatched as an ordinary scroll event which would
+        // otherwise look like navigation and cancel the confirmation below.
+        const endLayoutGeometryReplacement = beginLayoutGeometryReplacement?.() ?? null;
+        try {
+            // Cancelling the viewport raster source releases every committed
+            // resident it owns, and the renderer answers a release by emptying
+            // the canvas host and re-showing the page skeleton. Copy the
+            // committed pixels into a snapshot first; it stays on screen - and
+            // keeps the skeleton suppressed - until the new-scale canvas
+            // commits, so a fit change never blanks a page the user is already
+            // reading.
+            captureResizeVisualSnapshots?.(buildResizeAnchorContext({
+                preferredAnchorPage: pageToPreserve,
+                trustPreferredAnchorPage: true,
+            }));
+            setupPagePlaceholders();
+            if (!isRunActive()) {
+                return;
             }
+            applyResizeAnchorPreview?.(fitAnchor);
+            syncHorizontalScrollAfterLayoutUpdate();
             void cancelInFlightPageRenders?.();
             await reRenderAllVisiblePages(getVisibleRange, {
                 rerenderSource: normalizePdfRerenderSource(source),
@@ -541,41 +586,17 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             if (!isRunActive()) {
                 return;
             }
-            if (pageToSnapTo === null) {
-                // Fit-width changes every row's physical top. The old
-                // scrollTop is not meaningful under the new geometry and can
-                // make the viewport observer overwrite a committed page-2
-                // navigation with page 1. Re-project the semantic page owner
-                // before any post-render viewport sampling runs.
-                await nextTick();
-                if (
-                    !isRunActive()
-                    || !canApplyDelayedViewportScroll(source, runId, interactionEpoch)
-                ) {
-                    return;
-                }
-                await Promise.resolve(scrollToPage(pageToPreserve, {
-                    preferExactDom: true,
-                    suppressRenderAfterSnap: true,
-                }));
-                syncHorizontalScrollAfterLayoutUpdate();
+            await nextTick();
+            if (
+                !isRunActive()
+                || !canConfirmFitAnchor(source, runId, physicalNavigationEpoch)
+            ) {
                 return;
             }
+            applyResizeAnchorPreview?.(fitAnchor);
             syncHorizontalScrollAfterLayoutUpdate();
-            if (pageToSnapTo !== null) {
-                await nextTick();
-                if (
-                    !isRunActive()
-                    || !canApplyDelayedViewportScroll(source, runId, interactionEpoch)
-                ) {
-                    return;
-                }
-                scrollToPage(pageToSnapTo, {
-                    preferExactDom: true,
-                    suppressRenderAfterSnap: true,
-                });
-                syncHorizontalScrollAfterLayoutUpdate();
-            }
+        } finally {
+            endLayoutGeometryReplacement?.();
         }
     }
 
@@ -584,14 +605,14 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             return;
         }
         const runId = ++fitModeRunId;
-        const interactionEpoch = getCurrentUserViewportInteractionEpoch();
+        const physicalNavigationEpoch = getCurrentUserPhysicalNavigationEpoch();
         const document = pdfDocument.value;
         await handleFitScaleModeChange(
             PDF_RERENDER_SOURCE.FitMode,
             mode,
             runId,
             document,
-            interactionEpoch,
+            physicalNavigationEpoch,
             () => (
                 isViewerAsyncRunActive(runId, fitModeRunId, document)
                 && fitMode.value === mode
@@ -617,14 +638,14 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             }
 
             const runId = ++fitModeRunId;
-            const interactionEpoch = getCurrentUserViewportInteractionEpoch();
+            const physicalNavigationEpoch = getCurrentUserPhysicalNavigationEpoch();
             const document = pdfDocument.value;
             await handleFitScaleModeChange(
                 PDF_RERENDER_SOURCE.ZoomMode,
                 modeFitMode,
                 runId,
                 document,
-                interactionEpoch,
+                physicalNavigationEpoch,
                 () => (
                     isViewerAsyncRunActive(runId, fitModeRunId, document)
                     && zoomMode.value === mode

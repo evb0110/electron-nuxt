@@ -193,6 +193,16 @@ function shouldMountHost(tabId: string) {
     pointer-events: none;
 }
 
+/*
+ * The outgoing tab keeps painting its centre pixels under the claiming document
+ * until that document commits its own, which is what keeps the open from
+ * flashing. Its sidebar describes a different document, so presenting it beside
+ * the new tab's title would put two document identities on screen at once.
+ */
+.editor-pane-content > .is-presentation-fallback :deep(.sidebar-wrapper) {
+    visibility: hidden;
+}
+
 .editor-pane-content > * {
     flex: 1;
     width: 100%;

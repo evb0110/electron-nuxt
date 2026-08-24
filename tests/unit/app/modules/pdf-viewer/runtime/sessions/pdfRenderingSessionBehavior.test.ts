@@ -51,6 +51,8 @@ const rendererFixture = vi.hoisted(() => {
     };
 });
 
+const rerenderCoordinatorFixture = vi.hoisted(() => ({options: null as Record<string, unknown> | null}));
+
 const canvasFixture = vi.hoisted(() => ({
     prepare: vi.fn(),
     mount: vi.fn(),
@@ -79,10 +81,13 @@ vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer', 
     cleanupCanvas: canvasFixture.cleanup,
     cleanupCanvasRenderResult: canvasFixture.cleanupResult,
 })}));
-vi.mock('@app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator', () => ({usePdfViewerRerenderCoordinator: vi.fn(() => ({
-    reRenderVisiblePagesAndSyncCurrentPage: vi.fn(async () => undefined),
-    cleanupZoomOrchestration: vi.fn(),
-}))}));
+vi.mock('@app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator', () => ({usePdfViewerRerenderCoordinator: vi.fn((options: Record<string, unknown>) => {
+    rerenderCoordinatorFixture.options = options;
+    return {
+        reRenderVisiblePagesAndSyncCurrentPage: vi.fn(async () => undefined),
+        cleanupZoomOrchestration: vi.fn(),
+    };
+})}));
 vi.mock('@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle', () => ({usePdfViewerResizeLifecycle: vi.fn(() => ({
     buildResizeAnchorContext: vi.fn(() => null),
     beginResizeTransition: vi.fn(),
@@ -174,6 +179,8 @@ function createRenderingFixture(fixtureOptions: {
         },
     });
     const cancelRasterRevision = ref(0);
+    const userPhysicalNavigationEpoch = ref(0);
+    const beginLayoutGeometryReplacement = vi.fn(() => vi.fn());
     const cancelPendingSearchRevision = ref(0);
     const visualReadySignal = shallowRef({
         revision: 0,
@@ -200,6 +207,8 @@ function createRenderingFixture(fixtureOptions: {
         visualReadySignal: shallowReadonly(visualReadySignal),
         navigationCommittedSignal: shallowReadonly(navigationCommittedSignal),
         userViewportInteractionEpoch: ref(0),
+        userPhysicalNavigationEpoch,
+        beginLayoutGeometryReplacement,
         pageSlots: {isMounted: vi.fn((page: number) => demand.value.mountedPages.includes(page))},
         settleMandatoryRaster,
         notifyRenderStateChanged: vi.fn(),
@@ -494,6 +503,7 @@ function createRenderingFixture(fixtureOptions: {
     }
     return {
         app,
+        beginLayoutGeometryReplacement,
         demand,
         disposables,
         emitInitialVisualReady,
@@ -509,6 +519,7 @@ function createRenderingFixture(fixtureOptions: {
         outputScale,
         settleMandatoryRaster,
         subscribers,
+        userPhysicalNavigationEpoch,
         viewerContainer,
         replaceDocument() {
             currentDocumentLoadToken += 1;
@@ -560,6 +571,7 @@ describe('PdfRenderingSession behavior', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         rendererFixture.options = null;
+        rerenderCoordinatorFixture.options = null;
         rendererFixture.api.renderCommittedPageLayers.mockImplementation(async (commit: {
             pageNumber: number;
             requestId: number;
@@ -584,6 +596,24 @@ describe('PdfRenderingSession behavior', () => {
             canvas.height = 0;
             canvas.remove();
         });
+    });
+
+    it('gives the rerender coordinator the viewport physical navigation epoch and layout window', async () => {
+        const fixture = createRenderingFixture();
+
+        const options = rerenderCoordinatorFixture.options as {
+            getUserPhysicalNavigationEpoch?: () => number;
+            beginLayoutGeometryReplacement?: unknown;
+        } | null;
+        // Reading the epoch through the coordinator's own getter proves it is
+        // bound to the physical counter rather than to the interaction epoch a
+        // fit change advances itself, which would make every fit re-anchor
+        // cancel itself.
+        fixture.userPhysicalNavigationEpoch.value = 42;
+        expect(options?.getUserPhysicalNavigationEpoch?.()).toBe(42);
+        expect(options?.beginLayoutGeometryReplacement).toBe(fixture.beginLayoutGeometryReplacement);
+
+        await fixture.dispose();
     });
 
     it('adopts a resident page when a host open generation starts after the canvas painted', async () => {

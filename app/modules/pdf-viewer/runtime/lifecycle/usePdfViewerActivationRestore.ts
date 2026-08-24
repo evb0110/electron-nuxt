@@ -14,6 +14,8 @@ import {
     runDocumentViewerActivationPresentation,
     waitForDocumentViewerVisibleLayout,
 } from '@app/utils/document-viewer/lifecycle/documentViewerActivationPresentation';
+import { isPdfInitialVisualCanvasReady } from '@app/modules/pdf-viewer/runtime/lifecycle/isPdfInitialVisualCanvasReady';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IUsePdfViewerActivationRestoreOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -91,12 +93,31 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
             },
             reconcile: async () => {
                 const row = currentRow();
-                if (options.currentPage.value < options.visibleRange.value.start
-                    || options.currentPage.value > options.visibleRange.value.end) {
+                const container = options.viewerContainer.value;
+                const page = options.currentPage.value;
+                const physicallyVisible = isPdfInitialVisualCanvasReady(container, page, page);
+                if (
+                    !physicallyVisible
+                    || page < options.visibleRange.value.start
+                    || page > options.visibleRange.value.end
+                ) {
+                    logPdfRenderTrace('pdf-activation-viewport-reanchor', {
+                        page,
+                        physicallyVisible,
+                        scrollTop: container?.scrollTop ?? null,
+                        visibleRange: options.visibleRange.value,
+                    });
                     options.scrollToPage(options.currentPage.value);
                 }
                 await options.renderVisiblePages(row, {preserveRenderedPages: true});
-                if (isCurrent()) options.applySearchHighlights();
+                if (isCurrent()) {
+                    logPdfRenderTrace('pdf-activation-viewport-reanchor-settled', {
+                        page,
+                        physicallyVisible: isPdfInitialVisualCanvasReady(container, page, page),
+                        scrollTop: container?.scrollTop ?? null,
+                    });
+                    options.applySearchHighlights();
+                }
             },
         });
     }

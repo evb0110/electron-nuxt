@@ -5,6 +5,7 @@ import type {
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
@@ -384,6 +385,11 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                     error,
                     tabId: tab.id,
                 });
+                logPdfRenderTrace('pdf-open-replacement-rollback', {
+                    failedTabId: tab.id,
+                    restoredTabId: outgoingTabId,
+                    reason: 'open-threw',
+                });
                 removeTabFromState(tab.id);
                 return false;
             }
@@ -394,6 +400,11 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                     return true;
                 }
 
+                logPdfRenderTrace('pdf-open-replacement-rollback', {
+                    failedTabId: tab.id,
+                    restoredTabId: outgoingTabId,
+                    reason: 'open-did-not-settle',
+                });
                 removeTabFromState(tab.id);
                 return false;
             }
@@ -441,10 +452,27 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     }
 
     async function openPathInAppropriateTab(path: TDocumentRef) {
-        if (readRecentOpenExactGeometry(path)) {
+        // The origin every open phase is measured from. Everything a user waits
+        // for after picking a file happens after this point.
+        const routeStartedAt = performance.now();
+        const warmGeometry = readRecentOpenExactGeometry(path) !== null;
+        logPdfRenderTrace('pdf-open-route-start', {
+            path,
+            warmGeometry,
+        });
+        if (warmGeometry) {
             // Recent/startup preparation already gave the host a validated,
             // revision-fenced frame. Preserve the latency-sensitive immediate
             // claim; its document flow may create the working copy in parallel.
+            // Closed here with a zero-length span so the phase ledger reports a
+            // skipped preflight rather than an unmeasured one.
+            logPdfRenderTrace('pdf-open-route-capability-end', {
+                path,
+                elapsedMs: performance.now() - routeStartedAt,
+                failed: false,
+                resultKind: null,
+                warmGeometry,
+            });
             return openDocumentInAppropriateTab(path);
         }
         // A cold path is resolved by the main process before the workspace
@@ -452,7 +480,32 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         // carries authoritative first-page geometry discovered from the
         // admitted working copy, so the host can begin atomically with
         // the exact frame instead of retargeting a later viewer-local shell.
-        const result = await getDocumentOpenCapability().openDocumentDirect(path);
+        let result: TOpenFileResult | null;
+        try {
+            result = await getDocumentOpenCapability().openDocumentDirect(path);
+        } catch (error) {
+            // A rejected preflight ends the open here. Closing the span keeps
+            // the phase ledger complete: a refused file reports as a measured
+            // failure instead of an open that was never accounted for.
+            logPdfRenderTrace('pdf-open-route-capability-end', {
+                path,
+                elapsedMs: performance.now() - routeStartedAt,
+                failed: true,
+                resultKind: null,
+                warmGeometry,
+            });
+            throw error;
+        }
+        // Main-process preflight: admitting the file and staging a working
+        // copy. On a large scanned PDF this is a whole-file copy, so it is the
+        // first candidate whenever an open feels slow before anything paints.
+        logPdfRenderTrace('pdf-open-route-capability-end', {
+            path,
+            elapsedMs: performance.now() - routeStartedAt,
+            failed: false,
+            resultKind: result?.kind ?? null,
+            warmGeometry,
+        });
         return result ? openDocumentInAppropriateTab(result) : false;
     }
 

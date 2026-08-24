@@ -542,6 +542,46 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it('credits layout-replacement scroll to the viewer while keeping wheel input physical', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            pageCount: 100,
+        });
+        try {
+            fixture.documentSession.basePageHeight.value = 100;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 100}, () => ({
+                width: 600,
+                height: 100,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            await nextTick();
+            const interactionEpoch = fixture.viewport.userViewportInteractionEpoch.value;
+            const physicalEpoch = fixture.viewport.userPhysicalNavigationEpoch.value;
+
+            const endReplacement = fixture.viewport.beginLayoutGeometryReplacement();
+            fixture.container.scrollTop = 4_000;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+
+            // A fit change rewrites every row, and the browser answers with its
+            // own scroll. It still moves the viewport, so the interaction epoch
+            // advances, but it is not the user taking the viewport.
+            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(interactionEpoch + 1);
+            expect(fixture.viewport.userPhysicalNavigationEpoch.value).toBe(physicalEpoch);
+
+            // Trusted wheel or pointer input is authoritative even mid-replacement.
+            fixture.viewport.markUserViewportInteraction();
+            expect(fixture.viewport.userPhysicalNavigationEpoch.value).toBe(physicalEpoch + 1);
+
+            endReplacement();
+            fixture.container.scrollTop = 6_000;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+
+            expect(fixture.viewport.userPhysicalNavigationEpoch.value).toBe(physicalEpoch + 2);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
     it('releases a retained navigation row when a direct scroll moves the viewport', async () => {
         const fixture = createViewportFixture({
             bufferPages: 0,
