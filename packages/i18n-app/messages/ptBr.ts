@@ -533,7 +533,6 @@ export default {
         'sendSteer': 'Send steer',
         'stop': 'Parar',
         'copyMessage': 'Copiar mensagem',
-        'reportResponse': 'Denunciar esta resposta de IA',
         'copyMessageCopied': 'Copiado',
         'startingTurn': 'Iniciando',
         'working': 'Trabalhando',

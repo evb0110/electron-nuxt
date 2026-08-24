@@ -166,7 +166,7 @@ const projectConfig = withNuxt(
         },
     },
     ...[
-        ['app/modules/agent-panel/components/AgentAssistantPanel.vue', 781],
+        ['app/modules/agent-panel/components/AgentAssistantPanel.vue', 789],
         ['app/modules/agent-panel/composables/useAgentAssistantPanelController.ts', 1159],
         ['app/modules/pdf-viewer/components/PdfThumbnails.vue', 915],
         ['app/modules/native-pdf-viewer/components/NativePdfViewer.vue', 1312],

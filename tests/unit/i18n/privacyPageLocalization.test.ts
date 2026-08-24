@@ -217,7 +217,7 @@ describe('root privacy localization', () => {
         }
     });
 
-    it('localizes storage, analytics retention, assistant reporting, and metadata in Russian', () => {
+    it('localizes storage, analytics retention, and metadata in Russian', () => {
         const rootPrivacy = loadRootPrivacyCopy();
 
         expect(rootPrivacy.ru).not.toEqual(rootPrivacy.en);
@@ -228,7 +228,6 @@ describe('root privacy localization', () => {
         expect(rootPageSource).toContain('файл cookie когорты с атрибутом HttpOnly сроком до 90 дней');
         expect(rootPageSource).toContain('случайного идентификатора аналитической сессии');
         expect(rootPageSource).toContain('автоматическому удалению через 90 дней');
-        expect(rootPageSource).toContain('не копирует и не отправляет ответ');
         expect(rootPageSource).toContain('Политика конфиденциальности | EVB Viewer');
     });
 });

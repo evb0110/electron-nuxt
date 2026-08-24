@@ -18,7 +18,6 @@
             <section>
                 <h2>{{ privacyCopy.assistant.heading }}</h2>
                 <p>{{ privacyCopy.assistant.body }}</p>
-                <p>{{ privacyCopy.assistant.reportBody }}</p>
             </section>
 
             <section>
@@ -74,7 +73,6 @@ const PRIVACY_COPY = {
         assistant: {
             heading: 'Optional assistant services',
             body: 'Assistant features are optional. When you use an assistant backed by Codex, OpenAI, or Anthropic Claude, prompts and any content or attachments you choose to include are sent to that provider under your account and are governed by that provider\'s terms and privacy policy. EVB Viewer does not sell this information.',
-            reportBody: 'Every assistant response includes a report control for inappropriate AI-generated content. It opens the EVB Viewer issue form, but does not copy or submit the response; you decide what to include and must avoid private or sensitive information.',
         },
         analytics: {
             heading: 'Analytics and technical information',
@@ -115,7 +113,6 @@ const PRIVACY_COPY = {
         assistant: {
             heading: 'Опциональные сервисы ассистента',
             body: 'Функции ассистента необязательны. При использовании ассистента на базе Codex, OpenAI или Anthropic Claude запросы, а также выбранные вами материалы и вложения отправляются соответствующему провайдеру через вашу учётную запись и регулируются его условиями и политикой конфиденциальности. EVB Viewer не продаёт эту информацию.',
-            reportBody: 'Каждый ответ ассистента содержит элемент управления для жалобы на недопустимый контент, созданный ИИ. Он открывает форму задачи EVB Viewer, но не копирует и не отправляет ответ: вы сами решаете, что включить в сообщение, и должны исключить личную или конфиденциальную информацию.',
         },
         analytics: {
             heading: 'Аналитика и техническая информация',

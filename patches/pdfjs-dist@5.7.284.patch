@@ -1,5 +1,5 @@
 diff --git a/build/pdf.mjs b/build/pdf.mjs
-index 3b08593dd20d37f9679d0ba0f7999ad96d393682..923075997032b09643501891849d2448a95b620d 100644
+index 3b08593dd20d37f9679d0ba0f7999ad96d393682..aa0d0936d88ed7a8cfbe95f635a8f4e12c823702 100644
 --- a/build/pdf.mjs
 +++ b/build/pdf.mjs
 @@ -10934,7 +10934,7 @@ class CanvasGraphics {
@@ -38,8 +38,28 @@ index 3b08593dd20d37f9679d0ba0f7999ad96d393682..923075997032b09643501891849d2448
        scaled = scaleResult.img;
        scaledEntry = scaleResult.tmpCanvas;
        if (scaled !== maskCanvas.canvas) {
+@@ -14456,7 +14456,7 @@ class TextLayer {
+         Object.assign(this.#styleCache, value.styles);
+         this.#processItems(value.items);
+         pump();
+-      }, this.#capability.reject);
++      }, this.#capability.reject).catch(this.#capability.reject);
+     };
+     this.#reader = this.#textContentSource.getReader();
+     TextLayer.#pendingTextLayers.add(this);
+@@ -14529,7 +14529,9 @@ class TextLayer {
+           }
+           parent.append(this.#container);
+         } else if (item.type === "endMarkedContent") {
+-          this.#container = this.#container.parentNode;
++          if (this.#container !== this.#rootContainer) {
++            this.#container = this.#container.parentNode ?? this.#rootContainer;
++          }
+         }
+         continue;
+       }
 diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
-index 5559b93393787671a0e2bfacc190fd94b7084fb6..b417d16e7ff6b0b9a80eefe6d6a1d880065d0e30 100644
+index 5559b93393787671a0e2bfacc190fd94b7084fb6..1e512a6ee8cd67b9af5dd1eca2ab8a241edb3df8 100644
 --- a/legacy/build/pdf.mjs
 +++ b/legacy/build/pdf.mjs
 @@ -17569,7 +17569,7 @@ class CanvasGraphics {
@@ -78,3 +98,23 @@ index 5559b93393787671a0e2bfacc190fd94b7084fb6..b417d16e7ff6b0b9a80eefe6d6a1d880
        scaled = scaleResult.img;
        scaledEntry = scaleResult.tmpCanvas;
        if (scaled !== maskCanvas.canvas) {
+@@ -21168,7 +21168,7 @@ class TextLayer {
+         Object.assign(this.#styleCache, value.styles);
+         this.#processItems(value.items);
+         pump();
+-      }, this.#capability.reject);
++      }, this.#capability.reject).catch(this.#capability.reject);
+     };
+     this.#reader = this.#textContentSource.getReader();
+     TextLayer.#pendingTextLayers.add(this);
+@@ -21241,7 +21241,9 @@ class TextLayer {
+           }
+           parent.append(this.#container);
+         } else if (item.type === "endMarkedContent") {
+-          this.#container = this.#container.parentNode;
++          if (this.#container !== this.#rootContainer) {
++            this.#container = this.#container.parentNode ?? this.#rootContainer;
++          }
+         }
+         continue;
+       }

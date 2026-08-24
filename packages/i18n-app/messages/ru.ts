@@ -68,7 +68,6 @@ export default {
         'sendSteer': 'Отправить уточнение',
         'stop': 'Стоп',
         'copyMessage': 'Копировать сообщение',
-        'reportResponse': 'Пожаловаться на этот ответ ИИ',
         'copyMessageCopied': 'Скопировано',
         'startingTurn': 'Запуск',
         'working': 'Работает',

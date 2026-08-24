@@ -416,7 +416,6 @@ export default defineNuxtConfig({
         'ph:file-plus',
         'ph:file-text',
         'ph:files',
-        'ph:flag',
         'ph:folder',
         'ph:folder-open',
         'ph:gauge',

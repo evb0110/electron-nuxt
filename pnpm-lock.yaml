@@ -42,7 +42,7 @@ overrides:
 
 patchedDependencies:
   pdfjs-dist@5.7.284:
-    hash: c8b7b0b7159022e22c805f5ebf5a1578a18a7f4e1c545f03e63f0f1c040f07b7
+    hash: 50c2b9b3db1f4c1f466e9fefbf0910f6cd156151a942f0d77f7457109aa2a7f0
     path: patches/pdfjs-dist@5.7.284.patch
 
 importers:
@@ -162,7 +162,7 @@ importers:
         version: 1.17.1
       pdfjs-dist:
         specifier: 5.7.284
-        version: 5.7.284(patch_hash=c8b7b0b7159022e22c805f5ebf5a1578a18a7f4e1c545f03e63f0f1c040f07b7)
+        version: 5.7.284(patch_hash=50c2b9b3db1f4c1f466e9fefbf0910f6cd156151a942f0d77f7457109aa2a7f0)
       pdfjs-dist-codex-preview:
         specifier: npm:pdfjs-dist@5.4.296
         version: pdfjs-dist@5.4.296
@@ -17625,7 +17625,7 @@ snapshots:
     optionalDependencies:
       '@napi-rs/canvas': 0.1.100
 
-  pdfjs-dist@5.7.284(patch_hash=c8b7b0b7159022e22c805f5ebf5a1578a18a7f4e1c545f03e63f0f1c040f07b7):
+  pdfjs-dist@5.7.284(patch_hash=50c2b9b3db1f4c1f466e9fefbf0910f6cd156151a942f0d77f7457109aa2a7f0):
     optionalDependencies:
       '@napi-rs/canvas': 0.1.100
 

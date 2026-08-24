@@ -55,6 +55,7 @@ describe('balanced scrollbar-gutter architecture', () => {
             'app/components/document-viewer/DocumentBookmarkTree.vue',
             'app/components/document-viewer/DocumentSearchResults.vue',
             'app/components/document-viewer/DocumentThumbnailRail.vue',
+            'app/modules/agent-panel/components/AssistantTurnStatus.vue',
             'app/modules/ocr-panel/components/OcrPopup.vue',
             'app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue',
             'app/modules/pdf-viewer/components/PdfEmptyState.vue',
