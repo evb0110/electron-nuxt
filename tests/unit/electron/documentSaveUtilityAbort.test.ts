@@ -8,6 +8,7 @@ import {
     fingerprintFileWithUtilityProcess,
     runDocumentSaveUtilityProcess,
 } from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
+import {DOCUMENT_SAVE_SERVICE_NAME} from '@electron/processDeathRecovery';
 
 const mocks = vi.hoisted(() => ({
     brokerAcquire: vi.fn(),
@@ -30,7 +31,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
 
         await expect(runDocumentSaveUtilityProcess({
             cwd: '/tmp',
-            serviceName: 'EVB document save',
+            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
             utilityName: 'Document save utility',
             timeoutMs: 1_000,
             request: {
