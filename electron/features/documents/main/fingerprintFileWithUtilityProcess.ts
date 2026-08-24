@@ -7,6 +7,7 @@ import {resolveUnpackedWorkerPath} from '@electron/utils/workerTask';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {decodeDocumentSaveUtilityResult} from '@electron/features/documents/main/documentSaveUtilityProtocol';
 import {abortErrorFromSignal} from '@electron/utils/abort';
+import {DOCUMENT_FINGERPRINT_SERVICE_NAME} from '@electron/processDeathRecovery';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ADMISSION_TIMEOUT_MS = 15_000;
@@ -96,7 +97,7 @@ export async function fingerprintFileWithUtilityProcess(path: string) {
     try {
         return await runDocumentSaveUtilityProcess({
             cwd: dirname(path),
-            serviceName: 'EVB document fingerprint',
+            serviceName: DOCUMENT_FINGERPRINT_SERVICE_NAME,
             utilityName: 'Document fingerprint utility',
             timeoutMs: FINGERPRINT_TIMEOUT_MS,
             request: {

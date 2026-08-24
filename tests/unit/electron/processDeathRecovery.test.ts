@@ -7,6 +7,8 @@ import {
 import {
     configureProcessSafeMode,
     createProcessDeathRecovery,
+    DOCUMENT_FINGERPRINT_SERVICE_NAME,
+    DOCUMENT_SAVE_SERVICE_NAME,
     PROCESS_SAFE_MODE_ARGUMENT,
 } from '@electron/processDeathRecovery';
 import {
@@ -81,6 +83,135 @@ describe('processDeathRecovery', () => {
         fixture.recovery.handleChildProcessGone(details);
         expect(fixture.recovery.handleChildProcessGone(details).action).toBe('safe-mode-failed');
         expect(fixture.requestSafeModeRelaunch).not.toHaveBeenCalled();
+    });
+
+    // The app kills its own utility processes as their ordinary teardown, and
+    // error level is what the renderer turns into a user-visible diagnostic
+    // report. Reporting those killed a successful document fingerprint's exit
+    // as a fault, and the resulting report card covered the toolbar it is
+    // anchored over.
+    it('keeps a utility process the app terminated out of the error channel', () => {
+        const fixture = createFixture();
+
+        expect(fixture.recovery.handleChildProcessGone({
+            type: 'Utility',
+            reason: 'killed',
+            exitCode: 15,
+            name: DOCUMENT_FINGERPRINT_SERVICE_NAME,
+        }).action).toBe('logged');
+
+        expect(fixture.logger.error).not.toHaveBeenCalled();
+        expect(fixture.logger.warn).toHaveBeenCalledWith(
+            '[process-death] Utility process gone (EVB document fingerprint, reason=killed, exitCode=15)',
+        );
+    });
+
+    // `utilityProcess.fork` documents its `serviceName` option as arriving in
+    // the `name` field, and Chromium fills `serviceName` with the mojo service
+    // identity, so the rule reads both rather than betting on one Electron
+    // build's field.
+    it('recognises the app\'s own utility teardown reported under serviceName', () => {
+        const fixture = createFixture();
+
+        expect(fixture.recovery.handleChildProcessGone({
+            type: 'Utility',
+            reason: 'killed',
+            exitCode: 15,
+            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
+        }).action).toBe('logged');
+
+        expect(fixture.logger.error).not.toHaveBeenCalled();
+        expect(fixture.logger.warn).toHaveBeenCalledWith(
+            '[process-death] Utility process gone (EVB document save, reason=killed, exitCode=15)',
+        );
+    });
+
+    it('still reports a utility process that failed on its own', () => {
+        const fixture = createFixture();
+
+        expect(fixture.recovery.handleChildProcessGone({
+            type: 'Utility',
+            reason: 'crashed',
+            exitCode: 133,
+            name: DOCUMENT_FINGERPRINT_SERVICE_NAME,
+        }).action).toBe('logged');
+
+        expect(fixture.logger.error).toHaveBeenCalledWith(
+            '[process-death] Utility process gone (EVB document fingerprint, reason=crashed, exitCode=133)',
+        );
+        expect(fixture.logger.warn).not.toHaveBeenCalled();
+    });
+
+    // Only the two document save utilities are the app's to kill. A signal that
+    // ended any other utility process came from outside the app, which is a
+    // fault the user should see.
+    it('still reports a killed utility process the app did not fork', () => {
+        const fixture = createFixture();
+
+        expect(fixture.recovery.handleChildProcessGone({
+            type: 'Utility',
+            reason: 'killed',
+            exitCode: 9,
+            name: 'Audio Service',
+        }).action).toBe('logged');
+
+        expect(fixture.logger.error).toHaveBeenCalledWith(
+            '[process-death] Utility process gone (Audio Service, reason=killed, exitCode=9)',
+        );
+        expect(fixture.logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('still reports a killed utility process that carries no identity', () => {
+        const fixture = createFixture();
+
+        expect(fixture.recovery.handleChildProcessGone({
+            type: 'Utility',
+            reason: 'killed',
+            exitCode: 9,
+        }).action).toBe('logged');
+
+        expect(fixture.logger.error).toHaveBeenCalledWith(
+            '[process-death] Utility process gone (Utility, reason=killed, exitCode=9)',
+        );
+        expect(fixture.logger.warn).not.toHaveBeenCalled();
+    });
+
+    // The app forks no process of these types at all, so nothing it does can
+    // explain a signal that ended one.
+    it.each([
+        'Zygote',
+        'Sandbox helper',
+        'Pepper Plugin',
+        'Pepper Plugin Broker',
+        'Unknown',
+    ])('still reports a killed %s process', (type) => {
+        const fixture = createFixture();
+
+        expect(fixture.recovery.handleChildProcessGone({
+            type,
+            reason: 'killed',
+            exitCode: 9,
+        }).action).toBe('logged');
+
+        expect(fixture.logger.error).toHaveBeenCalledWith(
+            `[process-death] ${type} process gone (${type}, reason=killed, exitCode=9)`,
+        );
+        expect(fixture.logger.warn).not.toHaveBeenCalled();
+    });
+
+    // Nothing in the app kills the GPU, so a killed GPU process is a fault like
+    // any other and still has to reach the relaunch decision below.
+    it('reports a killed GPU process and still counts it toward safe mode', () => {
+        const fixture = createFixture();
+        const details = {
+            type: 'GPU',
+            reason: 'killed',
+            exitCode: 9,
+        };
+
+        expect(fixture.recovery.handleChildProcessGone(details).action).toBe('logged');
+        expect(fixture.recovery.handleChildProcessGone(details).action).toBe('safe-mode-relaunch');
+        expect(fixture.logger.error).toHaveBeenCalledTimes(2);
     });
 
     it('requests at most one coordinated relaunch after repeated GPU crashes', () => {

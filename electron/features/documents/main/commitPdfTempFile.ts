@@ -8,6 +8,7 @@ import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsService';
 import {resolveTypedStagedArtifact} from '@electron/features/documents/main/managedTempFileHandles';
 import {runDocumentSaveUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
+import {DOCUMENT_SAVE_SERVICE_NAME} from '@electron/processDeathRecovery';
 
 const DEFAULT_THRESHOLD = 64 * 1024 * 1024;
 const SAVE_UTILITY_THRESHOLD = (() => {
@@ -71,7 +72,7 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
         markActiveWorkingCopyMutationCommitStarted();
         const result = await runDocumentSaveUtilityProcess({
             cwd: dirname(sourcePath),
-            serviceName: 'EVB document save',
+            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
             utilityName: 'Document save utility',
             timeoutMs: 10 * 60_000,
             ...(signal ? {signal} : {}),
