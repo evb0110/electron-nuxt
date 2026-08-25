@@ -77,9 +77,17 @@ describe('release checksum manifest', () => {
         await writeFile(join(directory, 'asset.zip'), 'core');
         await generateReleaseChecksums(directory);
 
-        // The Intel ZIP attaches after promotion, outside SHA256SUMS.
+        // Supplemental macOS Intel and Windows ARM assets attach after
+        // promotion, outside SHA256SUMS.
         await writeFile(join(directory, 'EVB-Viewer-0.1.427-x64.zip'), 'intel');
+        await writeFile(join(directory, 'EVB-Viewer-0.1.427-arm64-setup.exe'), 'windows-arm');
+        await writeFile(
+            join(directory, 'EVB-Viewer-0.1.427-win-arm64-provenance.json'),
+            'windows-arm-provenance',
+        );
         await expect(verifyReleaseChecksums(directory)).resolves.toEqual({assetNames: [
+            'EVB-Viewer-0.1.427-arm64-setup.exe',
+            'EVB-Viewer-0.1.427-win-arm64-provenance.json',
             'EVB-Viewer-0.1.427-x64.zip',
             'asset.zip',
         ]});
@@ -88,11 +96,17 @@ describe('release checksum manifest', () => {
         // name is exempt from the manifest.
         await expect(verifyReleaseChecksums(directory, {releaseVersion: '0.1.427'}))
             .resolves.toEqual({assetNames: [
+                'EVB-Viewer-0.1.427-arm64-setup.exe',
+                'EVB-Viewer-0.1.427-win-arm64-provenance.json',
                 'EVB-Viewer-0.1.427-x64.zip',
                 'asset.zip',
             ]});
         await expect(verifyReleaseChecksums(directory, {releaseVersion: '0.1.428'}))
-            .rejects.toThrow('missing: EVB-Viewer-0.1.427-x64.zip; unexpected: (none)');
+            .rejects.toThrow(
+                'missing: EVB-Viewer-0.1.427-arm64-setup.exe, '
+                + 'EVB-Viewer-0.1.427-win-arm64-provenance.json, '
+                + 'EVB-Viewer-0.1.427-x64.zip; unexpected: (none)',
+            );
 
         // A supplemental asset that made it into the manifest is still
         // hash-verified like any other listed asset.

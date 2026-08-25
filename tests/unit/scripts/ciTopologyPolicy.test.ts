@@ -675,7 +675,8 @@ describe('CI topology policy', () => {
     });
 
     it('verifies release build artifacts before upload', async () => {
-        const workflow = await readProjectFile('.github/workflows/build.yml');
+        const workflow = await readProjectFile('.github/workflows/build-target.yml');
+        const coreBuildWorkflow = await readProjectFile('.github/workflows/build.yml');
         const macIntelWorkflow = await readProjectFile('.github/workflows/build-mac-intel.yml');
         const win7Workflow = await readProjectFile('.github/workflows/build-win7-legacy.yml');
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
@@ -695,11 +696,20 @@ describe('CI topology policy', () => {
             workflow.indexOf('- name: Verify macOS signature'),
         );
 
-        expect(verifyStep).toContain('node scripts/release/assert-build-artifacts.mjs release "${{ matrix.platform }}" "${{ matrix.arch }}"');
+        expect(verifyStep).toContain(
+            'node scripts/release/assert-build-artifacts.mjs release "$EVB_RELEASE_TARGET_PLATFORM" "$EVB_RELEASE_TARGET_ARCH"',
+        );
         expect(verifyStep).toContain('EVB_RELEASE_HAS_MAC_SIGNING');
         expect(verifyStep).toContain('EVB_RELEASE_HAS_WINDOWS_SIGNING');
         expect(verifyStep).not.toContain('CSC_LINK');
         expect(verifyStep).not.toContain('WIN_CSC_LINK');
+        expect(workflow).toContain('value: ${{ jobs.build.outputs.artifact_ready }}');
+        expect(buildJob).toContain('continue-on-error: ${{ inputs.advisory }}');
+        expect(buildJob).toContain('artifact_ready: ${{ steps.artifact_status.outputs.artifact_ready }}');
+        expect(buildJob).toContain('if: ${{ always() }}');
+        expect(buildJob).toContain(
+            'artifact_ready=${{ steps.upload_artifacts.outcome == \'success\' }}',
+        );
         expect(dmgNotarizationStep).toContain('bash scripts/release/import-macos-codesign-certificate.sh');
         expect(dmgNotarizationStep).toContain('node scripts/release/notarize-macos-dmgs.mjs release');
         expect(workflow).toContain('::error::Partial WIN_CSC_* secrets detected; set both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD or neither');
@@ -711,6 +721,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Verify packaged Windows core PDF journey');
         expect(workflow).toContain('find release -type f -path \'*/win*-unpacked/EVB Viewer.exe\'');
         expect(workflow).toContain('name: Verify installed Linux AppImage and DEB journeys');
+        expect(workflow).not.toContain('TARGET_ARCH=${{ inputs.arch }}');
+        expect(workflow).not.toMatch(/run:[^\n]*\$\{\{ inputs\.(?:arch|platform) \}\}/u);
         expect(workflow).toContain('APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a');
         expect(workflow).toContain('sudo apt-get install -y "$(realpath "$deb")"');
         expect(workflow).toContain('sudo apt-get remove -y "$package_name"');
@@ -749,7 +761,9 @@ describe('CI topology policy', () => {
         expect(installedNsisStep).toContain('$installDeadline = $installStartedAt.AddMinutes(15)');
         expect(installedNsisStep).toContain('while ($missingRuntimePaths.Count -gt 0 -and (Get-Date) -lt $installDeadline)');
         expect(installedNsisStep).toContain('NSIS extraction progress:');
-        expect(installedNsisStep).toContain('Join-Path $env:RUNNER_TEMP \'evb-viewer-nsis-');
+        expect(installedNsisStep).toContain(
+            'Join-Path $env:RUNNER_TEMP "evb-viewer-nsis-$env:EVB_RELEASE_TARGET_ARCH-',
+        );
         expect(installedNsisStep).toContain(
             'throw \'Installed EVB Viewer runtime did not become ready before the deadline.\'',
         );
@@ -776,7 +790,19 @@ describe('CI topology policy', () => {
         }
         expect(macIntelWorkflow).toContain('name: Verify packaged macOS Intel core PDF journey');
         expect(win7Workflow).toContain('name: Verify packaged Windows 7 core PDF journey');
-        expect(workflow).toContain('os: windows-11-arm\n            platform: win\n            arch: arm64');
+        expect(coreBuildWorkflow).not.toContain('windows-11-arm');
+        expect(coreBuildWorkflow).toContain('uses: ./.github/workflows/build-target.yml');
+        expect(coreBuildWorkflow).toContain('artifact_group: dist-mac-arm64');
+        expect(coreBuildWorkflow).toContain('artifact_group: dist-linux-x64');
+        expect(coreBuildWorkflow).toContain('artifact_group: dist-linux-arm64');
+        expect(coreBuildWorkflow).toContain('artifact_group: dist-win-x64');
+        const supplementalWindowsArm = workflowJob(releaseWorkflow, 'build_win_arm64');
+        expect(supplementalWindowsArm).toContain('uses: ./.github/workflows/build-target.yml');
+        expect(supplementalWindowsArm).toContain('os: windows-11-arm');
+        expect(supplementalWindowsArm).toContain('platform: win');
+        expect(supplementalWindowsArm).toContain('arch: arm64');
+        expect(supplementalWindowsArm).toContain('artifact_group: supplemental-win-arm64');
+        expect(supplementalWindowsArm).toContain('advisory: true');
         // Runner provisioning has one owner: the setup-release-env composite
         // action. MSYS2 install, export, and tool verification live there and
         // must have completed before the Windows bundle step runs.
@@ -788,20 +814,24 @@ describe('CI topology policy', () => {
         expect(setupAction).toContain('msys2_root="$(cygpath -u "$MSYS2_LOCATION")"');
         expect(setupAction).toContain('"$tool_path" --version');
         expect(workflow).toContain('uses: ./.github/actions/setup-release-env');
-        expect(workflow).toContain('needs-msys2: ${{ matrix.platform == \'win\' && matrix.arch == \'arm64\' }}');
+        expect(workflow).toContain('needs-msys2: ${{ inputs.platform == \'win\' && inputs.arch == \'arm64\' }}');
         const setupEnvIndex = workflow.indexOf('uses: ./.github/actions/setup-release-env');
         const windowsBundleIndex = workflow.indexOf('name: Bundle native tools (Windows)');
         expect(setupEnvIndex).toBeGreaterThanOrEqual(0);
         expect(windowsBundleIndex).toBeGreaterThanOrEqual(0);
         expect(setupEnvIndex).toBeLessThan(windowsBundleIndex);
-        expect(workflow).toContain('run: bash scripts/verify-packaged-native-tools.sh "${{ matrix.platform }}" "${{ matrix.arch }}"');
+        expect(workflow).toContain(
+            'run: bash scripts/verify-packaged-native-tools.sh "$EVB_RELEASE_TARGET_PLATFORM" "$EVB_RELEASE_TARGET_ARCH"',
+        );
         expect(workflow).toContain('name: Verify packaged app contents');
         expect(workflow).toContain('unpacked_dir="win-arm64-unpacked"');
         expect(workflow).toContain('"release/${unpacked_dir}/resources/app.asar"');
         expect(workflow).toContain('pnpm run test:packaged-core-pdf-smoke -- --executable "release/mac-arm64/EVB Viewer.app/Contents/MacOS/EVB Viewer"');
         expect(workflow).toContain('name: Verify signed bundle through LaunchServices');
         expect(workflow).toContain('if: runner.os == \'macOS\' && env.MAC_EXPECT_DEVELOPER_ID == \'true\'');
-        expect(workflow).toContain('bash scripts/verify-macos-launchservices-startup.sh "${{ matrix.platform }}" "${{ matrix.arch }}"');
+        expect(workflow).toContain(
+            'bash scripts/verify-macos-launchservices-startup.sh "$EVB_RELEASE_TARGET_PLATFORM" "$EVB_RELEASE_TARGET_ARCH"',
+        );
         expect(workflow).toContain('name: Upload macOS LaunchServices diagnostics');
         expect(workflow).toContain('.devkit/test/macos-launchservices-startup/**');
         expect(macSigningScript).toContain('if [ "${CI:-}" = "true" ]; then');
@@ -950,26 +980,57 @@ describe('CI topology policy', () => {
         const finalizeAssetsJob = workflowJob(releaseWorkflow, 'finalize_release_assets');
         const stageMirrorJob = workflowJob(releaseWorkflow, 'stage_mirror');
         const publishStoreJob = workflowJob(releaseWorkflow, 'publish_store');
+        const submitStoreJob = workflowJob(releaseWorkflow, 'submit_store');
+        const reportStoreDeferredJob = workflowJob(releaseWorkflow, 'report_store_deferred');
         const promoteJob = workflowJob(releaseWorkflow, 'promote_release');
         expect(finalizeAssetsJob).toContain('environment: release');
         expect(stageMirrorJob).toContain('environment: release');
         expect(promoteJob).toContain('environment: release');
         // Critical-path rule: supplemental and Store lanes never gate
-        // publication. The Intel ZIP attaches after promotion instead.
+        // publication. macOS Intel and Windows ARM attach after promotion.
         expect(publishJob).not.toContain('- build_mac_intel');
+        expect(publishJob).not.toContain('- build_win_arm64');
         expect(publishJob).not.toContain('pattern: supplemental-mac-x64');
+        expect(publishJob).not.toContain('pattern: supplemental-win-arm64');
+        expect(publishJob).toContain('"EVB-Viewer-${RELEASE_VERSION}-x64.zip"');
+        expect(publishJob).toContain('"EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe"');
+        expect(publishJob).toContain(
+            '"EVB-Viewer-${RELEASE_VERSION}-win-arm64-provenance.json"',
+        );
         expect(finalizeAssetsJob).not.toContain('- publish_store');
         expect(stageMirrorJob).toContain('- finalize_release_assets');
         // Draft assets are invisible to read-only tokens; without this the
         // mirror stage fails with 'release not found' on every fresh cut.
         expect(stageMirrorJob).toContain('contents: write');
-        expect(publishStoreJob).toContain('- release_credentials');
         expect(publishStoreJob).toContain('- stage_mirror');
-        expect(publishStoreJob).not.toContain('if:');
-        expect(publishStoreJob).toContain('submit: ${{ needs.release_credentials.outputs.submit_store == \'true\' }}');
+        expect(publishStoreJob).not.toContain('- release_credentials');
+        expect(publishStoreJob).not.toContain('- build_win_arm64');
+        expect(publishStoreJob).not.toContain('- attach_win_arm64');
+        expect(submitStoreJob).toContain('- release_credentials');
+        expect(submitStoreJob).toContain('- build_win_arm64');
+        expect(submitStoreJob).toContain('- attach_win_arm64');
+        expect(submitStoreJob).toContain('- publish_store');
+        expect(submitStoreJob).toContain('uses: ./.github/workflows/submit-store-appx.yml');
+        expect(submitStoreJob).toContain(
+            'needs.release_credentials.outputs.submit_store == \'true\'',
+        );
+        expect(submitStoreJob).toContain(
+            'needs.build_win_arm64.outputs.artifact_ready == \'true\'',
+        );
+        expect(reportStoreDeferredJob).toContain('- release_credentials');
+        expect(reportStoreDeferredJob).toContain('- build_win_arm64');
+        expect(reportStoreDeferredJob).toContain('- promote_release');
+        expect(reportStoreDeferredJob).toContain(
+            'needs.release_credentials.outputs.submit_store == \'true\'',
+        );
+        expect(reportStoreDeferredJob).toContain(
+            'needs.build_win_arm64.outputs.artifact_ready != \'true\'',
+        );
+        expect(reportStoreDeferredJob).toContain('Partner Center submission was deferred');
         expect(stageMirrorJob).toContain('publish-release-mirror.mjs artifacts "${{ needs.prepare.outputs.tag }}" --stage');
         expect(promoteJob).toContain('- stage_mirror');
         expect(promoteJob).not.toContain('- publish_store');
+        expect(promoteJob).not.toContain('- submit_store');
         expect(parseWorkflowJobs(releaseWorkflow).promote_release?.if).toBeUndefined();
 
         const attachMacIntelJob = workflowJob(releaseWorkflow, 'attach_mac_intel');
@@ -984,6 +1045,36 @@ describe('CI topology policy', () => {
         expect(attachMacIntelJob).toContain('pattern: supplemental-mac-x64');
         expect(attachMacIntelJob).toContain('expected="artifacts/EVB-Viewer-${RELEASE_VERSION}-x64.zip"');
         expect(attachMacIntelJob).toContain('the published release ships without the Intel ZIP');
+        const attachWindowsArmJob = workflowJob(releaseWorkflow, 'attach_win_arm64');
+        expect(attachWindowsArmJob).toContain('- build_win_arm64');
+        expect(attachWindowsArmJob).toContain('- promote_release');
+        expect(attachWindowsArmJob).toContain('actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a');
+        expect(attachWindowsArmJob).toContain('attestations: write');
+        expect(attachWindowsArmJob).toContain('id-token: write');
+        expect(attachWindowsArmJob).toContain('if: ${{ !cancelled() && needs.promote_release.result == \'success\' }}');
+        expect(attachWindowsArmJob).toContain('pattern: supplemental-win-arm64');
+        expect(attachWindowsArmJob).toContain('EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe');
+        expect(attachWindowsArmJob).toContain('EVB-Viewer-${RELEASE_VERSION}-win-arm64-provenance.json');
+        expect(attachWindowsArmJob).toContain('the published release ships without Windows ARM64 assets');
+        expect(attachWindowsArmJob).toContain('id: win_arm64_assets');
+        expect(attachWindowsArmJob).toContain('unexpected file that was not attached');
+        expect(attachWindowsArmJob).toContain(
+            'EXPECTED_INSTALLER: ${{ steps.win_arm64_assets.outputs.installer }}',
+        );
+        expect(attachWindowsArmJob).toContain(
+            'EXPECTED_PROVENANCE: ${{ steps.win_arm64_assets.outputs.provenance }}',
+        );
+        expect(attachWindowsArmJob).not.toContain('subject-path: artifacts/*');
+        expect(attachWindowsArmJob).not.toContain('gh release upload "$RELEASE_TAG" artifacts/*');
+        expect(attachWindowsArmJob).toContain(
+            'if: ${{ needs.build_win_arm64.outputs.artifact_ready != \'true\' }}',
+        );
+        expect(
+            attachWindowsArmJob.match(
+                /if: \$\{\{ needs\.build_win_arm64\.outputs\.artifact_ready == 'true' \}\}/gu,
+            ),
+        ).toHaveLength(4);
+        expect(attachWindowsArmJob).not.toContain('needs.build_win_arm64.result');
         expect(stageMirrorJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
         expect(promoteJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
         expect(finalizeAssetsJob).toContain('name: Publish or verify immutable release checksums');
@@ -1128,14 +1219,15 @@ describe('CI topology policy', () => {
             '.github/workflows/release.yml',
             '.github/workflows/release-artifacts.yml',
             '.github/workflows/build.yml',
+            '.github/workflows/build-target.yml',
             '.github/workflows/build-mac-intel.yml',
             '.github/workflows/build-win7-legacy.yml',
             '.github/workflows/store-appx.yml',
+            '.github/workflows/submit-store-appx.yml',
             '.github/actions/setup-release-env/action.yml',
         ]) {
             const workflow = await readProjectFile(workflowPath);
             const externalUses = [...workflow.matchAll(/^\s*uses:\s+([^./][^@\s]+)@([^\s#]+)/gmu)];
-            expect(externalUses.length, `${workflowPath} should exercise the pinning policy`).toBeGreaterThan(0);
             for (const match of externalUses) {
                 expect(match[2], `${workflowPath}: ${match[0]}`).toMatch(/^[0-9a-f]{40}$/u);
             }
@@ -1172,17 +1264,23 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'build_artifacts'))
             .toContain('needs.quality.result != \'failure\' && needs.quality.result != \'cancelled\'');
         expect(workflowJob(workflow, 'build_artifacts')).toContain('uses: ./.github/workflows/build.yml');
+        const windowsArmJob = workflowJob(workflow, 'build_win_arm64');
+        expect(windowsArmJob).toContain('uses: ./.github/workflows/build-target.yml');
+        expect(windowsArmJob).toContain('artifact_group: supplemental-win-arm64');
+        expect(windowsArmJob).not.toContain('advisory:');
         expect(workflowJob(workflow, 'build_mac_intel')).toContain('uses: ./.github/workflows/build-mac-intel.yml');
         expect(workflowJob(workflow, 'build_win7_legacy')).toContain('uses: ./.github/workflows/build-win7-legacy.yml');
         expect(workflowJob(workflow, 'build_store')).toContain('uses: ./.github/workflows/store-appx.yml');
-        expect(workflowJob(workflow, 'build_store')).toContain('submit: false');
+        expect(workflowJob(workflow, 'build_store')).not.toContain('submit:');
         expect(workflowJob(workflow, 'build_artifacts')).not.toContain('release_environment: release');
         expect(workflowJob(workflow, 'build_mac_intel')).not.toContain('release_environment: release');
         expect(workflow).not.toContain('secrets: inherit');
         expect(workflow).not.toContain('gh release create');
         expect(workflow).not.toContain('gh release upload');
         expect(workflow).not.toContain('Package and Submit Microsoft Store AppX');
-        expect(workflowJob(workflow, 'summarize')).toContain('#artifacts');
+        const summarizeJob = workflowJob(workflow, 'summarize');
+        expect(summarizeJob).toContain('#artifacts');
+        expect(summarizeJob).toContain('supplemental-win-arm64\\` ($BUILD_WIN_ARM64_RESULT)');
     });
 
     it('keeps release cutting dispatch-based instead of tag-push based', async () => {
@@ -1203,29 +1301,35 @@ describe('CI topology policy', () => {
 
     it('keeps Store credentials reachable only through the gated reusable release path', async () => {
         const storeWorkflow = await readProjectFile('.github/workflows/store-appx.yml');
-        const buildWorkflow = await readProjectFile('.github/workflows/build.yml');
+        const submitStoreWorkflow = await readProjectFile('.github/workflows/submit-store-appx.yml');
+        const buildWorkflow = await readProjectFile('.github/workflows/build-target.yml');
         const macIntelWorkflow = await readProjectFile('.github/workflows/build-mac-intel.yml');
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
 
         expect(storeWorkflow).toContain('workflow_call:');
         expect(storeWorkflow).not.toContain('workflow_dispatch:');
-        expect(workflowJob(storeWorkflow, 'submit')).toContain('environment: release');
-        expect(workflowJob(storeWorkflow, 'submit')).toContain('if: ${{ inputs.submit }}');
+        expect(storeWorkflow).not.toContain('PARTNER_CLIENT_SECRET');
+        expect(submitStoreWorkflow).toContain('workflow_call:');
+        expect(submitStoreWorkflow).not.toContain('workflow_dispatch:');
+        expect(workflowJob(submitStoreWorkflow, 'submit')).toContain('environment: release');
+        expect(workflowJob(submitStoreWorkflow, 'submit')).toContain('if: ${{ inputs.enabled }}');
         expect(workflowJob(buildWorkflow, 'build')).toContain('environment: ${{ inputs.release_environment }}');
         expect(workflowJob(macIntelWorkflow, 'build_mac_intel'))
             .toContain('environment: ${{ inputs.release_environment }}');
         expect(buildWorkflow).toContain('default: artifact-build');
         expect(macIntelWorkflow).toContain('default: artifact-build');
-        expect(storeWorkflow).toContain('Microsoft Store submission was requested, but Partner Center credentials are not configured.');
+        expect(submitStoreWorkflow)
+            .toContain('Microsoft Store submission was enabled with missing credentials');
         expect(releaseWorkflow).toContain('PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}');
         expect(workflowJob(releaseWorkflow, 'build_artifacts')).toContain('release_environment: release');
         expect(workflowJob(releaseWorkflow, 'build_mac_intel')).toContain('release_environment: release');
-        expect(workflowJob(releaseWorkflow, 'publish_store')).not.toContain('secrets: inherit');
+        expect(workflowJob(releaseWorkflow, 'publish_store')).not.toContain('secrets:');
+        expect(workflowJob(releaseWorkflow, 'submit_store')).not.toContain('secrets: inherit');
     });
 
     it('runs the heavier deterministic checks in the nightly lane', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
-        const buildWorkflow = await readProjectFile('.github/workflows/build.yml');
+        const buildWorkflow = await readProjectFile('.github/workflows/build-target.yml');
         const nvmrc = await readProjectFile('.nvmrc');
         const rustToolchain = await readProjectFile('rust-toolchain.toml');
 

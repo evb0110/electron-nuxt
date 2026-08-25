@@ -165,6 +165,20 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
 
+  build_win_arm64:
+    name: Package Supplemental Windows ARM64 Assets
+    needs:
+      - prepare
+      - quality
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.quality.result != 'failure' && needs.quality.result != 'cancelled' }}
+    uses: ./.github/workflows/build-target.yml
+    with:
+      ref: ${{ needs.prepare.outputs.target_sha }}
+      os: windows-11-arm
+      platform: win
+      arch: arm64
+      artifact_group: supplemental-win-arm64
+
   build_mac_intel:
     name: Package Release Artifacts / build (macos-15-intel, mac, x64)
     needs:
@@ -194,13 +208,13 @@ jobs:
     uses: ./.github/workflows/store-appx.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
-      submit: false
 
   summarize:
     name: Summarize Artifact Downloads
     needs:
       - prepare
       - build_artifacts
+      - build_win_arm64
       - build_mac_intel
       - build_win7_legacy
       - build_store
@@ -213,6 +227,7 @@ jobs:
         env:
           ARTIFACTS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
           BUILD_ARTIFACTS_RESULT: ${{ needs.build_artifacts.result }}
+          BUILD_WIN_ARM64_RESULT: ${{ needs.build_win_arm64.result }}
           BUILD_MAC_INTEL_RESULT: ${{ needs.build_mac_intel.result }}
           BUILD_WIN7_LEGACY_RESULT: ${{ needs.build_win7_legacy.result }}
           BUILD_STORE_RESULT: ${{ needs.build_store.result }}
@@ -235,7 +250,7 @@ jobs:
             echo "- \`dist-linux-x64\` ($BUILD_ARTIFACTS_RESULT)"
             echo "- \`dist-linux-arm64\` ($BUILD_ARTIFACTS_RESULT)"
             echo "- \`dist-win-x64\` ($BUILD_ARTIFACTS_RESULT)"
-            echo "- \`dist-win-arm64\` ($BUILD_ARTIFACTS_RESULT)"
+            echo "- \`supplemental-win-arm64\` ($BUILD_WIN_ARM64_RESULT)"
             echo "- \`supplemental-mac-x64\` ($BUILD_MAC_INTEL_RESULT)"
             if [ "$WIN7_READY" = "true" ]; then
               echo "- \`legacy-win7-x64\` ($BUILD_WIN7_LEGACY_RESULT)"

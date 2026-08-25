@@ -79,8 +79,8 @@ jobs:
       - name: Package installer (macOS Intel)
         # On macos-15-intel runners, DMG creation intermittently fails while
         # detaching the mounted image (hdiutil exit code 16: resource busy).
-        # Build the required signed ZIP in this lane and gate release promotion
-        # on its successful attachment.
+        # Build the required signed ZIP in this supplemental lane; a verified
+        # ZIP attaches after release promotion.
         shell: bash
         run: |
           if [ -n "${MAC_CSC_LINK:-}" ] && [ -n "${MAC_CSC_KEY_PASSWORD:-}" ]; then

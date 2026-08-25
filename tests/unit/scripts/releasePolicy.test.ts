@@ -103,6 +103,7 @@ interface IReleasePolicyModule {
     getReleaseAutomationEnv: (
         baseEnv?: TReleaseEnv,
     ) => TReleaseEnv;
+    getSupplementalReleaseAssetNames: (version: string) => string[];
     getRequiredArtifactPatterns: (
         target: IReleaseTarget,
         env?: TReleaseEnv,
@@ -346,6 +347,7 @@ const {
     getLocalReleaseTargets,
     getReleaseAutomationEnv,
     getRequiredArtifactPatterns,
+    getSupplementalReleaseAssetNames,
     isSupplementalReleaseAsset,
     parseUpdaterMetadataFileUrls,
     shouldVerifyPackagedStartup,
@@ -478,6 +480,8 @@ describe('release policy', () => {
 
     it('classifies only supplemental channel assets as outside the immutable core set', () => {
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64.zip')).toBe(true);
+        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-arm64-setup.exe')).toBe(true);
+        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-win-arm64-provenance.json')).toBe(true);
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-arm64.zip')).toBe(false);
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64-setup.exe')).toBe(false);
         expect(isSupplementalReleaseAsset('SHA256SUMS')).toBe(false);
@@ -486,7 +490,17 @@ describe('release policy', () => {
         // supplemental; other versions stop being exempt, and an explicitly
         // supplied empty version is a caller bug, not a pattern fallback.
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64.zip', '0.1.427')).toBe(true);
+        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-arm64-setup.exe', '0.1.427')).toBe(true);
+        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-win-arm64-provenance.json', '0.1.427')).toBe(true);
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.426-x64.zip', '0.1.427')).toBe(false);
+        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.426-arm64-setup.exe', '0.1.427')).toBe(false);
+        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.426-win-arm64-provenance.json', '0.1.427'))
+            .toBe(false);
+        expect(getSupplementalReleaseAssetNames('0.1.427')).toEqual([
+            'EVB-Viewer-0.1.427-x64.zip',
+            'EVB-Viewer-0.1.427-arm64-setup.exe',
+            'EVB-Viewer-0.1.427-win-arm64-provenance.json',
+        ]);
         expect(() => isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64.zip', ''))
             .toThrow('non-empty release version');
     });
@@ -1454,6 +1468,11 @@ describe('release policy', () => {
 
     it('reuses immutable public assets while still reconciling the Store package', () => {
         const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
+        const publishJobStart = workflow.indexOf('\n  publish:\n');
+        const finalizeAssetsJobStart = workflow.indexOf('\n  finalize_release_assets:\n');
+        expect(publishJobStart).toBeGreaterThanOrEqual(0);
+        expect(finalizeAssetsJobStart).toBeGreaterThan(publishJobStart);
+        const publishJob = workflow.slice(publishJobStart, finalizeAssetsJobStart);
 
         expect(workflow).toContain('release view "$RELEASE_TAG" --json isDraft,targetCommitish');
         expect(workflow).toContain('git/ref/tags/${RELEASE_TAG}');
@@ -1461,12 +1480,13 @@ describe('release policy', () => {
         expect(workflow).toContain('[ "$resolved_release_sha" != "$TARGET_SHA" ]');
         expect(workflow).toContain('already_public=true');
         expect(workflow).toContain('needs.publish.outputs.already_public != \'true\'');
-        expect(workflow)
-            .toContain('submit: ${{ needs.release_credentials.outputs.submit_store == \'true\' }}');
+        expect(workflow).toContain(
+            'enabled: ${{ needs.release_credentials.outputs.submit_store == \'true\' && needs.build_win_arm64.outputs.artifact_ready == \'true\' }}',
+        );
         expect(workflow).toContain('Existing public assets passed presence and updater integrity checks');
         expect(workflow).toContain('Retaining checksum-finalized draft assets from the same target');
         expect(workflow).toContain('grep -Fq \'release not found\'');
-        expect(workflow).not.toContain('gh release upload "$RELEASE_TAG" artifacts/* --clobber');
+        expect(publishJob).not.toContain('gh release upload "$RELEASE_TAG" artifacts/* --clobber');
     });
 
     it('keeps standalone release verification split into check and package gates', () => {

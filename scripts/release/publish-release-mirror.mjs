@@ -18,6 +18,7 @@ import {
     PutObjectCommand,
     S3Client,
 } from '@aws-sdk/client-s3';
+import {isSupplementalReleaseAsset} from './policy.mjs';
 
 const RELEASE_PREFIX = 'evb-viewer/releases/';
 const CHANNEL_KEY = 'evb-viewer/channels/stable.json';
@@ -52,8 +53,13 @@ export async function publishReleaseMirror({
         },
     });
 
+    const releaseVersion = releaseTag.slice(1);
     const artifactNames = (await readdir(artifactDirectory))
         .filter(name => !name.startsWith('.'))
+        // Supplemental channels attach after promotion and stay outside the
+        // immutable core mirror. Filtering here keeps same-tag repair runs
+        // byte-identical after those assets already exist on GitHub.
+        .filter(name => !isSupplementalReleaseAsset(name, releaseVersion))
         .sort((left, right) => left.localeCompare(right));
 
     if (artifactNames.length === 0) {

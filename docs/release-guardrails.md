@@ -36,7 +36,7 @@ here is required reading for an ordinary cut.
 ## Artifact-only flow
 
 - Run `pnpm run release:artifacts` from a clean worktree to have GitHub build the release artifacts without cutting a release. It uses the same preflight, clean-worktree, upstream, and publication-policy checks as the cutter, then dispatches [`Build Release Artifacts`](../.github/workflows/release-artifacts.yml) for the exact pushed commit.
-- The workflow runs the focused release checks only when the target SHA has no successful exact-SHA push-CI `gates_ok` run (for example a branch commit); a CI-vouched commit goes straight to packaging. It packages the core matrix, the supplemental macOS Intel and Windows 7 legacy lanes, and Store AppX with `submit: false`, applying the same packaged native-tool and ASAR/content verification as release lanes.
+- The workflow runs the focused release checks only when the target SHA has no successful exact-SHA push-CI `gates_ok` run (for example a branch commit); a CI-vouched commit goes straight to packaging. It packages the core matrix, the supplemental macOS Intel, Windows ARM64, and Windows 7 legacy lanes, and Store AppX with `submit: false`, applying the same packaged native-tool and ASAR/content verification as release lanes.
 - It never creates a tag, a GitHub Release, release assets, or Store submissions. Downloads live as GitHub Actions artifacts on the workflow run.
 
 ## Manual Microsoft Store submission
@@ -72,7 +72,7 @@ To withdraw a bad release, add its tag to `NUXT_RELEASE_WITHDRAWN_TAGS`, put the
 
 - The release and artifact-only commands stop after the dispatched GitHub workflow run is visible; GitHub owns the remote matrix from that point.
 - If GitHub takes longer than usual to surface a just-dispatched run, set `EVB_GITHUB_WORKFLOW_START_TIMEOUT_MS` to a larger positive integer.
-- The publish-chain jobs (draft, checksums, mirror, promote, Intel attach) execute only during release runs. Latent defects there surface at release time by construction; the same-SHA repair path (re-run failed jobs, or re-dispatch the same tag and target) is the designed, proven recovery.
+- The publish-chain jobs (draft, checksums, mirror, promote, Intel attach, Windows ARM64 attach) execute only during release runs. Latent defects there surface at release time by construction; the same-SHA repair path (re-run failed jobs, or re-dispatch the same tag and target) is the designed, proven recovery.
 
 ## Deferred by evidence
 

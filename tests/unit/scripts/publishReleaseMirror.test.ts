@@ -207,6 +207,71 @@ describe('release mirror publisher', () => {
         expect(client.send).not.toHaveBeenCalledWith(expect.any(DeleteObjectsCommand));
     });
 
+    it('keeps same-tag mirror repair byte-identical after supplemental assets attach', async () => {
+        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-repair-'));
+        await writeFile(join(artifactDirectory, 'core.zip'), 'core');
+        const stored = new Map<string, {
+            bytes: Buffer;
+            sha256: string
+        }>();
+        const puts: PutObjectCommand[] = [];
+        const client = {send: vi.fn(async (command: unknown) => {
+            if (command instanceof PutObjectCommand) {
+                puts.push(command);
+                stored.set(command.input.Key!, {
+                    bytes: await commandBodyBytes(command.input.Body),
+                    sha256: command.input.Metadata!.sha256!,
+                });
+                return {};
+            }
+            if (command instanceof HeadObjectCommand) {
+                const object = stored.get(command.input.Key!);
+                return object
+                    ? {
+                        ContentLength: object.bytes.byteLength,
+                        Metadata: {sha256: object.sha256},
+                    }
+                    : {$metadata: {httpStatusCode: 404}};
+            }
+            if (command instanceof GetObjectCommand) {
+                const object = stored.get(command.input.Key!);
+                if (!object) {
+                    throw new Error('Unexpected missing repair object');
+                }
+                return {Body: objectBody(object.bytes)};
+            }
+            throw new Error(`Unexpected repair command: ${String(command)}`);
+        })};
+
+        const first = await publishReleaseMirror({
+            artifactDirectory,
+            releaseTag: 'v2.1.0',
+            publishChannel: false,
+            environment,
+            client,
+        });
+        await writeFile(join(artifactDirectory, 'EVB-Viewer-2.1.0-x64.zip'), 'intel');
+        await writeFile(join(artifactDirectory, 'EVB-Viewer-2.1.0-arm64-setup.exe'), 'arm installer');
+        await writeFile(
+            join(artifactDirectory, 'EVB-Viewer-2.1.0-win-arm64-provenance.json'),
+            '{}',
+        );
+        const repaired = await publishReleaseMirror({
+            artifactDirectory,
+            releaseTag: 'v2.1.0',
+            publishChannel: false,
+            environment,
+            client,
+        });
+
+        expect(first.assets.map(asset => asset.name)).toEqual(['core.zip']);
+        expect(repaired.assets).toEqual(first.assets);
+        expect(puts.map(command => command.input.Key)).toEqual([
+            'evb-viewer/releases/v2.1.0/core.zip',
+            'evb-viewer/releases/v2.1.0/manifest.json',
+        ]);
+    });
+
     it('rejects invalid input, missing credentials, empty folders, and verification mismatches', async () => {
         await expect(publishReleaseMirror({
             artifactDirectory: '',

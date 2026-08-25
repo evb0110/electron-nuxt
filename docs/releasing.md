@@ -18,20 +18,23 @@ verifies artifacts, and publishes — it revalidates nothing.
 3. The workflow waits for the release commit's own push CI to finish; the
    wait budget is policy-tested to stay ahead of the slowest blocking CI
    lane's declared timeout, so an immediate post-push dispatch self-serves
-   the wait (issue #109). It then builds the core
-   five-target matrix, stages and finalizes the draft with `SHA256SUMS` and
-   provenance attestations, stages the mirror, promotes, and attaches the
-   supplemental Intel ZIP afterward. The local command exits once the run is
-   visible and prints its URLs.
+   the wait (issue #109). It then builds the
+   four-target core matrix, stages and finalizes the draft with `SHA256SUMS`
+   and provenance attestations, stages the mirror, and promotes. The macOS
+   Intel ZIP and Windows ARM64 installer and provenance record attach afterward.
+   The local command exits once the run is visible and prints its URLs.
 
 ## Critical-path rule
 
 - Publish as soon as the core matrix is done: macOS arm64, Linux x64/arm64,
-  Windows x64/arm64. Nothing else may gate `publish` or `promote_release`.
-- Supplemental lanes attach or run afterward: the `macos-15-intel` ZIP attaches
-  post-promotion (outside the immutable `SHA256SUMS` set, tolerated via
-  `isSupplementalReleaseAsset` in `scripts/release/policy.mjs`); Windows 7
-  legacy is best-effort; Store AppX runs in parallel with promotion.
+  and Windows x64. Nothing else may gate `publish` or `promote_release`.
+- Supplemental lanes attach or run afterward. The `macos-15-intel` ZIP and
+  Windows ARM64 installer and provenance record attach post-promotion. They
+  stay outside the immutable `SHA256SUMS` set, tolerated via
+  `isSupplementalReleaseAsset` in `scripts/release/policy.mjs`. Windows 7
+  legacy is best-effort. Store AppX packaging runs in parallel with promotion.
+  Partner Center comparison and submission wait for the Windows ARM64 attachment
+  because they require its verified direct provenance record.
 - Advisory-by-evidence gates stay advisory: the Windows ARM64 NSIS installed
   journey and the packaged scan-cleanup verifier annotate and upload evidence
   without blocking (their contracts are pinned continuously in push CI, for

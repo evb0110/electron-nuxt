@@ -115,7 +115,7 @@ function runSourceMatrixAsLinuxX64Host() {
 describe('macOS native tool workflow', () => {
     it('keeps unpaper documentation tooling on Homebrew packages instead of PyPI', async () => {
         const workflowPaths = [
-            '.github/workflows/build.yml',
+            '.github/workflows/build-target.yml',
             '.github/workflows/build-mac-intel.yml',
         ];
         const setupAction = await readProjectFile('.github/actions/setup-release-env/action.yml');
@@ -139,7 +139,7 @@ describe('macOS native tool workflow', () => {
     });
 
     it('keeps local macOS bundling prerequisites aligned with CI', async () => {
-        const workflow = await readProjectFile('.github/workflows/build.yml');
+        const workflow = await readProjectFile('.github/workflows/build-target.yml');
         const bundleAll = await readProjectFile('scripts/bundle-all-macos.sh');
         const bundleUnpaper = await readProjectFile('scripts/bundle-leptonica-unpaper-macos.sh');
         const ciBrewPackages = extractBrewFormulaeValues(workflow);
