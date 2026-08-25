@@ -65,6 +65,7 @@ import {
     resolveTypedStagedArtifact,
 } from '@electron/features/documents/main/managedTempFileHandles';
 import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
+import {withLargePdfMutationAdmission} from '@electron/features/documents/main/withLargePdfMutationAdmission';
 
 const PDF_NATIVE_MUTATION_TIMEOUT_MS = 2 * 60 * 1000;
 const log = createLogger('native-note-text-save');
@@ -241,24 +242,29 @@ async function prepareNativeNoteMutation(options: {
     });
     await measureNativeNotePhase(options.phaseTimings, 'clone-working-to-temp', () =>
         copyFileCopyOnWrite(options.sourcePath, options.tempPath));
+    const sourceBytes = (await stat(options.tempPath)).size;
     await measureNativeNotePhase(options.phaseTimings, 'native-command', () =>
-        runNativeToolCommand(options.binaryPath, [
-            options.command.command,
-            '--input',
-            options.tempPath,
-            '--output',
-            options.tempPath,
-            options.command.payloadFlag,
-            options.payloadFilePath,
-            '--modified-at',
-            options.modifiedAt,
-            '--append',
-        ], {
-            timeoutMs: PDF_NATIVE_MUTATION_TIMEOUT_MS,
-            commandLabel: options.command.commandLabel,
-            signal: options.mutationOperation.signal,
-            cancelGroup: options.mutationOperation.cancelGroup,
-        }));
+        withLargePdfMutationAdmission(
+            sourceBytes,
+            options.mutationOperation.signal,
+            () => runNativeToolCommand(options.binaryPath, [
+                options.command.command,
+                '--input',
+                options.tempPath,
+                '--output',
+                options.tempPath,
+                options.command.payloadFlag,
+                options.payloadFilePath,
+                '--modified-at',
+                options.modifiedAt,
+                '--append',
+            ], {
+                timeoutMs: PDF_NATIVE_MUTATION_TIMEOUT_MS,
+                commandLabel: options.command.commandLabel,
+                signal: options.mutationOperation.signal,
+                cancelGroup: options.mutationOperation.cancelGroup,
+            }),
+        ));
     await measureNativeNotePhase(options.phaseTimings, 'assert-output', () =>
         assertNativeOutputReady(options.tempPath));
     return createNativeValidationResult();

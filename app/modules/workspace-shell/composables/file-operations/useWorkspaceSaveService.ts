@@ -488,12 +488,14 @@ async function executeSerializedBytesSave(
     body: IWorkspaceSerializedSaveBody,
     deps: IWorkspaceSaveDependencies,
     reloadWaiter: IPostSaveReloadWaiter | null,
-    frozenTransaction?: IPdfViewerSaveTransactionResult,
+    createTransaction?: () => Promise<IPdfViewerSaveTransactionResult>,
 ): Promise<TWorkspaceSaveExecutionResult> {
     await assertRendererSerializedSaveAllowed(plan, body, deps);
-    const saveTransaction = frozenTransaction ?? await deps.pdf.runSaveTransaction(
-        buildSaveTransactionRequest(plan, deps, body, {allowNativeMutationPlan: false}),
-    );
+    const saveTransaction = createTransaction
+        ? await createTransaction()
+        : await deps.pdf.runSaveTransaction(
+            buildSaveTransactionRequest(plan, deps, body, {allowNativeMutationPlan: false}),
+        );
     const finalBytes = saveTransaction.serializedResult?.finalBytes
         ?? saveTransaction.serializedBytes
         ?? saveTransaction.baseBytes;
@@ -662,18 +664,21 @@ async function executeNativeMutationSave(
         ),
     );
     const projection = saveTransaction.nativeMutationProjection;
+    const executeFallback = () => executeSerializedBytesSave(
+        plan,
+        plan.serializedFallback,
+        deps,
+        getReloadWaiter(),
+        async () => {
+            const fallbackTransaction = await saveTransaction.executeFallback?.();
+            if (!fallbackTransaction) {
+                throw new Error('Classifier-owned PDF save fallback is unavailable');
+            }
+            return fallbackTransaction;
+        },
+    );
     if (!projection) {
-        const fallbackTransaction = await saveTransaction.executeFallback?.();
-        if (!fallbackTransaction) {
-            throw new Error('Classifier-owned PDF save fallback is unavailable');
-        }
-        return executeSerializedBytesSave(
-            plan,
-            plan.serializedFallback,
-            deps,
-            getReloadWaiter(),
-            fallbackTransaction,
-        );
+        return executeFallback();
     }
 
     const persisted = await persistNativeMutationProjection(
@@ -684,17 +689,7 @@ async function executeNativeMutationSave(
         saveTransaction.assertAnnotationSaveCurrent,
     );
     if (!persisted) {
-        const fallbackTransaction = await saveTransaction.executeFallback?.();
-        if (!fallbackTransaction) {
-            throw new Error('Classifier-owned PDF save fallback is unavailable');
-        }
-        return executeSerializedBytesSave(
-            plan,
-            plan.serializedFallback,
-            deps,
-            getReloadWaiter(),
-            fallbackTransaction,
-        );
+        return executeFallback();
     }
     if (!persisted.success) {
         return notSavedAfterWrite(abortReasonForPersistResult(persisted), null);
@@ -703,13 +698,20 @@ async function executeNativeMutationSave(
     let preparedShapeStateSnapshot: unknown = null;
     let canMarkShapeStateSaved = !projection.hasShapeMutations;
     if (projection.hasShapeMutations) {
-        const savedBytes = await timedSavePhase(
-            'read-native-shape-saved-bytes',
-            deps.pdf.getSourceData,
-        );
-        if (savedBytes) {
-            preparedShapeStateSnapshot = await deps.shapes.preparePersistedState?.(savedBytes) ?? null;
-            canMarkShapeStateSaved = Boolean(preparedShapeStateSnapshot);
+        try {
+            const savedBytes = await timedSavePhase(
+                'read-native-shape-saved-bytes',
+                deps.pdf.getSourceData,
+            );
+            if (savedBytes) {
+                preparedShapeStateSnapshot = await deps.shapes.preparePersistedState?.(savedBytes) ?? null;
+                canMarkShapeStateSaved = Boolean(preparedShapeStateSnapshot);
+            }
+        } catch {
+            // Native persistence has already committed. Keep shapes dirty when
+            // the saved bytes cannot be reread or prepared for reconciliation.
+            preparedShapeStateSnapshot = null;
+            canMarkShapeStateSaved = false;
         }
     }
     if (projection.hasShapeMutations && canMarkShapeStateSaved) {

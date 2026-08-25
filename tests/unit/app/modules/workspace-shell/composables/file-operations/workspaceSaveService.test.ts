@@ -974,6 +974,39 @@ describe('workspaceSaveService', () => {
         expect(saveFile).toHaveBeenCalledOnce();
     });
 
+    it('blocks a large native-decline fallback before renderer bytes are materialized', async () => {
+        const trySavePdfNativeMutations = vi.fn(async () => null);
+        const getWorkingCopySize = vi.fn(async () => 64 * 1024 * 1024 + 1);
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            totalPages: ref(3),
+            pageLabelsDirty: ref(true),
+            pageLabelRanges: ref([{
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            }]),
+            trySavePdfNativeMutations,
+            getWorkingCopySize,
+        });
+        const {handleSave} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleSave()).resolves.toBe(false);
+
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        expect(getWorkingCopySize).toHaveBeenCalledWith('/tmp/work.pdf');
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'error',
+            title: 'errors.file.save',
+            description: expect.stringContaining('Large PDF save requires a native save path'),
+        }));
+    });
+
     it('reclassifies only in the outer retry when native decline exposes a newer annotation mutation', async () => {
         const serializableMap = new Map<string, unknown>();
         const modifiedIds = new Set<string>();

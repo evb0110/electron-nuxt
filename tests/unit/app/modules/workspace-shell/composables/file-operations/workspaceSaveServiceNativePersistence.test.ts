@@ -89,6 +89,40 @@ describe('workspaceSaveService native persistence', () => {
         expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
     });
 
+    it('keeps a committed native shape save successful when saved bytes cannot be reread', async () => {
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const getSourcePdfData = vi.fn(async () => {
+            throw new RangeError('Document allocation size exceeds the renderer admission ceiling');
+        });
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            totalPages: ref(2),
+            hasShapeChanges: vi.fn(() => true),
+            getAllShapes: vi.fn(() => [createShapeAnnotation()]),
+            trySavePdfNativeMutations,
+            getSourcePdfData,
+        });
+        const {handleSave} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        expect(getSourcePdfData).toHaveBeenCalledOnce();
+        expect(deps.preparePersistedShapeStateForSave).not.toHaveBeenCalled();
+        expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
+        expect(deps.adoptPersistedShapeStateForNextReload).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(toastAddMock).not.toHaveBeenCalled();
+    });
+
     it('falls back to serialized save when dirty shapes are not native-eligible', async () => {
         const trySavePdfNativeMutations = vi.fn(async () => ({
             success: true,

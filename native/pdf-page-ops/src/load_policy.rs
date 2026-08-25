@@ -6,13 +6,14 @@ use std::sync::{
 };
 
 const MAX_ENCODED_PDF_BYTES: usize = 512 * 1024 * 1024;
+const MAX_INCREMENTAL_ENCODED_PDF_BYTES: usize = 1024 * 1024 * 1024;
 pub(crate) const MAX_DECOMPRESSED_PDF_STREAM_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PDF_OBJECTS: usize = 1_000_000;
 const MAX_PDF_PAGES: usize = 100_000;
 const MAX_PDF_STRUCTURAL_NESTING: usize = 256;
 const MAX_PDF_XREF_REVISIONS: usize = 4_096;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct PdfLoadPolicy {
     max_encoded_bytes: usize,
     max_decompressed_stream_bytes: usize,
@@ -27,6 +28,10 @@ const PDF_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
     max_objects: MAX_PDF_OBJECTS,
     max_pages: MAX_PDF_PAGES,
     max_structural_nesting: MAX_PDF_STRUCTURAL_NESTING,
+};
+const PDF_INCREMENTAL_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
+    max_encoded_bytes: MAX_INCREMENTAL_ENCODED_PDF_BYTES,
+    ..PDF_LOAD_POLICY
 };
 
 static PDF_LOAD_GUARD: Mutex<()> = Mutex::new(());
@@ -73,9 +78,16 @@ pub(crate) fn load_pdf_bytes(bytes: &[u8]) -> Result<Document> {
 }
 
 pub(crate) fn load_incremental_pdf_path(path: &Path) -> Result<IncrementalDocument> {
-    let bytes = read_file_bounded(path, PDF_LOAD_POLICY.max_encoded_bytes, "PDF input")
+    load_incremental_pdf_path_with_policy(path, PDF_INCREMENTAL_LOAD_POLICY)
+}
+
+fn load_incremental_pdf_path_with_policy(
+    path: &Path,
+    policy: PdfLoadPolicy,
+) -> Result<IncrementalDocument> {
+    let bytes = read_file_bounded(path, policy.max_encoded_bytes, "PDF input")
         .map_err(|error| Box::new(error) as Box<dyn Error>)?;
-    let document = load_pdf_bytes_with_policy(&bytes, PDF_LOAD_POLICY)?;
+    let document = load_pdf_bytes_with_policy(&bytes, policy)?;
     Ok(IncrementalDocument::create_from(bytes, document))
 }
 
@@ -1234,6 +1246,59 @@ mod tests {
         assert_too_large(
             load_pdf_bytes_with_policy(&bytes, policy(bytes.len() - 1, 1_024, 16, 2)).unwrap_err(),
         );
+    }
+
+    #[test]
+    fn incremental_policy_only_expands_the_encoded_input_budget() {
+        assert_eq!(
+            PDF_INCREMENTAL_LOAD_POLICY,
+            PdfLoadPolicy {
+                max_encoded_bytes: 1024 * 1024 * 1024,
+                ..PDF_LOAD_POLICY
+            },
+        );
+        assert_eq!(PDF_LOAD_POLICY.max_encoded_bytes, 512 * 1024 * 1024);
+    }
+
+    #[test]
+    fn incremental_path_enforces_its_selected_bounded_read_policy() {
+        struct RemoveOnDrop(std::path::PathBuf);
+
+        impl Drop for RemoveOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+
+        let bytes = document_bytes(1, false);
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_file = RemoveOnDrop(std::env::temp_dir().join(format!(
+            "evb-pdf-page-ops-incremental-load-policy-{unique}.pdf"
+        )));
+        std::fs::write(&temp_file.0, &bytes).unwrap();
+
+        let rejected = load_incremental_pdf_path_with_policy(
+            &temp_file.0,
+            PdfLoadPolicy {
+                max_encoded_bytes: bytes.len() - 1,
+                ..PDF_LOAD_POLICY
+            },
+        )
+        .unwrap_err();
+        assert_too_large(rejected);
+
+        let loaded = load_incremental_pdf_path_with_policy(
+            &temp_file.0,
+            PdfLoadPolicy {
+                max_encoded_bytes: bytes.len(),
+                ..PDF_INCREMENTAL_LOAD_POLICY
+            },
+        )
+        .unwrap();
+        assert_eq!(loaded.get_prev_documents().get_pages().len(), 1);
     }
 
     #[test]
