@@ -1,0 +1,50 @@
+docs/research/large-pdf-native-incremental-save-2026-08-25.md
+  s_25a70d04e604a9::t_757f16c8574242 49,53,70,133
+  s_25a70d04e604a9::t_7cbd519bcf1c43 1-16,25-48,50-52,54,57-69,71-124,126-132,134-160
+  s_25a70d04e604a9::t_521bd07f3e527a 17-24
+  s_25a70d04e604a9::t_a809fb191c62a6 55-56,125
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveService.test.ts
+  s_25a70d04e604a9::t_7dc40bd7699012 977-1009
+electron/features/documents/main/withLargePdfMutationAdmission.ts
+  s_25a70d04e604a9::t_0f43b7c7c0ea30 20,26-27,33-37
+  s_25a70d04e604a9::t_1fa42c4d61bbe7 16-18,22,30-32,38-44
+  s_25a70d04e604a9::t_4e1714bbcdb274 1-15,19,23-25,28-29,45
+  s_25a70d04e604a9::t_b5aab1cce193c7 21
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_25a70d04e604a9::t_d6f5009d279bf2 491,494-498,667-679,681,692
+  s_25a70d04e604a9::t_1e96766ad1e162 701-714
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceNativePersistence.test.ts
+  s_25a70d04e604a9::t_1e96766ad1e162 92-125
+tests/unit/electron/largePdfMutationAdmission.test.ts
+  s_25a70d04e604a9::t_4e1714bbcdb274 1-16,21-45,55-79,154-169,176,181-183
+  s_25a70d04e604a9::t_9073b7d2ad6e3d 46-50,86-93,130-133,135-138,170-175,177-180
+  s_25a70d04e604a9::t_0f43b7c7c0ea30 102-129,134,139-142
+  s_25a70d04e604a9::t_1fa42c4d61bbe7 80-85,94-101,143-153
+  s_25a70d04e604a9::t_5cb7307282b858 17-20,51-54
+native/pdf-page-ops/src/load_policy.rs
+  s_25a70d04e604a9::t_198516e2d4bfe9 88
+  s_25a70d04e604a9::t_5ccb0a95bd03b2 81-87,90,1261-1264,1273-1277,1279,1282-1283,1285-1293,1295-1302
+  s_25a70d04e604a9::t_ba65f212cc839a 9,16,32-34,1251-1260
+  s_25a70d04e604a9::t_0f43b7c7c0ea30 1265-1272,1278,1280-1281,1284,1294
+  s_25a70d04e604a9::t_238b9b58cb4518 35
+  s_25a70d04e604a9::t_39d876046cd6af 1303
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_25a70d04e604a9::t_6c833aa8e6ca60 245
+  s_25a70d04e604a9::t_4e1714bbcdb274 68,247-267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "59d6f4aad40d29ff181f0526abb638a3285b6305",
+  "prompts": {},
+  "sessions": {
+    "s_25a70d04e604a9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a039b5-01f6-7673-9c89-90e3bca7f3a2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
