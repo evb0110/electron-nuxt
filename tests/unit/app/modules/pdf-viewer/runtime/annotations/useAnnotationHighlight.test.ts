@@ -270,7 +270,7 @@ describe('useAnnotationHighlight commentAtPoint', () => {
             },
         };
 
-        const highlight = useAnnotationHighlight({
+        const highlight = runInTrackedScope(() => useAnnotationHighlight({
             viewerContainer: ref(viewer),
             isActive: ref(true),
             annotationUiManager: shallowRef(uiManager as never),
@@ -327,7 +327,7 @@ describe('useAnnotationHighlight commentAtPoint', () => {
             stopDrag: () => {},
             emitAnnotationOpenNote,
             emitAnnotationNotePlacementChange: () => {},
-        });
+        }));
 
         const outcome = await highlight.commentAtPoint(1, 0.5, 0.5, { preferTextAnchor: false });
 
@@ -428,7 +428,7 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
             waitForEditorsRendered: vi.fn(async () => undefined),
         };
 
-        const highlight = useAnnotationHighlight({
+        const highlight = runInTrackedScope(() => useAnnotationHighlight({
             viewerContainer: ref(ownerViewer),
             isActive: ref(true),
             annotationUiManager: shallowRef(uiManager as never),
@@ -496,7 +496,7 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
             stopDrag: () => {},
             emitAnnotationOpenNote: () => {},
             emitAnnotationNotePlacementChange: () => {},
-        });
+        }));
 
         await expect(highlight.highlightSelectionInternal(false, ownerRange)).resolves.toEqual({
             status: 'created',
@@ -578,7 +578,7 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
         const order: string[] = [];
         const bindEditorIdentity = vi.fn();
 
-        const highlight = useAnnotationHighlight({
+        const highlight = runInTrackedScope(() => useAnnotationHighlight({
             viewerContainer: ref(viewer),
             isActive: ref(true),
             annotationUiManager: shallowRef(uiManager as never),
@@ -649,7 +649,7 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
             stopDrag: () => {},
             emitAnnotationOpenNote: () => {},
             emitAnnotationNotePlacementChange: () => {},
-        });
+        }));
 
         const outcome = await highlight.highlightSelectionInternal(false, range);
 
