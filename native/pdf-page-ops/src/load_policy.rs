@@ -6,7 +6,6 @@ use std::sync::{
 };
 
 const MAX_ENCODED_PDF_BYTES: usize = 512 * 1024 * 1024;
-const MAX_INCREMENTAL_ENCODED_PDF_BYTES: usize = 1024 * 1024 * 1024;
 pub(crate) const MAX_DECOMPRESSED_PDF_STREAM_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PDF_OBJECTS: usize = 1_000_000;
 const MAX_PDF_PAGES: usize = 100_000;
@@ -28,10 +27,6 @@ const PDF_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
     max_objects: MAX_PDF_OBJECTS,
     max_pages: MAX_PDF_PAGES,
     max_structural_nesting: MAX_PDF_STRUCTURAL_NESTING,
-};
-const PDF_INCREMENTAL_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
-    max_encoded_bytes: MAX_INCREMENTAL_ENCODED_PDF_BYTES,
-    ..PDF_LOAD_POLICY
 };
 
 static PDF_LOAD_GUARD: Mutex<()> = Mutex::new(());
@@ -77,18 +72,33 @@ pub(crate) fn load_pdf_bytes(bytes: &[u8]) -> Result<Document> {
     load_pdf_bytes_with_policy(bytes, PDF_LOAD_POLICY)
 }
 
-pub(crate) fn load_incremental_pdf_path(path: &Path) -> Result<IncrementalDocument> {
-    load_incremental_pdf_path_with_policy(path, PDF_INCREMENTAL_LOAD_POLICY)
-}
-
-fn load_incremental_pdf_path_with_policy(
+pub(crate) fn load_incremental_pdf_path(
     path: &Path,
-    policy: PdfLoadPolicy,
+    qpdf_path: Option<&Path>,
 ) -> Result<IncrementalDocument> {
-    let bytes = read_file_bounded(path, policy.max_encoded_bytes, "PDF input")
-        .map_err(|error| Box::new(error) as Box<dyn Error>)?;
-    let document = load_pdf_bytes_with_policy(&bytes, policy)?;
-    Ok(IncrementalDocument::create_from(bytes, document))
+    let encoded_len = fs::metadata(path)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
+        .len();
+    let incremental = if encoded_len <= PDF_LOAD_POLICY.max_encoded_bytes as u64 {
+        let bytes = read_file_bounded(path, PDF_LOAD_POLICY.max_encoded_bytes, "PDF input")
+            .map_err(|error| Box::new(error) as Box<dyn Error>)?;
+        let document = load_pdf_bytes_with_policy(&bytes, PDF_LOAD_POLICY)?;
+        IncrementalDocument::from_document(
+            document,
+            u64::try_from(bytes.len())?,
+            bytes.last().copied(),
+        )
+    } else {
+        let qpdf_path = qpdf_path.ok_or_else(|| {
+            domain_error(
+                NativeErrorCode::TooLarge,
+                "Large incremental PDF input requires the bundled qpdf structural reader",
+            )
+        })?;
+        load_qpdf_structural_incremental_pdf(path, qpdf_path)?
+    };
+    validate_loaded_document(incremental.get_prev_documents(), PDF_LOAD_POLICY)?;
+    Ok(incremental)
 }
 
 fn load_pdf_bytes_with_policy(bytes: &[u8], policy: PdfLoadPolicy) -> Result<Document> {
@@ -1249,19 +1259,12 @@ mod tests {
     }
 
     #[test]
-    fn incremental_policy_only_expands_the_encoded_input_budget() {
-        assert_eq!(
-            PDF_INCREMENTAL_LOAD_POLICY,
-            PdfLoadPolicy {
-                max_encoded_bytes: 1024 * 1024 * 1024,
-                ..PDF_LOAD_POLICY
-            },
-        );
+    fn full_rewrite_policy_keeps_its_encoded_input_budget() {
         assert_eq!(PDF_LOAD_POLICY.max_encoded_bytes, 512 * 1024 * 1024);
     }
 
     #[test]
-    fn incremental_path_enforces_its_selected_bounded_read_policy() {
+    fn incremental_path_loads_structure_without_an_encoded_size_policy() {
         struct RemoveOnDrop(std::path::PathBuf);
 
         impl Drop for RemoveOnDrop {
@@ -1280,25 +1283,9 @@ mod tests {
         )));
         std::fs::write(&temp_file.0, &bytes).unwrap();
 
-        let rejected = load_incremental_pdf_path_with_policy(
-            &temp_file.0,
-            PdfLoadPolicy {
-                max_encoded_bytes: bytes.len() - 1,
-                ..PDF_LOAD_POLICY
-            },
-        )
-        .unwrap_err();
-        assert_too_large(rejected);
-
-        let loaded = load_incremental_pdf_path_with_policy(
-            &temp_file.0,
-            PdfLoadPolicy {
-                max_encoded_bytes: bytes.len(),
-                ..PDF_INCREMENTAL_LOAD_POLICY
-            },
-        )
-        .unwrap();
+        let loaded = load_incremental_pdf_path(&temp_file.0, None).unwrap();
         assert_eq!(loaded.get_prev_documents().get_pages().len(), 1);
+        assert_eq!(loaded.previous_len(), u64::try_from(bytes.len()).unwrap());
     }
 
     #[test]

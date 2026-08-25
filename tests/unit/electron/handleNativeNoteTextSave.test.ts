@@ -57,6 +57,7 @@ const mocks = vi.hoisted(() => ({
     loggerDebug: vi.fn(),
     loggerWarn: vi.fn(),
     ensureWorkingCopyMaterialized: vi.fn(),
+    getPdfNativeToolPaths: vi.fn(() => ({qpdf: '/native/qpdf'})),
 }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
@@ -64,6 +65,7 @@ vi.mock('@electron/features/page-ops/public', () => ({
     isNativePageOpsDisabled: (...args: unknown[]) => mocks.isNativePageOpsDisabled(...args),
     resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args),
 }));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => mocks.getPdfNativeToolPaths()}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({
     getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args),
     getWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.getWorkingCopyOriginalFileExpectation(...args),
@@ -221,6 +223,7 @@ describe('handleNativeNoteTextSave', () => {
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-native-note-save-test-'));
         mocks.isNativePageOpsDisabled.mockReturnValue(false);
         mocks.resolveNativePageOpsPath.mockReturnValue('/native/evb-pdf-page-ops');
+        mocks.getPdfNativeToolPaths.mockReturnValue({qpdf: '/native/qpdf'});
         mocks.isAllowedOriginalSavePath.mockReturnValue(true);
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.ensureWorkingCopyMaterialized.mockImplementation(async (path: string) => ({
@@ -350,6 +353,8 @@ describe('handleNativeNoteTextSave', () => {
                 tempPath,
                 '--output',
                 tempPath,
+                '--qpdf',
+                '/native/qpdf',
                 '--append',
             ]));
             await appendFile(tempPath, '\n% native incremental update');

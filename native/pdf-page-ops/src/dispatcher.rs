@@ -4,11 +4,12 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
     let appended = read_append_mutations(&config.operation)
         .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
     if let Some((mutations, modified_at)) = appended {
-        return append_native_mutations(
+        return append_native_mutations_with_qpdf(
             &config.input_path,
             &config.output_path,
             &mutations,
             modified_at,
+            config.qpdf_path.as_deref(),
         );
     }
 

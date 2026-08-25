@@ -124,7 +124,6 @@ async function tryEmbedBookmarksWithNativePageOps(
         });
         throwIfAborted(signal);
         await copyFile(inputPdfPath, workingPath);
-        await copyFile(inputPdfPath, outputPdfPath);
         await writeFile(
             mutationsPath,
             JSON.stringify(createNativeBookmarkMutation(totalPages, bookmarks)),
@@ -135,9 +134,11 @@ async function tryEmbedBookmarksWithNativePageOps(
             '--input',
             workingPath,
             '--output',
-            outputPdfPath,
+            workingPath,
             '--mutations-file',
             mutationsPath,
+            '--qpdf',
+            getPdfNativeToolPaths().qpdf,
             '--modified-at',
             createNativeModifiedAt(),
             '--append',
@@ -149,6 +150,8 @@ async function tryEmbedBookmarksWithNativePageOps(
                 cancelGroup,
             }),
         });
+        throwIfAborted(signal);
+        await copyFile(workingPath, outputPdfPath);
         const outputStats = await stat(outputPdfPath);
         return outputStats.size;
     } catch (error) {

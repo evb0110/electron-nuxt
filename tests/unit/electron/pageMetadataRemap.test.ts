@@ -11,13 +11,17 @@ import {
 } from '@electron/features/page-ops/main/pageMetadataRemap';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 
-const mocks = vi.hoisted(() => ({runNativeToolCommand: vi.fn()}));
+const mocks = vi.hoisted(() => ({
+    getPdfNativeToolPaths: vi.fn(() => ({qpdf: '/mock/qpdf'})),
+    runNativeToolCommand: vi.fn(),
+}));
 
 vi.mock('@electron/features/page-ops/main/nativePageOpsPath', () => ({
     isNativePageOpsDisabled: () => false,
     resolveNativePageOpsPath: () => '/mock/evb-pdf-page-ops',
 }));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => mocks.getPdfNativeToolPaths()}));
 
 const bookmark = (title: string, pageIndex: number | null, items: IPdfBookmarkEntry[] = []): IPdfBookmarkEntry => ({
     title,
@@ -105,6 +109,10 @@ describe('page metadata remap', () => {
         const args = mocks.runNativeToolCommand.mock.calls[0]?.[1] as string[];
         expect(args[0]).toBe('save-mutations');
         expect(args).toContain('--append');
+        expect(args).toEqual(expect.arrayContaining([
+            '--qpdf',
+            '/mock/qpdf',
+        ]));
         expect(args.some(arg => arg.startsWith('--incremental-validation'))).toBe(false);
     });
 });

@@ -145,7 +145,7 @@ describe('embedBookmarksIntoPdfFile native path', () => {
             }),
         );
         expect(mocks.copyFile).toHaveBeenNthCalledWith(1, '/tmp/input.pdf', '/tmp/djvu-bookmarks-native/input.pdf');
-        expect(mocks.copyFile).toHaveBeenNthCalledWith(2, '/tmp/input.pdf', '/tmp/output.pdf');
+        expect(mocks.copyFile).toHaveBeenNthCalledWith(2, '/tmp/djvu-bookmarks-native/input.pdf', '/tmp/output.pdf');
         expect(mocks.writeFile).toHaveBeenCalledWith(
             '/tmp/djvu-bookmarks-native/bookmarks.json',
             JSON.stringify({bookmarks: expectedBookmarkMutation}),
@@ -158,18 +158,20 @@ describe('embedBookmarksIntoPdfFile native path', () => {
                 '--input',
                 '/tmp/djvu-bookmarks-native/input.pdf',
                 '--output',
-                '/tmp/output.pdf',
+                '/tmp/djvu-bookmarks-native/input.pdf',
                 '--mutations-file',
                 '/tmp/djvu-bookmarks-native/bookmarks.json',
+                '--qpdf',
+                '/native/qpdf',
                 '--modified-at',
                 'D:20260203040506Z',
                 '--append',
             ]),
             expect.objectContaining({commandLabel: 'evb-pdf-page-ops(djvu-bookmarks)'}),
         );
-        const seedOutputOrder = mocks.copyFile.mock.invocationCallOrder[1] ?? Number.POSITIVE_INFINITY;
+        const publishOutputOrder = mocks.copyFile.mock.invocationCallOrder[1] ?? 0;
         const commandOrder = mocks.runNativeToolCommand.mock.invocationCallOrder[1] ?? 0;
-        expect(seedOutputOrder).toBeLessThan(commandOrder);
+        expect(publishOutputOrder).toBeGreaterThan(commandOrder);
         expect(mocks.load).not.toHaveBeenCalled();
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/djvu-bookmarks-native', {

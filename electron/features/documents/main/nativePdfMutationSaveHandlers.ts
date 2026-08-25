@@ -27,6 +27,7 @@ import {
 import { isErrnoException } from '@contracts/runtimeGuards';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {
     isNativePageOpsDisabled,
     resolveNativePageOpsPath,
@@ -255,6 +256,8 @@ async function prepareNativeNoteMutation(options: {
                 options.tempPath,
                 options.command.payloadFlag,
                 options.payloadFilePath,
+                '--qpdf',
+                getPdfNativeToolPaths().qpdf,
                 '--modified-at',
                 options.modifiedAt,
                 '--append',

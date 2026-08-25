@@ -21,6 +21,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut bottom = None;
     let mut left = None;
     let mut right = None;
+    let mut qpdf_path = None;
     let mut append = false;
 
     while let Some(arg) = args.next() {
@@ -86,6 +87,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
                     "right",
                 )?)
             }
+            "--qpdf" => qpdf_path = Some(PathBuf::from(args.next().ok_or("Missing --qpdf value")?)),
             "--append" => {
                 append = true;
             }
@@ -136,5 +138,6 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         operation,
         input_path: input_path.ok_or("Missing --input value")?,
         output_path: output_path.ok_or("Missing --output value")?,
+        qpdf_path,
     })
 }

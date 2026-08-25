@@ -16,6 +16,7 @@ import {
     resolveNativePageOpsPath,
 } from '@electron/features/page-ops/main/nativePageOpsPath';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 
 const PAGE_METADATA_REMAP_TIMEOUT_MS = 2 * 60 * 1000;
 
@@ -123,6 +124,8 @@ export async function applyPageMetadataRemap(input: {
             input.workingCopyPath,
             '--mutations-file',
             mutationsPath,
+            '--qpdf',
+            getPdfNativeToolPaths().qpdf,
             '--modified-at',
             createNativeModifiedAt(),
             '--append',

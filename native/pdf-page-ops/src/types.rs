@@ -280,6 +280,7 @@ pub(crate) struct Config {
     pub(crate) operation: Operation,
     pub(crate) input_path: PathBuf,
     pub(crate) output_path: PathBuf,
+    pub(crate) qpdf_path: Option<PathBuf>,
 }
 
 #[derive(Deserialize)]

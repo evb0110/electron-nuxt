@@ -6,7 +6,7 @@ use evb_native_support::{
 };
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 use lopdf::dictionary;
-use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId, Stream, StringFormat};
+use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat};
 use page_sizes::write_page_sizes_json;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -24,6 +24,7 @@ mod catalog;
 mod cli;
 mod dispatcher;
 mod incremental;
+mod incremental_document;
 mod input;
 mod load_policy;
 mod markup;
@@ -61,6 +62,7 @@ pub(crate) use catalog::*;
 pub(crate) use cli::*;
 pub(crate) use dispatcher::*;
 pub(crate) use incremental::*;
+pub(crate) use incremental_document::*;
 pub(crate) use input::*;
 pub(crate) use load_policy::*;
 pub(crate) use markup::*;

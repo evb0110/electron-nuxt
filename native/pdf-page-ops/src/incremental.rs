@@ -1,36 +1,8 @@
 use super::*;
 
 const SEED_COMPARE_CHUNK_BYTES: usize = 64 * 1024;
-
-pub(crate) struct SkipWriter<W: Write> {
-    pub(crate) inner: W,
-    pub(crate) bytes_to_skip: usize,
-}
-
-impl<W: Write> SkipWriter<W> {
-    pub(crate) fn new(inner: W, bytes_to_skip: usize) -> Self {
-        Self {
-            inner,
-            bytes_to_skip,
-        }
-    }
-}
-
-impl<W: Write> Write for SkipWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let skipped = self.bytes_to_skip.min(buf.len());
-        self.bytes_to_skip -= skipped;
-        if skipped == buf.len() {
-            return Ok(buf.len());
-        }
-        let written = self.inner.write(&buf[skipped..])?;
-        Ok(skipped + written)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.inner.flush()
-    }
-}
+const MAX_CLASSIC_XREF_OFFSET: u64 = 9_999_999_999;
+const XREF_STREAM_OFFSET_BYTES: usize = 8;
 
 pub(crate) trait AppendRollback: Write {
     fn rollback_to(&mut self, len: u64) -> std::io::Result<()>;
@@ -51,12 +23,11 @@ impl AppendRollback for File {
 
 fn rollback_incremental_write<W: AppendRollback>(
     output: &mut W,
-    previous_len: usize,
+    previous_len: u64,
     error: Box<dyn Error>,
     context: &str,
 ) -> Result<()> {
-    let rollback_len = u64::try_from(previous_len)?;
-    if let Err(rollback_error) = output.rollback_to(rollback_len) {
+    if let Err(rollback_error) = output.rollback_to(previous_len) {
         return Err(format!(
             "{error}; failed to roll back {context} incremental append: {rollback_error}"
         )
@@ -73,19 +44,16 @@ fn rollback_incremental_write<W: AppendRollback>(
 
 pub(crate) fn write_incremental_revision_transactionally<W>(
     output: &mut W,
-    previous_len: usize,
-    write_revision: impl FnOnce(&mut SkipWriter<&mut W>) -> Result<()>,
+    previous_len: u64,
+    write_revision: impl FnOnce(&mut W) -> Result<()>,
 ) -> Result<()>
 where
     W: AppendRollback,
 {
-    let write_result = {
-        let mut writer = SkipWriter::new(&mut *output, previous_len);
-        write_revision(&mut writer).and_then(|()| {
-            writer.flush()?;
-            Ok(())
-        })
-    };
+    let write_result = write_revision(output).and_then(|()| {
+        output.flush()?;
+        Ok(())
+    });
 
     if let Err(write_error) = write_result {
         return rollback_incremental_write(output, previous_len, write_error, "partial");
@@ -99,10 +67,28 @@ where
 
 fn rollback_incremental_append(
     output: &mut File,
-    previous_len: usize,
+    previous_len: u64,
     error: Box<dyn Error>,
 ) -> Result<()> {
     rollback_incremental_write(output, previous_len, error, "invalid")
+}
+
+fn assert_append_target_unchanged(
+    output: &mut File,
+    previous_len: u64,
+    previous_last_byte: Option<u8>,
+    previous_xref_start: usize,
+) -> Result<()> {
+    if output.metadata()?.len() != previous_len
+        || read_last_byte_from_file(output, previous_len)? != previous_last_byte
+    {
+        return Err("Append target changed after its PDF structure was parsed".into());
+    }
+    let (xref_start, _) = read_terminal_xref_from_file(output, previous_len)?;
+    if xref_start != u64::try_from(previous_xref_start)? {
+        return Err("Append target cross-reference changed after it was parsed".into());
+    }
+    Ok(())
 }
 
 pub(crate) fn append_paths_refer_to_same_file(input_path: &PathBuf, output_path: &PathBuf) -> bool {
@@ -119,7 +105,7 @@ pub(crate) fn append_paths_refer_to_same_file(input_path: &PathBuf, output_path:
 pub(crate) fn assert_append_output_seeded(
     input_path: &PathBuf,
     output_path: &PathBuf,
-    previous_bytes: &[u8],
+    previous_len: u64,
 ) -> Result<()> {
     if append_paths_refer_to_same_file(input_path, output_path) {
         return Ok(());
@@ -127,19 +113,26 @@ pub(crate) fn assert_append_output_seeded(
 
     let mismatch =
         "Append output must already contain an exact byte-for-byte copy of the input PDF";
-    if fs::metadata(output_path)?.len() != u64::try_from(previous_bytes.len())? {
+    if fs::metadata(input_path)?.len() != previous_len
+        || fs::metadata(output_path)?.len() != previous_len
+    {
         return Err(mismatch.into());
     }
 
+    let mut input = BufReader::new(File::open(input_path)?);
     let mut output = BufReader::new(File::open(output_path)?);
-    let mut chunk = [0u8; SEED_COMPARE_CHUNK_BYTES];
-    let mut compared = 0usize;
-    while compared < previous_bytes.len() {
-        let read = output.read(&mut chunk)?;
-        if read == 0 || chunk[..read] != previous_bytes[compared..compared + read] {
+    let mut input_chunk = [0u8; SEED_COMPARE_CHUNK_BYTES];
+    let mut output_chunk = [0u8; SEED_COMPARE_CHUNK_BYTES];
+    let mut compared = 0_u64;
+    while compared < previous_len {
+        let remaining =
+            usize::try_from((previous_len - compared).min(SEED_COMPARE_CHUNK_BYTES as u64))?;
+        input.read_exact(&mut input_chunk[..remaining])?;
+        output.read_exact(&mut output_chunk[..remaining])?;
+        if input_chunk[..remaining] != output_chunk[..remaining] {
             return Err(mismatch.into());
         }
-        compared += read;
+        compared += u64::try_from(remaining)?;
     }
     Ok(())
 }
@@ -215,13 +208,24 @@ pub(crate) fn apply_native_mutations_incremental(
     Ok(())
 }
 
+#[cfg(test)]
 pub(crate) fn append_native_mutations(
     input_path: &PathBuf,
     output_path: &PathBuf,
     mutations: &NativeMutationsFile,
     modified_at: &str,
 ) -> Result<()> {
-    let mut incremental = load_incremental_pdf_path(input_path)
+    append_native_mutations_with_qpdf(input_path, output_path, mutations, modified_at, None)
+}
+
+pub(crate) fn append_native_mutations_with_qpdf(
+    input_path: &PathBuf,
+    output_path: &PathBuf,
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     if incremental.get_prev_documents().is_encrypted() {
         return Err(domain_error(
@@ -233,10 +237,11 @@ pub(crate) fn append_native_mutations(
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
     apply_native_mutations_incremental(&mut incremental, mutations, modified_at)?;
 
-    let previous_bytes = incremental.get_prev_documents_bytes();
-    assert_append_output_seeded(input_path, output_path, previous_bytes)?;
-    let previous_len = previous_bytes.len();
+    let previous_len = incremental.previous_len();
+    let previous_last_byte = incremental.previous_last_byte();
+    assert_append_output_seeded(input_path, output_path, previous_len)?;
     let previous_xref_start = incremental.get_prev_documents().xref_start;
+    let revision_bytes = build_incremental_revision(&mut incremental)?;
     let expected_object_ids = collect_incremental_append_object_ids(&incremental);
 
     validate_appended_revision_postconditions(
@@ -245,9 +250,19 @@ pub(crate) fn append_native_mutations(
         modified_at,
     )?;
 
-    let mut output = OpenOptions::new().append(true).open(output_path)?;
+    let mut output = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(output_path)?;
+    assert_append_target_unchanged(
+        &mut output,
+        previous_len,
+        previous_last_byte,
+        previous_xref_start,
+    )?;
+    output.seek(SeekFrom::Start(previous_len))?;
     write_incremental_revision_transactionally(&mut output, previous_len, |writer| {
-        incremental.save_to(writer)?;
+        writer.write_all(&revision_bytes)?;
         Ok(())
     })?;
 
@@ -264,6 +279,295 @@ pub(crate) fn append_native_mutations(
     output.sync_all()?;
 
     Ok(())
+}
+
+struct SerializedIncrementalObjects {
+    bytes: Vec<u8>,
+    entries: Vec<(ObjectId, u64)>,
+}
+
+fn build_incremental_revision(incremental: &mut IncrementalDocument) -> Result<Vec<u8>> {
+    let use_xref_stream = matches!(
+        incremental
+            .get_prev_documents()
+            .reference_table
+            .cross_reference_type,
+        lopdf::xref::XrefType::CrossReferenceStream
+    );
+    let mut serialized = serialize_incremental_objects(incremental)?;
+    let xref_start = incremental
+        .previous_len()
+        .checked_add(u64::try_from(serialized.bytes.len())?)
+        .ok_or("Incremental PDF offset overflow")?;
+
+    if use_xref_stream || xref_start > MAX_CLASSIC_XREF_OFFSET {
+        if !use_xref_stream {
+            ensure_pdf_15_catalog_version(incremental)?;
+            serialized = serialize_incremental_objects(incremental)?;
+        }
+        write_xref_stream_revision(incremental, serialized)
+    } else {
+        write_classic_xref_revision(incremental, serialized)
+    }
+}
+
+fn ensure_pdf_15_catalog_version(incremental: &mut IncrementalDocument) -> Result<()> {
+    let catalog_id = incremental.get_prev_documents().root_id()?;
+    incremental.opt_clone_object_to_new_document(catalog_id)?;
+    incremental
+        .new_document
+        .get_dictionary_mut(catalog_id)?
+        .set("Version", Object::Name(b"1.5".to_vec()));
+    Ok(())
+}
+
+fn serialize_incremental_objects(
+    incremental: &IncrementalDocument,
+) -> Result<SerializedIncrementalObjects> {
+    let objects: BTreeMap<ObjectId, Object> = incremental
+        .new_document
+        .objects
+        .iter()
+        .filter(|(_, object)| should_write_incremental_object(object))
+        .map(|(&object_id, object)| (object_id, object.clone()))
+        .collect();
+    let serialized = serialize_indirect_objects(&objects)?;
+    let mut revision = Vec::new();
+    if incremental
+        .previous_last_byte()
+        .is_some_and(|byte| byte != b'\n' && byte != b'\r')
+    {
+        revision.push(b'\n');
+    }
+    let mut entries = Vec::with_capacity(serialized.len());
+    for (object_id, bytes) in serialized {
+        let offset = incremental
+            .previous_len()
+            .checked_add(u64::try_from(revision.len())?)
+            .ok_or("Incremental PDF offset overflow")?;
+        entries.push((object_id, offset));
+        revision.extend_from_slice(&bytes);
+    }
+    entries.sort_unstable_by_key(|(object_id, _)| *object_id);
+    Ok(SerializedIncrementalObjects {
+        bytes: revision,
+        entries,
+    })
+}
+
+fn serialize_indirect_objects(
+    objects: &BTreeMap<ObjectId, Object>,
+) -> Result<Vec<(ObjectId, Vec<u8>)>> {
+    if objects.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut document = Document::with_version("1.7");
+    document.objects = objects.clone();
+    document.max_id = objects
+        .keys()
+        .map(|object_id| object_id.0)
+        .max()
+        .unwrap_or(0);
+    document.reference_table = lopdf::xref::Xref::new(
+        document.max_id.saturating_add(1),
+        lopdf::xref::XrefType::CrossReferenceTable,
+    );
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes)?;
+    let xref_start = parse_number_after_last_marker(&bytes, b"startxref")
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or("Failed to locate temporary serialization xref")?;
+    let offsets = parse_incremental_xref_table(&bytes, xref_start)?;
+    let mut ordered: Vec<(ObjectId, usize)> = objects
+        .keys()
+        .map(|object_id| {
+            let offset = offsets
+                .get(object_id)
+                .copied()
+                .ok_or_else(|| format!("Temporary serialization omitted object {object_id:?}"))?;
+            Ok((*object_id, usize::try_from(offset)?))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    ordered.sort_unstable_by_key(|(_, offset)| *offset);
+
+    let mut serialized = Vec::with_capacity(ordered.len());
+    for (index, (object_id, offset)) in ordered.iter().copied().enumerate() {
+        let end = ordered
+            .get(index + 1)
+            .map(|(_, next_offset)| *next_offset)
+            .unwrap_or(xref_start);
+        let object_bytes = bytes
+            .get(offset..end)
+            .ok_or("Temporary object serialization range is invalid")?
+            .to_vec();
+        serialized.push((object_id, object_bytes));
+    }
+    Ok(serialized)
+}
+
+fn write_classic_xref_revision(
+    incremental: &IncrementalDocument,
+    serialized: SerializedIncrementalObjects,
+) -> Result<Vec<u8>> {
+    let SerializedIncrementalObjects { mut bytes, entries } = serialized;
+    let xref_start = incremental
+        .previous_len()
+        .checked_add(u64::try_from(bytes.len())?)
+        .ok_or("Incremental PDF offset overflow")?;
+    if xref_start > MAX_CLASSIC_XREF_OFFSET
+        || entries
+            .iter()
+            .any(|(_, offset)| *offset > MAX_CLASSIC_XREF_OFFSET)
+    {
+        return Err("Classic PDF cross-reference offset exceeds ten digits".into());
+    }
+
+    bytes.extend_from_slice(b"xref\n");
+    for run in consecutive_object_runs(&entries) {
+        let first_id = run.first().unwrap().0 .0;
+        writeln!(bytes, "{} {}", first_id, run.len())?;
+        for (object_id, offset) in run {
+            writeln!(bytes, "{offset:010} {:05} n ", object_id.1)?;
+        }
+    }
+    let mut trailer = incremental.new_document.trailer.clone();
+    sanitize_incremental_trailer(&mut trailer);
+    trailer.set(
+        "Size",
+        i64::from(
+            incremental
+                .new_document
+                .max_id
+                .max(incremental.get_prev_documents().max_id),
+        ) + 1,
+    );
+    bytes.extend_from_slice(b"trailer\n");
+    bytes.extend_from_slice(&serialize_direct_object(Object::Dictionary(trailer))?);
+    write!(bytes, "\nstartxref\n{xref_start}\n%%EOF")?;
+    Ok(bytes)
+}
+
+fn write_xref_stream_revision(
+    incremental: &IncrementalDocument,
+    serialized: SerializedIncrementalObjects,
+) -> Result<Vec<u8>> {
+    let SerializedIncrementalObjects {
+        mut bytes,
+        mut entries,
+    } = serialized;
+    let xref_object_id = incremental
+        .new_document
+        .max_id
+        .max(incremental.get_prev_documents().max_id)
+        .checked_add(1)
+        .ok_or("PDF object number overflow")?;
+    let xref_offset = incremental
+        .previous_len()
+        .checked_add(u64::try_from(bytes.len())?)
+        .ok_or("Incremental PDF offset overflow")?;
+    entries.push(((xref_object_id, 0), xref_offset));
+    entries.sort_unstable_by_key(|(object_id, _)| *object_id);
+
+    let mut content = Vec::with_capacity(entries.len() * (1 + XREF_STREAM_OFFSET_BYTES + 2));
+    for (object_id, offset) in &entries {
+        content.push(1);
+        content.extend_from_slice(&offset.to_be_bytes());
+        content.extend_from_slice(&object_id.1.to_be_bytes());
+    }
+    let mut trailer = incremental.new_document.trailer.clone();
+    sanitize_incremental_trailer(&mut trailer);
+    trailer.set("Type", Object::Name(b"XRef".to_vec()));
+    trailer.set("Size", i64::from(xref_object_id) + 1);
+    trailer.set(
+        "W",
+        Object::Array(vec![
+            1.into(),
+            (XREF_STREAM_OFFSET_BYTES as i64).into(),
+            2.into(),
+        ]),
+    );
+    trailer.set(
+        "Index",
+        Object::Array(
+            consecutive_object_runs(&entries)
+                .into_iter()
+                .flat_map(|run| {
+                    [
+                        Object::Integer(i64::from(run.first().unwrap().0 .0)),
+                        Object::Integer(i64::try_from(run.len()).unwrap()),
+                    ]
+                })
+                .collect(),
+        ),
+    );
+    bytes.extend_from_slice(&serialize_xref_stream_object(
+        (xref_object_id, 0),
+        Stream::new(trailer, content),
+    )?);
+    write!(bytes, "startxref\n{xref_offset}\n%%EOF")?;
+    Ok(bytes)
+}
+
+fn serialize_xref_stream_object(object_id: ObjectId, mut stream: Stream) -> Result<Vec<u8>> {
+    // Keep lopdf's temporary serializer on its ordinary-stream path. Replacing this marker with
+    // the shorter reserved type changes only dictionary bytes, not the stream payload `/Length`.
+    const SERIALIZATION_TYPE: &[u8] = b"EVBXRef";
+    const _: () = assert!(SERIALIZATION_TYPE.len() > b"XRef".len());
+    stream
+        .dict
+        .set("Type", Object::Name(SERIALIZATION_TYPE.to_vec()));
+    let mut serialized =
+        serialize_indirect_objects(&BTreeMap::from([(object_id, Object::Stream(stream))]))?
+            .remove(0)
+            .1;
+    let type_offset = find_bytes(&serialized, SERIALIZATION_TYPE)
+        .ok_or("Temporary xref stream serialization lost its type marker")?;
+    serialized.splice(
+        type_offset..type_offset + SERIALIZATION_TYPE.len(),
+        b"XRef".iter().copied(),
+    );
+    Ok(serialized)
+}
+
+fn consecutive_object_runs(entries: &[(ObjectId, u64)]) -> Vec<&[(ObjectId, u64)]> {
+    if entries.is_empty() {
+        return Vec::new();
+    }
+    let mut runs = Vec::new();
+    let mut start = 0;
+    for index in 1..=entries.len() {
+        if index == entries.len()
+            || entries[index].0 .0 != entries[index - 1].0 .0.saturating_add(1)
+        {
+            runs.push(&entries[start..index]);
+            start = index;
+        }
+    }
+    runs
+}
+
+fn sanitize_incremental_trailer(trailer: &mut Dictionary) {
+    for key in [
+        b"Type".as_slice(),
+        b"W",
+        b"Index",
+        b"Length",
+        b"Filter",
+        b"DecodeParms",
+    ] {
+        trailer.remove(key);
+    }
+}
+
+fn serialize_direct_object(object: Object) -> Result<Vec<u8>> {
+    let serialized = serialize_indirect_objects(&BTreeMap::from([((1, 0), object)]))?;
+    let bytes = &serialized[0].1;
+    let content_start = find_bytes(bytes, b"obj")
+        .map(|offset| skip_ascii_whitespace(bytes, offset + b"obj".len()))
+        .ok_or("Temporary direct object serialization is missing its header")?;
+    let content_end = find_last_bytes(bytes, b"endobj")
+        .ok_or("Temporary direct object serialization is missing endobj")?;
+    Ok(bytes[content_start..content_end].to_vec())
 }
 
 pub(crate) fn collect_incremental_append_object_ids(
@@ -297,14 +601,81 @@ pub(crate) fn should_write_incremental_object(object: &Object) -> bool {
         .unwrap_or(true)
 }
 
+#[cfg(test)]
+mod writer_boundary_tests {
+    use super::*;
+
+    fn incremental_at(previous_len: u64) -> (IncrementalDocument, ObjectId) {
+        let mut previous = Document::with_version("1.4");
+        let catalog_id = previous.new_object_id();
+        let mut catalog = Dictionary::new();
+        catalog.set("Type", Object::Name(b"Catalog".to_vec()));
+        previous.set_object(catalog_id, Object::Dictionary(catalog.clone()));
+        previous.trailer.set("Root", catalog_id);
+        previous.xref_start = 37;
+        previous.reference_table = lopdf::xref::Xref::new(
+            previous.max_id.saturating_add(1),
+            lopdf::xref::XrefType::CrossReferenceTable,
+        );
+        let mut incremental =
+            IncrementalDocument::from_document(previous, previous_len, Some(b'\n'));
+        catalog.set("EVBTest", Object::Integer(1));
+        incremental
+            .new_document
+            .set_object(catalog_id, Object::Dictionary(catalog));
+        (incremental, catalog_id)
+    }
+
+    fn revision_xref_entries(revision: &[u8], previous_len: u64) -> (bool, HashMap<ObjectId, u64>) {
+        let xref_start = parse_number_after_last_marker(revision, b"startxref").unwrap();
+        let relative = usize::try_from(xref_start - previous_len).unwrap();
+        let classic = revision[relative..].starts_with(b"xref");
+        let entries = if classic {
+            parse_incremental_xref_table(revision, relative).unwrap()
+        } else {
+            parse_incremental_xref_stream(revision, relative).unwrap()
+        };
+        (classic, entries)
+    }
+
+    #[test]
+    fn classic_xref_preserves_offsets_on_both_sides_of_four_gib() {
+        for previous_len in [u64::from(u32::MAX), u64::from(u32::MAX) + 1] {
+            let (mut incremental, catalog_id) = incremental_at(previous_len);
+            let revision = build_incremental_revision(&mut incremental).unwrap();
+            let (classic, entries) = revision_xref_entries(&revision, previous_len);
+            assert!(classic);
+            assert_eq!(entries.get(&catalog_id), Some(&previous_len));
+        }
+    }
+
+    #[test]
+    fn ten_digit_boundary_switches_to_an_eight_byte_xref_stream() {
+        for previous_len in [MAX_CLASSIC_XREF_OFFSET, MAX_CLASSIC_XREF_OFFSET + 1] {
+            let (mut incremental, catalog_id) = incremental_at(previous_len);
+            let revision = build_incremental_revision(&mut incremental).unwrap();
+            let (classic, entries) = revision_xref_entries(&revision, previous_len);
+            assert!(!classic);
+            assert_eq!(entries.get(&catalog_id), Some(&previous_len));
+            assert!(find_bytes(&revision, b"/Version/1.5").is_some());
+        }
+    }
+
+    #[test]
+    fn revision_offset_overflow_fails_before_output() {
+        let (mut incremental, _) = incremental_at(u64::MAX);
+        let error = build_incremental_revision(&mut incremental).unwrap_err();
+        assert!(error.to_string().contains("offset overflow"));
+    }
+}
+
 pub(crate) fn validate_incremental_append_output(
     output_path: &PathBuf,
-    previous_len: usize,
+    previous_len: u64,
     previous_xref_start: usize,
     expected_object_ids: &[ObjectId],
 ) -> Result<()> {
     let final_len = fs::metadata(output_path)?.len();
-    let previous_len = u64::try_from(previous_len)?;
     if final_len <= previous_len {
         return Err("Native incremental append did not grow the PDF".into());
     }
@@ -422,7 +793,10 @@ pub(crate) fn parse_incremental_xref_table(
                 .ok_or("Native incremental append xref table has an invalid entry type")?;
             cursor = next_cursor;
             if kind == b'n' {
-                entries.insert((start_object + index, generation), offset);
+                let object_number = start_object.checked_add(index).ok_or(
+                    "Native incremental append xref table subsection exceeds the object-number limit",
+                )?;
+                entries.insert((object_number, generation), offset);
             }
         }
     }
@@ -521,10 +895,10 @@ pub(crate) fn parse_incremental_xref_stream(
             let offset = read_xref_stream_field(entry, &mut field_cursor, widths[1])?;
             let generation = read_xref_stream_field(entry, &mut field_cursor, widths[2])?;
             if entry_type == 1 {
-                entries.insert(
-                    (start_object + object_index, u16::try_from(generation)?),
-                    offset,
-                );
+                let object_number = start_object.checked_add(object_index).ok_or(
+                    "Native incremental append xref stream /Index exceeds the object-number limit",
+                )?;
+                entries.insert((object_number, u16::try_from(generation)?), offset);
             }
         }
     }
@@ -698,5 +1072,19 @@ mod xref_stream_canary_tests {
         let appended = b"5 0 obj\n<</Type/XRef/Size 6/W[1 2 1]/Index[5 1]/Length 4>>\nstream\n\x01\x00\x00\x00\nendstream\nendobj\nstartxref\n0\n%%EOF\n";
         let entries = parse_incremental_xref_stream(appended, 0).unwrap();
         assert_eq!(entries.get(&(5, 0)), Some(&0));
+    }
+
+    #[test]
+    fn rejects_xref_table_subsections_that_overflow_object_numbers() {
+        let appended = b"xref\n4294967295 2\n0000000000 00000 n \n0000000000 00000 n \ntrailer\n<</Size 4294967295>>\n";
+        let error = parse_incremental_xref_table(appended, 0).unwrap_err();
+        assert!(error.to_string().contains("object-number limit"));
+    }
+
+    #[test]
+    fn rejects_xref_stream_indexes_that_overflow_object_numbers() {
+        let appended = b"4294967295 0 obj\n<</Type/XRef/Size 4294967295/W[1 1 1]/Index[4294967295 2]/Length 6>>\nstream\n\x01\x00\x00\x01\x00\x00\nendstream\nendobj\nstartxref\n0\n%%EOF\n";
+        let error = parse_incremental_xref_stream(appended, 0).unwrap_err();
+        assert!(error.to_string().contains("object-number limit"));
     }
 }

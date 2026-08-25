@@ -145,7 +145,7 @@
 
         validate_incremental_append_output(
             &output_path,
-            original_bytes.len(),
+            u64::try_from(original_bytes.len()).unwrap(),
             previous_document.xref_start,
             &[target_id, popup_id],
         )
@@ -196,7 +196,7 @@
 
         let error = validate_incremental_append_output(
             &output_path,
-            original_bytes.len(),
+            u64::try_from(original_bytes.len()).unwrap(),
             previous_document.xref_start,
             &[target_id, popup_id],
         )
@@ -289,9 +289,8 @@
 
         let error = write_incremental_revision_transactionally(
             &mut target,
-            original.len(),
+            u64::try_from(original.len()).unwrap(),
             |writer| {
-                writer.write_all(original)?;
                 writer.write_all(b"partial incremental revision that must be rolled back")?;
                 Ok(())
             },
@@ -993,6 +992,7 @@
             },
             input_path: pdf_path.clone(),
             output_path: pdf_path.clone(),
+            qpdf_path: None,
         })
         .unwrap_err();
         assert_eq!(
