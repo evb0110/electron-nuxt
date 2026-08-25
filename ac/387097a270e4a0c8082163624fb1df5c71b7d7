@@ -1,0 +1,33 @@
+tests/e2e/electron/quarantine/README.md
+  ai_agent 6,12-13
+tests/e2e/electron/quarantine/graduation-policy.schema.json
+  ai_agent 18,27,42,46
+vitest.shared.config.ts
+  ai_agent 203
+native/jbig2-codec/fuzz/README.md
+  ai_agent 15
+tests/e2e/electron/quarantine/graduation-policy.json
+  ai_agent 3,10-11
+tests/unit/architecture/quarantineGraduationPolicy.test.ts
+  ai_agent 34,102,108,123,154,157-158,184,198,206,219-220
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  ai_agent 141,328,336-341,343-344,381-382,404-406,498,1332,1338-1339,1344,1352,1494-1495,1501,1505,1510,1513,1548,1550
+tests/unit/scripts/releasePolicy.test.ts
+  ai_agent 306,1317,1338-1339,1348,1355,1363-1365,1370-1372
+docs/release-guardrails.md
+  ai_agent 16,83-84
+README.md
+  ai_agent 218,280-283,286,298
+.github/workflows/ci.yml
+  ai_agent 12-20,330,370,401,445,528,694,762-763,860-861,896-897,932-933,968-969,1004-1005,1044-1045,1080-1081
+docs/releasing.md
+  ai_agent 5,12-17,40,49-50,63-66
+scripts/release/cut-release.mjs
+  ai_agent 85-88,94,120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ac387097a270e4a0c8082163624fb1df5c71b7d7",
+  "prompts": {}
+}
