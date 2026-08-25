@@ -7,6 +7,8 @@ import type {
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { getErrorMessage } from '@app/utils/error';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
+import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/source/createPagePreviewDocumentSource';
+import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
 import { shouldStageNativePdfOpeningPreview } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import type { IPdfValidationSourceRevision } from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 
@@ -28,7 +30,7 @@ function isOpeningTransitionPhase(phase: IDocumentOpenSurfaceSnapshot['phase']) 
 
 function resolveTargetWidth(
     surface: IDocumentOpenSurfaceSession,
-    geometry: IPdfOpeningGeometry,
+    geometry: Pick<IPdfOpeningGeometry, 'width'>,
 ) {
     const frameWidth = Number.parseFloat(
         surface.snapshot.value.openingPageFrame?.style.width ?? '',
@@ -54,9 +56,12 @@ export function stagePdfOpeningPreview(options: {
     let disposed = false;
     let objectUrl: string | null = null;
     let source: ReturnType<typeof createNativePdfPreviewSourceFromPath> | null = null;
+    let pageSource: IDocumentPageSource | null = null;
     let stopWatchingOpeningFrame: (() => void) | null = null;
     let stopWatchingSurface: (() => void) | null = null;
     let stopWatchingInvalidation: (() => void) | null = null;
+    let stopWatchingNavigation: (() => void) | null = null;
+    let stopWatchingTargetWidth: (() => void) | null = null;
     let resolveOpeningFrameWait: ((snapshot: IDocumentOpenSurfaceSnapshot | null) => void) | null = null;
     let generation: number | null = null;
 
@@ -78,11 +83,20 @@ export function stagePdfOpeningPreview(options: {
         stopWatchingSurface = null;
         stopWatchingInvalidation?.();
         stopWatchingInvalidation = null;
+        stopWatchingNavigation?.();
+        stopWatchingNavigation = null;
+        stopWatchingTargetWidth?.();
+        stopWatchingTargetWidth = null;
         resolveOpeningFrameWait?.(null);
         resolveOpeningFrameWait = null;
         if (clearPreview && generation !== null && objectUrl !== null) {
             options.openSurface.clearOpeningPagePreview(generation, objectUrl);
         }
+        if (generation !== null && pageSource !== null) {
+            options.openSurface.clearOpeningPageSource(generation, pageSource);
+        }
+        pageSource?.dispose();
+        pageSource = null;
         source?.terminate();
         source = null;
         logPdfRenderTrace('pdf-open-native-preview-retired', {
@@ -202,16 +216,18 @@ export function stagePdfOpeningPreview(options: {
         ) {
             return;
         }
-        const sourceRevisionKey = `${String(resolution.sourceRevision.size)}:${String(resolution.sourceRevision.modifiedAt)}`;
+        const openingGeometry = resolution.openingGeometry;
+        const sourceRevision = resolution.sourceRevision;
+        const sourceRevisionKey = `${String(sourceRevision.size)}:${String(sourceRevision.modifiedAt)}`;
         logPdfRenderTrace('pdf-open-native-preview-frame-wait-start', {
             ...options.traceContext,
             pageNumber: resolution.openingGeometry.pageNumber,
             sourceRevisionKey,
         });
         const snapshot = await waitForOpeningFrame({
-            documentId: resolution.sourceRevision.documentId,
-            openingGeometry: resolution.openingGeometry,
-            pageNumber: resolution.openingGeometry.pageNumber,
+            documentId: sourceRevision.documentId,
+            openingGeometry,
+            pageNumber: openingGeometry.pageNumber,
             sourceRevisionKey,
         });
         generation = snapshot?.generation ?? null;
@@ -225,81 +241,285 @@ export function stagePdfOpeningPreview(options: {
         if (snapshot === null || canceled || !options.isCurrent()) {
             return;
         }
-        const targetWidthPx = resolveTargetWidth(options.openSurface, resolution.openingGeometry);
-        logPdfRenderTrace('pdf-open-native-preview-submit', {
-            ...options.traceContext,
-            generation,
-            pageNumber: resolution.openingGeometry.pageNumber,
-            sourceRevisionKey,
-            targetWidthPx,
-        });
+        const activeGeneration = snapshot.generation;
+        generation = activeGeneration;
         const previewSource = createNativePdfPreviewSourceFromPath(options.source.path, options.documentFiles);
         source = previewSource;
-        const rendered = await previewSource.renderPageObjectUrl(resolution.openingGeometry.pageNumber, {
-            previewRequestId: `pdf-opening:${String(generation)}:${sourceRevisionKey}`,
-            targetWidthPx,
-        });
-        if (canceled || !options.isCurrent()) {
-            previewSource.revokeObjectURL(rendered.objectUrl);
-            dispose('stale-render-result', false);
+        const loadedPageSizes = await Promise.resolve(previewSource.getPageSizes()).catch(() => null);
+        if (disposed || canceled || !options.isCurrent()) {
+            dispose('surface-retired-during-page-sizes', false);
             return;
         }
-        objectUrl = rendered.objectUrl;
-        const current = options.openSurface.snapshot.value;
-        const currentRevision = current.identity?.documentRevision;
-        const accepted = current.generation === generation
-            && current.identity?.documentId === resolution.sourceRevision.documentId
-            && currentRevision !== undefined
-            && options.openSurface.commitOpeningPagePreview(generation, {
-                documentId: resolution.sourceRevision.documentId,
+        const fallbackPageSize = {
+            width: openingGeometry.width,
+            height: openingGeometry.height,
+        };
+        const pageSizes = Array.isArray(loadedPageSizes)
+            && loadedPageSizes.length === openingGeometry.pageCount
+            && loadedPageSizes.every(size => (
+                Number.isFinite(size.width)
+                && size.width > 0
+                && Number.isFinite(size.height)
+                && size.height > 0
+            ))
+            ? loadedPageSizes
+            : Array.from(
+                {length: openingGeometry.pageCount},
+                () => fallbackPageSize,
+            );
+        pageSource = createPagePreviewDocumentSource({
+            documentRef: sourceRevision.documentId,
+            previewSource,
+            pageSizes,
+            ownsPreviewSource: false,
+        });
+        if (!options.openSurface.publishOpeningPageSource(
+            activeGeneration,
+            pageSource,
+            () => dispose('surface-retired'),
+        )) {
+            dispose('source-rejected', false);
+            return;
+        }
+
+        let nextRenderRevision = 0;
+        let activeRender: {
+            key: string;
+            pageNumber: number;
+            requestId: string;
+        } | null = null;
+        let committedRenderKey: string | null = null;
+        async function renderPreview(pageNumber: number, reason: string) {
+            if (disposed || canceled || !options.isCurrent()) {
+                return false;
+            }
+            const boundedPage = Math.min(
+                Math.max(1, Math.trunc(pageNumber)),
+                pageSizes.length,
+            );
+            const currentGeometry = options.openSurface.snapshot.value.openingPageGeometry
+                ?? openingGeometry;
+            const targetWidthPx = resolveTargetWidth(options.openSurface, currentGeometry);
+            const renderKey = `${String(boundedPage)}:${String(targetWidthPx)}`;
+            if (renderKey === activeRender?.key) {
+                return false;
+            }
+            if (
+                renderKey === committedRenderKey
+                && options.openSurface.snapshot.value.openingPageFrame?.preview?.pageNumber
+                === boundedPage
+            ) {
+                return true;
+            }
+            nextRenderRevision += 1;
+            const renderRevision = nextRenderRevision;
+            if (activeRender !== null) {
+                previewSource.cancelPagePreview?.(
+                    activeRender.pageNumber,
+                    activeRender.requestId,
+                );
+            }
+            const requestId = [
+                'pdf-opening',
+                activeGeneration,
+                sourceRevisionKey,
+                boundedPage,
+                renderRevision,
+            ].join(':');
+            const pendingRender = {
+                key: renderKey,
+                pageNumber: boundedPage,
+                requestId,
+            };
+            activeRender = pendingRender;
+            logPdfRenderTrace('pdf-open-native-preview-submit', {
+                ...options.traceContext,
+                generation: activeGeneration,
+                pageNumber: boundedPage,
+                reason,
+                sourceRevisionKey,
+                targetWidthPx,
+            });
+            let rendered;
+            try {
+                rendered = await previewSource.renderPageObjectUrl(boundedPage, {
+                    previewRequestId: requestId,
+                    targetWidthPx,
+                });
+            } catch (error) {
+                if (
+                    disposed
+                    || canceled
+                    || !options.isCurrent()
+                    || renderRevision !== nextRenderRevision
+                ) {
+                    return false;
+                }
+                throw error;
+            } finally {
+                if (activeRender === pendingRender) {
+                    activeRender = null;
+                }
+            }
+            if (
+                disposed
+                || canceled
+                || !options.isCurrent()
+                || renderRevision !== nextRenderRevision
+            ) {
+                previewSource.revokeObjectURL(rendered.objectUrl);
+                return false;
+            }
+            const current = options.openSurface.snapshot.value;
+            const currentRevision = current.identity?.documentRevision;
+            if (
+                current.generation !== activeGeneration
+                || current.identity?.documentId !== sourceRevision.documentId
+                || currentRevision === undefined
+                || !isOpeningTransitionPhase(current.phase)
+                || options.openSurface.viewportSession.value.requestedPage !== boundedPage
+            ) {
+                previewSource.revokeObjectURL(rendered.objectUrl);
+                return false;
+            }
+            const pageSize = pageSizes[boundedPage - 1] ?? fallbackPageSize;
+            const nextGeometry = {
+                ...openingGeometry,
+                documentId: sourceRevision.documentId,
+                pageNumber: boundedPage,
+                pageCount: pageSizes.length,
+                width: pageSize.width,
+                height: pageSize.height,
+                rotation: boundedPage === openingGeometry.pageNumber
+                    ? openingGeometry.rotation
+                    : 0 as const,
+            };
+            const geometryMatches = current.openingPageGeometry?.pageNumber === boundedPage
+                && current.openingPageGeometry.width === nextGeometry.width
+                && current.openingPageGeometry.height === nextGeometry.height;
+            if (
+                !geometryMatches
+                && !options.openSurface.commitOpeningPageGeometry(activeGeneration, nextGeometry)
+            ) {
+                previewSource.revokeObjectURL(rendered.objectUrl);
+                return false;
+            }
+            const accepted = options.openSurface.commitOpeningPagePreview(activeGeneration, {
+                documentId: sourceRevision.documentId,
                 documentRevision: currentRevision,
-                objectUrl,
-                pageNumber: resolution.openingGeometry.pageNumber,
+                objectUrl: rendered.objectUrl,
+                pageNumber: boundedPage,
                 renderedWidth: rendered.renderedPx,
                 sourceRevisionKey,
             });
-        if (!accepted) {
-            previewSource.revokeObjectURL(objectUrl);
-            dispose('surface-rejected', false);
-            return;
-        }
-        logPdfRenderTrace('pdf-open-native-preview-committed', {
-            ...options.traceContext,
-            generation,
-            pageNumber: resolution.openingGeometry.pageNumber,
-            renderedWidth: rendered.renderedPx,
-            sourceRevisionKey,
-        });
-        stopWatchingInvalidation = rendered.onInvalidated?.(() => {
-            if (generation !== null && objectUrl !== null) {
-                options.openSurface.clearOpeningPagePreview(generation, objectUrl);
+            if (!accepted) {
+                previewSource.revokeObjectURL(rendered.objectUrl);
+                return false;
             }
-            dispose('memory-pressure', false);
-        }) ?? null;
+            const previousObjectUrl = objectUrl;
+            stopWatchingInvalidation?.();
+            objectUrl = rendered.objectUrl;
+            stopWatchingInvalidation = rendered.onInvalidated?.(() => {
+                if (generation === null || objectUrl !== rendered.objectUrl) {
+                    return;
+                }
+                options.openSurface.clearOpeningPagePreview(generation, rendered.objectUrl);
+                objectUrl = null;
+                committedRenderKey = null;
+                requestPreviewRender(
+                    options.openSurface.viewportSession.value.requestedPage,
+                    'memory-pressure-recovery',
+                );
+            }) ?? null;
+            if (previousObjectUrl && previousObjectUrl !== rendered.objectUrl) {
+                previewSource.revokeObjectURL(previousObjectUrl);
+            }
+            committedRenderKey = renderKey;
+            logPdfRenderTrace('pdf-open-native-preview-committed', {
+                ...options.traceContext,
+                generation: activeGeneration,
+                pageNumber: boundedPage,
+                reason,
+                renderedWidth: rendered.renderedPx,
+                sourceRevisionKey,
+            });
+            return true;
+        }
+
+        function requestPreviewRender(pageNumber: number, reason: string) {
+            void renderPreview(pageNumber, reason).catch((error: unknown) => {
+                if (disposed || canceled) {
+                    return;
+                }
+                logPdfRenderTrace('pdf-open-native-preview-failed', {
+                    ...options.traceContext,
+                    error: getErrorMessage(error),
+                    reason,
+                });
+                dispose('render-failed');
+            });
+        }
+
         stopWatchingSurface = watch(
             () => {
                 const live = options.openSurface.snapshot.value;
                 return [
                     live.generation,
                     live.phase,
-                    live.openingPageFrame?.preview?.objectUrl ?? null,
                 ] as const;
             },
             ([
                 liveGeneration,
                 phase,
-                liveObjectUrl,
             ]) => {
                 if (
-                    liveGeneration !== generation
+                    liveGeneration !== activeGeneration
                     || phase === 'ready'
                     || phase === 'failed'
-                    || liveObjectUrl !== objectUrl
                 ) {
                     dispose(phase === 'ready' ? 'pdfjs-handoff' : 'surface-changed', false);
                 }
             },
             {flush: 'sync'},
+        );
+        stopWatchingNavigation = watch(
+            () => options.openSurface.viewportSession.value.requestedPage,
+            (pageNumber) => {
+                if (
+                    options.openSurface.snapshot.value.openingPageFrame?.preview?.pageNumber
+                    !== pageNumber
+                ) {
+                    requestPreviewRender(pageNumber, 'navigation');
+                }
+            },
+            {flush: 'sync'},
+        );
+        const initialRendered = await renderPreview(
+            options.openSurface.viewportSession.value.requestedPage,
+            'initial',
+        );
+        if (
+            !initialRendered
+            && !disposed
+            && activeRender === null
+            && options.openSurface.snapshot.value.openingPageFrame?.preview === undefined
+        ) {
+            dispose('initial-render-rejected', false);
+        }
+        if (disposed) {
+            return;
+        }
+        stopWatchingTargetWidth = watch(
+            () => options.openSurface.snapshot.value.openingPageFrame?.style.width ?? '',
+            (_width, previousWidth) => {
+                if (previousWidth) {
+                    requestPreviewRender(
+                        options.openSurface.viewportSession.value.requestedPage,
+                        'viewport-scale',
+                    );
+                }
+            },
+            {flush: 'post'},
         );
     })().catch((error: unknown) => {
         if (!canceled) {

@@ -173,6 +173,7 @@ const areToolbarSnapshotPrimitivesEqual = createShallowKeyEquality<Omit<IWorkspa
     hasOpenError: true,
     hasPdf: true,
     initialVisualReady: true,
+    openingPreviewReady: true,
     isAnySaving: true,
     isCapturingRegion: true,
     isCropSelecting: true,

@@ -27,6 +27,7 @@
         :is-crop-selecting="snapshot.isCropSelecting"
         :is-placing-page-note="snapshot.isPlacingPageNote"
         :document-busy="toolbarDocumentBusy"
+        :viewing-ready="viewingReady"
         :has-ocr-action="canUseOcr"
         :has-scan-cleanup-action="canUseOcr && isDesktopRuntime"
         :surface="surface"
@@ -146,7 +147,7 @@
                 :effective-zoom="effectiveZoom"
                 :open="zoomDropdownOpen"
                 :disabled="toolbarControlsDisabled"
-                :can-use-view-modes="snapshot.viewerCapabilities.viewMode"
+                :can-use-view-modes="snapshot.viewerCapabilities.viewMode && !snapshot.openingPreviewReady"
                 :compact-level="compactLevel"
                 @update:effective-zoom="handleEffectiveZoomUpdate"
                 @update:open="handleZoomDropdownOpenUpdate"
@@ -191,7 +192,7 @@
                 :assistant-open="assistantPanelOpen"
                 :assistant-label="t('assistant.toggle')"
                 :can-toggle-continuous-scroll="snapshot.viewerCapabilities.continuousScroll"
-                :can-use-view-modes="snapshot.viewerCapabilities.viewMode"
+                :can-use-view-modes="snapshot.viewerCapabilities.viewMode && !snapshot.openingPreviewReady"
                 :show-sidebar="snapshot.showSidebar"
                 :drag-mode="snapshot.dragMode"
                 :continuous-scroll="snapshot.continuousScroll"
@@ -203,6 +204,7 @@
                 :is-crop-selecting="snapshot.isCropSelecting"
                 :is-placing-page-note="snapshot.isPlacingPageNote"
                 :document-busy="toolbarDocumentBusy"
+                :viewing-ready="viewingReady"
                 :surface="surface"
                 :show-document-section="isDesktopRuntime"
                 can-combine-files
@@ -294,6 +296,7 @@ const {
     canUseOcr,
     controlsDisabled = undefined,
     documentBusy = undefined,
+    viewingReady = false,
     fullscreenSupported,
     hasPdf = undefined,
     isDesktopRuntime,
@@ -326,6 +329,7 @@ const {
     isFullscreen: boolean;
     fullscreenSupported: boolean;
     documentBusy?: boolean | undefined;
+    viewingReady?: boolean | undefined;
     controlsDisabled?: boolean | undefined;
     pageDropdownTotalPages?: number | undefined;
     pageLabels?: string[] | null | undefined;
@@ -411,7 +415,10 @@ const toolbarControlsDisabled = computed(() => (
     ?? (!toolbarHasPdf.value || toolbarDocumentBusy.value || snapshot.totalPages <= 0)
 ));
 const ocrActionDisabled = computed(() => (
-    toolbarControlsDisabled.value || snapshot.isAnySaving || snapshot.isHistoryBusy
+    toolbarDocumentBusy.value
+    || toolbarControlsDisabled.value
+    || snapshot.isAnySaving
+    || snapshot.isHistoryBusy
 ));
 const scanCleanupActionDisabled = computed(() => (
     ocrActionDisabled.value || !ocrWorkingCopyPath

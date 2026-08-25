@@ -1047,14 +1047,16 @@ export function createDocumentOpenFlow(
             clearSpeculativeSource();
             const validationHold = pdfjsPreparation.readyHold;
             if (validationHold) {
-                deps.openSurface?.authorizeReadyAfterValidation(
+                const readyRelease = deps.openSurface?.releaseReadyAfterValidation(
                     validationHold.generation,
                     validationHold.sourceRevisionKey,
                 );
                 logPdfRenderTrace('pdf-open-pdfjs-validation-authorized', {
                     path,
                     ...traceContext,
+                    authorized: readyRelease?.authorized ?? false,
                     generation: validationHold.generation,
+                    ready: readyRelease?.ready ?? false,
                     sourceRevisionKey: validationHold.sourceRevisionKey,
                 });
             }

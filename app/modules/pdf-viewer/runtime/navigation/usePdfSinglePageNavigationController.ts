@@ -43,6 +43,11 @@ import {
     getRequestAnchor,
     getRequestPage,
 } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
+import {
+    hasMeasurableMountedPage,
+    resolvePagedAnchorFromViewport,
+    resolvePagedScrollForAnchor,
+} from '@app/modules/pdf-viewer/runtime/navigation/pdfMountedPageViewportGeometry';
 
 interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePageScrollOptions {
     requestedCurrentPage: Ref<number | undefined>;
@@ -63,72 +68,6 @@ interface IPdfSinglePageWheelEvent {
     deltaY: number;
     timeStamp: number;
     preventDefault: () => void;
-}
-
-function getMountedPageElement(container: HTMLElement, pageNumber: number) {
-    return container.querySelector<HTMLElement>(
-        `.page_container[data-page="${String(Math.max(1, Math.trunc(pageNumber)))}"]`,
-    );
-}
-
-function resolvePagedAnchorFromViewport(
-    container: HTMLElement,
-    pageNumber: number,
-    viewportFraction = {
-        x: 0.5,
-        y: 0.5,
-    },
-): IPdfSemanticAnchor {
-    const page = Math.max(1, Math.trunc(pageNumber));
-    const element = getMountedPageElement(container, page);
-    if (!element) {
-        return getRequestAnchor(undefined, page);
-    }
-    const viewportRect = container.getBoundingClientRect();
-    const pageRect = element.getBoundingClientRect();
-    const x = viewportRect.left + container.clientWidth * viewportFraction.x;
-    const y = viewportRect.top + container.clientHeight * viewportFraction.y;
-    return {
-        page,
-        pageXFraction: clamp((x - pageRect.left) / Math.max(1, pageRect.width), 0, 1),
-        pageYFraction: clamp((y - pageRect.top) / Math.max(1, pageRect.height), 0, 1),
-        viewportXFraction: clamp(viewportFraction.x, 0, 1),
-        viewportYFraction: clamp(viewportFraction.y, 0, 1),
-        affinity: 'center',
-    };
-}
-
-function resolvePagedScrollForAnchor(
-    container: HTMLElement,
-    anchor: IPdfSemanticAnchor,
-    scaledMargin: number,
-) {
-    const element = getMountedPageElement(container, anchor.page);
-    if (!element) {
-        return {
-            left: container.scrollLeft,
-            top: container.scrollTop,
-        };
-    }
-    const viewportRect = container.getBoundingClientRect();
-    const pageRect = element.getBoundingClientRect();
-    const pageContentLeft = container.scrollLeft + pageRect.left - viewportRect.left;
-    const pageContentTop = container.scrollTop + pageRect.top - viewportRect.top;
-    return {
-        left: clamp(
-            pageContentLeft + clamp(anchor.pageXFraction, 0, 1) * pageRect.width
-                - clamp(anchor.viewportXFraction, 0, 1) * container.clientWidth,
-            0,
-            Math.max(0, container.scrollWidth - container.clientWidth),
-        ),
-        top: clamp(
-            pageContentTop + clamp(anchor.pageYFraction, 0, 1) * pageRect.height
-                - clamp(anchor.viewportYFraction, 0, 1) * container.clientHeight
-                - (anchor.affinity === 'start' ? scaledMargin : 0),
-            0,
-            Math.max(0, container.scrollHeight - container.clientHeight),
-        ),
-    };
 }
 
 export function shouldSubmitRequestedCurrentPage(
@@ -200,12 +139,26 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         }, viewportFraction);
     }
 
-    function resolveScrollForViewport(snapshot: IPdfViewportGeometry, anchor: IPdfSemanticAnchor) {
+    function resolveScrollForViewport(
+        snapshot: IPdfViewportGeometry,
+        anchor: IPdfSemanticAnchor,
+    ) {
         const container = options.viewerContainer.value;
-        if (!options.continuousScroll.value && container) {
+        if (container && !options.continuousScroll.value) {
             return resolvePagedScrollForAnchor(container, anchor, options.scaledMargin.value);
         }
         return resolveScrollForAnchor(snapshot, anchor);
+    }
+
+    function resolveNavigationScrollForViewport(
+        snapshot: IPdfViewportGeometry,
+        anchor: IPdfSemanticAnchor,
+    ) {
+        const container = options.viewerContainer.value;
+        if (container && hasMeasurableMountedPage(container, anchor.page)) {
+            return resolvePagedScrollForAnchor(container, anchor, options.scaledMargin.value);
+        }
+        return resolveScrollForViewport(snapshot, anchor);
     }
 
     const viewportAuthority = createViewportAuthorityService({
@@ -264,13 +217,18 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 if (rect) resolved.rect = rect;
             }
             const anchor = resolvePdfNavigationAnchor(request, resolved);
-            const scroll = resolveScrollForViewport(snapshot, anchor);
+            // Navigation layout estimates are enough to mount the target row.
+            // Once that row exists, its physical position is the authority.
+            // Long scanned PDFs can accumulate several pages of error between
+            // estimated and measured heights, so applying the estimate here
+            // can commit page N while leaving page N-6 in the viewport.
+            const scroll = resolveNavigationScrollForViewport(snapshot, anchor);
             if (request.alignment === 'keep-visible') {
                 const centerAnchor = resolvePdfNavigationAnchor({
                     ...request,
                     alignment: 'rect-center',
                 }, resolved);
-                const center = resolveScrollForViewport(snapshot, centerAnchor);
+                const center = resolveNavigationScrollForViewport(snapshot, centerAnchor);
                 const visible = Math.abs(center.left - container.scrollLeft) <= container.clientWidth / 2
                     && Math.abs(center.top - container.scrollTop) <= container.clientHeight / 2;
                 if (visible) {

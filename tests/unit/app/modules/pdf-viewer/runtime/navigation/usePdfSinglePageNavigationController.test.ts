@@ -39,6 +39,118 @@ function createDeferred() {
 }
 
 describe('usePdfSinglePageNavigationController', () => {
+    it('refines a continuous page jump from the mounted page position', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+            scrollHeight: {value: 4_000},
+            scrollWidth: {value: 900},
+            scrollLeft: {
+                value: 0,
+                writable: true,
+            },
+            scrollTop: {
+                value: 0,
+                writable: true,
+            },
+        });
+        viewer.getBoundingClientRect = () => ({
+            bottom: 800,
+            height: 700,
+            left: 0,
+            right: 900,
+            top: 100,
+            width: 900,
+            x: 0,
+            y: 100,
+            toJSON: () => ({}),
+        });
+        const pageSlots = createPdfPageSlotRegistry();
+        for (let pageNumber = 1; pageNumber <= 2; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container page_container--rendered';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
+            const contentTop = pageNumber === 1 ? 20 : 2_400;
+            page.getBoundingClientRect = () => ({
+                bottom: contentTop - viewer.scrollTop + 900,
+                height: 900,
+                left: 150,
+                right: 750,
+                top: contentTop - viewer.scrollTop + 100,
+                width: 600,
+                x: 150,
+                y: contentTop - viewer.scrollTop + 100,
+                toJSON: () => ({}),
+            });
+            viewer.append(page);
+            pageSlots.markMounted(pageNumber);
+        }
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 2}, () => ({
+                width: 600,
+                height: 800,
+            })),
+            totalPages: 2,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected PDF layout metrics');
+        }
+        const viewportWrites = createTestPdfViewportWritePort();
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(2),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 2} as PDFDocumentProxy),
+                getMostVisiblePage: vi.fn(() => 1),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 1),
+                renderVisiblePages: vi.fn(async () => undefined),
+                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                emitCurrentPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            expect(controller.scrollToPage(2)).toBe(true);
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.currentPage.value).toBe(2);
+            });
+            expect(requireLayoutPageTop(layout, 1)).toBeLessThan(1_000);
+            expect(viewportWrites.writes.at(-1)?.top).toBe(2_380);
+            expect(viewer.scrollTop).toBe(2_380);
+        } finally {
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
     it('uses page-local scroll coordinates in paged mode instead of the cumulative document track', async () => {
         const scope = effectScope();
         const viewer = document.createElement('div');

@@ -65,11 +65,15 @@ export function retargetDocumentOpeningShell<TVisual extends IDocumentOpenSurfac
             }),
         openingPageFrame: visual.openingPageFrame === null
             ? null
-            : Object.freeze({
-                ...visual.openingPageFrame,
-                pageNumber,
-                preview: undefined,
-            }),
+            : visual.openingPageFrame.preview
+                // Retain both the old page number and its pixels until the
+                // replacement preview commits them together. Relabeling the
+                // retained frame would make stale pixels claim the new page.
+                ? visual.openingPageFrame
+                : Object.freeze({
+                    ...visual.openingPageFrame,
+                    pageNumber,
+                }),
         committedViewportPosition: null,
     };
 }

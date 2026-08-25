@@ -1,9 +1,15 @@
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import type { Ref } from 'vue';
-import {
-    createDocumentOpenSurfaceDiagnostics,
-    type IDocumentOpenSurfaceDiagnosticEntry,
-} from '@app/utils/document-viewer/chassis/createDocumentOpenSurfaceDiagnostics';
+import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
+import type {
+    IDocumentOpenSurfaceIdentity,
+    IDocumentOpenSurfacePreparedPageFrame,
+    IDocumentOpenSurfaceRenderFence,
+    IDocumentOpenSurfaceRenderOwner,
+    IDocumentOpenSurfaceSession,
+    IDocumentOpenSurfaceSnapshot,
+    TDocumentOpenSurfacePhase,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSessionContract';
+import {createDocumentOpenSurfaceDiagnostics} from '@app/utils/document-viewer/chassis/createDocumentOpenSurfaceDiagnostics';
 import {
     createEmptyDocumentViewportSession,
     reduceDocumentViewportSession,
@@ -14,15 +20,23 @@ import {
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceReducer';
 import {
     retargetDocumentOpeningShell,
-    type IDocumentOpenSurfaceGeometry,
-    type IDocumentOpenSurfacePageFrame,
-    type IDocumentOpenSurfacePagePreview,
     type IDocumentOpenSurfacePageGeometry,
     type IDocumentOpenSurfaceVisualState,
     type TDocumentOpenSurfacePresentation,
     type TDocumentOpenSurfaceVisualPresentation,
 } from '@app/utils/document-viewer/chassis/retargetDocumentOpeningShell';
 import {createDocumentOpeningPreviewGate} from '@app/utils/document-viewer/chassis/createDocumentOpeningPreviewGate';
+export type {
+    IDocumentOpenSurfaceIdentity,
+    IDocumentOpenSurfacePageGeometrySeed,
+    IDocumentOpenSurfacePreparedPageFrame,
+    IDocumentOpenSurfaceRenderFence,
+    IDocumentOpenSurfaceRenderOwner,
+    IDocumentOpenSurfaceSession,
+    IDocumentOpenSurfaceSnapshot,
+    IDocumentOpenSurfaceViewportCommit,
+    TDocumentOpenSurfacePhase,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSessionContract';
 export type {
     IDocumentViewportCommitFence,
     IDocumentViewportIdentity,
@@ -52,62 +66,6 @@ export type {
     IDocumentOpenSurfacePageGeometry,
     TDocumentOpenSurfacePresentation,
 } from '@app/utils/document-viewer/chassis/retargetDocumentOpeningShell';
-export type TDocumentOpenSurfacePhase = 'idle' | 'pending' | 'geometry-committed'
-    | 'canvas-committed' | 'viewport-committed' | 'ready' | 'failed';
-export interface IDocumentOpenSurfaceIdentity {
-    readonly documentId: string;
-    readonly documentRevision: string;
-}
-export interface IDocumentOpenSurfacePreparedPageFrame {
-    readonly documentId: string;
-    readonly ownerId: string;
-    readonly pageNumber: number;
-    readonly intentKey: string;
-    readonly layoutKey: string;
-    readonly policyKey: string;
-    readonly sourceRevisionKey: string | null;
-    readonly style: Readonly<Record<string, string>>;
-    readonly geometry: IDocumentOpenSurfacePageGeometry;
-}
-export interface IDocumentOpenSurfacePageGeometrySeed extends IDocumentOpenSurfacePageGeometry {
-    readonly size: number;
-    readonly modifiedAt: number;
-}
-export interface IDocumentOpenSurfaceRenderFence {
-    readonly generation: number;
-    readonly documentRevision: string;
-    readonly viewportIntentId: string;
-    readonly renderVersion: number;
-    readonly requestId: number;
-    readonly pageNumber: number;
-}
-
-export interface IDocumentOpenSurfaceRenderOwner {readonly renderVersion: number;}
-
-export interface IDocumentOpenSurfaceViewportCommit {
-    readonly generation: number;
-    readonly documentRevision: string;
-    readonly viewportIntentId: string;
-    readonly documentGeometryRevision: number;
-    readonly interactionEpoch: number;
-    readonly pageNumber: number;
-    readonly left: number;
-    readonly top: number;
-}
-
-export interface IDocumentOpenSurfaceSnapshot {
-    readonly generation: number;
-    readonly identity: IDocumentOpenSurfaceIdentity | null;
-    readonly phase: TDocumentOpenSurfacePhase;
-    readonly presentation: TDocumentOpenSurfacePresentation;
-    readonly geometry: IDocumentOpenSurfaceGeometry | null;
-    readonly openingPageGeometry: IDocumentOpenSurfacePageGeometry | null;
-    readonly openingPageFrame: IDocumentOpenSurfacePageFrame | null;
-    readonly committedRender: IDocumentOpenSurfaceRenderFence | null;
-    readonly committedViewport: IDocumentOpenSurfaceViewportCommit | null;
-    readonly failure: string | null;
-}
-
 export type { IDocumentOpenSurfaceDiagnosticEntry } from '@app/utils/document-viewer/chassis/createDocumentOpenSurfaceDiagnostics';
 export {
     commitDocumentOpenSurfaceViewport,
@@ -122,65 +80,12 @@ export function resolveDocumentOpenSurfaceViewportPolicy(snapshot: IDocumentOpen
         || snapshot.phase === 'canvas-committed'
         || snapshot.phase === 'viewport-committed';
     return {
-        overflow: isTransitioning ? 'hidden' : 'auto',
+        overflow: isTransitioning && snapshot.openingPageFrame?.preview === undefined
+            ? 'hidden'
+            : 'auto',
         scrollbarGutter: 'stable',
         committedMargin: snapshot.geometry?.margin ?? null,
     } as const;
-}
-
-export interface IDocumentOpenSurfaceSession {
-    readonly snapshot: Readonly<Ref<IDocumentOpenSurfaceSnapshot>>;
-    readonly viewportSession: Readonly<Ref<IDocumentViewportSessionState>>;
-    readonly readyAuthorizationRevision: Readonly<Ref<number>>;
-    getDiagnosticHistory(): readonly IDocumentOpenSurfaceDiagnosticEntry[];
-    begin(
-        identity: IDocumentOpenSurfaceIdentity,
-        openingPageGeometry?: IDocumentOpenSurfacePageGeometry | null,
-        initialPage?: number,
-    ): number;
-    beginPrepared(
-        identity: IDocumentOpenSurfaceIdentity,
-        preparedFrame: IDocumentOpenSurfacePreparedPageFrame,
-    ): number | null;
-    commitOpeningPageGeometry(
-        generation: number,
-        geometry: IDocumentOpenSurfacePageGeometry,
-    ): boolean;
-    claim(identity: IDocumentOpenSurfaceIdentity): number;
-    supersede(): number | null;
-    commitOpeningPageFrame(generation: number, frame: IDocumentOpenSurfacePageFrame): boolean;
-    commitOpeningPagePreview(generation: number, preview: IDocumentOpenSurfacePagePreview): boolean;
-    clearOpeningPagePreview(generation: number, objectUrl: string): boolean;
-    holdReadyForValidation(generation: number, sourceRevisionKey: string): boolean;
-    authorizeReadyAfterValidation(generation: number, sourceRevisionKey: string): boolean;
-    clearOpeningPageFrame(generation: number, ownerId: string): boolean;
-    commitGeometry(generation: number, geometry: IDocumentOpenSurfaceGeometry): boolean;
-    claimRenderOwner(): IDocumentOpenSurfaceRenderOwner;
-    createRenderFence(
-        input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId'>,
-    ): IDocumentOpenSurfaceRenderFence | null;
-    createOwnedRenderFence(
-        owner: IDocumentOpenSurfaceRenderOwner,
-        input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId' | 'renderVersion' | 'requestId'> & {
-            readonly rendererVersion: number;
-            readonly rendererRequestId: number;
-        },
-    ): IDocumentOpenSurfaceRenderFence | null;
-    createOwnedResidentRenderFence(
-        owner: IDocumentOpenSurfaceRenderOwner,
-        input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId' | 'renderVersion' | 'requestId'>,
-    ): IDocumentOpenSurfaceRenderFence | null;
-    commitCanvas(fence: IDocumentOpenSurfaceRenderFence): boolean;
-    commitViewport(commit: IDocumentOpenSurfaceViewportCommit): boolean;
-    markReady(fence: IDocumentOpenSurfaceRenderFence): boolean;
-    reject(fence: IDocumentOpenSurfaceRenderFence, reason: string): boolean;
-    failPageTransition(pageNumber: number, reason: string): boolean;
-    fail(generation: number, reason: string): boolean;
-    reset(): void;
-    metadataReady(pageCount: number): boolean;
-    invalidateResidentVisual(pageNumber: number): boolean;
-    requestNavigation(pageNumber: number, skeletonDelayMs?: number): number;
-    observeViewportPage(pageNumber: number, options?: {supersedeNavigation?: boolean}): number;
 }
 
 const idleVisualState = (): IDocumentOpenSurfaceVisualState => ({
@@ -354,6 +259,12 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         sessionState.value.visual,
         sessionState.value.viewport,
     ));
+    const openingPageSourceBinding = shallowRef<{
+        generation: number;
+        onRetire: (() => void) | null;
+        source: IDocumentPageSource;
+    } | null>(null);
+    const openingPageSource = computed(() => openingPageSourceBinding.value?.source ?? null);
     const skeletonTimers = new Map<string, ReturnType<typeof setTimeout>>();
     let nextViewportIntent = 0;
     let nextRenderOwnerVersion = 0;
@@ -446,6 +357,12 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         })),
     });
 
+    function retireOpeningPageSource() {
+        const binding = openingPageSourceBinding.value;
+        openingPageSourceBinding.value = null;
+        binding?.onRetire?.();
+    }
+
     function createViewportIntentId(prefix: string) {
         nextViewportIntent += 1;
         return `${prefix}:${String(nextViewportIntent)}`;
@@ -461,6 +378,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         ) => IDocumentOpenSurfaceVisualState,
         initialPage = openingPageGeometry?.pageNumber ?? preparedFrame?.pageNumber ?? 1,
     ) {
+        retireOpeningPageSource();
         openingPreviewGate.reset();
         const opened = dispatchViewport({
             type: 'open-requested',
@@ -583,10 +501,59 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         return true;
     }
 
+    function markReady(fence: IDocumentOpenSurfaceRenderFence) {
+        const viewportState = sessionState.value.viewport;
+        if (viewportState.lifecycle === 'ready') {
+            return viewportState.committedPage === fence.pageNumber;
+        }
+        const committed = snapshot.value.committedRender;
+        const viewport = snapshot.value.committedViewport;
+        if (openingPreviewGate.isReadyHeld(fence.generation)) {
+            diagnostics.reportRejected('mark-ready', 'validation-authorization-pending', {fence});
+            return false;
+        }
+        if (
+            ![
+                'opening',
+                'transitioning',
+            ].includes(viewportState.lifecycle)
+            || !committed
+            || !viewport
+            || !isCurrentFence(fence)
+            || !fencesMatch(committed, fence)
+            || viewport.pageNumber !== fence.pageNumber
+        ) {
+            diagnostics.reportRejected('mark-ready', 'render-or-viewport-fence-mismatch', {
+                fence,
+                committed,
+                viewport,
+            });
+            return false;
+        }
+        const markedReady = dispatchViewport({
+            type: 'visual-ready',
+            fence: {
+                generation: viewportState.generation,
+                revision: fence.documentRevision,
+                pageNumber: fence.pageNumber,
+                viewportIntentId: fence.viewportIntentId,
+                renderVersion: fence.renderVersion,
+                requestId: fence.requestId,
+            },
+        }, visual => ({
+            ...visual,
+            openingPageFrame: null,
+            presentation: 'committed',
+        }));
+        if (markedReady) retireOpeningPageSource();
+        return markedReady;
+    }
+
     return {
         snapshot: readonly(snapshot),
         viewportSession,
         readyAuthorizationRevision: openingPreviewGate.readyAuthorizationRevision,
+        openingPageSource: readonly(openingPageSource),
         getDiagnosticHistory: diagnostics.getHistory,
         begin(identity, openingPageGeometry = null, initialPage) {
             const normalizedOpeningPageGeometry = normalizeOpeningPageGeometry(openingPageGeometry);
@@ -653,7 +620,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             const normalizedGeometry = normalizeOpeningPageGeometry(geometry);
             if (
                 current.generation !== generation
-                || current.phase !== 'pending'
+                || !isTransitionPhase(current.phase)
                 || normalizedGeometry === null
                 || normalizedGeometry.documentId !== current.identity?.documentId
             ) {
@@ -747,6 +714,11 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 ...sessionState.value.visual,
                 openingPageFrame: Object.freeze({
                     ...frame,
+                    ...(current.openingPageFrame?.pageNumber === frame.pageNumber
+                        && current.openingPageFrame.preview
+                        && current.openingPageFrame.sourceRevisionKey === frame.sourceRevisionKey
+                        ? {preview: current.openingPageFrame.preview}
+                        : {}),
                     style: Object.freeze({...frame.style}),
                 }),
             };
@@ -765,11 +737,53 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         clearOpeningPagePreview(generation, objectUrl) {
             return openingPreviewGate.clear(generation, objectUrl);
         },
+        publishOpeningPageSource(generation, source, onRetire) {
+            const current = snapshot.value;
+            if (
+                current.generation !== generation
+                || !isTransitionPhase(current.phase)
+                || current.identity?.documentId !== source.documentRef
+                || source.pageCount < 1
+            ) {
+                return false;
+            }
+            if (
+                openingPageSourceBinding.value !== null
+                && openingPageSourceBinding.value.source !== source
+            ) {
+                retireOpeningPageSource();
+            }
+            openingPageSourceBinding.value = {
+                generation,
+                onRetire: onRetire ?? null,
+                source,
+            };
+            return true;
+        },
+        clearOpeningPageSource(generation, source) {
+            const binding = openingPageSourceBinding.value;
+            if (binding?.generation !== generation || binding.source !== source) {
+                return false;
+            }
+            openingPageSourceBinding.value = null;
+            return true;
+        },
         holdReadyForValidation(generation, sourceRevisionKey) {
             return openingPreviewGate.hold(generation, sourceRevisionKey);
         },
-        authorizeReadyAfterValidation(generation, sourceRevisionKey) {
-            return openingPreviewGate.authorize(generation, sourceRevisionKey);
+        releaseReadyAfterValidation(generation, sourceRevisionKey) {
+            const authorized = openingPreviewGate.authorize(generation, sourceRevisionKey);
+            if (!authorized) {
+                return {
+                    authorized: false,
+                    ready: false,
+                };
+            }
+            const committedRender = snapshot.value.committedRender;
+            return {
+                authorized: true,
+                ready: committedRender !== null && markReady(committedRender),
+            };
         },
         clearOpeningPageFrame(generation, ownerId) {
             const current = snapshot.value;
@@ -931,53 +945,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             }
             return accepted;
         },
-        markReady(fence) {
-            const viewportState = sessionState.value.viewport;
-            if (viewportState.lifecycle === 'ready') {
-                return viewportState.committedPage === fence.pageNumber;
-            }
-            const committed = snapshot.value.committedRender;
-            const viewport = snapshot.value.committedViewport;
-            if (
-                openingPreviewGate.isReadyHeld(fence.generation)
-            ) {
-                diagnostics.reportRejected('mark-ready', 'validation-authorization-pending', {fence});
-                return false;
-            }
-            if (
-                ![
-                    'opening',
-                    'transitioning',
-                ].includes(viewportState.lifecycle)
-                || !committed
-                || !viewport
-                || !isCurrentFence(fence)
-                || !fencesMatch(committed, fence)
-                || viewport.pageNumber !== fence.pageNumber
-            ) {
-                diagnostics.reportRejected('mark-ready', 'render-or-viewport-fence-mismatch', {
-                    fence,
-                    committed,
-                    viewport,
-                });
-                return false;
-            }
-            return dispatchViewport({
-                type: 'visual-ready',
-                fence: {
-                    generation: viewportState.generation,
-                    revision: fence.documentRevision,
-                    pageNumber: fence.pageNumber,
-                    viewportIntentId: fence.viewportIntentId,
-                    renderVersion: fence.renderVersion,
-                    requestId: fence.requestId,
-                },
-            }, visual => ({
-                ...visual,
-                openingPageFrame: null,
-                presentation: 'committed',
-            }));
-        },
+        markReady,
         reject(fence, reason) {
             if (!isCurrentFence(fence)) {
                 return false;
@@ -1041,10 +1009,14 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 ...visual,
                 openingPageFrame: null,
             }));
-            if (failed) openingPreviewGate.retire(generation);
+            if (failed) {
+                openingPreviewGate.retire(generation);
+                retireOpeningPageSource();
+            }
             return failed;
         },
         reset() {
+            retireOpeningPageSource();
             openingPreviewGate.reset();
             const closingGeneration = sessionState.value.viewport.generation;
             if (!transitionViewport([

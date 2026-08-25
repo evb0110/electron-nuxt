@@ -40,10 +40,13 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         const capabilities = toolbar?.viewerCapabilities;
         const context = deps.menuContext?.value;
         const hasDocument = shellState.hasDocument.value;
-        const interactive = shellState.activeWorkspaceInteractive.value;
+        const documentInteractive = shellState.activeWorkspaceInteractive.value;
+        const openingPreviewInteractive = toolbar?.openingPreviewReady === true
+            && (toolbar.totalPages ?? 0) > 0;
+        const viewInteractive = documentInteractive || openingPreviewInteractive;
         const isAnySaving = toolbar?.isAnySaving === true;
         const isHistoryBusy = toolbar?.isHistoryBusy === true;
-        const isDocumentBusy = !interactive || isAnySaving || isHistoryBusy;
+        const isDocumentBusy = !documentInteractive || isAnySaving || isHistoryBusy;
         const supportsPdfMutation = capabilities?.pdfMutationActions === true;
         const canMutatePages = supportsPdfMutation
             && !isDocumentBusy
@@ -52,7 +55,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             && Math.abs((toolbar.effectiveZoom ?? 0) - 1) < 0.0001;
         const state: IApplicationMenuDocumentState = {
             hasDocument,
-            interactive,
+            interactive: viewInteractive,
             canSave: shellState.activeWorkspaceCanSave.value && !isDocumentBusy,
             supportsSaveAs: capabilities?.saveAs === true,
             canSaveAs: shellState.activeWorkspaceCanSaveAs.value && !isDocumentBusy,
@@ -65,18 +68,18 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
                 && !isDocumentBusy
                 && toolbar?.isPreparingPrint !== true,
             supportsExportDocx: capabilities?.pdfDocument === true,
-            canExportDocx: interactive
+            canExportDocx: documentInteractive
                 && toolbar?.canExportDocx === true
                 && !isAnySaving
                 && !isHistoryBusy
                 && toolbar?.isExportingDocx !== true,
             supportsRasterExport: hasDocument,
-            canExportRaster: interactive && !isAnySaving && !isHistoryBusy,
-            canUndo: interactive
+            canExportRaster: documentInteractive && !isAnySaving && !isHistoryBusy,
+            canUndo: documentInteractive
                 && toolbar?.canUndo === true
                 && !isAnySaving
                 && !isHistoryBusy,
-            canRedo: interactive
+            canRedo: documentInteractive
                 && toolbar?.canRedo === true
                 && !isAnySaving
                 && !isHistoryBusy,
@@ -84,15 +87,15 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             canMutatePages,
             selectedPageCount: toolbar?.selectedPageCount ?? 0,
             totalPages: toolbar?.totalPages ?? 0,
-            supportsContinuousScroll: capabilities?.continuousScroll === true,
-            canContinuousScroll: interactive && capabilities?.continuousScroll === true,
+            supportsContinuousScroll: capabilities?.continuousScroll === true && !openingPreviewInteractive,
+            canContinuousScroll: documentInteractive && capabilities?.continuousScroll === true,
             continuousScroll: toolbar?.continuousScroll ?? false,
-            supportsViewMode: capabilities?.viewMode === true,
+            supportsViewMode: capabilities?.viewMode === true && !openingPreviewInteractive,
             viewMode: toolbar?.viewMode ?? 'single',
             isActualSizeActive,
             isFitWidthActive: toolbar?.isFitWidthActive ?? false,
             isFitHeightActive: toolbar?.isFitHeightActive ?? false,
-            canToggleAssistant: interactive && context?.canToggleAssistant === true,
+            canToggleAssistant: documentInteractive && context?.canToggleAssistant === true,
             canCreatePane: context?.canCreatePane ?? true,
             canCloseTab: context?.canCloseTab ?? false,
             canTransferActiveTab: context?.canTransferActiveTab ?? false,

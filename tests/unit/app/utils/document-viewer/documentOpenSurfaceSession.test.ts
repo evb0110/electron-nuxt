@@ -11,6 +11,7 @@ import {
     shouldPresentDocumentOpenEmptyPlaceholder,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentOpenSurfaceRenderFence } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
 
 const DEFAULT_LAYOUT_GEOMETRY = {
     width: 612,
@@ -125,6 +126,21 @@ function createViewportCommit(fence: IDocumentOpenSurfaceRenderFence) {
         pageNumber: fence.pageNumber,
         left: 0,
         top: 0,
+    };
+}
+
+function createPageSource(documentRef: string): IDocumentPageSource {
+    return {
+        kind: 'pdf',
+        documentRef,
+        pageCount: 1,
+        getPageMetrics: vi.fn(async () => ({
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0 as const,
+        })),
+        renderPage: vi.fn(),
+        dispose: vi.fn(),
     };
 }
 
@@ -1575,6 +1591,26 @@ describe('document open surface session', () => {
         expect(session.snapshot.value.openingPageFrame?.ownerId).toBe('page-source:1');
     });
 
+    it('retires the previous opening page source before publishing its replacement', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'dictionary.pdf', 'open-intent:source');
+        const firstSource = createPageSource('dictionary.pdf');
+        const secondSource = createPageSource('dictionary.pdf');
+        const retireFirst = vi.fn();
+        const retireSecond = vi.fn();
+
+        expect(session.publishOpeningPageSource(generation, firstSource, retireFirst)).toBe(true);
+        expect(session.openingPageSource.value?.dispose).toBe(firstSource.dispose);
+
+        expect(session.publishOpeningPageSource(generation, secondSource, retireSecond)).toBe(true);
+        expect(retireFirst).toHaveBeenCalledOnce();
+        expect(session.openingPageSource.value?.dispose).toBe(secondSource.dispose);
+
+        session.reset();
+        expect(retireSecond).toHaveBeenCalledOnce();
+        expect(session.openingPageSource.value).toBeNull();
+    });
+
     it('atomically retires the opening frame when the committed surface becomes ready', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'scan.djvu', 'open-intent:ready');
@@ -1647,11 +1683,13 @@ describe('document open surface session', () => {
 
         expect(session.markReady(fence)).toBe(false);
         expect(session.snapshot.value.openingPageFrame).not.toBeNull();
-        expect(session.authorizeReadyAfterValidation(
+        expect(session.releaseReadyAfterValidation(
             generation,
             '170496793:1724000000000',
-        )).toBe(true);
-        expect(session.markReady(fence)).toBe(true);
+        )).toEqual({
+            authorized: true,
+            ready: true,
+        });
         expect(session.snapshot.value).toMatchObject({
             openingPageFrame: null,
             phase: 'ready',

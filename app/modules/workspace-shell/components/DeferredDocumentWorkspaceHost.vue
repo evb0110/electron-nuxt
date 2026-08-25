@@ -336,9 +336,28 @@ const hasPdf = computed(() => {
 function readWorkspaceToolbarSnapshot() {
     const baseSnapshot = mountedWorkspace.value?.getToolbarSnapshot() ?? currentToolbarSnapshot.value;
     const isOpeningDocument = isDocumentOpenInFlight.value || hasPendingDocumentHint.value;
+    const openingSurface = documentOpenSurface.snapshot.value;
+    const openingGeometry = openingSurface.openingPageGeometry;
+    const openingPreview = openingSurface.openingPageFrame?.preview;
+    const openingPreviewReady = isOpeningDocument
+        && openingPreview !== undefined;
+    const openingPageCount = openingPreviewReady
+        ? openingGeometry?.pageCount ?? 0
+        : 0;
+    const openingPage = openingPreviewReady && openingPreview !== undefined
+        ? Math.min(
+            Math.max(1, openingPreview.pageNumber),
+            Math.max(1, openingPageCount),
+        )
+        : baseSnapshot.currentPage;
     return {
         ...baseSnapshot,
+        hasPdf: baseSnapshot.hasPdf || openingPreviewReady,
         isOpeningDocument: baseSnapshot.isOpeningDocument || isOpeningDocument,
+        openingPreviewReady: (baseSnapshot.isOpeningDocument || isOpeningDocument)
+            && (baseSnapshot.openingPreviewReady || openingPreviewReady),
+        currentPage: openingPage,
+        totalPages: openingPreviewReady ? openingPageCount : baseSnapshot.totalPages,
     };
 }
 

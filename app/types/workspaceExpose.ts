@@ -20,6 +20,7 @@ import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/doc
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
     initialVisualReady: boolean;
+    openingPreviewReady: boolean;
     viewerCapabilities: IWorkspaceViewerCapabilities;
     isOpeningDocument: boolean;
     hasOpenError: boolean;
@@ -100,6 +101,7 @@ export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapsh
     return {
         hasPdf: false,
         initialVisualReady: false,
+        openingPreviewReady: false,
         viewerCapabilities: createDefaultWorkspaceViewerCapabilities(),
         isOpeningDocument: false,
         hasOpenError: false,

@@ -194,8 +194,11 @@ export function createDocumentOpeningPageFrameAuthority(
             const geometry = snapshot.openingPageGeometry;
             if (
                 snapshot.generation !== generation
-                || snapshot.openingPageFrame !== null
                 || geometry === null
+                || snapshot.openingPageFrame !== null
+                    && snapshot.openingPageFrame.ownerId !== ownerId
+                || snapshot.openingPageFrame?.preview !== undefined
+                    && snapshot.openingPageFrame.preview.pageNumber !== geometry.pageNumber
             ) {
                 return false;
             }

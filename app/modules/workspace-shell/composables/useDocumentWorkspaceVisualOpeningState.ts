@@ -10,6 +10,7 @@ interface IDocumentWorkspaceVisualOpeningStateOptions {
     toolbarHasPdf: TReadableRef<boolean>;
     isLoading: TReadableRef<boolean>;
     initialDocumentVisualReady: TReadableRef<boolean>;
+    openingPreviewReady: TReadableRef<boolean>;
     pdfError: TReadableRef<string | null>;
     djvuError: TReadableRef<string | null>;
     isOpeningDocumentForToolbar: TReadableRef<boolean>;
@@ -45,12 +46,17 @@ export const useDocumentWorkspaceVisualOpeningState = (options: IDocumentWorkspa
         options.canOptimizePdf.value && !documentInitialVisualPending.value
     ));
     const statusZoomLabelForDisplay = computed(() => (
-        documentInitialVisualPending.value ? options.t('status.zoomUnknown') : options.statusZoomLabel.value
+        documentInitialVisualPending.value && !options.openingPreviewReady.value
+            ? options.t('status.zoomUnknown')
+            : options.statusZoomLabel.value
     ));
     const documentMetadataReady = computed(() => (
         options.toolbarHasPdf.value
         && options.totalPages.value > 0
-        && !isOpeningDocumentForToolbarDisplay.value
+        && (
+            !isOpeningDocumentForToolbarDisplay.value
+            || options.openingPreviewReady.value
+        )
     ));
     const toolbarPageLabels = computed(() => {
         if (!documentMetadataReady.value) {
@@ -64,7 +70,8 @@ export const useDocumentWorkspaceVisualOpeningState = (options: IDocumentWorkspa
         });
     });
     const toolbarControlsDisabled = computed(() => (
-        !documentMetadataReady.value || toolbarDocumentBusyForDisplay.value
+        !documentMetadataReady.value
+        || toolbarDocumentBusyForDisplay.value && !options.openingPreviewReady.value
     ));
 
     return {

@@ -27,7 +27,7 @@
                 :active="showSidebar"
                 :tooltip="t('toolbar.toggleSidebar')"
                 :shortcut="shortcutLabels.toggleSidebar"
-                :disabled="!hasInteractiveDocument || canToggleSidebar === false"
+                :disabled="!hasViewableDocument || canToggleSidebar === false"
                 @click="handleToolbarCommand('toggle-sidebar')"
             />
 
@@ -131,7 +131,7 @@
                         :active="isFitWidthActive"
                         :tooltip="t('zoom.fitWidth')"
                         :shortcut="shortcutLabels.fitWidth"
-                        :disabled="!hasInteractiveDocument"
+                        :disabled="!hasViewableDocument"
                         grouped
                         @click="handleToolbarCommand('fit-width')"
                     />
@@ -142,7 +142,7 @@
                         :active="isFitHeightActive"
                         :tooltip="t('zoom.fitHeight')"
                         :shortcut="shortcutLabels.fitHeight"
-                        :disabled="!hasInteractiveDocument"
+                        :disabled="!hasViewableDocument"
                         grouped
                         @click="handleToolbarCommand('fit-height')"
                     />
@@ -274,7 +274,7 @@
                     :icon="isFullscreen ? 'ph:corners-in' : getReaderCommandToolbarIcon('fullscreen')"
                     :tooltip="t('toolbar.fullscreen')"
                     :active="isFullscreen"
-                    :disabled="!hasInteractiveDocument || !fullscreenSupported"
+                    :disabled="!hasViewableDocument || !fullscreenSupported"
                     @click="handleToolbarCommand('toggle-fullscreen')"
                 />
                 <AssistantToolbarToggle v-if="!isCollapsed(5)" />
@@ -308,6 +308,7 @@ const {
     surface = undefined,
     variant = 'editor',
     documentBusy = false,
+    viewingReady = false,
     isOpeningDocument = false,
     isFullscreen = false,
     fullscreenSupported = true,
@@ -322,6 +323,7 @@ const {
     hasPdf: boolean;
     variant?: 'editor' | 'reader';
     documentBusy?: boolean;
+    viewingReady?: boolean;
     isFullscreen?: boolean;
     fullscreenSupported?: boolean;
     hasOcrAction?: boolean;
@@ -401,6 +403,7 @@ const { t } = useTypedI18n();
 
 const shortcutLabels = useShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && !documentBusy && !isOpeningDocument);
+const hasViewableDocument = computed(() => hasInteractiveDocument.value || hasPdf && viewingReady);
 const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
     hasInteractiveDocument: hasInteractiveDocument.value,
     canPrint,

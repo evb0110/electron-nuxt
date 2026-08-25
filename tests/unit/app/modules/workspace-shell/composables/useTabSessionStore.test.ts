@@ -35,6 +35,7 @@ describe('tab session memory policy', () => {
         const state = createTabViewSessionState({
             hasPdf: true,
             initialVisualReady: true,
+            openingPreviewReady: false,
             viewerCapabilities: {
                 ...createDefaultWorkspaceViewerCapabilities(),
                 closeableDocument: true,

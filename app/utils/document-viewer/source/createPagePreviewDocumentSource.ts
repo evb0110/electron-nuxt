@@ -29,12 +29,57 @@ export function createPagePreviewDocumentSource(
     options: ICreatePagePreviewDocumentSourceOptions,
 ): IDocumentPageSource {
     const pageCount = options.pageSizes.length;
+    let nextRenderRequestId = 0;
     async function renderPage(request: Parameters<IDocumentPageSource['renderPage']>[0]) {
         assertDocumentPageNumber(request.pageNumber, pageCount);
         request.signal.throwIfAborted();
-        const rendered = await options.previewSource.renderPageObjectUrl(request.pageNumber, {targetPx: request.widthPx});
+        nextRenderRequestId += 1;
+        const previewRequestId = [
+            'document-page-source',
+            request.pageNumber,
+            nextRenderRequestId,
+        ].join(':');
+        let rejectForAbort: (error: DOMException) => void = () => undefined;
+        const aborted = new Promise<never>((_resolve, reject) => {
+            rejectForAbort = reject;
+        });
+        const cancelRender = () => {
+            options.previewSource.cancelPagePreview?.(request.pageNumber, previewRequestId);
+            rejectForAbort(new DOMException('Document page preview render aborted', 'AbortError'));
+        };
+        request.signal.addEventListener('abort', cancelRender, {once: true});
         if (request.signal.aborted) {
-            options.previewSource.revokeObjectURL(rendered.objectUrl);
+            cancelRender();
+        }
+        let canceledRenderResolved = false;
+        const nativeRender = options.previewSource.renderPageObjectUrl(request.pageNumber, {
+            previewRequestId,
+            targetWidthPx: request.widthPx,
+        });
+        void nativeRender.then((lateRendered) => {
+            if (request.signal.aborted) {
+                canceledRenderResolved = true;
+                options.previewSource.revokeObjectURL(lateRendered.objectUrl);
+            }
+        }, () => undefined);
+        let rendered;
+        try {
+            rendered = await Promise.race([
+                nativeRender,
+                aborted,
+            ]);
+        } catch (error) {
+            if (request.signal.aborted) {
+                throw new DOMException('Document page preview render aborted', 'AbortError');
+            }
+            throw error;
+        } finally {
+            request.signal.removeEventListener('abort', cancelRender);
+        }
+        if (request.signal.aborted) {
+            if (!canceledRenderResolved) {
+                options.previewSource.revokeObjectURL(rendered.objectUrl);
+            }
             request.signal.throwIfAborted();
         }
         const size = options.pageSizes[request.pageNumber - 1]!;

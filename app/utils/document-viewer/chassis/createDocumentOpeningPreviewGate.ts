@@ -11,6 +11,7 @@ interface IOpeningPreviewSnapshot {
         readonly documentRevision: string;
     } | null;
     readonly phase: string;
+    readonly openingPageGeometry: {readonly pageNumber: number;} | null;
     readonly openingPageFrame: IDocumentOpenSurfacePageFrame | null;
 }
 
@@ -64,7 +65,7 @@ export function createDocumentOpeningPreviewGate(options: {
                 || !isTransitionPhase(current.phase)
                 || frame === null
                 || frame.generation !== generation
-                || frame.pageNumber !== preview.pageNumber
+                || (current.openingPageGeometry?.pageNumber ?? frame.pageNumber) !== preview.pageNumber
                 || frame.sourceRevisionKey !== preview.sourceRevisionKey
                 || preview.sourceRevisionKey.length === 0
                 || preview.objectUrl.length === 0
@@ -75,6 +76,7 @@ export function createDocumentOpeningPreviewGate(options: {
             }
             options.replaceFrame(Object.freeze({
                 ...frame,
+                pageNumber: preview.pageNumber,
                 preview: Object.freeze({...preview}),
             }));
             return true;

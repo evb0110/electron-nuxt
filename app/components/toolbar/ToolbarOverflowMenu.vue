@@ -122,6 +122,7 @@ interface IProps {
     isCropSelecting: boolean
     isPlacingPageNote: boolean
     documentBusy?: boolean
+    viewingReady?: boolean
     isFullscreen?: boolean
     fullscreenSupported?: boolean
     surface?: IReaderCommandSurface
@@ -175,6 +176,7 @@ const {
     collapseTier,
     continuousScroll,
     documentBusy,
+    viewingReady = false,
     dragMode,
     fullscreenSupported: fullscreenSupportedProp,
     hasPdf,
@@ -259,6 +261,7 @@ const isOpen = computed({
     set: (value: boolean) => emit('update:open', value && hasOverflowMenuCommands.value),
 });
 const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
+const hasViewableDocument = computed(() => hasInteractiveDocument.value || hasPdf && viewingReady);
 const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
     hasInteractiveDocument: hasInteractiveDocument.value,
     canPrint,
@@ -483,7 +486,7 @@ function buildViewItems() {
     if (shouldShowMenuCommand('toggle-sidebar', 5)) {
         items.push(createReaderCommandItem('toggle-sidebar', 'toggle-sidebar', t('toolbar.toggleSidebar'), {
             checked: showSidebar,
-            disabled: !hasInteractiveDocument.value || canToggleSidebar === false,
+            disabled: !hasViewableDocument.value || canToggleSidebar === false,
         }));
     }
 
@@ -498,14 +501,14 @@ function buildViewItems() {
     if (shouldShowMenuCommand('fit-width', 2)) {
         items.push(createReaderCommandItem('fit-width', 'fit-width', t('zoom.fitWidth'), {
             checked: isFitWidthActive,
-            disabled: !hasInteractiveDocument.value,
+            disabled: !hasViewableDocument.value,
         }));
     }
 
     if (shouldShowMenuCommand('fit-height', 2)) {
         items.push(createReaderCommandItem('fit-height', 'fit-height', t('zoom.fitHeight'), {
             checked: isFitHeightActive,
-            disabled: !hasInteractiveDocument.value,
+            disabled: !hasViewableDocument.value,
         }));
     }
 
@@ -535,7 +538,7 @@ function buildViewItems() {
             'toggle-fullscreen',
             t('toolbar.fullscreen'),
             isFullscreen.value ? 'i-ph-corners-in' : getReaderCommandMenuIcon('fullscreen'),
-            {disabled: !hasInteractiveDocument.value || !fullscreenSupported.value},
+            {disabled: !hasViewableDocument.value || !fullscreenSupported.value},
         ));
     }
 

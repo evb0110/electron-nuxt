@@ -424,6 +424,7 @@ const chassisOpeningPageShell = computed(() => {
         || frame !== null && (
             frame.generation !== snapshot.generation
             || frame.pageNumber !== chassisAuthority.currentPage.value
+                && frame.preview === undefined
         )
     ) {
         return null;
@@ -484,6 +485,11 @@ watch(
         () => chassisAuthority.openSurface.snapshot.value.identity?.documentId ?? '',
         () => chassisAuthority.openSurface.snapshot.value.phase,
         () => chassisAuthority.openSurface.snapshot.value.openingPageGeometry,
+        () => chassisAuthority.openSurface.snapshot.value.openingPageFrame?.preview?.pageNumber ?? null,
+        () => attrs.fitMode,
+        () => attrs.viewMode,
+        () => attrs.zoom,
+        () => attrs.zoomMode,
         // Frame preparation needs a measurable viewport. When geometry is already
         // known before this chassis lays out — a preflighted native-preview open
         // resolves it during setup — the first attempt has nothing to measure, so
@@ -497,13 +503,20 @@ watch(
     ]) => {
         const snapshot = chassisAuthority.openSurface.snapshot.value;
         if (
-            phase !== 'pending'
-            || snapshot.openingPageFrame !== null
+            ![
+                'pending',
+                'geometry-committed',
+                'canvas-committed',
+                'viewport-committed',
+            ].includes(phase)
             || !documentId
         ) {
             return;
         }
         if (snapshot.openingPageGeometry === null) {
+            if (phase !== 'pending') {
+                return;
+            }
             const geometry = sourceKind.value === 'djvu'
                 ? readPrevalidatedTrustedDjvuOpenGeometry(documentId, chassisAuthority.currentPage.value)
                 : readPrevalidatedTrustedPdfOpenGeometry(documentId, chassisAuthority.currentPage.value);

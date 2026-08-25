@@ -47,6 +47,7 @@ export interface ICreateWorkspaceExposeDeps extends
     hasPdf: Ref<boolean>;
     isOpeningDocument: Ref<boolean>;
     initialVisualReady: Ref<boolean>;
+    openingPreviewReady: Ref<boolean>;
     hasOpenError: Ref<boolean>;
     isPreparingPrint: Ref<boolean>;
     isPreparingCurrentPagePrint: Ref<boolean>;
@@ -79,6 +80,8 @@ export interface ICreateWorkspaceExposeDeps extends
     fitMode: Ref<TFitMode>;
     viewMode: Ref<TPdfViewMode>;
     currentPage: Ref<number>;
+    toolbarCurrentPage?: Ref<number>;
+    toolbarTotalPages?: Ref<number>;
     pdfAutomationViewerRef?: Ref<IWorkspacePdfViewerExposeAutomationPort | null>;
     documentViewerRef?: Ref<IWorkspaceDocumentViewerNavigationPort | null>;
     handleFitMode: (mode: TFitMode) => void;
@@ -139,6 +142,9 @@ export interface ICreateWorkspaceExposeFromOwnersOptions {
     handleInsertImageFromFile: ICreateWorkspaceExposeDeps['handleInsertImageFromFile'];
     handlePasteImageFromClipboard: ICreateWorkspaceExposeDeps['handlePasteImageFromClipboard'];
     initialVisualReady: ICreateWorkspaceExposeDeps['initialVisualReady'];
+    openingPreviewReady: ICreateWorkspaceExposeDeps['openingPreviewReady'];
+    toolbarCurrentPage: NonNullable<ICreateWorkspaceExposeDeps['toolbarCurrentPage']>;
+    toolbarTotalPages: NonNullable<ICreateWorkspaceExposeDeps['toolbarTotalPages']>;
     isOpeningDocument: ICreateWorkspaceExposeDeps['isOpeningDocument'];
     canRepairSave: NonNullable<ICreateWorkspaceExposeDeps['canRepairSave']>;
     canOptimizePdf: NonNullable<ICreateWorkspaceExposeDeps['canOptimizePdf']>;
@@ -254,21 +260,24 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
 
     function getToolbarSnapshot(): IWorkspaceToolbarSnapshot {
         const isOpeningDocument = deps.isOpeningDocument.value;
-        const currentPage = isOpeningDocument
+        const openingPreviewReady = deps.openingPreviewReady.value;
+        const toolbarCurrentPage = deps.toolbarCurrentPage?.value ?? deps.currentPage.value;
+        const currentPage = isOpeningDocument && !openingPreviewReady
             ? 1
-            : normalizeToolbarSnapshotPage(deps.currentPage.value);
+            : normalizeToolbarSnapshotPage(toolbarCurrentPage);
         const totalPages = normalizeToolbarSnapshotTotalPages(
-            deps.totalPages.value,
-            isOpeningDocument ? 0 : currentPage,
+            deps.toolbarTotalPages?.value ?? deps.totalPages.value,
+            isOpeningDocument && !openingPreviewReady ? 0 : currentPage,
         );
-        // The opening frame owns its known count and live scale before the
-        // visual commits. Keep the current page at one so stale position from
-        // a replaced document cannot leak into the new open.
+        // Before any opening preview exists, page one prevents stale position
+        // from the replaced document leaking into the new open. Once the
+        // native source paints, its page and count become toolbar authority.
         const zoom = deps.zoom.value;
         const effectiveZoom = deps.effectiveZoom.value;
         return {
             hasPdf: deps.hasPdf.value,
             initialVisualReady: deps.initialVisualReady.value,
+            openingPreviewReady,
             isOpeningDocument,
             hasOpenError: deps.hasOpenError.value,
             isPreparingPrint: deps.isPreparingPrint.value,
@@ -538,6 +547,8 @@ export function createWorkspaceExposeFromOwners(
         ...saveWorkflow,
         ...viewNavigation,
         ...viewerShell,
+        toolbarCurrentPage: options.toolbarCurrentPage,
+        toolbarTotalPages: options.toolbarTotalPages,
         handleSave: options.handleSave,
         handleOptimizePdfForInteraction: options.handleOptimizePdfForInteraction,
         handleSaveAs: options.handleSaveAs,
@@ -546,6 +557,7 @@ export function createWorkspaceExposeFromOwners(
         handleRedo: () => { void viewNavigation.handleRedo(); },
         handleExportDocx: options.handleExportDocx,
         initialVisualReady: options.initialVisualReady,
+        openingPreviewReady: options.openingPreviewReady,
         isOpeningDocument: options.isOpeningDocument,
         hasOpenError: computed(() => Boolean(fileLifecycle.pdfError.value) || Boolean(fileLifecycle.djvuError.value)),
         canRepairSave: options.canRepairSave,

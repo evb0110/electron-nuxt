@@ -12,6 +12,7 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
+    clickVisibleToolbarButton,
     installNativePdfOpeningSampler,
     openPdfInApp,
     stopNativePdfOpeningSampler,
@@ -168,7 +169,11 @@ async function stopPdfNavigationSampler(page: Page) {
     });
 }
 
-async function openWithHandoffTrace(page: Page, pdfPath: string) {
+async function openWithHandoffTrace(
+    page: Page,
+    pdfPath: string,
+    duringNativePreview?: () => Promise<void>,
+) {
     const priorPdfPath = await createMultiPageTextFixturePdf(
         `large-pdf-handoff-prior-${Date.now()}.pdf`,
         2,
@@ -178,7 +183,21 @@ async function openWithHandoffTrace(page: Page, pdfPath: string) {
     const startedAt = await page.evaluate(() => performance.now());
     let frames: Awaited<ReturnType<typeof stopNativePdfOpeningSampler>> = [];
     try {
-        await triggerOpenPathInApp(page, pdfPath, LARGE_PDF_TIMEOUT_MS);
+        const triggerOpen = triggerOpenPathInApp(page, pdfPath, LARGE_PDF_TIMEOUT_MS);
+        const assertNativePreview = duringNativePreview?.() ?? Promise.resolve();
+        const [
+            openResult,
+            previewResult,
+        ] = await Promise.allSettled([
+            triggerOpen,
+            assertNativePreview,
+        ]);
+        if (previewResult.status === 'rejected') {
+            throw previewResult.reason;
+        }
+        if (openResult.status === 'rejected') {
+            throw openResult.reason;
+        }
         await waitForActiveDocumentSource(page, pdfPath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
         await delay(100);
@@ -189,6 +208,181 @@ async function openWithHandoffTrace(page: Page, pdfPath: string) {
         frames,
         startedAt,
     };
+}
+
+async function assertNativeOpeningPreviewIsViewable(page: Page, expectedTotalPages: number) {
+    const previewBeforeHandle = await waitForFunctionInPage(page, () => {
+        const preview = document.querySelector<HTMLImageElement>(
+            '.editor-pane.is-active [data-testid="document-opening-native-preview"]',
+        );
+        const shell = preview?.closest<HTMLElement>('[data-document-page-number]') ?? null;
+        return preview?.complete === true && (preview.naturalWidth ?? 0) > 0 && shell
+            ? {
+                objectUrl: preview.currentSrc || preview.src,
+                pageNumber: Number(shell.dataset.documentPageNumber ?? 0),
+            }
+            : null;
+    }, {timeout: 10_000});
+    const previewBefore = await previewBeforeHandle.jsonValue() as {
+        objectUrl: string;
+        pageNumber: number;
+    };
+    expect(previewBefore.pageNumber).toBe(1);
+
+    const openingToolbar = await getWorkspaceToolbarSnapshot(page);
+    expect(openingToolbar).toMatchObject({
+        hasPdf: true,
+        isOpeningDocument: true,
+        openingPreviewReady: true,
+        currentPage: 1,
+        totalPages: expectedTotalPages,
+    });
+
+    const controlState = await page.evaluate(() => {
+        const toolbarHost = document.getElementById('editor-global-toolbar-host');
+        const isVisible = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return rect.width > 8
+                && rect.height > 8
+                && style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0;
+        };
+        const findButton = (label: string) => Array.from(
+            toolbarHost?.querySelectorAll<HTMLButtonElement>('button[aria-label]') ?? [],
+        ).find(button => button.getAttribute('aria-label')?.startsWith(label) && isVisible(button));
+        const pageDisplay = Array.from(
+            toolbarHost?.querySelectorAll<HTMLButtonElement>('.page-controls-display') ?? [],
+        ).find(isVisible);
+        return {
+            nextPageDisabled: findButton('Next Page')?.disabled ?? null,
+            pageDisplayDisabled: pageDisplay?.disabled ?? null,
+            pageDisplayText: pageDisplay?.textContent?.replace(/\s+/gu, '') ?? '',
+            saveDisabled: findButton('Save')?.disabled ?? null,
+            sidebarDisabled: findButton('Toggle Sidebar')?.disabled ?? null,
+            zoomInDisabled: findButton('Zoom In')?.disabled ?? null,
+        };
+    });
+    expect(controlState, JSON.stringify(controlState)).toMatchObject({
+        nextPageDisabled: false,
+        pageDisplayDisabled: false,
+        saveDisabled: true,
+        sidebarDisabled: false,
+        zoomInDisabled: false,
+    });
+    expect(controlState.pageDisplayText).toContain('/' + String(expectedTotalPages));
+
+    await clickVisibleToolbarButton(page, 'Next Page');
+    const previewAfterHandle = await waitForFunctionInPage(page, (previousObjectUrl: string) => {
+        const preview = document.querySelector<HTMLImageElement>(
+            '.editor-pane.is-active [data-testid="document-opening-native-preview"]',
+        );
+        const shell = preview?.closest<HTMLElement>('[data-document-page-number]') ?? null;
+        const objectUrl = preview?.currentSrc || preview?.src || '';
+        return preview?.complete === true
+            && (preview.naturalWidth ?? 0) > 0
+            && Number(shell?.dataset.documentPageNumber ?? 0) === 2
+            && objectUrl !== previousObjectUrl
+            ? {
+                objectUrl,
+                pageNumber: 2,
+            }
+            : null;
+    }, {timeout: 10_000}, previewBefore.objectUrl);
+    const previewAfter = await previewAfterHandle.jsonValue() as {
+        objectUrl: string;
+        pageNumber: number;
+    };
+    expect(previewAfter.pageNumber).toBe(2);
+    expect(await getWorkspaceToolbarSnapshot(page)).toMatchObject({
+        currentPage: 2,
+        totalPages: expectedTotalPages,
+    });
+    await waitForFunctionInPage(page, (expectedPageDisplay: string) => {
+        const toolbarHost = document.getElementById('editor-global-toolbar-host');
+        const isVisible = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return rect.width > 8
+                && rect.height > 8
+                && style.display !== 'none'
+                && style.visibility !== 'hidden';
+        };
+        return Array.from(toolbarHost?.querySelectorAll<HTMLElement>('.page-controls-display') ?? [])
+            .some(control => (
+                isVisible(control)
+                && control.textContent?.replace(/\s+/gu, '').includes(expectedPageDisplay)
+            ));
+    }, {timeout: 10_000}, `2/${String(expectedTotalPages)}`);
+
+    await clickVisibleToolbarButton(page, 'Toggle Sidebar');
+    await waitForWorkspaceToolbarSnapshot(page, {showSidebar: true}, {timeoutMs: 10_000});
+    const sidebarStateHandle = await waitForFunctionInPage(page, () => {
+        const host = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const wrapper = host?.querySelector<HTMLElement>('.sidebar-wrapper') ?? null;
+        const sidebar = wrapper?.querySelector<HTMLElement>('[data-testid="document-sidebar"]') ?? null;
+        const targetRow = sidebar?.querySelector<HTMLElement>('[data-thumbnail-page="3"]') ?? null;
+        const rect = sidebar?.getBoundingClientRect() ?? null;
+        if (!wrapper) {
+            return null;
+        }
+        return {
+            className: sidebar?.className ?? '',
+            hasTargetRow: Boolean(targetRow),
+            rect: rect ? {
+                height: rect.height,
+                width: rect.width,
+            } : null,
+            wrapper: {
+                ariaHidden: wrapper.getAttribute('aria-hidden'),
+                className: wrapper.className,
+                inert: wrapper.inert,
+                style: wrapper.getAttribute('style'),
+            },
+        };
+    }, {timeout: 10_000});
+    const sidebarState = await sidebarStateHandle.jsonValue() as {
+        className: string;
+        hasTargetRow: boolean;
+        rect: {
+            height: number;
+            width: number;
+        } | null;
+        wrapper: {
+            ariaHidden: string | null;
+            className: string;
+            inert: boolean;
+            style: string | null;
+        };
+    };
+    expect(sidebarState.rect?.width ?? 0, JSON.stringify(sidebarState)).toBeGreaterThan(0);
+    expect(sidebarState.hasTargetRow, JSON.stringify(sidebarState)).toBe(true);
+    await page.evaluate(() => {
+        const host = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const row = host?.querySelector<HTMLElement>(
+            '[data-testid="document-sidebar"] [data-thumbnail-page="3"]',
+        ) ?? null;
+        if (!row) {
+            throw new Error('Native opening sidebar page 3 row is unavailable');
+        }
+        row.click();
+    });
+    await waitForWorkspaceToolbarSnapshot(page, {currentPage: 3}, {timeoutMs: 10_000});
+    await waitForFunctionInPage(page, () => {
+        const host = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        return host?.querySelector<HTMLElement>(
+            '[data-testid="document-sidebar"] [data-thumbnail-page="3"]',
+        )?.getAttribute('aria-current') === 'page';
+    }, {timeout: 10_000});
+    await clickVisibleToolbarButton(page, 'Toggle Sidebar');
+    await waitForWorkspaceToolbarSnapshot(page, {showSidebar: false}, {timeoutMs: 10_000});
 }
 
 function assertAtomicNativeToPdfjsHandoff(
@@ -228,7 +422,11 @@ function assertAtomicNativeToPdfjsHandoff(
     )), JSON.stringify(generationFrames)).toBe(true);
 }
 
-async function assertFinalPdfjsCapabilities(page: Page, expectedTotalPages?: number) {
+async function assertFinalPdfjsCapabilities(
+    page: Page,
+    expectedTotalPages?: number,
+    selectableTextPage?: number,
+) {
     const toolbar = await getWorkspaceToolbarSnapshot(page);
     expect(toolbar).toMatchObject({
         hasPdf: true,
@@ -245,6 +443,25 @@ async function assertFinalPdfjsCapabilities(page: Page, expectedTotalPages?: num
     if (expectedTotalPages !== undefined) {
         expect(toolbar?.totalPages).toBe(expectedTotalPages);
     }
+    if (selectableTextPage !== undefined) {
+        const navigation = await callWorkspaceCommand(page, 'handleGoToPage', [selectableTextPage]);
+        expect(navigation.called).toBe(true);
+        await waitForWorkspaceToolbarSnapshot(
+            page,
+            {currentPage: selectableTextPage},
+            {timeoutMs: 30_000},
+        );
+    }
+
+    await waitForFunctionInPage(page, () => {
+        const host = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const standardViewer = host?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
+        return [...(standardViewer?.querySelectorAll<HTMLElement>(
+            '.text-layer span, .textLayer span',
+        ) ?? [])].some(span => (span.textContent ?? '').trim().length > 0);
+    }, {timeout: 30_000});
 
     const state = await page.evaluate(() => {
         const host = document.querySelector<HTMLElement>(
@@ -267,6 +484,16 @@ async function assertFinalPdfjsCapabilities(page: Page, expectedTotalPages?: num
             annotationEditorLayerCount: standardViewer?.querySelectorAll(
                 '.annotation-editor-layer, .annotationEditorLayer',
             ).length ?? 0,
+            layerStates: [...(standardViewer?.querySelectorAll<HTMLElement>('.page_container') ?? [])]
+                .map(container => ({
+                    layerReadiness: container.dataset.pageLayerReadiness ?? null,
+                    page: container.dataset.page ?? null,
+                    textReady: container.querySelector<HTMLElement>('.text-layer, .textLayer')
+                        ?.dataset.pdfTextLayerReady ?? null,
+                    textRendering: container.querySelector<HTMLElement>('.text-layer, .textLayer')
+                        ?.dataset.pdfTextLayerRendering ?? null,
+                    textSpans: container.querySelectorAll('.text-layer span, .textLayer span').length,
+                })),
             nativeViewerCount: nativeViewer ? 1 : 0,
             openingLayerCount: host?.querySelectorAll('.document-viewer-chassis__opening-page').length ?? 0,
             selectedText,
@@ -285,9 +512,10 @@ async function assertFinalPdfjsCapabilities(page: Page, expectedTotalPages?: num
     expect(sidebarToggle.called).toBe(true);
     await waitForWorkspaceToolbarSnapshot(page, {showSidebar: true}, {timeoutMs: 30_000});
     await waitForFunctionInPage(page, () => {
-        const sidebar = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active [data-testid="document-sidebar"]',
-        );
+        const host = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const sidebar = host?.querySelector<HTMLElement>('[data-testid="document-sidebar"]');
         const current = sidebar?.querySelector<HTMLElement>('[aria-current="page"]') ?? null;
         const thumbnail = current?.querySelector<HTMLCanvasElement>('canvas')
             ?? current?.querySelector<HTMLImageElement>('img')
@@ -429,9 +657,13 @@ largePdfDescribe('Electron E2E - Large PDF native opening preview handoff', () =
                 throw new Error('Large-PDF Electron E2E session failed to start');
             }
 
-            const trace = await openWithHandoffTrace(session.page, exactLargePdfPath);
+            const trace = await openWithHandoffTrace(
+                session.page,
+                exactLargePdfPath,
+                () => assertNativeOpeningPreviewIsViewable(session.page, EXACT_DICTIONARY_PAGE_COUNT),
+            );
             assertAtomicNativeToPdfjsHandoff(trace);
-            await assertFinalPdfjsCapabilities(session.page, EXACT_DICTIONARY_PAGE_COUNT);
+            await assertFinalPdfjsCapabilities(session.page, EXACT_DICTIONARY_PAGE_COUNT, 4);
             await assertSkeletonFreePageJump(session.page, NAVIGATION_ACCEPTANCE_PAGE);
         },
         LARGE_PDF_TIMEOUT_MS,

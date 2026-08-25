@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/source/createPagePreviewDocumentSource';
+import type { IPagePreviewRenderedObjectUrl } from '@app/utils/document-viewer/pagePreviewSource';
 
 describe('createPagePreviewDocumentSource', () => {
     it('adapts native preview metrics and leased surfaces to IDocumentPageSource', async () => {
@@ -70,8 +71,41 @@ describe('createPagePreviewDocumentSource', () => {
             signal: new AbortController().signal,
         });
 
-        expect(renderPageObjectUrl).toHaveBeenCalledWith(1, {targetPx: 180});
+        expect(renderPageObjectUrl).toHaveBeenCalledWith(1, {
+            previewRequestId: 'document-page-source:1:1',
+            targetWidthPx: 180,
+        });
         expect(lease.surface).toBe('blob:thumbnail-1');
+    });
+
+    it('cancels the matching native request when its page render is aborted', async () => {
+        const cancelPagePreview = vi.fn();
+        const source = createPagePreviewDocumentSource({
+            documentRef: '/tmp/document.pdf',
+            pageSizes: [{
+                width: 500,
+                height: 700,
+            }],
+            previewSource: {
+                cancelPagePreview,
+                getPageSizes: vi.fn(async () => []),
+                renderPageObjectUrl: vi.fn(() => new Promise<IPagePreviewRenderedObjectUrl>(() => undefined)),
+                revokeObjectURL: vi.fn(),
+                terminate: vi.fn(),
+            },
+        });
+        const controller = new AbortController();
+        const render = source.renderPage({
+            pageNumber: 1,
+            widthPx: 180,
+            priority: 'thumbnail',
+            signal: controller.signal,
+        });
+
+        controller.abort();
+
+        await expect(render).rejects.toMatchObject({name: 'AbortError'});
+        expect(cancelPagePreview).toHaveBeenCalledWith(1, 'document-page-source:1:1');
     });
 
     it('forwards preview invalidation and detaches it when the surface is released', async () => {

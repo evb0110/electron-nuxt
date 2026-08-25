@@ -16,8 +16,9 @@
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
                 :document-busy="toolbarDocumentBusyForDisplay"
+                :viewing-ready="openingPreviewReady"
                 :controls-disabled="toolbarControlsDisabled"
-                :page-dropdown-total-pages="documentMetadataReady ? totalPages : 0"
+                :page-dropdown-total-pages="documentMetadataReady ? toolbarTotalPages : 0"
                 :page-labels="toolbarPageLabels"
                 :navigation-feedback-page="navigationFeedbackPage"
                 :navigation-command="navigationCommand"
@@ -76,7 +77,7 @@
                 @quick-note="handleToolbarQuickNote"
                 @toggle-fullscreen="workspaceCommandBindings.handleToggleFullscreen"
                 @set-view-mode="handleOverflowSetViewMode"
-                @go-to-page="handleGoToPage"
+                @go-to-page="handlePreviewAwareGoToPage"
                 @ocr-complete="handleOcrComplete"
             />
         </WorkspaceToolbarHost>
@@ -100,7 +101,7 @@
         >
             <template #sidebar>
                 <PdfSidebar
-                    v-if="driverShowsPdfSidebar"
+                    v-if="driverShowsPdfSidebar && !openingPageSource"
                     v-model:active-tab="sidebarTab"
                     v-model:search-query="searchQuery"
                     :submitted-search-query="submittedSearchQuery"
@@ -173,7 +174,7 @@
                     v-else
                     v-model:active-tab="sidebarTab"
                     :source="documentSourceSidebar.source.value"
-                    :current-page="currentPage"
+                    :current-page="toolbarCurrentPage"
                     :is-resizing="isResizingSidebar"
                     :search-session="documentSourceSidebar.searchSession"
                     :search-focus-request="searchFocusRequest"
@@ -444,11 +445,26 @@ const ScanCleanupWorkspace = defineAsyncComponent({
     loadingComponent: ScanCleanupWorkspaceLoading,
     delay: 0,
 });
-const documentOpenSurface = injectDocumentOpenSurfaceSession();
-if (!documentOpenSurface) {
+const injectedDocumentOpenSurface = injectDocumentOpenSurfaceSession();
+if (!injectedDocumentOpenSurface) {
     throw new Error('DocumentWorkspace requires the host-owned document open surface session');
 }
+const documentOpenSurface = injectedDocumentOpenSurface;
 provide(documentOpenSurfaceSessionKey, documentOpenSurface);
+const openingPreviewReady = computed(() => {
+    const snapshot = documentOpenSurface.snapshot.value;
+    return [
+        'pending',
+        'geometry-committed',
+        'canvas-committed',
+        'viewport-committed',
+    ].includes(snapshot.phase) && snapshot.openingPageFrame?.preview !== undefined;
+});
+const openingPreviewPageCount = computed(() => (
+    openingPreviewReady.value
+        ? documentOpenSurface.snapshot.value.openingPageGeometry?.pageCount ?? 0
+        : 0
+));
 const {
     fullscreenSupported,
     isActive,
@@ -679,6 +695,18 @@ const {
     setSidebarContainerWidth,
     cleanupSidebarResizeListeners,
 } = viewerShell;
+const toolbarTotalPages = computed(() => (
+    openingPreviewReady.value ? openingPreviewPageCount.value : totalPages.value
+));
+const toolbarCurrentPage = computed(() => {
+    if (!openingPreviewReady.value) {
+        return currentPage.value;
+    }
+    return Math.min(
+        Math.max(1, documentOpenSurface.viewportSession.value.requestedPage),
+        Math.max(1, openingPreviewPageCount.value),
+    );
+});
 const isExternalWorkspaceLayoutResizingRef = toRef(() => isExternalWorkspaceLayoutResizing === true);
 const isActiveViewerLayoutResizing = computed(() => (
     isResizingSidebar.value || isExternalWorkspaceLayoutResizingRef.value || isTabTransitionBusy
@@ -891,6 +919,7 @@ const {
     isOcrRunning,
     isRestoringSplitPayload,
     pendingDocumentOpen,
+    openingPreviewReady,
     showSidebar,
 });
 useDocumentWorkspacePageSessionRestore({
@@ -934,6 +963,7 @@ const { toolbarShowSidebarForDisplay } = useWorkspaceSidebarOpenGeneration({
     initialDocumentVisualReady,
     hasDocumentOpenError: computed(() => Boolean(pdfError.value) || Boolean(djvuError.value)),
     openSurfaceSnapshot: documentOpenSurface.snapshot,
+    openingPreviewReady,
 });
 const {
     handleDocumentInitialVisualPending,
@@ -970,13 +1000,32 @@ const documentSourceSidebar = useDocumentSourceSidebarSession({onNavigate: pageI
  * navigation as scroll options.
  */
 function handleSourceSidebarGoToPage(pageNumber: number, _event?: MouseEvent) {
-    handleGoToPage(pageNumber);
+    handlePreviewAwareGoToPage(pageNumber);
+}
+function handlePreviewAwareGoToPage(pageNumber: number) {
+    if (!openingPreviewReady.value) {
+        handleGoToPage(pageNumber);
+        return;
+    }
+    const boundedPage = Math.min(
+        Math.max(1, Math.trunc(pageNumber)),
+        Math.max(1, openingPreviewPageCount.value),
+    );
+    documentOpenSurface.requestNavigation(boundedPage);
 }
 const documentPageSource = shallowRef<IDocumentPageSource | null>(null);
+const openingPageSource = documentOpenSurface.openingPageSource;
+function publishEffectiveDocumentSource() {
+    documentSourceSidebar.publishSource(openingPageSource.value ?? documentPageSource.value);
+}
 function handlePageSourceUpdate(source: IDocumentPageSource | null) {
     documentPageSource.value = source;
-    documentSourceSidebar.publishSource(source);
+    publishEffectiveDocumentSource();
 }
+watch(openingPageSource, publishEffectiveDocumentSource, {
+    flush: 'sync',
+    immediate: true,
+});
 const {
     activeViewerComponent,
     activeViewerProps,
@@ -1007,6 +1056,7 @@ const {
     toolbarHasPdf,
     isLoading,
     initialDocumentVisualReady,
+    openingPreviewReady,
     pdfError,
     djvuError,
     isOpeningDocumentForToolbar,
@@ -1014,7 +1064,7 @@ const {
     canRepairSave,
     canOptimizePdf,
     statusZoomLabel,
-    totalPages,
+    totalPages: toolbarTotalPages,
     pageLabels,
     pageLabelsResolved,
     isAnySaving,
@@ -1324,11 +1374,14 @@ const workspaceExpose = createWorkspaceExposeFromOwners({
     handleOptimizePdfForInteraction: () => Promise.resolve(openOptimizePdfForInteractionDialog()),
     handleSaveAs,
     handleExportDocx,
-    handleGoToPage,
+    handleGoToPage: handlePreviewAwareGoToPage,
     handleCrop: () => { void handleToolbarCrop(); },
     handleInsertImageFromFile,
     handlePasteImageFromClipboard,
     initialVisualReady: initialDocumentVisualReady,
+    openingPreviewReady,
+    toolbarCurrentPage,
+    toolbarTotalPages,
     isOpeningDocument: isOpeningDocumentForToolbarDisplay,
     canRepairSave: canRepairSaveForDisplay,
     canOptimizePdf: canOptimizePdfForDisplay,
