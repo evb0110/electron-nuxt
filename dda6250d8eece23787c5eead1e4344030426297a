@@ -1,0 +1,22 @@
+scripts/evb-mcp-proxy.mjs
+  s_92655edb3dc5ea::t_7145d846b5e345 5,463-471,474-492,574,645
+tests/unit/scripts/evbMcpProxy.test.ts
+  s_92655edb3dc5ea::t_7145d846b5e345 1-6,24-33
+  s_92655edb3dc5ea::t_313d73b180fdbf 7-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "dda6250d8eece23787c5eead1e4344030426297a",
+  "prompts": {},
+  "sessions": {
+    "s_92655edb3dc5ea": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03a71-a82e-7ef0-aaeb-11c50f08a26e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
