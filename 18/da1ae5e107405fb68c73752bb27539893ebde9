@@ -1,0 +1,27 @@
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_25a70d04e604a9::t_eb4cbd932658b8 16,267,286,314,356,376
+tests/helpers/removeTemporaryDirectory.ts
+  s_25a70d04e604a9::t_eb4cbd932658b8 1-20
+tests/unit/scripts/commitAttributionPolicy.test.ts
+  s_25a70d04e604a9::t_eb4cbd932658b8 19,107
+tests/helpers/createTemporaryDirectoryRegistry.ts
+  s_25a70d04e604a9::t_eb4cbd932658b8 1,10
+tests/unit/scripts/cubicCommitReviewPolicy.test.ts
+  s_25a70d04e604a9::t_eb4cbd932658b8 16,243,275,294,333
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "18da1ae5e107405fb68c73752bb27539893ebde9",
+  "prompts": {},
+  "sessions": {
+    "s_25a70d04e604a9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a039b5-01f6-7673-9c89-90e3bca7f3a2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
