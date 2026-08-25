@@ -268,10 +268,6 @@ interface ICutReleaseArgs {
 }
 
 interface IVerificationPlan {
-    ciRun?: {
-        id: number;
-        url: string;
-    };
     reason: string;
     skipLocalVerify: boolean;
 }
@@ -307,13 +303,7 @@ interface ICutReleaseModule {
             headSha: string;
             upstream: IUpstream & {ref: string};
         },
-        dependencies?: {
-            findCiRun?: (sha: string, options?: unknown) => {
-                id: number;
-                url: string
-            } | null;
-            runCommand?: (command: string, args: string[], options?: unknown) => string;
-        },
+        dependencies?: {runCommand?: (command: string, args: string[], options?: unknown) => string},
     ) => IVerificationPlan;
 }
 
@@ -1324,17 +1314,13 @@ describe('release policy', () => {
         ])).toThrow('--full-verify only applies to a fresh cut');
     });
 
-    it('skips the local release gate only for the advertised main tip with green exact-SHA CI', () => {
+    it('skips the local release gate only when the advertised main tip will receive release-commit CI', () => {
         const upstream = {
             branch: 'main',
             ref: 'origin/main',
             remote: 'origin',
         };
         const headSha = 'a'.repeat(40);
-        const ciRun = {
-            id: 42,
-            url: 'https://github.com/evb0110/evb-viewer/actions/runs/42',
-        };
         const remoteAt = (sha: string) => (command: string, args: string[]) => {
             expect(command).toBe('git');
             expect(args).toEqual([
@@ -1345,63 +1331,28 @@ describe('release policy', () => {
             return `${sha}\trefs/heads/main`;
         };
 
-        const requestedShas: string[] = [];
         expect(resolveLocalVerificationPlan({
             fullVerify: false,
             headSha,
             upstream,
-        }, {
-            findCiRun: (sha) => {
-                requestedShas.push(sha);
-                return ciRun;
-            },
-            runCommand: remoteAt(headSha),
-        })).toEqual({
-            ciRun,
-            reason: expect.stringContaining(ciRun.url) as string,
+        }, {runCommand: remoteAt(headSha)})).toEqual({
+            reason: expect.stringContaining('the release commit will trigger full exact-SHA push CI') as string,
             skipLocalVerify: true,
         });
-        expect(requestedShas).toEqual([ headSha ]);
 
         // --full-verify always forces the full local gate.
         expect(resolveLocalVerificationPlan({
             fullVerify: true,
             headSha,
             upstream,
-        }, {
-            findCiRun: () => ciRun,
-            runCommand: remoteAt(headSha),
-        }).skipLocalVerify).toBe(false);
+        }, {runCommand: remoteAt(headSha)}).skipLocalVerify).toBe(false);
 
         // A stale or diverged remote tip forces the full local gate.
         expect(resolveLocalVerificationPlan({
             fullVerify: false,
             headSha,
             upstream,
-        }, {
-            findCiRun: () => ciRun,
-            runCommand: remoteAt('b'.repeat(40)),
-        }).skipLocalVerify).toBe(false);
-
-        // Missing green CI, and CI-lookup failures, fail closed.
-        expect(resolveLocalVerificationPlan({
-            fullVerify: false,
-            headSha,
-            upstream,
-        }, {
-            findCiRun: () => null,
-            runCommand: remoteAt(headSha),
-        }).skipLocalVerify).toBe(false);
-        expect(resolveLocalVerificationPlan({
-            fullVerify: false,
-            headSha,
-            upstream,
-        }, {
-            findCiRun: () => {
-                throw new Error('api unavailable');
-            },
-            runCommand: remoteAt(headSha),
-        }).skipLocalVerify).toBe(false);
+        }, {runCommand: remoteAt('b'.repeat(40))}).skipLocalVerify).toBe(false);
 
         // A failing `git ls-remote` must also fail closed, and --full-verify
         // must decide before any remote lookup happens.
@@ -1409,24 +1360,16 @@ describe('release policy', () => {
             fullVerify: false,
             headSha,
             upstream,
-        }, {
-            findCiRun: () => ciRun,
-            runCommand: () => {
-                throw new Error('remote unreachable');
-            },
-        }).skipLocalVerify).toBe(false);
+        }, {runCommand: () => {
+            throw new Error('remote unreachable');
+        }}).skipLocalVerify).toBe(false);
         expect(resolveLocalVerificationPlan({
             fullVerify: true,
             headSha,
             upstream,
-        }, {
-            findCiRun: () => {
-                throw new Error('must not be called');
-            },
-            runCommand: () => {
-                throw new Error('must not be called');
-            },
-        }).skipLocalVerify).toBe(false);
+        }, {runCommand: () => {
+            throw new Error('must not be called');
+        }}).skipLocalVerify).toBe(false);
         expect(getReleaseWorkflowDispatchArgs({
             branch: 'main',
             tag: 'v1.2.3',

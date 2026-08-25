@@ -200,7 +200,7 @@ function createElectronE2ETestProject(
             maxWorkers: 1,
             // Retry only session/fixture infrastructure failures. Assertion
             // and user-flow failures must remain visible to the quarantine
-            // lane and to its scheduled-run review history.
+            // lane and to its manual-run review history.
             retry: process.env.CI
                 ? {
                     condition: /\[INFRA\]/u,

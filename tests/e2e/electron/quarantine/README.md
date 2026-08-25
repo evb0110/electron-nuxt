@@ -3,14 +3,14 @@
 Place Electron E2E tests here only while they are under observation after a new
 repro, deflake, or harness change.
 
-- The quarantine lane is nightly/manual and non-blocking.
+- The quarantine lane is manually dispatched and non-blocking.
 - CI retries Electron E2E session boot/restart failures marked `[INFRA]` up
   to twice. Assertion and user-flow failures are not retried by this policy;
   the shared Electron E2E project factory applies the same infrastructure
   retry condition lane-wide.
 - Do not move stable smoke tests here without an audit-backed reason.
-- Review a quarantined test for graduation after 30 green scheduled runs. The
-  evidence source is GitHub Actions scheduled-run history plus maintainer
+- Review a quarantined test for graduation after a deliberate campaign of 30
+  green manual runs. The evidence source is GitHub Actions manual-run history plus maintainer
   review; `graduation-policy.json` is an inventory and review target, not a
   per-test run counter.
 - Keep each test's graduation target current in `graduation-policy.json`. The

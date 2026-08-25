@@ -215,7 +215,7 @@ pnpm typecheck
 # Unit tests
 pnpm run test:unit
 
-# Coverage ratchet, run in nightly CI
+# Coverage ratchet, run in the required local gate and hosted release CI
 pnpm run test:coverage
 
 # Heavy generated Electron bundle static-integrity check
@@ -277,13 +277,13 @@ release-specific lanes. For local iteration, use affected or file-scoped loops
 such as `pnpm run validate:iteration -- --file=app/path/to/change.ts`,
 `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, or
 `pnpm run test:electron-bundle-static-integrity:no-build` after
-`dist-electron/` already exists. Direct pushes to `main` run
-`pnpm lint`, `pnpm typecheck`, and `pnpm run test:coverage` (which executes the
-unit suite with coverage);
-native and landing changes also get path-filtered checks. The dormant Python page-processor was
+`dist-electron/` already exists. Before a non-trivial direct push to `main`, run
+`node scripts/run-all-gates.mjs --only validate`. Ordinary source pushes do not
+start hosted CI. Pull requests and package metadata changes, including release
+commits, run the hosted checks. The dormant Python page-processor was
 removed after the native scan-cleanup pipeline superseded it and remains
 recoverable from git history. Electron E2E
-and PDF tab diagnostics run in nightly/manual diagnostics until they are stable
+and PDF tab diagnostics run only by manual workflow dispatch until they are stable
 enough to promote into a blocking release gate.
 
 The Electron E2E regression suite currently covers:
@@ -295,7 +295,7 @@ Opt-in Electron E2E subsets are selected by named Vitest projects through
 package scripts: `pnpm run test:e2e:electron:draw-shapes`,
 `pnpm run test:e2e:electron:large`, and
 `pnpm run test:e2e:electron:rapid-navigation`.
-The macOS nightly `pnpm run test:e2e:electron:visible-window` lane deliberately
+The manually dispatched macOS `pnpm run test:e2e:electron:visible-window` lane deliberately
 uses the real show/maximize/focus lifecycle. Unlike the default hidden lanes,
 running it locally can bring the development app to the foreground.
 

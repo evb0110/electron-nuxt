@@ -9,11 +9,15 @@ on:
   push:
     branches:
       - main
-    paths-ignore:
-      - 'docs/**'
-      - '**.md'
-  schedule:
-    - cron: '17 2 * * *'
+    # Ordinary direct pushes use the required local all-gates validation.
+    # Hosted push CI is reserved for package metadata changes, including every
+    # release commit, so release.yml still receives an exact-SHA gates_ok run.
+    paths:
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '**/package.json'
+      - '**/pnpm-workspace.yaml'
   workflow_dispatch:
 
 permissions:
@@ -323,7 +327,7 @@ jobs:
         run: rustup component add rustfmt clippy
 
       - name: Restore Rust build caches
-        # Push-lane accelerator only. The nightly lanes stay cache-cold on
+        # Push-lane accelerator only. The manual maintenance lanes stay cache-cold on
         # purpose as the cache-poisoning tripwire.
         uses: actions/cache@v5
         with:
@@ -363,7 +367,7 @@ jobs:
     # Native And Build Safety and helped push that lane to 45-49 minutes
     # (issue #109's root growth). It runs as a parallel sibling, blocking
     # through gates_ok, off the native lane's serial path. The 18-minute
-    # real-corpus suite was demoted to nightly after two blocking days with
+    # real-corpus suite was moved to manual maintenance after two blocking days with
     # zero catches (anti-accretion rule, docs/releasing.md).
     name: Scan Cleanup Heavy Gates
     if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
@@ -394,7 +398,7 @@ jobs:
         run: scripts/ci/apt-install.sh poppler-utils
 
       - name: Restore Rust build caches
-        # Push-lane accelerator only. The nightly lanes stay cache-cold on
+        # Push-lane accelerator only. The manual maintenance lanes stay cache-cold on
         # purpose as the cache-poisoning tripwire.
         uses: actions/cache@v5
         with:
@@ -438,7 +442,7 @@ jobs:
         run: scripts/ci/apt-install.sh poppler-utils
 
       - name: Restore Rust build caches
-        # Push-lane accelerator only. The nightly lanes stay cache-cold on
+        # Push-lane accelerator only. The manual maintenance lanes stay cache-cold on
         # purpose as the cache-poisoning tripwire.
         uses: actions/cache@v5
         with:
@@ -521,7 +525,7 @@ jobs:
 
   nuxt_compatibility_v5:
     name: Nuxt Compatibility v5 (Advisory / ${{ matrix.project }})
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -687,7 +691,7 @@ jobs:
 
   nightly_rust_fuzz:
     name: Native Parser Fuzz Canaries
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -755,8 +759,8 @@ jobs:
         run: pnpm --dir landing run build
 
   nightly_maintenance:
-    name: Nightly Maintenance Gates
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    name: Manual Maintenance Gates
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
 
@@ -853,8 +857,8 @@ jobs:
         run: pnpm run test:ocr:quality:required
 
   nightly_electron_e2e_regression:
-    name: Nightly Electron E2E Regression
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    name: Manual Electron E2E Regression
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
     timeout-minutes: 60
 
@@ -889,8 +893,8 @@ jobs:
           artifact-name: electron-regression-${{ github.run_attempt }}
 
   nightly_electron_e2e_save_pipeline:
-    name: Nightly Electron E2E Save Pipeline
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    name: Manual Electron E2E Save Pipeline
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
     timeout-minutes: 60
 
@@ -925,8 +929,8 @@ jobs:
           artifact-name: electron-save-pipeline-${{ github.run_attempt }}
 
   nightly_electron_e2e_rapid_navigation:
-    name: Nightly Electron E2E Rapid Navigation
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    name: Manual Electron E2E Rapid Navigation
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
     timeout-minutes: 45
 
@@ -961,8 +965,8 @@ jobs:
           artifact-name: electron-rapid-navigation-${{ github.run_attempt }}
 
   nightly_electron_e2e_large_pdf:
-    name: Nightly Electron E2E Large PDF
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    name: Manual Electron E2E Large PDF
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
     timeout-minutes: 90
 
@@ -997,8 +1001,8 @@ jobs:
           artifact-name: electron-large-pdf-${{ github.run_attempt }}
 
   nightly_electron_e2e_quarantine:
-    name: Nightly Electron E2E Quarantine
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    name: Manual Electron E2E Quarantine
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
     continue-on-error: true
     timeout-minutes: 60
@@ -1037,8 +1041,8 @@ jobs:
           artifact-name: electron-quarantine-${{ github.run_attempt }}
 
   nightly_electron_e2e_visible_window:
-    name: Nightly Electron E2E Visible Window
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    name: Manual Electron E2E Visible Window
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
     timeout-minutes: 30
 
@@ -1073,8 +1077,8 @@ jobs:
           artifact-name: electron-visible-window-${{ github.run_attempt }}
 
   nightly_pdf_tabs_diagnostics:
-    name: Nightly PDF Tab Diagnostics
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    name: Manual PDF Tab Diagnostics
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
     continue-on-error: true
     timeout-minutes: 30

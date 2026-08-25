@@ -138,10 +138,7 @@ const requiredPrPushConditions = new Set([
     '${{ always() && (github.event_name == \'pull_request\' || github.event_name == \'push\') }}',
 ]);
 
-const supportedNonPrPushConditions = new Set([
-    '${{ github.event_name == \'workflow_dispatch\' }}',
-    '${{ github.event_name == \'schedule\' || github.event_name == \'workflow_dispatch\' }}',
-]);
+const supportedNonPrPushConditions = new Set([ '${{ github.event_name == \'workflow_dispatch\' }}' ]);
 
 function requiredPrPushJobs(jobs: Record<string, IWorkflowJob>) {
     const requiredJobs = new Set<string>();
@@ -328,7 +325,7 @@ function runAffectedOracleBranch({
 }
 
 describe('CI topology policy', () => {
-    it('skips docs-only pushes without filtering required pull-request checks', async () => {
+    it('runs hosted push CI only for package metadata without filtering required pull-request checks', async () => {
         const triggers = parseWorkflowTriggers(await readProjectFile('.github/workflows/ci.yml'));
         const push = triggers.push;
         if (!isRecord(push)) {
@@ -336,11 +333,15 @@ describe('CI topology policy', () => {
         }
 
         expect(push.branches).toEqual(['main']);
-        expect(push['paths-ignore']).toEqual([
-            'docs/**',
-            '**.md',
+        expect(push.paths).toEqual([
+            'package.json',
+            'pnpm-lock.yaml',
+            'pnpm-workspace.yaml',
+            '**/package.json',
+            '**/pnpm-workspace.yaml',
         ]);
-        expect(push.paths).toBeUndefined();
+        expect(push['paths-ignore']).toBeUndefined();
+        expect(push.schedule).toBeUndefined();
 
         // GitHub leaves required checks pending when a pull-request workflow is
         // skipped by a path filter, so keep PR triggering unconditional.
@@ -377,7 +378,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('push:');
         expect(workflow).toContain('branches:');
         expect(workflow).toContain('- main');
-        expect(workflow).toContain('schedule:');
+        expect(workflow).not.toContain('\n  schedule:');
+        expect(workflow).not.toContain('cron:');
         expect(workflow).toContain('workflow_dispatch:');
         expect(workflow).toContain('pull_request:');
         expect(workflow).toContain('group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == \'pull_request\' && github.ref || github.run_id }}');
@@ -399,9 +401,9 @@ describe('CI topology policy', () => {
         expect(prQuality).not.toContain('.tmp/generated-electron-builder-resources.yml');
         expect(prQuality).toContain('git ls-files --others --exclude-standard');
         expect(prQuality).toContain('run: pnpm run lint');
-        // The release workflow's quality job is deleted; push CI's gates_ok
-        // is the single validation authority, so the cheap static release
-        // checks run here instead of only at release time.
+        // The release workflow's quality job is deleted; release-commit push
+        // CI is the publication validation authority, so the cheap static
+        // release checks run here instead of only at release time.
         expect(prQuality).toContain('run: pnpm run check:static:reports');
         expect(prQuality).toContain('run: pnpm run check:static:assets');
         expect(prQuality).toContain('run: pnpm run check:drizzle-schema');
@@ -493,7 +495,7 @@ describe('CI topology policy', () => {
         expect(packageJson).not.toMatch(/"gate:commit":\s*"[^"]*coverage/u);
     });
 
-    it('keeps expensive PR and push checks path-filtered from checked-in policy', async () => {
+    it('keeps expensive PR and release-push checks path-filtered from checked-in policy', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const testsTsconfig = await readTsConfigJsonWithGlobs('tests/tsconfig.json');
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
@@ -1327,19 +1329,19 @@ describe('CI topology policy', () => {
         expect(workflowJob(releaseWorkflow, 'submit_store')).not.toContain('secrets: inherit');
     });
 
-    it('runs the heavier deterministic checks in the nightly lane', async () => {
+    it('keeps the heavier deterministic checks available by manual dispatch', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const buildWorkflow = await readProjectFile('.github/workflows/build-target.yml');
         const nvmrc = await readProjectFile('.nvmrc');
         const rustToolchain = await readProjectFile('rust-toolchain.toml');
 
-        expect(workflow).toContain('github.event_name == \'schedule\'');
-        expect(workflow).toContain('name: Nightly Maintenance Gates');
+        expect(workflow).not.toContain('github.event_name == \'schedule\'');
+        expect(workflow).toContain('name: Manual Maintenance Gates');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: rustup target add wasm32-unknown-unknown');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:wasm:portable');
         expectSplitQualitySteps(workflowJob(workflow, 'nightly_maintenance'));
         expect(workflow).toContain('run: pnpm run test:rust');
-        // The real-corpus suite is nightly-only: two blocking days, ~18
+        // The real-corpus suite is manual-only: two blocking days, ~18
         // minutes per native push, zero catches (anti-accretion rule).
         expect(workflowJob(workflow, 'nightly_maintenance'))
             .toContain('run: node scripts/run-native-corpus-tests.mjs');
@@ -1347,7 +1349,7 @@ describe('CI topology policy', () => {
             .not.toContain('run: node scripts/run-native-corpus-tests.mjs');
         expect(workflowJob(workflow, 'pr_scan_cleanup_heavy'))
             .toContain('run: pnpm run test:scan-cleanup:canonical-identity');
-        // Push-lane rust caches are accelerators; nightly stays cache-cold.
+        // Push-lane rust caches are accelerators; manual maintenance stays cache-cold.
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('name: Restore Rust build caches');
         expect(workflowJob(workflow, 'nightly_maintenance')).not.toContain('name: Restore Rust build caches');
         // The parallel heavy lane must stay wired into the aggregate gate.
@@ -1489,26 +1491,26 @@ describe('CI topology policy', () => {
         const packageJson = await readProjectFile('package.json');
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
 
-        expect(workflow).toContain('name: Nightly Electron E2E Regression');
-        expect(workflow).not.toContain('name: Nightly Electron E2E Smoke');
+        expect(workflow).toContain('name: Manual Electron E2E Regression');
+        expect(workflow).not.toContain('name: Manual Electron E2E Smoke');
         expect(workflow).toContain('runs-on: macos-14');
         expect(workflow).toContain('continue-on-error: true');
         expect(workflowJob(workflow, 'nightly_electron_e2e_regression')).not.toContain('EVB_E2E_REQUIRE_DJVU_FIXTURE');
         expect(workflowJob(workflow, 'nightly_electron_e2e_regression')).toContain('run: pnpm run test:e2e:electron:regression');
         expectNoExactRunStep(workflowJob(workflow, 'nightly_electron_e2e_regression'), 'pnpm run test:e2e:electron');
-        expect(workflow).toContain('name: Nightly Electron E2E Rapid Navigation');
+        expect(workflow).toContain('name: Manual Electron E2E Rapid Navigation');
         expect(workflowJob(workflow, 'nightly_electron_e2e_regression')).toContain('run: pnpm run check:electron:install');
         expect(workflowJob(workflow, 'nightly_electron_e2e_rapid_navigation')).toContain('run: pnpm run check:electron:install');
         expect(workflowJob(workflow, 'nightly_electron_e2e_rapid_navigation')).not.toContain('continue-on-error: true');
-        expect(workflow).toContain('name: Nightly Electron E2E Large PDF');
+        expect(workflow).toContain('name: Manual Electron E2E Large PDF');
         expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).toContain('run: pnpm run check:electron:install');
         expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).not.toContain('continue-on-error: true');
         expect(packageJson).toContain('"test:e2e:electron:large": "pnpm run build:pdf-page-ops');
         expect(packageJson).toContain('EVB_PDF_PAGE_OPS_ENABLE=1 EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose');
-        expect(workflow).toContain('name: Nightly Electron E2E Quarantine');
+        expect(workflow).toContain('name: Manual Electron E2E Quarantine');
         expect(workflowJob(workflow, 'nightly_electron_e2e_quarantine')).toContain('run: pnpm run check:electron:install');
         expect(workflow).toContain('run: pnpm run test:e2e:electron:quarantine');
-        expect(workflow).toContain('name: Nightly Electron E2E Visible Window');
+        expect(workflow).toContain('name: Manual Electron E2E Visible Window');
         expect(workflowJob(workflow, 'nightly_electron_e2e_visible_window')).toContain('runs-on: macos-14');
         expect(workflowJob(workflow, 'nightly_electron_e2e_visible_window')).toContain('run: pnpm run test:e2e:electron:visible-window');
         for (const jobName of [
@@ -1543,9 +1545,9 @@ describe('CI topology policy', () => {
         expect(artifactAction).toContain('.devkit/test/electron-e2e-artifacts/**');
         expect(artifactAction).toContain('.devkit/scratch/dev-server-logs/e2e-*/**');
         expect(artifactAction).not.toContain('electron-user-data');
-        expect(workflow).toContain('name: Nightly PDF Tab Diagnostics');
+        expect(workflow).toContain('name: Manual PDF Tab Diagnostics');
         expect(workflowJob(workflow, 'nightly_pdf_tabs_diagnostics')).toContain('run: pnpm run check:electron:install');
-        expect(workflow).toMatch(/nightly_pdf_tabs_diagnostics:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run diag:pdf-tabs:ci/u);
+        expect(workflow).toMatch(/nightly_pdf_tabs_diagnostics:[\s\S]*if: \$\{\{ github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run diag:pdf-tabs:ci/u);
         expect(workflow).toContain('run: pnpm run diag:pdf-tabs:ci');
         // Both Electron lanes exercise scan cleanup, which measures its matched
         // page canvas with evb-pdf-page-ops and assembles a lossless run with

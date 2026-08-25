@@ -31,7 +31,7 @@ interface IQuarantineGraduationPolicy {
         events: string[];
         blocking: boolean;
         infraRetryCount: number;
-        reviewAfterScheduledRuns: number;
+        reviewAfterManualRuns: number;
         graduationEvidence: string;
     };
     operatorDiagnostics: IQuarantineOperatorDiagnostic[];
@@ -99,13 +99,13 @@ function parseGraduationPolicy(): IQuarantineGraduationPolicy {
     const value = readJsonRecord(graduationPolicyPath);
     if (
         value.$schema !== './graduation-policy.schema.json'
-        || value.version !== 2
+        || value.version !== 3
         || !isRecord(value.lane)
         || !Array.isArray(value.lane.events)
         || !value.lane.events.every(event => typeof event === 'string')
         || typeof value.lane.blocking !== 'boolean'
         || !Number.isInteger(value.lane.infraRetryCount)
-        || !Number.isInteger(value.lane.reviewAfterScheduledRuns)
+        || !Number.isInteger(value.lane.reviewAfterManualRuns)
         || typeof value.lane.graduationEvidence !== 'string'
         || !Array.isArray(value.operatorDiagnostics)
         || !Array.isArray(value.tests)
@@ -120,7 +120,7 @@ function parseGraduationPolicy(): IQuarantineGraduationPolicy {
             events: value.lane.events,
             blocking: value.lane.blocking,
             infraRetryCount: value.lane.infraRetryCount as number,
-            reviewAfterScheduledRuns: value.lane.reviewAfterScheduledRuns as number,
+            reviewAfterManualRuns: value.lane.reviewAfterManualRuns as number,
             graduationEvidence: value.lane.graduationEvidence,
         },
         operatorDiagnostics: value.operatorDiagnostics.map(parseOperatorDiagnostic),
@@ -151,14 +151,11 @@ describe('Electron E2E quarantine graduation policy', () => {
         ].sort();
 
         expect(policy.lane).toEqual({
-            events: [
-                'schedule',
-                'workflow_dispatch',
-            ],
+            events: ['workflow_dispatch'],
             blocking: false,
             infraRetryCount: 2,
-            reviewAfterScheduledRuns: 30,
-            graduationEvidence: 'github-actions-scheduled-history-and-manual-review',
+            reviewAfterManualRuns: 30,
+            graduationEvidence: 'github-actions-manual-run-history-and-review',
         });
         expect(new Set(metadataPaths).size).toBe(metadataPaths.length);
         expect(new Set(diagnosticPaths).size).toBe(diagnosticPaths.length);
@@ -184,7 +181,7 @@ describe('Electron E2E quarantine graduation policy', () => {
             throw new Error('Quarantine graduation schema must define lane properties.');
         }
         expect(laneProperties.infraRetryCount).toEqual({const: policy.lane.infraRetryCount});
-        expect(laneProperties.reviewAfterScheduledRuns).toEqual({const: policy.lane.reviewAfterScheduledRuns});
+        expect(laneProperties.reviewAfterManualRuns).toEqual({const: policy.lane.reviewAfterManualRuns});
         expect(laneProperties.graduationEvidence).toEqual({const: policy.lane.graduationEvidence});
         const items = properties.tests.items;
         if (!isRecord(items) || !isRecord(items.properties)) {
@@ -198,7 +195,7 @@ describe('Electron E2E quarantine graduation policy', () => {
         expect(properties).toHaveProperty('operatorDiagnostics');
     });
 
-    it('keeps CI scheduling, retry, and policy validation wired to the manifest', () => {
+    it('keeps manual CI, retry, and policy validation wired to the manifest', () => {
         const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
         const quarantineJob = workflowJob(workflow, 'nightly_electron_e2e_quarantine');
         const vitestConfig = readFileSync('vitest.shared.config.ts', 'utf8');
@@ -206,7 +203,7 @@ describe('Electron E2E quarantine graduation policy', () => {
         const readme = readFileSync(`${quarantineDirectory}/README.md`, 'utf8');
 
         expect(quarantineJob).toContain(
-            'if: ${{ github.event_name == \'schedule\' || github.event_name == \'workflow_dispatch\' }}',
+            'if: ${{ github.event_name == \'workflow_dispatch\' }}',
         );
         expect(quarantineJob).toContain('continue-on-error: true');
         expect(quarantineJob).toContain(
@@ -219,7 +216,7 @@ describe('Electron E2E quarantine graduation policy', () => {
         );
         expect(readme).toContain('`graduation-policy.json`');
         expect(readme).toContain('`[INFRA]`');
-        expect(readme).toContain('GitHub Actions scheduled-run history');
-        expect(readme).toContain('30 green');
+        expect(readme).toContain('GitHub Actions manual-run history');
+        expect(readme).toMatch(/30\s+green manual runs/u);
     });
 });

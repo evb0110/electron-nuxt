@@ -15,7 +15,7 @@
       "const": "./graduation-policy.schema.json"
     },
     "version": {
-      "const": 2
+      "const": 3
     },
     "lane": {
       "type": "object",
@@ -24,13 +24,12 @@
         "events",
         "blocking",
         "infraRetryCount",
-        "reviewAfterScheduledRuns",
+        "reviewAfterManualRuns",
         "graduationEvidence"
       ],
       "properties": {
         "events": {
           "const": [
-            "schedule",
             "workflow_dispatch"
           ]
         },
@@ -40,11 +39,11 @@
         "infraRetryCount": {
           "const": 2
         },
-        "reviewAfterScheduledRuns": {
+        "reviewAfterManualRuns": {
           "const": 30
         },
         "graduationEvidence": {
-          "const": "github-actions-scheduled-history-and-manual-review"
+          "const": "github-actions-manual-run-history-and-review"
         }
       }
     },

@@ -2,19 +2,19 @@
 
 Releases are cut locally and published by dispatching the GitHub
 [`Release`](../.github/workflows/release.yml) workflow, which creates the
-version tag for the target commit. Push CI's `gates_ok` is the single
+version tag for the target commit. Release-commit push CI's `gates_ok` is the
 validation authority: the release workflow resolves a green target, packages,
 verifies artifacts, and publishes — it revalidates nothing.
 
 ## Normal flow
 
 1. Run `pnpm run release:cut -- patch` (or `minor` / `major`).
-2. When the pre-bump `HEAD` is the advertised `origin/main` tip with a green
-   `gates_ok` push-CI run, the cut skips the local release gate and reaches
-   dispatch in minutes. Preflight, the version bump, and the publication-policy
-   scan always run. Pass `--full-verify` to force the full local gate after
-   changing packaging configuration (electron-builder, bundlers, native tool
-   packaging); without the fast path the full gate runs automatically.
+2. When the pre-bump `HEAD` is the advertised `origin/main` tip, the cut skips
+   the duplicate local release gate and reaches dispatch in minutes. Preflight,
+   the version bump, and the publication-policy scan always run. The version
+   change touches `package.json`, which triggers full exact-SHA push CI. Pass
+   `--full-verify` to get earlier local feedback after changing packaging
+   configuration such as electron-builder, bundlers, or native tool packaging.
 3. The workflow waits for the release commit's own push CI to finish; the
    wait budget is policy-tested to stay ahead of the slowest blocking CI
    lane's declared timeout, so an immediate post-push dispatch self-serves
@@ -37,7 +37,7 @@ verifies artifacts, and publishes — it revalidates nothing.
   because they require its verified direct provenance record.
 - Advisory-by-evidence gates stay advisory: the Windows ARM64 NSIS installed
   journey and the packaged scan-cleanup verifier annotate and upload evidence
-  without blocking (their contracts are pinned continuously in push CI, for
+  without blocking (their contracts are pinned in the required local gate, for
   example `scanCleanupToolbarContract.e2e.test.ts`).
 
 ## Anti-accretion rule
@@ -46,9 +46,8 @@ A release-failure fix may add provisioning or diagnostics, but a new
 *blocking* gate must name an existing blocking gate it demotes or deletes.
 Incident-response guards start advisory (`continue-on-error` plus a warning
 annotation) and are promoted only after catching a real defect twice. Prefer a
-cheap continuously-running contract in push CI over any release-time-only
-proof: release-path code that never executes between releases is where
-campaigns die. Every blocking CI lane's `timeout-minutes` is its duration
+cheap contract in the required local full gate over any release-time-only
+proof. Every blocking CI lane's `timeout-minutes` is its duration
 budget, pinned by the topology policy test at roughly twice measured
 reality: an addition that outgrows its lane fails the commit introducing
 it, and raising a budget is a deliberate, reviewed edit that also feeds
@@ -61,9 +60,10 @@ the release wait-budget assertion.
   tag at the requested SHA, `publish` reconciles an existing finalized draft,
   and mirror objects are content-addressed — a fresh dispatch with the same
   tag and target SHA resumes where the failure happened.
-- Only a code or workflow defect requires a new commit, and only a defect in
-  the release commit itself requires a new version. Never bump the version to
-  retry an infra failure.
+- An infrastructure flake does not require a new commit or version. Re-run the
+  same SHA and tag. Any code or workflow repair creates a new commit, so cut a
+  new version. Its package metadata change starts exact-SHA hosted CI. Never
+  bump the version only to retry an infrastructure failure.
 
 ## Pointers
 

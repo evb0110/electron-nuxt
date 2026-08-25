@@ -13,7 +13,7 @@ here is required reading for an ordinary cut.
 - `pnpm run release:verify` is intentionally host-only for packaging. If you change cross-platform launcher or packaging decisions, add unit coverage for that branching logic instead of assuming a macOS-local release cut exercises Linux and Windows paths.
 - Fresh installs follow the checked-in build-script policy in [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
 - Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
-- Broad maintenance checks (`typecheck:coverage` and the cold lint/typecheck variants) run in scheduled nightly CI and do not block release cutting; the coverage zero-execution tripwire is blocking and runs in push CI's quality lane. Long serial Electron E2E and PDF tab diagnostics live in nightly/manual diagnostics.
+- Broad maintenance checks (`typecheck:coverage` and the cold lint/typecheck variants) run in the required local gate. Hosted CI runs for pull requests and package metadata changes. Long serial Electron E2E and PDF tab diagnostics are available only by manual workflow dispatch.
 
 ## macOS signing, startup, and Gatekeeper
 
@@ -80,8 +80,8 @@ Decisions parked with explicit revisit conditions after the 2026-08 rework
 and the v0.1.427 campaign:
 
 - **Build-receipt machinery** (`scripts/release/build-receipt.mjs` and the
-  `EVB_RELEASE_BUILD_RECEIPT` handoff): nearly dead now that the green-CI
-  fast path skips the local gate. Delete once one or two releases have gone
+  `EVB_RELEASE_BUILD_RECEIPT` handoff): nearly dead now that the
+  advertised-tip fast path skips the local gate. Delete once one or two releases have gone
   through the fast path cleanly; `--full-verify` works either way.
 - **Matrix-artifact reuse across same-SHA attempts** and a **scheduled
   publish-chain drill**: worth building only if publish-chain failures recur.

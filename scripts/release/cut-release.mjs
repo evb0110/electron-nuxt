@@ -2,7 +2,6 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import { formatArtifactGroupList } from './artifact-groups.mjs';
 import {
-    findSuccessfulExactShaCiRun,
     getRepositoryUrlFromRunUrl,
     getRunArtifactsUrl,
     readWorkflowStartTimeoutMs,
@@ -83,20 +82,16 @@ export function parseCutReleaseArgs(argv) {
 /**
  * Decides whether the local `release:verify` gate can be skipped. It can only
  * when the pre-bump HEAD is exactly what the remote already advertises for
- * main AND that SHA has a successful push-CI run with a green `gates_ok`
- * aggregate — the same authority the release workflow's `prepare` enforces
- * before any release job runs. Everything the fast path skips is then a
- * literal re-execution of what that CI run (and the release build matrix)
- * already performs; the version bump itself only touches package.json.
+ * main. The version bump only touches package.json, which always triggers the
+ * full exact-SHA push CI that release.yml waits for before packaging. Use
+ * --full-verify when packaging configuration changed and earlier local
+ * feedback is worth the duplicate work.
  */
 export function resolveLocalVerificationPlan({
     fullVerify,
     headSha,
     upstream,
-}, {
-    findCiRun = findSuccessfulExactShaCiRun,
-    runCommand = run,
-} = {}) {
+}, {runCommand = run} = {}) {
     if (fullVerify) {
         return {
             reason: '--full-verify was requested',
@@ -121,22 +116,8 @@ export function resolveLocalVerificationPlan({
         };
     }
 
-    let ciRun = null;
-    try {
-        ciRun = findCiRun(headSha, {runCommand});
-    } catch {
-        // Fail closed into the full local gate on any CI-lookup error.
-    }
-    if (!ciRun) {
-        return {
-            reason: `no successful exact-SHA push CI run with green gates_ok covers ${headSha}`,
-            skipLocalVerify: false,
-        };
-    }
-
     return {
-        ciRun,
-        reason: `exact-SHA push CI already passed gates_ok for ${headSha}: ${ciRun.url}`,
+        reason: `the release commit will trigger full exact-SHA push CI from advertised ${upstream.ref} tip ${headSha}`,
         skipLocalVerify: true,
     };
 }

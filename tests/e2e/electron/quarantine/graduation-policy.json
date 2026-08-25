@@ -1,15 +1,14 @@
 {
   "$schema": "./graduation-policy.schema.json",
-  "version": 2,
+  "version": 3,
   "lane": {
     "events": [
-      "schedule",
       "workflow_dispatch"
     ],
     "blocking": false,
     "infraRetryCount": 2,
-    "reviewAfterScheduledRuns": 30,
-    "graduationEvidence": "github-actions-scheduled-history-and-manual-review"
+    "reviewAfterManualRuns": 30,
+    "graduationEvidence": "github-actions-manual-run-history-and-review"
   },
   "operatorDiagnostics": [
     {
