@@ -157,6 +157,7 @@
                   v-for="installer in installersForSelectedPlatform"
                   :key="installer.id"
                   class="installer-row"
+                  :class="{ 'installer-row-recommended': isRecommendedInstaller(installer) }"
                 >
                   <a
                     class="installer-item"

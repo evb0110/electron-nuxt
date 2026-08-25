@@ -249,7 +249,12 @@ export default {
             },
         },
         {
-            files: ['app/assets/css/**/*.{css,scss}'],
+            // Both entry stylesheets are hand-written Tailwind 4 token sheets
+            // (`@theme`, `#__nuxt`), so they share one exception list.
+            files: [
+                'app/assets/css/**/*.{css,scss}',
+                'landing/app/assets/css/**/*.{css,scss}',
+            ],
             rules: {
                 'scss/at-rule-no-unknown': null,
                 'hue-degree-notation': null,
