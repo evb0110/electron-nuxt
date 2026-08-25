@@ -81,7 +81,8 @@ describe('Microsoft Store submission policy', () => {
 
     it('always removes temporary upload material and executes its contract on Windows CI', async () => {
         const script = await readProjectFile('scripts/release/submit-store-appx.ps1');
-        const workflow = await readProjectFile('.github/workflows/store-appx.yml');
+        const packageWorkflow = await readProjectFile('.github/workflows/store-appx.yml');
+        const submissionWorkflow = await readProjectFile('.github/workflows/submit-store-appx.yml');
 
         expect(script).toMatch(/\ntry \{[\s\S]+\n\} finally \{/u);
         expect(script).toContain('if ($null -ne $uploadRoot)');
@@ -89,11 +90,11 @@ describe('Microsoft Store submission policy', () => {
         expect(script).toContain('if ($null -ne $zipPath)');
         expect(script).toContain('Remove-Item -Force $zipPath -ErrorAction SilentlyContinue');
         expect(script).toContain('if ($RunContractTests)');
-        expect(workflow).toContain('name: Exercise Store submission status contract');
-        expect(workflow).toContain('.\\scripts\\release\\submit-store-appx.ps1 -RunContractTests');
-        expect(workflow.match(/persist-credentials: false/gu)).toHaveLength(2);
-        expect(workflow).toContain('Microsoft Store submission was requested, but Partner Center credentials are not configured.');
-        expect(workflow).toContain('Partial Microsoft Store submission secrets detected; missing: ${missing[*]}');
+        expect(submissionWorkflow).toContain('name: Exercise Store submission status contract');
+        expect(submissionWorkflow).toContain('.\\scripts\\release\\submit-store-appx.ps1 -RunContractTests');
+        expect(packageWorkflow.match(/persist-credentials: false/gu)).toHaveLength(1);
+        expect(submissionWorkflow.match(/persist-credentials: false/gu)).toHaveLength(1);
+        expect(submissionWorkflow).toContain('Microsoft Store submission was enabled with missing credentials: ${missing[*]}');
     });
 
     it('reconciles exact pending or published packages and refuses unrelated drafts', async () => {
