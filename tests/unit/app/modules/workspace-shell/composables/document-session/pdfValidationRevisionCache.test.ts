@@ -60,6 +60,26 @@ describe('PDF validation revision cache', () => {
         expect(validate).toHaveBeenCalledOnce();
     });
 
+    it('does not reuse opening validation as full save validation', async () => {
+        const validateOpening = vi.fn(async () => validResult);
+        const validateFull = vi.fn(async () => validResult);
+        const revision = {
+            documentId: '/documents/dictionary.pdf',
+            size: 170_496_793,
+            modifiedAt: 1_724_000_000_000,
+        };
+
+        await expect(validatePdfRevision(revision, validateOpening, 'opening'))
+            .resolves.toMatchObject({cacheResult: 'miss'});
+        await expect(validatePdfRevision(revision, validateOpening, 'opening'))
+            .resolves.toMatchObject({cacheResult: 'hit'});
+        await expect(validatePdfRevision(revision, validateFull, 'full'))
+            .resolves.toMatchObject({cacheResult: 'miss'});
+
+        expect(validateOpening).toHaveBeenCalledOnce();
+        expect(validateFull).toHaveBeenCalledOnce();
+    });
+
     it('does not cache a failed validation', async () => {
         const invalidResult = {
             isValid: false,

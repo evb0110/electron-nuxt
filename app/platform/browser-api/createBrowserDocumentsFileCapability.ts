@@ -507,7 +507,7 @@ export function createBrowserDocumentsFileCapability(
         async validatePdfData(data) {
             return validateBrowserPdfData(data);
         },
-        async validatePdfPath(path) {
+        async validatePdfPath(path, _options) {
             const data = await browserDocumentStore.read(path);
             return validateBrowserPdfData(data);
         },

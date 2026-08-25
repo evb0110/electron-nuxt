@@ -2,10 +2,12 @@ import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
+import type { IPdfPathValidationOptions } from '@contracts/electronApiDocuments';
 import {
     analyzePdfConformanceFile,
     validatePdfData as validatePdfBytes,
     validatePdfFile,
+    validatePdfFileForOpening,
 } from '@electron/features/documents/main/pdfConformance';
 import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
@@ -47,6 +49,13 @@ export async function handleValidatePdfData(
 export async function handleValidatePdfPath(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
+    options?: IPdfPathValidationOptions,
 ): Promise<IPdfValidationResult> {
-    return readResolvedPdf(context, filePath, validatePdfFile);
+    return readResolvedPdf(
+        context,
+        filePath,
+        options?.purpose === 'opening'
+            ? validatePdfFileForOpening
+            : validatePdfFile,
+    );
 }

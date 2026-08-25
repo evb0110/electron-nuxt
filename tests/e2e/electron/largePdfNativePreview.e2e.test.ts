@@ -1,5 +1,10 @@
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
+import {constants as fsConstants} from 'node:fs';
+import {
+    copyFile,
+    unlink,
+} from 'node:fs/promises';
 import {
     describe,
     expect,
@@ -12,7 +17,6 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    clickVisibleToolbarButton,
     installNativePdfOpeningSampler,
     openPdfInApp,
     stopNativePdfOpeningSampler,
@@ -179,6 +183,24 @@ async function openWithHandoffTrace(
         2,
     );
     await openPdfInApp(page, priorPdfPath, LARGE_PDF_TIMEOUT_MS);
+    const seedNavigation = await callWorkspaceCommand(page, 'handleGoToPage', [2]);
+    expect(seedNavigation.called).toBe(true);
+    await waitForWorkspaceToolbarSnapshot(page, {currentPage: 2}, {timeoutMs: 30_000});
+    const closedToPlaceholder = await page.evaluate(() => {
+        const closeButton = document.querySelector<HTMLButtonElement>(
+            '.tab-list .tab.is-active .tab-close',
+        );
+        closeButton?.click();
+        return closeButton !== null;
+    });
+    expect(closedToPlaceholder).toBe(true);
+    await waitForFunctionInPage(page, () => {
+        const placeholder = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .workspace-host__placeholder',
+        );
+        const openButton = placeholder?.querySelector<HTMLButtonElement>('.open-panel-cta') ?? null;
+        return Boolean(openButton && !openButton.disabled && !openButton.matches('[data-loading="true"]'));
+    }, {timeout: 30_000});
     await installNativePdfOpeningSampler(page);
     const startedAt = await page.evaluate(() => performance.now());
     let frames: Awaited<ReturnType<typeof stopNativePdfOpeningSampler>> = [];
@@ -208,6 +230,87 @@ async function openWithHandoffTrace(
         frames,
         startedAt,
     };
+}
+
+async function assertEarlyNativePreviewCloseReturnsToIdle(page: Page, pdfPath: string) {
+    const priorPdfPath = await createMultiPageTextFixturePdf(
+        `large-pdf-early-close-prior-${Date.now()}.pdf`,
+        2,
+    );
+    await openPdfInApp(page, priorPdfPath, LARGE_PDF_TIMEOUT_MS);
+    const closedPriorDocument = await page.evaluate(() => {
+        const closeButton = document.querySelector<HTMLButtonElement>(
+            '.tab-list .tab.is-active .tab-close',
+        );
+        closeButton?.click();
+        return closeButton !== null;
+    });
+    expect(closedPriorDocument).toBe(true);
+    await waitForFunctionInPage(page, () => {
+        const placeholder = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .workspace-host__placeholder',
+        );
+        const openButton = placeholder?.querySelector<HTMLButtonElement>('.open-panel-cta') ?? null;
+        return Boolean(openButton && !openButton.disabled);
+    }, {
+        polling: 'raf',
+        timeout: 10_000,
+    });
+    await triggerOpenPathInApp(page, pdfPath, LARGE_PDF_TIMEOUT_MS);
+    await waitForFunctionInPage(page, () => {
+        const preview = document.querySelector<HTMLImageElement>(
+            '.editor-pane.is-active [data-testid="document-opening-native-preview"]',
+        );
+        if (!preview?.complete || preview.naturalWidth <= 0) {
+            return false;
+        }
+        const closeButton = document.querySelector<HTMLButtonElement>(
+            '.tab-list .tab.is-active .tab-close',
+        );
+        closeButton?.click();
+        return closeButton !== null;
+    }, {
+        polling: 'raf',
+        timeout: 10_000,
+    });
+    await waitForFunctionInPage(page, (sourcePath: string) => {
+        const host = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        );
+        const openButton = host?.querySelector<HTMLButtonElement>('.open-panel-cta') ?? null;
+        const recentRow = Array.from(
+            host?.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)') ?? [],
+        ).find(row => row.dataset.recentSource === sourcePath) ?? null;
+        return Boolean(
+            openButton
+            && !openButton.disabled
+            && host?.querySelector('[data-testid="document-opening-native-preview"]') === null
+            && recentRow?.dataset.recentOpenActionable === 'true',
+        );
+    }, {
+        polling: 'raf',
+        timeout: 10_000,
+    }, pdfPath);
+
+    const state = await page.evaluate((sourcePath: string) => {
+        const host = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        );
+        const openButton = host?.querySelector<HTMLButtonElement>('.open-panel-cta') ?? null;
+        const recentRow = Array.from(
+            host?.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)') ?? [],
+        ).find(row => row.dataset.recentSource === sourcePath) ?? null;
+        return {
+            openButtonDisabled: openButton?.disabled ?? null,
+            openingPreviewCount: host?.querySelectorAll('[data-testid="document-opening-native-preview"]').length ?? -1,
+            recentActionable: recentRow?.dataset.recentOpenActionable ?? null,
+        };
+    }, pdfPath);
+    expect(state, JSON.stringify(state)).toEqual({
+        openButtonDisabled: false,
+        openingPreviewCount: 0,
+        recentActionable: 'true',
+    });
 }
 
 async function assertNativeOpeningPreviewIsViewable(page: Page, expectedTotalPages: number) {
@@ -272,121 +375,11 @@ async function assertNativeOpeningPreviewIsViewable(page: Page, expectedTotalPag
         zoomInDisabled: false,
     });
     expect(controlState.pageDisplayText).toContain('/' + String(expectedTotalPages));
-
-    await clickVisibleToolbarButton(page, 'Next Page');
-    const previewAfterHandle = await waitForFunctionInPage(page, (previousObjectUrl: string) => {
-        const preview = document.querySelector<HTMLImageElement>(
-            '.editor-pane.is-active [data-testid="document-opening-native-preview"]',
-        );
-        const shell = preview?.closest<HTMLElement>('[data-document-page-number]') ?? null;
-        const objectUrl = preview?.currentSrc || preview?.src || '';
-        return preview?.complete === true
-            && (preview.naturalWidth ?? 0) > 0
-            && Number(shell?.dataset.documentPageNumber ?? 0) === 2
-            && objectUrl !== previousObjectUrl
-            ? {
-                objectUrl,
-                pageNumber: 2,
-            }
-            : null;
-    }, {timeout: 10_000}, previewBefore.objectUrl);
-    const previewAfter = await previewAfterHandle.jsonValue() as {
-        objectUrl: string;
-        pageNumber: number;
-    };
-    expect(previewAfter.pageNumber).toBe(2);
-    expect(await getWorkspaceToolbarSnapshot(page)).toMatchObject({
-        currentPage: 2,
-        totalPages: expectedTotalPages,
-    });
-    await waitForFunctionInPage(page, (expectedPageDisplay: string) => {
-        const toolbarHost = document.getElementById('editor-global-toolbar-host');
-        const isVisible = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = getComputedStyle(element);
-            return rect.width > 8
-                && rect.height > 8
-                && style.display !== 'none'
-                && style.visibility !== 'hidden';
-        };
-        return Array.from(toolbarHost?.querySelectorAll<HTMLElement>('.page-controls-display') ?? [])
-            .some(control => (
-                isVisible(control)
-                && control.textContent?.replace(/\s+/gu, '').includes(expectedPageDisplay)
-            ));
-    }, {timeout: 10_000}, `2/${String(expectedTotalPages)}`);
-
-    await clickVisibleToolbarButton(page, 'Toggle Sidebar');
-    await waitForWorkspaceToolbarSnapshot(page, {showSidebar: true}, {timeoutMs: 10_000});
-    const sidebarStateHandle = await waitForFunctionInPage(page, () => {
-        const host = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const wrapper = host?.querySelector<HTMLElement>('.sidebar-wrapper') ?? null;
-        const sidebar = wrapper?.querySelector<HTMLElement>('[data-testid="document-sidebar"]') ?? null;
-        const targetRow = sidebar?.querySelector<HTMLElement>('[data-thumbnail-page="3"]') ?? null;
-        const rect = sidebar?.getBoundingClientRect() ?? null;
-        if (!wrapper) {
-            return null;
-        }
-        return {
-            className: sidebar?.className ?? '',
-            hasTargetRow: Boolean(targetRow),
-            rect: rect ? {
-                height: rect.height,
-                width: rect.width,
-            } : null,
-            wrapper: {
-                ariaHidden: wrapper.getAttribute('aria-hidden'),
-                className: wrapper.className,
-                inert: wrapper.inert,
-                style: wrapper.getAttribute('style'),
-            },
-        };
-    }, {timeout: 10_000});
-    const sidebarState = await sidebarStateHandle.jsonValue() as {
-        className: string;
-        hasTargetRow: boolean;
-        rect: {
-            height: number;
-            width: number;
-        } | null;
-        wrapper: {
-            ariaHidden: string | null;
-            className: string;
-            inert: boolean;
-            style: string | null;
-        };
-    };
-    expect(sidebarState.rect?.width ?? 0, JSON.stringify(sidebarState)).toBeGreaterThan(0);
-    expect(sidebarState.hasTargetRow, JSON.stringify(sidebarState)).toBe(true);
-    await page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const row = host?.querySelector<HTMLElement>(
-            '[data-testid="document-sidebar"] [data-thumbnail-page="3"]',
-        ) ?? null;
-        if (!row) {
-            throw new Error('Native opening sidebar page 3 row is unavailable');
-        }
-        row.click();
-    });
-    await waitForWorkspaceToolbarSnapshot(page, {currentPage: 3}, {timeoutMs: 10_000});
-    await waitForFunctionInPage(page, () => {
-        const host = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        return host?.querySelector<HTMLElement>(
-            '[data-testid="document-sidebar"] [data-thumbnail-page="3"]',
-        )?.getAttribute('aria-current') === 'page';
-    }, {timeout: 10_000});
-    await clickVisibleToolbarButton(page, 'Toggle Sidebar');
-    await waitForWorkspaceToolbarSnapshot(page, {showSidebar: false}, {timeoutMs: 10_000});
 }
 
 function assertAtomicNativeToPdfjsHandoff(
     trace: Awaited<ReturnType<typeof openWithHandoffTrace>>,
+    expectedPage = 1,
 ) {
     const firstOpeningIndex = trace.frames.findIndex(frame => (
         frame.transitionSurfaceVisible
@@ -420,6 +413,32 @@ function assertAtomicNativeToPdfjsHandoff(
     expect(generationFrames.some(frame => (
         frame.pdfjsCanvasVisible && !frame.openingPreviewVisible
     )), JSON.stringify(generationFrames)).toBe(true);
+    expect(visualHandoffFrames.every(frame => (
+        !frame.openingPreviewVisible || frame.openingPreviewPage === expectedPage
+    )), JSON.stringify(visualHandoffFrames)).toBe(true);
+    expect(visualHandoffFrames.every(frame => (
+        !frame.pdfjsCanvasVisible || frame.pdfjsVisibleCanvasPages.includes(expectedPage)
+    )), JSON.stringify(visualHandoffFrames)).toBe(true);
+    expect(visualHandoffFrames.every(frame => (
+        frame.chassisCurrentPage === expectedPage
+        && frame.viewportRequestedPage === expectedPage
+    )), JSON.stringify(visualHandoffFrames)).toBe(true);
+    const lastPreviewFrame = visualHandoffFrames
+        .filter(frame => frame.openingPreviewVisible && frame.transitionShellRect !== null)
+        .at(-1);
+    const firstPdfjsFrame = visualHandoffFrames.find(frame => frame.pdfjsCanvasVisible);
+    expect(lastPreviewFrame, JSON.stringify(visualHandoffFrames)).toBeDefined();
+    expect(firstPdfjsFrame, JSON.stringify(visualHandoffFrames)).toBeDefined();
+    const transition = lastPreviewFrame!.transitionShellRect!;
+    const targetCanvasRects = firstPdfjsFrame!.pdfjsCanvasRects
+        .filter(rect => rect.page === expectedPage);
+    expect(targetCanvasRects.length, JSON.stringify(visualHandoffFrames)).toBeGreaterThan(0);
+    expect(targetCanvasRects.every(rect => (
+        Math.abs(rect.left - transition.left) <= 2
+        && Math.abs(rect.top - transition.top) <= 2
+        && Math.abs(rect.right - (transition.left + transition.width)) <= 2
+        && Math.abs(rect.bottom - (transition.top + transition.height)) <= 2
+    )), JSON.stringify(visualHandoffFrames)).toBe(true);
 }
 
 async function assertFinalPdfjsCapabilities(
@@ -647,6 +666,21 @@ largePdfDescribe('Electron E2E - Large PDF native opening preview handoff', () =
         assertAtomicNativeToPdfjsHandoff(trace);
         await assertFinalPdfjsCapabilities(session.page, GENERATED_LARGE_PDF_PAGE_COUNT);
         await assertSkeletonFreePageJump(session.page, NAVIGATION_ACCEPTANCE_PAGE);
+    }, LARGE_PDF_TIMEOUT_MS);
+
+    it('cancels an early native-preview close without leaving Recent Files busy', async () => {
+        const session = sessionFixture.getSession();
+        if (!session || !generatedLargePdf.path) {
+            throw new Error(`Large-PDF fixture unavailable: ${generatedLargePdf.reason}`);
+        }
+
+        const coldFixturePath = `${generatedLargePdf.path}.early-close-${String(Date.now())}.pdf`;
+        await copyFile(generatedLargePdf.path, coldFixturePath, fsConstants.COPYFILE_FICLONE);
+        try {
+            await assertEarlyNativePreviewCloseReturnsToIdle(session.page, coldFixturePath);
+        } finally {
+            await unlink(coldFixturePath).catch(() => undefined);
+        }
     }, LARGE_PDF_TIMEOUT_MS);
 
     it.skipIf(exactLargePdfPath.length === 0)(

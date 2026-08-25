@@ -12,6 +12,7 @@ import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import {createTabViewSessionState} from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
@@ -321,8 +322,53 @@ describe('WorkspaceDocumentController', () => {
         });
         expect(record.toolbarSnapshot.hasPdf).toBe(false);
         expect(record.toolbarSnapshot.viewerCapabilities.closeableDocument).toBe(false);
+        expect(record.viewState).toEqual(createTabViewSessionState(
+            createDefaultWorkspaceToolbarSnapshot(),
+        ));
         expect(session.snapshot.value.closeable).toBe(false);
         expect(session.snapshot.value.phase).toBe('empty');
+    });
+
+    it('cancels a pre-mount open and commits an empty session when closed early', async () => {
+        const session = createWorkspaceDocumentController({
+            tabId: 'tab-1',
+            initialViewState: createTabViewSessionState({
+                ...createDefaultWorkspaceToolbarSnapshot(),
+                currentPage: 64,
+                totalPages: 882,
+                zoom: 3.76,
+            }),
+        });
+        const openStarted = Promise.withResolvers<undefined>();
+        const openSignals: AbortSignal[] = [];
+        const open = session.open({
+            action: 'openRecentFromPlaceholder',
+            target: {
+                fileName: 'dictionary.pdf',
+                originalPath: '/docs/dictionary.pdf',
+                isDirty: false,
+                isDjvu: false,
+            },
+        }, async (signal) => {
+            openSignals.push(signal);
+            openStarted.resolve(undefined);
+            await new Promise<void>((resolve) => {
+                signal.addEventListener('abort', () => resolve(), {once: true});
+            });
+            return true;
+        });
+        await openStarted.promise;
+
+        await expect(session.close({persist: true})).resolves.toBe(true);
+        await expect(open).resolves.toBe(false);
+
+        expect(openSignals[0]?.aborted).toBe(true);
+        expect(session.mountedWorkspace.value).toBeNull();
+        expect(session.snapshot.value.activeTransaction).toBeNull();
+        expect(session.snapshot.value.phase).toBe('empty');
+        expect(session.snapshot.value.viewState).toEqual(createTabViewSessionState(
+            createDefaultWorkspaceToolbarSnapshot(),
+        ));
     });
 
     it('accepts a new document assigned by the shell after a close committed', () => {

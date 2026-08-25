@@ -436,11 +436,16 @@ export const useAppShellTabLifecycle = (
         return confirmed ? false : null;
     }
 
-    function workspaceHasCloseableDocument(tabId: string, workspace: IWorkspaceExpose | undefined): workspace is IWorkspaceExpose {
+    function workspaceHasCloseableDocument(tabId: string, workspace: IWorkspaceExpose | undefined) {
+        const sessionSnapshot = getDocumentSession(tabId)?.snapshot.value;
+        const activeKind = sessionSnapshot?.activeTransaction?.kind;
+        if (activeKind === 'open' || activeKind === 'restore' || activeKind === 'reload') {
+            return true;
+        }
         if (!workspace) {
             return false;
         }
-        if (getDocumentSession(tabId)?.snapshot.value.closeable === true) {
+        if (sessionSnapshot?.closeable === true) {
             return true;
         }
         if (recordHasCloseableDocument(tabId)) {
@@ -453,16 +458,19 @@ export const useAppShellTabLifecycle = (
     async function closeWorkspaceDocument(
         paneId: string,
         tabId: string,
-        workspace: IWorkspaceExpose,
+        workspace: IWorkspaceExpose | undefined,
         shouldPersistBeforeClose: boolean,
     ) {
         const controller = getDocumentSession(tabId);
+        if (!controller && !workspace) {
+            return;
+        }
         workspaceRestoreTracker.start(tabId);
         let closed = false;
         try {
             closed = controller
                 ? await controller.close({persist: shouldPersistBeforeClose})
-                : await workspace.handleCloseFileFromUi({persist: shouldPersistBeforeClose});
+                : await workspace!.handleCloseFileFromUi({persist: shouldPersistBeforeClose});
         } finally {
             workspaceRestoreTracker.finish(tabId);
         }

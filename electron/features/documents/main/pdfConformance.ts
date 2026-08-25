@@ -40,6 +40,8 @@ const QPDF_VALIDATE_TIMEOUT_BYTES_PER_STEP = 16 * 1024 * 1024;
 const QPDF_VALIDATE_TIMEOUT_STEP_MS = 1_000;
 const QPDF_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf)';
 const QPDF_VALIDATE_TIMEOUT_PATTERN = /^qpdf\(validate-pdf\) timed out after \d+ms$/u;
+const QPDF_OPENING_VALIDATE_TIMEOUT_MS = 10_000;
+const QPDF_OPENING_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf-opening)';
 const QPDF_EXIT_CODE_OK = 0;
 const QPDF_EXIT_CODE_WARNINGS = 3;
 const PDF_STRUCTURAL_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
@@ -281,6 +283,49 @@ export async function validatePdfFile(filePath: string): Promise<IPdfValidationR
             isValid: false,
             tool: 'qpdf',
             errors: [error instanceof Error ? error.message : 'PDF validation failed'],
+            warnings: [],
+        };
+    }
+}
+
+// Opening authorization is layered. qpdf proves that the page tree is readable,
+// then PDF.js must pass its render and viewport fences before the native preview
+// retires. Save operations still use validatePdfFile and its full qpdf check.
+export async function validatePdfFileForOpening(filePath: string): Promise<IPdfValidationResult> {
+    try {
+        const qpdf = getPdfNativeToolPaths().qpdf;
+        const result = await runNativeToolCommand(qpdf, [
+            '--show-npages',
+            filePath,
+        ], {
+            timeoutMs: QPDF_OPENING_VALIDATE_TIMEOUT_MS,
+            allowedExitCodes: [
+                QPDF_EXIT_CODE_OK,
+                QPDF_EXIT_CODE_WARNINGS,
+            ],
+            commandLabel: QPDF_OPENING_VALIDATE_COMMAND_LABEL,
+        });
+        const pageCountText = result.stdout.trim();
+        const pageCount = Number(pageCountText);
+        if (!/^[1-9]\d*$/u.test(pageCountText) || !Number.isSafeInteger(pageCount)) {
+            return {
+                isValid: false,
+                tool: 'qpdf',
+                errors: ['PDF opening validation returned an invalid page count'],
+                warnings: [],
+            };
+        }
+        return {
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: extractQpdfWarnings(result.stderr),
+        };
+    } catch (error) {
+        return {
+            isValid: false,
+            tool: 'qpdf',
+            errors: [error instanceof Error ? error.message : 'PDF opening validation failed'],
             warnings: [],
         };
     }

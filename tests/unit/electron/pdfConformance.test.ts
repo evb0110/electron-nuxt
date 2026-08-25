@@ -174,6 +174,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 const {
     analyzePdfConformanceFile,
     validatePdfFile,
+    validatePdfFileForOpening,
 } = await import('@electron/features/documents/main/pdfConformance');
 const { analyzePdfConformanceFileDirect } = await import('@electron/features/documents/main/analyzePdfConformanceFileDirect');
 
@@ -429,5 +430,84 @@ describe('validatePdfFile', () => {
         });
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.load).not.toHaveBeenCalled();
+    });
+});
+
+describe('validatePdfFileForOpening', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.runNativeToolCommand.mockResolvedValue({
+            stdout: '882\n',
+            stderr: '',
+            exitCode: 0,
+        });
+    });
+
+    it('uses the bounded page-tree check instead of the whole-file qpdf scan', async () => {
+        const result = await validatePdfFileForOpening('/tmp/large.pdf');
+
+        expect(result).toEqual({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: [],
+        });
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith('/mock/qpdf', [
+            '--show-npages',
+            '/tmp/large.pdf',
+        ], {
+            timeoutMs: 10_000,
+            allowedExitCodes: [
+                0,
+                3,
+            ],
+            commandLabel: 'qpdf(validate-pdf-opening)',
+        });
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalledWith(
+            '/mock/qpdf',
+            expect.arrayContaining(['--check']),
+            expect.anything(),
+        );
+    });
+
+    it('rejects a malformed page count', async () => {
+        mocks.runNativeToolCommand.mockResolvedValueOnce({
+            stdout: 'not-a-page-count\n',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await expect(validatePdfFileForOpening('/tmp/broken.pdf')).resolves.toEqual({
+            isValid: false,
+            tool: 'qpdf',
+            errors: ['PDF opening validation returned an invalid page count'],
+            warnings: [],
+        });
+    });
+
+    it('rejects a non-canonical page count', async () => {
+        mocks.runNativeToolCommand.mockResolvedValueOnce({
+            stdout: '00882\n',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await expect(validatePdfFileForOpening('/tmp/broken.pdf')).resolves.toEqual({
+            isValid: false,
+            tool: 'qpdf',
+            errors: ['PDF opening validation returned an invalid page count'],
+            warnings: [],
+        });
+    });
+
+    it('keeps qpdf opening failures fail-closed', async () => {
+        mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('damaged xref table'));
+
+        await expect(validatePdfFileForOpening('/tmp/broken.pdf')).resolves.toEqual({
+            isValid: false,
+            tool: 'qpdf',
+            errors: ['damaged xref table'],
+            warnings: [],
+        });
     });
 });

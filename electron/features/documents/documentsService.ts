@@ -24,6 +24,7 @@ import type {
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
     IPdfOptimizeResult,
+    IPdfPathValidationOptions,
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
     IWorkingCopyBackingStatus,
@@ -149,7 +150,11 @@ export interface IDocumentsService {
     ) => () => void;
     analyzePdfConformance: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IPdfConformanceProfile>;
     validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
-    validatePdfPath: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IPdfValidationResult>;
+    validatePdfPath: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+        options?: IPdfPathValidationOptions,
+    ) => Promise<IPdfValidationResult>;
     openPdfInDefaultAppData: (data: Uint8Array, fileName?: string) => Promise<{
         success: boolean;
         error?: string;

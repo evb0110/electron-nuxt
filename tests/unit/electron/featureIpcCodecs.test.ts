@@ -5,7 +5,10 @@ import {
 } from 'vitest';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
-import { DOCUMENT_FILES_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
+import {
+    DOCUMENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_PDF_PLATFORM_FEATURE,
+} from '@contracts/documentsPlatformFeature';
 import { PLATFORM_FEATURE_REGISTRY } from '@contracts/platformApiDescriptor';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
@@ -97,6 +100,26 @@ describe('feature IPC codec maps', () => {
                 progress: 1.1,
             }))
             .toThrow('invalid working-copy backing status');
+    });
+
+    it('accepts only the bounded opening purpose for path validation', () => {
+        const channel = DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfPath;
+        const codec = DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs[channel];
+
+        expect(codec?.decodeArgs(['/tmp/document.pdf']))
+            .toEqual(['/tmp/document.pdf']);
+        expect(codec?.decodeArgs([
+            '/tmp/document.pdf',
+            {purpose: 'opening'},
+        ])).toEqual([
+            '/tmp/document.pdf',
+            {purpose: 'opening'},
+        ]);
+        expect(() => codec?.decodeArgs([
+            '/tmp/document.pdf',
+            {purpose: 'save'},
+        ]))
+            .toThrow('validation options must be {purpose: \'opening\'}');
     });
 
     it('preserves typed native mutation fallback errors and rejects unknown codes', () => {

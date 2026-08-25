@@ -245,7 +245,7 @@ describe('createDocumentOpenFlow', () => {
         });
 
         await vi.waitFor(() => {
-            expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith(workingPath);
+            expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith(workingPath, {purpose: 'opening'});
         });
         expect(renderPageObjectUrl).not.toHaveBeenCalled();
         geometryGate.resolve(openingGeometry);
@@ -353,7 +353,7 @@ describe('createDocumentOpenFlow', () => {
         });
 
         await vi.waitFor(() => {
-            expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith(workingPath);
+            expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith(workingPath, {purpose: 'opening'});
         });
         geometryGate.resolve(openingGeometry);
         await vi.waitFor(() => {
@@ -790,7 +790,10 @@ describe('createDocumentOpenFlow', () => {
             error: 'errors.file.invalid',
         });
 
-        expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith('/tmp/corrupt-working.pdf');
+        expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith(
+            '/tmp/corrupt-working.pdf',
+            {purpose: 'opening'},
+        );
         expect(state.originalPath.value).toBe('/documents/active.pdf');
         expect(state.workingCopyPath.value).toBe('/tmp/active-working.pdf');
         expect(state.pdfData.value).toBe(activeData);

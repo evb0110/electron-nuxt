@@ -558,6 +558,9 @@ const isActiveRef = computed({
     get: () => isActive,
     set: () => {},
 });
+const preserveInitialStateForFirstSource = Boolean(initialViewState
+    && documentSession.snapshot.value.phase === 'ready'
+    && documentSession.snapshot.value.toolbarSnapshot.initialVisualReady);
 watch(
     () => isActive,
     (active) => {
@@ -582,9 +585,7 @@ const orchestration = useWorkspaceOrchestration({
     tabId,
     isActive: isActiveRef,
     initialViewState,
-    preserveInitialStateForFirstSource: Boolean(initialViewState
-        && documentSession.snapshot.value.phase === 'ready'
-        && documentSession.snapshot.value.toolbarSnapshot.initialVisualReady),
+    preserveInitialStateForFirstSource,
     documentSession,
     openSurface: documentOpenSurface,
     pendingDocumentPath: pendingDocumentStatusPath,
@@ -927,6 +928,7 @@ useDocumentWorkspacePageSessionRestore({
     currentPage,
     documentViewerRef,
     initialPage: initialViewState?.currentPage,
+    preserveInitialPage: preserveInitialStateForFirstSource,
     isLoading,
     onRestore: handleGoToPage,
     totalPages,

@@ -7,13 +7,14 @@ export interface IPdfValidationSourceRevision {
 }
 
 export type TPdfValidationCacheResult = 'hit' | 'miss' | 'coalesced';
+export type TPdfValidationPurpose = 'full' | 'opening';
 
 const MAX_VALIDATED_REVISIONS = 32;
 const successfulValidations = new Map<string, IPdfValidationResult>();
 const pendingValidations = new Map<string, Promise<IPdfValidationResult>>();
 
-function revisionKey(revision: IPdfValidationSourceRevision) {
-    return `${revision.documentId}\u0000${revision.size}:${revision.modifiedAt}`;
+function revisionKey(revision: IPdfValidationSourceRevision, purpose: TPdfValidationPurpose) {
+    return `${purpose}\u0000${revision.documentId}\u0000${revision.size}:${revision.modifiedAt}`;
 }
 
 function cacheSuccessfulValidation(key: string, validation: IPdfValidationResult) {
@@ -32,6 +33,7 @@ function cacheSuccessfulValidation(key: string, validation: IPdfValidationResult
 export async function validatePdfRevision(
     revision: IPdfValidationSourceRevision | null,
     validate: () => Promise<IPdfValidationResult>,
+    purpose: TPdfValidationPurpose = 'full',
 ): Promise<{
     validation: IPdfValidationResult;
     cacheResult: TPdfValidationCacheResult
@@ -42,7 +44,7 @@ export async function validatePdfRevision(
             cacheResult: 'miss',
         };
     }
-    const key = revisionKey(revision);
+    const key = revisionKey(revision, purpose);
     const cached = successfulValidations.get(key);
     if (cached) {
         successfulValidations.delete(key);

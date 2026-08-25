@@ -4,6 +4,7 @@ import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 
 export interface INativePdfOpeningFrame {
     capturedAtMs: number;
+    chassisCurrentPage: number | null;
     claimed: boolean;
     committedHighResolutionRasterVisible: boolean;
     committedLowResolutionRasterVisible: boolean;
@@ -12,9 +13,18 @@ export interface INativePdfOpeningFrame {
     generation: number;
     nativeSkeletonVisible: boolean;
     nativeViewerVisible: boolean;
+    openingPreviewPage: number | null;
     openingPreviewVisible: boolean;
+    pdfjsCanvasRects: Array<{
+        bottom: number;
+        left: number;
+        page: number;
+        right: number;
+        top: number;
+    }>;
     pdfjsCanvasVisible: boolean;
     pdfjsTextLayerVisible: boolean;
+    pdfjsVisibleCanvasPages: number[];
     transitionCoversViewport: boolean;
     transitionShellRect: {
         height: number;
@@ -24,7 +34,9 @@ export interface INativePdfOpeningFrame {
     } | null;
     transitionSkeletonCount: number;
     transitionSurfaceVisible: boolean;
+    viewportCommittedPage: number | null;
     viewportLifecycle: string;
+    viewportRequestedPage: number | null;
 }
 
 export async function installNativePdfOpeningSampler(page: Page) {
@@ -102,8 +114,29 @@ export async function installNativePdfOpeningSampler(page: Page) {
                 const rect = canvas.getBoundingClientRect();
                 return canvas.width >= Math.ceil(rect.width * Math.max(1, window.devicePixelRatio || 1));
             };
+            const parsePage = (value: string | undefined) => {
+                const parsed = Number(value);
+                return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+            };
+            const pdfjsCanvasRects = committedPdfjsCanvases.flatMap((canvas) => {
+                const pageNumber = Number(
+                    canvas.closest<HTMLElement>('.page_container')?.dataset.page ?? 0,
+                );
+                if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
+                    return [];
+                }
+                const rect = canvas.getBoundingClientRect();
+                return [{
+                    bottom: rect.bottom,
+                    left: rect.left,
+                    page: pageNumber,
+                    right: rect.right,
+                    top: rect.top,
+                }];
+            });
             testWindow.__nativePdfOpeningFrames!.push({
                 capturedAtMs: performance.now(),
+                chassisCurrentPage: parsePage(chassis?.dataset.chassisCurrentPage),
                 claimed: viewportHost?.dataset.openSurfacePhase !== undefined
                     && viewportHost.dataset.openSurfacePhase !== 'idle'
                     && (chassis?.dataset.openSurfaceDocumentId ?? '').length > 0,
@@ -118,13 +151,16 @@ export async function installNativePdfOpeningSampler(page: Page) {
                     nativeViewer?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
                 ).some(element => isVisible(element) && intersects(element, viewportHost)),
                 nativeViewerVisible: isVisible(nativeViewer),
+                openingPreviewPage: parsePage(transitionShell?.dataset.pageNumber),
                 openingPreviewVisible: openingPreview !== null
                     && isVisible(openingPreview)
                     && intersects(openingPreview, viewportHost),
+                pdfjsCanvasRects,
                 pdfjsCanvasVisible: committedPdfjsCanvases.length > 0,
                 pdfjsTextLayerVisible: Array.from(
                     pdfjsViewer?.querySelectorAll<HTMLElement>('.text-layer, .textLayer') ?? [],
                 ).some(layer => isVisible(layer) && intersects(layer, viewportHost)),
+                pdfjsVisibleCanvasPages: pdfjsCanvasRects.map(rect => rect.page),
                 transitionShellRect: transitionRect ? {
                     height: transitionRect.height,
                     left: transitionRect.left,
@@ -141,7 +177,9 @@ export async function installNativePdfOpeningSampler(page: Page) {
                     && Math.min(transitionRect.bottom, viewportRect.bottom, window.innerHeight)
                         > Math.max(transitionRect.top, viewportRect.top, 0),
                 transitionSurfaceVisible: isVisible(transitionSurface),
+                viewportCommittedPage: parsePage(chassis?.dataset.viewportCommittedPage),
                 viewportLifecycle: chassis?.dataset.viewportLifecycle ?? '',
+                viewportRequestedPage: parsePage(chassis?.dataset.viewportRequestedPage),
             });
             testWindow.__nativePdfOpeningAnimationFrame = requestAnimationFrame(capture);
         };

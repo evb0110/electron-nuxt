@@ -547,4 +547,86 @@ describe('useAppShellTabLifecycle', () => {
         expect(shellState.activeWorkspaceCanSave.value).toBe(true);
         expect(shellToolbar.shellToolbarSnapshot.value.canSave).toBe(true);
     });
+
+    it('closes an opening-only singleton through the controller and clears its busy state', async () => {
+        const pane = {
+            paneId: 'pane-1',
+            activeTabId: 'tab-1',
+            tabIds: ['tab-1'],
+        };
+        const tabs = ref<ITab[]>([{
+            id: 'tab-1',
+            fileName: 'dictionary.pdf',
+            originalPath: '/docs/dictionary.pdf',
+            isDirty: false,
+            isDjvu: false,
+        }]);
+        const session = createWorkspaceDocumentController({tabId: 'tab-1'});
+        const openStarted = Promise.withResolvers<undefined>();
+        const open = session.open({
+            action: 'openRecentFromPlaceholder',
+            target: {
+                fileName: 'dictionary.pdf',
+                originalPath: '/docs/dictionary.pdf',
+                isDirty: false,
+                isDjvu: false,
+            },
+        }, async (signal) => {
+            openStarted.resolve(undefined);
+            await new Promise<void>((resolve) => {
+                signal.addEventListener('abort', () => resolve(), {once: true});
+            });
+            return true;
+        });
+        await openStarted.promise;
+        const workspaceSplitCache = {
+            set: vi.fn(),
+            peek: vi.fn(),
+            consume: vi.fn(),
+            has: vi.fn(() => false),
+            clear: vi.fn(),
+        };
+        const workspaceRestoreTracker = {
+            start: vi.fn(),
+            finish: vi.fn(),
+            has: vi.fn(() => false),
+        };
+        const lifecycle = useAppShellTabLifecycle({
+            panes: ref([pane]),
+            tabs,
+            activePaneId: ref('pane-1'),
+            activeTabId: ref<string | null>('tab-1'),
+            workspaceRefs: ref(new Map()),
+            documentSessionsByTabId: shallowRef({'tab-1': session}),
+            getDocumentRecord: vi.fn(() => null),
+            workspaceSplitCache,
+            workspaceRestoreTracker,
+            getPaneById: vi.fn((paneId: string | null | undefined) => paneId === 'pane-1' ? pane : null),
+            getTabById: vi.fn((tabId: string | null | undefined) => (
+                tabs.value.find(candidate => candidate.id === tabId) ?? null
+            )),
+            getPaneByTabId: vi.fn((tabId: string | null | undefined) => tabId === 'tab-1' ? pane : null),
+            activatePane: vi.fn(),
+            activateTab: vi.fn(),
+            closeTab: vi.fn(),
+            closePane: vi.fn(),
+            requestDirtyTabCloseConfirmation: vi.fn(async () => true),
+        });
+
+        await lifecycle.handleCloseTab('pane-1', 'tab-1');
+        await expect(open).resolves.toBe(false);
+
+        expect(session.snapshot.value.activeTransaction).toBeNull();
+        expect(session.snapshot.value.phase).toBe('empty');
+        expect(lifecycle.isTabTransitionBusy.value).toBe(false);
+        expect(tabs.value[0]).toMatchObject({
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        });
+        expect(workspaceRestoreTracker.start).toHaveBeenCalledWith('tab-1');
+        expect(workspaceRestoreTracker.finish).toHaveBeenCalledWith('tab-1');
+        expect(workspaceSplitCache.clear).toHaveBeenCalledWith('tab-1');
+    });
 });

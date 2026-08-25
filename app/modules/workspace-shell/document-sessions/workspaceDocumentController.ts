@@ -134,9 +134,9 @@ interface IWorkspaceWaiter {
     resolve: (workspace: IWorkspaceExpose | null) => void;
     timer: ReturnType<typeof setTimeout>;
 }
-// A native opening preview keeps a large PDF usable while whole-file validation
-// continues. Leave enough time for that validation to finish so the controller
-// does not abort a visible open and route the same document into a second tab.
+// A native opening preview keeps a large PDF usable while the page-tree check,
+// source setup, and PDF.js first render finish. Leave enough time for slow file
+// transports so the controller does not abort a visible open into a second tab.
 const DEFAULT_DOCUMENT_OPEN_STAGE_TIMEOUT_MS = 120_000;
 let nextSessionIndex = 0;
 let nextGlobalDocumentSessionKeyIndex = 0;
@@ -602,6 +602,7 @@ export function createWorkspaceDocumentController(
                     pendingDocumentPath: null,
                     pendingClose: null,
                     toolbarSnapshot: emptyRecord.toolbarSnapshot,
+                    viewState: createTabViewSessionState(emptyRecord.toolbarSnapshot),
                     dirty: false,
                     closeable: false,
                 };
@@ -1101,7 +1102,13 @@ export function createWorkspaceDocumentController(
             try {
                 const workspace = mountedWorkspace.value;
                 if (!workspace) {
-                    return false;
+                    const activeKind = snapshot.value.activeTransaction?.kind;
+                    if (activeKind !== 'open' && activeKind !== 'restore' && activeKind !== 'reload') {
+                        return false;
+                    }
+                    commitClose();
+                    closed = true;
+                    return true;
                 }
                 closed = await workspace.handleCloseFileFromUi({
                     ...request,

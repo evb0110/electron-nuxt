@@ -462,8 +462,8 @@ export function registerDocumentsIpcAdapter(
             service.analyzePdfConformance(context, filePath),
         validatePdfData: (data, fileName) =>
             service.validatePdfData(data, fileName),
-        validatePdfPath: (context, filePath) =>
-            service.validatePdfPath(context, filePath),
+        validatePdfPath: (context, filePath, options) =>
+            service.validatePdfPath(context, filePath, options),
         openPdfInDefaultAppData: (data, fileName) =>
             service.openPdfInDefaultAppData(data, fileName),
         openPdfInDefaultAppPath: (context, filePath, fileName) =>

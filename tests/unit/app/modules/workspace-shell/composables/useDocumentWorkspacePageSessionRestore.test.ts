@@ -27,6 +27,7 @@ describe('useDocumentWorkspacePageSessionRestore', () => {
             initialPage: 8,
             isLoading,
             onRestore,
+            preserveInitialPage: true,
             totalPages,
         }));
 
@@ -44,6 +45,32 @@ describe('useDocumentWorkspacePageSessionRestore', () => {
         expect(currentPage.value).toBe(1);
         expect(totalPages.value).toBe(0);
         expect(isLoading.value).toBe(false);
+        scope.stop();
+    });
+
+    it('does not restore a stale page into a fresh document open', async () => {
+        const activeViewerAdapter = ref<unknown>({});
+        const currentPage = ref(1);
+        const documentViewerRef = ref<unknown>({});
+        const isLoading = ref(false);
+        const totalPages = ref(882);
+        const onRestore = vi.fn();
+        const scope = effectScope();
+        scope.run(() => useDocumentWorkspacePageSessionRestore({
+            activeViewerAdapter,
+            currentPage,
+            documentViewerRef,
+            initialPage: 64,
+            isLoading,
+            onRestore,
+            preserveInitialPage: false,
+            totalPages,
+        }));
+
+        await nextTick();
+
+        expect(onRestore).not.toHaveBeenCalled();
+        expect(currentPage.value).toBe(1);
         scope.stop();
     });
 });

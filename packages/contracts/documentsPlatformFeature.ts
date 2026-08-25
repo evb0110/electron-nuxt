@@ -82,6 +82,7 @@ import {
     type TDocumentMethodArgs,
     type TDocumentMethodResult,
 } from '@contracts/documentsPlatformFeatureSchemas';
+import {pdfValidationPathArgs} from '@contracts/pdfValidationPathArgs';
 export {decodeOpenFileResult} from '@contracts/documentsPlatformFeatureSchemas';
 
 const optionalEverywhere = {
@@ -660,11 +661,11 @@ export const DOCUMENT_PDF_PLATFORM_FEATURE = definePlatformFeature({
         ),
         validatePdfPath: {
             ...defineIpcMethod(
-                'validatePdfPath', 'pdf:validatePath', pdfPathArgs,
+                'validatePdfPath', 'pdf:validatePath', pdfValidationPathArgs,
                 validationResult, 'validatePdfPath', 'sender',
             ),
             ipc: {
-                args: pdfPathArgs,
+                args: pdfValidationPathArgs,
                 result: validationResult,
                 timeoutMs: longNativeIpcTimeoutMs,
             },

@@ -824,7 +824,10 @@ export interface IDocumentsFileCapability {
         path: TDocumentRef | null;
         validation: IPdfValidationResult | null;
     }>;
-    validatePdfPath: (path: TDocumentRef) => Promise<IPdfValidationResult>;
+    validatePdfPath: (
+        path: TDocumentRef,
+        options?: IPdfPathValidationOptions,
+    ) => Promise<IPdfValidationResult>;
     cleanupFile: (path: TDocumentRef) => Promise<void>;
     cleanupOcrTemp: (path: TDocumentRef) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;
@@ -862,6 +865,8 @@ export interface IDocumentsFileCapability {
         options?: ICreateCombinedPdfFromFilesOptions,
     ) => Promise<Uint8Array>;
 }
+
+export interface IPdfPathValidationOptions {purpose: 'opening';}
 
 export interface IDocumentsPickerCapability extends Pick<
     IDocumentsFileCapability,

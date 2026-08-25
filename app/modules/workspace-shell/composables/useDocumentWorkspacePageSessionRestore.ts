@@ -8,6 +8,7 @@ interface IDocumentWorkspacePageSessionRestoreOptions {
     initialPage: number | undefined;
     isLoading: Ref<boolean>;
     onRestore: (pageNumber: number) => void;
+    preserveInitialPage: boolean;
     totalPages: Ref<number>;
 }
 
@@ -17,9 +18,9 @@ export const useDocumentWorkspacePageSessionRestore = (
     // A hibernated tab remounts its viewer and reopens the source. Source setup
     // may publish page 1 before metadata is available; preserve the persisted
     // navigation intent until a live renderer and authoritative count exist.
-    let pendingInitialPageRestore = options.initialPage == null
-        ? null
-        : Math.max(1, Math.trunc(options.initialPage));
+    let pendingInitialPageRestore = options.preserveInitialPage && options.initialPage != null
+        ? Math.max(1, Math.trunc(options.initialPage))
+        : null;
     watch(options.activeViewerAdapter, (adapter) => {
         if (!adapter) {
             logPdfRenderTrace('workspace-page-session-adapter-reset', {currentPageBefore: options.currentPage.value});

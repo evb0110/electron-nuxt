@@ -907,7 +907,8 @@ export function createDocumentOpenFlow(
         const validationTask = (opts?.validationRevision ?? Promise.resolve(null))
             .then(revision => validatePdfRevision(
                 revision,
-                () => getDocumentPdfCapability().validatePdfPath(path),
+                () => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'opening'}),
+                'opening',
             ));
         const pdfjsPreparation: {
             preparedDocumentRevision: IDocumentRevisionInfo | null | undefined;

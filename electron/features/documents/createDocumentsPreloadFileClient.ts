@@ -816,10 +816,11 @@ export function createDocumentsPreloadFileClient(
                     ? assertNonEmptyString(fileName, 'validatePdfData.fileName', MAX_IPC_FILE_NAME_LENGTH)
                     : undefined,
             ),
-        validatePdfPath: (path) =>
+        validatePdfPath: (path, options) =>
             invokePdf(
                 DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfPath,
                 assertAbsolutePath(path, 'validatePdfPath.path'),
+                options,
             ),
         openPdfInDefaultAppData: (data, fileName?: string) =>
             invokePdf(
