@@ -13,6 +13,7 @@ import {
     resolve,
 } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {removeTemporaryDirectorySync} from '@tests/helpers/removeTemporaryDirectory';
 import { spawnSync } from 'node:child_process';
 import {
     describe,
@@ -263,10 +264,7 @@ describe('changed-area classifier', () => {
                 'scan_cleanup_export=false',
             ]);
         } finally {
-            rmSync(tempDir, {
-                force: true,
-                recursive: true,
-            });
+            removeTemporaryDirectorySync(tempDir);
         }
     });
 
@@ -285,10 +283,7 @@ describe('changed-area classifier', () => {
             expect(classification.files).toContain('landing/app/pages/removed.vue');
             expect(classification.result.landing?.matched).toBe(true);
         } finally {
-            rmSync(root, {
-                force: true,
-                recursive: true,
-            });
+            removeTemporaryDirectorySync(root);
         }
     });
 
@@ -316,10 +311,7 @@ describe('changed-area classifier', () => {
             ]));
             expect(classification.result.landing?.matched).toBe(true);
         } finally {
-            rmSync(root, {
-                force: true,
-                recursive: true,
-            });
+            removeTemporaryDirectorySync(root);
         }
     });
 
@@ -361,10 +353,7 @@ describe('changed-area classifier', () => {
             expect(classification.result.scan_cleanup_export?.matched).toBe(true);
             expect(classification.result.native_or_build?.matched).toBe(true);
         } finally {
-            rmSync(root, {
-                force: true,
-                recursive: true,
-            });
+            removeTemporaryDirectorySync(root);
         }
     });
 
@@ -384,10 +373,7 @@ describe('changed-area classifier', () => {
             expect(classification.files).toContain('app/modules/scan-cleanup/type-change.ts');
             expect(classification.result.scan_cleanup_export?.matched).toBe(true);
         } finally {
-            rmSync(root, {
-                force: true,
-                recursive: true,
-            });
+            removeTemporaryDirectorySync(root);
         }
     });
 });

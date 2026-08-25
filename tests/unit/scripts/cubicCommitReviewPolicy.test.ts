@@ -3,7 +3,6 @@ import {
     mkdir,
     mkdtemp,
     readFile,
-    rm,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -14,6 +13,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import {removeTemporaryDirectory} from '@tests/helpers/removeTemporaryDirectory';
 
 interface ICubicReviewModule {
     cacheMarkerName: (commit: string, version: string) => string;
@@ -240,10 +240,7 @@ describe('Cubic local commit review policy', () => {
             expect(await runMain('empty-version')).toBe(0);
             expect((await readFile(countPath, 'utf8')).trim().split('\n')).toHaveLength(2);
         } finally {
-            await rm(repository, {
-                force: true,
-                recursive: true,
-            });
+            await removeTemporaryDirectory(repository);
         }
     });
 
@@ -275,10 +272,7 @@ describe('Cubic local commit review policy', () => {
                 ], repository)).rejects.toThrow('git rev-parse --verify');
             });
         } finally {
-            await rm(repository, {
-                force: true,
-                recursive: true,
-            });
+            await removeTemporaryDirectory(repository);
         }
     });
 
@@ -297,10 +291,7 @@ describe('Cubic local commit review policy', () => {
                 homeDirectory,
             })).toBe(binary);
         } finally {
-            await rm(homeDirectory, {
-                force: true,
-                recursive: true,
-            });
+            await removeTemporaryDirectory(homeDirectory);
         }
     });
 
@@ -339,10 +330,7 @@ describe('Cubic local commit review policy', () => {
             expect(() => cubicReview.cubicInvocation(binary, ['unsafe&argument'], {platform: 'win32'}))
                 .toThrow('unsupported shell metacharacters');
         } finally {
-            await rm(homeDirectory, {
-                force: true,
-                recursive: true,
-            });
+            await removeTemporaryDirectory(homeDirectory);
         }
     });
 });

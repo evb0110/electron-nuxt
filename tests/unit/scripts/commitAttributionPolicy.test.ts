@@ -3,7 +3,6 @@ import {
     mkdir,
     mkdtemp,
     readFile,
-    rm,
     writeFile,
 } from 'node:fs/promises';
 import {
@@ -17,6 +16,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import {removeTemporaryDirectory} from '@tests/helpers/removeTemporaryDirectory';
 
 interface IViolation {
     matches: string[];
@@ -104,10 +104,7 @@ async function createRepository(prefix: string, extraArguments: string[] = []) {
 }
 
 async function removeRepository(repository: string) {
-    await rm(repository, {
-        force: true,
-        recursive: true,
-    });
+    await removeTemporaryDirectory(repository);
 }
 
 async function writeFiles(repository: string, files: Record<string, string>) {

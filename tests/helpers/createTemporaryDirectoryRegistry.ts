@@ -1,4 +1,4 @@
-import {rm} from 'node:fs/promises';
+import {removeTemporaryDirectory} from '@tests/helpers/removeTemporaryDirectory';
 
 export function createTemporaryDirectoryRegistry() {
     const directories = new Set<string>();
@@ -7,10 +7,7 @@ export function createTemporaryDirectoryRegistry() {
         async cleanup() {
             const registeredDirectories = [...directories];
             directories.clear();
-            await Promise.all(registeredDirectories.map(directory => rm(directory, {
-                force: true,
-                recursive: true,
-            })));
+            await Promise.all(registeredDirectories.map(removeTemporaryDirectory));
         },
         register<T extends string>(directory: T) {
             directories.add(directory);
