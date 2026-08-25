@@ -1,0 +1,83 @@
+app/modules/agent-panel/composables/useAgentAssistantPanelController.ts
+  s_92655edb3dc5ea::t_e7db3e44951350 470,566,857,1000
+tests/unit/electron/agentMcpProxy.test.ts
+  s_92655edb3dc5ea::t_8dd591cc76ad0c 139-150,155-156,168-169,175,177
+  s_92655edb3dc5ea::t_d87e4b98dc5f44 8,112-118
+  s_92655edb3dc5ea::t_881c10523b0455 9,170-172,176,178
+scripts/evb-mcp-proxy.mjs
+  s_92655edb3dc5ea::t_8dd591cc76ad0c 16-19,22,570,581,652-653,664-665
+  s_92655edb3dc5ea::t_2ec87b9447a97b 572,654,666
+  s_92655edb3dc5ea::t_cd0b9e83c9e041 20
+  s_92655edb3dc5ea::t_e6454f1ac7d992 12,21,726
+tests/unit/electron/assistantRuntimeLifecycle.test.ts
+  s_92655edb3dc5ea::t_d87e4b98dc5f44 1-14,16-88
+  s_92655edb3dc5ea::t_0ec8f10346ef06 15
+electron/features/agent/assistantPresetWorkflows.ts
+  s_92655edb3dc5ea::t_5439c1de038faf 11-14,17-18,30-31,43-44
+  s_92655edb3dc5ea::t_cd0b9e83c9e041 15
+  s_92655edb3dc5ea::t_e6454f1ac7d992 16
+electron/features/agent/assistantRuntimeLifecycle.ts
+  s_92655edb3dc5ea::t_68c5248215cd5e 37-39,49-52,274-286
+  s_7aa6a61bedd5ad::t_cdaf000e7ccdba 36
+tests/unit/electron/claudeAgentSdkAssistant.test.ts
+  s_92655edb3dc5ea::t_31085238a1a29e 323
+  s_92655edb3dc5ea::t_881c10523b0455 322
+electron/features/agent/assistantProviderState.ts
+  s_92655edb3dc5ea::t_1b54a977998c50 73-89
+tests/unit/electron/agentMcpServer.test.ts
+  s_92655edb3dc5ea::t_8dd591cc76ad0c 490-492,889,893
+electron/features/agent/claudeAgentSdkAssistant.ts
+  s_92655edb3dc5ea::t_2ec87b9447a97b 51,990
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.test.ts
+  s_92655edb3dc5ea::t_d87e4b98dc5f44 607-624
+  s_92655edb3dc5ea::t_4fcad8608f159e 345-348
+  s_92655edb3dc5ea::t_68c5248215cd5e 344,349
+  s_92655edb3dc5ea::t_881c10523b0455 587-606
+  s_92655edb3dc5ea::t_f9ef1f9ac5bf7e 341-343,350-361
+tests/unit/electron/agentAssistantConfig.test.ts
+  s_92655edb3dc5ea::t_74d145d413943a 11,15-19,73-74,76-80,82-85,154
+  s_92655edb3dc5ea::t_5439c1de038faf 75
+  s_92655edb3dc5ea::t_881c10523b0455 10,14,150-153
+  s_92655edb3dc5ea::t_094eda981e8b69 81
+  s_92655edb3dc5ea::t_f9ef1f9ac5bf7e 93,109-110,138
+app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts
+  s_92655edb3dc5ea::t_e6454f1ac7d992 810,822
+  s_92655edb3dc5ea::t_31085238a1a29e 808
+electron/features/agent/mcp/mcpServerCore.ts
+  s_92655edb3dc5ea::t_5439c1de038faf 15,110,117
+tests/unit/electron/agentAssistantProviderState.test.ts
+  s_92655edb3dc5ea::t_31085238a1a29e 98-101
+  s_92655edb3dc5ea::t_e3fc8841c20668 15,66-84
+  s_92655edb3dc5ea::t_881c10523b0455 85,87-97,102-114
+  s_92655edb3dc5ea::t_6c9c23b8b8c2c1 86
+electron/features/agent/codexAssistantConfig.ts
+  s_92655edb3dc5ea::t_5439c1de038faf 1-2,14,20-21
+  s_92655edb3dc5ea::t_e7db3e44951350 9,69
+tests/unit/app/modules/agent-panel/assistantPanelMountedLifecycle.test.ts
+  s_92655edb3dc5ea::t_f9ef1f9ac5bf7e 143-149,204-213
+  s_92655edb3dc5ea::t_e361d66363da20 214-216
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "9eca12829ccc611d9b486a4e691157448a102f34",
+  "prompts": {},
+  "sessions": {
+    "s_7aa6a61bedd5ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03a68-97aa-7471-a833-028dfb487475",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_92655edb3dc5ea": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03a71-a82e-7ef0-aaeb-11c50f08a26e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
