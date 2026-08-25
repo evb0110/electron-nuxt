@@ -11,6 +11,7 @@ import {
     type IBrowserPrintDocument,
     type TPrintOrientation,
 } from '@app/utils/pdfPrintShared';
+import { buildPrintSelectionFileName } from '@app/utils/buildPrintSelectionFileName';
 
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
@@ -19,7 +20,6 @@ const PRINT_PREPARING_TOAST_DELAY_MS = 600;
 const BROWSER_PRINT_FRAME_MIN_WIDTH_PX = 1280;
 const BROWSER_PRINT_FRAME_MIN_HEIGHT_PX = 1600;
 const PDF_MIME_TYPE = 'application/pdf';
-const PDF_FILE_EXTENSION_PATTERN = /\.pdf$/i;
 
 function isCrossOriginFrameAccessError(error: unknown) {
     if (!(error instanceof Error)) {
@@ -232,28 +232,14 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     }
 
     function resolveBrowserPrintTitle(payload: IPrintDialogSubmitPayload) {
-        const trimmedFileName = deps.fileName.value?.trim();
-        const sourceFileName = trimmedFileName?.length ? trimmedFileName : 'document.pdf';
-        if (!payload.pageNumbers?.length) {
-            return sourceFileName;
-        }
-
-        const pageNumbers = normalizePrintPageNumbers(payload.pageNumbers, deps.totalPages.value);
-        if (pageNumbers.length !== 1) {
-            return sourceFileName;
-        }
-
-        const [pageNumber] = pageNumbers;
-        if (pageNumber === undefined) {
-            return sourceFileName;
-        }
-        const pageLabel = t('print.fileNamePage', { page: pageNumber });
-
-        if (PDF_FILE_EXTENSION_PATTERN.test(sourceFileName)) {
-            return sourceFileName.replace(PDF_FILE_EXTENSION_PATTERN, ` - ${pageLabel}.pdf`);
-        }
-
-        return `${sourceFileName} - ${pageLabel}.pdf`;
+        return buildPrintSelectionFileName({
+            fileName: deps.fileName.value,
+            pageNumbers: payload.pageNumbers,
+            totalPages: deps.totalPages.value,
+            formatPage: page => t('print.fileNamePage', { page }),
+            formatPages: pages => t('print.fileNamePages', { pages }),
+            formatSelection: selection => t('print.fileNamePageSelection', selection),
+        });
     }
 
     function handlePrint() {

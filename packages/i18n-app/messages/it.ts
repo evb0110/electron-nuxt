@@ -909,6 +909,8 @@ export default {
         'systemDialogHint': 'Stampante, formato carta, copie, fronte-retro, margini e destinazione si impostano nella finestra di sistema.',
         'preparing': 'Preparazione della stampa...',
         'fileNamePage': 'pagina {page}',
+        'fileNamePages': 'pagine {pages}',
+        'fileNamePageSelection': 'pagine {count}-selezionate_{first}-a-{last}_id-{fingerprint}',
         'requestSent': 'Richiesta di stampa inviata.',
         'failed': 'Impossibile preparare il documento per la stampa.',
         'failedWithReason': 'Impossibile preparare il documento per la stampa: {reason}',

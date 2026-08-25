@@ -910,6 +910,8 @@ export default {
         'systemDialogHint': 'A impressora, o tamanho do papel, as cópias, a impressão frente e verso, as margens e o destino continuam na caixa de diálogo do sistema.',
         'preparing': 'A preparar impressão...',
         'fileNamePage': 'página {page}',
+        'fileNamePages': 'páginas {pages}',
+        'fileNamePageSelection': 'páginas {count}-selecionadas_{first}-a-{last}_id-{fingerprint}',
         'requestSent': 'Pedido de impressão enviado.',
         'failed': 'Não foi possível preparar o documento para impressão.',
         'failedWithReason': 'Não foi possível preparar o documento para impressão: {reason}',

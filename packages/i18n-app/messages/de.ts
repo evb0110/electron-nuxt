@@ -909,6 +909,8 @@ export default {
         'systemDialogHint': 'Drucker, Papiergröße, Kopien, Duplex, Ränder und Ziel werden im Systemdialog festgelegt.',
         'preparing': 'Druck wird vorbereitet...',
         'fileNamePage': 'Seite {page}',
+        'fileNamePages': 'Seiten {pages}',
+        'fileNamePageSelection': 'Seiten {count}-ausgewählt_{first}-bis-{last}_id-{fingerprint}',
         'requestSent': 'Druckauftrag gesendet.',
         'failed': 'Das Dokument konnte nicht für den Druck vorbereitet werden.',
         'failedWithReason': 'Das Dokument konnte nicht für den Druck vorbereitet werden: {reason}',

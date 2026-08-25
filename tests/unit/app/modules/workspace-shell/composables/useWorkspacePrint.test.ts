@@ -106,10 +106,12 @@ interface IFakeFrame {
     removeEventListener: ReturnType<typeof vi.fn>;
     contentWindow: IFakeFrameWindow | null;
     trigger: (eventName: string) => void;
+    waitForListener: (eventName: string) => Promise<void>;
 }
 
 function createFakeFrame() {
     const listeners = new Map<string, EventListener>();
+    const listenerWaiters = new Map<string, Set<() => void>>();
     const frameDocument = { querySelector: vi.fn(() => ({
         replaceChildren: vi.fn(),
         append: vi.fn(),
@@ -134,6 +136,10 @@ function createFakeFrame() {
         remove: vi.fn(),
         addEventListener: vi.fn((eventName: string, listener: EventListener) => {
             listeners.set(eventName, listener);
+            for (const resolve of listenerWaiters.get(eventName) ?? []) {
+                resolve();
+            }
+            listenerWaiters.delete(eventName);
         }),
         removeEventListener: vi.fn((eventName: string) => {
             listeners.delete(eventName);
@@ -141,6 +147,17 @@ function createFakeFrame() {
         contentWindow: frameWindow,
         trigger: (eventName) => {
             listeners.get(eventName)?.(new Event(eventName));
+        },
+        waitForListener: (eventName) => {
+            if (listeners.has(eventName)) {
+                return Promise.resolve();
+            }
+
+            return new Promise<void>((resolve) => {
+                const waiters = listenerWaiters.get(eventName) ?? new Set();
+                waiters.add(resolve);
+                listenerWaiters.set(eventName, waiters);
+            });
         },
     };
 
@@ -737,7 +754,7 @@ describe('useWorkspacePrint', () => {
 
         try {
             const printPromise = state.handlePrintCurrentPage();
-            await flushMicrotasks(12);
+            await appFrame.frame.waitForListener('load');
 
             expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
             expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
@@ -754,7 +771,7 @@ describe('useWorkspacePrint', () => {
             await printPromise;
 
             expect(buildBrowserPrintFrameMarkupMock).toHaveBeenCalledWith(
-                'current-page - print.fileNamePage:{"page":4}.pdf',
+                'current-page - print.fileNamePage_{_page__4}.pdf',
             );
             expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalled();
             expect(toastAddMock).not.toHaveBeenCalledWith({
@@ -763,6 +780,43 @@ describe('useWorkspacePrint', () => {
             });
             expect(state.isPreparingPrint.value).toBe(false);
             expect(state.printError.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('adds comma-free page ranges to multi-page browser print titles', async () => {
+        buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(4, 5, 6));
+        const appFrame = stubDocumentWithFrame();
+        const {
+            scope,
+            state,
+        } = createState({
+            sourcePdf: null,
+            workingCopyPath: '/tmp/selection.pdf',
+            fileName: 'selection.pdf',
+        });
+
+        try {
+            const printPromise = state.handlePrintDialogSubmit({
+                pageNumbers: [
+                    10,
+                    2,
+                    1,
+                    3,
+                    7,
+                ],
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+            await appFrame.frame.waitForListener('load');
+
+            appFrame.frame.trigger('load');
+            await printPromise;
+
+            expect(buildBrowserPrintFrameMarkupMock).toHaveBeenCalledWith(
+                'selection - print.fileNamePages_{_pages___1-3_7_10_}.pdf',
+            );
         } finally {
             scope.stop();
         }

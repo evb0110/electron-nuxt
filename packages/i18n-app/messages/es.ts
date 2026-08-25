@@ -909,6 +909,8 @@ export default {
         'systemDialogHint': 'La impresora, el tamaño del papel, las copias, el dúplex, los márgenes y el destino se configuran en el cuadro de diálogo del sistema.',
         'preparing': 'Preparando la impresión...',
         'fileNamePage': 'página {page}',
+        'fileNamePages': 'páginas {pages}',
+        'fileNamePageSelection': 'páginas {count}-seleccionadas_{first}-a-{last}_id-{fingerprint}',
         'requestSent': 'Solicitud de impresión enviada.',
         'failed': 'No se pudo preparar el documento para imprimir.',
         'failedWithReason': 'No se pudo preparar el documento para imprimir: {reason}',

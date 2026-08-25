@@ -916,6 +916,8 @@ export default {
         'systemDialogHint': 'Принтер, размер бумаги, копии, двусторонняя печать, поля и назначение настраиваются в системном диалоге.',
         'preparing': 'Подготовка к печати...',
         'fileNamePage': 'страница {page}',
+        'fileNamePages': 'страницы {pages}',
+        'fileNamePageSelection': 'страницы {count}-выбрано_{first}-до-{last}_id-{fingerprint}',
         'requestSent': 'Запрос на печать отправлен.',
         'failed': 'Не удалось подготовить документ к печати.',
         'failedWithReason': 'Не удалось подготовить документ к печати: {reason}',

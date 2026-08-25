@@ -909,6 +909,8 @@ export default {
         'systemDialogHint': 'Printer, papierformaat, aantal exemplaren, dubbelzijdig, marges en bestemming volgen in het systeemvenster.',
         'preparing': 'Afdruk voorbereiden...',
         'fileNamePage': 'pagina {page}',
+        'fileNamePages': 'pagina\'s {pages}',
+        'fileNamePageSelection': 'pagina\'s {count}-geselecteerd_{first}-tot-{last}_id-{fingerprint}',
         'requestSent': 'Afdrukverzoek verzonden.',
         'failed': 'Kan het document niet voorbereiden voor afdrukken.',
         'failedWithReason': 'Kan het document niet voorbereiden voor afdrukken: {reason}',

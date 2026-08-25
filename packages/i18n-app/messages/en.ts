@@ -909,6 +909,8 @@ export default {
         'systemDialogHint': 'Printer, paper size, copies, duplex, margins, and destination continue in the system dialog.',
         'preparing': 'Preparing print...',
         'fileNamePage': 'page {page}',
+        'fileNamePages': 'pages {pages}',
+        'fileNamePageSelection': 'pages {count}-selected_{first}-to-{last}_id-{fingerprint}',
         'requestSent': 'Print request sent.',
         'failed': 'Unable to prepare the document for printing.',
         'failedWithReason': 'Unable to prepare the document for printing: {reason}',
