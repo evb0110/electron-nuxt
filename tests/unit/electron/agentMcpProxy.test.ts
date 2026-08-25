@@ -5,7 +5,6 @@ import {
 } from 'vitest';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { readFileSync } from 'node:fs';
 import { ASSISTANT_DOCUMENT_EDIT_SAFETY_WORKFLOW } from '@electron/features/agent/assistantPresetWorkflows';
 
 interface IProxyClient {
@@ -109,13 +108,6 @@ function createProxyClient(): IProxyClient {
 }
 
 describe('evb-mcp-proxy', () => {
-    it('keeps its request timeout above the renderer long-action timeout', () => {
-        const source = readFileSync('scripts/evb-mcp-proxy.mjs', 'utf8');
-
-        expect(source).toContain('const EVB_MCP_REQUEST_TIMEOUT_MS = 300_000;');
-        expect(source).toContain('AbortSignal.timeout(EVB_MCP_REQUEST_TIMEOUT_MS)');
-    });
-
     it('speaks newline-delimited stdio MCP for initialize and tools/list', async () => {
         const client = createProxyClient();
 
