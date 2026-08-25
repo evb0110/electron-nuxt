@@ -8,6 +8,14 @@ import { isOneOf } from '@contracts/runtimeGuards';
 // in-app assistant preset chips. Each workflow is a decision tree the model follows so a
 // single preset button works regardless of the document's current state.
 
+export const ASSISTANT_DOCUMENT_EDIT_SAFETY_WORKFLOW = [
+    'Before any multi-page metadata write, inspect the current metadata and relevant document evidence, then run the matching read-only preview and examine its normalized result, issues, and diff. Do not call evb_run_action for the write until that inspection and preview have completed, even when the user explicitly asked to apply the edit.',
+    'Resolve user terms with EVB Viewer semantics. If the request still permits materially different results after read-only inspection, ask one focused clarification and stop; never choose the larger or more destructive interpretation.',
+    'A plan stated in chat is not a preview. Never say a preview, write, save, or verification happened unless the corresponding tool completed and, for writes, a follow-up read confirmed the new state.',
+    'If a write tool or file.save returns an error or times out after it may have changed the document, re-read the target state and dirty state before retrying. If the desired change is present, or the document is no longer dirty after file.save, do not repeat the action.',
+    'If file.save succeeds but reports pendingChangesAfterSave, the completed save persisted the earlier changes while newer edits remain dirty. Report the pending edits and do not automatically save again.',
+].join('\n');
+
 export const ASSISTANT_LARGE_DOCUMENT_WORKFLOW = [
     'Handle the active document as a large or hard document: thousands of pages, scans, dictionaries, weak OCR, missing TOC, or slow global text coverage.',
     'Start with evb_workspace_snapshot and document.open_documents/readiness to get tab id, physical page count, current page, document kind, and readiness hints. If the document is very large, do not begin with full document.inspect_text unless the user specifically needs global OCR coverage.',
@@ -19,6 +27,8 @@ export const ASSISTANT_LARGE_DOCUMENT_WORKFLOW = [
 
 export const ASSISTANT_BOOKMARK_WORKFLOW = [
     'Build or correct PDF bookmarks for the active document, whatever its current state.',
+    ASSISTANT_DOCUMENT_EDIT_SAFETY_WORKFLOW,
+    'Bookmarks must represent meaningful document sections. In bookmark requests, "flat" means one hierarchy level of semantic entries, not one bookmark per page or page-number bookmarks. Create page-by-page bookmarks only when the user explicitly asks for them.',
     'Read evb://document/{tabId}/toc and /bookmarks. For small or already-indexed documents, inspect text coverage with document.inspect_text; for very large documents, scans, or previous timeouts, follow the large-document bounded-probe workflow instead. A blank first page or timed-out coverage pass is not enough evidence to recommend OCR; sample likely non-cover/front/body pages with document.read_pages and proceed with search/read-pages if any sampled page has text. Use the flat path list to preserve or extend existing TOC/bookmark nodes; treat existing destinations as hints, not proof.',
     'Choose the outline source in this order: (1) a user-supplied outline if one was given; (2) the embedded TOC/bookmarks; (3) a printed contents page inside the document, located with bounded document.search queries such as "contents" or "table of contents" over likely front-matter pages and read with document.read_pages; (4) if none exist, derive the structure yourself from chapter/section starts, heading patterns, numbered headings, and running heads sampled across the document.',
     'Locate section starts with document.search and document.read_pages, but on large PDFs always search small page ranges or explicit page samples first. Resolve the printed-number vs physical-page offset using evb://document/{tabId}/page-labels so each destination points to the correct physical page and, when a heading starts below the top of that page, a pageYRatio anchor from 0 to 1.',
@@ -30,6 +40,8 @@ export const ASSISTANT_BOOKMARK_WORKFLOW = [
 
 export const ASSISTANT_PAGE_NUMBER_WORKFLOW = [
     'Reconstruct the PDF page labels to match the document\'s real numbering, whatever scheme it uses.',
+    ASSISTANT_DOCUMENT_EDIT_SAFETY_WORKFLOW,
+    'In page-numbering requests, "number pages" means setting PDF page labels to match the document\'s visible printed numbering, not physical page indexes 1 through N. Use physical indexes only when the user explicitly asks for physical numbering.',
     'Read evb://document/{tabId}/page-labels. For small or already-indexed documents, inspect text coverage with document.inspect_text; for very large documents, scans, or previous timeouts, use bounded document.read_pages and document.capture_page_image probes instead of a full coverage pass. Use searchable/OCR text as evidence but never trust it blindly.',
     'Sample the cover, the front-matter/body transition, any appendix/plate/insert sections, and the end. Detect and combine schemes as needed: roman front matter (i, ii, iii), arabic body, restarted numbering, alphabetic or prefixed labels (A, A-1), and unnumbered covers, plates, or blanks. Determine the offset for each range by finding which physical page carries each printed number.',
     'For every uncertain boundary, restart, or suspicious OCR result (l vs 1, O vs 0, missing folios), call document.capture_page_image through evb_run_action with top/bottom or normalized crops where folios sit and inspect the image before deciding.',

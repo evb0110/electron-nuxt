@@ -319,6 +319,8 @@ describe('claudeAgentSdkAssistant', () => {
         });
 
         await session.sendMessage('Hello', [], 'opus');
+        const queryOptions = sdkMocks.query.mock.calls[0]?.[0]?.options;
+        expect(queryOptions?.mcpServers?.evb_viewer_embedded).toMatchObject({timeout: 300_000});
         const closePromise = session.close();
         expect(fakeQuery.close).toHaveBeenCalledTimes(1);
 

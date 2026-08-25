@@ -70,6 +70,23 @@ export function updateAssistantProviderRuntimeState(
     return states[provider];
 }
 
+export function reconcileTerminalAssistantProviderRuntimeState(
+    state: IAssistantProviderRuntimeState,
+    options: {
+        hasRuntime: boolean;
+        hasActiveWork: boolean;
+    },
+) {
+    if (state.runtimeState !== 'busy' || options.hasActiveWork) {
+        return false;
+    }
+
+    state.runtimeState = options.hasRuntime && state.authState === 'signed-in'
+        ? 'ready'
+        : 'stopped';
+    return true;
+}
+
 export function buildAssistantProviderStatuses(options: {
     platform: string;
     states: TAssistantProviderRuntimeStateMap;

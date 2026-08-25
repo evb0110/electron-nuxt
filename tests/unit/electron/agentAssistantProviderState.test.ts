@@ -12,6 +12,7 @@ import {
     buildAssistantProviderStatuses,
     createAssistantProviderRuntimeStates,
     getAssistantProviderRuntimeState,
+    reconcileTerminalAssistantProviderRuntimeState,
     updateAssistantProviderRuntimeState,
 } from '@electron/features/agent/assistantProviderState';
 
@@ -60,6 +61,55 @@ describe('agent assistant provider state', () => {
             runtimeState: 'stopped',
             lastError: 'Claude needs login.',
         });
+    });
+
+    it('repairs an orphaned busy runtime after all provider work is terminal', () => {
+        const states = createAssistantProviderRuntimeStates({codex: {
+            authState: 'signed-in',
+            runtimeState: 'busy',
+        }});
+        const runtime = getAssistantProviderRuntimeState(states, 'codex');
+
+        expect(reconcileTerminalAssistantProviderRuntimeState(runtime, {
+            hasRuntime: true,
+            hasActiveWork: false,
+        })).toBe(true);
+        expect(runtime.runtimeState).toBe('ready');
+
+        runtime.runtimeState = 'busy';
+        expect(reconcileTerminalAssistantProviderRuntimeState(runtime, {
+            hasRuntime: true,
+            hasActiveWork: true,
+        })).toBe(false);
+        expect(runtime.runtimeState).toBe('busy');
+    });
+
+    it.each([
+        {
+            name: 'the provider runtime is unavailable',
+            authState: 'signed-in' as const,
+            hasRuntime: false,
+        },
+        {
+            name: 'the provider is signed out',
+            authState: 'signed-out' as const,
+            hasRuntime: true,
+        },
+    ])('stops orphaned busy state when $name', ({
+        authState,
+        hasRuntime,
+    }) => {
+        const states = createAssistantProviderRuntimeStates({codex: {
+            authState,
+            runtimeState: 'busy',
+        }});
+        const runtime = getAssistantProviderRuntimeState(states, 'codex');
+
+        expect(reconcileTerminalAssistantProviderRuntimeState(runtime, {
+            hasRuntime,
+            hasActiveWork: false,
+        })).toBe(true);
+        expect(runtime.runtimeState).toBe('stopped');
     });
 
     it('builds provider statuses from shared runtime state records', () => {

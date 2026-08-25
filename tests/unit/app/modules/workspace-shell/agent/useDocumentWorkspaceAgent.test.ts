@@ -338,6 +338,27 @@ describe('useDocumentWorkspaceAgent', () => {
         expect(sidebarTab.value).toBe('bookmarks');
     });
 
+    it('returns structured-cloneable page-label mutation results', async () => {
+        const agent = useDocumentWorkspaceAgent(createAgentOptions());
+
+        const result = await agent.runAgentAction('page_labels.apply_plan', {ranges: [{
+            startPage: 1,
+            style: 'D',
+            prefix: '',
+            startNumber: 3,
+        }]});
+
+        expect(() => structuredClone(result)).not.toThrow();
+        expect(result).toMatchObject({
+            ok: true,
+            actionId: 'page_labels.apply_plan',
+            summary: {
+                firstLabel: '3',
+                lastLabel: '5',
+            },
+        });
+    });
+
     it('waits for document open to settle before validating bookmark plan page numbers', async () => {
         const totalPages = ref(0);
         const waitForDocumentOpenSettled = vi.fn(async () => {
@@ -559,6 +580,44 @@ describe('useDocumentWorkspaceAgent', () => {
             actionId: 'file.save',
             saved: true,
             canSave: false,
+        });
+        expect(handleSave).toHaveBeenCalledOnce();
+    });
+
+    it('does not serialize the document when file.save has no pending changes', async () => {
+        const handleSave = vi.fn(async () => true);
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            canSave: ref(false),
+            handleSave,
+            workingCopyPath: ref('/tmp/working.pdf'),
+            originalPath: ref('/tmp/original.pdf'),
+        }));
+
+        await expect(agent.runAgentAction('file.save')).resolves.toMatchObject({
+            ok: true,
+            actionId: 'file.save',
+            saved: false,
+            canSave: false,
+            workingCopyPath: '/tmp/working.pdf',
+            originalPath: '/tmp/original.pdf',
+        });
+        expect(handleSave).not.toHaveBeenCalled();
+    });
+
+    it('reports new pending changes without treating an earlier successful save as failed', async () => {
+        const canSave = ref(true);
+        const handleSave = vi.fn(async () => true);
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            canSave,
+            handleSave,
+        }));
+
+        await expect(agent.runAgentAction('file.save')).resolves.toMatchObject({
+            ok: true,
+            actionId: 'file.save',
+            saved: true,
+            canSave: true,
+            pendingChangesAfterSave: true,
         });
         expect(handleSave).toHaveBeenCalledOnce();
     });

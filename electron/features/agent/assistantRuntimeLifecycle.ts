@@ -33,7 +33,10 @@ import {
     normalizeCodexAssistantModel,
     type IAssistantSelection,
 } from '@electron/features/agent/assistantProviderStatus';
-import type { IAssistantProviderRuntimeState } from '@electron/features/agent/assistantProviderState';
+import {
+    reconcileTerminalAssistantProviderRuntimeState,
+    type IAssistantProviderRuntimeState,
+} from '@electron/features/agent/assistantProviderState';
 import {
     refreshCodexAuthState,
     refreshCodexAuthStateAndRuntimeAvailability,
@@ -43,7 +46,10 @@ import type {
     IAssistantChatSession,
     TAssistantChatSessionStore,
 } from '@electron/features/agent/assistantChatSessionStore';
-import { supersedeAssistantTurn } from '@electron/features/agent/assistantTurnLifecycle';
+import {
+    isAssistantTurnActive,
+    supersedeAssistantTurn,
+} from '@electron/features/agent/assistantTurnLifecycle';
 import {
     getEmbeddedMcpServerDescriptor,
     isEmbeddedMcpServerRunning,
@@ -265,6 +271,19 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             info: (message: string) => options.logger.info(message),
             warn: (message: string) => options.logger.warn(message),
         });
+        const repairedOrphanedBusyState = reconcileTerminalAssistantProviderRuntimeState(
+            options.providerRuntime,
+            {
+                hasRuntime: Boolean(runtime),
+                hasActiveWork: options.sessionStore.listSessions().some(session => (
+                    session.provider === 'codex'
+                    && (session.sendInFlight !== null || isAssistantTurnActive(session.turnOwner))
+                )),
+            },
+        );
+        if (repairedOrphanedBusyState) {
+            options.logger.warn('Recovered an orphaned Codex busy state after all assistant turns became terminal.');
+        }
     }
 
     async function ensureRuntime() {

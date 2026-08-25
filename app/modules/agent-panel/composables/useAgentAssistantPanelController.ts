@@ -467,7 +467,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
 
         state.value = optimisticState;
         hasLoadedState.value = true;
-        isSending.value = optimisticState.status.runtimeState === 'busy';
+        isSending.value = isActiveAssistantTurnPhase(optimisticState.status.turn.phase);
     }
 
     function createAssistantStateRequestForScope(
@@ -563,7 +563,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         selectedSpeedMode.value = resolveSelectedSpeedModeFromState(adjustedState, providerStatus);
         state.value = adjustedState;
         hasLoadedState.value = true;
-        isSending.value = adjustedState.status.runtimeState === 'busy';
+        isSending.value = isActiveAssistantTurnPhase(adjustedState.status.turn.phase);
         syncTurnActivityWithPhase(adjustedState.status.turn.phase);
         if (shouldScrollToBottom) {
             void nextTick(scrollAssistantMessagesToBottom);
@@ -854,7 +854,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             }
         } finally {
             if (generation === sendGeneration) {
-                isSending.value = status.value.runtimeState === 'busy';
+                isSending.value = isTurnActive.value;
             }
         }
     }
@@ -997,7 +997,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             applyState(await getAgentCapability().resetAssistantChat(createAssistantStateRequest()));
         } finally {
             isResetting.value = false;
-            isSending.value = status.value.runtimeState === 'busy';
+            isSending.value = isTurnActive.value;
         }
     }
 

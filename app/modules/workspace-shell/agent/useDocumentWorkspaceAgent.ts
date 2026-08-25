@@ -18,7 +18,6 @@ import {
     type IAgentActionExecutionPolicy,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentActionRegistry';
 import { createDocumentWorkspaceAgentParsers } from '@app/modules/workspace-shell/agent/createDocumentWorkspaceAgentParsers';
-
 export type { IOcrPopupAgentExpose } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 
 export const DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS = [
@@ -806,9 +805,9 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
                 await waitForAgentMutationStateSettled();
                 context?.assertCurrentDocument();
                 const hadPendingSave = canSave.value;
-                const saveSucceeded = await handleSave();
+                const saveSucceeded = !hadPendingSave || await handleSave();
                 await waitForAgentMutationStateSettled();
-                if (!saveSucceeded || canSave.value) {
+                if (!saveSucceeded) {
                     throw new Error(`Save did not complete; EVB Viewer still reports pending changes. ${JSON.stringify({
                         annotationDirty: annotationDirty.value,
                         bookmarksDirty: bookmarksDirty.value,
@@ -820,6 +819,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
                 return {
                     saved: hadPendingSave,
                     canSave: canSave.value,
+                    pendingChangesAfterSave: saveSucceeded && canSave.value,
                     workingCopyPath: workingCopyPath.value,
                     originalPath: originalPath.value,
                 };

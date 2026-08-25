@@ -48,6 +48,7 @@ import {
     ASSISTANT_IMAGE_ONLY_PROMPT,
     ASSISTANT_MCP_TOOLS,
     ASSISTANT_MCP_TOKEN_ENV,
+    ASSISTANT_MCP_TOOL_TIMEOUT_SECONDS,
     ASSISTANT_ROLE_PROMPT,
 } from '@electron/features/agent/codexAssistantConfig';
 import { createLogger } from '@electron/utils/createLogger';
@@ -986,6 +987,7 @@ export class ClaudeAgentAssistantSession {
                     type: 'http',
                     url: this.options.mcpServerUrl,
                     headers: { Authorization: `Bearer ${this.options.mcpToken}` },
+                    timeout: ASSISTANT_MCP_TOOL_TIMEOUT_SECONDS * 1000,
                 }},
                 permissionMode: 'dontAsk',
                 systemPrompt: {

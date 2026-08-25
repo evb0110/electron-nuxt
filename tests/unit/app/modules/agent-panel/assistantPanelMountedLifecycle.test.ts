@@ -140,6 +140,13 @@ async function mountHarness(initialState: IAgentAssistantState) {
             h('output', {class: 'install-progress'}, controller.installProgress.value),
             h('output', {class: 'install-error'}, controller.status.value.error),
             h('output', {class: 'installing'}, String(controller.isInstalling.value)),
+            h('output', {class: 'can-send'}, String(controller.canSend.value)),
+            h('button', {
+                class: 'set-draft',
+                onClick: () => {
+                    controller.draft.value = 'Continue';
+                },
+            }, 'Set draft'),
             h('button', {
                 class: 'install',
                 onClick: controller.handleInstallCodex,
@@ -191,6 +198,19 @@ describe('mounted assistant panel lifecycle', () => {
             text: 'Summarize this document',
             scope,
         }));
+        harness.unmount();
+    });
+
+    it('unlocks the composer when a terminal turn retains a stale busy runtime', async () => {
+        const terminalState = createReadyState('done');
+        terminalState.status.runtimeState = 'busy';
+        terminalState.status.turn.id = null;
+        const harness = await mountHarness(terminalState);
+
+        (harness.host.querySelector('.set-draft') as HTMLButtonElement).click();
+        await nextTick();
+
+        expect(harness.host.querySelector('.can-send')?.textContent).toBe('true');
         harness.unmount();
     });
 
