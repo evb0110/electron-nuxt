@@ -68,6 +68,12 @@ describe('release selection', () => {
         expect(detectPlatform('EVB-Viewer-win-x64.exe')).toBe('windows');
         expect(detectPlatform('EVB-Viewer-linux-arm64.AppImage')).toBe('linux');
         expect(detectPlatform('EVB-Viewer-portable.zip')).toBe('unknown');
+        // Shipped macOS artifact names carry an architecture but no platform token.
+        expect(detectPlatform('EVB-Viewer-0.1.430-arm64.zip')).toBe('macos');
+        expect(detectPlatform('EVB-Viewer-0.1.430-x64.zip')).toBe('macos');
+        expect(detectPlatform('EVB-Viewer-0.1.430-arm64.dmg')).toBe('macos');
+        expect(detectPlatform('EVB-Viewer-0.1.430-x64-setup.exe')).toBe('windows');
+        expect(detectPlatform('EVB-Viewer-0.1.430-amd64.deb')).toBe('linux');
         expect(detectArchitecture('EVB-Viewer-all.dmg')).toBe('universal');
         expect(detectArchitecture('EVB-Viewer-aarch64.AppImage')).toBe('arm64');
         expect(detectArchitecture('EVB-Viewer-amd64.deb')).toBe('x64');

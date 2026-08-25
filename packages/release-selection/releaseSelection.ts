@@ -155,6 +155,18 @@ export function detectPlatform(assetName: string): TReleasePlatform {
         return 'linux';
     }
 
+    // macOS is the only target that publishes ZIPs here, and mac artifactName
+    // always embeds the architecture. scripts/release/policy.mjs states the same
+    // invariant from the publishing side: Windows x64 ships as "-x64-setup.exe"
+    // and the Store package as "-x64-store.appx", so the macOS Intel ZIP is the
+    // only released "-x64.zip". Without this the supplemental Intel ZIP -- the
+    // only Intel Mac download the project ships -- falls into the unknown bucket
+    // and disappears from the macOS downloads. A ZIP carrying no architecture
+    // token stays unclassified rather than being guessed at.
+    if (extension === 'zip' && detectArchitecture(lowerName) !== 'unknown') {
+        return 'macos';
+    }
+
     return 'unknown';
 }
 
