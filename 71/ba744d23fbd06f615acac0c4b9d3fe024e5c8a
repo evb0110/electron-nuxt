@@ -1,0 +1,21 @@
+package.json
+  s_878e681a4f80c9::t_82f5a48bdbc532 288
+pnpm-lock.yaml
+  ai_agent 66,5152-5153,10575,14627,14633
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "71ba744d23fbd06f615acac0c4b9d3fe024e5c8a",
+  "prompts": {},
+  "sessions": {
+    "s_878e681a4f80c9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03dec-2564-7f31-b610-bd431badb670",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
