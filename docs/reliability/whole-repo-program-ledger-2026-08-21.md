@@ -20,8 +20,8 @@ Produce an evidence-backed inventory of breakages, inconsistencies, and material
 - A suspicion becomes `validated` only with a repeatable failure, a failing regression test, or direct static proof.
 - Run focused tests throughout and the applicable full gates before review.
 - Run CodeRabbit CLI against `main` before committing. Use at most two passes normally and never authorize paid credits.
-- After committing, run `node scripts/review-cubic-commits.mjs --commit HEAD`.
-- If Cubic causes an effective diff change, amend, rerun affected gates, and rerun CodeRabbit.
+- CodeRabbit is the only required independent reviewer. Run it before committing
+  or pushing and rerun it when a fix changes the effective diff.
 - Fetch `origin/main` immediately before publication. Integrate any advance without force, rerun affected gates and review when the effective diff changes, then push `HEAD:main`.
 - Verify the pushed commit is an ancestor of `origin/main` before removing the worktree and temporary branch.
 - Preserve any dirty, unmerged, unreviewed, or unpushed worktree and record its recovery path instead of deleting it.
