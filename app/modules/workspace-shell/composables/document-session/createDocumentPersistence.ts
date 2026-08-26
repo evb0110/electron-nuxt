@@ -804,6 +804,7 @@ export function createDocumentPersistence(
         const documentFiles = getDocumentFilesCapability();
         const updates = mutations.updates ?? [];
         const freeTextNotes = mutations.freeTextNotes ?? [];
+        const freeTextEditors = mutations.freeTextEditors ?? [];
         const deletes = mutations.deletes ?? [];
         const hasPageLabels = mutations.pageLabels !== undefined;
         const hasBookmarks = mutations.bookmarks !== undefined;
@@ -813,6 +814,7 @@ export function createDocumentPersistence(
         const hasPlacedImages = placedImages.length > 0;
         if (
             freeTextNotes.length === 0
+            && freeTextEditors.length === 0
             && updates.length === 0
             && deletes.length === 0
             && !hasPageLabels
@@ -833,6 +835,7 @@ export function createDocumentPersistence(
             && !hasMarkup
             && !hasPlacedImages
             && freeTextNotes.length === 0
+            && freeTextEditors.length === 0
             && deletes.length === 0
             && updates.length > 0
             && typeof documentFiles.savePdfNoteTextUpdates === 'function'
@@ -844,6 +847,7 @@ export function createDocumentPersistence(
             && !hasMarkup
             && !hasPlacedImages
             && (freeTextNotes.length > 0 || deletes.length > 0)
+            && freeTextEditors.length === 0
             && typeof documentFiles.savePdfNoteChanges === 'function'
         );
         if (!canUseGenericNativeMutations && !canUseLegacyNativeNoteText && !canUseLegacyNativeNoteChanges) {
@@ -855,6 +859,7 @@ export function createDocumentPersistence(
                 hasLegacyNoteChanges: typeof documentFiles.savePdfNoteChanges === 'function',
                 updateCount: updates.length,
                 freeTextNoteCount: freeTextNotes.length,
+                freeTextEditorCount: freeTextEditors.length,
                 deleteCount: deletes.length,
             }));
             return null;
@@ -884,6 +889,7 @@ export function createDocumentPersistence(
                 saveMode: requestedSaveMode,
                 updateCount: updates.length,
                 freeTextNoteCount: freeTextNotes.length,
+                freeTextEditorCount: freeTextEditors.length,
                 deleteCount: deletes.length,
                 pageLabels: hasPageLabels,
                 bookmarks: hasBookmarks,
@@ -1042,6 +1048,7 @@ export function createDocumentPersistence(
                 error: getErrorMessage(saveError),
                 updateCount: updates.length,
                 freeTextNoteCount: freeTextNotes.length,
+                freeTextEditorCount: freeTextEditors.length,
                 deleteCount: deletes.length,
                 pageLabels: hasPageLabels,
                 bookmarks: hasBookmarks,

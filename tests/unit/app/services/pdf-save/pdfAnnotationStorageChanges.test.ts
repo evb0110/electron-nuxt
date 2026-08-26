@@ -254,6 +254,193 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
         expect(result.hasUnknownChanges).toBe(false);
     });
 
+    it('captures the recorded PDF.js FreeText box as an exact native mutation', () => {
+        const serializableMap = new Map([[
+            'pdfjs_internal_editor_0',
+            {
+                annotationType: 3,
+                pageIndex: 854,
+                rect: [
+                    2.048192,
+                    554.41672,
+                    59.34848,
+                    580.43896,
+                ],
+                rotation: 0,
+                popupRef: '',
+                color: [
+                    245,
+                    158,
+                    11,
+                ],
+                fontSize: 16,
+                value: 'asdfadf',
+                id: null,
+            },
+        ]]);
+        const document = {annotationStorage: {
+            serializable: {
+                map: serializableMap,
+                hash: 'recorded-large-pdf-free-text-box',
+            },
+            modifiedIds: { ids: new Set([null]) },
+        }} as never;
+
+        const result = collectLivePdfJsAnnotationChangeIds(document);
+
+        expect(result.nativeFreeTextEditors).toEqual(new Map([[
+            'pdfjs_internal_editor_0',
+            {
+                pageIndex: 854,
+                stableKey: expect.stringMatching(/^freetext-[0-9a-f-]{36}$/u),
+                text: 'asdfadf',
+                rect: [
+                    2.048192,
+                    554.41672,
+                    59.34848,
+                    580.43896,
+                ],
+                rotation: 0,
+                fontSize: 16,
+                color: [
+                    245,
+                    158,
+                    11,
+                ],
+            },
+        ]]));
+        expect(result.ids).toEqual(new Set(['pdfjs_internal_editor_0']));
+        expect(result.replayableEditorNoteIds).toEqual(new Set());
+        expect(result.hasUnknownChanges).toBe(false);
+    });
+
+    it('assigns a new app-owned FreeText identity after document reopen', () => {
+        const editor = {
+            annotationType: 3,
+            pageIndex: 0,
+            rect: [
+                20,
+                30,
+                180,
+                60,
+            ],
+            rotation: 0,
+            color: [
+                0,
+                0,
+                0,
+            ],
+            fontSize: 16,
+            value: 'saved text',
+            id: null,
+        };
+        const createDocument = () => ({annotationStorage: {
+            serializable: {map: new Map([[
+                'pdfjs_internal_editor_0',
+                editor,
+            ]])},
+            modifiedIds: {ids: new Set([null])},
+        }}) as never;
+        const firstDocument = createDocument();
+        const reopenedDocument = createDocument();
+
+        const first = collectLivePdfJsAnnotationChangeIds(firstDocument)
+            .nativeFreeTextEditors.get('pdfjs_internal_editor_0');
+        const repeated = collectLivePdfJsAnnotationChangeIds(firstDocument)
+            .nativeFreeTextEditors.get('pdfjs_internal_editor_0');
+        const reopened = collectLivePdfJsAnnotationChangeIds(reopenedDocument)
+            .nativeFreeTextEditors.get('pdfjs_internal_editor_0');
+
+        expect(first?.stableKey).toMatch(/^freetext-[0-9a-f-]{36}$/u);
+        expect(repeated?.stableKey).toBe(first?.stableKey);
+        expect(reopened?.stableKey).not.toBe(first?.stableKey);
+    });
+
+    it('ignores a blank editor-only FreeText placeholder beside a saveable text box', () => {
+        const document = {annotationStorage: {
+            serializable: {map: new Map([
+                [
+                    'pdfjs_internal_editor_0',
+                    {
+                        annotationType: 3,
+                        pageIndex: 0,
+                        value: '\u200B',
+                        id: null,
+                    },
+                ],
+                [
+                    'pdfjs_internal_editor_1',
+                    {
+                        annotationType: 3,
+                        pageIndex: 0,
+                        rect: [
+                            20,
+                            30,
+                            180,
+                            60,
+                        ],
+                        rotation: 0,
+                        color: [
+                            0,
+                            0,
+                            0,
+                        ],
+                        fontSize: 16,
+                        value: 'saved text',
+                        id: null,
+                    },
+                ],
+            ])},
+            modifiedIds: {ids: new Set([null])},
+        }} as never;
+
+        const result = collectLivePdfJsAnnotationChangeIds(document);
+
+        expect(result.ids).toEqual(new Set(['pdfjs_internal_editor_1']));
+        expect(result.nativeFreeTextEditors).toEqual(new Map([[
+            'pdfjs_internal_editor_1',
+            expect.objectContaining({text: 'saved text'}),
+        ]]));
+        expect(result.hasChanges).toBe(true);
+        expect(result.hasUnknownChanges).toBe(false);
+    });
+
+    it('keeps Unicode FreeText boxes on the PDF.js materialization route', () => {
+        const serializableMap = new Map([[
+            'pdfjs_internal_editor_0',
+            {
+                annotationType: 3,
+                pageIndex: 0,
+                rect: [
+                    20,
+                    30,
+                    180,
+                    60,
+                ],
+                rotation: 0,
+                color: [
+                    0,
+                    0,
+                    0,
+                ],
+                fontSize: 16,
+                value: 'Привет',
+                id: null,
+            },
+        ]]);
+        const document = {annotationStorage: {
+            serializable: {map: serializableMap},
+            modifiedIds: {ids: new Set([null])},
+        }} as never;
+
+        const result = collectLivePdfJsAnnotationChangeIds(document);
+
+        expect(result.ids).toEqual(new Set(['pdfjs_internal_editor_0']));
+        expect(result.nativeFreeTextEditors).toEqual(new Map());
+        expect(result.hasChanges).toBe(true);
+        expect(result.hasUnknownChanges).toBe(false);
+    });
+
     it('treats PDF.js annotation storage inspection failures as unknown live changes', () => {
         const document = { annotationStorage: {resetModifiedIds() {
             throw new Error('pdfjs storage unavailable');

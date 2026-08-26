@@ -7,6 +7,7 @@ import type {
     IPdfNativeAnnotationDelete,
     IPdfNativeBookmarksMutation,
     IPdfNativeFreeTextNote,
+    IPdfNativeFreeTextEditor,
     IPdfNativeFreeTextNoteMarkerRect,
     IPdfNativeMarkupMarkerRect,
     IPdfNativeMarkupSubtypeHint,
@@ -43,6 +44,7 @@ import {
 export const PDF_NATIVE_MUTATION_LIMITS = {
     noteTextUpdates: 256,
     noteChanges: 256,
+    freeTextEditors: 256,
     noteTextLength: 64 * 1024,
     pageLabelRanges: 2_048,
     bookmarkItems: 5_000,
@@ -248,6 +250,82 @@ function normalizeFreeTextNotes(
             author: normalizeOptionalString(note.author, `${label}[${index}].author`, options),
             color: normalizeOptionalString(note.color, `${label}[${index}].color`, options),
             createdAt: normalizeOptionalTimestamp(note.createdAt, `${label}[${index}].createdAt`, options),
+        };
+    });
+}
+
+function normalizeFreeTextEditors(
+    value: unknown,
+    label: string,
+    options: IPdfNativeValidationOptions,
+) {
+    if (value === undefined) {
+        return [];
+    }
+    if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.freeTextEditors) {
+        fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.freeTextEditors} editors`, options);
+    }
+
+    return Array.from(value, (editor, index): IPdfNativeFreeTextEditor => {
+        if (!isRecord(editor)) {
+            fail(`${label}[${index}] must be an object`, options);
+        }
+        if (
+            typeof editor.pageIndex !== 'number'
+            || !Number.isSafeInteger(editor.pageIndex)
+            || editor.pageIndex < 0
+        ) {
+            fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
+        }
+        const stableKey = typeof editor.stableKey === 'string' ? editor.stableKey.trim() : '';
+        if (!stableKey || stableKey.length > 512) {
+            fail(`${label}[${index}].stableKey must be a non-empty string with at most 512 characters`, options);
+        }
+        if (typeof editor.text !== 'string' || editor.text.length > PDF_NATIVE_MUTATION_LIMITS.noteTextLength) {
+            fail(`${label}[${index}].text must be a string with at most ${PDF_NATIVE_MUTATION_LIMITS.noteTextLength} characters`, options);
+        }
+        if (!Array.from(editor.text).every(character => (
+            character === '\n'
+            || character === '\t'
+            || (character.charCodeAt(0) >= 0x20 && character.charCodeAt(0) <= 0x7e)
+        ))) {
+            fail(`${label}[${index}].text contains characters unsupported by the bounded Helvetica appearance`, options);
+        }
+        if (
+            !Array.isArray(editor.rect)
+            || editor.rect.length !== 4
+            || editor.rect.some(coordinate => typeof coordinate !== 'number' || !Number.isFinite(coordinate))
+            || editor.rect[2] <= editor.rect[0]
+            || editor.rect[3] <= editor.rect[1]
+        ) {
+            fail(`${label}[${index}].rect must be a finite PDF rectangle with positive width and height`, options);
+        }
+        if (![
+            0,
+            90,
+            180,
+            270,
+        ].includes(editor.rotation as number)) {
+            fail(`${label}[${index}].rotation must be 0, 90, 180, or 270`, options);
+        }
+        if (typeof editor.fontSize !== 'number' || !Number.isFinite(editor.fontSize) || editor.fontSize <= 0 || editor.fontSize > 512) {
+            fail(`${label}[${index}].fontSize must be a finite number from 0 to 512`, options);
+        }
+        if (
+            !Array.isArray(editor.color)
+            || editor.color.length !== 3
+            || editor.color.some(component => typeof component !== 'number' || !Number.isInteger(component) || component < 0 || component > 255)
+        ) {
+            fail(`${label}[${index}].color must contain three integer RGB components from 0 to 255`, options);
+        }
+        return {
+            pageIndex: requirePageIndex(editor.pageIndex),
+            stableKey,
+            text: editor.text,
+            rect: editor.rect.map(coordinate => Number(coordinate)) as [number, number, number, number],
+            rotation: editor.rotation as 0 | 90 | 180 | 270,
+            fontSize: editor.fontSize,
+            color: editor.color.map(component => Number(component)) as [number, number, number],
         };
     });
 }
@@ -1009,6 +1087,7 @@ export function normalizePdfNativeMutationSet(
     }
     const updates = normalizeOptionalPdfNativeNoteTextUpdates(value.updates, `${label}.updates`, options);
     const freeTextNotes = normalizeFreeTextNotes(value.freeTextNotes, `${label}.freeTextNotes`, options);
+    const freeTextEditors = normalizeFreeTextEditors(value.freeTextEditors, `${label}.freeTextEditors`, options);
     const deletes = normalizeAnnotationDeletes(value.deletes, `${label}.deletes`, options);
     const pageLabels = value.pageLabels === undefined
         ? null
@@ -1024,7 +1103,7 @@ export function normalizePdfNativeMutationSet(
         : normalizeMarkupMutation(value.markup, `${label}.markup`, options);
     const placedImages = normalizePlacedImages(value.placedImages, `${label}.placedImages`, options);
     if (
-        updates.length + freeTextNotes.length + deletes.length === 0
+        updates.length + freeTextNotes.length + deletes.length + freeTextEditors.length === 0
         && !pageLabels
         && !bookmarks
         && !shapes
@@ -1039,6 +1118,7 @@ export function normalizePdfNativeMutationSet(
     return {
         ...(updates.length > 0 ? {updates} : {}),
         ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
+        ...(freeTextEditors.length > 0 ? {freeTextEditors} : {}),
         ...(deletes.length > 0 ? {deletes} : {}),
         ...(pageLabels ? {pageLabels} : {}),
         ...(bookmarks ? {bookmarks} : {}),

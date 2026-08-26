@@ -12,6 +12,7 @@ import type {ISerializationPlan} from '@app/modules/pdf-viewer/serialization/ser
 import type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import type {
     IPdfNativeAnnotationDelete,
+    IPdfNativeFreeTextEditor,
     IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
     IPdfNoteTextUpdate,
@@ -118,6 +119,7 @@ export interface INativePdfMutationProjection {
     mutations: IPdfNativeMutationSet;
     noteTextUpdates: IPdfNoteTextUpdate[];
     freeTextNotes: IPdfNativeFreeTextNote[];
+    freeTextEditors: IPdfNativeFreeTextEditor[];
     annotationDeletes: IPdfNativeAnnotationDelete[];
     hasMetadataMutations: boolean;
     hasShapeMutations: boolean;

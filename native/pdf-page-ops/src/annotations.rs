@@ -117,20 +117,6 @@ pub(crate) fn upsert_free_text_notes_with_counter(
     Ok(())
 }
 
-pub(crate) fn upsert_free_text_notes_incremental(
-    incremental: &mut IncrementalDocument,
-    notes: &[FreeTextNote],
-    modified_at: &str,
-) -> Result<()> {
-    let mut annotation_visits = 0usize;
-    upsert_free_text_notes_incremental_with_counter(
-        incremental,
-        notes,
-        modified_at,
-        &mut annotation_visits,
-    )
-}
-
 pub(crate) fn upsert_free_text_notes_incremental_with_counter(
     incremental: &mut IncrementalDocument,
     notes: &[FreeTextNote],
@@ -223,6 +209,318 @@ pub(crate) fn upsert_free_text_notes_incremental_with_counter(
         write_page_annotation_index_incremental(incremental, page_id, index)?;
     }
     Ok(())
+}
+
+pub(crate) fn upsert_free_text_editors_with_counter(
+    document: &mut Document,
+    editors: &[FreeTextEditor],
+    modified_at: &str,
+    annotation_visits: &mut usize,
+) -> Result<()> {
+    if editors.is_empty() {
+        return Ok(());
+    }
+    let page_map = document.get_pages();
+    let mut annotation_indexes = HashMap::new();
+    for editor in editors {
+        let page_number = editor
+            .page_index
+            .checked_add(1)
+            .ok_or("Invalid FreeText editor page index")?;
+        let page_id = resolve_page_id(&page_map, page_number)?;
+        if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
+        {
+            let (index, scanned) = build_page_annotation_index(document, page_id)?;
+            *annotation_visits = (*annotation_visits).saturating_add(scanned);
+            entry.insert(index);
+        }
+        let page_view = resolve_page_view(document, page_id)?;
+        let rect = validate_free_text_editor_rect(editor, page_view)?;
+        let name = free_text_editor_name(editor);
+        let appearance_ref = build_free_text_editor_appearance(document, editor, rect)?;
+        if let Some(annotation_ref) = annotation_indexes
+            .get(&page_id)
+            .and_then(|index| index.first_free_text_named(&name))
+        {
+            let dict = document.get_dictionary_mut(annotation_ref)?;
+            set_free_text_editor_fields(dict, editor, &name, rect, modified_at, appearance_ref);
+            continue;
+        }
+        let annotation_ref = document.new_object_id();
+        let mut dict = Dictionary::new();
+        dict.set("Type", Object::Name(b"Annot".to_vec()));
+        dict.set("Subtype", Object::Name(b"FreeText".to_vec()));
+        dict.set("F", Object::Integer(4));
+        set_free_text_editor_fields(&mut dict, editor, &name, rect, modified_at, appearance_ref);
+        document.set_object(annotation_ref, Object::Dictionary(dict));
+        annotation_indexes
+            .get_mut(&page_id)
+            .expect("FreeText editor pages are indexed before mutation")
+            .append_free_text_without_popup(&name, annotation_ref);
+    }
+    for (page_id, index) in annotation_indexes {
+        write_page_annotation_index(document, page_id, index)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn upsert_free_text_editors_incremental_with_counter(
+    incremental: &mut IncrementalDocument,
+    editors: &[FreeTextEditor],
+    modified_at: &str,
+    annotation_visits: &mut usize,
+) -> Result<()> {
+    if editors.is_empty() {
+        return Ok(());
+    }
+    let page_map = incremental.get_prev_documents().get_pages();
+    let mut annotation_indexes = HashMap::new();
+    for editor in editors {
+        let page_number = editor
+            .page_index
+            .checked_add(1)
+            .ok_or("Invalid FreeText editor page index")?;
+        let page_id = resolve_page_id(&page_map, page_number)?;
+        if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
+        {
+            let (index, scanned) =
+                build_page_annotation_index(incremental.get_prev_documents(), page_id)?;
+            *annotation_visits = (*annotation_visits).saturating_add(scanned);
+            entry.insert(index);
+        }
+        let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
+        let rect = validate_free_text_editor_rect(editor, page_view)?;
+        let name = free_text_editor_name(editor);
+        let appearance_ref =
+            build_free_text_editor_appearance(&mut incremental.new_document, editor, rect)?;
+        if let Some(annotation_ref) = annotation_indexes
+            .get(&page_id)
+            .and_then(|index| index.first_free_text_named(&name))
+        {
+            incremental.opt_clone_object_to_new_document(annotation_ref)?;
+            let dict = incremental
+                .new_document
+                .get_dictionary_mut(annotation_ref)?;
+            set_free_text_editor_fields(dict, editor, &name, rect, modified_at, appearance_ref);
+            continue;
+        }
+        let annotation_ref = incremental.new_document.new_object_id();
+        let mut dict = Dictionary::new();
+        dict.set("Type", Object::Name(b"Annot".to_vec()));
+        dict.set("Subtype", Object::Name(b"FreeText".to_vec()));
+        dict.set("F", Object::Integer(4));
+        set_free_text_editor_fields(&mut dict, editor, &name, rect, modified_at, appearance_ref);
+        incremental
+            .new_document
+            .set_object(annotation_ref, Object::Dictionary(dict));
+        annotation_indexes
+            .get_mut(&page_id)
+            .expect("FreeText editor pages are indexed before mutation")
+            .append_free_text_without_popup(&name, annotation_ref);
+    }
+    for (page_id, index) in annotation_indexes {
+        write_page_annotation_index_incremental(incremental, page_id, index)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn free_text_editor_name(editor: &FreeTextEditor) -> String {
+    format!("evb-freetext:{}", editor.stable_key.trim())
+}
+
+pub(crate) fn validate_free_text_editor_rect(
+    editor: &FreeTextEditor,
+    page_view: PdfRect,
+) -> Result<PdfRect> {
+    if !matches!(editor.rotation, 0 | 90 | 180 | 270) {
+        return Err("Invalid FreeText editor rotation".into());
+    }
+    if !editor.font_size.is_finite() || editor.font_size <= 0.0 || editor.font_size > 512.0 {
+        return Err("Invalid FreeText editor font size".into());
+    }
+    let rect = PdfRect {
+        x1: editor.rect[0],
+        y1: editor.rect[1],
+        x2: editor.rect[2],
+        y2: editor.rect[3],
+    };
+    // PDF.js can place the editor border a couple of points beyond the page
+    // box after viewport-to-PDF coordinate conversion. Preserve that exact
+    // rectangle, but reject larger excursions that cannot be border rounding.
+    const PAGE_EDGE_TOLERANCE: f64 = 4.0;
+    if rect.x1 < page_view.x1 - PAGE_EDGE_TOLERANCE
+        || rect.y1 < page_view.y1 - PAGE_EDGE_TOLERANCE
+        || rect.x2 > page_view.x2 + PAGE_EDGE_TOLERANCE
+        || rect.y2 > page_view.y2 + PAGE_EDGE_TOLERANCE
+        || rect.width() <= 0.0
+        || rect.height() <= 0.0
+    {
+        return Err("FreeText editor rectangle is outside the PDF page bounds".into());
+    }
+    Ok(rect)
+}
+
+fn escape_free_text_appearance_line(line: &str) -> String {
+    let mut escaped = String::with_capacity(line.len());
+    for byte in line.bytes() {
+        match byte {
+            b'(' | b')' | b'\\' => {
+                escaped.push('\\');
+                escaped.push(char::from(byte));
+            }
+            b'\t' => escaped.push_str("\\t"),
+            0x20..=0x7e => escaped.push(char::from(byte)),
+            _ => escaped.push_str(&format!("\\{byte:03o}")),
+        }
+    }
+    escaped
+}
+
+fn build_free_text_editor_appearance(
+    document: &mut Document,
+    editor: &FreeTextEditor,
+    rect: PdfRect,
+) -> Result<ObjectId> {
+    const LINE_FACTOR: f64 = 1.35;
+    const LINE_DESCENT_FACTOR: f64 = 0.35;
+    let mut width = rect.width();
+    let mut height = rect.height();
+    if editor.rotation % 180 != 0 {
+        std::mem::swap(&mut width, &mut height);
+    }
+    let line_ascent = (LINE_FACTOR - LINE_DESCENT_FACTOR) * editor.font_size;
+    let (matrix, clip_box, first_point): ([f64; 4], [f64; 4], [f64; 2]) = match editor.rotation {
+        0 => (
+            [1.0, 0.0, 0.0, 1.0],
+            [rect.x1, rect.y1, width, height],
+            [rect.x1, rect.y2 - line_ascent],
+        ),
+        90 => (
+            [0.0, 1.0, -1.0, 0.0],
+            [rect.y1, -rect.x2, width, height],
+            [rect.y1, -rect.x1 - line_ascent],
+        ),
+        180 => (
+            [-1.0, 0.0, 0.0, -1.0],
+            [-rect.x2, -rect.y2, width, height],
+            [-rect.x2, -rect.y1 - line_ascent],
+        ),
+        270 => (
+            [0.0, -1.0, 1.0, 0.0],
+            [-rect.y2, rect.x1, width, height],
+            [-rect.y2, rect.x2 - line_ascent],
+        ),
+        _ => return Err("Invalid FreeText editor rotation".into()),
+    };
+    let color = editor.color.map(|component| f64::from(component) / 255.0);
+    let mut content = format!(
+        "q\n{} {} {} {} 0 0 cm\n{} {} {} {} re W n\nBT\n{} {} {} rg\n0 Tc /Helv {} Tf\n{} {} Td",
+        number_to_content(matrix[0]),
+        number_to_content(matrix[1]),
+        number_to_content(matrix[2]),
+        number_to_content(matrix[3]),
+        number_to_content(clip_box[0]),
+        number_to_content(clip_box[1]),
+        number_to_content(clip_box[2]),
+        number_to_content(clip_box[3]),
+        number_to_content(color[0]),
+        number_to_content(color[1]),
+        number_to_content(color[2]),
+        number_to_content(editor.font_size),
+        number_to_content(first_point[0]),
+        number_to_content(first_point[1]),
+    );
+    for (index, line) in editor.text.split('\n').enumerate() {
+        if index > 0 {
+            content.push_str(&format!(
+                "\n0 -{} Td",
+                number_to_content(LINE_FACTOR * editor.font_size)
+            ));
+        }
+        content.push_str(&format!(
+            "\n({}) Tj",
+            escape_free_text_appearance_line(line)
+        ));
+    }
+    content.push_str("\nET\nQ");
+
+    let mut font = Dictionary::new();
+    font.set("Type", Object::Name(b"Font".to_vec()));
+    font.set("Subtype", Object::Name(b"Type1".to_vec()));
+    font.set("BaseFont", Object::Name(b"Helvetica".to_vec()));
+    font.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+    let mut fonts = Dictionary::new();
+    fonts.set("Helv", Object::Dictionary(font));
+    let mut resources = Dictionary::new();
+    resources.set("Font", Object::Dictionary(fonts));
+    let mut stream_dict = Dictionary::new();
+    stream_dict.set("Type", Object::Name(b"XObject".to_vec()));
+    stream_dict.set("Subtype", Object::Name(b"Form".to_vec()));
+    stream_dict.set("FormType", Object::Integer(1));
+    stream_dict.set("BBox", rect_object(rect));
+    stream_dict.set("Resources", Object::Dictionary(resources));
+    stream_dict.set(
+        "Matrix",
+        Object::Array(vec![
+            Object::Integer(1),
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Integer(1),
+            number_object(-rect.x1),
+            number_object(-rect.y1),
+        ]),
+    );
+    Ok(document.add_object(Stream::new(stream_dict, content.into_bytes())))
+}
+
+fn set_free_text_editor_fields(
+    dict: &mut Dictionary,
+    editor: &FreeTextEditor,
+    name: &str,
+    rect: PdfRect,
+    modified_at: &str,
+    appearance_ref: ObjectId,
+) {
+    dict.set("Rect", rect_object(rect));
+    dict.set(
+        "Contents",
+        Object::String(
+            encode_pdf_text_string(&editor.text),
+            StringFormat::Hexadecimal,
+        ),
+    );
+    dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
+    dict.set(
+        "NM",
+        Object::String(encode_pdf_text_string(name), StringFormat::Hexadecimal),
+    );
+    dict.set(
+        "Border",
+        Object::Array(vec![
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Integer(0),
+        ]),
+    );
+    dict.set("Rotate", Object::Integer(i64::from(editor.rotation)));
+    let color = editor.color.map(|component| f64::from(component) / 255.0);
+    dict.set(
+        "DA",
+        Object::string_literal(
+            format!(
+                "/Helv {} Tf {} {} {} rg",
+                number_to_content(editor.font_size),
+                number_to_content(color[0]),
+                number_to_content(color[1]),
+                number_to_content(color[2]),
+            )
+            .into_bytes(),
+        ),
+    );
+    let mut appearance = Dictionary::new();
+    appearance.set("N", Object::Reference(appearance_ref));
+    dict.set("AP", Object::Dictionary(appearance));
+    dict.remove(b"Popup");
 }
 
 pub(crate) fn ensure_free_text_annotation_fields(
@@ -497,6 +795,14 @@ impl PageAnnotationIndex {
         self.named_free_text
             .push((annot_ref, note_name.to_string()));
         self.append_missing_refs(&[annot_ref, popup_ref]);
+    }
+
+    fn append_free_text_without_popup(&mut self, name: &str, annot_ref: ObjectId) {
+        self.first_free_text_by_name
+            .entry(name.to_string())
+            .or_insert(annot_ref);
+        self.named_free_text.push((annot_ref, name.to_string()));
+        self.append_missing_refs(&[annot_ref]);
     }
 
     fn matching_stable_delete_refs(&self, delete: &AnnotationDelete) -> Vec<ObjectId> {

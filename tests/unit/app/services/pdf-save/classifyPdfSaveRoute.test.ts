@@ -144,6 +144,7 @@ function liveChanges(overrides: Partial<IPdfLiveAnnotationChangeSummary> = {}): 
     return {
         ids: new Set(),
         replayableEditorNoteIds: new Set(),
+        nativeFreeTextEditors: new Map(),
         hasChanges: false,
         hasUnknownChanges: false,
         fingerprint: 'empty',

@@ -11,6 +11,11 @@ pub(crate) fn validate_appended_revision_postconditions(
         &mutations.free_text_notes,
         modified_at,
     )?;
+    validate_free_text_editor_document_postconditions(
+        document,
+        &mutations.free_text_editors,
+        modified_at,
+    )?;
     validate_annotation_delete_document_postconditions(document, &mutations.deletes)?;
     if let Some(page_labels) = &mutations.page_labels {
         validate_page_labels_document_postconditions(document, page_labels)?;
@@ -147,6 +152,69 @@ pub(crate) fn validate_free_text_note_document_postconditions(
         }
         let popup_dict = document.dictionary(popup_ref)?;
         validate_popup_annotation_fields(popup_dict, note, expected_rect, modified_at, annot_ref)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_free_text_editor_document_postconditions(
+    document: &impl PdfObjectSource,
+    editors: &[FreeTextEditor],
+    modified_at: &str,
+) -> Result<()> {
+    if editors.is_empty() {
+        return Ok(());
+    }
+    let page_map = document.page_ids();
+    for editor in editors {
+        let page_number = editor
+            .page_index
+            .checked_add(1)
+            .ok_or("Invalid FreeText editor page index")?;
+        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_view = resolve_page_view(document, page_id)?;
+        let expected_rect = validate_free_text_editor_rect(editor, page_view)?;
+        let expected_name = free_text_editor_name(editor);
+        let matching_refs: Vec<ObjectId> = get_page_annots(document, page_id)?
+            .iter()
+            .filter_map(|object| object.as_reference().ok())
+            .filter(|object_id| {
+                document
+                    .dictionary(*object_id)
+                    .ok()
+                    .filter(|dict| annotation_subtype(dict) == "freetext")
+                    .and_then(|dict| dict.get(b"NM").ok())
+                    .and_then(pdf_string_to_text)
+                    .as_deref()
+                    == Some(expected_name.as_str())
+            })
+            .collect();
+        if matching_refs.len() != 1 {
+            return Err(format!(
+                "Expected exactly one FreeText editor named {expected_name}, found {}",
+                matching_refs.len()
+            )
+            .into());
+        }
+        let dict = document.dictionary(matching_refs[0])?;
+        validate_annotation_text_fields(dict, &editor.text, modified_at, "FreeText editor")?;
+        let actual_rect = parse_rect(dict.get(b"Rect")?)?;
+        validate_rect_approximately(actual_rect, expected_rect, "FreeText editor Rect")?;
+        if dict.get(b"Popup").is_ok() {
+            return Err("FreeText editor unexpectedly contains a Popup".into());
+        }
+        let rotation = dict.get(b"Rotate")?.as_i64()?;
+        if rotation != i64::from(editor.rotation) {
+            return Err("FreeText editor rotation did not match the requested rotation".into());
+        }
+        let default_appearance = dict
+            .get(b"DA")
+            .ok()
+            .and_then(|object| object.as_str().ok())
+            .ok_or("FreeText editor is missing DA")?;
+        if !String::from_utf8_lossy(default_appearance).contains("/Helv") {
+            return Err("FreeText editor DA is missing Helvetica".into());
+        }
+        validate_appearance(document, dict)?;
     }
     Ok(())
 }

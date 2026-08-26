@@ -14,6 +14,7 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: Vec::new(),
+                free_text_editors: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: None,
                 bookmarks: None,
@@ -80,6 +81,7 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: Vec::new(),
+                free_text_editors: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: None,
                 bookmarks: None,
@@ -135,6 +137,7 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: Vec::new(),
+                free_text_editors: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: None,
                 bookmarks: None,
@@ -196,6 +199,7 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: Vec::new(),
+                free_text_editors: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: None,
                 bookmarks: None,
@@ -427,6 +431,7 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: Vec::new(),
+                free_text_editors: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: None,
                 bookmarks: None,
@@ -456,6 +461,7 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: Vec::new(),
+                free_text_editors: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: None,
                 bookmarks: None,
@@ -617,6 +623,7 @@
         NativeMutationsFile {
             updates: Vec::new(),
             free_text_notes: Vec::new(),
+            free_text_editors: Vec::new(),
             deletes: Vec::new(),
             page_labels: None,
             bookmarks: None,

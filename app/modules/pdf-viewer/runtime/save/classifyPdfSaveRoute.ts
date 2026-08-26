@@ -174,6 +174,7 @@ function summarizeCanonicalLiveChanges(plan: ISerializationPlan): IPdfLiveAnnota
     return {
         ids,
         replayableEditorNoteIds,
+        nativeFreeTextEditors: new Map(),
         hasChanges: plan.steps.length > 0,
         hasUnknownChanges: false,
         fingerprint: `frontier:${plan.frontier.epoch}:${plan.frontier.entityBaselineHash}:${Array.from(ids).sort().join(',')}`,
@@ -261,6 +262,9 @@ function collectReplayableEmbeddedAnnotationIds(input: {
             ].forEach(id => addReplayableAnnotationId(ids, id));
             addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
         });
+    input.liveAnnotationChanges.nativeFreeTextEditors.forEach((_editor, id) => {
+        addReplayableAnnotationId(ids, id);
+    });
     if (ids.size > 0) {
         input.liveAnnotationChanges.replayableEditorNoteIds.forEach((id) => {
             addReplayableAnnotationId(ids, id);
@@ -458,8 +462,14 @@ function buildClassifiedNativeMutationProjection(
         : null;
     const noteTextUpdates = noteTextUpdatesResult?.value ?? [];
     const freeTextNotes = freeTextNotesResult?.value ?? [];
+    const freeTextEditors = replayAllowed
+        ? Array.from(canonical.liveAnnotationChanges.nativeFreeTextEditors.values())
+        : [];
     const annotationDeletes = annotationDeletesResult?.value ?? [];
-    const nativeNoteMutationCount = noteTextUpdates.length + freeTextNotes.length + annotationDeletes.length;
+    const nativeNoteMutationCount = noteTextUpdates.length
+        + freeTextNotes.length
+        + freeTextEditors.length
+        + annotationDeletes.length;
     const pendingDeletesAreFullyCovered = canonical.pendingDeletes.length > 0
         && annotationDeletes.length === canonical.pendingDeletes.length;
     if (admitted.dirtyState.savedPdfjsAnnotationBaselineDirty && !pendingDeletesAreFullyCovered) {
@@ -539,6 +549,7 @@ function buildClassifiedNativeMutationProjection(
         mutations: {
             ...(noteTextUpdates.length > 0 ? {updates: noteTextUpdates} : {}),
             ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
+            ...(freeTextEditors.length > 0 ? {freeTextEditors} : {}),
             ...(annotationDeletes.length > 0 ? {deletes: annotationDeletes} : {}),
             ...(pageLabels ? {pageLabels} : {}),
             ...(bookmarks ? {bookmarks} : {}),
@@ -547,6 +558,7 @@ function buildClassifiedNativeMutationProjection(
         },
         noteTextUpdates,
         freeTextNotes,
+        freeTextEditors,
         annotationDeletes,
         hasMetadataMutations,
         hasShapeMutations,
@@ -555,9 +567,11 @@ function buildClassifiedNativeMutationProjection(
             ? 'persist-native-pdf-mutations'
             : annotationDeletes.length > 0
                 ? 'persist-native-annotation-changes'
-                : freeTextNotes.length > 0
-                    ? 'persist-native-note-changes'
-                    : 'persist-native-note-text-updates',
+                : freeTextEditors.length > 0
+                    ? 'persist-native-free-text-editor-changes'
+                    : freeTextNotes.length > 0
+                        ? 'persist-native-note-changes'
+                        : 'persist-native-note-text-updates',
     };
 }
 

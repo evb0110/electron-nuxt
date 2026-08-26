@@ -161,6 +161,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
 
         session = await startElectronE2ESession(`e2e-blocking-save-smoke-${Date.now()}`, {
             clean: true,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         const { page } = session;

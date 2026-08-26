@@ -14,6 +14,7 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: Vec::new(),
+                free_text_editors: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: Some(PageLabelsMutation {
                     total_pages: 1,
@@ -138,6 +139,7 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: Vec::new(),
+                free_text_editors: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: Some(PageLabelsMutation {
                     total_pages: 1,
@@ -168,4 +170,3 @@
 
         let _ = remove_file(pdf_path);
     }
-

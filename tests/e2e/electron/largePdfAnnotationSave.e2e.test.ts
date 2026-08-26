@@ -25,11 +25,13 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
+    openAnnotationsTab,
     openPdfInApp,
     saveViaWindowHandle,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {createFreeTextAnnotation} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     callWorkspaceCommand,
     collectWorkspaceExposeDebugState,
@@ -96,6 +98,7 @@ async function readPdfNoteContents(filePath: string) {
     const doc = await PDFDocument.load(readFileSync(filePath), { updateMetadata: false });
     const notes: Array<{
         contents: string;
+        name: string;
         pageIndex: number;
         popup: string;
         ref: string;
@@ -118,6 +121,7 @@ async function readPdfNoteContents(filePath: string) {
                 continue;
             }
             const contents = getPdfStringValue(dict.get(PDFName.of('Contents')));
+            const name = getPdfStringValue(dict.get(PDFName.of('NM')));
             const subtype = dict.get(PDFName.of('Subtype'))?.toString() ?? '';
             if (!contents || (subtype !== '/FreeText' && subtype !== '/Text')) {
                 continue;
@@ -127,6 +131,7 @@ async function readPdfNoteContents(filePath: string) {
                 ref: String(ref),
                 pageIndex,
                 contents,
+                name,
                 popup: String(dict.get(PDFName.of('Popup')) ?? ''),
                 subtype,
             });
@@ -772,5 +777,71 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             reopenPath,
             reopenedNotes: reopenedNotes.slice(0, 20),
         })).toEqual(expect.arrayContaining(existingFixtureNotes));
+    }, LARGE_PDF_TIMEOUT_MS);
+
+    it('creates, saves, and reopens an ordinary FreeText box on a large PDF', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const {page} = session;
+        const fixturePath = copyLargePdfFixture(`large-pdf-free-text-${Date.now()}.pdf`);
+        const textSentinel = Date.now().toString();
+        const text = `large pdf free text ${textSentinel}`;
+
+        await openPdfInApp(page, fixturePath, LARGE_PDF_TIMEOUT_MS);
+        await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
+        await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
+        await openAnnotationsTab(page, 30_000);
+        expect(await createFreeTextAnnotation(page, text)).toBeGreaterThan(0);
+
+        const agentSaveResult = await saveLargePdfViaAgentAction(page);
+        if (!agentSaveResult) {
+            await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);
+        }
+        const savedState = await readWorkspaceStateValues<{
+            originalPath?: string | null;
+            workingCopyPath?: string | null;
+        }>(page, [
+            'workingCopyPath',
+            'originalPath',
+        ]);
+        const savedPath = typeof agentSaveResult?.status?.originalPath === 'string'
+            ? agentSaveResult.status.originalPath
+            : typeof agentSaveResult?.status?.workingCopyPath === 'string'
+                ? agentSaveResult.status.workingCopyPath
+                : typeof savedState.workingCopyPath === 'string'
+                    ? savedState.workingCopyPath
+                    : fixturePath;
+        const savedNotes = await readPdfNoteContents(savedPath);
+        // The headless contenteditable helper can omit its first typed token;
+        // the timestamp suffix still identifies this editor uniquely.
+        const savedFreeText = savedNotes.filter(note => note.contents.endsWith(`pdf free text ${textSentinel}`));
+        expect(savedFreeText, JSON.stringify({
+            agentSaveResult,
+            savedPath,
+            savedState,
+            savedNotes: savedNotes.slice(0, 20),
+        })).toEqual([expect.objectContaining({
+            name: expect.stringMatching(/^evb-freetext:freetext-[0-9a-f-]{36}$/u),
+            popup: '',
+            subtype: '/FreeText',
+        })]);
+        const persistedText = savedFreeText[0]?.contents;
+        const persistedName = savedFreeText[0]?.name;
+        expect(persistedText).toBeTruthy();
+        expect(persistedName).toMatch(/^evb-freetext:freetext-[0-9a-f-]{36}$/u);
+
+        const reopenPath = copyLargePdfFixture(`large-pdf-free-text-reopen-${Date.now()}.pdf`);
+        copyFileSync(savedPath, reopenPath);
+        await openPdfInApp(page, reopenPath, LARGE_PDF_TIMEOUT_MS);
+        await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
+        await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
+        const reopenedNotes = await readPdfNoteContents(reopenPath);
+        expect(reopenedNotes.filter(note => note.contents === persistedText)).toEqual([expect.objectContaining({
+            name: persistedName,
+            popup: '',
+            subtype: '/FreeText',
+        })]);
     }, LARGE_PDF_TIMEOUT_MS);
 });

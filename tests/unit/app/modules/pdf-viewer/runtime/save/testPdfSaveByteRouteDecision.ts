@@ -15,6 +15,7 @@ export const TEST_PDF_SAVE_BYTE_ROUTE_DECISION: IPdfSaveByteRouteDecision = {
         liveAnnotationChanges: {
             ids: new Set(),
             replayableEditorNoteIds: new Set(),
+            nativeFreeTextEditors: new Map(),
             hasChanges: false,
             hasUnknownChanges: false,
             fingerprint: '',

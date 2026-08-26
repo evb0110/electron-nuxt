@@ -29,6 +29,25 @@ const validFreeTextNote = {
     },
 };
 
+const validFreeTextEditor = {
+    pageIndex: 854,
+    stableKey: 'pdfjs_internal_editor_0',
+    text: 'asdfadf',
+    rect: [
+        2.048192,
+        554.41672,
+        59.34848,
+        580.43896,
+    ],
+    rotation: 0,
+    fontSize: 16,
+    color: [
+        245,
+        158,
+        11,
+    ],
+};
+
 const validPageLabelRange = {
     startPage: 1,
     style: 'D',
@@ -104,6 +123,7 @@ describe('native PDF mutation contracts', () => {
         const rawMutations = {
             updates: [validNoteTextUpdate],
             freeTextNotes: [validFreeTextNote],
+            freeTextEditors: [validFreeTextEditor],
             pageLabels: {
                 totalPages: 3,
                 ranges: [validPageLabelRange],
@@ -149,6 +169,7 @@ describe('native PDF mutation contracts', () => {
             pageIndex: 0,
             pageYRatio: 0.25,
         });
+        expect(preloadPayload.freeTextEditors).toEqual([validFreeTextEditor]);
     });
 
     it('enforces shared native mutation limits from the contracts source of truth', () => {
@@ -158,6 +179,8 @@ describe('native PDF mutation contracts', () => {
         )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.noteTextUpdates} updates`);
 
         expect(() => normalizePdfNativeNoteChanges({freeTextNotes: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.noteChanges + 1}, () => validFreeTextNote)}, 'changes')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.noteChanges} notes`);
+
+        expect(() => normalizePdfNativeMutationSet({freeTextEditors: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.freeTextEditors + 1}, () => validFreeTextEditor)}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.freeTextEditors} editors`);
 
         expect(() => normalizePdfNativeMutationSet({pageLabels: {
             totalPages: 3,

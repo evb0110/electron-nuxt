@@ -142,11 +142,25 @@ pub(crate) fn apply_native_mutations(
     mutations: &NativeMutationsFile,
     modified_at: &str,
 ) -> Result<()> {
+    let mut annotation_visits = 0usize;
     if !mutations.updates.is_empty() {
         update_note_text(document, &mutations.updates, modified_at)?;
     }
     if !mutations.free_text_notes.is_empty() {
-        upsert_free_text_notes(document, &mutations.free_text_notes, modified_at)?;
+        upsert_free_text_notes_with_counter(
+            document,
+            &mutations.free_text_notes,
+            modified_at,
+            &mut annotation_visits,
+        )?;
+    }
+    if !mutations.free_text_editors.is_empty() {
+        upsert_free_text_editors_with_counter(
+            document,
+            &mutations.free_text_editors,
+            modified_at,
+            &mut annotation_visits,
+        )?;
     }
     if !mutations.deletes.is_empty() {
         delete_annotations(document, &mutations.deletes)?;
@@ -175,11 +189,25 @@ pub(crate) fn apply_native_mutations_incremental(
     mutations: &NativeMutationsFile,
     modified_at: &str,
 ) -> Result<()> {
+    let mut annotation_visits = 0usize;
     if !mutations.updates.is_empty() {
         update_note_text_incremental(incremental, &mutations.updates, modified_at)?;
     }
     if !mutations.free_text_notes.is_empty() {
-        upsert_free_text_notes_incremental(incremental, &mutations.free_text_notes, modified_at)?;
+        upsert_free_text_notes_incremental_with_counter(
+            incremental,
+            &mutations.free_text_notes,
+            modified_at,
+            &mut annotation_visits,
+        )?;
+    }
+    if !mutations.free_text_editors.is_empty() {
+        upsert_free_text_editors_incremental_with_counter(
+            incremental,
+            &mutations.free_text_editors,
+            modified_at,
+            &mut annotation_visits,
+        )?;
     }
     if !mutations.deletes.is_empty() {
         delete_annotations_incremental(incremental, &mutations.deletes)?;

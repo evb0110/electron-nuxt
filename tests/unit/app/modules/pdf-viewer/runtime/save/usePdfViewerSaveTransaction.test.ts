@@ -301,6 +301,166 @@ describe('usePdfViewerSaveTransaction', () => {
         expect(materializePdfJsDocumentForInternalUse).not.toHaveBeenCalled();
     });
 
+    it('projects a new PDF.js FreeText box to bounded native mutations', async () => {
+        const editor = {
+            annotationType: 3,
+            pageIndex: 854,
+            rect: [
+                2.048192,
+                554.41672,
+                59.34848,
+                580.43896,
+            ],
+            rotation: 0,
+            popupRef: '',
+            color: [
+                245,
+                158,
+                11,
+            ],
+            fontSize: 16,
+            value: 'asdfadf',
+            id: null,
+        };
+        const serializableMap = new Map([[
+            'pdfjs_internal_editor_0',
+            editor,
+        ]]);
+        const annotationStorage = {
+            serializable: {
+                map: serializableMap,
+                hash: 'recorded-large-pdf-free-text-box',
+            },
+            modifiedIds: {ids: new Set([null])},
+            resetModifiedIds: vi.fn(),
+        };
+        const getSourcePdfData = vi.fn(async () => new Uint8Array([9]));
+        const materializePdfJsDocumentForInternalUse = vi.fn(async () => new Uint8Array([8]));
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({
+            pdfDocument: shallowRef({
+                annotationStorage,
+                numPages: 882,
+            } as never),
+            annotationUiManager: shallowRef({commitOrRemove: vi.fn()} as never),
+            materializePdfJsDocumentForInternalUse,
+        });
+
+        const result = await runSaveTransaction({
+            mode: 'persist',
+            planOnly: true,
+            source: {getSourcePdfData},
+            nativeCapabilities: {
+                hasNativePdfMutationCapability: true,
+                canPersistNativeMetadataMutations: true,
+            },
+            dirtyState: {
+                annotationDirty: true,
+                hasAnnotationChanges: true,
+                hasLivePdfJsAnnotationChanges: true,
+                savedPdfjsAnnotationBaselineDirty: false,
+                shapeStateDirty: false,
+            },
+            documentStructure: {
+                pageLabelsDirty: false,
+                pageLabelRanges: [],
+                bookmarksDirty: false,
+                bookmarkItems: [],
+                untitledBookmarkLabel: 'Untitled',
+                totalPages: 882,
+            },
+        });
+
+        expect(result.source).toBe('native-mutation-projection');
+        expect(result.nativeMutationProjection).toMatchObject({
+            phase: 'persist-native-free-text-editor-changes',
+            mutations: {freeTextEditors: [{
+                pageIndex: 854,
+                stableKey: expect.stringMatching(/^freetext-[0-9a-f-]{36}$/u),
+                rect: editor.rect,
+                rotation: 0,
+                color: editor.color,
+                fontSize: 16,
+                text: 'asdfadf',
+            }]},
+        });
+        expect(getSourcePdfData).not.toHaveBeenCalled();
+        expect(materializePdfJsDocumentForInternalUse).not.toHaveBeenCalled();
+    });
+
+    it('keeps Cyrillic FreeText on the lossless PDF.js materialization route', async () => {
+        const annotationStorage = {
+            serializable: {
+                map: new Map([[
+                    'pdfjs_internal_editor_0',
+                    {
+                        annotationType: 3,
+                        pageIndex: 0,
+                        rect: [
+                            20,
+                            30,
+                            180,
+                            60,
+                        ],
+                        rotation: 0,
+                        color: [
+                            0,
+                            0,
+                            0,
+                        ],
+                        fontSize: 16,
+                        value: 'Привет',
+                        id: null,
+                    },
+                ]]),
+                hash: 'unicode-free-text-box',
+            },
+            modifiedIds: {ids: new Set([null])},
+            resetModifiedIds: vi.fn(),
+        };
+        const materializePdfJsDocumentForInternalUse = vi.fn(async () => new Uint8Array([8]));
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({
+            pdfDocument: shallowRef({
+                annotationStorage,
+                numPages: 1,
+            } as never),
+            annotationUiManager: shallowRef({commitOrRemove: vi.fn()} as never),
+            materializePdfJsDocumentForInternalUse,
+        });
+
+        const result = await runSaveTransaction({
+            mode: 'persist',
+            planOnly: true,
+            source: {getSourcePdfData: vi.fn(async () => new Uint8Array([9]))},
+            nativeCapabilities: {
+                hasNativePdfMutationCapability: true,
+                canPersistNativeMetadataMutations: true,
+            },
+            dirtyState: {
+                annotationDirty: true,
+                hasAnnotationChanges: true,
+                hasLivePdfJsAnnotationChanges: true,
+                savedPdfjsAnnotationBaselineDirty: false,
+                shapeStateDirty: false,
+            },
+            documentStructure: {
+                pageLabelsDirty: false,
+                pageLabelRanges: [],
+                bookmarksDirty: false,
+                bookmarkItems: [],
+                untitledBookmarkLabel: 'Untitled',
+                totalPages: 1,
+            },
+        });
+
+        expect(result.source).toBe('pdfjs-materialize');
+        expect(result.nativeMutationProjection).toBeNull();
+        expect(result.annotationSavePlan).toMatchObject({
+            route: 'pdfjs-materialize',
+            unreplayableLiveAnnotationIds: ['pdfjs_internal_editor_0'],
+        });
+        expect(materializePdfJsDocumentForInternalUse).not.toHaveBeenCalled();
+    });
+
     it('executes the exact frozen plan and fallback identity after native decline', async () => {
         const prepareAnnotationSave = vi.fn(() => ({
             plan: buildSerializationPlan({

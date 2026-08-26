@@ -80,6 +80,34 @@ pub(crate) fn validate_free_text_notes(notes: &[FreeTextNote]) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn validate_free_text_editors(editors: &[FreeTextEditor]) -> Result<()> {
+    for editor in editors {
+        if editor.stable_key.trim().is_empty() || editor.stable_key.len() > 512 {
+            return Err("Invalid FreeText editor stable key".into());
+        }
+        if !editor.rect.iter().all(|coordinate| coordinate.is_finite())
+            || editor.rect[2] <= editor.rect[0]
+            || editor.rect[3] <= editor.rect[1]
+        {
+            return Err("Invalid FreeText editor rectangle".into());
+        }
+        if !matches!(editor.rotation, 0 | 90 | 180 | 270) {
+            return Err("Invalid FreeText editor rotation".into());
+        }
+        if !editor.font_size.is_finite() || editor.font_size <= 0.0 || editor.font_size > 512.0 {
+            return Err("Invalid FreeText editor font size".into());
+        }
+        if !editor.text.chars().all(|character| {
+            character == '\n' || character == '\t' || (' '..='~').contains(&character)
+        }) {
+            return Err(
+                "FreeText editor text is unsupported by the bounded Helvetica appearance".into(),
+            );
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_annotation_deletes(deletes: &[AnnotationDelete]) -> Result<()> {
     for delete in deletes {
         let has_ref = delete.object_number.is_some() || delete.generation_number.is_some();
@@ -419,6 +447,7 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
     let parsed: NativeMutationsFile = read_json_sidecar(path, "native PDF mutations")?;
     if parsed.updates.is_empty()
         && parsed.free_text_notes.is_empty()
+        && parsed.free_text_editors.is_empty()
         && parsed.deletes.is_empty()
         && parsed.page_labels.is_none()
         && parsed.bookmarks.is_none()
@@ -434,6 +463,7 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
         }
     }
     validate_free_text_notes(&parsed.free_text_notes)?;
+    validate_free_text_editors(&parsed.free_text_editors)?;
     validate_annotation_deletes(&parsed.deletes)?;
     if let Some(page_labels) = &parsed.page_labels {
         validate_page_labels_mutation(page_labels)?;
@@ -451,6 +481,7 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
     validate_mutation_collection_budget(&[
         parsed.updates.len(),
         parsed.free_text_notes.len(),
+        parsed.free_text_editors.len(),
         parsed.deletes.len(),
         parsed.placed_images.len(),
     ])?;
@@ -544,6 +575,10 @@ fn validate_native_mutation_text_budget(mutations: &NativeMutationsFile) -> Resu
         {
             consume_text_bytes(&mut total, value)?;
         }
+    }
+    for editor in &mutations.free_text_editors {
+        consume_text_bytes(&mut total, &editor.stable_key)?;
+        consume_text_bytes(&mut total, &editor.text)?;
     }
     for delete in &mutations.deletes {
         if let Some(stable_key) = delete.stable_key.as_deref() {

@@ -315,6 +315,9 @@ pub(crate) struct NativeMutationsFile {
     pub(crate) free_text_notes: Vec<FreeTextNote>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
+    pub(crate) free_text_editors: Vec<FreeTextEditor>,
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) deletes: Vec<AnnotationDelete>,
     pub(crate) page_labels: Option<PageLabelsMutation>,
     pub(crate) bookmarks: Option<BookmarksMutation>,
@@ -352,6 +355,18 @@ pub(crate) struct FreeTextNote {
     pub(crate) author: Option<String>,
     pub(crate) color: Option<String>,
     pub(crate) created_at: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct FreeTextEditor {
+    pub(crate) page_index: u32,
+    pub(crate) stable_key: String,
+    pub(crate) text: String,
+    pub(crate) rect: [f64; 4],
+    pub(crate) rotation: u16,
+    pub(crate) font_size: f64,
+    pub(crate) color: [u8; 3],
 }
 
 #[derive(Deserialize)]

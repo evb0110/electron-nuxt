@@ -602,6 +602,107 @@
     }
 
     #[test]
+    fn appends_and_updates_visible_free_text_editor_as_incremental_revision() {
+        let (mut document, page_id) = create_test_document();
+        let pdf_path = temp_pdf_path("append-visible-free-text-editor");
+        let mut original_bytes = Vec::new();
+        document.save_to(&mut original_bytes).unwrap();
+        write(&pdf_path, &original_bytes).unwrap();
+
+        for (text, modified_at) in [
+            ("asdfadf", "D:20260826161128+04'00'"),
+            ("saved text", "D:20260826161200+04'00'"),
+        ] {
+            append_native_mutations(
+                &pdf_path,
+                &pdf_path,
+                &NativeMutationsFile {
+                    free_text_editors: vec![FreeTextEditor {
+                        page_index: 0,
+                        stable_key: "pdfjs_internal_editor_0".to_string(),
+                        text: text.to_string(),
+                        rect: [2.0, 54.0, 59.0, 80.0],
+                        rotation: 0,
+                        font_size: 16.0,
+                        color: [245, 158, 11],
+                    }],
+                    ..NativeMutationsFile::default()
+                },
+                modified_at,
+            )
+            .unwrap();
+        }
+
+        let loaded = Document::load(&pdf_path).unwrap();
+        let free_text_refs: Vec<ObjectId> = get_page_annots(&loaded, page_id)
+            .unwrap()
+            .iter()
+            .filter_map(|object| object.as_reference().ok())
+            .filter(|object_id| {
+                loaded
+                    .get_dictionary(*object_id)
+                    .map(|dict| annotation_subtype(dict) == "freetext")
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(free_text_refs.len(), 1);
+        let dict = loaded.get_dictionary(free_text_refs[0]).unwrap();
+        assert_eq!(
+            dict.get(b"Contents").unwrap().as_str().unwrap(),
+            encode_pdf_text_string("saved text"),
+        );
+        assert!(dict.get(b"Popup").is_err());
+        assert!(String::from_utf8_lossy(dict.get(b"DA").unwrap().as_str().unwrap())
+            .contains("/Helv 16 Tf"));
+        let appearance_ref = dict
+            .get(b"AP")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"N")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let appearance = loaded.get_object(appearance_ref).unwrap().as_stream().unwrap();
+        let appearance_text = String::from_utf8_lossy(&appearance.content);
+        assert!(appearance_text.contains("0.9608 0.6196 0.0431 rg"));
+        assert!(appearance_text.contains("(saved text) Tj"));
+
+        let _ = remove_file(pdf_path);
+    }
+
+    #[test]
+    fn accepts_pdfjs_free_text_border_rounding_past_the_page_edge() {
+        let editor = FreeTextEditor {
+            page_index: 0,
+            stable_key: "pdfjs_internal_editor_0".to_string(),
+            text: "saved text".to_string(),
+            rect: [20.0, 30.0, 202.0, 60.0],
+            rotation: 0,
+            font_size: 16.0,
+            color: [0, 0, 0],
+        };
+        let page_view = PdfRect {
+            x1: 0.0,
+            y1: 0.0,
+            x2: 200.0,
+            y2: 100.0,
+        };
+
+        let accepted = validate_free_text_editor_rect(&editor, page_view).unwrap();
+        assert_approximately(accepted.x1, 20.0);
+        assert_approximately(accepted.y1, 30.0);
+        assert_approximately(accepted.x2, 202.0);
+        assert_approximately(accepted.y2, 60.0);
+
+        let outside = FreeTextEditor {
+            rect: [20.0, 30.0, 205.0, 60.0],
+            ..editor
+        };
+        assert!(validate_free_text_editor_rect(&outside, page_view).is_err());
+    }
+
+    #[test]
     fn repeated_free_text_note_append_updates_existing_named_note() {
         let (mut document, page_id) = create_test_document();
         let pdf_path = temp_pdf_path("append-free-text-repeat");

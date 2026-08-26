@@ -5,10 +5,13 @@ import {
 } from '@app/utils/pdfAnnotationRefs';
 import { isRecord } from '@contracts/runtimeGuards';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import type {IPdfNativeFreeTextEditor} from '@contracts/electronApiDocuments';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 export interface IPdfLiveAnnotationChangeSummary {
     ids: Set<string>;
     replayableEditorNoteIds: Set<string>;
+    nativeFreeTextEditors: Map<string, IPdfNativeFreeTextEditor>;
     hasChanges: boolean;
     hasUnknownChanges: boolean;
     fingerprint: string;
@@ -28,6 +31,10 @@ export function mergeLivePdfJsAnnotationChanges(
             ...left.replayableEditorNoteIds,
             ...right.replayableEditorNoteIds,
         ]),
+        nativeFreeTextEditors: new Map([
+            ...left.nativeFreeTextEditors,
+            ...right.nativeFreeTextEditors,
+        ]),
         hasChanges: left.hasChanges || right.hasChanges,
         hasUnknownChanges: left.hasUnknownChanges || right.hasUnknownChanges,
         fingerprint: `${left.fingerprint}|pdfjs:${right.fingerprint}`,
@@ -37,6 +44,9 @@ export function mergeLivePdfJsAnnotationChanges(
 const PDFJS_FREETEXT_ANNOTATION_EDITOR_TYPE = 3;
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 const EMPTY_ANNOTATION_CHANGE_FINGERPRINT = 'empty';
+const MAX_NATIVE_FREE_TEXT_EDITOR_TEXT_LENGTH = 64 * 1024;
+const MAX_NATIVE_FREE_TEXT_EDITOR_KEY_LENGTH = 512;
+const nativeFreeTextEditorStableKeys = new WeakMap<PDFDocumentProxy, Map<string, string>>();
 
 type TAnnotationStorageResetMethod = 'resetModified' | 'resetModifiedIds';
 
@@ -227,6 +237,127 @@ function isReplayableFreeTextNoteStorageValue(value: unknown) {
     );
 }
 
+function isUntrackedBlankEditorOnlyFreeTextStorageValue(
+    value: unknown,
+    keyId: string | null,
+    modifiedIds: Set<unknown> | undefined,
+) {
+    return isRecord(value)
+        && keyId !== null
+        && modifiedIds?.has(keyId) !== true
+        && value.deleted !== true
+        && !getExistingPdfAnnotationIdFromStorageValue(value)
+        && isFreeTextEditorStorageValue(value)
+        && isBlankStringValue(value.value)
+        && !hasActivePopupPayload(value)
+        && !hasTextPayload(value.comment)
+        && value.hasComment !== true;
+}
+
+function isNativeFreeTextEditorText(value: unknown): value is string {
+    return typeof value === 'string'
+        && !isBlankStringValue(value)
+        && value.length <= MAX_NATIVE_FREE_TEXT_EDITOR_TEXT_LENGTH
+        && Array.from(value).every(character => (
+            character === '\n'
+            || character === '\t'
+            || (character.charCodeAt(0) >= 0x20 && character.charCodeAt(0) <= 0x7e)
+        ));
+}
+
+function isNativeFreeTextEditorRect(value: unknown): value is [number, number, number, number] {
+    if (
+        !Array.isArray(value)
+        || value.length !== 4
+        || value.some(coordinate => typeof coordinate !== 'number' || !Number.isFinite(coordinate))
+    ) {
+        return false;
+    }
+    const [
+        x1,
+        y1,
+        x2,
+        y2,
+    ] = value as [number, number, number, number];
+    return x2 > x1 && y2 > y1;
+}
+
+function isNativeFreeTextEditorColor(value: unknown): value is [number, number, number] {
+    return Array.isArray(value)
+        && value.length === 3
+        && value.every(component => (
+            typeof component === 'number'
+            && Number.isInteger(component)
+            && component >= 0
+            && component <= 255
+        ));
+}
+
+type TNativeFreeTextEditorStyle = Record<string, unknown> & {
+    color: [number, number, number];
+    fontSize: number;
+    rotation: 0 | 90 | 180 | 270;
+};
+
+function hasNativeFreeTextEditorStyle(value: Record<string, unknown>): value is TNativeFreeTextEditorStyle {
+    return [
+        0,
+        90,
+        180,
+        270,
+    ].includes(value.rotation as number)
+        && typeof value.fontSize === 'number'
+        && Number.isFinite(value.fontSize)
+        && value.fontSize > 0
+        && value.fontSize <= 512
+        && isNativeFreeTextEditorColor(value.color);
+}
+
+function toNativeFreeTextEditor(
+    document: PDFDocumentProxy,
+    key: string,
+    value: unknown,
+): IPdfNativeFreeTextEditor | null {
+    if (
+        !key.startsWith('pdfjs_internal_editor_')
+        || !isRecord(value)
+        || value.deleted === true
+        || getExistingPdfAnnotationIdFromStorageValue(value)
+        || !isFreeTextEditorStorageValue(value)
+        || isReplayableFreeTextNoteStorageValue(value)
+        || !isNativeFreeTextEditorText(value.value)
+        || typeof value.pageIndex !== 'number'
+        || !Number.isSafeInteger(value.pageIndex)
+        || value.pageIndex < 0
+        || !isNativeFreeTextEditorRect(value.rect)
+        || !hasNativeFreeTextEditorStyle(value)
+        || key.length > MAX_NATIVE_FREE_TEXT_EDITOR_KEY_LENGTH
+    ) {
+        return null;
+    }
+
+    let stableKeys = nativeFreeTextEditorStableKeys.get(document);
+    if (!stableKeys) {
+        stableKeys = new Map<string, string>();
+        nativeFreeTextEditorStableKeys.set(document, stableKeys);
+    }
+    let stableKey = stableKeys.get(key);
+    if (!stableKey) {
+        stableKey = `freetext-${crypto.randomUUID()}`;
+        stableKeys.set(key, stableKey);
+    }
+
+    return {
+        pageIndex: requirePageIndex(value.pageIndex),
+        stableKey,
+        text: value.value,
+        rect: [...value.rect],
+        rotation: value.rotation,
+        fontSize: value.fontSize,
+        color: [...value.color],
+    };
+}
+
 function normalizeModifiedAnnotationStorageId(value: unknown) {
     if (typeof value !== 'string') {
         return null;
@@ -257,6 +388,7 @@ export function collectLivePdfJsAnnotationChangeIds(
         return {
             ids: new Set<string>(),
             replayableEditorNoteIds: new Set<string>(),
+            nativeFreeTextEditors: new Map<string, IPdfNativeFreeTextEditor>(),
             hasChanges: false,
             hasUnknownChanges: false,
             fingerprint: EMPTY_ANNOTATION_CHANGE_FINGERPRINT,
@@ -268,6 +400,7 @@ export function collectLivePdfJsAnnotationChangeIds(
         resetCachedModifiedIds(storage);
         const ids = new Set<string>();
         const replayableEditorNoteIds = new Set<string>();
+        const nativeFreeTextEditors = new Map<string, IPdfNativeFreeTextEditor>();
         const serializableRuntimeIdsMappedToPdfRefs = new Set<string>();
         const deletedEditorOnlyRuntimeIds = new Set<string>();
         const serializable = storage?.serializable;
@@ -275,12 +408,16 @@ export function collectLivePdfJsAnnotationChangeIds(
         const serializableHash = typeof serializable?.hash === 'string'
             ? serializable.hash
             : '';
+        const modifiedIds = storage?.modifiedIds?.ids;
         let hasSerializableChanges = false;
 
         if (serializableMap instanceof Map && serializableMap.size > 0) {
             serializableMap.forEach((value: unknown, key: unknown) => {
                 const keyId = normalizePdfJsAnnotationId(typeof key === 'string' ? key : String(key));
-                if (isDeletedEditorOnlyStorageValue(value)) {
+                if (
+                    isDeletedEditorOnlyStorageValue(value)
+                    || isUntrackedBlankEditorOnlyFreeTextStorageValue(value, keyId, modifiedIds)
+                ) {
                     if (keyId) {
                         deletedEditorOnlyRuntimeIds.add(keyId);
                     }
@@ -305,11 +442,14 @@ export function collectLivePdfJsAnnotationChangeIds(
                     if (isReplayableFreeTextNoteStorageValue(value)) {
                         replayableEditorNoteIds.add(keyId);
                     }
+                    const nativeFreeTextEditor = toNativeFreeTextEditor(document, keyId, value);
+                    if (nativeFreeTextEditor) {
+                        nativeFreeTextEditors.set(keyId, nativeFreeTextEditor);
+                    }
                 }
             });
         }
 
-        const modifiedIds = storage?.modifiedIds?.ids;
         if (typeof modifiedIds?.size === 'number' && modifiedIds.size > 0) {
             modifiedIds.forEach((id: unknown) => {
                 const normalized = normalizeModifiedAnnotationStorageId(id);
@@ -335,6 +475,7 @@ export function collectLivePdfJsAnnotationChangeIds(
         return {
             ids,
             replayableEditorNoteIds,
+            nativeFreeTextEditors,
             hasChanges,
             hasUnknownChanges: ids.size === 0 && hasSerializableChanges,
             fingerprint,
@@ -344,6 +485,7 @@ export function collectLivePdfJsAnnotationChangeIds(
         return {
             ids: new Set<string>(),
             replayableEditorNoteIds: new Set<string>(),
+            nativeFreeTextEditors: new Map<string, IPdfNativeFreeTextEditor>(),
             hasChanges: true,
             hasUnknownChanges: true,
             fingerprint: 'unknown',

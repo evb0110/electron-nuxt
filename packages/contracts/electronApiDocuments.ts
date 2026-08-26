@@ -441,6 +441,16 @@ export interface IPdfNativeFreeTextNote {
     createdAt?: number | null;
 }
 
+export interface IPdfNativeFreeTextEditor {
+    pageIndex: TPageIndex;
+    stableKey: string;
+    text: string;
+    rect: [number, number, number, number];
+    rotation: 0 | 90 | 180 | 270;
+    fontSize: number;
+    color: [number, number, number];
+}
+
 export interface IPdfNativeAnnotationDelete {
     pageIndex: TPageIndex;
     objectNumber?: number;
@@ -534,6 +544,7 @@ export interface IPdfNativePlacedImage extends IPdfBox {
 }
 
 export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
+    freeTextEditors?: IPdfNativeFreeTextEditor[];
     pageLabels?: IPdfNativePageLabelsMutation;
     bookmarks?: IPdfNativeBookmarksMutation;
     shapes?: IPdfNativeShapesMutation;
