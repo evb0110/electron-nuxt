@@ -328,9 +328,11 @@ function pasteImageFromClipboard() {
 .annotation-context-menu-color-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.45rem;
-    padding: 0.55rem 0.75rem 0.65rem;
-    border-top: 1px solid var(--ui-border);
+    gap: var(--app-space-2xl);
+    padding: var(--app-space-4xl) var(--app-space-5xl);
+    background: var(--app-pdf-context-menu-item-bg);
+    font-size: var(--app-text-size-body-sm);
+    border-block: var(--app-hairline-height) solid var(--app-pdf-context-menu-divider);
 }
 
 .annotation-context-menu-color-label {
@@ -340,7 +342,7 @@ function pasteImageFromClipboard() {
 .annotation-context-menu-color-swatches {
     display: grid;
     grid-template-columns: repeat(9, var(--app-annotation-context-swatch-size));
-    gap: 0.3rem;
+    gap: var(--app-space-sm);
 }
 
 .annotation-context-menu-color-button {
