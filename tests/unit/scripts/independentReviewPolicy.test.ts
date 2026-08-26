@@ -22,17 +22,20 @@ async function pathExists(filePath: string) {
 }
 
 const RETIRED_REVIEWER_PATTERN = /cubic|Ox Alpha|pi-subagent|review-cubic-commits/iu;
-const REQUIRED_REVIEW_POLICY_PATTERN = /after normal gates and before committing\s+or pushing, run CodeRabbit CLI\s+locally against `main`\./iu;
+const REQUIRED_REVIEW_POLICY_PATTERN = /CodeRabbit is the only required independent reviewer\. Run it before committing\s+or pushing/iu;
 
 describe('independent reviewer policy', () => {
-    it.each([
-        'AGENTS.md',
-        'CLAUDE.md',
-    ])('keeps CodeRabbit as the only required reviewer in %s', async (fileName) => {
-        const policy = await readFile(path.join(process.cwd(), fileName), 'utf8');
+    it('keeps CodeRabbit as the only required reviewer in tracked policy', async () => {
+        const policy = await readFile(path.join(
+            process.cwd(),
+            'docs',
+            'reliability',
+            'whole-repo-program-ledger-2026-08-21.md',
+        ), 'utf8');
+        const activePolicy = policy.slice(0, policy.indexOf('\n## Status vocabulary'));
 
-        expect(policy).toMatch(REQUIRED_REVIEW_POLICY_PATTERN);
-        expect(policy).not.toMatch(RETIRED_REVIEWER_PATTERN);
+        expect(activePolicy).toMatch(REQUIRED_REVIEW_POLICY_PATTERN);
+        expect(activePolicy).not.toMatch(RETIRED_REVIEWER_PATTERN);
     });
 
     it.each([
