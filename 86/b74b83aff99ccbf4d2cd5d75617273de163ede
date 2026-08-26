@@ -1,0 +1,27 @@
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineItemState.ts
+  s_69534bf9d07867::t_b4433605894f99 5,48-52
+tests/unit/app/utils/document-viewer/documentBookmarkReveal.test.ts
+  s_69534bf9d07867::t_ef98ffbbb50982 98-112
+tests/unit/app/components/documentBookmarkTree.test.ts
+  s_69534bf9d07867::t_ef98ffbbb50982 186,189,208
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineSelection.ts
+  s_69534bf9d07867::t_b4433605894f99 6,18-22
+app/utils/document-viewer/bookmarks/documentBookmarks.ts
+  s_69534bf9d07867::t_b4433605894f99 112-113,120,122,142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "86b74b83aff99ccbf4d2cd5d75617273de163ede",
+  "prompts": {},
+  "sessions": {
+    "s_69534bf9d07867": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03e95-2f40-73e0-9add-918967b62526",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
