@@ -301,6 +301,120 @@ describe('usePdfViewerSaveTransaction', () => {
         expect(materializePdfJsDocumentForInternalUse).not.toHaveBeenCalled();
     });
 
+    it('keeps a restored Cyrillic popup note on the bounded native route', async () => {
+        const note = {
+            kind: 'sticky-note',
+            identity: {
+                id: asAnnotationId('anno_restored_popup_note'),
+                elementId: 'pdfjs_internal_editor_0',
+                pdfjsUid: 'pdfjs_internal_editor_0',
+            },
+            pageIndex: 0,
+            revision: 1,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            text: 'фвыафыва',
+            anchor: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.02,
+                height: 0.02,
+            },
+            color: '#ffcc00',
+        } as const;
+        const annotationStorage = {
+            serializable: {
+                map: new Map([[
+                    'pdfjs_internal_editor_0',
+                    {
+                        annotationType: 3,
+                        pageIndex: 0,
+                        rect: [
+                            20,
+                            30,
+                            40,
+                            50,
+                        ],
+                        rotation: 0,
+                        color: [
+                            255,
+                            204,
+                            0,
+                        ],
+                        fontSize: 16,
+                        value: 'фвыафыва',
+                        id: null,
+                    },
+                ]]),
+                hash: 'restored-unicode-popup-note',
+            },
+            modifiedIds: {ids: new Set([null])},
+            resetModifiedIds: vi.fn(),
+        };
+        const materializePdfJsDocumentForInternalUse = vi.fn(async () => new Uint8Array([8]));
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({
+            pdfDocument: shallowRef({
+                annotationStorage,
+                numPages: 882,
+                getPage: vi.fn(async () => ({getAnnotations: vi.fn(async () => [{id: '8909R'}])})),
+            } as never),
+            annotationUiManager: shallowRef({commitOrRemove: vi.fn()} as never),
+            materializePdfJsDocumentForInternalUse,
+            prepareAnnotationSave: () => ({
+                plan: buildSerializationPlan({
+                    epoch: 1,
+                    entityBaselineHash: 'restored-unicode-popup-baseline',
+                    documentRevisionToken: requireDocumentRevisionToken('restored-unicode-popup-revision'),
+                    revisions: new Map([[
+                        note.identity.id,
+                        note.revision,
+                    ]]),
+                }, [note], [note]),
+                verify: vi.fn(async () => undefined),
+                verifyPath: vi.fn(async () => undefined),
+                commit: vi.fn(),
+            }),
+        });
+
+        const result = await runSaveTransaction({
+            mode: 'persist',
+            planOnly: true,
+            source: {getSourcePdfData: vi.fn(async () => new Uint8Array([9]))},
+            nativeCapabilities: {
+                hasNativePdfMutationCapability: true,
+                canPersistNativeMetadataMutations: true,
+            },
+            dirtyState: {
+                annotationDirty: true,
+                hasAnnotationChanges: true,
+                hasLivePdfJsAnnotationChanges: true,
+                savedPdfjsAnnotationBaselineDirty: false,
+                shapeStateDirty: false,
+            },
+            documentStructure: {
+                pageLabelsDirty: false,
+                pageLabelRanges: [],
+                bookmarksDirty: false,
+                bookmarkItems: [],
+                untitledBookmarkLabel: 'Untitled',
+                totalPages: 882,
+            },
+        });
+
+        expect(result.source).toBe('native-mutation-projection');
+        expect(result.nativeMutationProjection).toMatchObject({
+            phase: 'persist-native-note-changes',
+            mutations: {freeTextNotes: [expect.objectContaining({
+                pageIndex: 0,
+                text: 'фвыафыва',
+            })]},
+        });
+        expect(materializePdfJsDocumentForInternalUse).not.toHaveBeenCalled();
+    });
+
     it('projects a new PDF.js FreeText box to bounded native mutations', async () => {
         const editor = {
             annotationType: 3,

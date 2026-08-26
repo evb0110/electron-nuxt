@@ -42,6 +42,7 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const LARGE_PDF_TIMEOUT_MS = 360_000;
+const LARGE_PDF_SAVE_TIMEOUT_MS = 90_000;
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
 const largePdfFixture = resolveLargePdfFixtureAvailability();
 const largePdfDescribe = selectFixtureDescribe(describe, largePdfFixture);
@@ -713,7 +714,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const { page } = session;
 
         const fixturePath = copyLargePdfFixture(`large-pdf-note-${Date.now()}.pdf`);
-        const firstText = `large pdf note ${Date.now()}`;
+        const firstText = `фвыафыва ${Date.now()}`;
         const existingFixtureNotes = await readPdfNoteContents(fixturePath);
         expect(existingFixtureNotes.length).toBeGreaterThan(0);
 
@@ -726,6 +727,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
 
         const placement = await placePageNote(page, firstText);
         let agentSaveResult: Awaited<ReturnType<typeof saveLargePdfViaAgentAction>>;
+        const saveStartedAt = Date.now();
         try {
             agentSaveResult = await saveLargePdfViaAgentAction(page);
         } catch (error) {
@@ -739,6 +741,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         if (!agentSaveResult) {
             await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);
         }
+        expect(Date.now() - saveStartedAt).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
 
         const fallbackSavedState = await readWorkspaceStateValues<{
             originalPath?: string | null;

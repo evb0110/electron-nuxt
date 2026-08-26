@@ -807,7 +807,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         handleMarkerMove: annotationCommentModel.handleMarkerMove,
         findEditorForComment: commentCrud.findEditorForComment,
         markModified: emitForcedAnnotationMutation,
-        flushAnnotationCommentsForSave: annotations.commentSync.syncAnnotationComments,
+        flushAnnotationCommentsForSave: annotations.commentSync.flushEditorCommentsForSave,
         resolveCanonicalAnnotationId: comment => annotationApplication.value.annotationIdForSummary(comment),
         setCanonicalNoteText: (id, text) => {
             const entity = annotationApplication.value.store.get(id);

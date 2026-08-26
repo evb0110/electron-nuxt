@@ -37,7 +37,7 @@ export interface IUseAnnotationMutationServiceOptions {
     ) => boolean;
     findEditorForComment: (comment: IAnnotationCommentSummary) => object | null;
     markModified: () => void;
-    flushAnnotationCommentsForSave: () => Promise<unknown>;
+    flushAnnotationCommentsForSave: () => unknown | Promise<unknown>;
     resolveCanonicalAnnotationId?: (comment: IAnnotationCommentSummary) => AnnotationId | null;
     setCanonicalNoteText: (id: AnnotationId, text: string) => void;
     deleteCanonicalAnnotation: (id: AnnotationId) => void;
@@ -275,7 +275,7 @@ export const useAnnotationMutationService = (
     }
 
     async function flushForSave() {
-        return options.flushAnnotationCommentsForSave();
+        await options.flushAnnotationCommentsForSave();
     }
 
     return {

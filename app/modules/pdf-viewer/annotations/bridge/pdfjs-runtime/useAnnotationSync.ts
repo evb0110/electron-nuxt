@@ -1074,14 +1074,12 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         };
         return promise;
     }
-
     async function syncAnnotationComments() {
         automationBarrier.noteRequested();
         syncRerunRequested = true;
         if (syncRunPromise) {
             return syncRunPromise;
         }
-
         syncRunPromise = (async () => {
             while (syncRerunRequested) {
                 syncRerunRequested = false;
@@ -1092,7 +1090,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         })().finally(() => {
             syncRunPromise = null;
         });
-
         try {
             await syncRunPromise;
         } catch (error) {
@@ -1103,7 +1100,26 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             );
         }
     }
-
+    function flushEditorCommentsForSave() {
+        const servicedSeq = automationBarrier.readRequestSeq();
+        cancelDebouncedSync();
+        syncRerunRequested = false;
+        discardInFlightSync();
+        const identity = getIdentity();
+        const markupSubtype = getMarkupSubtype();
+        const commentsByKey = new Map<string, IAnnotationCommentSummary>();
+        collectEditorCommentSummaries(identity, annotationUiManager.value, commentsByKey);
+        const comments = identity.dedupeAnnotationCommentSummaries(Array.from(commentsByKey.values()));
+        const appliedComments = getStore().setAnnotations(comments, {
+            adoptAsSavedBaseline: false,
+            reconcileMissingTransient: false,
+        }) ?? comments;
+        appliedComments.forEach(comment => identity.rememberSummaryText(comment));
+        rememberMarkupSubtypeColors(appliedComments, markupSubtype);
+        textMarkupPresentation.notify({kind: 'editors-changed'});
+        syncInlineCommentIndicators();
+        automationBarrier.noteServiced(servicedSeq);
+    }
     const {
         start: startDebouncedSyncTimer,
         stop: stopDebouncedSyncTimer,
@@ -1121,12 +1137,10 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         automationBarrier.armDebounce();
         startDebouncedSyncTimer();
     }
-
     function cancelDebouncedSync() {
         automationBarrier.releaseDebounce();
         stopDebouncedSyncTimer();
     }
-
     function scheduleAnnotationCommentsSync(immediate = false) {
         if (immediate) {
             cancelDebouncedSync();
@@ -1139,31 +1153,17 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         }
         startDebouncedSync();
     }
-
     function setActiveCommentStableKey(stableKey: string | null) {
         getStore().setActiveKey(stableKey);
     }
-
     function incrementSyncToken() {
         syncToken += 1;
         resetPdfAnnotationSnapshot();
     }
 
     /**
-     * Retires any sync whose editor scan predates this call. A sync reads the
-     * editor layer synchronously and then awaits the PDF snapshot; an
-     * annotation history replay landing inside that await moves canonical
-     * entities and PDF.js editors together, so the collected scan describes a
-     * layer that no longer exists and must not be applied over the replay. The
-     * parsed PDF snapshot is kept: a replay changes editors, not the document
-     * bytes those pages were parsed from.
-     *
-     * A snapshot collection that is still running is fenced by the same token
-     * and now resolves `null`, so its registration is retired too. Leaving it
-     * behind would hand that `null` to the post-replay resync as a reusable
-     * result and end the pass before it applies anything. A snapshot that
-     * already finished stays cached: it is document bytes, which the replay
-     * did not touch.
+     * Retire stale editor scans while preserving completed document-byte snapshots.
+     * Running snapshot registrations are fenced by the same token.
      */
     function discardInFlightSync() {
         syncToken += 1;
@@ -1178,7 +1178,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         getIdentity().clearMemory();
         getMarkupSubtype().clearOverrides();
     }
-
     tryOnScopeDispose(() => {
         cancelDebouncedSync();
         syncToken += 1;
@@ -1190,6 +1189,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         trackedCreatedEditors,
         toEditorSummary,
         syncAnnotationComments,
+        flushEditorCommentsForSave,
         scheduleAnnotationCommentsSync,
         discardInFlightSync,
         ensurePdfAnnotationNameReconciliation,

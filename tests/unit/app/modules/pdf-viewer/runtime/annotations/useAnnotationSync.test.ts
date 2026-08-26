@@ -1234,6 +1234,60 @@ describe('useAnnotationSync', () => {
         });
     });
 
+    it('flushes current editor comments for save without awaiting the PDF inventory', async () => {
+        let releaseSnapshot: (() => void) | null = null;
+        let isFirstSnapshot = true;
+        loadPdfPageAnnotations.mockImplementation(async () => {
+            if (isFirstSnapshot) {
+                isFirstSnapshot = false;
+                await new Promise<void>((resolve) => {
+                    releaseSnapshot = resolve;
+                });
+            }
+            return createEmptyPageBundle();
+        });
+        const editors = new Set<object>([{
+            id: 'pdfjs_internal_editor_0',
+            uid: 'editor-uid-0',
+            parentPageIndex: 0,
+        }]);
+        const annotationUiManager = shallowRef({getEditors: () => editors});
+
+        await withAnnotationSyncScope(async () => {
+            const {
+                sync,
+                setAnnotations,
+                textMarkupPresentation,
+            } = await createSyncHarness({ annotationUiManager });
+
+            const pendingInventory = sync.syncAnnotationComments();
+            await vi.waitFor(() => {
+                expect(releaseSnapshot).not.toBeNull();
+            });
+            const queuedInventory = sync.syncAnnotationComments();
+
+            await sync.flushEditorCommentsForSave();
+
+            expect(setAnnotations).toHaveBeenCalledTimes(1);
+            expect(setAnnotations).toHaveBeenLastCalledWith(
+                [expect.objectContaining({uid: 'editor-uid-0'})],
+                {
+                    adoptAsSavedBaseline: false,
+                    reconcileMissingTransient: false,
+                },
+            );
+            expect(textMarkupPresentation.notify).toHaveBeenCalledWith({kind: 'editors-changed'});
+
+            releaseSnapshot?.();
+            await Promise.all([
+                pendingInventory,
+                queuedInventory,
+            ]);
+            expect(setAnnotations).toHaveBeenCalledTimes(1);
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(1);
+        });
+    });
+
     it('applies a comment sync started after the replay fence', async () => {
         loadPdfPageAnnotations.mockResolvedValue(createEmptyPageBundle());
         const editors = new Set<object>([{
