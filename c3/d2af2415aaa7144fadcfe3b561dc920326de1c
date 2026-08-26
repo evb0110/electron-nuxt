@@ -1,0 +1,100 @@
+packages/contracts/nativePdfMutations.ts
+  s_5ac4a3281ca4f3::t_0385e23b85ec40 1090
+  s_5ac4a3281ca4f3::t_46c125583d75f8 10,47,257-286,294-302,309-324,326-327,329-332,1106,1121
+  s_5ac4a3281ca4f3::t_833bae4ed35ef0 287-293
+  s_5ac4a3281ca4f3::t_63a7b68bbcba88 303-308,325,328
+app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts
+  s_5ac4a3281ca4f3::t_8f7f40e1a601f2 807,817,838,850,862,892,1051
+native/pdf-page-ops/src/tests/markup_shapes.rs
+  s_5ac4a3281ca4f3::t_e42425466716a8 17,84,140,202,434,464,626
+tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision.ts
+  s_5ac4a3281ca4f3::t_7afa00f2c7b622 18
+native/pdf-page-ops/src/tests/placed_images.rs
+  s_5ac4a3281ca4f3::t_e42425466716a8 133
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_5ac4a3281ca4f3::t_7afa00f2c7b622 177,265-267,465-467,469-472,552,561,570-572
+  s_5ac4a3281ca4f3::t_81c2e348f185f3 573-574
+native/pdf-page-ops/src/annotations.rs
+  s_5ac4a3281ca4f3::t_322e0d118890e6 327
+  s_5ac4a3281ca4f3::t_91e25394b0eb0b 347-354
+  s_5ac4a3281ca4f3::t_9b0ae1f1d7c207 214-219,233-235,265-267,271,286-289
+  s_5ac4a3281ca4f3::t_930c2546b2dbf4 220-225,230,236-239,241-264,268-270,272-278,283,290-293,296-300,304-326,328-330,341-346,355-382,384-392,414-434,439,444-472,474-484,492,505-506,520-525,800-806
+  s_5ac4a3281ca4f3::t_4f7e5c60066ae4 226-229,231-232,240,279-282,284-285,294-295,301-303,331-340,383,393-413,435-438,440-443,473,485-491,493-504,507-519
+  s_5ac4a3281ca4f3::t_c2ed8283c04393 807
+native/pdf-page-ops/src/types.rs
+  s_5ac4a3281ca4f3::t_3cfca5ac09d374 360-369
+  s_5ac4a3281ca4f3::t_0576dc484885a7 318
+  s_5ac4a3281ca4f3::t_9dc49074ed7a55 319-320
+  s_5ac4a3281ca4f3::t_8aae661351c14a 370-371
+tests/unit/app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.test.ts
+  s_5ac4a3281ca4f3::t_e27691e1b97052 375
+  s_5ac4a3281ca4f3::t_9424888c629512 304-374,376-386
+  s_5ac4a3281ca4f3::t_cf68406f9ec20a 387-457
+  s_5ac4a3281ca4f3::t_c20a940ee631ff 458-463
+app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.ts
+  s_5ac4a3281ca4f3::t_7afa00f2c7b622 706
+native/pdf-page-ops/src/tests/notes.rs
+  s_5ac4a3281ca4f3::t_1b051493eb2762 692-696
+  s_5ac4a3281ca4f3::t_1c2b0f1a169718 604-674
+  s_5ac4a3281ca4f3::t_91e25394b0eb0b 675-691,697-704
+native/pdf-page-ops/src/postconditions.rs
+  s_5ac4a3281ca4f3::t_8e7a5127a56814 14-18,157-214,216,219
+  s_5ac4a3281ca4f3::t_7f7bc23fa94dc9 215,217-218
+packages/contracts/electronApiDocuments.ts
+  s_5ac4a3281ca4f3::t_46c125583d75f8 444-453,547
+tests/unit/app/services/pdf-save/pdfAnnotationStorageChanges.test.ts
+  s_5ac4a3281ca4f3::t_cf68406f9ec20a 254-255,402-437
+  s_5ac4a3281ca4f3::t_e27691e1b97052 295,315-337,342-356
+  s_5ac4a3281ca4f3::t_d57648fcb71e99 338-341,357-399
+  s_5ac4a3281ca4f3::t_5425c2745cc920 257-294,296-314,400-401
+  s_5ac4a3281ca4f3::t_60c6f0529d67af 256,438-440
+app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges.ts
+  s_5ac4a3281ca4f3::t_9b0ae1f1d7c207 49,317,339-349,352,445
+  s_5ac4a3281ca4f3::t_3b478b260dd4f4 47-48,257-315,328,332-334,354-355,357
+  s_5ac4a3281ca4f3::t_d57648fcb71e99 245,248-256
+  s_5ac4a3281ca4f3::t_5f1c3c3a3d45a3 8-9,14,34-37,316,318-327,329-331,335-338,350-351,353,356,358-360,391,403,446-448,478,488
+  s_5ac4a3281ca4f3::t_3bb90ac8cfaced 240-244,246-247,411,417-420
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_5ac4a3281ca4f3::t_7afa00f2c7b622 147
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_5ac4a3281ca4f3::t_7afa00f2c7b622 734
+  s_5ac4a3281ca4f3::t_8f7f40e1a601f2 629
+native/pdf-page-ops/src/input.rs
+  s_5ac4a3281ca4f3::t_ae73be5041e3a4 83-99,107-110,450,466,484,579-582
+  s_5ac4a3281ca4f3::t_833bae4ed35ef0 100-106
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_5ac4a3281ca4f3::t_f63397aa2ce9d3 833,835,845
+  s_5ac4a3281ca4f3::t_983f3671c1af07 101,124,134,827
+  s_5ac4a3281ca4f3::t_8f2d17b935e279 789-790,817-819,832,834,843
+  s_5ac4a3281ca4f3::t_e5e88f3a0fc7b6 820
+  s_5ac4a3281ca4f3::t_789c511f2e134f 28,34,781-788,791-816,826,828-831,836-842,844,846
+  s_5ac4a3281ca4f3::t_bd9450ddda7ac1 821-825
+native/pdf-page-ops/src/tests/catalog.rs
+  s_5ac4a3281ca4f3::t_e42425466716a8 17,142
+native/pdf-page-ops/src/incremental.rs
+  s_5ac4a3281ca4f3::t_9b0ae1f1d7c207 145,150-155,158-163,192,197-202,205-210
+  s_5ac4a3281ca4f3::t_8e7a5127a56814 156-157,203-204
+app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types.ts
+  s_5ac4a3281ca4f3::t_7afa00f2c7b622 15,122
+tests/unit/contracts/nativePdfMutations.test.ts
+  s_5ac4a3281ca4f3::t_5425c2745cc920 32-50,126,172,183
+  s_5ac4a3281ca4f3::t_a3a0935de4c011 184
+tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts
+  s_5ac4a3281ca4f3::t_4e3444eb0fd364 164
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "c3d2af2415aaa7144fadcfe3b561dc920326de1c",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
