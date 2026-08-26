@@ -1,0 +1,37 @@
+tests/unit/app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.test.ts
+  s_5ac4a3281ca4f3::t_66d3a549f1adbd 362
+  s_5ac4a3281ca4f3::t_f88a20b6308214 304-361,363-417
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_5ac4a3281ca4f3::t_b6810e1d6cedce 810
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts
+  s_5ac4a3281ca4f3::t_dc09168a20362b 1108-1109,1114-1115
+  s_5ac4a3281ca4f3::t_b6810e1d6cedce 1105,1107,1110,1116,1118-1120,1122,1192
+  s_5ac4a3281ca4f3::t_c37e8e1b29b0ea 1117
+  s_5ac4a3281ca4f3::t_66d3a549f1adbd 1103,1111-1113
+  s_5ac4a3281ca4f3::t_9038233b2bb8f0 1165-1166
+  s_5ac4a3281ca4f3::t_1b9a047612470e 1106
+  s_5ac4a3281ca4f3::t_a314e33c917e72 1104,1121
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.test.ts
+  s_5ac4a3281ca4f3::t_1b9a047612470e 1239,1241-1246,1267,1282-1285,1287
+  s_5ac4a3281ca4f3::t_e338a34a3586e6 1237-1238,1240,1247-1266,1268-1281,1286,1288-1290
+app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService.ts
+  s_5ac4a3281ca4f3::t_66d3a549f1adbd 40,278
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_5ac4a3281ca4f3::t_966018a099b493 45,717,730,744
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "a83fbace3b2528ad466a03c7920b5b486ad5c383",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
