@@ -1,0 +1,19 @@
+tests/unit/scripts/independentReviewPolicy.test.ts
+  s_aa4a9de606abcc::t_3967d57607b55e 25,28-35,37-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "17017eecac6a2582278aef1d2ddb8e989878ca8e",
+  "prompts": {},
+  "sessions": {
+    "s_aa4a9de606abcc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ebc-8cf9-7801-b0e6-228f3f39e1db",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
