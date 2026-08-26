@@ -54,7 +54,7 @@
                         :aria-label="styleSummary.bold === 'on' ? t('bookmarks.disableBold') : t('bookmarks.enableBold')"
                         @click="toggleBold(bookmark.id)"
                     >
-                        <UIcon name="i-ph-text-b" class="bookmarks-style-toggle-icon" />
+                        <UIcon name="i-ph-text-b-bold" class="bookmarks-style-toggle-icon" />
                     </button>
                     <button
                         type="button"
@@ -66,23 +66,23 @@
                     >
                         <UIcon name="i-ph-text-italic" class="bookmarks-style-toggle-icon" />
                     </button>
-                    <button
-                        type="button"
-                        class="bookmarks-style-toggle"
-                        :class="{ 'is-active': !styleSummary.colorMixed && !styleSummary.color }"
-                        :aria-label="t('bookmarks.defaultColor')"
-                        @click="setColor(bookmark.id, null)"
-                    >
-                        <span class="bookmarks-style-toggle-letter">A</span>
-                    </button>
                 </div>
                 <div class="bookmarks-context-menu-color-row">
+                    <button
+                        type="button"
+                        class="bookmarks-color-swatch bookmarks-color-swatch--default"
+                        :class="{ 'is-active': !styleSummary.colorMixed && !styleSummary.color }"
+                        :aria-pressed="!styleSummary.colorMixed && !styleSummary.color"
+                        :aria-label="t('bookmarks.defaultColor')"
+                        @click="setColor(bookmark.id, null)"
+                    />
                     <button
                         v-for="preset in colorPresets"
                         :key="preset"
                         type="button"
                         class="bookmarks-color-swatch"
                         :class="{ 'is-active': !styleSummary.colorMixed && styleSummary.color === preset }"
+                        :aria-pressed="!styleSummary.colorMixed && styleSummary.color === preset"
                         :style="{ background: preset }"
                         :aria-label="t('bookmarks.setColor', { color: preset })"
                         @click="setColor(bookmark.id, preset)"
@@ -232,15 +232,6 @@ function removeBookmark(id: string) {
     height: var(--app-icon-size-sm);
 }
 
-.bookmarks-style-toggle-letter {
-    font-size: var(--app-text-size-ui);
-    font-weight: 600;
-}
-
-.bookmarks-style-toggle:nth-child(2) {
-    font-style: italic;
-}
-
 .bookmarks-style-toggle.is-active {
     border-color: var(--app-control-active-border);
     color: var(--ui-text-highlighted);
@@ -269,6 +260,21 @@ function removeBookmark(id: string) {
     border-radius: var(--app-radius-full);
     border: 1px solid color-mix(in srgb, var(--ui-bg-inverted) 16%, transparent 84%);
     cursor: pointer;
+}
+
+.bookmarks-color-swatch--default {
+    border-color: var(--app-pdf-context-menu-swatch-border);
+
+    /* Hollow swatch with a diagonal slash: the conventional "no color" mark. */
+    background:
+        linear-gradient(
+            to top right,
+            transparent calc(50% - 0.5px),
+            var(--ui-text-muted) calc(50% - 0.5px),
+            var(--ui-text-muted) calc(50% + 0.5px),
+            transparent calc(50% + 0.5px)
+        ),
+        var(--ui-bg);
 }
 
 .bookmarks-color-swatch.is-active {
