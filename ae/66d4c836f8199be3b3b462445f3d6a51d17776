@@ -1,0 +1,47 @@
+tests/unit/electron/managedTempFileHandles.test.ts
+  s_5ac4a3281ca4f3::t_3a1cb38996ec57 506-545,548-549,562-571
+  s_5ac4a3281ca4f3::t_28ad8e0d521fe2 546-547,550-561
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_5ac4a3281ca4f3::t_25a327f8189d78 61,468-471,527,531,533,540-541,554-558,560-562,577-579
+  s_5ac4a3281ca4f3::t_c9df33eb19e2fa 535-539
+  s_5ac4a3281ca4f3::t_9886950077d290 524-526
+  s_5ac4a3281ca4f3::t_a1945c1179fcc7 530,542,559
+  s_5ac4a3281ca4f3::t_ea082d26e0938c 65,532,534
+tests/unit/electron/handleNativeNoteTextSave.test.ts
+  s_5ac4a3281ca4f3::t_abcde0423c0f1a 30,1010
+  s_5ac4a3281ca4f3::t_a7252af5e4f81d 281-290,292,298-300,306,308-309,1003-1009,1011-1012,1043-1050,1052-1056,1059
+  s_5ac4a3281ca4f3::t_9886950077d290 307
+  s_5ac4a3281ca4f3::t_b6d963d89f83c4 54,95-96,313-314,316-333
+  s_5ac4a3281ca4f3::t_0e5bc4c0840fe3 132-136,138-143,291,315
+  s_5ac4a3281ca4f3::t_1bdf350f7b75e4 137
+  s_5ac4a3281ca4f3::t_c9df33eb19e2fa 1051
+electron/features/documents/main/documentSaveUtilityProtocol.ts
+  s_5ac4a3281ca4f3::t_25a327f8189d78 39,126-131,139-142,147
+electron/features/documents/main/documentSaveUtilityProcess.ts
+  s_5ac4a3281ca4f3::t_25a327f8189d78 158
+electron/features/documents/main/managedTempFileHandles.ts
+  s_5ac4a3281ca4f3::t_ea082d26e0938c 8-12,28,203-204,209-215,217,219,306-331,337
+  s_5ac4a3281ca4f3::t_28ad8e0d521fe2 205-208,222,224-232,245-253,332,336
+  s_5ac4a3281ca4f3::t_0e5bc4c0840fe3 333-335
+  s_5ac4a3281ca4f3::t_6c2f1269d26304 338
+tests/unit/electron/documentSaveUtilityProtocol.test.ts
+  s_5ac4a3281ca4f3::t_5689f7e9e65ac9 8,18-19,42,53-55,206,214,221-247
+  s_5ac4a3281ca4f3::t_cfb009d6147bd8 248-250
+  s_5ac4a3281ca4f3::t_a5b461e3035530 251-252
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "ae66d4c836f8199be3b3b462445f3d6a51d17776",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
