@@ -316,9 +316,9 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
-      - name: Install PDF text test tools
+      - name: Install PDF test tools
         timeout-minutes: 15
-        run: scripts/ci/apt-install.sh poppler-utils
+        run: scripts/ci/apt-install.sh poppler-utils qpdf
 
       - name: Install Rust WASM target
         run: rustup target add wasm32-unknown-unknown
@@ -437,9 +437,9 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
-      - name: Install PDF text test tools
+      - name: Install PDF test tools
         timeout-minutes: 15
-        run: scripts/ci/apt-install.sh poppler-utils
+        run: scripts/ci/apt-install.sh poppler-utils qpdf
 
       - name: Restore Rust build caches
         # Push-lane accelerator only. The manual maintenance lanes stay cache-cold on
@@ -788,7 +788,7 @@ jobs:
 
       - name: Install OCR native smoke tools
         timeout-minutes: 15
-        run: scripts/ci/apt-install.sh tesseract-ocr tesseract-ocr-eng poppler-utils unpaper
+        run: scripts/ci/apt-install.sh tesseract-ocr tesseract-ocr-eng poppler-utils qpdf unpaper
 
       - name: Install Rust WASM target
         id: setup
