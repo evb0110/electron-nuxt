@@ -51,14 +51,14 @@ const resolvedStyle = computed(() => {
     max-width: var(--app-floating-panel-max-inline-size);
     min-inline-size: min(var(--app-context-menu-preferred-width), var(--app-floating-panel-viewport-width));
     border: 1px solid var(--app-pdf-context-menu-border);
-    background: var(--app-pdf-context-menu-grid-bg);
+    border-radius: var(--app-context-menu-radius);
+    background: var(--app-pdf-context-menu-item-bg);
     box-shadow: var(--app-pdf-context-menu-grid-shadow);
     color: var(--app-pdf-context-menu-item-fg);
 }
 
 .pdf-context-menu-base--grid {
     display: grid;
-    gap: var(--app-context-menu-separator-gap);
 }
 
 .pdf-context-menu-base--panel {
@@ -73,7 +73,7 @@ const resolvedStyle = computed(() => {
 
 .pdf-context-menu-base :deep(.pdf-context-menu__section-title) {
     margin: 0;
-    padding: var(--app-space-2xl) var(--app-space-5xl) var(--app-space-md);
+    padding: var(--app-space-xl) var(--app-space-5xl) var(--app-space-3xl);
     background: var(--app-pdf-context-menu-title-bg);
     color: var(--app-pdf-context-menu-title-fg);
     font-size: var(--app-text-size-menu-shortcut);

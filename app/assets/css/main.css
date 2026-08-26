@@ -301,7 +301,7 @@
     --app-floating-panel-max-width: 28rem;
     --app-floating-panel-max-inline-size: min(var(--app-floating-panel-max-width), var(--app-floating-panel-viewport-width));
     --app-context-menu-preferred-width: 13rem;
-    --app-context-menu-separator-gap: var(--app-divider-width);
+    --app-context-menu-radius: var(--app-radius-sm);
     --app-settings-dialog-width: 52rem;
     --app-settings-select-max-size: 24rem;
     --app-runtime-report-width: 32rem;
@@ -818,7 +818,6 @@
     --app-pdf-search-result-highlight-bg: var(--app-document-search-result-highlight-bg);
     --app-pdf-context-menu-border: var(--ui-border);
     --app-pdf-context-menu-divider: var(--ui-border);
-    --app-pdf-context-menu-grid-bg: var(--ui-border);
     --app-pdf-context-menu-title-bg: var(--ui-bg-muted);
     --app-pdf-context-menu-title-fg: var(--ui-text-dimmed);
     --app-pdf-context-menu-item-bg: var(--ui-bg);
@@ -1029,7 +1028,6 @@
     --app-document-search-result-highlight-current-bg: var(--app-search-highlight-current-bg);
     --app-document-search-result-focus-ring: color-mix(in oklab, var(--ui-primary) 66%, transparent);
     --app-pdf-search-result-highlight-bg: var(--app-document-search-result-highlight-bg);
-    --app-pdf-context-menu-grid-bg: color-mix(in oklab, var(--ui-border) 78%, var(--ui-bg) 22%);
     --app-pdf-context-menu-item-hover-bg: color-mix(in oklab, var(--ui-bg-elevated) 84%, var(--ui-primary) 16%);
     --app-pdf-context-menu-danger-fg: color-mix(in oklab, var(--ui-error) 78%, var(--ui-text) 22%);
     --app-pdf-context-menu-swatch-border: color-mix(in oklab, var(--ui-border) 68%, var(--ui-text-muted) 32%);
