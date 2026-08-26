@@ -1,0 +1,28 @@
+tests/unit/app/modules/pdf-viewer/components/pdfOutlineContextMenuStyleControls.test.ts
+  s_5f1426d30f0837::t_d5d455285c16a1 118-121,144,146,151
+  s_5f1426d30f0837::t_666830dfc7e00f 110-113,138-141,160-163
+  s_5f1426d30f0837::t_bdff63378b3679 1-109,114-117,122-137,142-143,145,147-150,152-159,164-174
+nuxt.config.ts
+  s_5f1426d30f0837::t_c27a8b23e38280 387
+app/modules/pdf-viewer/components/PdfOutlineContextMenu.vue
+  s_5f1426d30f0837::t_c27a8b23e38280 57
+  s_5f1426d30f0837::t_aa35baa1a819f5 69-70,73,78,265-271,276-277
+  s_5f1426d30f0837::t_d5d455285c16a1 75,85
+  s_5f1426d30f0837::t_5939206ad27047 272-275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4ce54fedc410e850d95b3fc80f1f8d4cff531050",
+  "prompts": {},
+  "sessions": {
+    "s_5f1426d30f0837": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd17a03a-0b11-49e6-a7a4-43a76d932d1e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
