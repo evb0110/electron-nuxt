@@ -1,0 +1,34 @@
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_5ac4a3281ca4f3::t_966018a099b493 45,717,730,744
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts
+  s_5ac4a3281ca4f3::t_c37e8e1b29b0ea 1116
+  s_5ac4a3281ca4f3::t_b6810e1d6cedce 1105-1106,1109,1115,1117-1119,1121,1186
+  s_5ac4a3281ca4f3::t_a314e33c917e72 1104,1120
+  s_5ac4a3281ca4f3::t_dc09168a20362b 1107-1108,1113-1114
+  s_5ac4a3281ca4f3::t_66d3a549f1adbd 1103,1110-1112
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.test.ts
+  s_5ac4a3281ca4f3::t_e338a34a3586e6 1237-1281
+tests/unit/app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.test.ts
+  s_5ac4a3281ca4f3::t_66d3a549f1adbd 362
+  s_5ac4a3281ca4f3::t_f88a20b6308214 304-361,363-417
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_5ac4a3281ca4f3::t_b6810e1d6cedce 810
+app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService.ts
+  s_5ac4a3281ca4f3::t_66d3a549f1adbd 40,278
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "4b1f8a0a3cb6a7f5a7a8c5f8de7910ca38b3fc66",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
