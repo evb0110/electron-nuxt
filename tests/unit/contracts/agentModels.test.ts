@@ -9,6 +9,7 @@ import {
     CLAUDE_ASSISTANT_DEFAULT_MODEL,
     CODEX_ASSISTANT_DEFAULT_MODEL,
     getAssistantPreferredModelId,
+    isRemovedCodexAssistantModelId,
 } from '@contracts/agentModels';
 
 describe('assistant model defaults', () => {
@@ -19,6 +20,11 @@ describe('assistant model defaults', () => {
 
     it('defaults Codex to the first available fallback model', () => {
         expect(CODEX_ASSISTANT_DEFAULT_MODEL).toBe('gpt-5.6-sol');
+    });
+
+    it('identifies retired Codex model ids independent of casing and whitespace', () => {
+        expect(isRemovedCodexAssistantModelId(' GPT-5.5 ')).toBe(true);
+        expect(isRemovedCodexAssistantModelId('gpt-5.6-sol')).toBe(false);
     });
 
     it('defaults Claude to the Opus family without hard-coding a versioned id', () => {

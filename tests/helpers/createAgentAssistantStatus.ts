@@ -21,8 +21,8 @@ export function createAgentAssistantStatus(
                         label: 'Codex default',
                     },
                     {
-                        id: 'gpt-5.5',
-                        label: 'GPT-5.5',
+                        id: 'gpt-5.6-sol',
+                        label: 'GPT-5.6-Sol',
                     },
                 ],
                 defaultModel: 'default',
@@ -95,8 +95,8 @@ export function createAgentAssistantStatus(
                 label: 'Codex default',
             },
             {
-                id: 'gpt-5.5',
-                label: 'GPT-5.5',
+                id: 'gpt-5.6-sol',
+                label: 'GPT-5.6-Sol',
             },
         ],
         modelSwitchMode: 'in-session',

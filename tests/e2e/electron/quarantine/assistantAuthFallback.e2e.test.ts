@@ -88,7 +88,7 @@ rl.on('line', (line) => {
         jsonrpc: '2.0',
         id: request.id,
         result: {
-          data: [{ id: 'gpt-5.5', displayName: 'GPT-5.5', isDefault: true }],
+          data: [{ id: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol', isDefault: true }],
         },
       });
       return;

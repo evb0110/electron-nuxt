@@ -26,23 +26,23 @@ vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
 describe('agent assistant provider status', () => {
     it('keeps Codex fast and slow modes visible when runtime model metadata omits service tiers', () => {
         const models = [{
-            id: 'gpt-5.5',
-            label: 'GPT-5.5',
+            id: 'gpt-5.6-sol',
+            label: 'GPT-5.6-Sol',
         }];
 
-        expect(getProviderSpeedModes(models, 'codex', 'gpt-5.5')).toEqual([
+        expect(getProviderSpeedModes(models, 'codex', 'gpt-5.6-sol')).toEqual([
             'fast',
             'standard',
         ]);
-        expect(resolveCodexServiceTier(models, 'gpt-5.5', 'fast')).toBe('priority');
-        expect(resolveCodexServiceTier(models, 'gpt-5.5', 'standard')).toBeUndefined();
+        expect(resolveCodexServiceTier(models, 'gpt-5.6-sol', 'fast')).toBe('priority');
+        expect(resolveCodexServiceTier(models, 'gpt-5.6-sol', 'standard')).toBeUndefined();
     });
 
     it('uses the fast service tier advertised by the Codex catalog', () => {
         const models = [
             {
-                id: 'gpt-5.5',
-                label: 'GPT-5.5',
+                id: 'gpt-5.6-sol',
+                label: 'GPT-5.6-Sol',
                 serviceTiers: [{
                     id: 'priority',
                     label: 'Fast',
@@ -58,7 +58,7 @@ describe('agent assistant provider status', () => {
             },
         ];
 
-        expect(resolveCodexServiceTier(models, 'gpt-5.5', 'fast')).toBe('priority');
+        expect(resolveCodexServiceTier(models, 'gpt-5.6-sol', 'fast')).toBe('priority');
         expect(resolveCodexServiceTier(models, 'gpt-5.4', 'fast')).toBe('fast');
     });
 
@@ -74,10 +74,10 @@ describe('agent assistant provider status', () => {
                 managedInstallDir: '/tmp/evb-viewer/codex',
             },
             models: [{
-                id: 'gpt-5.5',
-                label: 'GPT-5.5',
+                id: 'gpt-5.6-sol',
+                label: 'GPT-5.6-Sol',
             }],
-            model: 'gpt-5.5',
+            model: 'gpt-5.6-sol',
             effort: 'low',
             speedMode: 'fast',
             authState: 'signed-in',
@@ -95,8 +95,8 @@ describe('agent assistant provider status', () => {
 
     it('uses model-advertised Codex reasoning efforts instead of static provider values', () => {
         const models = [{
-            id: 'gpt-5.5',
-            label: 'GPT-5.5',
+            id: 'gpt-5.6-sol',
+            label: 'GPT-5.6-Sol',
             reasoningEfforts: [
                 {
                     id: 'medium',
@@ -118,7 +118,7 @@ describe('agent assistant provider status', () => {
             platform: 'darwin',
             codexInfo: null,
             models,
-            model: 'gpt-5.5',
+            model: 'gpt-5.6-sol',
             effort: 'xhigh',
             speedMode: 'fast',
             authState: 'signed-in',
@@ -126,7 +126,7 @@ describe('agent assistant provider status', () => {
             account: null,
         });
 
-        expect(getProviderEfforts(models, 'codex', 'gpt-5.5')).toEqual([
+        expect(getProviderEfforts(models, 'codex', 'gpt-5.6-sol')).toEqual([
             'medium',
             'xhigh',
             'super-high',
@@ -138,6 +138,6 @@ describe('agent assistant provider status', () => {
         ]);
         expect(status.defaultEffort).toBe('medium');
         expect(status.activeEffort).toBe('xhigh');
-        expect(normalizeAssistantEffort(models, 'codex', 'gpt-5.5', 'not-advertised')).toBe('medium');
+        expect(normalizeAssistantEffort(models, 'codex', 'gpt-5.6-sol', 'not-advertised')).toBe('medium');
     });
 });

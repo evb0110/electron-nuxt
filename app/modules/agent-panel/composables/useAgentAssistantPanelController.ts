@@ -19,6 +19,7 @@ import {
     ASSISTANT_DEFAULT_EFFORT,
     ASSISTANT_DEFAULT_SPEED_MODE,
     ASSISTANT_SPEED_MODES,
+    isRemovedCodexAssistantModelId,
 } from '@contracts/agentModels';
 import {
     createSelectedAssistantStatus,
@@ -726,7 +727,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             return;
         }
         const nextModel = normalizeModelValue(value);
-        if (!nextModel || nextModel === selectedModel.value) {
+        if (!nextModel || nextModel === selectedModel.value || (selectedProvider.value === 'codex' && isRemovedCodexAssistantModelId(nextModel))) {
             return;
         }
         selectedModel.value = nextModel;
@@ -734,7 +735,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         persistAssistantSelection(assistantSelectionStorage, selectedProvider.value, nextModel);
         applyOptimisticSelection(selectedProvider.value, nextModel, selectedEffort.value, selectedSpeedMode.value, true);
     }
-
     function updateEffort(value: unknown) {
         if (assistantSelectionLocked.value) {
             return;

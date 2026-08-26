@@ -104,6 +104,12 @@ export function getAssistantPreferredModelId(
         ?? getAssistantDefaultModelId(models, fallback);
 }
 
+const REMOVED_CODEX_ASSISTANT_MODEL_IDS = new Set(['gpt-5.5']);
+
+export function isRemovedCodexAssistantModelId(model: string) {
+    return REMOVED_CODEX_ASSISTANT_MODEL_IDS.has(model.trim().toLowerCase());
+}
+
 // Canonical Claude model options. The default is resolved by preferred family
 // below, so version numbers live in fallback metadata rather than selection logic.
 export const CLAUDE_ASSISTANT_MODELS = [
@@ -134,24 +140,6 @@ export const CODEX_ASSISTANT_FALLBACK_MODELS = [
     {
         id: 'gpt-5.6-sol',
         label: 'GPT-5.6-Sol',
-        reasoningEfforts: createAssistantEffortOptions(CODEX_ASSISTANT_EFFORTS, 'medium'),
-        defaultReasoningEffort: 'medium',
-        serviceTiers: [
-            {
-                id: 'fast',
-                label: 'Fast',
-                isDefault: true,
-            },
-            {
-                id: 'standard',
-                label: 'Standard',
-            },
-        ],
-        defaultServiceTier: 'fast',
-    },
-    {
-        id: 'gpt-5.5',
-        label: 'GPT-5.5',
         reasoningEfforts: createAssistantEffortOptions(CODEX_ASSISTANT_EFFORTS, 'medium'),
         defaultReasoningEffort: 'medium',
         serviceTiers: [

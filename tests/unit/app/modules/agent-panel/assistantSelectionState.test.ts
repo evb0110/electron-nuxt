@@ -137,7 +137,7 @@ describe('assistantSelectionState', () => {
         expect(normalizeProviderValue({value: 'claude'})).toBe('claude');
         expect(normalizeProviderValue('unknown')).toBe('codex');
 
-        expect(normalizeModelValue('gpt-5.5')).toBe('gpt-5.5');
+        expect(normalizeModelValue('gpt-test')).toBe('gpt-test');
         expect(normalizeModelValue({value: 'sonnet'})).toBe('sonnet');
         expect(normalizeModelValue({value: 5})).toBeNull();
 

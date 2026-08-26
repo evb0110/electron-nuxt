@@ -6,6 +6,7 @@ import type {
 import {
     CODEX_ASSISTANT_DEFAULT_MODEL,
     getAssistantEffortFallbackLabel,
+    isRemovedCodexAssistantModelId,
     normalizeAssistantEffortId,
 } from '@contracts/agentModels';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -146,7 +147,7 @@ function normalizeCodexModelOption(rawModel: unknown): TCodexAssistantModelOptio
         : typeof rawModel.id === 'string' && rawModel.id.trim()
             ? rawModel.id.trim()
             : '';
-    if (!id) {
+    if (!id || isRemovedCodexAssistantModelId(id)) {
         return null;
     }
 

@@ -147,8 +147,8 @@ describe('agent assistant provider state', () => {
                 executablePath: '/bin/claude',
             },
             codexModels: [{
-                id: 'gpt-5.5',
-                label: 'GPT-5.5',
+                id: 'gpt-5.6-sol',
+                label: 'GPT-5.6-Sol',
             }],
             claudeModels: [{
                 id: 'opus',
@@ -168,7 +168,7 @@ describe('agent assistant provider state', () => {
                 type: 'chatgpt',
                 email: 'reader@example.com',
             },
-            activeModel: 'gpt-5.5',
+            activeModel: 'gpt-5.6-sol',
             activeEffort: 'low',
             error: 'Codex warning.',
         });
