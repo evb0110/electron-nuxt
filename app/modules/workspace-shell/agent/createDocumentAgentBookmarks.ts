@@ -86,36 +86,8 @@ interface IAgentBookmarkPlan {
 
 const MAX_ISSUE_COUNT = 50;
 const MAX_DIFF_SAMPLE_COUNT = 50;
+const MAX_AGENT_BOOKMARK_STYLE_TARGET_PATHS = 200;
 const MIN_CHILDREN_SHARING_PARENT_DESTINATION_FOR_ANCHOR_WARNING = 2;
-
-function hasInputKey(input: Record<string, unknown>, key: string) {
-    return Object.prototype.hasOwnProperty.call(input, key);
-}
-
-function getRawStringInput(input: Record<string, unknown> | undefined, key: string) {
-    const value = input?.[key];
-    return typeof value === 'string' ? value : null;
-}
-
-function getNullableStringInput(input: Record<string, unknown> | undefined, key: string) {
-    const value = input?.[key];
-    if (value === null) {
-        return null;
-    }
-    return typeof value === 'string' ? value.trim() : undefined;
-}
-
-function getNumberInput(input: Record<string, unknown> | undefined, key: string) {
-    const value = input?.[key];
-    return typeof value === 'number' && Number.isFinite(value)
-        ? value
-        : null;
-}
-
-function getBooleanInput(input: Record<string, unknown> | undefined, key: string) {
-    const value = input?.[key];
-    return typeof value === 'boolean' ? value : null;
-}
 
 function pushIssue(issues: IAgentMetadataIssue[], issue: IAgentMetadataIssue) {
     if (issues.length < MAX_ISSUE_COUNT) {
@@ -123,54 +95,35 @@ function pushIssue(issues: IAgentMetadataIssue[], issue: IAgentMetadataIssue) {
     }
 }
 
-function requirePageCount(totalPages: number, actionId: string) {
-    if (totalPages <= 0) {
-        throw new Error(`${actionId} requires an open PDF document.`);
-    }
-    return totalPages;
-}
-
-function normalizePageNumber(value: number | null | undefined, totalPages: number, actionId: string) {
-    requirePageCount(totalPages, actionId);
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-        throw new Error(`${actionId} requires a valid one-based page number.`);
-    }
-    const page = Math.trunc(value);
-    if (page < 1 || page > totalPages) {
-        throw new Error(`${actionId} page ${page} is outside the document.`);
-    }
-    return page;
-}
-
 function normalizeBookmarkPageIndex(
     input: Record<string, unknown>,
     totalPages: number,
     actionId: string,
 ) {
-    const pageNumber = getNumberInput(input, 'page') ?? getNumberInput(input, 'pageNumber');
+    const pageNumber = getAgentNumberInput(input, 'page') ?? getAgentNumberInput(input, 'pageNumber');
     if (pageNumber !== null) {
-        return normalizePageNumber(pageNumber, totalPages, actionId) - 1;
+        return normalizeAgentPageNumber(pageNumber, totalPages, actionId) - 1;
     }
 
-    const pageIndex = getNumberInput(input, 'pageIndex');
+    const pageIndex = getAgentNumberInput(input, 'pageIndex');
     if (pageIndex === null) {
         return null;
     }
     const normalizedPageIndex = Math.trunc(pageIndex);
-    if (normalizedPageIndex < 0 || normalizedPageIndex >= requirePageCount(totalPages, actionId)) {
+    if (normalizedPageIndex < 0 || normalizedPageIndex >= requireAgentPdfPageCount(totalPages, actionId)) {
         throw new Error(`${actionId} pageIndex ${normalizedPageIndex} is outside the document.`);
     }
     return normalizedPageIndex;
 }
 
 function getRawBookmarkPageYRatioInput(input: Record<string, unknown>) {
-    if (hasInputKey(input, 'pageYRatio')) {
+    if (hasAgentInputKey(input, 'pageYRatio')) {
         return input.pageYRatio;
     }
-    if (hasInputKey(input, 'yRatio')) {
+    if (hasAgentInputKey(input, 'yRatio')) {
         return input.yRatio;
     }
-    if (hasInputKey(input, 'pageAnchorRatio')) {
+    if (hasAgentInputKey(input, 'pageAnchorRatio')) {
         return input.pageAnchorRatio;
     }
     return undefined;
@@ -240,21 +193,21 @@ function normalizeBookmarkEntry(
     untitledTitle: string,
     actionId: string,
 ): IPdfBookmarkEntry {
-    const rawTitle = getRawStringInput(input, 'title')?.trim();
+    const rawTitle = getAgentRawStringInput(input, 'title')?.trim();
     const title = rawTitle && rawTitle.length > 0 ? rawTitle : untitledTitle;
     const pageIndex = normalizeBookmarkPageIndex(input, totalPages, actionId);
-    const namedDest = getRawStringInput(input, 'namedDest')
-        ?? getRawStringInput(input, 'dest')
+    const namedDest = getAgentRawStringInput(input, 'namedDest')
+        ?? getAgentRawStringInput(input, 'dest')
         ?? null;
-    const color = getNullableStringInput(input, 'color');
+    const color = getAgentNullableStringInput(input, 'color');
     const rawItems = Array.isArray(input.items) ? input.items : input.children;
     return {
         title,
         pageIndex,
         pageYRatio: normalizeBookmarkPageYRatioInput(input, pageIndex, actionId),
         namedDest: namedDest && namedDest.trim().length > 0 ? namedDest.trim() : null,
-        bold: getBooleanInput(input, 'bold') ?? false,
-        italic: getBooleanInput(input, 'italic') ?? false,
+        bold: getAgentBooleanInput(input, 'bold') ?? false,
+        italic: getAgentBooleanInput(input, 'italic') ?? false,
         color: color === null ? null : normalizeBookmarkColor(color),
         items: Array.isArray(rawItems)
             ? rawItems
@@ -265,12 +218,12 @@ function normalizeBookmarkEntry(
 }
 
 function normalizeFlatBookmarkDepth(input: Record<string, unknown>) {
-    const depth = getNumberInput(input, 'depth');
+    const depth = getAgentNumberInput(input, 'depth');
     if (depth !== null) {
         return Math.max(0, Math.trunc(depth));
     }
 
-    const level = getNumberInput(input, 'level');
+    const level = getAgentNumberInput(input, 'level');
     if (level !== null) {
         return Math.max(0, Math.trunc(level) - 1);
     }
@@ -379,7 +332,7 @@ function normalizeBookmarkForAgent(
     };
 }
 
-function flattenBookmarks(bookmarks: IPdfBookmarkEntry[]) {
+function flattenBookmarks(bookmarks: IPdfBookmarkEntry[], basePath: number[] = []) {
     const flat: IAgentBookmarkFlatEntry[] = [];
     const visit = (items: IPdfBookmarkEntry[], path: number[]) => {
         items.forEach((bookmark, index) => {
@@ -403,7 +356,7 @@ function flattenBookmarks(bookmarks: IPdfBookmarkEntry[]) {
             visit(bookmark.items, nextPath);
         });
     };
-    visit(bookmarks, []);
+    visit(bookmarks, basePath);
     return flat;
 }
 
@@ -615,7 +568,7 @@ export function createAgentBookmarkPlan(options: {
     untitledTitle: string;
     actionId: string;
 }): IAgentBookmarkPlan {
-    requirePageCount(options.totalPages, options.actionId);
+    requireAgentPdfPageCount(options.totalPages, options.actionId);
     const normalized = normalizeBookmarkTreeInput(options);
     const current = createAgentBookmarkSnapshot(options.currentBookmarks, {dirty: options.dirty});
     const proposed = createAgentBookmarkSnapshot(normalized.bookmarks, {dirty: options.dirty});
@@ -738,7 +691,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         return path;
     }
 
-    function getAgentBookmarkPathListInput(input: Record<string, unknown>, actionId: string) {
+    function getAgentBookmarkPathListInput(input: Record<string, unknown>, actionId: string, allowMissingSelection = false) {
         const rawPaths = input.paths;
         if (Array.isArray(rawPaths)) {
             const paths: number[][] = [];
@@ -776,6 +729,10 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         const singlePath = getAgentBookmarkPathInput(input);
         if (singlePath && singlePath.length > 0) {
             return [singlePath];
+        }
+
+        if (allowMissingSelection) {
+            return [];
         }
 
         throw new Error(`${actionId} requires input.paths, input.items with path, or input.path.`);
@@ -1082,6 +1039,146 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         return updateAgentBookmarks(nextBookmarks);
     }
 
+    function collectAgentBookmarkStyleRangePaths(bookmarks: IPdfBookmarkEntry[], range: unknown, actionId: string) {
+        const fromPath = isAgentRecord(range) ? normalizeAgentBookmarkPath(range.from) : null;
+        const toPath = isAgentRecord(range) ? normalizeAgentBookmarkPath(range.to) : null;
+        if (!fromPath?.length || !toPath?.length) {
+            throw new Error(`${actionId} range requires from and to bookmark paths.`);
+        }
+        const parentPath = fromPath.slice(0, -1);
+        if (!pathsAreEqual(parentPath, toPath.slice(0, -1))) {
+            throw new Error(`${actionId} range endpoints must be siblings under the same parent.`);
+        }
+        const fromIndex = fromPath[fromPath.length - 1]!;
+        const toIndex = toPath[toPath.length - 1]!;
+        const startIndex = Math.min(fromIndex, toIndex);
+        const endIndex = Math.max(fromIndex, toIndex);
+        if (endIndex >= getBookmarkListAtPath(bookmarks, parentPath, actionId).length) {
+            throw new Error(`${actionId} range endpoint ${JSON.stringify(endIndex === fromIndex ? fromPath : toPath)} is outside its parent.`);
+        }
+        return Array.from({length: endIndex - startIndex + 1}, (_, offset) => [
+            ...parentPath,
+            startIndex + offset,
+        ]);
+    }
+
+    function collectAgentBookmarkDepthPaths(bookmarks: IPdfBookmarkEntry[], input: Record<string, unknown>, actionId: string) {
+        const depth = getAgentNumberInput(input, 'depth');
+        const level = getAgentNumberInput(input, 'level');
+        if (depth === null && level === null) {
+            return [];
+        }
+        const selectedDepth = depth === null
+            ? Math.max(0, Math.trunc(level!) - 1)
+            : Math.max(0, Math.trunc(depth));
+        const scopedParentPath = getAgentBookmarkPathInput(input, 'parentPath') ?? [];
+        // Depth stays absolute inside a scoped subtree: walk the scope's children from its own path.
+        const scopedItems = scopedParentPath.length === 0
+            ? bookmarks
+            : getBookmarkLocationAtPath(bookmarks, scopedParentPath, actionId).bookmark.items;
+        return flattenBookmarks(scopedItems, scopedParentPath)
+            .filter(entry => entry.depth === selectedDepth)
+            .map(entry => entry.path);
+    }
+
+    function dedupeSortedAgentBookmarkPaths(paths: number[][]) {
+        const sorted = [...paths].sort(compareAgentBookmarkPaths);
+        return sorted.filter((path, index) => index === 0 || !pathsAreEqual(path, sorted[index - 1]!));
+    }
+
+    function resolveAgentBookmarkStyleTargetPaths(
+        bookmarks: IPdfBookmarkEntry[],
+        input: Record<string, unknown>,
+        actionId: string,
+    ) {
+        const explicitPaths = getAgentBookmarkPathListInput(input, actionId, true);
+        explicitPaths.forEach(path => getBookmarkLocationAtPath(bookmarks, path, actionId));
+        const rangePaths = hasAgentInputKey(input, 'range')
+            ? collectAgentBookmarkStyleRangePaths(bookmarks, input.range, actionId)
+            : [];
+        const selectedPaths = dedupeSortedAgentBookmarkPaths([
+            ...explicitPaths,
+            ...rangePaths,
+            ...collectAgentBookmarkDepthPaths(bookmarks, input, actionId),
+        ]);
+        if (selectedPaths.length === 0) {
+            throw new Error(`${actionId} did not match any bookmarks.`);
+        }
+        if (getAgentBooleanInput(input, 'includeDescendants') !== true) {
+            return selectedPaths;
+        }
+        return flattenBookmarks(bookmarks)
+            .filter(entry => selectedPaths.some(target => pathStartsWith(entry.path, target)))
+            .map(entry => entry.path);
+    }
+
+    function getAgentBookmarkStyleUpdate(input: Record<string, unknown>, actionId: string) {
+        const rawColor = hasAgentInputKey(input, 'color') ? getAgentNullableStringInput(input, 'color') : undefined;
+        if (
+            (hasAgentInputKey(input, 'color') && rawColor === undefined)
+            || (typeof rawColor === 'string' && !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/iu.test(rawColor))
+        ) {
+            throw new Error(`${actionId} color must be a hex color such as #336699 or null.`);
+        }
+        const flag = (key: 'bold' | 'italic') => {
+            if (!hasAgentInputKey(input, key)) {
+                return undefined;
+            }
+            const value = getAgentBooleanInput(input, key);
+            if (value === null) {
+                throw new Error(`${actionId} ${key} must be a boolean.`);
+            }
+            return value;
+        };
+        return {
+            bold: flag('bold'),
+            italic: flag('italic'),
+            color: typeof rawColor === 'string' ? normalizeBookmarkColor(rawColor) : rawColor,
+        };
+    }
+
+    type TAgentBookmarkStyleUpdate = ReturnType<typeof getAgentBookmarkStyleUpdate>;
+
+    function applyAgentBookmarkStyleAtPath(bookmarks: IPdfBookmarkEntry[], path: number[], styleUpdate: TAgentBookmarkStyleUpdate, actionId: string) {
+        const location = getBookmarkLocationAtPath(bookmarks, path, actionId);
+        const updated = {
+            ...location.bookmark,
+            bold: styleUpdate.bold ?? location.bookmark.bold,
+            italic: styleUpdate.italic ?? location.bookmark.italic,
+            color: styleUpdate.color === undefined ? location.bookmark.color : styleUpdate.color,
+        };
+        if (
+            updated.bold === location.bookmark.bold
+            && updated.italic === location.bookmark.italic
+            && updated.color === location.bookmark.color
+        ) {
+            return false;
+        }
+        location.list.splice(location.index, 1, updated);
+        return true;
+    }
+
+    // Style-only edits cannot create unsafe destinations, so the destination
+    // guard is skipped; a run that changes nothing records no undo entry.
+    function setAgentBookmarkStyle(input: Record<string, unknown>, actionId: string) {
+        const bookmarks = cloneAgentBookmarks();
+        const targetPaths = resolveAgentBookmarkStyleTargetPaths(bookmarks, input, actionId);
+        const styleUpdate = getAgentBookmarkStyleUpdate(input, actionId);
+        let changedCount = 0;
+        for (const path of targetPaths) {
+            if (applyAgentBookmarkStyleAtPath(bookmarks, path, styleUpdate, actionId)) {
+                changedCount += 1;
+            }
+        }
+        return {
+            ...(changedCount === 0 ? createAgentBookmarkSnapshot() : updateAgentBookmarks(bookmarks)),
+            targetCount: targetPaths.length,
+            changedCount,
+            targetPaths: targetPaths.slice(0, MAX_AGENT_BOOKMARK_STYLE_TARGET_PATHS),
+            targetPathsTruncated: targetPaths.length > MAX_AGENT_BOOKMARK_STYLE_TARGET_PATHS,
+        };
+    }
+
     return {
         addAgentBookmark,
         addAgentBookmarks,
@@ -1090,6 +1187,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         deleteAgentBookmark,
         deleteAgentBookmarks,
         previewAgentBookmarkPlan,
+        setAgentBookmarkStyle,
         setAgentBookmarkTree,
         updateAgentBookmark,
     };

@@ -6,6 +6,8 @@ import { clamp } from 'es-toolkit/math';
 import type {
     IBookmarkItem,
     IBookmarkLocation,
+    IBookmarkStyleSummary,
+    TBookmarkStyleFlagState,
     TCreateBookmarkId,
 } from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
@@ -229,7 +231,7 @@ export function convertOutlineColorToHex(color: ArrayLike<number> | null | undef
         return clamp(Math.round(numeric), 0, 255);
     });
 
-    return `#${rgb.map(value => value.toString(16).padStart(2, '0')).join('')}`;
+    return normalizeBookmarkColor(`#${rgb.map(value => value.toString(16).padStart(2, '0')).join('')}`);
 }
 
 function normalizeDestinationPageIndex(rawPageRef: number, numPages: number) {
@@ -798,7 +800,20 @@ export function resolveActiveBookmarkForPage(
     return active;
 }
 
+/**
+ * Black is the PDF outline default (ISO 32000-1 table 153 gives `/C` a default
+ * of `[0 0 0]`, and pdf.js reports absent colors as black), so it normalizes
+ * to `null`: the bookmark then follows the theme text color instead of pinning
+ * black onto a dark theme.
+ */
+const DEFAULT_BOOKMARK_COLOR = '#000000';
+
 export function normalizeBookmarkColor(color: string | null | undefined) {
+    const normalized = normalizeExplicitBookmarkColor(color);
+    return normalized === DEFAULT_BOOKMARK_COLOR ? null : normalized;
+}
+
+function normalizeExplicitBookmarkColor(color: string | null | undefined) {
     if (typeof color !== 'string') {
         return null;
     }
@@ -819,4 +834,29 @@ export function normalizeBookmarkColor(color: string | null | undefined) {
     }
 
     return /^#[0-9a-f]{6}$/.test(value) ? value : null;
+}
+
+function summarizeBookmarkFlag(items: readonly IBookmarkItem[], flag: 'bold' | 'italic'): TBookmarkStyleFlagState {
+    const onCount = items.filter(item => item[flag]).length;
+    if (onCount === 0) {
+        return 'off';
+    }
+    return onCount === items.length ? 'on' : 'mixed';
+}
+
+/**
+ * The style state a context menu shows for its targets. Every flag reports
+ * `mixed` when the targets disagree, so a multi-selection never pretends to
+ * have one style it does not share.
+ */
+export function summarizeBookmarkStyles(items: readonly IBookmarkItem[]): IBookmarkStyleSummary {
+    const firstColor = normalizeBookmarkColor(items[0]?.color);
+    const colorMixed = items.some(item => normalizeBookmarkColor(item.color) !== firstColor);
+    return {
+        targetCount: items.length,
+        bold: summarizeBookmarkFlag(items, 'bold'),
+        italic: summarizeBookmarkFlag(items, 'italic'),
+        color: colorMixed ? null : firstColor,
+        colorMixed,
+    };
 }

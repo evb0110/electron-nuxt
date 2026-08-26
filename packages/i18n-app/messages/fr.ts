@@ -1258,13 +1258,10 @@ export default {
         'disableItalic': 'Désactiver l’italique',
         'defaultColor': 'Couleur du texte par défaut',
         'setColor': 'Définir la couleur {color}',
-        'setStyleStart': 'Définir le début de la plage de style',
-        'rangeStartSet': 'Début de plage défini',
-        'applyStyleRange': 'Appliquer le style à la plage',
-        'applyStyleToCount': plural({
-            zero: 'Appliquer le style à {count} signets',
-            one: 'Appliquer le style à {count} signet',
-            other: 'Appliquer le style à {count} signets',
+        'styleSelectedBookmarks': plural({
+            zero: 'Le style s\'applique à {count} signets sélectionnés',
+            one: 'Le style s\'applique à {count} signet sélectionné',
+            other: 'Le style s\'applique à {count} signets sélectionnés',
         }),
         'removeBookmark': 'Supprimer le signet',
         'removeSelectedBookmarks': plural({

@@ -65,7 +65,7 @@ describe('usePdfOutlineContextMenu', () => {
         vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
     });
 
-    it('ignores app-wide Escape when no outline context state is active', async () => {
+    it('ignores app-wide Escape while the context menu is closed', async () => {
         const { usePdfOutlineContextMenu } = await import(
             '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineContextMenu'
         );
@@ -74,8 +74,6 @@ describe('usePdfOutlineContextMenu', () => {
         usePdfOutlineContextMenu(
             ref([createBookmark('first')]),
             ref(true),
-            ref(null),
-            vi.fn(),
             onEscape,
         );
 
@@ -84,24 +82,47 @@ describe('usePdfOutlineContextMenu', () => {
         expect(onEscape).not.toHaveBeenCalled();
     });
 
-    it('handles Escape when style range state is active', async () => {
+    it('closes an open context menu on Escape and notifies the owner', async () => {
         const { usePdfOutlineContextMenu } = await import(
             '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineContextMenu'
         );
-        const styleRangeStartId = ref<string | null>('first');
         const onEscape = vi.fn();
-
-        usePdfOutlineContextMenu(
+        const contextMenu = usePdfOutlineContextMenu(
             ref([createBookmark('first')]),
             ref(true),
-            styleRangeStartId,
-            vi.fn(),
             onEscape,
         );
+        contextMenu.openBookmarkContextMenu({
+            id: 'first',
+            x: 5,
+            y: 6,
+        });
+        expect(contextMenu.bookmarkContextMenu.value.visible).toBe(true);
+        expect(contextMenu.selectedContextBookmark.value?.id).toBe('first');
 
         mocks.keydownListeners[0]?.({ key: 'Escape' } as KeyboardEvent);
 
-        expect(styleRangeStartId.value).toBeNull();
+        expect(contextMenu.bookmarkContextMenu.value.visible).toBe(false);
+        expect(contextMenu.selectedContextBookmark.value).toBeNull();
         expect(onEscape).toHaveBeenCalledOnce();
+    });
+
+    it('does not open the context menu outside edit mode', async () => {
+        const { usePdfOutlineContextMenu } = await import(
+            '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineContextMenu'
+        );
+        const contextMenu = usePdfOutlineContextMenu(
+            ref([createBookmark('first')]),
+            ref(false),
+            vi.fn(),
+        );
+
+        contextMenu.openBookmarkContextMenu({
+            id: 'first',
+            x: 5,
+            y: 6,
+        });
+
+        expect(contextMenu.bookmarkContextMenu.value.visible).toBe(false);
     });
 });

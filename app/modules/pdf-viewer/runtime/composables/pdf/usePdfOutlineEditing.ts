@@ -10,6 +10,7 @@ import {
     findBookmarkLocation,
     flattenBookmarks,
     normalizeBookmarkColor,
+    summarizeBookmarkStyles,
 } from '@app/utils/pdfOutlineHelpers';
 
 export const usePdfOutlineEditing = (
@@ -22,7 +23,6 @@ export const usePdfOutlineEditing = (
     bookmarkOrderIndexMap: ComputedRef<Map<string, number>>,
     selectedBookmarkIds: Ref<Set<string>>,
     selectionAnchorBookmarkId: Ref<string | null>,
-    styleRangeStartId: Ref<string | null>,
     draggingBookmarkIds: Ref<Set<string>>,
     applySingleSelection: (id: string) => void,
     closeBookmarkContextMenu: () => void,
@@ -162,10 +162,6 @@ export const usePdfOutlineEditing = (
         if (editingItemId.value && removedIds.has(editingItemId.value)) {
             editingItemId.value = null;
         }
-
-        if (styleRangeStartId.value && removedIds.has(styleRangeStartId.value)) {
-            styleRangeStartId.value = null;
-        }
     }
 
     function resolveRootBookmarkIds(ids: Iterable<string>) {
@@ -302,6 +298,34 @@ export const usePdfOutlineEditing = (
         removeBookmarkTargets(selectedBookmarkIds.value);
     }
 
+    /**
+     * Style edits follow the same rule as removal: a context bookmark that is
+     * part of the current selection acts on the whole selection, otherwise on
+     * itself alone. Unlike removal, descendants are not implied, so every
+     * selected id is a target of its own.
+     */
+    function resolveBookmarkStyleTargetIds(id: string) {
+        const ids = selectedBookmarkIds.value.has(id)
+            ? [...selectedBookmarkIds.value]
+            : [id];
+        const order = bookmarkOrderIndexMap.value;
+        return ids
+            .filter(targetId => findBookmarkById(bookmarks.value, targetId) !== null)
+            .sort((left, right) => (
+                (order.get(left) ?? Number.MAX_SAFE_INTEGER) - (order.get(right) ?? Number.MAX_SAFE_INTEGER)
+            ));
+    }
+
+    function resolveBookmarkStyleTargets(id: string) {
+        return resolveBookmarkStyleTargetIds(id)
+            .map(targetId => findBookmarkById(bookmarks.value, targetId))
+            .filter((item): item is IBookmarkItem => item !== null);
+    }
+
+    function resolveBookmarkStyleSummary(id: string) {
+        return summarizeBookmarkStyles(resolveBookmarkStyleTargets(id));
+    }
+
     function resolveBookmarkStyle(
         item: IBookmarkItem,
         updates: Partial<Pick<IBookmarkItem, 'bold' | 'italic' | 'color'>>,
@@ -324,40 +348,58 @@ export const usePdfOutlineEditing = (
             || item.color !== nextStyle.color;
     }
 
+    /**
+     * Applies one style patch to the context bookmark's style targets in a
+     * single bookmarks change, so a multi-selection restyle is one undo step.
+     */
     function updateBookmarkStyle(
         id: string,
         updates: Partial<Pick<IBookmarkItem, 'bold' | 'italic' | 'color'>>,
     ) {
-        const location = findBookmarkLocation(bookmarks.value, id);
-        if (!location) {
+        let changed = false;
+        for (const targetId of resolveBookmarkStyleTargetIds(id)) {
+            const item = findBookmarkById(bookmarks.value, targetId);
+            if (!item) {
+                continue;
+            }
+
+            const nextStyle = resolveBookmarkStyle(item, updates);
+            if (!hasBookmarkStyleChanged(item, nextStyle)) {
+                continue;
+            }
+
+            item.bold = nextStyle.bold;
+            item.italic = nextStyle.italic;
+            item.color = nextStyle.color;
+            changed = true;
+        }
+
+        if (changed) {
+            emitBookmarksChange();
+        }
+    }
+
+    /**
+     * Toggling a mixed selection turns the flag on for every target first, the
+     * way word processors treat a partially bold selection; only a uniformly
+     * on selection toggles off.
+     */
+    function toggleBookmarkFlag(id: string, flag: 'bold' | 'italic') {
+        const targets = resolveBookmarkStyleTargets(id);
+        if (targets.length === 0) {
             return;
         }
 
-        const nextStyle = resolveBookmarkStyle(location.item, updates);
-        if (!hasBookmarkStyleChanged(location.item, nextStyle)) {
-            return;
-        }
-
-        location.item.bold = nextStyle.bold;
-        location.item.italic = nextStyle.italic;
-        location.item.color = nextStyle.color;
-        emitBookmarksChange();
+        const nextValue = !targets.every(item => item[flag]);
+        updateBookmarkStyle(id, { [flag]: nextValue });
     }
 
     function toggleBookmarkBold(id: string) {
-        const bookmark = findBookmarkById(bookmarks.value, id);
-        if (!bookmark) {
-            return;
-        }
-        updateBookmarkStyle(id, { bold: !bookmark.bold });
+        toggleBookmarkFlag(id, 'bold');
     }
 
     function toggleBookmarkItalic(id: string) {
-        const bookmark = findBookmarkById(bookmarks.value, id);
-        if (!bookmark) {
-            return;
-        }
-        updateBookmarkStyle(id, { italic: !bookmark.italic });
+        toggleBookmarkFlag(id, 'italic');
     }
 
     function setBookmarkColor(id: string, color: string | null) {
@@ -402,10 +444,6 @@ export const usePdfOutlineEditing = (
 
         if (editingItemId.value && !validIds.has(editingItemId.value)) {
             editingItemId.value = null;
-        }
-
-        if (styleRangeStartId.value && !validIds.has(styleRangeStartId.value)) {
-            styleRangeStartId.value = null;
         }
     }
 
@@ -453,7 +491,6 @@ export const usePdfOutlineEditing = (
             return;
         }
         editingItemId.value = null;
-        styleRangeStartId.value = null;
         closeBookmarkContextMenu();
         resetDragState();
     });
@@ -470,6 +507,8 @@ export const usePdfOutlineEditing = (
         addChildBookmark,
         resolveRootBookmarkIds,
         resolveBookmarkRemovalTargetIds,
+        resolveBookmarkStyleTargetIds,
+        resolveBookmarkStyleSummary,
         removeBookmark,
         removeSelectedBookmarks,
         toggleBookmarkBold,

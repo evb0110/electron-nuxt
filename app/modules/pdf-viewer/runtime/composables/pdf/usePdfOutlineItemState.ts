@@ -32,7 +32,6 @@ export const usePdfOutlineItemState = (item: Ref<IBookmarkItem>) => {
         treeContext.dropTarget.value?.id === item.value.id
         && treeContext.dropTarget.value.position === 'child'
     ));
-    const isStyleRangeStart = computed(() => treeContext.styleRangeStartId.value === item.value.id);
 
     const bookmarkTitleStyle = computed(() => ({
         color: item.value.color ?? undefined,
@@ -66,7 +65,6 @@ export const usePdfOutlineItemState = (item: Ref<IBookmarkItem>) => {
         isDropTargetBefore,
         isDropTargetAfter,
         isDropTargetChild,
-        isStyleRangeStart,
         bookmarkTitleStyle,
         isExpanded,
     };

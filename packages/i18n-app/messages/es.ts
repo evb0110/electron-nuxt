@@ -1253,12 +1253,9 @@ export default {
         'disableItalic': 'Desactivar cursiva',
         'defaultColor': 'Usar color de texto predeterminado',
         'setColor': 'Establecer color {color}',
-        'setStyleStart': 'Establecer inicio del rango de estilo',
-        'rangeStartSet': 'Inicio del rango establecido',
-        'applyStyleRange': 'Aplicar estilo al rango',
-        'applyStyleToCount': plural({
-            one: 'Aplicar estilo a {count} marcador',
-            other: 'Aplicar estilo a {count} marcadores',
+        'styleSelectedBookmarks': plural({
+            one: 'El estilo se aplica a {count} marcador seleccionado',
+            other: 'El estilo se aplica a {count} marcadores seleccionados',
         }),
         'removeBookmark': 'Eliminar marcador',
         'removeSelectedBookmarks': plural({

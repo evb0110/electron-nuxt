@@ -22,6 +22,7 @@ import {
     resolveImmediateBookmarkDestinationTarget,
     resolvePageIndex,
     shouldEmitResolvedBookmarkDestinationTarget,
+    summarizeBookmarkStyles,
 } from '@app/utils/pdfOutlineHelpers';
 import { cast } from '@tests/helpers/cast';
 
@@ -104,6 +105,17 @@ describe('pdfOutlineHelpers', () => {
             1,
             2,
         ])).toBeNull();
+    });
+
+    it('treats the black outline default as no explicit color', () => {
+        expect(convertOutlineColorToHex(new Uint8ClampedArray([
+            0,
+            0,
+            0,
+        ]))).toBeNull();
+        expect(normalizeBookmarkColor('#000000')).toBeNull();
+        expect(normalizeBookmarkColor('#000')).toBeNull();
+        expect(normalizeBookmarkColor('#010101')).toBe('#010101');
     });
 
     it('normalizes bookmark color values', () => {
@@ -416,5 +428,78 @@ describe('pdfOutlineHelpers', () => {
         ];
 
         expect(resolveActiveBookmarkForPage(bookmarks, 5, 'intro')?.id).toBe('last-on-page');
+    });
+
+    it('reports a uniform style when every target agrees', () => {
+        const items: IBookmarkItem[] = [
+            {
+                id: 'a',
+                title: 'A',
+                dest: null,
+                pageIndex: 0,
+                bold: true,
+                italic: false,
+                color: '#1D4ED8',
+                items: [],
+            },
+            {
+                id: 'b',
+                title: 'B',
+                dest: null,
+                pageIndex: 1,
+                bold: true,
+                italic: false,
+                color: '#1d4ed8',
+                items: [],
+            },
+        ];
+
+        expect(summarizeBookmarkStyles(items)).toEqual({
+            targetCount: 2,
+            bold: 'on',
+            italic: 'off',
+            color: '#1d4ed8',
+            colorMixed: false,
+        });
+    });
+
+    it('reports mixed flags and colors instead of picking one target', () => {
+        const items: IBookmarkItem[] = [
+            {
+                id: 'a',
+                title: 'A',
+                dest: null,
+                pageIndex: 0,
+                bold: true,
+                italic: true,
+                color: null,
+                items: [],
+            },
+            {
+                id: 'b',
+                title: 'B',
+                dest: null,
+                pageIndex: 1,
+                bold: false,
+                italic: true,
+                color: '#b91c1c',
+                items: [],
+            },
+        ];
+
+        expect(summarizeBookmarkStyles(items)).toEqual({
+            targetCount: 2,
+            bold: 'mixed',
+            italic: 'on',
+            color: null,
+            colorMixed: true,
+        });
+        expect(summarizeBookmarkStyles([])).toEqual({
+            targetCount: 0,
+            bold: 'off',
+            italic: 'off',
+            color: null,
+            colorMixed: false,
+        });
     });
 });

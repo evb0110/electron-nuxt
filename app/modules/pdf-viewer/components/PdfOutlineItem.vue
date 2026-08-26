@@ -10,7 +10,6 @@
                 'is-drop-before': isDropTargetBefore,
                 'is-drop-after': isDropTargetAfter,
                 'is-drop-child': isDropTargetChild,
-                'is-style-range-start': isStyleRangeStart,
             }"
             tabindex="0"
             role="button"
@@ -185,7 +184,6 @@ const {
     isDropTargetBefore,
     isDropTargetAfter,
     isDropTargetChild,
-    isStyleRangeStart,
     bookmarkTitleStyle,
     isExpanded,
 } = usePdfOutlineItemState(computed(() => item));
@@ -523,10 +521,6 @@ function handleClick(event?: MouseEvent | KeyboardEvent) {
 
 .pdf-bookmark-item-row.is-drop-child {
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-primary) 45%, transparent 55%);
-}
-
-.pdf-bookmark-item-row.is-style-range-start {
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-pdf-outline-range-indicator) 52%, transparent 48%);
 }
 
 .pdf-bookmark-item-drag-handle {

@@ -1258,13 +1258,10 @@ export default {
         'disableItalic': 'Desativar itálico',
         'defaultColor': 'Usar cor de texto predefinida',
         'setColor': 'Definir cor {color}',
-        'setStyleStart': 'Definir início do intervalo de estilo',
-        'rangeStartSet': 'Início do intervalo definido',
-        'applyStyleRange': 'Aplicar estilo ao intervalo',
-        'applyStyleToCount': plural({
-            zero: 'Aplicar estilo a {count} marcadores',
-            one: 'Aplicar estilo a {count} marcador',
-            other: 'Aplicar estilo a {count} marcadores',
+        'styleSelectedBookmarks': plural({
+            zero: 'O estilo aplica-se a {count} marcadores selecionados',
+            one: 'O estilo aplica-se a {count} marcador selecionado',
+            other: 'O estilo aplica-se a {count} marcadores selecionados',
         }),
         'removeBookmark': 'Remover marcador',
         'removeSelectedBookmarks': plural({

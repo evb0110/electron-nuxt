@@ -9,6 +9,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { TPdfViewMode } from '@contracts/shared';
 import { AGENT_CAPABILITY_TEMPLATES } from '@electron/features/agent/mcp/agentCapabilityTemplates';
+import { validateJsonObjectAgainstSchema } from '@electron/features/agent/mcp/mcpToolDefinitions';
 import type {
     IAnnotationCommentSummary,
     IAnnotationInventoryCompleteness,
@@ -542,6 +543,354 @@ describe('useDocumentWorkspaceAgent', () => {
             dirty: true,
             history: 'record',
         }));
+    });
+
+    it('styles explicit bookmarks with bold and color while leaving other fields untouched', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([
+            createBookmark('Chapter 1'),
+            createBookmark('Chapter 2'),
+            createBookmark('Chapter 3'),
+        ]);
+        const handleBookmarksChange = vi.fn(({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            bookmarkItems,
+            handleBookmarksChange,
+        }));
+
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            paths: [
+                [0],
+                [2],
+            ],
+            bold: true,
+            color: '#336699',
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'bookmarks.set_style',
+            targetCount: 2,
+            changedCount: 2,
+            targetPaths: [
+                [0],
+                [2],
+            ],
+            targetPathsTruncated: false,
+        });
+
+        expect(bookmarkItems.value[0]).toMatchObject({
+            title: 'Chapter 1',
+            bold: true,
+            italic: false,
+            color: '#336699',
+        });
+        expect(bookmarkItems.value[2]).toMatchObject({
+            title: 'Chapter 3',
+            bold: true,
+            color: '#336699',
+        });
+        expect(handleBookmarksChange).toHaveBeenCalledOnce();
+        expect(handleBookmarksChange).toHaveBeenCalledWith(expect.objectContaining({
+            dirty: true,
+            history: 'record',
+        }));
+    });
+
+    it('styles an inclusive sibling range regardless of endpoint order', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([
+            createBookmark('Chapter 1', [createBookmark('Section 1.1')]),
+            createBookmark('Chapter 2'),
+            createBookmark('Chapter 3'),
+        ]);
+        const handleBookmarksChange = vi.fn(({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            bookmarkItems,
+            handleBookmarksChange,
+        }));
+
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            range: {
+                from: [2],
+                to: [0],
+            },
+            italic: true,
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'bookmarks.set_style',
+            targetCount: 3,
+            changedCount: 3,
+        });
+
+        expect(bookmarkItems.value.map(bookmark => bookmark.italic)).toEqual([
+            true,
+            true,
+            true,
+        ]);
+        expect(bookmarkItems.value[0]?.items.every(child => !child.italic)).toBe(true);
+    });
+
+    it('styles depth-selected bookmarks under a parent scope and levels across roots', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([
+            createBookmark('Chapter 1', [
+                createBookmark('Section 1.1'),
+                createBookmark('Section 1.2'),
+            ]),
+            createBookmark('Chapter 2'),
+        ]);
+        const handleBookmarksChange = vi.fn(({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            bookmarkItems,
+            handleBookmarksChange,
+        }));
+
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            depth: 1,
+            parentPath: [0],
+            italic: true,
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'bookmarks.set_style',
+            targetCount: 2,
+            changedCount: 2,
+            targetPaths: [
+                [
+                    0,
+                    0,
+                ],
+                [
+                    0,
+                    1,
+                ],
+            ],
+        });
+        expect(bookmarkItems.value[0]?.items.map(child => child.italic)).toEqual([
+            true,
+            true,
+        ]);
+        expect(bookmarkItems.value.map(bookmark => bookmark.italic)).toEqual([
+            false,
+            false,
+        ]);
+
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            level: 1,
+            bold: true,
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'bookmarks.set_style',
+            targetCount: 2,
+            changedCount: 2,
+        });
+        expect(bookmarkItems.value.map(bookmark => bookmark.bold)).toEqual([
+            true,
+            true,
+        ]);
+        expect(bookmarkItems.value[0]?.items.every(child => !child.bold)).toBe(true);
+    });
+
+    it('extends styling to descendants when includeDescendants is requested', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([
+            createBookmark('Chapter 1', [createBookmark('Section 1.1', [createBookmark('Subsection 1.1.1')])]),
+            createBookmark('Chapter 2'),
+        ]);
+        const handleBookmarksChange = vi.fn(({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            bookmarkItems,
+            handleBookmarksChange,
+        }));
+
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            path: [0],
+            includeDescendants: true,
+            color: '#336699',
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'bookmarks.set_style',
+            targetCount: 3,
+            changedCount: 3,
+            targetPaths: [
+                [0],
+                [
+                    0,
+                    0,
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                ],
+            ],
+        });
+
+        expect(bookmarkItems.value[0]?.color).toBe('#336699');
+        expect(bookmarkItems.value[0]?.items[0]?.color).toBe('#336699');
+        expect(bookmarkItems.value[0]?.items[0]?.items[0]?.color).toBe('#336699');
+        expect(bookmarkItems.value[1]?.color).toBeNull();
+    });
+
+    it('skips the undo entry when styling would not change any bookmark', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
+            ...createBookmark('Chapter 1'),
+            bold: true,
+        }]);
+        const handleBookmarksChange = vi.fn(({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            bookmarkItems,
+            handleBookmarksChange,
+        }));
+
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            path: [0],
+            bold: true,
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'bookmarks.set_style',
+            targetCount: 1,
+            changedCount: 0,
+        });
+
+        expect(handleBookmarksChange).not.toHaveBeenCalled();
+    });
+
+    it('rejects invalid bookmarks.set_style inputs before touching bookmarks', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([
+            createBookmark('Chapter 1', [createBookmark('Section 1.1')]),
+            createBookmark('Chapter 2'),
+        ]);
+        const handleBookmarksChange = vi.fn(({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            bookmarkItems,
+            handleBookmarksChange,
+        }));
+
+        const initialBookmarks = JSON.parse(JSON.stringify(bookmarkItems.value)) as IPdfBookmarkEntry[];
+
+        await expect(agent.runAgentAction('bookmarks.set_style', {bold: true}))
+            .rejects.toThrow('bookmarks.set_style requires input.paths, input.path, input.items, input.range, input.depth, or input.level.');
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            path: [0],
+            bold: 'yes',
+        })).rejects.toThrow('bookmarks.set_style bold must be a boolean.');
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            path: [99],
+            includeDescendants: true,
+            bold: true,
+        })).rejects.toThrow('bookmarks.set_style bookmark path was not found.');
+        await expect(agent.runAgentAction('bookmarks.set_style', {paths: [[0]]}))
+            .rejects.toThrow('bookmarks.set_style requires at least one of input.bold, input.italic, or input.color.');
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            range: {
+                from: [0],
+                to: [
+                    0,
+                    0,
+                ],
+            },
+            bold: true,
+        })).rejects.toThrow('bookmarks.set_style range endpoints must be siblings under the same parent.');
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            range: [0],
+            bold: true,
+        })).rejects.toThrow('bookmarks.set_style range requires from and to bookmark paths.');
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            range: {
+                from: [
+                    0,
+                    0,
+                ],
+                to: [
+                    0,
+                    9,
+                ],
+            },
+            bold: true,
+        })).rejects.toThrow('bookmarks.set_style range endpoint [0,9] is outside its parent.');
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            depth: 4,
+            bold: true,
+        })).rejects.toThrow('bookmarks.set_style did not match any bookmarks.');
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            path: [7],
+            bold: true,
+        })).rejects.toThrow('bookmarks.set_style bookmark path was not found.');
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            path: [0],
+            color: 'red',
+        })).rejects.toThrow('bookmarks.set_style color must be a hex color such as #336699 or null.');
+        await expect(agent.runAgentAction('bookmarks.set_style', {
+            path: [0],
+            color: 336699,
+        })).rejects.toThrow('bookmarks.set_style color must be a hex color such as #336699 or null.');
+
+        expect(bookmarkItems.value).toEqual(initialBookmarks);
+        expect(handleBookmarksChange).not.toHaveBeenCalled();
+    });
+
+    it('restyles bookmarks through the toc.set_style compatibility alias', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([createBookmark('Chapter 1')]);
+        const handleBookmarksChange = vi.fn(({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            bookmarkItems,
+            handleBookmarksChange,
+        }));
+
+        await expect(agent.runAgentAction('toc.set_style', {
+            path: [0],
+            italic: true,
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'toc.set_style',
+            targetCount: 1,
+            changedCount: 1,
+        });
+        expect(bookmarkItems.value[0]?.italic).toBe(true);
+    });
+
+    it('enforces the advertised bookmarks.set_style schema on capability input', () => {
+        const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'bookmarks.set_style');
+
+        expect(template).toBeDefined();
+        expect(() => validateJsonObjectAgainstSchema(
+            'bookmarks.set_style',
+            {paths: [[0]]},
+            template?.inputSchema ?? {},
+        )).toThrow(/did not match its advertised schema/u);
+        expect(() => validateJsonObjectAgainstSchema(
+            'bookmarks.set_style',
+            {
+                depth: 0,
+                bold: true,
+            },
+            template?.inputSchema ?? {},
+        )).not.toThrow();
+        expect(() => validateJsonObjectAgainstSchema(
+            'bookmarks.set_style',
+            {
+                paths: [[-1]],
+                bold: true,
+            },
+            template?.inputSchema ?? {},
+        )).toThrow(/did not match its advertised schema/u);
+        expect(() => validateJsonObjectAgainstSchema(
+            'bookmarks.set_style',
+            {
+                path: [0.5],
+                bold: true,
+            },
+            template?.inputSchema ?? {},
+        )).toThrow(/did not match its advertised schema/u);
     });
 
     it('lets file.save observe save readiness after an immediate bookmark action', async () => {

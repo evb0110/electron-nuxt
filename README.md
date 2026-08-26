@@ -17,7 +17,7 @@ This repository contains three related apps:
 - Open PDFs and DjVu files, or combine PDFs and image batches into a new PDF.
 - Run desktop OCR with bundled `tessdata_best` models and generate searchable PDFs.
 - Annotate with free text, ink, highlight/underline/strikeout, shapes, arrows, notes, and placed images.
-- Edit bookmarks/outlines, page labels, and page order from the sidebar.
+- Edit bookmarks/outlines, page labels, and page order from the sidebar; style bookmarks bold, italic, or colored one at a time or across a multi-selection.
 - Delete, extract, insert, rotate, crop, and export selected pages.
 - Export to PDF, DOCX, PNG, JPG, and multi-page TIFF.
 - Work across tabs, split editor panes, and multiple windows with tab transfer/merge.

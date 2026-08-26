@@ -40,6 +40,20 @@ export interface IBookmarkLocation {
     item: IBookmarkItem;
 }
 
+export type TBookmarkStyleFlagState = 'on' | 'off' | 'mixed';
+
+/**
+ * Style shared by the bookmarks a context-menu action will touch. `color` is
+ * only meaningful while `colorMixed` is false.
+ */
+export interface IBookmarkStyleSummary {
+    targetCount: number;
+    bold: TBookmarkStyleFlagState;
+    italic: TBookmarkStyleFlagState;
+    color: string | null;
+    colorMixed: boolean;
+}
+
 export interface IBookmarkMenuPayload {
     id: string;
     x: number;

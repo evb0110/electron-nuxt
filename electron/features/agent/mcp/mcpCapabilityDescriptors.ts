@@ -34,6 +34,7 @@ const AGENT_CAPABILITY_ALIASES: Record<string, string> = {
     'toc.update': 'bookmarks.update',
     'toc.delete': 'bookmarks.delete',
     'toc.delete_batch': 'bookmarks.delete_batch',
+    'toc.set_style': 'bookmarks.set_style',
     'annotation.start_note_placement': 'annotation.create_note',
     'annotation.place_note': 'annotation.create_note_at_point',
     'annotation.set_tool': 'annotation.select_tool',

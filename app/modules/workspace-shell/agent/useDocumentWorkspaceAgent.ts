@@ -45,6 +45,7 @@ export const DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS = [
     'bookmarks.update',
     'bookmarks.delete',
     'bookmarks.delete_batch',
+    'bookmarks.set_style',
     'toc.read',
     'annotation.open_note',
     'annotation.focus',
@@ -101,6 +102,7 @@ export const DOCUMENT_WORKSPACE_AGENT_ALIAS_ACTION_IDS = [
     'toc.update',
     'toc.delete',
     'toc.delete_batch',
+    'toc.set_style',
     'annotation.start_note_placement',
     'annotation.place_note',
     'annotation.set_tool',
@@ -235,6 +237,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         deleteAgentBookmark,
         deleteAgentBookmarks,
         previewAgentBookmarkPlan,
+        setAgentBookmarkStyle,
         setAgentBookmarkTree,
         updateAgentBookmark,
     } = bookmarksAgent;
@@ -273,6 +276,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         parseAgentBookmarkBatchInput,
         parseAgentBookmarkPathBatchInput,
         parseAgentBookmarkPathInput,
+        parseAgentBookmarkStyleInput,
         parseAgentInsertPagesInput,
         parseAgentPageImageInput,
         parseAgentPageLabelApplyRangeInput,
@@ -285,6 +289,14 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
     async function waitForAgentMutationStateSettled() {
         await nextTick();
         await nextTick();
+    }
+
+    function createSettledMutationRunner(applyMutation: (input: Record<string, unknown>, actionId: string) => object, settle: () => Promise<void> = waitForAgentMutationStateSettled) {
+        return async (input: Record<string, unknown>, actionId: string) => {
+            const snapshot = applyMutation(input, actionId);
+            await settle();
+            return snapshot;
+        };
     }
 
     function createAgentActionResult(
@@ -493,11 +505,9 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
                 previewAgentPageLabelPlan(input, actionId);
                 return input;
             },
-            async run(planInput: Record<string, unknown>, actionId) {
-                const snapshot = applyAgentPageLabelPlan(planInput, actionId);
+            run: createSettledMutationRunner(applyAgentPageLabelPlan, async () => {
                 await nextTick();
-                return snapshot;
-            },
+            }),
         },
         {
             ids: [
@@ -613,11 +623,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             ],
             policy: {mutatesDocument: true},
             parse: parseAgentActionInput,
-            async run(bookmarkInput: Record<string, unknown>, actionId) {
-                const snapshot = addAgentBookmark(bookmarkInput, actionId);
-                await waitForAgentMutationStateSettled();
-                return snapshot;
-            },
+            run: createSettledMutationRunner(addAgentBookmark),
         },
         {
             ids: [
@@ -626,11 +632,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             ],
             policy: {mutatesDocument: true},
             parse: parseAgentBookmarkBatchInput,
-            async run(bookmarksInput: Record<string, unknown>, actionId) {
-                const snapshot = addAgentBookmarks(bookmarksInput, actionId);
-                await waitForAgentMutationStateSettled();
-                return snapshot;
-            },
+            run: createSettledMutationRunner(addAgentBookmarks),
         },
         {
             ids: [
@@ -639,11 +641,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             ],
             policy: {mutatesDocument: true},
             parse: parseAgentBookmarkPathInput,
-            async run(bookmarkInput: Record<string, unknown>, actionId) {
-                const snapshot = updateAgentBookmark(bookmarkInput, actionId);
-                await waitForAgentMutationStateSettled();
-                return snapshot;
-            },
+            run: createSettledMutationRunner(updateAgentBookmark),
         },
         {
             ids: [
@@ -652,11 +650,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             ],
             policy: {mutatesDocument: true},
             parse: parseAgentBookmarkPathInput,
-            async run(bookmarkInput: Record<string, unknown>, actionId) {
-                const snapshot = deleteAgentBookmark(bookmarkInput, actionId);
-                await waitForAgentMutationStateSettled();
-                return snapshot;
-            },
+            run: createSettledMutationRunner(deleteAgentBookmark),
         },
         {
             ids: [
@@ -665,11 +659,16 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             ],
             policy: {mutatesDocument: true},
             parse: parseAgentBookmarkPathBatchInput,
-            async run(bookmarksInput: Record<string, unknown>, actionId) {
-                const snapshot = deleteAgentBookmarks(bookmarksInput, actionId);
-                await waitForAgentMutationStateSettled();
-                return snapshot;
-            },
+            run: createSettledMutationRunner(deleteAgentBookmarks),
+        },
+        {
+            ids: [
+                'bookmarks.set_style',
+                'toc.set_style',
+            ],
+            policy: {mutatesDocument: true},
+            parse: parseAgentBookmarkStyleInput,
+            run: createSettledMutationRunner(setAgentBookmarkStyle),
         },
         {
             ids: ['annotation.open_note'],

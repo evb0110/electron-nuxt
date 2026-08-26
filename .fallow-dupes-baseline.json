@@ -1,6 +1,6 @@
 {
   "clone_groups": [
-    "app/assets/css/main.css:496-505|app/assets/css/main.css:953-962",
+    "app/assets/css/main.css:496-505|app/assets/css/main.css:952-961",
     "app/modules/agent-panel/components/AssistantEffortSwitcher.vue:127-149|app/modules/agent-panel/components/AssistantSpeedSwitcher.vue:113-135",
     "app/modules/agent-panel/components/AssistantEffortSwitcher.vue:215-232|app/modules/agent-panel/components/AssistantSpeedSwitcher.vue:195-212",
     "app/modules/pdf-viewer/components/PdfAnnotationProperties.vue:242-276|app/modules/pdf-viewer/components/PdfTextMarkupAnnotationProperties.vue:85-119",
@@ -25,7 +25,6 @@
     "app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics.ts:11-73|app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth.ts:10-72",
     "app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics.ts:11-55|app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode.ts:4-48|app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth.ts:10-54",
     "app/modules/pdf-viewer/runtime/composables/usePdfSearch.ts:108-117|app/modules/pdf-viewer/runtime/composables/usePdfSearch.ts:144-157",
-    "app/modules/workspace-shell/agent/createDocumentAgentBookmarks.ts:117-164|app/modules/workspace-shell/agent/createDocumentAgentPageLabels.ts:118-154",
     "app/modules/workspace-shell/agent/createDocumentAgentResources.ts:39-55|electron/features/agent/mcp/mcpServerCore.ts:696-715",
     "app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot.ts:468-477|app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot.ts:497-506",
     "app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot.ts:491-503|app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot.ts:526-538",

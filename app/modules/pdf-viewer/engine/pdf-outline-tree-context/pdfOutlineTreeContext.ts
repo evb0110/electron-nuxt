@@ -16,7 +16,6 @@ export interface IPdfOutlineTreeContext {
     isEditMode: ComputedRef<boolean>;
     draggingItemIds: Ref<Set<string>>;
     dropTarget: Ref<IBookmarkDropTarget | null>;
-    styleRangeStartId: Ref<string | null>;
     activePathBookmarkIds: ComputedRef<Set<string>>;
     beginBookmarkNavigationRequest: () => number;
     isBookmarkNavigationRequestCurrent: (requestId: number) => boolean;

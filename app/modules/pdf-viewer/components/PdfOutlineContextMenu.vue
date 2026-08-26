@@ -39,12 +39,19 @@
             <div class="pdf-context-menu__divider" />
 
             <div class="bookmarks-context-menu-style-block">
+                <div
+                    v-if="styleSummary.targetCount > 1"
+                    class="bookmarks-context-menu-style-scope"
+                >
+                    {{ t('bookmarks.styleSelectedBookmarks', { count: styleSummary.targetCount }) }}
+                </div>
                 <div class="bookmarks-context-menu-style-row">
                     <button
                         type="button"
                         class="bookmarks-style-toggle"
-                        :class="{ 'is-active': bookmark.bold }"
-                        :aria-label="bookmark.bold ? t('bookmarks.disableBold') : t('bookmarks.enableBold')"
+                        :class="styleToggleClass(styleSummary.bold)"
+                        :aria-pressed="styleTogglePressed(styleSummary.bold)"
+                        :aria-label="styleSummary.bold === 'on' ? t('bookmarks.disableBold') : t('bookmarks.enableBold')"
                         @click="toggleBold(bookmark.id)"
                     >
                         <UIcon name="i-ph-text-b" class="bookmarks-style-toggle-icon" />
@@ -52,8 +59,9 @@
                     <button
                         type="button"
                         class="bookmarks-style-toggle"
-                        :class="{ 'is-active': bookmark.italic }"
-                        :aria-label="bookmark.italic ? t('bookmarks.disableItalic') : t('bookmarks.enableItalic')"
+                        :class="styleToggleClass(styleSummary.italic)"
+                        :aria-pressed="styleTogglePressed(styleSummary.italic)"
+                        :aria-label="styleSummary.italic === 'on' ? t('bookmarks.disableItalic') : t('bookmarks.enableItalic')"
                         @click="toggleItalic(bookmark.id)"
                     >
                         <UIcon name="i-ph-text-italic" class="bookmarks-style-toggle-icon" />
@@ -61,7 +69,7 @@
                     <button
                         type="button"
                         class="bookmarks-style-toggle"
-                        :class="{ 'is-active': !bookmark.color }"
+                        :class="{ 'is-active': !styleSummary.colorMixed && !styleSummary.color }"
                         :aria-label="t('bookmarks.defaultColor')"
                         @click="setColor(bookmark.id, null)"
                     >
@@ -74,30 +82,13 @@
                         :key="preset"
                         type="button"
                         class="bookmarks-color-swatch"
-                        :class="{ 'is-active': bookmark.color === preset }"
+                        :class="{ 'is-active': !styleSummary.colorMixed && styleSummary.color === preset }"
                         :style="{ background: preset }"
                         :aria-label="t('bookmarks.setColor', { color: preset })"
                         @click="setColor(bookmark.id, preset)"
                     />
                 </div>
             </div>
-
-            <div class="pdf-context-menu__divider" />
-            <button
-                type="button"
-                class="pdf-context-menu__action"
-                @click="setStyleRangeStart(bookmark.id)"
-            >
-                {{ bookmark.id === styleRangeStartId ? t('bookmarks.rangeStartSet') : t('bookmarks.setStyleStart') }}
-            </button>
-            <button
-                type="button"
-                class="pdf-context-menu__action"
-                :disabled="!canApplyStyleRange"
-                @click="applyStyleToRange"
-            >
-                {{ applyStyleRangeLabel }}
-            </button>
 
             <div class="pdf-context-menu__divider" />
             <button
@@ -113,7 +104,11 @@
 
 <script setup lang="ts">
 import PdfContextMenuBase from '@app/modules/pdf-viewer/components/PdfContextMenuBase.vue';
-import type { IBookmarkItem } from '@app/types/pdfOutline';
+import type {
+    IBookmarkItem,
+    IBookmarkStyleSummary,
+    TBookmarkStyleFlagState,
+} from '@app/types/pdfOutline';
 import { BOOKMARK_COLOR_PRESETS } from '@app/constants/pdfColors';
 
 interface IProps {
@@ -121,9 +116,7 @@ interface IProps {
     x: number;
     y: number;
     bookmark: IBookmarkItem | null;
-    styleRangeStartId: string | null;
-    canApplyStyleRange: boolean;
-    applyStyleRangeLabel: string;
+    styleSummary: IBookmarkStyleSummary;
     removeLabel: string;
 }
 
@@ -143,14 +136,26 @@ const emit = defineEmits<{
         id: string;
         color: string | null 
     }];
-    'set-style-range-start': [id: string];
-    'apply-style-to-range': [];
     remove: [id: string];
 }>();
 
 const { t } = useTypedI18n();
 
 const colorPresets = BOOKMARK_COLOR_PRESETS;
+
+function styleToggleClass(state: TBookmarkStyleFlagState) {
+    return {
+        'is-active': state === 'on',
+        'is-mixed': state === 'mixed',
+    };
+}
+
+function styleTogglePressed(state: TBookmarkStyleFlagState): 'true' | 'false' | 'mixed' {
+    if (state === 'mixed') {
+        return 'mixed';
+    }
+    return state === 'on' ? 'true' : 'false';
+}
 
 const menuStyle = computed(() => ({
     left: `${x}px`,
@@ -186,14 +191,6 @@ function setColor(id: string, color: string | null) {
         id,
         color,
     });
-}
-
-function setStyleRangeStart(id: string) {
-    emit('set-style-range-start', id);
-}
-
-function applyStyleToRange() {
-    emit('apply-style-to-range');
 }
 
 function removeBookmark(id: string) {
@@ -248,6 +245,17 @@ function removeBookmark(id: string) {
     border-color: var(--app-control-active-border);
     color: var(--ui-text-highlighted);
     background: var(--app-control-active-bg);
+}
+
+.bookmarks-style-toggle.is-mixed {
+    border-style: dashed;
+    border-color: var(--app-control-active-border);
+    color: var(--ui-text);
+}
+
+.bookmarks-context-menu-style-scope {
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
 }
 
 .bookmarks-context-menu-color-row {

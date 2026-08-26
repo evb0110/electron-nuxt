@@ -587,8 +587,54 @@ export const PAGE_LABEL_PLAN_INPUT_SCHEMA = {
 };
 const BOOKMARK_PATH_SCHEMA = {
     type: 'array',
-    items: {type: 'number'},
+    items: {
+        type: 'integer',
+        minimum: 0,
+    },
     description: 'Zero-based path in the bookmark tree, for example [0,2] for the third child of the first root bookmark.',
+};
+const BOOKMARK_PATH_SELECTOR_PROPERTIES = {
+    paths: {
+        type: 'array',
+        minItems: 1,
+        items: {
+            ...BOOKMARK_PATH_SCHEMA,
+            minItems: 1,
+        },
+        description: 'Zero-based bookmark paths to target in one metadata edit.',
+    },
+    items: {
+        type: 'array',
+        minItems: 1,
+        items: {
+            type: 'object',
+            properties: {path: {
+                ...BOOKMARK_PATH_SCHEMA,
+                minItems: 1,
+            }},
+            required: ['path'],
+            additionalProperties: false,
+        },
+        description: 'Alias for paths using objects returned by bookmarks.read flat entries.',
+    },
+    bookmarks: {
+        type: 'array',
+        minItems: 1,
+        items: {
+            type: 'object',
+            properties: {path: {
+                ...BOOKMARK_PATH_SCHEMA,
+                minItems: 1,
+            }},
+            required: ['path'],
+            additionalProperties: false,
+        },
+        description: 'Alias for items.',
+    },
+    path: {
+        ...BOOKMARK_PATH_SCHEMA,
+        minItems: 1,
+    },
 };
 const BOOKMARK_ENTRY_SCHEMA = {
     type: 'object',
@@ -741,46 +787,10 @@ export const BOOKMARK_DELETE_INPUT_SCHEMA = {
 export const BOOKMARK_DELETE_BATCH_INPUT_SCHEMA = {
     type: 'object',
     properties: {
+        ...BOOKMARK_PATH_SELECTOR_PROPERTIES,
         paths: {
-            type: 'array',
-            minItems: 1,
-            items: {
-                ...BOOKMARK_PATH_SCHEMA,
-                minItems: 1,
-            },
+            ...BOOKMARK_PATH_SELECTOR_PROPERTIES.paths,
             description: 'Zero-based bookmark paths to delete in one metadata edit.',
-        },
-        items: {
-            type: 'array',
-            minItems: 1,
-            items: {
-                type: 'object',
-                properties: {path: {
-                    ...BOOKMARK_PATH_SCHEMA,
-                    minItems: 1,
-                }},
-                required: ['path'],
-                additionalProperties: false,
-            },
-            description: 'Alias for paths using objects returned by bookmarks.read flat entries.',
-        },
-        bookmarks: {
-            type: 'array',
-            minItems: 1,
-            items: {
-                type: 'object',
-                properties: {path: {
-                    ...BOOKMARK_PATH_SCHEMA,
-                    minItems: 1,
-                }},
-                required: ['path'],
-                additionalProperties: false,
-            },
-            description: 'Alias for items.',
-        },
-        path: {
-            ...BOOKMARK_PATH_SCHEMA,
-            minItems: 1,
         },
     },
     anyOf: [
@@ -788,6 +798,76 @@ export const BOOKMARK_DELETE_BATCH_INPUT_SCHEMA = {
         {required: ['items']},
         {required: ['bookmarks']},
         {required: ['path']},
+    ],
+    additionalProperties: false,
+};
+export const BOOKMARK_SET_STYLE_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        ...BOOKMARK_PATH_SELECTOR_PROPERTIES,
+        paths: {
+            ...BOOKMARK_PATH_SELECTOR_PROPERTIES.paths,
+            description: 'Zero-based bookmark paths to restyle in one metadata edit.',
+        },
+        range: {
+            type: 'object',
+            properties: {
+                from: {
+                    ...BOOKMARK_PATH_SCHEMA,
+                    minItems: 1,
+                },
+                to: {
+                    ...BOOKMARK_PATH_SCHEMA,
+                    minItems: 1,
+                },
+            },
+            required: [
+                'from',
+                'to',
+            ],
+            additionalProperties: false,
+            description: 'Inclusive range of sibling bookmarks; from and to share the same parent and may be given in either order.',
+        },
+        depth: {
+            type: 'integer',
+            minimum: 0,
+            description: 'Zero-based outline depth to select; picks every bookmark at that absolute depth, optionally scoped under parentPath.',
+        },
+        level: {
+            type: 'integer',
+            minimum: 1,
+            description: 'One-based alias of depth + 1.',
+        },
+        parentPath: BOOKMARK_PATH_SCHEMA,
+        includeDescendants: {
+            type: 'boolean',
+            description: 'Also style every descendant of each selected bookmark. Defaults to false.',
+        },
+        bold: {type: 'boolean'},
+        italic: {type: 'boolean'},
+        color: {
+            type: [
+                'string',
+                'null',
+            ],
+            description: 'Hex color such as #336699, or null to reset to the default text color.',
+        },
+    },
+    allOf: [
+        {anyOf: [
+            {required: ['paths']},
+            {required: ['items']},
+            {required: ['bookmarks']},
+            {required: ['path']},
+            {required: ['range']},
+            {required: ['depth']},
+            {required: ['level']},
+        ]},
+        {anyOf: [
+            {required: ['bold']},
+            {required: ['italic']},
+            {required: ['color']},
+        ]},
     ],
     additionalProperties: false,
 };

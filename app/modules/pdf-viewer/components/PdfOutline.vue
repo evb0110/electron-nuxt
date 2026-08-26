@@ -93,9 +93,7 @@
             :x="bookmarkContextMenu.x"
             :y="bookmarkContextMenu.y"
             :bookmark="selectedContextBookmark"
-            :style-range-start-id="styleRangeStartId"
-            :can-apply-style-range="canApplyStyleRange"
-            :apply-style-range-label="applyStyleRangeLabel"
+            :style-summary="contextStyleSummary"
             :remove-label="contextRemoveBookmarkLabel"
             @edit="startEditingBookmark"
             @add-sibling-above="addSiblingAbove"
@@ -104,8 +102,6 @@
             @toggle-bold="toggleBookmarkBold"
             @toggle-italic="toggleBookmarkItalic"
             @set-color="setBookmarkColor"
-            @set-style-range-start="setStyleRangeStart"
-            @apply-style-to-range="applyContextStyleToRange"
             @remove="removeBookmark"
         />
     </div>
@@ -186,7 +182,6 @@ const outlineError = ref(false);
 const activeItemId = ref<string | null>(null);
 const displayMode = ref<TBookmarkDisplayMode>('current-expanded');
 const expandedBookmarkIds = ref<Set<string>>(new Set());
-const styleRangeStartId = ref<string | null>(null);
 
 const bookmarkStatus = computed<TDocumentBookmarkStatus>(() => {
     if (isLoading.value) {
@@ -369,8 +364,6 @@ const selection = usePdfOutlineSelection(
 const contextMenuApi = usePdfOutlineContextMenu(
     bookmarks,
     isEditMode,
-    styleRangeStartId,
-    () => emitBookmarksChange(),
     () => {
         editing.cancelEditingBookmark();
         dragDrop.resetDragState();
@@ -380,12 +373,8 @@ const contextMenuApi = usePdfOutlineContextMenu(
 const {
     bookmarkContextMenu,
     selectedContextBookmark,
-    canApplyStyleRange,
-    applyStyleRangeLabel,
     openBookmarkContextMenu,
     closeBookmarkContextMenu,
-    setStyleRangeStart,
-    applyContextStyleToRange,
 } = contextMenuApi;
 
 const dragDrop = usePdfOutlineDragDrop(
@@ -409,7 +398,6 @@ const editing = usePdfOutlineEditing(
     bookmarkOrderIndexMap,
     selection.selectedBookmarkIds,
     selection.selectionAnchorBookmarkId,
-    styleRangeStartId,
     dragDrop.draggingBookmarkIds,
     selection.applySingleSelection,
     closeBookmarkContextMenu,
@@ -493,6 +481,10 @@ const selectedBookmarkDeleteCount = computed(() => (
     editing.resolveRootBookmarkIds(selection.selectedBookmarkIds.value).length
 ));
 
+const contextStyleSummary = computed(() => (
+    editing.resolveBookmarkStyleSummary(selectedContextBookmark.value?.id ?? '')
+));
+
 const contextRemoveBookmarkLabel = computed(() => {
     const contextBookmark = selectedContextBookmark.value;
     if (!contextBookmark) {
@@ -516,7 +508,6 @@ provide(pdfOutlineTreeKey, {
     isEditMode,
     draggingItemIds: dragDrop.draggingBookmarkIds,
     dropTarget: dragDrop.bookmarkDropTarget,
-    styleRangeStartId,
     activePathBookmarkIds,
     beginBookmarkNavigationRequest,
     isBookmarkNavigationRequestCurrent,
@@ -596,7 +587,6 @@ function applyPendingBookmarkItems(
     closeBookmarkContextMenu();
     editing.cancelEditingBookmark();
     dragDrop.resetDragState();
-    styleRangeStartId.value = null;
     selection.clearSelection();
     expandedBookmarkIds.value = new Set();
     updateActiveItemFromCurrentPage();
@@ -625,7 +615,6 @@ function resetOutlineInteractionState() {
     closeBookmarkContextMenu();
     editing.cancelEditingBookmark();
     dragDrop.resetDragState();
-    styleRangeStartId.value = null;
     selection.clearSelection();
     expandedBookmarkIds.value = new Set();
 }
@@ -861,7 +850,6 @@ watch(
             editing.cancelEditingBookmark();
             closeBookmarkContextMenu();
             dragDrop.resetDragState();
-            styleRangeStartId.value = null;
             if (activeItemId.value) {
                 selection.applySingleSelection(activeItemId.value);
             } else {

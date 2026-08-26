@@ -1253,12 +1253,9 @@ export default {
         'disableItalic': 'Disable italic',
         'defaultColor': 'Use default text color',
         'setColor': 'Set color {color}',
-        'setStyleStart': 'Set style range start',
-        'rangeStartSet': 'Range start set',
-        'applyStyleRange': 'Apply style to range',
-        'applyStyleToCount': plural({
-            one: 'Apply style to {count} bookmark',
-            other: 'Apply style to {count} bookmarks',
+        'styleSelectedBookmarks': plural({
+            one: 'Style applies to {count} selected bookmark',
+            other: 'Style applies to {count} selected bookmarks',
         }),
         'removeBookmark': 'Remove bookmark',
         'removeSelectedBookmarks': plural({

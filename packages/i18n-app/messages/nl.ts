@@ -1253,12 +1253,9 @@ export default {
         'disableItalic': 'Cursief uitschakelen',
         'defaultColor': 'Standaard tekstkleur gebruiken',
         'setColor': 'Kleur {color} instellen',
-        'setStyleStart': 'Begin van stijlbereik instellen',
-        'rangeStartSet': 'Begin van bereik ingesteld',
-        'applyStyleRange': 'Stijl op bereik toepassen',
-        'applyStyleToCount': plural({
-            one: 'Stijl op {count} bladwijzer toepassen',
-            other: 'Stijl op {count} bladwijzers toepassen',
+        'styleSelectedBookmarks': plural({
+            one: 'Stijl geldt voor {count} geselecteerde bladwijzer',
+            other: 'Stijl geldt voor {count} geselecteerde bladwijzers',
         }),
         'removeBookmark': 'Bladwijzer verwijderen',
         'removeSelectedBookmarks': plural({

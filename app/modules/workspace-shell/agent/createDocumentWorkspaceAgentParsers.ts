@@ -151,6 +151,30 @@ export function createDocumentWorkspaceAgentParsers(options: IDocumentWorkspaceA
         return input;
     }
 
+    function parseAgentBookmarkStyleInput(input: Record<string, unknown>, actionId: string) {
+        const hasSelector = [
+            'paths',
+            'items',
+            'bookmarks',
+            'path',
+            'range',
+            'depth',
+            'level',
+        ].some(key => hasAgentInputKey(input, key));
+        const hasStyle = [
+            'bold',
+            'italic',
+            'color',
+        ].some(key => hasAgentInputKey(input, key));
+        if (!hasSelector) {
+            throw new Error(`${actionId} requires input.paths, input.path, input.items, input.range, input.depth, or input.level.`);
+        }
+        if (!hasStyle) {
+            throw new Error(`${actionId} requires at least one of input.bold, input.italic, or input.color.`);
+        }
+        return input;
+    }
+
     function parseAgentBookmarkPathBatchInput(input: Record<string, unknown>, actionId: string) {
         if (Array.isArray(input.paths)) {
             if (input.paths.length === 0) {
@@ -197,6 +221,7 @@ export function createDocumentWorkspaceAgentParsers(options: IDocumentWorkspaceA
         parseAgentBookmarkBatchInput,
         parseAgentBookmarkPathBatchInput,
         parseAgentBookmarkPathInput,
+        parseAgentBookmarkStyleInput,
         parseAgentInsertPagesInput,
         parseAgentPageImageInput,
         parseAgentPageLabelApplyRangeInput,

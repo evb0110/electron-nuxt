@@ -57,7 +57,6 @@ function createEditingHarness(initialBookmarks: IBookmarkItem[]) {
     const expandedBookmarkIds = ref(new Set<string>());
     const selectedBookmarkIds = ref(new Set<string>());
     const selectionAnchorBookmarkId = ref<string | null>(null);
-    const styleRangeStartId = ref<string | null>(null);
     const draggingBookmarkIds = ref(new Set<string>());
     const emitBookmarksChange = vi.fn();
 
@@ -71,7 +70,6 @@ function createEditingHarness(initialBookmarks: IBookmarkItem[]) {
         computed(() => createOrderMap(bookmarks.value)),
         selectedBookmarkIds,
         selectionAnchorBookmarkId,
-        styleRangeStartId,
         draggingBookmarkIds,
         vi.fn((id: string) => {
             selectedBookmarkIds.value = new Set([id]);
@@ -92,7 +90,6 @@ function createEditingHarness(initialBookmarks: IBookmarkItem[]) {
         expandedBookmarkIds,
         selectedBookmarkIds,
         selectionAnchorBookmarkId,
-        styleRangeStartId,
         draggingBookmarkIds,
         emitBookmarksChange,
         editing,
@@ -191,5 +188,135 @@ describe('usePdfOutlineEditing', () => {
         expect(harness.activeItemId.value).toBe('second');
         expect(harness.selectedBookmarkIds.value.size).toBe(0);
         expect(harness.emitBookmarksChange).toHaveBeenCalledOnce();
+    });
+
+    it('styles every selected bookmark from a selected context bookmark in one edit', () => {
+        const harness = createEditingHarness([
+            createBookmark('first'),
+            createBookmark('second', [createBookmark('child')]),
+            createBookmark('third'),
+        ]);
+        harness.selectedBookmarkIds.value = new Set([
+            'first',
+            'second',
+        ]);
+
+        harness.editing.toggleBookmarkBold('second');
+
+        expect(harness.bookmarks.value.map(item => item.bold)).toEqual([
+            true,
+            true,
+            false,
+        ]);
+        expect(harness.bookmarks.value[1]?.items[0]?.bold).toBe(false);
+        expect(harness.emitBookmarksChange).toHaveBeenCalledOnce();
+    });
+
+    it('styles only the context bookmark when it is outside the selection', () => {
+        const harness = createEditingHarness([
+            createBookmark('first'),
+            createBookmark('second'),
+            createBookmark('third'),
+        ]);
+        harness.selectedBookmarkIds.value = new Set([
+            'first',
+            'second',
+        ]);
+
+        harness.editing.setBookmarkColor('third', '#1D4ED8');
+
+        expect(harness.bookmarks.value.map(item => item.color)).toEqual([
+            null,
+            null,
+            '#1d4ed8',
+        ]);
+        expect(harness.selectedBookmarkIds.value).toEqual(new Set([
+            'first',
+            'second',
+        ]));
+        expect(harness.emitBookmarksChange).toHaveBeenCalledOnce();
+    });
+
+    it('turns a mixed selection fully on before it toggles off', () => {
+        const harness = createEditingHarness([
+            {
+                ...createBookmark('first'),
+                italic: true,
+            },
+            createBookmark('second'),
+        ]);
+        harness.selectedBookmarkIds.value = new Set([
+            'first',
+            'second',
+        ]);
+
+        harness.editing.toggleBookmarkItalic('first');
+        expect(harness.bookmarks.value.map(item => item.italic)).toEqual([
+            true,
+            true,
+        ]);
+
+        harness.editing.toggleBookmarkItalic('second');
+        expect(harness.bookmarks.value.map(item => item.italic)).toEqual([
+            false,
+            false,
+        ]);
+        expect(harness.emitBookmarksChange).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not emit a change when the selection already has the requested style', () => {
+        const harness = createEditingHarness([
+            {
+                ...createBookmark('first'),
+                color: '#b91c1c',
+            },
+            {
+                ...createBookmark('second'),
+                color: '#b91c1c',
+            },
+        ]);
+        harness.selectedBookmarkIds.value = new Set([
+            'first',
+            'second',
+        ]);
+
+        harness.editing.setBookmarkColor('first', '#B91C1C');
+
+        expect(harness.emitBookmarksChange).not.toHaveBeenCalled();
+    });
+
+    it('summarizes the style shared by the context bookmark targets', () => {
+        const harness = createEditingHarness([
+            {
+                ...createBookmark('first'),
+                bold: true,
+                color: '#047857',
+            },
+            {
+                ...createBookmark('second'),
+                bold: true,
+                italic: true,
+            },
+            createBookmark('third'),
+        ]);
+        harness.selectedBookmarkIds.value = new Set([
+            'first',
+            'second',
+        ]);
+
+        expect(harness.editing.resolveBookmarkStyleSummary('first')).toEqual({
+            targetCount: 2,
+            bold: 'on',
+            italic: 'mixed',
+            color: null,
+            colorMixed: true,
+        });
+        expect(harness.editing.resolveBookmarkStyleSummary('third')).toEqual({
+            targetCount: 1,
+            bold: 'off',
+            italic: 'off',
+            color: null,
+            colorMixed: false,
+        });
     });
 });

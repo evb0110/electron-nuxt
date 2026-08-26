@@ -1253,12 +1253,9 @@ export default {
         'disableItalic': 'Kursiv deaktivieren',
         'defaultColor': 'Standardtextfarbe verwenden',
         'setColor': 'Farbe {color} festlegen',
-        'setStyleStart': 'Stilbereich-Anfang festlegen',
-        'rangeStartSet': 'Bereichsanfang festgelegt',
-        'applyStyleRange': 'Stil auf Bereich anwenden',
-        'applyStyleToCount': plural({
-            one: 'Stil auf {count} Lesezeichen anwenden',
-            other: 'Stil auf {count} Lesezeichen anwenden',
+        'styleSelectedBookmarks': plural({
+            one: 'Stil gilt für {count} ausgewähltes Lesezeichen',
+            other: 'Stil gilt für {count} ausgewählte Lesezeichen',
         }),
         'removeBookmark': 'Lesezeichen entfernen',
         'removeSelectedBookmarks': plural({

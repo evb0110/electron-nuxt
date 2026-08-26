@@ -1276,14 +1276,11 @@ export default {
         'disableItalic': 'Выключить курсив',
         'defaultColor': 'Цвет по умолчанию',
         'setColor': 'Установить цвет {color}',
-        'setStyleStart': 'Начало диапазона стиля',
-        'rangeStartSet': 'Начало диапазона задано',
-        'applyStyleRange': 'Применить стиль к диапазону',
-        'applyStyleToCount': plural({
-            one: 'Применить стиль к {count} закладке',
-            few: 'Применить стиль к {count} закладкам',
-            many: 'Применить стиль к {count} закладкам',
-            other: 'Применить стиль к {count} закладкам',
+        'styleSelectedBookmarks': plural({
+            one: 'Стиль применяется к {count} выбранной закладке',
+            few: 'Стиль применяется к {count} выбранным закладкам',
+            many: 'Стиль применяется к {count} выбранным закладкам',
+            other: 'Стиль применяется к {count} выбранным закладкам',
         }),
         'removeBookmark': 'Удалить закладку',
         'removeSelectedBookmarks': plural({

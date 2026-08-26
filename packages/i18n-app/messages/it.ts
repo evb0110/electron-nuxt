@@ -1253,12 +1253,9 @@ export default {
         'disableItalic': 'Disattiva corsivo',
         'defaultColor': 'Usa colore testo predefinito',
         'setColor': 'Imposta colore {color}',
-        'setStyleStart': 'Imposta inizio intervallo stile',
-        'rangeStartSet': 'Inizio intervallo impostato',
-        'applyStyleRange': 'Applica stile all’intervallo',
-        'applyStyleToCount': plural({
-            one: 'Applica stile a {count} segnalibro',
-            other: 'Applica stile a {count} segnalibri',
+        'styleSelectedBookmarks': plural({
+            one: 'Lo stile si applica a {count} segnalibro selezionato',
+            other: 'Lo stile si applica a {count} segnalibri selezionati',
         }),
         'removeBookmark': 'Rimuovi segnalibro',
         'removeSelectedBookmarks': plural({
