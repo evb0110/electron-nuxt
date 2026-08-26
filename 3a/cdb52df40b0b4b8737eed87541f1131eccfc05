@@ -1,0 +1,25 @@
+docs/research/cubic-local-review-removal-2026-08-26.md
+  s_aa4a9de606abcc::t_0bb0f1e4b04349 1-29
+docs/reliability/whole-repo-program-ledger-2026-08-21.md
+  s_aa4a9de606abcc::t_0bb0f1e4b04349 23-24
+tests/unit/scripts/independentReviewPolicy.test.ts
+  s_aa4a9de606abcc::t_14caf612728d8f 38-42
+  s_aa4a9de606abcc::t_0bb0f1e4b04349 2,12,14-15,27-32,47-53
+  s_aa4a9de606abcc::t_0f59fa8a30b1d5 16-18,20,24-25,34-35,44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "3acdb52df40b0b4b8737eed87541f1131eccfc05",
+  "prompts": {},
+  "sessions": {
+    "s_aa4a9de606abcc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ebc-8cf9-7801-b0e6-228f3f39e1db",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
