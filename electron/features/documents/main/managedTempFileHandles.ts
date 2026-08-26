@@ -5,6 +5,11 @@ import {
 } from 'node:fs/promises';
 import type { BigIntStats } from 'node:fs';
 import {isDeepStrictEqual} from 'node:util';
+import {
+    basename,
+    dirname,
+    isAbsolute,
+} from 'node:path';
 import type { IManagedTempFileHandle } from '@contracts/electronApiDocuments';
 import {decodeManagedTempFileHandle} from '@contracts/electronApiDocuments';
 import {
@@ -20,6 +25,7 @@ import {
 } from '@electron/features/documents/main/documentFilePathResolution';
 import { readWorkingCopyRevisionSidecar } from '@electron/file-access/documentRevisionSidecar';
 import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
+import {isAllowedOriginalSavePath} from '@electron/file-access/isAllowedOriginalSavePath';
 
 const MANAGED_HANDLE_TTL_MS = 5 * 60 * 1_000;
 
@@ -194,29 +200,36 @@ export async function createManagedTempFileHandle(
     };
 }
 
-export async function createTypedStagedArtifact(
+interface ICreateTypedStagedArtifactOptions {
+    cleanupOnRelease?: boolean;
+    expectedFingerprint?: {
+        bytes: number;
+        sha256: string;
+    };
+    trustedFingerprint?: {
+        bytes: number;
+        sha256: string;
+    };
+}
+
+async function createTypedStagedArtifactAtPath(
     context: IDocumentsSenderIdContext,
-    filePath: unknown,
+    path: string,
     validations: IStagedArtifactValidations,
-    options: {
-        cleanupOnRelease?: boolean;
-        trustedFingerprint?: {
-            bytes: number;
-            sha256: string;
-        };
-    } = {},
+    options: ICreateTypedStagedArtifactOptions,
 ): Promise<ITypedStagedArtifact> {
-    const path = await resolveExistingReadableBinaryPath(filePath, context.senderId);
     const beforeStat = await statRegularArtifact(path);
+    const expectedFingerprint = options.expectedFingerprint;
     const trustedFingerprint = options.trustedFingerprint;
-    if (
-        trustedFingerprint !== undefined
-        && (
-            !Number.isSafeInteger(trustedFingerprint.bytes)
-            || trustedFingerprint.bytes < 0
-            || !/^[a-f0-9]{64}$/u.test(trustedFingerprint.sha256)
-        )
-    ) {
+    const invalidFingerprint = [
+        expectedFingerprint,
+        trustedFingerprint,
+    ].some(fingerprint => fingerprint !== undefined && (
+        !Number.isSafeInteger(fingerprint.bytes)
+        || fingerprint.bytes < 0
+        || !/^[a-f0-9]{64}$/u.test(fingerprint.sha256)
+    ));
+    if (invalidFingerprint) {
         throw new Error('Invalid trusted staged artifact fingerprint');
     }
     const [
@@ -229,6 +242,15 @@ export async function createTypedStagedArtifact(
         readWorkingCopyRevisionSidecar(path),
     ]);
     const fileStat = await statRegularArtifact(path);
+    if (
+        expectedFingerprint !== undefined
+        && (
+            inspection.bytes !== expectedFingerprint.bytes
+            || inspection.sha256 !== expectedFingerprint.sha256
+        )
+    ) {
+        throw new Error('Copied staged artifact fingerprint does not match its authoritative source');
+    }
     if (
         BigInt(inspection.bytes) !== fileStat.size
         || !isDeepStrictEqual(
@@ -279,6 +301,39 @@ export async function createTypedStagedArtifact(
     });
     ensureLeaseSweep();
     return cloneTypedStagedArtifact(authoritativeArtifact);
+}
+
+export async function createTypedStagedArtifact(
+    context: IDocumentsSenderIdContext,
+    filePath: unknown,
+    validations: IStagedArtifactValidations,
+    options: ICreateTypedStagedArtifactOptions = {},
+): Promise<ITypedStagedArtifact> {
+    const path = await resolveExistingReadableBinaryPath(filePath, context.senderId);
+    return createTypedStagedArtifactAtPath(context, path, validations, options);
+}
+
+export async function createTypedStagedArtifactForTrustedSiblingCopy(
+    context: IDocumentsSenderIdContext,
+    sourceArtifact: ITypedStagedArtifact,
+    copiedPath: string,
+    originalPath: string,
+    validations: IStagedArtifactValidations,
+): Promise<ITypedStagedArtifact> {
+    const authoritativeSource = await resolveTypedStagedArtifact(context, sourceArtifact);
+    if (
+        !isAbsolute(copiedPath)
+        || !isAllowedOriginalSavePath(originalPath)
+        || dirname(copiedPath) !== dirname(originalPath)
+        || !/^\.[a-f0-9]+\.tmp\.pdf$/u.test(basename(copiedPath))
+    ) {
+        throw new Error('Trusted staged PDF copy must be a generated sibling of the original path');
+    }
+    const expectedFingerprint = {
+        bytes: authoritativeSource.size,
+        sha256: authoritativeSource.sha256,
+    };
+    return createTypedStagedArtifactAtPath(context, copiedPath, validations, {expectedFingerprint});
 }
 
 export function releaseManagedTempFileHandle(

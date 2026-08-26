@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     createChangedObjectRefsSha256,
+    createNativeIncrementalMutationSemanticScopeSha256,
     decodeDocumentSaveUtilityRequest,
     decodeDocumentSaveUtilityResult,
     getDocumentSaveUtilityReusePlan,
@@ -14,6 +15,8 @@ function createStagedArtifact(overrides: {
     changedObjectRefsSha256?: string;
     fsynced?: boolean;
     qpdfCheck?: boolean;
+    semanticCheck?: boolean;
+    semanticScopeSha256?: string;
     tailCheck?: boolean;
 } = {}) {
     return {
@@ -36,7 +39,7 @@ function createStagedArtifact(overrides: {
         validations: {
             qpdfCheck: overrides.qpdfCheck ?? true,
             tailCheck: overrides.tailCheck ?? true,
-            semanticCheck: false,
+            semanticCheck: overrides.semanticCheck ?? false,
             fsynced: overrides.fsynced ?? true,
             qpdfResult: {
                 isValid: true,
@@ -47,6 +50,9 @@ function createStagedArtifact(overrides: {
             ...(overrides.changedObjectRefsSha256 === undefined
                 ? {}
                 : {changedObjectRefsSha256: overrides.changedObjectRefsSha256}),
+            ...(overrides.semanticScopeSha256 === undefined
+                ? {}
+                : {semanticScopeSha256: overrides.semanticScopeSha256}),
         },
         leaseId: 'lease-1',
         revision: null,
@@ -197,6 +203,7 @@ describe('document save utility protocol', () => {
                     fingerprint: false,
                     tailCheck: false,
                     qpdfCheck: false,
+                    nativeIncrementalCheck: false,
                     changedObjectRefsCheck: false,
                     fileSync: false,
                 }
@@ -204,7 +211,40 @@ describe('document save utility protocol', () => {
                     fingerprint: true,
                     tailCheck: true,
                     qpdfCheck: true,
+                    nativeIncrementalCheck: false,
                     changedObjectRefsCheck: true,
+                    fileSync: true,
+                },
+        );
+    });
+
+    it('reuses native incremental postconditions instead of rescanning unchanged PDF streams', () => {
+        const request = decodeDocumentSaveUtilityRequest({
+            type: 'commit',
+            sourcePath: '/tmp/output.tmp',
+            targetPath: '/tmp/output.pdf',
+            expectedBytes: 100,
+            stagedArtifact: createStagedArtifact({
+                qpdfCheck: false,
+                semanticCheck: true,
+                semanticScopeSha256: createNativeIncrementalMutationSemanticScopeSha256(),
+            }),
+        });
+
+        if (!request || request.type !== 'commit') {
+            throw new Error('Expected a decoded commit request');
+        }
+        expect(getDocumentSaveUtilityReusePlan(request)).toMatchObject(
+            process.platform === 'win32'
+                ? {
+                    fingerprint: false,
+                    nativeIncrementalCheck: false,
+                }
+                : {
+                    fingerprint: true,
+                    nativeIncrementalCheck: true,
+                    qpdfCheck: false,
+                    tailCheck: true,
                     fileSync: true,
                 },
         );

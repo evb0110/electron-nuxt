@@ -36,6 +36,7 @@ export interface IDocumentSaveUtilityReusePlan {
     fingerprint: boolean;
     tailCheck: boolean;
     qpdfCheck: boolean;
+    nativeIncrementalCheck: boolean;
     changedObjectRefsCheck: boolean;
     fileSync: boolean;
 }
@@ -122,6 +123,12 @@ export function createChangedObjectRefsSha256(changedObjectRefs: readonly string
         .digest('hex');
 }
 
+export function createNativeIncrementalMutationSemanticScopeSha256() {
+    return createHash('sha256')
+        .update('evb-pdf-page-ops:incremental-native-mutations:v1')
+        .digest('hex');
+}
+
 export function getDocumentSaveUtilityReusePlan(
     request: IDocumentSaveUtilityCommitRequest,
 ): IDocumentSaveUtilityReusePlan {
@@ -129,10 +136,15 @@ export function getDocumentSaveUtilityReusePlan(
     const receiptReuseEnabled = process.platform !== 'win32'
         && artifact?.fileIdentity.platform === 'posix';
     const changedObjectRefs = request.changedObjectRefs ?? [];
+    const nativeIncrementalCheck = receiptReuseEnabled
+        && artifact?.validations.semanticCheck === true
+        && artifact.validations.semanticScopeSha256
+            === createNativeIncrementalMutationSemanticScopeSha256();
     return {
         fingerprint: receiptReuseEnabled,
         tailCheck: receiptReuseEnabled && artifact?.validations.tailCheck === true,
         qpdfCheck: receiptReuseEnabled && artifact?.validations.qpdfCheck === true,
+        nativeIncrementalCheck,
         changedObjectRefsCheck: receiptReuseEnabled
             && changedObjectRefs.length > 0
             && artifact?.validations.changedObjectRefsSha256

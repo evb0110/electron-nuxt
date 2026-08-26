@@ -27,6 +27,7 @@ import { tmpdir } from 'os';
 import { createOriginalFileContentFingerprintSync } from '@electron/file-access/workingCopyOriginalFileExpectation';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 import {requireDocumentRevisionToken} from '@contracts';
+import {createNativeIncrementalMutationSemanticScopeSha256} from '@electron/features/documents/main/documentSaveUtilityProtocol';
 
 const mocks = vi.hoisted(() => ({
     runNativeToolCommand: vi.fn(),
@@ -50,6 +51,7 @@ const mocks = vi.hoisted(() => ({
     resolveManagedTempFileHandle: vi.fn(async (_context: unknown, handle: unknown) => handle),
     resolveTypedStagedArtifact: vi.fn(async (_context: unknown, artifact: unknown) => artifact),
     createTypedStagedArtifact: vi.fn(),
+    createTypedStagedArtifactForTrustedSiblingCopy: vi.fn(),
     releaseManagedTempFileHandle: vi.fn((_context: unknown, _leaseId: string) => true),
     transitionOriginalAndWorkingCopyRevision: vi.fn(),
     commitPdfTempFile: vi.fn(),
@@ -90,6 +92,8 @@ vi.mock('@electron/utils/atomicReplace', () => ({
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
 vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({
     createTypedStagedArtifact: (...args: unknown[]) => mocks.createTypedStagedArtifact(...args),
+    createTypedStagedArtifactForTrustedSiblingCopy: (...args: unknown[]) =>
+        mocks.createTypedStagedArtifactForTrustedSiblingCopy(...args),
     releaseManagedTempFileHandle: (context: unknown, leaseId: string) => mocks.releaseManagedTempFileHandle(context, leaseId),
     resolveManagedTempFileHandle: (context: unknown, handle: unknown) => mocks.resolveManagedTempFileHandle(context, handle),
     resolveTypedStagedArtifact: (context: unknown, artifact: unknown) => mocks.resolveTypedStagedArtifact(context, artifact),
@@ -123,6 +127,18 @@ interface INativeBookmarkTestItem {
     italic: boolean;
     color: string | null;
     items: INativeBookmarkTestItem[];
+}
+
+interface ITestTrustedFingerprint {
+    bytes: number;
+    sha256: string;
+}
+
+interface ITestTypedStagedArtifactOptions {trustedFingerprint?: ITestTrustedFingerprint;}
+
+interface ITestTypedStagedArtifactSource {
+    size: number;
+    sha256: string;
 }
 
 function createNativeFreeTextNote() {
@@ -262,29 +278,59 @@ describe('handleNativeNoteTextSave', () => {
             await copyFile(sourcePath, targetPath);
             await unlink(sourcePath).catch(() => undefined);
         });
-        mocks.createTypedStagedArtifact.mockImplementation(async (_context: unknown, path: string) => {
+        mocks.createTypedStagedArtifact.mockImplementation(async (
+            _context: unknown,
+            path: string,
+            validations: {
+                qpdfCheck: boolean;
+                tailCheck: boolean;
+                semanticCheck: boolean;
+                fsynced: boolean;
+                semanticScopeSha256?: string;
+            },
+            options?: ITestTypedStagedArtifactOptions,
+        ) => {
             const bytes = await readFile(path);
             return {
                 receiptVersion: 1,
                 artifactKind: 'pdf',
                 path,
-                size: bytes.byteLength,
-                sha256: createHash('sha256').update(bytes).digest('hex'),
+                size: options?.trustedFingerprint?.bytes ?? bytes.byteLength,
+                sha256: options?.trustedFingerprint?.sha256
+                    ?? createHash('sha256').update(bytes).digest('hex'),
                 fileIdentity: {
                     platform: 'posix',
                     deviceId: '1',
                     inode: '2',
                 },
-                validations: {
-                    qpdfCheck: false,
-                    tailCheck: false,
-                    semanticCheck: false,
-                    fsynced: false,
-                },
-                leaseId: 'staged-native-output',
+                validations,
+                leaseId: path === `${join(tempRoot, 'staged-original.pdf')}.tmp.pdf`
+                    ? 'staged-native-output-copy'
+                    : 'staged-native-output',
                 revision: null,
             };
         });
+        mocks.createTypedStagedArtifactForTrustedSiblingCopy.mockImplementation(async (
+            callContext: unknown,
+            sourceArtifact: ITestTypedStagedArtifactSource,
+            path: string,
+            _originalPath: string,
+            validations: {
+                qpdfCheck: boolean;
+                tailCheck: boolean;
+                semanticCheck: boolean;
+                fsynced: boolean;
+                semanticScopeSha256?: string;
+            },
+        ) => mocks.createTypedStagedArtifact(
+            callContext,
+            path,
+            validations,
+            {trustedFingerprint: {
+                bytes: sourceArtifact.size,
+                sha256: sourceArtifact.sha256,
+            }},
+        ));
         mocks.fingerprintFileWithUtilityProcess.mockImplementation(async (path: string) => {
             const bytes = await readFile(path);
             return {
@@ -954,7 +1000,16 @@ describe('handleNativeNoteTextSave', () => {
         expect(staged).toMatchObject({
             applied: true,
             validation: {isValid: true},
-            stagedOutput: {leaseId: 'staged-native-output'},
+            stagedOutput: {
+                leaseId: 'staged-native-output',
+                validations: {
+                    qpdfCheck: false,
+                    tailCheck: true,
+                    semanticCheck: true,
+                    fsynced: true,
+                    semanticScopeSha256: createNativeIncrementalMutationSemanticScopeSha256(),
+                },
+            },
         });
         expect(staged.stagedOutput?.path).toBe(`${workingPath}.tmp.pdf`);
         expect(readFileSyncUtf8(workingPath)).toBe('base-before');
@@ -985,9 +1040,23 @@ describe('handleNativeNoteTextSave', () => {
         expect(mocks.commitPdfTempFile).toHaveBeenCalledWith(
             expect.stringContaining('staged-original.pdf.tmp'),
             originalPath,
-            {changedObjectRefs: ['44 0 R']},
+            {
+                changedObjectRefs: ['44 0 R'],
+                receipt: {
+                    artifact: expect.objectContaining({
+                        leaseId: 'staged-native-output-copy',
+                        validations: expect.objectContaining({
+                            tailCheck: true,
+                            semanticCheck: true,
+                            fsynced: false,
+                        }),
+                    }),
+                    context,
+                },
+            },
         );
         expect(mocks.releaseManagedTempFileHandle).toHaveBeenCalledWith(context, 'staged-native-output');
+        expect(mocks.releaseManagedTempFileHandle).toHaveBeenCalledWith(context, 'staged-native-output-copy');
     });
 
     it('rejects shared native mutation limit violations before native execution', async () => {

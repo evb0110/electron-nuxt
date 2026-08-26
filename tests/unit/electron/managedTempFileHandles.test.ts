@@ -503,6 +503,72 @@ describe('managed temporary file handles', () => {
             .resolves.toEqual(copiedArtifact);
     });
 
+    it('registers a generated original-path sibling from an authoritative source receipt', async () => {
+        const {
+            createTypedStagedArtifact,
+            createTypedStagedArtifactForTrustedSiblingCopy,
+            resolveTypedStagedArtifact,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+        const sourceArtifact = await createTypedStagedArtifact({senderId: 42}, mocks.path, {
+            qpdfCheck: false,
+            tailCheck: true,
+            semanticCheck: true,
+            semanticScopeSha256: 'b'.repeat(64),
+            fsynced: true,
+        });
+        const inspectionCount = mocks.inspect.mock.calls.length;
+        const originalPath = join(directory, 'original.pdf');
+        const copiedPath = join(directory, '.abcdef0123456789.tmp.pdf');
+        copyFileSync(mocks.path, copiedPath);
+
+        const copiedArtifact = await createTypedStagedArtifactForTrustedSiblingCopy(
+            {senderId: 42},
+            sourceArtifact,
+            copiedPath,
+            originalPath,
+            {
+                ...sourceArtifact.validations,
+                fsynced: false,
+            },
+        );
+
+        expect(copiedArtifact).toMatchObject({
+            path: copiedPath,
+            size: sourceArtifact.size,
+            sha256: sourceArtifact.sha256,
+            validations: {
+                tailCheck: true,
+                semanticCheck: true,
+                fsynced: false,
+            },
+        });
+        expect(copiedArtifact.leaseId).not.toBe(sourceArtifact.leaseId);
+        expect(mocks.inspect).toHaveBeenCalledTimes(inspectionCount + 1);
+        expect(mocks.inspect).toHaveBeenLastCalledWith(copiedPath);
+        await expect(resolveTypedStagedArtifact({senderId: 42}, copiedArtifact))
+            .resolves.toEqual(copiedArtifact);
+
+        writeFileSync(copiedPath, Buffer.from('tampered-file-content'));
+        await expect(createTypedStagedArtifactForTrustedSiblingCopy(
+            {senderId: 42},
+            sourceArtifact,
+            copiedPath,
+            originalPath,
+            {
+                ...sourceArtifact.validations,
+                fsynced: false,
+            },
+        )).rejects.toThrow('does not match its authoritative source');
+
+        await expect(createTypedStagedArtifactForTrustedSiblingCopy(
+            {senderId: 42},
+            sourceArtifact,
+            join(directory, 'unscoped-copy.pdf'),
+            originalPath,
+            sourceArtifact.validations,
+        )).rejects.toThrow('generated sibling');
+    });
+
     it.runIf(process.platform !== 'win32')('invalidates a symlink substitution', async () => {
         const {
             createTypedStagedArtifact,

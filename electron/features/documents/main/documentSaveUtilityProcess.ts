@@ -155,7 +155,7 @@ parentPort.once('message', (event) => {
             ...(receiptSha256 === undefined ? {} : {sha256: receiptSha256}),
             ...(reuse.tailCheck ? {tailCheck: true} : {}),
         });
-        if (!reuse.qpdfCheck) {
+        if (!reuse.qpdfCheck && !reuse.nativeIncrementalCheck) {
             await validatePdf(request.sourcePath, request.validationBinary);
         }
         const changedObjectRefs = request.changedObjectRefs ?? [];

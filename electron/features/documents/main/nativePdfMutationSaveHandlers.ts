@@ -58,9 +58,11 @@ import { getErrorMessage } from '@electron/utils/error';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import {commitPdfTempFile} from '@electron/features/documents/main/commitPdfTempFile';
+import {createNativeIncrementalMutationSemanticScopeSha256} from '@electron/features/documents/main/documentSaveUtilityProtocol';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 import {
     createTypedStagedArtifact,
+    createTypedStagedArtifactForTrustedSiblingCopy,
     releaseManagedTempFileHandle,
     resolveManagedTempFileHandle,
     resolveTypedStagedArtifact,
@@ -463,9 +465,10 @@ async function runNativeWorkingCopyCommand(
 
             const stagedOutput = await createTypedStagedArtifact(context, tempPath, {
                 qpdfCheck: false,
-                tailCheck: false,
-                semanticCheck: false,
-                fsynced: false,
+                tailCheck: true,
+                semanticCheck: true,
+                semanticScopeSha256: createNativeIncrementalMutationSemanticScopeSha256(),
+                fsynced: true,
             }, {cleanupOnRelease: true});
             staged = true;
             log.debug(`Native working-copy mutation phase timings: ${JSON.stringify({
@@ -518,9 +521,25 @@ export async function handleCommitStagedPdfNativeMutations(
                 ownerWebContentsId: senderId,
                 reason: 'native-mutation',
             });
-            const originalTempPath = makeSiblingTempPath(originalPath);
+            // Typed PDF receipts validate the artifact extension as part of the
+            // main-process trust boundary.
+            const originalTempPath = `${makeSiblingTempPath(originalPath)}.pdf`;
+            let originalTempArtifact: ITypedStagedArtifact | null = null;
             try {
                 await copyFileCopyOnWrite(stagedOutput.path, originalTempPath);
+                const createdOriginalTempArtifact = await createTypedStagedArtifactForTrustedSiblingCopy(
+                    context,
+                    stagedOutput,
+                    originalTempPath,
+                    originalPath,
+                    {
+                        ...stagedOutput.validations,
+                        // A byte-preserving copy has a new durability boundary.
+                        // The commit utility must fsync this sibling before rename.
+                        fsynced: false,
+                    },
+                );
+                originalTempArtifact = createdOriginalTempArtifact;
                 const transition = await transitionOriginalAndWorkingCopyRevision({
                     workingCopyPath: normalizedWorkingPath,
                     originalPath,
@@ -532,9 +551,15 @@ export async function handleCommitStagedPdfNativeMutations(
                         senderId,
                     ),
                     publishOriginal: async () => {
-                        await commitPdfTempFile(originalTempPath, originalPath, revisionOptions?.changedObjectRefs?.length
-                            ? {changedObjectRefs: revisionOptions.changedObjectRefs}
-                            : {});
+                        await commitPdfTempFile(originalTempPath, originalPath, {
+                            ...(revisionOptions?.changedObjectRefs?.length
+                                ? {changedObjectRefs: revisionOptions.changedObjectRefs}
+                                : {}),
+                            receipt: {
+                                artifact: createdOriginalTempArtifact,
+                                context,
+                            },
+                        });
                     },
                     afterWorkingCopySync: () => syncNativeOutputToRequestingWorkingCopy(
                         originalPath,
@@ -549,6 +574,9 @@ export async function handleCommitStagedPdfNativeMutations(
                     }
                     : createNotAppliedResult();
             } finally {
+                if (originalTempArtifact) {
+                    releaseManagedTempFileHandle(context, originalTempArtifact.leaseId);
+                }
                 await cleanupTempPath(originalTempPath);
             }
         }, {kind: 'native-pdf-mutation-staged-commit'});
