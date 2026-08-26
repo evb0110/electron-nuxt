@@ -1,0 +1,25 @@
+tests/unit/contracts/agentModels.test.ts
+  s_7f76c67c342e92::t_c18659504a6f7a 21
+tests/unit/app/modules/agent-panel/assistantPanelMountedLifecycle.test.ts
+  s_7f76c67c342e92::t_8b3a3fd58f1168 23,194,198-209
+  s_7f76c67c342e92::t_7908aeab90f487 121-124,147,190-193,195-197,210
+packages/contracts/agentModels.ts
+  s_7f76c67c342e92::t_c18659504a6f7a 135-151
+  s_7f76c67c342e92::t_984ff6faebd389 134
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "82c85e595e51e100111cf497533067e36a2cd10d",
+  "prompts": {},
+  "sessions": {
+    "s_7f76c67c342e92": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03c9a-397d-7071-b17d-f4dbbcf47072",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
