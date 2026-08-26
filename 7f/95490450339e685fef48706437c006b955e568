@@ -1,0 +1,77 @@
+packages/i18n-app/messages/en.ts
+  s_5f1426d30f0837::t_2e2e0318aa6ddd 1256-1258
+README.md
+  s_5f1426d30f0837::t_e45e5432b6cffd 20
+tests/unit/app/utils/pdfOutlineHelpers.test.ts
+  s_5f1426d30f0837::t_9b80be20ad04e8 25,432-503
+  s_5f1426d30f0837::t_6a23e8ec1d65f9 110-120
+app/modules/pdf-viewer/components/PdfOutlineContextMenu.vue
+  s_5f1426d30f0837::t_3da151c7dac129 42-47,52-54,62-64,72,85,107-111,119,146-159,250-258
+packages/i18n-app/messages/it.ts
+  s_5f1426d30f0837::t_2e2e0318aa6ddd 1256-1258
+app/utils/pdfOutlineHelpers.ts
+  s_5f1426d30f0837::t_34bf823ff4cb40 234,803-810,812-816
+  s_5f1426d30f0837::t_3da151c7dac129 9-10,838-861
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineContextMenu.ts
+  s_5f1426d30f0837::t_d9689305548bff 7,85
+app/modules/pdf-viewer/components/PdfOutline.vue
+  s_5f1426d30f0837::t_cce6e701e0c0b8 96,484-487
+packages/i18n-app/messages/ru.ts
+  s_5f1426d30f0837::t_2e2e0318aa6ddd 1279-1283
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.test.ts
+  s_5f1426d30f0837::t_c496bdaa17bf52 650-668,801-805,819-821
+  s_5f1426d30f0837::t_1b163fac0fe159 776
+  s_5f1426d30f0837::t_bc216c60d735ac 806-818
+  s_5f1426d30f0837::t_b7e92fb63765f1 830-833,878-893
+  s_5f1426d30f0837::t_2db5420d488b4c 777-788,835
+.fallow-dupes-baseline.json
+  s_5f1426d30f0837::t_6e88bc73c5f0b7 3
+tests/unit/app/modules/pdf-viewer/composables/usePdfOutlineEditing.test.ts
+  s_5f1426d30f0837::t_9b80be20ad04e8 192-200,202-203,205-208,210-320
+  s_5f1426d30f0837::t_2db5420d488b4c 201,204,209
+packages/i18n-app/messages/fr.ts
+  s_5f1426d30f0837::t_2e2e0318aa6ddd 1261-1264
+app/modules/workspace-shell/agent/createDocumentAgentBookmarks.ts
+  s_5f1426d30f0837::t_8de3dc2f591270 1075,1136,1161-1162
+  s_5f1426d30f0837::t_2db5420d488b4c 1095,1123-1135
+  s_5f1426d30f0837::t_b7e92fb63765f1 1117-1120
+  s_5f1426d30f0837::t_bc216c60d735ac 1042,1056-1058,1097
+  s_5f1426d30f0837::t_b1c733a263950c 105,108,113,120,123,126,196,199-200,202,209-210,221,226,335,359,571
+  s_5f1426d30f0837::t_c496bdaa17bf52 1043-1055,1059-1062,1068-1074,1076-1094,1096,1098-1116,1144-1154,1167-1172
+  s_5f1426d30f0837::t_b085a965545956 1065,1140-1142
+tests/unit/app/modules/pdf-viewer/composables/usePdfOutlineContextMenu.test.ts
+  s_5f1426d30f0837::t_9b80be20ad04e8 68,85,90,95-101,105-106,109-126
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineEditing.ts
+  s_5f1426d30f0837::t_3da151c7dac129 13,319-328,388,511
+  s_5f1426d30f0837::t_3dca7c48d8fc82 301-316,351-354,359-374,377-387,389,393-394,398,402,510
+packages/i18n-app/messages/nl.ts
+  s_5f1426d30f0837::t_2e2e0318aa6ddd 1256-1258
+electron/features/agent/mcp/mcpCapabilitySchemas.ts
+  s_5f1426d30f0837::t_b7e92fb63765f1 590-593,596-638,790,792,795-809
+packages/i18n-app/messages/ptBr.ts
+  s_5f1426d30f0837::t_2e2e0318aa6ddd 1261-1264
+packages/i18n-app/messages/pt.ts
+  s_5f1426d30f0837::t_2e2e0318aa6ddd 1261-1264
+packages/i18n-app/messages/de.ts
+  s_5f1426d30f0837::t_2e2e0318aa6ddd 1256-1258
+app/types/pdfOutline.ts
+  s_5f1426d30f0837::t_e2123710d90de8 43-56
+packages/i18n-app/messages/es.ts
+  s_5f1426d30f0837::t_2e2e0318aa6ddd 1256-1258
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7f95490450339e685fef48706437c006b955e568",
+  "prompts": {},
+  "sessions": {
+    "s_5f1426d30f0837": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd17a03a-0b11-49e6-a7a4-43a76d932d1e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
