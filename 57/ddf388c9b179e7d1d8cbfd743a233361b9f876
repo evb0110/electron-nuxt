@@ -1,0 +1,31 @@
+tests/unit/app/modules/pdf-viewer/thumbnails/thumbnailAnnotationSuppression.test.ts
+  s_8bc48d5947085f::t_72b781cb0fe967 75,133,275,368,374-376
+  s_8bc48d5947085f::t_dec43f648a8406 296-297,299-306,319-320,322-327,340-342,344-357,369-373,377-388,390-399,401-402,404-412
+  s_8bc48d5947085f::t_57df92041c9d7e 271-273,281
+  s_8bc48d5947085f::t_47ba9944ac1980 389,400
+  s_8bc48d5947085f::t_00dc907a7f92e8 16,234,251-258,294,317,338,358-367
+  s_8bc48d5947085f::t_682fe570303fe6 198-201
+  s_8bc48d5947085f::t_aa1fdeda9605d1 99-101
+app/modules/pdf-viewer/thumbnails/shouldPreserveThumbnailBitmap.ts
+  s_8bc48d5947085f::t_910ea42eac746c 5-6
+  s_8bc48d5947085f::t_21d885a9cea7a9 7-9
+app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime.ts
+  s_8bc48d5947085f::t_21d885a9cea7a9 496
+  s_8bc48d5947085f::t_910ea42eac746c 492-493
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "57ddf388c9b179e7d1d8cbfd743a233361b9f876",
+  "prompts": {},
+  "sessions": {
+    "s_8bc48d5947085f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03f79-fe67-7392-8df6-0ac69110241e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
