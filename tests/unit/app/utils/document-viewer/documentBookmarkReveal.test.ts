@@ -95,6 +95,21 @@ describe('document bookmark visible rows', () => {
             'b',
         ]);
     });
+
+    it('keeps manually expanded branches open when the active path changes', () => {
+        const rows = getDocumentBookmarkVisibleRows(items, {
+            displayMode: 'current-expanded',
+            expandedIds: new Set(['a']),
+            activePathIds: new Set(['b']),
+        });
+
+        expect(rowIds(rows)).toEqual([
+            'a',
+            'a1',
+            'a3',
+            'b',
+        ]);
+    });
 });
 
 describe('resolveDocumentBookmarkRevealRowIndex', () => {

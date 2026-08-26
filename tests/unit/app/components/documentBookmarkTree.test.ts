@@ -183,9 +183,10 @@ describe('DocumentBookmarkTree', () => {
         ]);
     });
 
-    it('expands only the active path in current-expanded mode', async () => {
+    it('expands the active path without collapsing disclosed branches', async () => {
         const state = harnessState({
             displayMode: 'current-expanded',
+            expandedIds: new Set(['a1']),
             activePathIds: new Set([
                 'a',
                 'a1',
@@ -204,6 +205,7 @@ describe('DocumentBookmarkTree', () => {
         expect(renderedIds(host)).toEqual([
             'a',
             'a1',
+            'a2',
             'a3',
             'b',
         ]);

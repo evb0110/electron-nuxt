@@ -109,17 +109,17 @@ export interface IDocumentBookmarkDisplayState {
     activePathIds: ReadonlySet<string>;
 }
 
-function isDocumentBookmarkItemExpanded(
-    item: IDocumentBookmarkTreeItem,
+export function isDocumentBookmarkExpanded(
+    id: string,
     display: IDocumentBookmarkDisplayState,
 ) {
     if (display.displayMode === 'all-expanded') {
         return true;
     }
     if (display.displayMode === 'current-expanded') {
-        return display.activePathIds.has(item.id);
+        return display.activePathIds.has(id) || display.expandedIds.has(id);
     }
-    return display.expandedIds.has(item.id);
+    return display.expandedIds.has(id);
 }
 
 /**
@@ -139,7 +139,7 @@ export function getDocumentBookmarkVisibleRows(
             item,
             depth,
         } = stack.pop()!;
-        const isExpanded = item.children.length > 0 && isDocumentBookmarkItemExpanded(item, display);
+        const isExpanded = item.children.length > 0 && isDocumentBookmarkExpanded(item.id, display);
         rows.push({
             item,
             depth,

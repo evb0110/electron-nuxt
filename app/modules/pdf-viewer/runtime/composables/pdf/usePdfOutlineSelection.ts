@@ -3,6 +3,7 @@ import type {
     TBookmarkDisplayMode,
 } from '@app/types/pdfOutline';
 import { useMultiSelection } from '@app/composables/useMultiSelection';
+import { isDocumentBookmarkExpanded } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 
 export const usePdfOutlineSelection = (
     bookmarks: Ref<IBookmarkItem[]>,
@@ -14,13 +15,11 @@ export const usePdfOutlineSelection = (
     const multiSelection = useMultiSelection<string>();
 
     function isBookmarkExpandedForVisibility(item: IBookmarkItem) {
-        if (displayMode.value === 'all-expanded') {
-            return true;
-        }
-        if (displayMode.value === 'current-expanded') {
-            return activePathBookmarkIds.value.has(item.id);
-        }
-        return expandedBookmarkIds.value.has(item.id);
+        return isDocumentBookmarkExpanded(item.id, {
+            displayMode: displayMode.value,
+            expandedIds: expandedBookmarkIds.value,
+            activePathIds: activePathBookmarkIds.value,
+        });
     }
 
     const visibleBookmarkIds = computed(() => {

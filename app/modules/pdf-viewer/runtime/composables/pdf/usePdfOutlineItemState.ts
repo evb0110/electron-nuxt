@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
 import type { IPdfOutlineTreeContext } from '@app/modules/pdf-viewer/engine/pdf-outline-tree-context/pdfOutlineTreeContext';
 import { pdfOutlineTreeKey } from '@app/modules/pdf-viewer/engine/pdf-outline-tree-context/pdfOutlineTreeKey';
+import { isDocumentBookmarkExpanded } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 
 function requirePdfOutlineTreeContext(): IPdfOutlineTreeContext {
     const treeContext = inject(pdfOutlineTreeKey, null);
@@ -44,15 +45,11 @@ export const usePdfOutlineItemState = (item: Ref<IBookmarkItem>) => {
             return false;
         }
 
-        if (treeContext.displayMode.value === 'all-expanded') {
-            return true;
-        }
-
-        if (treeContext.displayMode.value === 'current-expanded') {
-            return treeContext.activePathBookmarkIds.value.has(item.value.id);
-        }
-
-        return treeContext.expandedBookmarkIds.value.has(item.value.id);
+        return isDocumentBookmarkExpanded(item.value.id, {
+            displayMode: treeContext.displayMode.value,
+            expandedIds: treeContext.expandedBookmarkIds.value,
+            activePathIds: treeContext.activePathBookmarkIds.value,
+        });
     });
 
     return {
