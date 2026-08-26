@@ -13,6 +13,7 @@ import {
     createApp,
     defineComponent,
     h,
+    nextTick,
     ref,
 } from 'vue';
 import type {
@@ -71,6 +72,7 @@ interface IRecordedRender {
 }
 
 const renders: IRecordedRender[] = [];
+let renderCompletion = () => Promise.resolve();
 
 function createOperatorList(pageNumber: number) {
     // Each page paints one content operator plus one annotation bracket, so a
@@ -94,9 +96,9 @@ function createOperatorList(pageNumber: number) {
 function createPdfPage(pageNumber: number) {
     return cast<PDFPageProxy>({
         pageNumber,
-        getViewport: () => ({
-            width: 100,
-            height: 140,
+        getViewport: ({scale = 1}: {scale?: number} = {}) => ({
+            width: 100 * scale,
+            height: 140 * scale,
         }),
         render: (options: Record<string, unknown>) => {
             const operatorList = createOperatorList(pageNumber);
@@ -128,7 +130,7 @@ function createPdfPage(pageNumber: number) {
             return {
                 _internalRenderTask: {operatorList},
                 cancel: () => {},
-                promise: Promise.resolve(),
+                promise: renderCompletion(),
             };
         },
     });
@@ -193,6 +195,10 @@ function mountThumbnailRuntime(annotationComments: ReturnType<typeof ref<IAnnota
         }),
         maxConcurrency: MOUNTED_PAGES.length,
     });
+    const invalidationRequest = ref<{
+        id: number;
+        pages: number[];
+    } | null>(null);
 
     const host = defineComponent({setup() {
         usePdfThumbnailRenderRuntime({
@@ -225,7 +231,7 @@ function mountThumbnailRuntime(annotationComments: ReturnType<typeof ref<IAnnota
             },
             source: {
                 currentPage: computed(() => 1),
-                invalidationRequest: computed(() => null),
+                invalidationRequest: computed(() => invalidationRequest.value),
                 isActive: computed(() => true),
                 pdfDocument: computed(() => cast<PDFDocumentProxy>({numPages: TOTAL_PAGES})),
                 rasterScheduler: computed(() => scheduler),
@@ -242,10 +248,14 @@ function mountThumbnailRuntime(annotationComments: ReturnType<typeof ref<IAnnota
 
     const app = createApp(host);
     app.mount(container);
-    return async () => {
-        app.unmount();
-        await scheduler.dispose();
-        container.remove();
+    return {
+        canvases,
+        invalidationRequest,
+        unmount: async () => {
+            app.unmount();
+            await scheduler.dispose();
+            container.remove();
+        },
     };
 }
 
@@ -258,12 +268,17 @@ async function settleRenders() {
 describe('thumbnail annotation suppression', () => {
     beforeEach(() => {
         vi.useFakeTimers();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+            cast<HTMLCanvasElement['getContext']>(() => createContext()),
+        );
         renders.length = 0;
+        renderCompletion = () => Promise.resolve();
         resetCoordinatedPdfPageRendersForTest();
     });
 
     afterEach(() => {
         vi.useRealTimers();
+        vi.restoreAllMocks();
         resetCoordinatedPdfPageRendersForTest();
         document.body.innerHTML = '';
     });
@@ -276,16 +291,19 @@ describe('thumbnail annotation suppression', () => {
             pageIndex: 1,
             pageNumber: 2,
         })]);
-        const unmount = mountThumbnailRuntime(annotationComments);
+        const {unmount} = mountThumbnailRuntime(annotationComments);
 
-        await settleRenders();
-        await unmount();
+        try {
+            await settleRenders();
 
-        expect(renders.map(render => render.pageNumber).sort()).toEqual(MOUNTED_PAGES);
-        expect(renders.filter(render => render.annotationMode === ANNOTATION_MODE.DISABLE)).toEqual([]);
-        expect(renders.find(render => render.pageNumber === 1)?.keptAnnotationIds).toEqual(['10R']);
-        expect(renders.find(render => render.pageNumber === 3)?.keptAnnotationIds).toEqual(['30R']);
-        expect(renders.find(render => render.pageNumber === 1)?.hasOperationsFilter).toBe(false);
+            expect(renders.map(render => render.pageNumber).sort()).toEqual(MOUNTED_PAGES);
+            expect(renders.filter(render => render.annotationMode === ANNOTATION_MODE.DISABLE)).toEqual([]);
+            expect(renders.find(render => render.pageNumber === 1)?.keptAnnotationIds).toEqual(['10R']);
+            expect(renders.find(render => render.pageNumber === 3)?.keptAnnotationIds).toEqual(['30R']);
+            expect(renders.find(render => render.pageNumber === 1)?.hasOperationsFilter).toBe(false);
+        } finally {
+            await unmount();
+        }
     });
 
     it('suppresses the recoloured annotation only on the page that carries it', async () => {
@@ -296,14 +314,17 @@ describe('thumbnail annotation suppression', () => {
             pageIndex: 1,
             pageNumber: 2,
         })]);
-        const unmount = mountThumbnailRuntime(annotationComments);
+        const {unmount} = mountThumbnailRuntime(annotationComments);
 
-        await settleRenders();
-        await unmount();
+        try {
+            await settleRenders();
 
-        const editedPageRender = renders.find(render => render.pageNumber === 2);
-        expect(editedPageRender?.hasOperationsFilter).toBe(true);
-        expect(editedPageRender?.keptAnnotationIds).toEqual([]);
+            const editedPageRender = renders.find(render => render.pageNumber === 2);
+            expect(editedPageRender?.hasOperationsFilter).toBe(true);
+            expect(editedPageRender?.keptAnnotationIds).toEqual([]);
+        } finally {
+            await unmount();
+        }
     });
 
     it('re-renders only the recoloured page when a highlight colour changes', async () => {
@@ -314,22 +335,80 @@ describe('thumbnail annotation suppression', () => {
             pageIndex: 1,
             pageNumber: 2,
         })]);
-        const unmount = mountThumbnailRuntime(annotationComments);
+        const {unmount} = mountThumbnailRuntime(annotationComments);
 
-        await settleRenders();
-        renders.length = 0;
+        try {
+            await settleRenders();
+            renders.length = 0;
 
-        annotationComments.value = [createComment({
-            annotationId: '20R0',
-            color: '#ef4444',
-            id: '20R0',
-            stableKey: 'ann:1:20R',
-            pageIndex: 1,
-            pageNumber: 2,
-        })];
-        await settleRenders();
-        await unmount();
+            annotationComments.value = [createComment({
+                annotationId: '20R0',
+                color: '#ef4444',
+                id: '20R0',
+                stableKey: 'ann:1:20R',
+                pageIndex: 1,
+                pageNumber: 2,
+            })];
+            await settleRenders();
 
-        expect(renders.map(render => render.pageNumber)).toEqual([2]);
+            expect(renders.map(render => render.pageNumber)).toEqual([2]);
+        } finally {
+            await unmount();
+        }
+    });
+
+    it('keeps the painted thumbnail visible while an edited page is invalidated', async () => {
+        const annotationComments = ref<IAnnotationCommentSummary[]>([]);
+        const {
+            canvases,
+            invalidationRequest,
+            unmount,
+        } = mountThumbnailRuntime(annotationComments);
+
+        let finishReplacementRender = () => {};
+        let markReplacementStarted = () => {};
+        let replacementRenderSettled = false;
+        const replacementStarted = new Promise<void>((resolve) => {
+            markReplacementStarted = resolve;
+        });
+        const replacementRender = new Promise<void>((resolve) => {
+            finishReplacementRender = resolve;
+        });
+        try {
+            await settleRenders();
+            const canvas = canvases.get(1);
+            expect(canvas?.dataset.thumbnailRendered).toBe('true');
+            expect(canvas?.width).toBeGreaterThan(0);
+
+            renderCompletion = () => {
+                markReplacementStarted();
+                return replacementRender.then(() => {
+                    replacementRenderSettled = true;
+                });
+            };
+            renders.length = 0;
+            invalidationRequest.value = {
+                id: 1,
+                pages: [1],
+            };
+            await nextTick();
+
+            expect(canvas?.dataset.thumbnailPreservedBitmap).toBe('true');
+            expect(canvas?.width).toBeGreaterThan(0);
+            await vi.advanceTimersByTimeAsync(20);
+            await replacementStarted;
+            expect(renders.map(render => render.pageNumber)).toEqual([1]);
+            expect(canvas?.dataset.thumbnailPreservedBitmap).toBe('true');
+            expect(canvas?.width).toBeGreaterThan(0);
+
+            finishReplacementRender();
+            await settleRenders();
+            expect(replacementRenderSettled).toBe(true);
+            expect(canvas?.dataset.thumbnailRendered).toBe('true');
+            expect(canvas?.width).toBeGreaterThan(0);
+        } finally {
+            finishReplacementRender();
+            await unmount();
+        }
     });
 });

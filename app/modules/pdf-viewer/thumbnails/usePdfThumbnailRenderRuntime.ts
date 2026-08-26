@@ -489,8 +489,11 @@ export const usePdfThumbnailRenderRuntime = (
         release(pageNumber, reason) {
             const canvas = dom.getCanvas(pageNumber);
             renderedCanvases.delete(pageNumber);
+            // Page invalidation transfers the resident pixels to the replacement
+            // render. Its explicit marker must outlive the scheduler resident.
             if (
                 canvas
+                && canvas.dataset.thumbnailPreservedBitmap !== 'true'
                 && reason !== 'demand-replaced'
                 && reason !== 'raster-replaced'
             ) {
