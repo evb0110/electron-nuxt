@@ -1,0 +1,51 @@
+tests/unit/electron/agentAssistantProviderStatus.test.ts
+  s_3810c7b864d09a::t_4f9818bb323d00 29-30,33,37-38,44-45,61,77-78,80,98-99,121,129,141
+tests/unit/electron/agentAssistantModelCatalog.test.ts
+  s_3810c7b864d09a::t_9f42b1fac0f0f2 16-17,56-57,101-102,109-110,125,131-132,135,143-144,154-168
+  s_3810c7b864d09a::t_34e41d9aa5e6d4 169-170
+tests/unit/app/modules/agent-panel/assistantPanelMountedLifecycle.test.ts
+  s_3810c7b864d09a::t_953d2d01c8c8df 155-157,226-249
+  s_3810c7b864d09a::t_cf74c58c9157dc 253-267
+  s_3810c7b864d09a::t_e7365d19a0ebae 217-225,250-252
+  s_3810c7b864d09a::t_6a2f5cabbe0d07 154
+tests/helpers/createAgentAssistantStatus.ts
+  s_3810c7b864d09a::t_4f9818bb323d00 24-25,98-99
+electron/features/agent/assistantModelCatalog.ts
+  s_3810c7b864d09a::t_e7365d19a0ebae 9
+  s_3810c7b864d09a::t_c56a5bc1e7b047 150
+packages/contracts/agentModels.ts
+  s_3810c7b864d09a::t_449deee6259cc2 107
+  s_3810c7b864d09a::t_e7365d19a0ebae 108-112
+tests/unit/electron/agentAssistantProviderState.test.ts
+  s_3810c7b864d09a::t_4f9818bb323d00 150-151,171
+app/modules/agent-panel/composables/useAgentAssistantPanelController.ts
+  s_3810c7b864d09a::t_118d3477759630 22
+  s_3810c7b864d09a::t_cf74c58c9157dc 730
+tests/e2e/electron/quarantine/assistantAuthFallback.e2e.test.ts
+  s_3810c7b864d09a::t_4f9818bb323d00 91
+app/modules/agent-panel/utils/assistantSelectionPreference.ts
+  s_3810c7b864d09a::t_e7365d19a0ebae 8,28-31,33-35,59,79,112,130,157
+tests/e2e/electron/quarantine/assistantCompletionFinalization.e2e.test.ts
+  s_3810c7b864d09a::t_4f9818bb323d00 95
+tests/unit/app/modules/agent-panel/assistantSelectionState.test.ts
+  s_3810c7b864d09a::t_4f9818bb323d00 140
+tests/unit/contracts/agentModels.test.ts
+  s_3810c7b864d09a::t_e7365d19a0ebae 12,25-27
+  s_3810c7b864d09a::t_d4a797843e7d93 28-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "bc3bd03f687e4e78cf81f4ce1a78dfbb98fc2652",
+  "prompts": {},
+  "sessions": {
+    "s_3810c7b864d09a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03cc6-1248-7661-b175-afd60d795bbb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
