@@ -18,7 +18,7 @@ describe('assistant model defaults', () => {
     });
 
     it('defaults Codex to the first available fallback model', () => {
-        expect(CODEX_ASSISTANT_DEFAULT_MODEL).toBe('gpt-5.5');
+        expect(CODEX_ASSISTANT_DEFAULT_MODEL).toBe('gpt-5.6-sol');
     });
 
     it('defaults Claude to the Opus family without hard-coding a versioned id', () => {

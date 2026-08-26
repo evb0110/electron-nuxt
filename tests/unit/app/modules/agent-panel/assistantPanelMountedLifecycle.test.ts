@@ -20,6 +20,7 @@ import type {
 } from '@contracts/agent';
 import { createEmptyAssistantState } from '@app/modules/agent-panel/utils/createEmptyAssistantState';
 import { useAgentAssistantPanelController } from '@app/modules/agent-panel/composables/useAgentAssistantPanelController';
+import { STORAGE_KEYS } from '@app/constants/storageKeys';
 
 const mocks = vi.hoisted(() => ({
     eventSubscriber: null as ((event: IAgentAssistantEvent) => void) | null,
@@ -117,8 +118,10 @@ function createUpdateState() {
     return state;
 }
 
-async function mountHarness(initialState: IAgentAssistantState) {
-    mocks.getAssistantState.mockResolvedValue(initialState);
+async function mountHarness(initialState: IAgentAssistantState | null) {
+    if (initialState) {
+        mocks.getAssistantState.mockResolvedValue(initialState);
+    }
     mocks.interruptAssistant.mockResolvedValue(createReadyState('cancelled'));
     mocks.sendAssistantMessage.mockResolvedValue({
         ok: true,
@@ -141,6 +144,7 @@ async function mountHarness(initialState: IAgentAssistantState) {
             h('output', {class: 'install-error'}, controller.status.value.error),
             h('output', {class: 'installing'}, String(controller.isInstalling.value)),
             h('output', {class: 'can-send'}, String(controller.canSend.value)),
+            h('output', {class: 'model'}, controller.selectedModel.value),
             h('button', {
                 class: 'set-draft',
                 onClick: () => {
@@ -183,6 +187,27 @@ describe('mounted assistant panel lifecycle', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.eventSubscriber = null;
+        window.localStorage.clear();
+    });
+
+    it('uses the current Codex fallback before the first backend state resolves', async () => {
+        mocks.getAssistantState.mockReturnValueOnce(new Promise(() => undefined));
+        const harness = await mountHarness(null);
+
+        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-5.6-sol');
+        harness.unmount();
+    });
+
+    it('keeps a persisted Codex model before the first backend state resolves', async () => {
+        window.localStorage.setItem(STORAGE_KEYS.ASSISTANT_SELECTION, JSON.stringify({
+            provider: 'codex',
+            modelsByProvider: {codex: 'gpt-5.4'},
+        }));
+        mocks.getAssistantState.mockReturnValueOnce(new Promise(() => undefined));
+        const harness = await mountHarness(null);
+
+        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-5.4');
+        harness.unmount();
     });
 
     it('renders a stalled turn and retries the last user message', async () => {

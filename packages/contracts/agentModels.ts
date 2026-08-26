@@ -132,6 +132,24 @@ export const CLAUDE_ASSISTANT_DEFAULT_MODEL = getAssistantPreferredModelId(
 
 export const CODEX_ASSISTANT_FALLBACK_MODELS = [
     {
+        id: 'gpt-5.6-sol',
+        label: 'GPT-5.6-Sol',
+        reasoningEfforts: createAssistantEffortOptions(CODEX_ASSISTANT_EFFORTS, 'medium'),
+        defaultReasoningEffort: 'medium',
+        serviceTiers: [
+            {
+                id: 'fast',
+                label: 'Fast',
+                isDefault: true,
+            },
+            {
+                id: 'standard',
+                label: 'Standard',
+            },
+        ],
+        defaultServiceTier: 'fast',
+    },
+    {
         id: 'gpt-5.5',
         label: 'GPT-5.5',
         reasoningEfforts: createAssistantEffortOptions(CODEX_ASSISTANT_EFFORTS, 'medium'),
