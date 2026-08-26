@@ -1,0 +1,25 @@
+app/assets/css/main.css
+  s_2893db16e3bc15::t_639e28278a1c48 304
+app/modules/pdf-viewer/components/PdfContextMenuBase.vue
+  s_2893db16e3bc15::t_639e28278a1c48 54,76
+  s_2893db16e3bc15::t_dd7a14584198c7 55
+app/modules/pdf-viewer/components/annotations/PdfAnnotationContextMenu.vue
+  s_2893db16e3bc15::t_11fb07e725cb06 334
+  s_2893db16e3bc15::t_95d425d4c0f1b3 331-333,335,345
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "ce6ad293b6ab76c35e6549fdcbe2ce966bbadba8",
+  "prompts": {},
+  "sessions": {
+    "s_2893db16e3bc15": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e76d51c2-585c-4b65-9f53-c11d83aea7dd",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
