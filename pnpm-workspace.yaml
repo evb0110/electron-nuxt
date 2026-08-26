@@ -4,6 +4,14 @@ packages:
   - 'packages/*'
   - 'scan-cleanup-core'
 
+# Hold new registry releases for seven days before they can enter the lockfile.
+# This applies to direct and transitive dependencies.
+minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  # Grandfather versions already present in the reviewed pre-update lockfile.
+  - picomatch@4.0.7
+  - prosemirror-view@1.42.3
+
 # Release automation and Electron smoke need the real Electron binary on every
 # fresh install. Electron 43 downloads lazily when required, so the root
 # postinstall also runs check:electron:install. The allowlist is forward-

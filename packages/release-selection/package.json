@@ -7,6 +7,6 @@
     "./*": "./*.ts"
   },
   "dependencies": {
-    "es-toolkit": "^1.47.0"
+    "es-toolkit": "^1.51.0"
   }
 }
