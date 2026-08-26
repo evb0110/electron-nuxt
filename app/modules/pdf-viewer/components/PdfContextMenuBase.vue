@@ -73,8 +73,7 @@ const resolvedStyle = computed(() => {
 
 .pdf-context-menu-base :deep(.pdf-context-menu__section-title) {
     margin: 0;
-    padding: var(--app-space-xl) var(--app-space-5xl) var(--app-space-3xl);
-    background: var(--app-pdf-context-menu-title-bg);
+    padding: var(--app-space-4xl) var(--app-space-5xl) var(--app-space-md);
     color: var(--app-pdf-context-menu-title-fg);
     font-size: var(--app-text-size-menu-shortcut);
     letter-spacing: 0.08em;

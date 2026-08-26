@@ -818,7 +818,6 @@
     --app-pdf-search-result-highlight-bg: var(--app-document-search-result-highlight-bg);
     --app-pdf-context-menu-border: var(--ui-border);
     --app-pdf-context-menu-divider: var(--ui-border);
-    --app-pdf-context-menu-title-bg: var(--ui-bg-muted);
     --app-pdf-context-menu-title-fg: var(--ui-text-dimmed);
     --app-pdf-context-menu-item-bg: var(--ui-bg);
     --app-pdf-context-menu-item-fg: var(--ui-text);
