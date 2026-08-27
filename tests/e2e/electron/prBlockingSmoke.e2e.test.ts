@@ -6,6 +6,7 @@ import {
     it,
 } from 'vitest';
 import type {CDPSession} from 'puppeteer-core';
+import {PDFDocument} from 'pdf-lib';
 import {
     readFile,
     stat,
@@ -400,21 +401,21 @@ async function readManagedPdfOpeningGeometry(
 }
 
 async function waitForManagedPdfRotation(
-    page: Parameters<typeof evaluateInPage>[0],
     workingCopyPath: string,
     expectedRotation: number,
     timeoutMs = PR_BLOCKING_SMOKE_TIMEOUT_MS,
 ) {
     const deadline = Date.now() + timeoutMs;
-    let geometry = await readManagedPdfOpeningGeometry(page, workingCopyPath);
-    while (geometry?.rotation !== expectedRotation) {
+    let rotation: number | null = null;
+    while (rotation !== expectedRotation) {
+        const document = await PDFDocument.load(await readFile(workingCopyPath), {updateMetadata: false});
+        rotation = document.getPage(0).getRotation().angle;
         if (Date.now() >= deadline) {
-            throw new Error(`Timed out waiting for persisted PDF rotation ${expectedRotation}; last observed ${String(geometry?.rotation)}`);
+            throw new Error(`Timed out waiting for persisted PDF rotation ${expectedRotation}; last observed ${String(rotation)}`);
         }
         await new Promise(resolve => setTimeout(resolve, 100));
-        geometry = await readManagedPdfOpeningGeometry(page, workingCopyPath);
     }
-    return geometry;
+    return rotation;
 }
 
 async function waitForCommittedPdfCanvasResize(
@@ -1120,12 +1121,12 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, surfaceRevisionBeforeRotation)
             ));
         }
-        const rotatedGeometry = await waitForManagedPdfRotation(
+        const persistedRotation = await runPdfDiagnosticStage(
             session.page,
-            workingCopyPath,
-            90,
+            'rotation:wait-persisted-bytes',
+            () => waitForManagedPdfRotation(workingCopyPath, 90),
         );
-        expect(rotatedGeometry?.rotation).toBe(90);
+        expect(persistedRotation).toBe(90);
         // The revision commits before the bounded managed-shape import finishes.
         // Let that post-mutation refresh settle before issuing a page command,
         // otherwise it can legitimately restore the reload anchor on page 1.
