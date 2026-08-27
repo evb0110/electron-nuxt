@@ -10,7 +10,6 @@ import {
     readFile,
     stat,
 } from 'node:fs/promises';
-import {PDFDocument} from 'pdf-lib';
 import {
     cleanupRunFixtures,
     createLargeScannedFixturePdf,
@@ -388,6 +387,20 @@ async function readCommittedPdfCanvasPixelSize(
             width: canvas?.width ?? 0,
         };
     }, pageNumber);
+}
+
+async function readManagedPdfOpeningGeometry(
+    page: Parameters<typeof evaluateInPage>[0],
+    workingCopyPath: string,
+) {
+    return evaluateInPage(page, async (path: string) => {
+        const readOpeningGeometry = (window as IE2EWindow).electronAPI
+            ?.documentFiles?.getPdfOpeningGeometry;
+        if (!readOpeningGeometry) {
+            throw new Error('electronAPI PDF opening geometry capability is unavailable');
+        }
+        return readOpeningGeometry(path);
+    }, workingCopyPath);
 }
 
 async function waitForCommittedPdfCanvasResize(
@@ -1051,12 +1064,13 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             'rotation:resolve-working-copy',
             () => getActiveWorkspaceWorkingCopyPath(session.page),
         );
-        const persistedBeforeRotation = await PDFDocument.load(
-            await readFile(workingCopyPath),
-            {updateMetadata: false},
+        const persistedBeforeRotation = await readManagedPdfOpeningGeometry(
+            session.page,
+            workingCopyPath,
         );
+        expect(persistedBeforeRotation).not.toBeNull();
         const rotationDelta = resolveClockwiseRotationDelta(
-            persistedBeforeRotation.getPage(0).getRotation().angle,
+            persistedBeforeRotation?.rotation ?? 0,
             90,
         );
         if (rotationDelta !== 0) {
@@ -1066,8 +1080,11 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 )),
             ).resolves.toMatchObject({success: true});
         }
-        const rotatedPdf = await PDFDocument.load(await readFile(workingCopyPath), {updateMetadata: false});
-        expect(rotatedPdf.getPage(0).getRotation().angle).toBe(90);
+        const rotatedGeometry = await readManagedPdfOpeningGeometry(
+            session.page,
+            workingCopyPath,
+        );
+        expect(rotatedGeometry?.rotation).toBe(90);
 
         // Adjacent-page prefetch is opportunistic. Requiring page 2 to have a
         // canvas before navigation made this smoke wait forever whenever the
