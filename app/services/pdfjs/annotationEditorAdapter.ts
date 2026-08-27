@@ -345,6 +345,23 @@ export function getAnnotationStorageEditor(
     );
 }
 
+export function getAnnotationStorageRawValue(
+    pdfDocument: IPdfjsDocumentWithAnnotationStorage | null,
+    key: string,
+) {
+    const annotationStorage = pdfDocument?.annotationStorage;
+    if (!isRecord(annotationStorage)) {
+        return null;
+    }
+    const getRawValue = getOptionalFunction<[string]>(
+        annotationStorage,
+        'getRawValue',
+    );
+    return getRawValue
+        ? getRawValue.call(annotationStorage, key)
+        : null;
+}
+
 function setEditorCommentText(editor: IPdfjsEditor, text: string) {
     editor.comment = text;
 }

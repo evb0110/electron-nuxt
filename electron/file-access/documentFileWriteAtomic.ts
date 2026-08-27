@@ -3,6 +3,7 @@ import {
     realpathSync,
 } from 'fs';
 import {
+    link,
     open as openFileHandle,
     rename,
     unlink,
@@ -14,6 +15,7 @@ import {
     resolve,
 } from 'path';
 import { randomUUID } from 'crypto';
+import {performance} from 'node:perf_hooks';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import {copyFileCopyOnWrite} from '@electron/file-access/workingCopyDirectory';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
@@ -136,7 +138,14 @@ export async function writeFileAtomic(resolvedPath: string, payload: Uint8Array)
     }
 }
 
-export async function copyFileAtomic(resolvedSourcePath: string, resolvedTargetPath: string) {
+export async function copyFileAtomic(
+    resolvedSourcePath: string,
+    resolvedTargetPath: string,
+    options: {
+        durable?: boolean;
+        onPhase?: (phase: string, durationMs: number) => void;
+    } = {},
+) {
     assertNoSymlinkPathSegments(resolvedSourcePath);
     assertNoSymlinkPathSegments(resolvedTargetPath);
 
@@ -147,13 +156,102 @@ export async function copyFileAtomic(resolvedSourcePath: string, resolvedTargetP
     );
 
     try {
-        await copyFileCopyOnWrite(resolvedSourcePath, temporaryPath);
-        const handle = await openFileHandle(temporaryPath, 'r');
-        try {
-            await syncFileHandleForDurability(handle);
-        } finally {
-            await handle.close().catch(() => undefined);
+        await measureCopyPhase(options.onPhase, 'clone', () =>
+            copyFileCopyOnWrite(resolvedSourcePath, temporaryPath));
+        if (options.durable !== false) {
+            const handle = await openFileHandle(temporaryPath, 'r');
+            try {
+                await measureCopyPhase(options.onPhase, 'fsync-file', () =>
+                    syncFileHandleForDurability(handle));
+            } finally {
+                await handle.close().catch(() => undefined);
+            }
         }
+        assertNoSymlinkPathSegments(resolvedTargetPath);
+        await measureCopyPhase(options.onPhase, 'rename', () =>
+            rename(temporaryPath, resolvedTargetPath));
+        if (options.durable !== false) {
+            await measureCopyPhase(options.onPhase, 'fsync-directory', () =>
+                fsyncDirectoryBestEffort(directoryPath));
+        }
+    } catch (error) {
+        await unlink(temporaryPath).catch(() => undefined);
+        throw error;
+    }
+}
+
+async function measureCopyPhase<T>(
+    onPhase: ((phase: string, durationMs: number) => void) | undefined,
+    phase: string,
+    operation: () => Promise<T>,
+): Promise<T> {
+    const startedAt = performance.now();
+    try {
+        return await operation();
+    } finally {
+        onPhase?.(phase, Math.round((performance.now() - startedAt) * 10) / 10);
+    }
+}
+
+export async function linkOrCopyFileDurably(
+    resolvedSourcePath: string,
+    resolvedTargetPath: string,
+) {
+    assertNoSymlinkPathSegments(resolvedSourcePath);
+    assertNoSymlinkPathSegments(resolvedTargetPath);
+    try {
+        await link(resolvedSourcePath, resolvedTargetPath);
+        await fsyncDirectoryBestEffort(dirname(resolvedTargetPath));
+    } catch (error) {
+        const code = isErrnoException(error) && typeof error.code === 'string'
+            ? error.code
+            : undefined;
+        if (![
+            'EXDEV',
+            'ENOTSUP',
+            'EOPNOTSUPP',
+            'EPERM',
+        ].includes(code ?? '')) {
+            throw error;
+        }
+        await copyFileAtomic(resolvedSourcePath, resolvedTargetPath);
+    }
+}
+
+/**
+ * Publishes an already-fsynced immutable artifact without rewriting its bytes.
+ * A same-filesystem hard link preserves the durable inode; cross-device and
+ * unsupported filesystems fall back to the regular durable atomic copy.
+ */
+export async function publishImmutableFileAtomic(
+    resolvedSourcePath: string,
+    resolvedTargetPath: string,
+) {
+    assertNoSymlinkPathSegments(resolvedSourcePath);
+    assertNoSymlinkPathSegments(resolvedTargetPath);
+    const directoryPath = dirname(resolvedTargetPath);
+    const temporaryPath = join(
+        directoryPath,
+        `.${basename(resolvedTargetPath)}.${process.pid}.${randomUUID()}.tmp`,
+    );
+    try {
+        await link(resolvedSourcePath, temporaryPath);
+    } catch (error) {
+        const code = isErrnoException(error) && typeof error.code === 'string'
+            ? error.code
+            : undefined;
+        if (![
+            'EXDEV',
+            'ENOTSUP',
+            'EOPNOTSUPP',
+            'EPERM',
+        ].includes(code ?? '')) {
+            throw error;
+        }
+        return copyFileAtomic(resolvedSourcePath, resolvedTargetPath);
+    }
+
+    try {
         assertNoSymlinkPathSegments(resolvedTargetPath);
         await rename(temporaryPath, resolvedTargetPath);
         await fsyncDirectoryBestEffort(directoryPath);

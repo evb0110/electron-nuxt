@@ -11,6 +11,7 @@ import { isRecord } from '@contracts/runtimeGuards';
 interface IPdfConformanceWorkerData {
     filePath?: unknown;
     cancelGroup?: unknown;
+    markerEvidence?: unknown;
 }
 
 type TPdfConformanceWorkerResult =
@@ -55,9 +56,13 @@ async function runPdfConformanceWorker() {
             && currentWorkerData.cancelGroup.trim().length > 0
             ? currentWorkerData.cancelGroup.trim()
             : undefined;
+        const markerEvidence = currentWorkerData?.markerEvidence === 'structural-only'
+            ? 'structural-only'
+            : 'full';
         const data = await analyzePdfConformanceFileDirect(filePath, {
             signal: abortController.signal,
             ...(cancelGroup === undefined ? {} : {cancelGroup}),
+            markerEvidence,
         });
         const payload: TPdfConformanceWorkerResult = {
             type: 'result',

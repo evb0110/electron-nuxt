@@ -64,7 +64,9 @@ import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
+import { collectLivePdfJsAnnotationChangeIds } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import { useTextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
+import { usePdfAnnotationEditorLifecycle } from '@app/modules/pdf-viewer/runtime/sessions/usePdfAnnotationEditorLifecycle';
 
 
 export interface ICreatePdfAnnotationSessionOptions {
@@ -929,15 +931,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         options.emitAnnotationComments([]);
         options.emitAnnotationInventory(null);
     }
-    watch(documentSession.pdfDocument, (document, previousDocument) => {
-        if (previousDocument && !document) {
-            annotations.editor.destroyAnnotationEditor();
-            return;
-        }
-        if (document) {
-            annotations.editor.initAnnotationEditor();
-        }
-    }, { flush: 'sync' });
+    usePdfAnnotationEditorLifecycle({
+        pdfDocument: documentSession.pdfDocument,
+        viewerContainer: options.viewerContainer,
+        initialize: annotations.editor.initAnnotationEditor,
+        destroy: annotations.editor.destroyAnnotationEditor,
+    });
     const unsubscribeDocumentTransitions = documentSession.subscribe((transition) => {
         if (!transition.isCurrent()) {
             return;
@@ -1023,6 +1022,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             void annotationProjection.value;
             return annotationApplication.value.store.hasChangesSinceSavedBaseline();
         },
+        collectLiveAnnotationChanges: () => collectLivePdfJsAnnotationChangeIds(
+            documentSession.pdfDocument.value,
+            {annotationStore: annotationApplication.value.store},
+        ),
         getDeletedCanonicalAnnotationIds: () => Array.from(new Set(
             annotationApplication.value.store
                 .list({includeDeleted: true})

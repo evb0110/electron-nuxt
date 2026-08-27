@@ -12,6 +12,7 @@ use std::{
 
 const SPARSE_STREAM_BYTES: u64 = 900 * 1024 * 1024;
 const SPARSE_STREAM_COUNT: u32 = 6;
+const STRUCTURAL_LOADER_STREAM_BYTES: u64 = 513 * 1024 * 1024;
 
 struct TempFiles(Vec<PathBuf>);
 
@@ -88,6 +89,52 @@ fn write_sparse_five_gib_pdf(path: &Path) -> u64 {
     .unwrap();
     file.sync_all().unwrap();
     fs::metadata(path).unwrap().len()
+}
+
+fn write_sparse_structural_loader_pdf(path: &Path) -> u64 {
+    let mut file = File::create(path).unwrap();
+    file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
+    let mut offsets = Vec::new();
+    write_object(
+        &mut file,
+        &mut offsets,
+        b"1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n",
+    );
+    write_object(
+        &mut file,
+        &mut offsets,
+        b"2 0 obj\n<</Type/Pages/Kids[3 0 R]/Count 1>>\nendobj\n",
+    );
+    write_object(
+        &mut file,
+        &mut offsets,
+        b"3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]/Resources<<>>/Contents 4 0 R>>\nendobj\n",
+    );
+    offsets.push(file.stream_position().unwrap());
+    file.write_all(
+        format!("4 0 obj\n<</Length {STRUCTURAL_LOADER_STREAM_BYTES}>>\nstream\n").as_bytes(),
+    )
+    .unwrap();
+    file.seek(SeekFrom::Current(
+        i64::try_from(STRUCTURAL_LOADER_STREAM_BYTES).unwrap(),
+    ))
+    .unwrap();
+    file.write_all(b"\nendstream\nendobj\n").unwrap();
+
+    let xref_offset = file.stream_position().unwrap();
+    file.write_all(b"xref\n0 5\n0000000000 65535 f \n").unwrap();
+    for offset in offsets {
+        file.write_all(format!("{offset:010} 00000 n \n").as_bytes())
+            .unwrap();
+    }
+    file.write_all(
+        format!("trailer\n<</Size 5/Root 1 0 R>>\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes(),
+    )
+    .unwrap();
+    file.sync_all().unwrap();
+    let len = fs::metadata(path).unwrap().len();
+    assert!(len > 512 * 1024 * 1024);
+    len
 }
 
 fn write_sparse_ten_gib_xref_stream_pdf(path: &Path) -> u64 {
@@ -234,6 +281,47 @@ fn append_bookmark(pdf: &Path, mutations: &Path) -> Output {
         .args(["--modified-at", "D:20260826120000Z", "--append"])
         .output()
         .unwrap()
+}
+
+fn append_mutations(pdf: &Path, mutations: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["save-mutations", "--input"])
+        .arg(pdf)
+        .arg("--output")
+        .arg(pdf)
+        .arg("--mutations-file")
+        .arg(mutations)
+        .arg("--qpdf")
+        .arg(qpdf_path())
+        .args(["--modified-at", "D:20260827230000Z", "--append"])
+        .output()
+        .unwrap()
+}
+
+fn qpdf_object(pdf: &Path, object_number: u32) -> String {
+    let output = Command::new(qpdf_path())
+        .arg(format!("--show-object={object_number},0"))
+        .arg("--")
+        .arg(pdf)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "qpdf object read failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+fn pdf_utf16be_hex(value: &str) -> String {
+    let mut bytes = vec![0xfe, 0xff];
+    for code_unit in value.encode_utf16() {
+        bytes.extend_from_slice(&code_unit.to_be_bytes());
+    }
+    bytes
+        .into_iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn split_pages_to_new_path(pdf: &Path, output: &Path, instructions: &Path) -> Output {
@@ -467,6 +555,58 @@ fn appends_metadata_to_a_sparse_pdf_beyond_four_gib() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(fs::metadata(&pdf).unwrap().len() > original_len);
+    assert_qpdf_check(&pdf);
+}
+
+#[test]
+fn qpdf_structural_loader_resolves_repeated_native_mutations() {
+    let pdf = temp_path("structural-loader-repeated-mutations", "pdf");
+    let first_mutations = temp_path("structural-loader-first-mutations", "json");
+    let second_mutations = temp_path("structural-loader-second-mutations", "json");
+    let _cleanup = TempFiles(vec![
+        pdf.clone(),
+        first_mutations.clone(),
+        second_mutations.clone(),
+    ]);
+    write_sparse_structural_loader_pdf(&pdf);
+    fs::write(
+        &first_mutations,
+        br#"{"freeTextNotes":[{"pageIndex":0,"stableKey":"uid:0:first","text":"first text","markerRect":{"left":0.1,"top":0.2,"width":0.01,"height":0.01},"author":null,"color":null,"createdAt":1}]}"#,
+    )
+    .unwrap();
+
+    let first = append_mutations(&pdf, &first_mutations);
+    assert!(
+        first.status.success(),
+        "first append failed: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(qpdf_object(&pdf, 5)
+        .to_lowercase()
+        .contains(&pdf_utf16be_hex("first text")));
+
+    fs::write(
+        &second_mutations,
+        br#"{"updates":[{"objectNumber":5,"generationNumber":0,"text":"edited text"}],"freeTextNotes":[{"pageIndex":0,"stableKey":"uid:0:second","text":"second text","markerRect":{"left":0.3,"top":0.4,"width":0.01,"height":0.01},"author":null,"color":null,"createdAt":2}]}"#,
+    )
+    .unwrap();
+
+    let second = append_mutations(&pdf, &second_mutations);
+    assert!(
+        second.status.success(),
+        "second append failed: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let edited = qpdf_object(&pdf, 5);
+    assert!(
+        edited
+            .to_lowercase()
+            .contains(&pdf_utf16be_hex("edited text")),
+        "external reader resolved the prior annotation revision: {edited}"
+    );
+    assert!(qpdf_object(&pdf, 8)
+        .to_lowercase()
+        .contains(&pdf_utf16be_hex("second text")));
     assert_qpdf_check(&pdf);
 }
 

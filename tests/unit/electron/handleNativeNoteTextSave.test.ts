@@ -24,7 +24,6 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { createOriginalFileContentFingerprintSync } from '@electron/file-access/workingCopyOriginalFileExpectation';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 import {requireDocumentRevisionToken} from '@contracts';
 import {createNativeIncrementalMutationSemanticScopeSha256} from '@electron/features/documents/main/documentSaveUtilityProtocol';
@@ -41,6 +40,7 @@ const mocks = vi.hoisted(() => ({
     ensureWorkingCopyDirectory: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
     atomicReplace: vi.fn(),
+    publishImmutableFileAtomic: vi.fn(),
     copyFileCopyOnWrite: vi.fn(),
     assertWorkingCopyMutationAllowed: vi.fn(),
     assertWorkingCopyResyncAllowed: vi.fn(),
@@ -50,7 +50,7 @@ const mocks = vi.hoisted(() => ({
     markWorkingCopySyncRequired: vi.fn(),
     resolveManagedTempFileHandle: vi.fn(async (_context: unknown, handle: unknown) => handle),
     resolveTypedStagedArtifact: vi.fn(async (_context: unknown, artifact: unknown) => artifact),
-    createTypedStagedArtifact: vi.fn(),
+    createOpaqueNativePdfStagedArtifact: vi.fn(),
     createTypedStagedArtifactForTrustedSiblingCopy: vi.fn(),
     releaseManagedTempFileHandle: vi.fn((_context: unknown, _leaseId: string) => true),
     transitionOriginalAndWorkingCopyRevision: vi.fn(),
@@ -90,8 +90,10 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
+vi.mock('@electron/file-access/documentFileWriteAtomic', () => ({publishImmutableFileAtomic: (...args: [string, string]) => mocks.publishImmutableFileAtomic(...args)}));
 vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({
-    createTypedStagedArtifact: (...args: unknown[]) => mocks.createTypedStagedArtifact(...args),
+    createOpaqueNativePdfStagedArtifact: (...args: unknown[]) =>
+        mocks.createOpaqueNativePdfStagedArtifact(...args),
     createTypedStagedArtifactForTrustedSiblingCopy: (...args: unknown[]) =>
         mocks.createTypedStagedArtifactForTrustedSiblingCopy(...args),
     releaseManagedTempFileHandle: (context: unknown, leaseId: string) => mocks.releaseManagedTempFileHandle(context, leaseId),
@@ -110,12 +112,14 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 
 function createOriginalFileExpectationForTest(originalPath: string) {
-    const originalStat = statSync(originalPath);
-    const contentFingerprint = createOriginalFileContentFingerprintSync(originalPath, originalStat.size);
+    const originalStat = statSync(originalPath, {bigint: true});
     return {
-        contentFingerprint,
-        mtimeMs: originalStat.mtimeMs,
-        size: originalStat.size,
+        deviceId: originalStat.dev.toString(),
+        inode: originalStat.ino.toString(),
+        mtimeNs: originalStat.mtimeNs.toString(),
+        ctimeNs: originalStat.ctimeNs.toString(),
+        mtimeMs: Number(originalStat.mtimeNs) / 1_000_000,
+        size: Number(originalStat.size),
     };
 }
 
@@ -235,8 +239,9 @@ describe('handleNativeNoteTextSave', () => {
     }
 
     beforeEach(() => {
-        vi.clearAllMocks();
+        vi.resetAllMocks();
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-native-note-save-test-'));
+        mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.tmp`);
         mocks.isNativePageOpsDisabled.mockReturnValue(false);
         mocks.resolveNativePageOpsPath.mockReturnValue('/native/evb-pdf-page-ops');
         mocks.getPdfNativeToolPaths.mockReturnValue({qpdf: '/native/qpdf'});
@@ -278,7 +283,10 @@ describe('handleNativeNoteTextSave', () => {
             await copyFile(sourcePath, targetPath);
             await unlink(sourcePath).catch(() => undefined);
         });
-        mocks.createTypedStagedArtifact.mockImplementation(async (
+        mocks.publishImmutableFileAtomic.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            await copyFile(sourcePath, targetPath);
+        });
+        mocks.createOpaqueNativePdfStagedArtifact.mockImplementation(async (
             _context: unknown,
             path: string,
             validations: {
@@ -288,16 +296,14 @@ describe('handleNativeNoteTextSave', () => {
                 fsynced: boolean;
                 semanticScopeSha256?: string;
             },
-            options?: ITestTypedStagedArtifactOptions,
+            _options?: ITestTypedStagedArtifactOptions,
         ) => {
             const bytes = await readFile(path);
             return {
-                receiptVersion: 1,
+                receiptVersion: 2,
                 artifactKind: 'pdf',
                 path,
-                size: options?.trustedFingerprint?.bytes ?? bytes.byteLength,
-                sha256: options?.trustedFingerprint?.sha256
-                    ?? createHash('sha256').update(bytes).digest('hex'),
+                size: bytes.byteLength,
                 fileIdentity: {
                     platform: 'posix',
                     deviceId: '1',
@@ -311,7 +317,7 @@ describe('handleNativeNoteTextSave', () => {
             };
         });
         mocks.createTypedStagedArtifactForTrustedSiblingCopy.mockImplementation(async (
-            callContext: unknown,
+            _callContext: unknown,
             sourceArtifact: ITestTypedStagedArtifactSource,
             path: string,
             _originalPath: string,
@@ -322,15 +328,12 @@ describe('handleNativeNoteTextSave', () => {
                 fsynced: boolean;
                 semanticScopeSha256?: string;
             },
-        ) => mocks.createTypedStagedArtifact(
-            callContext,
+        ) => ({
+            ...sourceArtifact,
+            receiptVersion: 1 as const,
             path,
             validations,
-            {trustedFingerprint: {
-                bytes: sourceArtifact.size,
-                sha256: sourceArtifact.sha256,
-            }},
-        ));
+        }));
         mocks.fingerprintFileWithUtilityProcess.mockImplementation(async (path: string) => {
             const bytes = await readFile(path);
             return {
@@ -437,7 +440,7 @@ describe('handleNativeNoteTextSave', () => {
             }),
         );
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
-        expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, requestedWorkingPath);
+        expect(mocks.copyFileCopyOnWrite).not.toHaveBeenCalledWith(originalPath, requestedWorkingPath);
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native incremental update');
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
@@ -484,12 +487,7 @@ describe('handleNativeNoteTextSave', () => {
         mocks.runNativeToolCommand.mockImplementation(async () => {
             await appendFile(tempPath, '\n% native incremental update');
         });
-        mocks.copyFileCopyOnWrite.mockImplementation(async (sourcePath: string, targetPath: string) => {
-            if (sourcePath === originalPath && targetPath === requestedWorkingPath) {
-                throw new Error('sync failed');
-            }
-            await copyFile(sourcePath, targetPath);
-        });
+        mocks.refreshWorkingCopyOriginalFileExpectation.mockRejectedValueOnce(new Error('sync failed'));
         const { handleNativeNoteTextSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
         const result = await handleNativeNoteTextSave(context, requestedWorkingPath, [{
@@ -625,7 +623,7 @@ describe('handleNativeNoteTextSave', () => {
             expect.objectContaining({commandLabel: 'evb-pdf-page-ops(save-note-changes)'}),
         );
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
-        expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, requestedWorkingPath);
+        expect(mocks.copyFileCopyOnWrite).not.toHaveBeenCalledWith(originalPath, requestedWorkingPath);
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native note changes');
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
@@ -849,7 +847,7 @@ describe('handleNativeNoteTextSave', () => {
             expect.objectContaining({commandLabel: 'evb-pdf-page-ops(save-mutations)'}),
         );
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
-        expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, requestedWorkingPath);
+        expect(mocks.copyFileCopyOnWrite).not.toHaveBeenCalledWith(originalPath, requestedWorkingPath);
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native metadata changes');
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
@@ -876,7 +874,7 @@ describe('handleNativeNoteTextSave', () => {
         }], 'D:20260609133855+03\'00\'', revisionOptions);
         await expect(savePromise).resolves.toMatchObject({applied: true});
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
-        expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledWith(originalPath, requestedWorkingPath);
+        expect(mocks.copyFileCopyOnWrite).not.toHaveBeenCalledWith(originalPath, requestedWorkingPath);
         expect(mocks.copyFileCopyOnWrite).not.toHaveBeenCalledWith(originalPath, latestWorkingPath);
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native incremental update');
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
@@ -1035,26 +1033,14 @@ describe('handleNativeNoteTextSave', () => {
         expect(readFileSyncUtf8(workingPath)).toContain('% staged mutation');
         expect(readFileSyncUtf8(originalPath)).toContain('% staged mutation');
         expect(mocks.transitionOriginalAndWorkingCopyRevision).toHaveBeenCalledOnce();
-        expect(mocks.commitPdfTempFile).toHaveBeenCalledWith(
-            expect.stringContaining('staged-original.pdf.tmp'),
-            originalPath,
-            {
-                changedObjectRefs: ['44 0 R'],
-                receipt: {
-                    artifact: expect.objectContaining({
-                        leaseId: 'staged-native-output-copy',
-                        validations: expect.objectContaining({
-                            tailCheck: true,
-                            semanticCheck: true,
-                            fsynced: false,
-                        }),
-                    }),
-                    context,
-                },
-            },
-        );
+        expect(mocks.resolveTypedStagedArtifact).toHaveBeenCalledTimes(2);
+        expect(mocks.publishImmutableFileAtomic).toHaveBeenCalledWith(staged.stagedOutput.path, originalPath);
+        expect(mocks.commitPdfTempFile).not.toHaveBeenCalled();
         expect(mocks.releaseManagedTempFileHandle).toHaveBeenCalledWith(context, 'staged-native-output');
-        expect(mocks.releaseManagedTempFileHandle).toHaveBeenCalledWith(context, 'staged-native-output-copy');
+        expect(mocks.releaseManagedTempFileHandle).toHaveBeenCalledTimes(1);
+        expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledTimes(2);
+        expect(mocks.releaseManagedTempFileHandle.mock.invocationCallOrder[0])
+            .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[1]!);
     });
 
     it('rejects shared native mutation limit violations before native execution', async () => {

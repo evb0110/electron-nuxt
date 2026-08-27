@@ -50,7 +50,8 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     const savedAnnotationStorageFingerprintPreservesLiveSession = ref(false);
 
     function captureAnnotationStorageFingerprint() {
-        return collectLivePdfJsAnnotationChangeFingerprint(pdfDocument.value);
+        return pdfViewerRef.value?.collectLiveAnnotationChanges?.().fingerprint
+            ?? collectLivePdfJsAnnotationChangeFingerprint(pdfDocument.value);
     }
 
     function clearAnnotationChanges() {
@@ -71,6 +72,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
 
     function hasLivePdfJsAnnotationChanges() {
         return detectLivePdfJsAnnotationChanges({
+            pdfViewerRef,
             pdfDocument,
             savedAnnotationStorageFingerprint,
         });

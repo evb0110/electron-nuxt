@@ -112,6 +112,41 @@ describe('hasAnnotationChanges', () => {
         expect(result).toBe(true);
     });
 
+    it('uses the viewer-bound canonical collector for a clean persisted comment anchor', () => {
+        const pdfDocument = {annotationStorage: {
+            modifiedIds: {ids: new Set()},
+            serializable: {map: new Map([[
+                'pdfjs_internal_editor_0',
+                {
+                    annotationType: 3,
+                    value: '\u200B',
+                    popup: {
+                        contents: 'saved note',
+                        deleted: false,
+                    },
+                },
+            ]])},
+        }} as Partial<PDFDocumentProxy> as PDFDocumentProxy;
+
+        const result = hasAnnotationChanges({
+            pdfViewerRef: ref({
+                collectLiveAnnotationChanges: () => ({
+                    ids: new Set<string>(),
+                    replayableEditorNoteIds: new Set<string>(),
+                    nativeFreeTextEditors: new Map(),
+                    hasChanges: false,
+                    hasUnknownChanges: false,
+                    fingerprint: 'empty',
+                }),
+                getAllShapes: () => [],
+                runSaveTransaction: vi.fn(),
+            }),
+            pdfDocument: shallowRef(pdfDocument),
+        });
+
+        expect(result).toBe(false);
+    });
+
     it('returns true when annotation storage access fails', () => {
         const throwingDocument = {} as Partial<PDFDocumentProxy> as PDFDocumentProxy;
         Object.defineProperty(throwingDocument, 'annotationStorage', {get: () => {

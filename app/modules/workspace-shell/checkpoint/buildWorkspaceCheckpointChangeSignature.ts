@@ -26,11 +26,26 @@ export interface IWorkspaceCheckpointChangeSignature {
 function buildTabSignature(
     tab: ITab,
     paneId: string | null,
-    mounted: boolean,
+    workspace: IWorkspaceExpose | null,
     record: IWorkspaceDocumentRecord | undefined,
 ) {
     const toolbar = record?.toolbarSnapshot ?? null;
     const identity = record?.documentIdentity ?? null;
+    let workspaceDocumentRefs: readonly [unknown, unknown, boolean] = [
+        null,
+        null,
+        false,
+    ];
+    try {
+        const state = workspace?.getAutomationStateSnapshot();
+        workspaceDocumentRefs = [
+            state?.originalPath ?? null,
+            state?.workingCopyPath ?? null,
+            state?.requiresSaveAsOnFirstSave ?? false,
+        ];
+    } catch {
+        // A deferred workspace can be mounted before its real expose is ready.
+    }
     return JSON.stringify([
         tab.id,
         paneId,
@@ -38,7 +53,8 @@ function buildTabSignature(
         tab.originalPath,
         tab.isDirty,
         tab.isDjvu,
-        mounted,
+        workspace !== null,
+        ...workspaceDocumentRefs,
         record?.tab.fileName ?? null,
         record?.tab.originalPath ?? null,
         identity?.token ?? null,
@@ -71,7 +87,7 @@ export function buildWorkspaceCheckpointChangeSignature(
         buildTabSignature(
             tab,
             options.getPaneByTabId(tab.id)?.paneId ?? null,
-            mountedWorkspaces.has(tab.id),
+            mountedWorkspaces.get(tab.id) ?? null,
             records[tab.id],
         ),
     ]));

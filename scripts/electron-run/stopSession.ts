@@ -33,6 +33,7 @@ import {
     sessionDir,
     sessionFilePath,
     sessionKeepNuxtMarkerPath,
+    sessionPreserveWorkspaceCheckpointMarkerPath,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import type { ISessionInfo } from '@scripts/electron-run/electronRunSessionTypes';
 import { sendCommandToSession } from '@scripts/electron-run/sendCommand';
@@ -127,7 +128,7 @@ async function stopSessionController(info: ISessionInfo, name: string, keepNuxt?
     return true;
 }
 
-async function stopSessionElectron(info: ISessionInfo, name: string) {
+async function stopSessionElectron(info: ISessionInfo, name: string, force = false) {
     const expectation = {
         kind: 'electron',
         sessionName: name,
@@ -137,7 +138,28 @@ async function stopSessionElectron(info: ISessionInfo, name: string) {
     if (info.electronPid) {
         candidates.add(info.electronPid);
     }
-    const result = await killVerifiedSessionProcesses(candidates, expectation, 800);
+    let terminated = 0;
+    let refused = 0;
+    for (const pid of candidates) {
+        if (!isProcessAlive(pid)) {
+            continue;
+        }
+        const didTerminate = await killVerifiedSessionProcess({
+            pid,
+            expectation,
+            graceMs: 800,
+            force,
+        });
+        if (didTerminate) {
+            terminated += 1;
+        } else if (isProcessAlive(pid)) {
+            refused += 1;
+        }
+    }
+    const result = {
+        terminated,
+        refused,
+    };
     return result.refused === 0;
 }
 
@@ -167,6 +189,7 @@ async function stopNuxtForSessionInfo(info: ISessionInfo, name: string, keepNuxt
 function removeSessionStopFiles(name: string) {
     try { unlinkSync(sessionFilePath(name)); } catch {}
     try { unlinkSync(sessionKeepNuxtMarkerPath(name)); } catch {}
+    try { unlinkSync(sessionPreserveWorkspaceCheckpointMarkerPath(name)); } catch {}
 }
 
 async function killOrphanedSessionElectron(name: string) {
@@ -184,7 +207,15 @@ function retainSessionStopArtifacts(name: string, info: ISessionInfo) {
     writeFileSync(sessionFilePath(name), JSON.stringify(info));
 }
 
-export async function stopSingleSession(name: string, options: {keepNuxt?: boolean} = {}) {
+export async function stopSingleSession(
+    name: string,
+    options: {
+        keepNuxt?: boolean;
+        preserveWorkspaceCheckpoint?: boolean;
+        crashElectronBeforeStop?: boolean;
+    } = {},
+) {
+    const preserveWorkspaceCheckpoint = options.preserveWorkspaceCheckpoint === true;
     const info = getSessionInfo(name);
     const starting = getSessionStartingInfo(name);
     if (!info && !starting) {
@@ -200,13 +231,25 @@ export async function stopSingleSession(name: string, options: {keepNuxt?: boole
         } else {
             console.log(`No session '${name}' running.`);
         }
-        clearAutomationWorkspaceCrashCheckpoint(name);
+        if (!preserveWorkspaceCheckpoint) {
+            clearAutomationWorkspaceCrashCheckpoint(name);
+        }
         return;
     }
     if (info) {
+        if (preserveWorkspaceCheckpoint) {
+            mkdirSync(sessionDir(name), {recursive: true});
+            writeFileSync(sessionPreserveWorkspaceCheckpointMarkerPath(name), String(Date.now()));
+        }
+        const electronStoppedByCrash = options.crashElectronBeforeStop === true
+            ? await stopSessionElectron(info, name, true)
+            : null;
         const outcomes = [
+            electronStoppedByCrash ?? true,
             await stopSessionController(info, name, options.keepNuxt),
-            await stopSessionElectron(info, name),
+            electronStoppedByCrash === null
+                ? await stopSessionElectron(info, name)
+                : true,
             await stopNuxtForSessionInfo(info, name, options.keepNuxt),
         ];
         if (!shouldRemoveSessionStopArtifacts(outcomes)) {
@@ -215,7 +258,9 @@ export async function stopSingleSession(name: string, options: {keepNuxt?: boole
                 `Session '${name}' stop was refused: a process identity did not match session ownership, or the process outlived termination; session artifacts were retained.`,
             );
         }
-        clearAutomationWorkspaceCrashCheckpoint(name);
+        if (!preserveWorkspaceCheckpoint) {
+            clearAutomationWorkspaceCrashCheckpoint(name);
+        }
         removeSessionStopFiles(name);
     }
     if (starting?.pid && isProcessAlive(starting.pid)) {
@@ -238,7 +283,9 @@ export async function stopSingleSession(name: string, options: {keepNuxt?: boole
     }
     await cleanupSessionStartingAttempt(name, {killNuxt: options.keepNuxt !== true});
     clearSessionStarting(name);
-    clearAutomationWorkspaceCrashCheckpoint(name);
+    if (!preserveWorkspaceCheckpoint) {
+        clearAutomationWorkspaceCrashCheckpoint(name);
+    }
     console.log(`Session '${name}' stopped.`);
 }
 

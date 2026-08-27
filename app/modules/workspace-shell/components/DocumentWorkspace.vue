@@ -989,6 +989,7 @@ const {
 } = createDocumentWorkspaceAutomationHandlers({
     getContext: () => ({
         currentPage: currentPage.value,
+        documentRevisionToken: documentRevisionToken.value,
         path: originalPath.value ?? workingCopyPath.value,
         tabId,
         totalPages: totalPages.value,

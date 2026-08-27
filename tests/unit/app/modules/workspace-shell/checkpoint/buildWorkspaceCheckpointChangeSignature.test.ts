@@ -163,6 +163,32 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
         expect(afterTokenChange.tabSignatures.get('tab-a')).not.toBe(after.tabSignatures.get('tab-a'));
     });
 
+    it('tracks live document refs owned by a mounted workspace', () => {
+        const options = createSignatureOptions();
+        let originalPath: TDocumentRef | null = null;
+        const workspace = {} as IWorkspaceExpose;
+        workspace.getAutomationStateSnapshot = () => ({
+            annotationComments: [],
+            annotationCommentsStatus: 'ready',
+            annotationInventory: null,
+            annotationDirty: false,
+            originalPath,
+            sortedAnnotationNoteWindows: [],
+            workingCopyPath: null,
+        });
+        options.workspaceRefs.value = new Map([[
+            'tab-a',
+            workspace,
+        ]]);
+        const before = buildWorkspaceCheckpointChangeSignature(options);
+
+        originalPath = '/restored.pdf' as TDocumentRef;
+        const after = buildWorkspaceCheckpointChangeSignature(options);
+
+        expect(after.tabSignatures.get('tab-a')).not.toBe(before.tabSignatures.get('tab-a'));
+        expect(after.workspace).not.toBe(before.workspace);
+    });
+
     it('changes the workspace signature for workspace-only state', () => {
         const options = createSignatureOptions();
         const before = buildWorkspaceCheckpointChangeSignature(options);

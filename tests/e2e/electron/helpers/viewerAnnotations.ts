@@ -192,6 +192,14 @@ export async function getFreeTextEditorCount(page: Page) {
     });
 }
 
+async function getOrdinaryFreeTextEditorCount(page: Page) {
+    return page.evaluate(() => {
+        const selector = '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)';
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost(selector);
+        return host?.querySelectorAll(selector).length ?? 0;
+    });
+}
+
 export async function getHighlightEditorCount(page: Page) {
     return page.evaluate(() => {
         const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
@@ -536,6 +544,13 @@ export async function collectStickyNoteDebugState(page: Page) {
                 ?? unwrap(setupState['annotationNoteWindows'])
             )
             : null;
+        const pdfDocument = setupState
+            ? unwrap(setupState['pdfDocument']) as {annotationStorage?: {
+                modifiedIds?: {ids?: Set<unknown>;};
+                serializable?: {map?: Map<unknown, unknown>;};
+            };} | null | undefined
+            : null;
+        const serializableMap = pdfDocument?.annotationStorage?.serializable?.map;
 
         return {
             comments,
@@ -575,6 +590,18 @@ export async function collectStickyNoteDebugState(page: Page) {
                     };
                 })
                 : null,
+            annotationStorage: {
+                modifiedIds: Array.from(pdfDocument?.annotationStorage?.modifiedIds?.ids ?? []).map(String),
+                serializableEntries: serializableMap instanceof Map
+                    ? Array.from(serializableMap.entries()).map(([
+                        key,
+                        value,
+                    ]) => ({
+                        key: String(key),
+                        value,
+                    }))
+                    : [],
+            },
         };
     });
     return {
@@ -595,7 +622,7 @@ async function resolveAnnotationLayerPoint(
 ) {
     await waitForViewerInteractive(page);
 
-    return page.evaluate(({
+    return page.evaluate(async ({
         xRatio,
         yRatio,
         targetPageNumber,
@@ -615,14 +642,45 @@ async function resolveAnnotationLayerPoint(
             return null;
         }
 
-        const rect = target.getBoundingClientRect();
+        let rect = target.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) {
             return null;
         }
 
+        let hostRect = host.getBoundingClientRect();
+        const getVisibleBounds = () => ({
+            left: Math.max(rect.left, hostRect.left, 0) + 24,
+            right: Math.min(rect.right, hostRect.right, window.innerWidth) - 24,
+            top: Math.max(rect.top, hostRect.top, 0) + 24,
+            bottom: Math.min(rect.bottom, hostRect.bottom, window.innerHeight) - 24,
+        });
+        let bounds = getVisibleBounds();
+        if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
+            pageContainer?.scrollIntoView({
+                block: 'center',
+                inline: 'center',
+            });
+            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            rect = target.getBoundingClientRect();
+            hostRect = host.getBoundingClientRect();
+            bounds = getVisibleBounds();
+        }
+        const {
+            bottom,
+            left,
+            right,
+            top,
+        } = bounds;
+        if (right <= left || bottom <= top) {
+            return null;
+        }
+        const clamp = (value: number, min: number, max: number) => (
+            Math.min(Math.max(value, min), max)
+        );
+
         return {
-            x: Math.round(rect.left + rect.width * xRatio),
-            y: Math.round(rect.top + rect.height * yRatio),
+            x: Math.round(clamp(rect.left + rect.width * xRatio, left, right)),
+            y: Math.round(clamp(rect.top + rect.height * yRatio, top, bottom)),
         };
     }, {
         xRatio: ratio.x,
@@ -837,7 +895,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     x: number;
     y: number;
 }, pageNumber?: number) {
-    const before = await getFreeTextEditorCount(page);
+    const before = await getOrdinaryFreeTextEditorCount(page);
     const targetRatio = position ?? {
         x: 0.4,
         y: 0.3,
@@ -882,11 +940,12 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                     );
                 });
             const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
+            const selector = '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)';
+            const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(selector));
             const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
                 ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
                 ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
+            const editors = Array.from(host?.querySelectorAll<HTMLElement>(selector) ?? []);
             const createdEditor = editors.length > minCount ? editors[editors.length - 1] : null;
             const createdEditable = createdEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
                 ?? createdEditor;
@@ -899,7 +958,10 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
             }
 
             const targetLayer = host?.querySelector<HTMLElement>('.annotationEditorLayer.freetextEditing, .annotation-editor-layer.freetextEditing');
-            const activeEditor = targetLayer?.querySelector<HTMLElement>('.freeTextEditor .internal[contenteditable="true"], .freeTextEditor [contenteditable="true"]');
+            const activeEditor = targetLayer?.querySelector<HTMLElement>(
+                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor) .internal[contenteditable="true"], '
+                + '.freeTextEditor:not(.pdf-comment-marker-anchor-editor) [contenteditable="true"]',
+            );
             if (!activeEditor) {
                 return false;
             }
@@ -973,7 +1035,9 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     // Prevent PDF.js from auto-removing the empty editor before we can type
     // into it. Mirrors useAnnotationHighlight.ts:1082-1087.
     await page.evaluate(() => {
-        const editors = Array.from(document.querySelectorAll<HTMLElement>('.freeTextEditor'));
+        const editors = Array.from(document.querySelectorAll<HTMLElement>(
+            '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+        ));
         const latest = editors[editors.length - 1];
         const editable = latest?.querySelector<HTMLElement>('[contenteditable], .internal') ?? latest;
         if (editable) {
@@ -995,11 +1059,12 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
+        const selector = '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)';
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(selector));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
             ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
             ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
+        const editors = Array.from(host?.querySelectorAll<HTMLElement>(selector) ?? [])
             .filter((editor) => {
                 const rect = editor.getBoundingClientRect();
                 return rect.width > 0 && rect.height > 0;
@@ -1037,11 +1102,12 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
+        const selector = '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)';
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(selector));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
             ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
             ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
+        const editors = Array.from(host?.querySelectorAll<HTMLElement>(selector) ?? [])
             .filter((editor) => {
                 const rect = editor.getBoundingClientRect();
                 return rect.width > 0 && rect.height > 0;
@@ -1079,11 +1145,12 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                     );
                 });
             const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
+            const selector = '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)';
+            const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(selector));
             const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
                 ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
                 ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
+            const editors = Array.from(host?.querySelectorAll<HTMLElement>(selector) ?? []);
             const latestEditor = editors[editors.length - 1];
             const editable = latestEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
                 ?? latestEditor
@@ -1109,11 +1176,12 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
+        const selector = '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)';
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(selector));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
             ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
             ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
+        const editors = Array.from(host?.querySelectorAll<HTMLElement>(selector) ?? []);
         const latestEditor = editors[editors.length - 1];
         const editable = latestEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
             ?? latestEditor
@@ -1182,6 +1250,215 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     await page.keyboard.press('Tab');
 
     return getFreeTextEditorCount(page);
+}
+
+/**
+ * Creates and commits a FreeText editor through the same pointer and keyboard
+ * path a user takes. This helper has no DOM-event, content injection, or
+ * keyboard-creation fallback, so it is suitable for persistence acceptance.
+ */
+export async function createFreeTextAnnotationWithPointer(
+    page: Page,
+    text: string,
+    position: {
+        x: number;
+        y: number
+    },
+    pageNumber?: number,
+) {
+    const before = await getOrdinaryFreeTextEditorCount(page);
+    if (await getActiveToolLabel(page) !== 'text') {
+        await clickAnnotationTool(page, 'Text', 30_000);
+    } else {
+        await openAnnotationsTab(page, 30_000);
+        await waitForViewerInteractive(page, 30_000);
+    }
+    await waitForAnnotationEditorMode(page, 'freetextEditing', 30_000, pageNumber);
+
+    const point = await page.evaluate(async ({
+        targetPageNumber,
+        xRatio,
+        yRatio,
+    }) => {
+        const selector = targetPageNumber
+            ? `.page_container[data-page="${targetPageNumber}"]`
+            : '.page_container--rendered, .page_container';
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost(selector);
+        const pageContainer = host?.querySelector<HTMLElement>(selector) ?? null;
+        if (!host || !pageContainer) {
+            return null;
+        }
+        pageContainer.scrollIntoView({
+            block: 'center',
+            inline: 'center',
+        });
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        const rect = pageContainer.getBoundingClientRect();
+        const hostRect = host.getBoundingClientRect();
+        const left = Math.max(rect.left, hostRect.left, 0) + 24;
+        const right = Math.min(rect.right, hostRect.right, window.innerWidth) - 24;
+        const top = Math.max(rect.top, hostRect.top, 0) + 24;
+        const bottom = Math.min(rect.bottom, hostRect.bottom, window.innerHeight) - 24;
+        if (right <= left || bottom <= top) {
+            return null;
+        }
+        const clamp = (value: number, min: number, max: number) => (
+            Math.min(Math.max(value, min), max)
+        );
+        return {
+            x: Math.round(clamp(rect.left + rect.width * xRatio, left, right)),
+            y: Math.round(clamp(rect.top + rect.height * yRatio, top, bottom)),
+        };
+    }, {
+        targetPageNumber: pageNumber ?? null,
+        xRatio: position.x,
+        yRatio: position.y,
+    });
+    if (!point) {
+        throw new Error('Strict FreeText creation could not resolve the annotation editor layer');
+    }
+    await page.mouse.click(point.x, point.y);
+
+    await page.waitForFunction((minimumCount: number) => {
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        const editors = Array.from(host?.querySelectorAll<HTMLElement>(
+            '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+        ) ?? []);
+        if (editors.length <= minimumCount) {
+            return false;
+        }
+        const editor = editors[editors.length - 1];
+        const editable = editor?.querySelector<HTMLElement>('[contenteditable="true"], .internal[contenteditable="true"]');
+        return Boolean(editable && (editable === document.activeElement || editable.contains(document.activeElement)));
+    }, {timeout: 10_000}, before);
+
+    await page.keyboard.type(text, {delay: 10});
+    await page.waitForFunction((expectedText: string) => {
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        const editors = Array.from(host?.querySelectorAll<HTMLElement>(
+            '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+        ) ?? []);
+        const latest = editors[editors.length - 1];
+        return (latest?.textContent ?? '').replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText;
+    }, {timeout: 10_000}, text);
+    await page.keyboard.press('Escape');
+
+    return getOrdinaryFreeTextEditorCount(page);
+}
+
+/**
+ * Creates a page note through the visible annotations sidebar control, a real
+ * page click, and keyboard input. It deliberately has no command-surface or
+ * DOM-event fallback so restart persistence tests exercise the product path.
+ */
+export async function createStickyNoteWithPointer(
+    page: Page,
+    text: string,
+    position: {
+        x: number;
+        y: number
+    },
+    pageNumber?: number,
+) {
+    await openAnnotationsTab(page, 30_000);
+    await waitForViewerInteractive(page, 30_000);
+
+    const buttons = await page.$$('.editor-pane.is-active .workspace-host .notes-list-header .notes-header-btn');
+    let placeNoteButton: (typeof buttons)[number] | null = null;
+    for (const button of buttons) {
+        const isPlaceNote = await button.evaluate((candidate) => {
+            const label = (candidate.getAttribute('aria-label') ?? '').trim().toLowerCase();
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return (
+                !candidate.hasAttribute('disabled')
+                && (label.startsWith('place note') || label.includes('place note on page'))
+                && style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && rect.width > 0
+                && rect.height > 0
+            );
+        });
+        if (isPlaceNote) {
+            placeNoteButton = button;
+            break;
+        }
+    }
+    if (!placeNoteButton) {
+        throw new Error('Visible Place note control was not available');
+    }
+
+    const point = await page.evaluate(({
+        targetPageNumber,
+        xRatio,
+        yRatio,
+    }) => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((host) => {
+                const rect = host.getBoundingClientRect();
+                const style = window.getComputedStyle(host);
+                return (
+                    rect.width > 100
+                    && rect.height > 100
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const host = activeHost && visibleHosts.includes(activeHost)
+            ? activeHost
+            : (visibleHosts[0] ?? null);
+        const pageSelector = targetPageNumber
+            ? `.page_container[data-page="${targetPageNumber}"]`
+            : '.page_container--rendered, .page_container';
+        const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
+        if (!host || !pageContainer) {
+            return null;
+        }
+        const rect = pageContainer.getBoundingClientRect();
+        const hostRect = host.getBoundingClientRect();
+        const left = Math.max(rect.left, hostRect.left, 0) + 24;
+        const right = Math.min(rect.right, hostRect.right, window.innerWidth) - 24;
+        const top = Math.max(rect.top, hostRect.top, 0) + 24;
+        const bottom = Math.min(rect.bottom, hostRect.bottom, window.innerHeight) - 24;
+        if (right <= left || bottom <= top) {
+            return null;
+        }
+        const clamp = (value: number, min: number, max: number) => (
+            Math.min(Math.max(value, min), max)
+        );
+        return {
+            x: Math.round(clamp(rect.left + rect.width * xRatio, left, right)),
+            y: Math.round(clamp(rect.top + rect.height * yRatio, top, bottom)),
+        };
+    }, {
+        targetPageNumber: pageNumber ?? null,
+        xRatio: position.x,
+        yRatio: position.y,
+    });
+    if (!point) {
+        throw new Error('Sticky-note creation could not resolve a visible page point');
+    }
+    await placeNoteButton.click();
+    await page.mouse.click(point.x, point.y);
+
+    const textarea = await page.waitForSelector(
+        'textarea.note-window__textarea',
+        {
+            timeout: 10_000,
+            visible: true,
+        },
+    );
+    if (!textarea) {
+        throw new Error('Sticky-note placement did not open the note editor');
+    }
+    await textarea.click();
+    await page.keyboard.type(text, {delay: 10});
+    await page.waitForFunction((expectedText: string) => (
+        Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'))
+            .some(candidate => candidate.value === expectedText)
+    ), {timeout: 10_000}, text);
+    await page.keyboard.press('Tab');
 }
 
 interface IAnnotationUndoBoundarySample {

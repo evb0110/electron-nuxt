@@ -732,7 +732,6 @@ describe('workspaceSaveService native persistence', () => {
         await vi.waitFor(() => {
             expect(deps.isSaving.value).toBe(false);
         });
-        await expect(handleSave()).resolves.toBe(false);
         expect(deps.saveFile).toHaveBeenCalledOnce();
         expect(resetModified).not.toHaveBeenCalled();
         expectWorkspaceSaveNotMarked(deps);
@@ -1095,7 +1094,7 @@ describe('workspaceSaveService native persistence', () => {
         }
     });
 
-    it('blocks same-tick duplicate save calls before note persistence awaits', async () => {
+    it('queues a second save until the first save has acknowledged its frontier', async () => {
         const deferredNotes = createDeferred<boolean>();
         const { deps } = createDeps({
             annotationNoteWindowsCount: ref(1),
@@ -1104,16 +1103,18 @@ describe('workspaceSaveService native persistence', () => {
         const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const firstSave = handleSave();
-        const secondSave = await handleSave();
+        const secondSave = handleSave();
 
-        expect(secondSave).toBe(false);
+        await Promise.resolve();
         expect(deps.persistAllAnnotationNotes).toHaveBeenCalledOnce();
         expect(deps.isSaving.value).toBe(true);
 
         deferredNotes.resolve(true);
-        await firstSave;
+        await expect(firstSave).resolves.toBe(true);
+        await expect(secondSave).resolves.toBe(true);
 
         expect(deps.isSaving.value).toBe(false);
+        expect(deps.persistAllAnnotationNotes).toHaveBeenCalledTimes(2);
     });
 
     it('surfaces a toast when PDF.js saveDocument returns no data repeatedly', async () => {

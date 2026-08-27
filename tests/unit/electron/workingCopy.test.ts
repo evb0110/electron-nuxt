@@ -140,6 +140,71 @@ describe('workingCopy', () => {
         expect(getWorkingCopyMaterializationFlightCountForTests()).toBe(0);
     });
 
+    it('registers an original-file witness for every mapped working-copy creation route', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
+        const {
+            createWorkingCopy,
+            createWorkingCopyFromData,
+            createWorkingCopyFromPath,
+        } = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {
+            getWorkingCopyOriginalFileExpectation,
+            getWorkingCopyRole,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {originalPathSaveBaseMatches} = await import(
+            '@electron/features/documents/main/originalPathSaveBaseMatches'
+        );
+        const originalPath = join(tempRoot, 'witness-original.pdf');
+        const originalBytes = Buffer.from('%PDF-1.7\noriginal witness\n');
+        writeFileSync(originalPath, originalBytes);
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+
+        const clonedWorkingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+        const copiedWorkingPath = await createWorkingCopyFromPath(
+            trustedOriginalPath!,
+            originalPath,
+            8,
+        );
+        const dataWorkingPath = await createWorkingCopyFromData(
+            'witness-original.pdf',
+            originalBytes,
+            originalPath,
+            9,
+        );
+
+        for (const [
+            workingPath,
+            ownerWebContentsId,
+        ] of [
+                [
+                    clonedWorkingPath,
+                    7,
+                ],
+                [
+                    copiedWorkingPath,
+                    8,
+                ],
+                [
+                    dataWorkingPath,
+                    9,
+                ],
+            ] as const) {
+            expect(getWorkingCopyRole(workingPath, ownerWebContentsId)).toBe('current');
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, ownerWebContentsId)).toMatchObject({
+                ctimeNs: expect.stringMatching(/^\d+$/u),
+                deviceId: expect.stringMatching(/^\d+$/u),
+                inode: expect.stringMatching(/^\d+$/u),
+                mtimeNs: expect.stringMatching(/^\d+$/u),
+                size: originalBytes.byteLength,
+            });
+            await expect(
+                originalPathSaveBaseMatches(workingPath, originalPath, ownerWebContentsId),
+            ).resolves.toBe(true);
+        }
+    });
+
     it('keeps eager mode and generated-path creation fully materialized', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'eager';
@@ -170,7 +235,7 @@ describe('workingCopy', () => {
         expect(getWorkingCopyBackingEntry(generatedWorkingPath, 7)?.backingState).toBe('eager');
     });
 
-    it('keeps encrypted PDFs eager and fingerprints the encrypted original separately', async () => {
+    it('keeps encrypted PDFs eager and captures a constant-time original stat witness', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
         const {
@@ -193,7 +258,10 @@ describe('workingCopy', () => {
         expect(getWorkingCopyBackingEntry(workingPath, 7)).toMatchObject({
             backingState: 'eager',
             originalFileExpectation: {
-                contentFingerprint: expect.stringMatching(/^sha256-full-v1:/u),
+                ctimeNs: expect.stringMatching(/^\d+$/u),
+                deviceId: expect.stringMatching(/^\d+$/u),
+                inode: expect.stringMatching(/^\d+$/u),
+                mtimeNs: expect.stringMatching(/^\d+$/u),
                 size: readFileSync(originalPath).byteLength,
             },
         });
@@ -845,33 +913,31 @@ describe('workingCopy', () => {
     });
 
     it('does not let a delayed original expectation update overwrite a newer registration', async () => {
-        const firstFingerprint = deferred<string | undefined>();
-        let firstFingerprintSignal: AbortSignal | undefined;
-        let fingerprintCalls = 0;
-        vi.doMock('@electron/file-access/workingCopyOriginalFileExpectation', () => ({
-            createOriginalFileContentFingerprint: vi.fn(async (
-                _path: string,
-                _size: number,
-                signal?: AbortSignal,
-            ) => {
-                fingerprintCalls += 1;
-                if (fingerprintCalls === 1) {
-                    firstFingerprintSignal = signal;
-                    return firstFingerprint.promise;
-                }
-                return `fingerprint-${fingerprintCalls}`;
-            }),
-            createOriginalFileContentFingerprintSync: vi.fn(() => 'sync-fingerprint'),
-        }));
+        const actualFs = await import('fs/promises');
+        const firstStat = deferred<Awaited<ReturnType<typeof actualFs.stat>>>();
+        let firstStatRequested = false;
 
         try {
+            const firstOriginalPath = join(tempRoot, 'first-original.pdf');
+            vi.doMock('fs/promises', async (importOriginal) => {
+                const original = await importOriginal<typeof FsPromises>();
+                return {
+                    ...original,
+                    stat: vi.fn(async (...args: Parameters<typeof original.stat>) => {
+                        if (args[0] === firstOriginalPath && !firstStatRequested) {
+                            firstStatRequested = true;
+                            return firstStat.promise;
+                        }
+                        return original.stat(...args);
+                    }),
+                };
+            });
             const {
                 getWorkingCopyOriginalFileExpectation,
                 getWorkingCopyOriginalPath,
                 setWorkingCopyOriginalPath,
             } = await import('@electron/file-access/workingCopyStore');
             const { clearAllWorkingCopies } = await import('@electron/file-access/workingCopyCleanup');
-            const firstOriginalPath = join(tempRoot, 'first-original.pdf');
             const secondOriginalPath = join(tempRoot, 'second-original.pdf');
             const workingPath = join(tempRoot, 'pdf-work-async-registration', 'working.pdf');
             mkdirSync(dirname(workingPath), {recursive: true});
@@ -881,21 +947,20 @@ describe('workingCopy', () => {
 
             const firstRegistration = setWorkingCopyOriginalPath(workingPath, firstOriginalPath, 10);
             await vi.waitFor(() => {
-                expect(fingerprintCalls).toBe(1);
+                expect(firstStatRequested).toBe(true);
             });
             await setWorkingCopyOriginalPath(workingPath, secondOriginalPath, 10);
-            expect(firstFingerprintSignal?.aborted).toBe(true);
 
             expect(getWorkingCopyOriginalPath(workingPath, 10)).toMatchObject({
                 originalPath: secondOriginalPath,
                 retired: false,
             });
             expect(getWorkingCopyOriginalFileExpectation(workingPath, 10)).toMatchObject({
-                contentFingerprint: 'fingerprint-2',
+                inode: expect.stringMatching(/^\d+$/u),
                 size: 1,
             });
 
-            firstFingerprint.resolve('fingerprint-stale-first');
+            firstStat.resolve(await actualFs.stat(firstOriginalPath, {bigint: true}));
             await firstRegistration;
 
             expect(getWorkingCopyOriginalPath(workingPath, 10)).toMatchObject({
@@ -903,40 +968,44 @@ describe('workingCopy', () => {
                 retired: false,
             });
             expect(getWorkingCopyOriginalFileExpectation(workingPath, 10)).toMatchObject({
-                contentFingerprint: 'fingerprint-2',
+                inode: expect.stringMatching(/^\d+$/u),
                 size: 1,
             });
 
             await clearAllWorkingCopies();
         } finally {
-            vi.doUnmock('@electron/file-access/workingCopyOriginalFileExpectation');
+            vi.doUnmock('fs/promises');
         }
     });
 
     it('does not let a delayed expectation refresh overwrite a newer registration', async () => {
-        const refreshFingerprint = deferred<string | undefined>();
-        let fingerprintCalls = 0;
-        let slowNextFingerprint = false;
-        vi.doMock('@electron/file-access/workingCopyOriginalFileExpectation', () => ({
-            createOriginalFileContentFingerprint: vi.fn(async () => {
-                fingerprintCalls += 1;
-                if (slowNextFingerprint) {
-                    slowNextFingerprint = false;
-                    return refreshFingerprint.promise;
-                }
-                return `fingerprint-${fingerprintCalls}`;
-            }),
-            createOriginalFileContentFingerprintSync: vi.fn(() => 'sync-fingerprint'),
-        }));
+        const actualFs = await import('fs/promises');
+        const refreshStat = deferred<Awaited<ReturnType<typeof actualFs.stat>>>();
+        let firstPathStatCalls = 0;
 
         try {
+            const firstOriginalPath = join(tempRoot, 'refresh-first-original.pdf');
+            vi.doMock('fs/promises', async (importOriginal) => {
+                const original = await importOriginal<typeof FsPromises>();
+                return {
+                    ...original,
+                    stat: vi.fn(async (...args: Parameters<typeof original.stat>) => {
+                        if (args[0] === firstOriginalPath) {
+                            firstPathStatCalls += 1;
+                            if (firstPathStatCalls === 2) {
+                                return refreshStat.promise;
+                            }
+                        }
+                        return original.stat(...args);
+                    }),
+                };
+            });
             const {
                 getWorkingCopyOriginalFileExpectation,
                 refreshWorkingCopyOriginalFileExpectation,
                 setWorkingCopyOriginalPath,
             } = await import('@electron/file-access/workingCopyStore');
             const { clearAllWorkingCopies } = await import('@electron/file-access/workingCopyCleanup');
-            const firstOriginalPath = join(tempRoot, 'refresh-first-original.pdf');
             const secondOriginalPath = join(tempRoot, 'refresh-second-original.pdf');
             const workingPath = join(tempRoot, 'pdf-work-async-refresh', 'working.pdf');
             mkdirSync(dirname(workingPath), {recursive: true});
@@ -945,23 +1014,22 @@ describe('workingCopy', () => {
             writeFileSync(workingPath, new Uint8Array([3]));
 
             await setWorkingCopyOriginalPath(workingPath, firstOriginalPath, 10);
-            slowNextFingerprint = true;
             const refreshPromise = refreshWorkingCopyOriginalFileExpectation(workingPath, 10);
             await vi.waitFor(() => {
-                expect(fingerprintCalls).toBe(2);
+                expect(firstPathStatCalls).toBe(2);
             });
             await setWorkingCopyOriginalPath(workingPath, secondOriginalPath, 10);
 
-            refreshFingerprint.resolve('fingerprint-stale-refresh');
+            refreshStat.resolve(await actualFs.stat(firstOriginalPath, {bigint: true}));
             await expect(refreshPromise).resolves.toBe(false);
             expect(getWorkingCopyOriginalFileExpectation(workingPath, 10)).toMatchObject({
-                contentFingerprint: 'fingerprint-3',
+                inode: expect.stringMatching(/^\d+$/u),
                 size: 1,
             });
 
             await clearAllWorkingCopies();
         } finally {
-            vi.doUnmock('@electron/file-access/workingCopyOriginalFileExpectation');
+            vi.doUnmock('fs/promises');
         }
     });
 

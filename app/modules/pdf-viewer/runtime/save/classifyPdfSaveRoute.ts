@@ -480,13 +480,48 @@ function buildClassifiedNativeMutationProjection(
         ? Array.from(canonical.liveAnnotationChanges.nativeFreeTextEditors.values())
         : [];
     const annotationDeletes = annotationDeletesResult?.value ?? [];
+    const nativeFreeTextNoteStableKeys = new Set(
+        (freeTextNotesResult?.value ?? []).map(note => note.stableKey),
+    );
+    const nativelyReplayableFreeTextNoteIds = new Set<string>();
+    for (const comment of changedComments) {
+        if (!comment.stableKey || !nativeFreeTextNoteStableKeys.has(comment.stableKey)) {
+            continue;
+        }
+        for (const value of [
+            comment.appAnnotationId,
+            comment.id,
+            comment.uid,
+        ]) {
+            if (typeof value === 'string' && value.length > 0) {
+                nativelyReplayableFreeTextNoteIds.add(value);
+            }
+        }
+    }
     const nativeNoteMutationCount = noteTextUpdates.length
         + freeTextNotes.length
         + freeTextEditors.length
         + annotationDeletes.length;
-    const pendingDeletesAreFullyCovered = canonical.pendingDeletes.length > 0
-        && annotationDeletes.length === canonical.pendingDeletes.length;
-    if (admitted.dirtyState.savedPdfjsAnnotationBaselineDirty && !pendingDeletesAreFullyCovered) {
+    const savedLiveAnnotationAliasesAreNativelyReplayable = (
+        canonical.liveAnnotationChanges.hasChanges
+        && !canonical.liveAnnotationChanges.hasUnknownChanges
+        && canonical.pendingDeletes.length === 0
+        && annotationDeletes.length === 0
+        && (
+            noteTextUpdates.length > 0
+            || nativelyReplayableFreeTextNoteIds.size > 0
+            || canonical.liveAnnotationChanges.nativeFreeTextEditors.size > 0
+        )
+        && [...canonical.liveAnnotationChanges.ids].every(id => (
+            canonical.liveAnnotationChanges.nativeFreeTextEditors.has(id)
+            || canonical.liveAnnotationChanges.replayableEditorNoteIds.has(id)
+            || nativelyReplayableFreeTextNoteIds.has(id)
+        ))
+    );
+    if (
+        admitted.dirtyState.savedPdfjsAnnotationBaselineDirty
+        && !savedLiveAnnotationAliasesAreNativelyReplayable
+    ) {
         return 'saved-pdfjs-baseline-dirty-requires-materialization';
     }
 

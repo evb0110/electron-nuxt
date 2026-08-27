@@ -193,7 +193,6 @@ describe('OCR replacement ownership path aliases', () => {
             2,
             canonicalOcrPath,
             expect.stringMatching(/\/private\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.book\.pdf\.\d+\..+\.tmp$/u),
-            4,
         );
         expect(mocks.rename).toHaveBeenCalledWith(
             expect.stringMatching(/\/private\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.book\.pdf\.\d+\..+\.tmp$/u),

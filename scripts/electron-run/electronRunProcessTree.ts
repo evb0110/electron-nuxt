@@ -146,7 +146,11 @@ export function findPidsByCommandSubstring(substring: string) {
     }
 }
 
-export async function killProcessTree(pid: number, graceMs = 1500) {
+export async function killProcessTree(
+    pid: number,
+    graceMs = 1500,
+    options: {force?: boolean} = {},
+) {
     if (!Number.isFinite(pid) || pid <= 0) {
         return;
     }
@@ -169,6 +173,11 @@ export async function killProcessTree(pid: number, graceMs = 1500) {
         ...descendants,
         pid,
     ]);
+    if (options.force) {
+        killPids(targets, { signal: 'SIGKILL' });
+        await waitForProcessesExit(targets, FORCED_EXIT_TIMEOUT_MS);
+        return;
+    }
     killPids(targets, { signal: 'SIGTERM' });
 
     if (graceMs > 0) {

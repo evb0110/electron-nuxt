@@ -40,6 +40,7 @@ import {
     fail,
 } from '@contracts/documentsPlatformFeatureNativePageSchemas';
 import type {
+    IPdfConformanceAnalysisOptions,
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
@@ -920,7 +921,18 @@ const pdfDataArgs = documentArgs<'validatePdfData'>(
     () => [Uint8Array.of(1)],
 );
 const pdfPathArgs = documentArgs<'analyzePdfConformance'>(
-    value => decodeSingleStringArgs<'analyzePdfConformance'>(value, 'path'),
+    value => {
+        const args = decodeArgumentArray(value, 1, 2);
+        const rawOptions = decodeOptionalObject<IPdfConformanceAnalysisOptions>(args[1], 'options');
+        if (
+            rawOptions?.purpose !== undefined
+            && rawOptions.purpose !== 'full'
+            && rawOptions.purpose !== 'save-restrictions'
+        ) {
+            fail('invalid PDF conformance analysis purpose');
+        }
+        return appendOptional([decodeStringValue(args[0], 'path')], rawOptions) as TDocumentMethodArgs<'analyzePdfConformance'>;
+    },
     () => ['/tmp/document.pdf'],
 );
 const openPdfPathArgs = documentArgs<'openPdfInDefaultAppPath'>(

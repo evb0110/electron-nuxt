@@ -1379,3 +1379,51 @@ export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOU
         domWait,
     ]);
 }
+
+/**
+ * Saves through the enabled visible toolbar control and requires the product's
+ * save-committed event. There is deliberately no workspace-command fallback.
+ */
+export async function saveViaVisibleToolbar(
+    page: Page,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    expectedPath?: string,
+) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const buttons = await page.$$('button[aria-label="Save"]');
+        for (const button of buttons) {
+            const enabled = await button.evaluate((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    !candidate.hasAttribute('disabled')
+                    && candidate.getAttribute('aria-disabled') !== 'true'
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 0
+                    && rect.height > 0
+                );
+            });
+            if (!enabled) {
+                continue;
+            }
+
+            const baselineEventId = await getLatestAutomationEventId(page);
+            await button.click();
+            const event = await waitForAutomationEvent(page, 'save-committed', {
+                afterEventId: baselineEventId,
+                ...(expectedPath ? {path: expectedPath} : {}),
+                timeoutMs: Math.max(1, deadline - Date.now()),
+            });
+            if (!event) {
+                throw new Error('Visible Save completed without a save-committed event');
+            }
+            return event;
+        }
+        await delay(50);
+    }
+
+    throw new Error('Visible Save button did not become enabled');
+}

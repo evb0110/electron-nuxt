@@ -357,6 +357,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
 
     function getAutomationStateSnapshot(): IWorkspaceAutomationStateSnapshot {
         const reloadSrc = deps.pdfReloadSrc.value;
+        const livePdfJsAnnotationChanges = deps.pdfAutomationViewerRef?.value?.collectLiveAnnotationChanges?.();
         return {
             annotationComments: [...deps.annotationComments.value],
             annotationCommentsStatus: deps.annotationCommentsStatus.value,
@@ -373,6 +374,15 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                 hasSavedPdfJsAnnotationBaselineChanges: deps.hasSavedPdfJsAnnotationBaselineChanges?.() ?? false,
                 pageLabelsDirty: deps.pageLabelsDirty?.value ?? false,
                 pendingEmbeddedAnnotationDeleteCount: deps.pendingEmbeddedAnnotationDeleteCount?.value ?? 0,
+                pdfJsAnnotationStorage: livePdfJsAnnotationChanges
+                    ? {
+                        fingerprint: livePdfJsAnnotationChanges.fingerprint,
+                        hasChanges: livePdfJsAnnotationChanges.hasChanges,
+                        hasUnknownChanges: livePdfJsAnnotationChanges.hasUnknownChanges,
+                        ids: [...livePdfJsAnnotationChanges.ids],
+                        replayableEditorNoteIds: [...livePdfJsAnnotationChanges.replayableEditorNoteIds],
+                    }
+                    : null,
             },
             originalPath: deps.originalPath.value,
             pdfSourceState: {

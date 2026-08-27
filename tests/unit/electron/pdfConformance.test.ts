@@ -247,12 +247,14 @@ const {
 const { analyzePdfConformanceFileDirect } = await import('@electron/features/documents/main/analyzePdfConformanceFileDirect');
 
 function createNativeStructuralFacts(options: {
+    signed?: boolean;
     encrypted?: boolean;
     tagged?: boolean;
     acroForm?: boolean;
     xfa?: boolean;
 } = {}) {
     return Buffer.from(JSON.stringify({
+        isSigned: options.signed ?? false,
         isEncrypted: options.encrypted ?? false,
         isTagged: options.tagged ?? false,
         hasAcroForm: options.acroForm ?? false,

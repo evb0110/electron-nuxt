@@ -8,6 +8,94 @@ import {
     resetLivePdfJsAnnotationStorageModifiedIds,
     resetLivePdfJsAnnotationStorageModifiedState,
 } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+import { AnnotationStore } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/engine/annotations/bridge/getPdfjsEditorFacadeState';
+
+const MARKER_RECT = {
+    left: 0.1,
+    top: 0.2,
+    width: 0.02,
+    height: 0.02,
+};
+
+function createPersistedCommentMarkerAnchorFixture() {
+    const editorKey = 'pdfjs_internal_editor_0';
+    const anchorEditor = {};
+    Object.assign(getPdfjsEditorFacadeState(anchorEditor), {
+        canonicalAnnotationId: 'note-1',
+        commentMarkerAnchor: true,
+        pendingAnchorRect: MARKER_RECT,
+    });
+    const annotationStore = new AnnotationStore();
+    annotationStore.import({
+        kind: 'sticky-note',
+        identity: {
+            id: asAnnotationId('note-1'),
+            elementId: editorKey,
+            pdfRef: '12R',
+        },
+        pageIndex: 0,
+        revision: 0,
+        persistedRevision: 0,
+        deleted: false,
+        createdAt: 1_781_000_000_000,
+        modifiedAt: null,
+        author: 'Tester',
+        text: 'text-note-1',
+        anchor: MARKER_RECT,
+        color: '#f59e0b',
+    });
+    const serializedAnchor = {
+        annotationType: 3,
+        pageIndex: 0,
+        value: '\u200B',
+        rect: [
+            20,
+            30,
+            36,
+            46,
+        ],
+        rotation: 0,
+        color: [
+            245,
+            158,
+            11,
+        ],
+        fontSize: 16,
+        popup: {
+            contents: 'text-note-1',
+            deleted: false,
+            rect: [
+                0,
+                0,
+                1,
+                1,
+            ],
+        },
+    };
+    const serializableMap = new Map<string, unknown>([[
+        editorKey,
+        serializedAnchor,
+    ]]);
+    const serializable = {
+        hash: 'persisted-anchor-hash',
+        map: serializableMap,
+    };
+    const document = {annotationStorage: {
+        serializable,
+        modifiedIds: {ids: new Set()},
+        getRawValue: (key: string) => key === editorKey ? anchorEditor : undefined,
+    }} as never;
+    return {
+        anchorEditor,
+        annotationStore,
+        document,
+        serializable,
+        serializableMap,
+        serializedAnchor,
+    };
+}
 
 describe('collectLivePdfJsAnnotationChangeIds', () => {
     it('exposes named bridge helpers for PDF.js annotation storage resets', () => {
@@ -112,6 +200,115 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
         expect(result.replayableEditorNoteIds).toEqual(new Set(['pdfjs_internal_editor_0']));
         expect(result.hasChanges).toBe(true);
         expect(result.hasUnknownChanges).toBe(false);
+    });
+
+    it('does not count a persisted unchanged comment marker anchor as live PDF.js work', () => {
+        const {
+            annotationStore,
+            document,
+        } = createPersistedCommentMarkerAnchorFixture();
+
+        const result = collectLivePdfJsAnnotationChangeIds(document, {annotationStore});
+
+        expect(result.ids).toEqual(new Set());
+        expect(result.hasChanges).toBe(false);
+        expect(result.hasUnknownChanges).toBe(false);
+        expect(result.fingerprint).toBe('empty');
+    });
+
+    it('counts a moved persisted comment marker anchor as live PDF.js work', () => {
+        const fixture = createPersistedCommentMarkerAnchorFixture();
+        getPdfjsEditorFacadeState(fixture.anchorEditor).pendingAnchorRect = {
+            ...MARKER_RECT,
+            left: MARKER_RECT.left + 0.01,
+        };
+
+        const result = collectLivePdfJsAnnotationChangeIds(
+            fixture.document,
+            {annotationStore: fixture.annotationStore},
+        );
+
+        expect(result.ids).toEqual(new Set(['pdfjs_internal_editor_0']));
+        expect(result.hasChanges).toBe(true);
+    });
+
+    it('counts changed comment marker text as live PDF.js work', () => {
+        const fixture = createPersistedCommentMarkerAnchorFixture();
+        fixture.serializedAnchor.popup.contents = 'changed note text';
+
+        const result = collectLivePdfJsAnnotationChangeIds(
+            fixture.document,
+            {annotationStore: fixture.annotationStore},
+        );
+
+        expect(result.ids).toEqual(new Set(['pdfjs_internal_editor_0']));
+        expect(result.hasChanges).toBe(true);
+    });
+
+    it('counts a canonically dirty comment marker anchor as live PDF.js work', () => {
+        const fixture = createPersistedCommentMarkerAnchorFixture();
+        fixture.annotationStore.moveAnchor(asAnnotationId('note-1'), {
+            ...MARKER_RECT,
+            left: MARKER_RECT.left + 0.01,
+        });
+
+        const result = collectLivePdfJsAnnotationChangeIds(
+            fixture.document,
+            {annotationStore: fixture.annotationStore},
+        );
+
+        expect(result.ids).toEqual(new Set(['pdfjs_internal_editor_0']));
+        expect(result.hasChanges).toBe(true);
+    });
+
+    it('counts a deleted canonical comment marker anchor as live PDF.js work', () => {
+        const fixture = createPersistedCommentMarkerAnchorFixture();
+        fixture.annotationStore.delete(asAnnotationId('note-1'));
+
+        const result = collectLivePdfJsAnnotationChangeIds(
+            fixture.document,
+            {annotationStore: fixture.annotationStore},
+        );
+
+        expect(result.ids).toEqual(new Set(['pdfjs_internal_editor_0']));
+        expect(result.hasChanges).toBe(true);
+    });
+
+    it('keeps excluded comment marker anchor metadata out of the live-change fingerprint', () => {
+        const fixture = createPersistedCommentMarkerAnchorFixture();
+        fixture.serializableMap.set('pdfjs_internal_editor_1', {
+            annotationType: 3,
+            pageIndex: 0,
+            value: 'ordinary FreeText',
+            rect: [
+                40,
+                50,
+                140,
+                80,
+            ],
+            rotation: 0,
+            color: [
+                0,
+                0,
+                0,
+            ],
+            fontSize: 14,
+        });
+        const first = collectLivePdfJsAnnotationChangeIds(
+            fixture.document,
+            {annotationStore: fixture.annotationStore},
+        );
+
+        Object.assign(fixture.serializedAnchor.popup, {date: '2026-08-27T21:00:00Z'});
+        fixture.serializable.hash = 'changed-only-by-excluded-anchor';
+        const second = collectLivePdfJsAnnotationChangeIds(
+            fixture.document,
+            {annotationStore: fixture.annotationStore},
+        );
+
+        expect(first.ids).toEqual(new Set(['pdfjs_internal_editor_1']));
+        expect(second.ids).toEqual(first.ids);
+        expect(second.fingerprint).toBe(first.fingerprint);
     });
 
     it('marks blank PDF.js FreeText editor storage as replayable note work', () => {

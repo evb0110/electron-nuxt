@@ -110,11 +110,24 @@ function decodeOriginalFileExpectation(value: unknown): IWorkingCopyOriginalFile
             value.contentFingerprint !== undefined
             && typeof value.contentFingerprint !== 'string'
         )
+        || [
+            value.ctimeNs,
+            value.deviceId,
+            value.inode,
+            value.mtimeNs,
+        ].some(field => field !== undefined && (
+            typeof field !== 'string'
+            || !/^(?:0|[1-9]\d*)$/u.test(field)
+        ))
     ) {
         return undefined;
     }
     return {
         ...(value.contentFingerprint === undefined ? {} : {contentFingerprint: value.contentFingerprint}),
+        ...(value.ctimeNs === undefined ? {} : {ctimeNs: value.ctimeNs as string}),
+        ...(value.deviceId === undefined ? {} : {deviceId: value.deviceId as string}),
+        ...(value.inode === undefined ? {} : {inode: value.inode as string}),
+        ...(value.mtimeNs === undefined ? {} : {mtimeNs: value.mtimeNs as string}),
         mtimeMs: value.mtimeMs,
         size: value.size,
     };

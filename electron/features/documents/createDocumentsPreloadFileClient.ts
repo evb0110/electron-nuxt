@@ -966,10 +966,11 @@ export function createDocumentsPreloadFileClient(
                 callback,
             );
         },
-        analyzePdfConformance: (path) =>
+        analyzePdfConformance: (path, options) =>
             invokePdf(
                 DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.analyzePdfConformance,
                 assertAbsolutePath(path, 'analyzePdfConformance.path'),
+                options,
             ),
         validatePdfData: (data, fileName?: string) =>
             invokePdf(

@@ -20,6 +20,12 @@ interface IPendingConformanceProfileRequest {
     requestId: number;
 }
 
+interface IPdfSaveRestrictionRequest {
+    path: TDocumentRef;
+    promise: Promise<IPdfConformanceProfile | null>;
+    requestId: number;
+}
+
 export interface IPdfConformanceIdleScheduler {
     cancel: (handle: number) => void;
     schedule: (callback: () => void) => number;
@@ -53,6 +59,12 @@ export function createDocumentConformance(
     let conformanceProfileRequestId = 0;
     let conformanceProfileInFlight: IConformanceProfileRequest | null = null;
     let pendingConformanceProfile: IPendingConformanceProfileRequest | null = null;
+    let saveRestrictionInFlight: IPdfSaveRestrictionRequest | null = null;
+    let saveRestrictionProfile: {
+        path: TDocumentRef;
+        profile: IPdfConformanceProfile | null;
+        requestId: number;
+    } | null = null;
     let scheduledConformanceHandle: number | null = null;
 
     function cancelScheduledConformanceAnalysis() {
@@ -67,8 +79,51 @@ export function createDocumentConformance(
         cancelScheduledConformanceAnalysis();
         conformanceProfileInFlight = null;
         pendingConformanceProfile = null;
+        saveRestrictionInFlight = null;
+        saveRestrictionProfile = null;
         state.pdfConformanceAnalysisState.value = 'none';
         state.pdfConformanceProfile.value = null;
+    }
+
+    function startPdfSaveRestrictionAnalysis(path: TDocumentRef, requestId: number) {
+        if (
+            saveRestrictionProfile?.path === path
+            && saveRestrictionProfile.requestId === requestId
+        ) {
+            return Promise.resolve(saveRestrictionProfile.profile);
+        }
+        if (
+            saveRestrictionInFlight?.path === path
+            && saveRestrictionInFlight.requestId === requestId
+        ) {
+            return saveRestrictionInFlight.promise;
+        }
+
+        const promise = readPdfConformanceProfile(path, {purpose: 'save-restrictions'})
+            .then((profile) => {
+                if (
+                    conformanceProfileRequestId === requestId
+                    && state.workingCopyPath.value === path
+                ) {
+                    saveRestrictionProfile = {
+                        path,
+                        profile,
+                        requestId,
+                    };
+                }
+                return profile;
+            })
+            .finally(() => {
+                if (saveRestrictionInFlight?.requestId === requestId) {
+                    saveRestrictionInFlight = null;
+                }
+            });
+        saveRestrictionInFlight = {
+            path,
+            promise,
+            requestId,
+        };
+        return promise;
     }
 
     function applyPdfConformanceProfile(
@@ -130,6 +185,8 @@ export function createDocumentConformance(
         const requestId = ++conformanceProfileRequestId;
         cancelScheduledConformanceAnalysis();
         conformanceProfileInFlight = null;
+        saveRestrictionInFlight = null;
+        saveRestrictionProfile = null;
         state.pdfConformanceProfile.value = null;
         pendingConformanceProfile = {
             fileSize: options?.fileSize ?? null,
@@ -159,9 +216,31 @@ export function createDocumentConformance(
             || pending.path !== path
             || pending.requestId !== conformanceProfileRequestId
             || state.workingCopyPath.value !== path
-            || state.pdfConformanceAnalysisState.value !== 'waiting-initial-visual'
+            || (
+                state.pdfConformanceAnalysisState.value !== 'waiting-initial-visual'
+                && state.pdfConformanceAnalysisState.value !== 'on-demand-only'
+            )
         ) {
             return false;
+        }
+
+        if (state.pdfConformanceAnalysisState.value === 'on-demand-only') {
+            scheduledConformanceHandle = idleScheduler.schedule(() => {
+                scheduledConformanceHandle = null;
+                if (
+                    pendingConformanceProfile === pending
+                    && pending.requestId === conformanceProfileRequestId
+                    && state.workingCopyPath.value === pending.path
+                ) {
+                    void startPdfSaveRestrictionAnalysis(pending.path, pending.requestId).catch((error) => {
+                        BrowserLogger.warn('pdf-file', 'Deferred PDF save restriction analysis failed', {
+                            path: pending.path,
+                            error: error instanceof Error ? error.message : String(error),
+                        });
+                    });
+                }
+            });
+            return true;
         }
 
         state.pdfConformanceAnalysisState.value = 'waiting-idle';
@@ -231,7 +310,15 @@ export function createDocumentConformance(
             return true;
         }
         if (!state.pdfConformanceProfile.value) {
-            await refreshPdfConformanceProfile(workingPath);
+            const profile = await startPdfSaveRestrictionAnalysis(
+                workingPath,
+                conformanceProfileRequestId,
+            );
+            return shouldForcePdfSaveAs(
+                mode,
+                profile,
+                state.requiresSaveAsOnFirstSave.value,
+            );
         }
         return shouldForceSaveAs(mode);
     }

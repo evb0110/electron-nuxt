@@ -173,21 +173,25 @@ pub(crate) fn with_staged_incremental_output(
 ) -> Result<()> {
     let mut staged = AtomicOutput::create(output_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    let mut input = File::open(input_path)
+    let cloned = staged
+        .seed_from_path_copy_on_write(input_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    std::io::copy(
-        &mut input,
-        staged
-            .file_mut()
-            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?,
-    )
-    .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    if !cloned {
+        let mut input = File::open(input_path)
+            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+        std::io::copy(
+            &mut input,
+            staged
+                .file_mut()
+                .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?,
+        )
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    }
     staged
         .file_mut()
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
         .flush()
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    drop(input);
     let staged_path = staged.temporary_path().to_path_buf();
     write_revisions(&staged_path)?;
     staged

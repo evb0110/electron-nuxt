@@ -1,7 +1,7 @@
 use std::{
     error::Error,
     fs::{self, File, OpenOptions},
-    io::{self, Write},
+    io::{self, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
@@ -95,6 +95,51 @@ impl AtomicOutput {
         self.file
             .as_ref()
             .ok_or_else(|| io::Error::other("Temporary output file is already closed"))
+    }
+
+    /// Seeds the unpublished sibling with a filesystem copy-on-write clone.
+    /// Returns `false` when the platform or filesystem cannot clone so callers
+    /// can fall back to a regular streamed copy.
+    pub fn seed_from_path_copy_on_write(&mut self, source: &Path) -> io::Result<bool> {
+        drop(self.file.take());
+
+        #[cfg(target_os = "macos")]
+        let clone_status = std::process::Command::new("/bin/cp")
+            .args(["-c", "--"])
+            .arg(source)
+            .arg(&self.temporary_path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+
+        #[cfg(target_os = "linux")]
+        let clone_status = std::process::Command::new("/bin/cp")
+            .args(["--reflink=always", "--"])
+            .arg(source)
+            .arg(&self.temporary_path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        let clone_status: io::Result<std::process::ExitStatus> = Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "copy-on-write cloning is unavailable on this platform",
+        ));
+
+        let cloned = clone_status.is_ok_and(|status| status.success());
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .truncate(!cloned)
+            .open(&self.temporary_path)?;
+        if cloned {
+            file.seek(SeekFrom::End(0))?;
+        }
+        self.file = Some(file);
+        Ok(cloned)
     }
 
     pub fn temporary_path(&self) -> &Path {

@@ -6,11 +6,13 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import type { IPdfViewerSaveExpose } from '@app/modules/pdf-viewer/public';
+import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 
 export interface IWorkspacePdfViewerForAnnotationUtils {
     runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
     hasShapes?: boolean | Ref<boolean>;
     hasCanonicalAnnotationChanges?: () => boolean;
+    collectLiveAnnotationChanges?: (() => IPdfLiveAnnotationChangeSummary) | undefined;
     getAllShapes: () => IShapeAnnotation[];
 }
 

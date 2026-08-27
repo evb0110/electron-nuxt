@@ -21,6 +21,8 @@ export interface IPdfConformanceProfile {
     saveRestrictions: string[];
 }
 
+export interface IPdfConformanceAnalysisOptions {purpose?: 'full' | 'save-restrictions';}
+
 export type TPdfConformanceProfileBase = Except<IPdfConformanceProfile, 'saveRestrictions'>;
 
 export interface IPdfValidationResult {

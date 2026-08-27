@@ -189,14 +189,35 @@ describe('createDocumentConformance', () => {
 
         conformance.deferPdfConformanceProfile(path, {fileSize: 64 * 1024 * 1024 + 1});
         expect(state.pdfConformanceAnalysisState.value).toBe('on-demand-only');
-        expect(conformance.notifyPdfInitialVisualReady(path)).toBe(false);
-        expect(idle.callbacks.size).toBe(0);
+        expect(conformance.notifyPdfInitialVisualReady(path)).toBe(true);
+        expect(idle.callbacks.size).toBe(1);
 
         await expect(conformance.refreshPdfConformanceProfile(path)).rejects.toThrow(failure);
+        expect(idle.callbacks.size).toBe(0);
         expect(state.pdfConformanceAnalysisState.value).toBe('failed');
         await expect(conformance.refreshPdfConformanceProfile(path)).resolves.toEqual(unsignedProfile);
         expect(state.pdfConformanceAnalysisState.value).toBe('ready');
         expect(mockReadPdfConformanceProfile).toHaveBeenCalledTimes(2);
+    });
+
+    it('primes the bounded save-restriction check after a large document becomes visible', async () => {
+        mockReadPdfConformanceProfile.mockResolvedValue(unsignedProfile);
+        const {
+            conformance,
+            idle,
+            path,
+            state,
+        } = createHarness();
+
+        conformance.deferPdfConformanceProfile(path, {fileSize: 64 * 1024 * 1024 + 1});
+        expect(conformance.notifyPdfInitialVisualReady(path)).toBe(true);
+        idle.flush();
+        await vi.waitFor(() => expect(mockReadPdfConformanceProfile).toHaveBeenCalledOnce());
+
+        await expect(conformance.shouldForceSaveAsForWorkingCopy('rewrite', path)).resolves.toBe(false);
+        expect(mockReadPdfConformanceProfile).toHaveBeenCalledWith(path, {purpose: 'save-restrictions'});
+        expect(mockReadPdfConformanceProfile).toHaveBeenCalledTimes(1);
+        expect(state.pdfConformanceAnalysisState.value).toBe('on-demand-only');
     });
 
     it('cancels idle work when cleared', () => {

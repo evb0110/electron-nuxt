@@ -2,9 +2,11 @@ import {
     resolve,
     win32,
 } from 'path';
-import { realpathSync } from 'fs';
-import { stat } from 'fs/promises';
-import { createOriginalFileContentFingerprint } from '@electron/file-access/workingCopyOriginalFileExpectation';
+import {
+    realpathSync,
+    type BigIntStats,
+} from 'fs';
+import {stat} from 'fs/promises';
 
 export type TWorkingCopyRole = 'current' | 'snapshot';
 export type TWorkingCopyBackingState =
@@ -29,7 +31,11 @@ export interface IWorkingCopyAdmissionSnapshot {
 
 export interface IWorkingCopyOriginalFileExpectation {
     contentFingerprint?: string;
+    ctimeNs?: string;
+    deviceId?: string;
+    inode?: string;
     mtimeMs: number;
+    mtimeNs?: string;
     size: number;
 }
 
@@ -180,29 +186,28 @@ async function createOriginalFileExpectation(
 ): Promise<IWorkingCopyOriginalFileExpectation | undefined> {
     try {
         signal?.throwIfAborted();
-        const originalStat = await stat(originalPath);
+        const originalStat = await stat(originalPath, {bigint: true});
         signal?.throwIfAborted();
         if (!originalStat.isFile()) {
             return undefined;
         }
-        let contentFingerprint: string | undefined;
-        try {
-            contentFingerprint = await createOriginalFileContentFingerprint(
-                originalPath,
-                originalStat.size,
-                signal,
-            );
-        } catch {
-            contentFingerprint = undefined;
-        }
-        return {
-            ...(contentFingerprint ? {contentFingerprint} : {}),
-            mtimeMs: originalStat.mtimeMs,
-            size: originalStat.size,
-        };
+        return createOriginalFileExpectationFromStat(originalStat);
     } catch {
         return undefined;
     }
+}
+
+export function createOriginalFileExpectationFromStat(
+    originalStat: BigIntStats,
+): IWorkingCopyOriginalFileExpectation {
+    return {
+        ctimeNs: originalStat.ctimeNs.toString(),
+        deviceId: originalStat.dev.toString(),
+        inode: originalStat.ino.toString(),
+        mtimeMs: Number(originalStat.mtimeNs) / 1_000_000,
+        mtimeNs: originalStat.mtimeNs.toString(),
+        size: Number(originalStat.size),
+    };
 }
 
 function copyOriginalFileExpectation(
@@ -213,7 +218,11 @@ function copyOriginalFileExpectation(
     }
     return {
         ...(expectation.contentFingerprint ? {contentFingerprint: expectation.contentFingerprint} : {}),
+        ...(expectation.ctimeNs === undefined ? {} : {ctimeNs: expectation.ctimeNs}),
+        ...(expectation.deviceId === undefined ? {} : {deviceId: expectation.deviceId}),
+        ...(expectation.inode === undefined ? {} : {inode: expectation.inode}),
         mtimeMs: expectation.mtimeMs,
+        ...(expectation.mtimeNs === undefined ? {} : {mtimeNs: expectation.mtimeNs}),
         size: expectation.size,
     };
 }
@@ -446,10 +455,10 @@ export async function setWorkingCopyOriginalPath(
         setCurrentWorkingCopyForOriginal(workingPath, entry);
     });
 
-    // Opening only needs the source mapping. Capturing a full-file fingerprint
-    // here competes with PDF.js for the same bytes and compounds across quick
-    // close/reopen cycles. Save conflict detection safely falls back to a
-    // chunked original-vs-working-copy comparison when no expectation exists.
+    // Normal mapped working copies capture a constant-time stat witness here.
+    // Routes that explicitly defer it cannot publish back to the original
+    // until they refresh the witness; the save fence fails closed when it is
+    // absent. No full-file fingerprint is taken during registration.
     if (options.deferOriginalFileExpectation || options.originalFileExpectation) {
         return;
     }

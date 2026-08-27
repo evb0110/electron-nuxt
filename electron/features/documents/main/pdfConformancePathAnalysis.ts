@@ -42,6 +42,7 @@ interface IPdfMarkerEvidence {
 }
 
 interface IQpdfStructuralFacts {
+    isSigned: boolean;
     isEncrypted: boolean;
     isTagged: boolean;
     hasAcroForm: boolean;
@@ -52,6 +53,7 @@ export interface IPdfConformancePathAnalysisOptions {
     signal?: AbortSignal;
     cancelGroup?: string;
     timeoutMs?: number;
+    markerEvidence?: 'full' | 'structural-only';
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -222,6 +224,7 @@ async function readPdfMarkerEvidenceFromPath(
 
 function parseStructuralFacts(value: unknown): IQpdfStructuralFacts {
     if (!isRecord(value)
+        || typeof value.isSigned !== 'boolean'
         || typeof value.isEncrypted !== 'boolean'
         || typeof value.isTagged !== 'boolean'
         || typeof value.hasAcroForm !== 'boolean'
@@ -232,6 +235,7 @@ function parseStructuralFacts(value: unknown): IQpdfStructuralFacts {
         );
     }
     return {
+        isSigned: value.isSigned,
         isEncrypted: value.isEncrypted,
         isTagged: value.isTagged,
         hasAcroForm: value.hasAcroForm,
@@ -373,9 +377,15 @@ export async function analyzePdfConformancePath(
     options: IPdfConformancePathAnalysisOptions = {},
 ): Promise<IPdfConformanceProfile> {
     const structuralFacts = await readPdfStructuralFactsFromPath(filePath, options);
-    const markerEvidence = await readPdfMarkerEvidenceFromPath(filePath, options.signal);
+    const markerEvidence = options.markerEvidence === 'structural-only'
+        ? {
+            isSigned: false,
+            isEncrypted: false,
+            pdfaLevel: null,
+        }
+        : await readPdfMarkerEvidenceFromPath(filePath, options.signal);
     const profileBase = {
-        isSigned: markerEvidence.isSigned,
+        isSigned: structuralFacts.isSigned || markerEvidence.isSigned,
         isEncrypted: structuralFacts.isEncrypted || markerEvidence.isEncrypted,
         isTagged: structuralFacts.isTagged,
         pdfaLevel: markerEvidence.pdfaLevel,

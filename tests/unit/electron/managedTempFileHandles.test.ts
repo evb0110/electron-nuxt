@@ -186,6 +186,37 @@ describe('managed temporary file handles', () => {
         expect(mocks.inspect).toHaveBeenCalledTimes(process.platform === 'win32' ? 1 : 0);
     });
 
+    it('creates a POSIX native staging lease without hashing the artifact', async () => {
+        const {
+            createOpaqueNativePdfStagedArtifact,
+            resolveTypedStagedArtifact,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+
+        const artifact = await createOpaqueNativePdfStagedArtifact({senderId: 42}, mocks.path, {
+            qpdfCheck: false,
+            tailCheck: true,
+            semanticCheck: true,
+            semanticScopeSha256: 'b'.repeat(64),
+            fsynced: true,
+        });
+
+        if (process.platform === 'win32') {
+            expect(artifact.receiptVersion).toBe(1);
+            expect(mocks.inspect).toHaveBeenCalledOnce();
+            return;
+        }
+        expect(artifact).toMatchObject({
+            receiptVersion: 2,
+            path: mocks.path,
+            size: Buffer.byteLength('managed-file-content'),
+            fileIdentity: {platform: 'posix'},
+        });
+        expect(artifact).not.toHaveProperty('sha256');
+        expect(mocks.inspect).not.toHaveBeenCalled();
+        await expect(resolveTypedStagedArtifact({senderId: 42}, artifact)).resolves.toEqual(artifact);
+        expect(mocks.inspect).not.toHaveBeenCalled();
+    });
+
     it('mints a staged receipt from a trusted incremental fingerprint without rehashing', async () => {
         const {createTypedStagedArtifact} = await import('@electron/features/documents/main/managedTempFileHandles');
         const bytes = readFileSync(mocks.path);
@@ -517,6 +548,10 @@ describe('managed temporary file handles', () => {
             fsynced: true,
         });
         const inspectionCount = mocks.inspect.mock.calls.length;
+        expect(sourceArtifact.receiptVersion).toBe(1);
+        if (sourceArtifact.receiptVersion !== 1) {
+            throw new Error('Expected a content-fingerprint staged artifact');
+        }
         const originalPath = join(directory, 'original.pdf');
         const copiedPath = join(directory, '.abcdef0123456789.tmp.pdf');
         copyFileSync(mocks.path, copiedPath);

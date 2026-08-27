@@ -4,7 +4,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import {copyFileSync} from 'node:fs';
+import {
+    copyFileSync,
+    realpathSync,
+} from 'node:fs';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
@@ -16,6 +19,7 @@ import {
     clickHistoryActionAcrossAnimationBoundaries,
     clickLatestVisibleNoteWindowClose,
     collectStickyNoteDebugState,
+    createStickyNoteWithPointer,
     createFreeTextAnnotation,
     createHighlightWithPdfjsManager,
     disconnectAnnotationUndoBoundaryProbe,
@@ -31,6 +35,7 @@ import {
 import {
     openAnnotationsTab,
     openPdfInApp,
+    saveViaVisibleToolbar,
     saveViaWindowHandle,
     waitForPdfLoaded,
     waitForViewerInteractive,
@@ -42,12 +47,15 @@ import {
     collectWorkspaceExposeDebugState,
     getWorkspaceToolbarSnapshot,
     installWorkspaceExposeProbe,
+    readWorkspaceStateValues,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
 const TOOLTIP_HIDDEN_QUIET_WINDOW_MS = 400;
 const TOOLTIP_HIDDEN_POLL_INTERVAL_MS = 50;
+
+interface IAnnotationDirtyStateSnapshot extends Record<string, unknown> {dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;};}
 
 async function waitForActiveTabDirtyState(page: Page, expectedDirty: boolean) {
     const startedAt = Date.now();
@@ -1393,6 +1401,70 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForNoOpenNoteWindows(page);
         await waitForSidebarAnnotationCount(page, baselineCount);
     });
+
+    it('saves a persisted sticky note edit a second time without replaying its hidden anchor', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const { page } = session;
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `annotation-lifecycle-${Date.now()}-sticky-second-save.pdf`,
+            1,
+        );
+        const firstText = `Sticky first save ${Date.now()}`;
+        const secondText = `${firstText} edited`;
+
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await createStickyNoteWithPointer(page, firstText, {
+            x: 0.72,
+            y: 0.24,
+        });
+        await waitForActiveTabDirtyState(page, true);
+
+        const firstCommit = await saveViaVisibleToolbar(page, 30_000);
+        expect(realpathSync(String(firstCommit.detail.path))).toBe(realpathSync(fixturePath));
+        await waitForActiveTabDirtyState(page, false);
+        const cleanState = await readWorkspaceStateValues<IAnnotationDirtyStateSnapshot>(page, ['dirtyState']);
+        expect(cleanState.dirtyState?.hasLivePdfJsAnnotationChanges).toBe(false);
+
+        const textarea = await page.waitForSelector('textarea.note-window__textarea', {
+            timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS,
+            visible: true,
+        });
+        if (!textarea) {
+            throw new Error('Saved sticky note did not retain its visible editor');
+        }
+        await textarea.click();
+        const selectAllModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+        await page.keyboard.down(selectAllModifier);
+        try {
+            await page.keyboard.press('A');
+        } finally {
+            await page.keyboard.up(selectAllModifier);
+        }
+        await page.keyboard.type(secondText, {delay: 10});
+        await page.keyboard.press('Tab');
+        await waitForActiveTabDirtyState(page, true);
+
+        const preSecondSaveDebug = await collectStickyNoteDebugState(page);
+        let secondCommit;
+        try {
+            secondCommit = await saveViaVisibleToolbar(page, 30_000);
+        } catch (error) {
+            throw new Error(`Second sticky-note save failed: ${JSON.stringify({
+                cause: error instanceof Error ? error.message : String(error),
+                debug: await collectStickyNoteDebugState(page),
+                preSecondSaveDebug,
+            })}`, {cause: error});
+        }
+        expect(realpathSync(String(secondCommit.detail.path))).toBe(realpathSync(fixturePath));
+        await waitForActiveTabDirtyState(page, false);
+        const secondCleanState = await readWorkspaceStateValues<IAnnotationDirtyStateSnapshot>(page, ['dirtyState']);
+        expect(secondCleanState.dirtyState?.hasLivePdfJsAnnotationChanges).toBe(false);
+    }, 90_000);
 
     it('dismisses the marker tooltip when opening the sticky note window', async () => {
         const session = sessionFixture.getSession();

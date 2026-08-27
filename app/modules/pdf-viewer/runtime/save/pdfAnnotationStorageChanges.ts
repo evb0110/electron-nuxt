@@ -7,6 +7,10 @@ import { isRecord } from '@contracts/runtimeGuards';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {IPdfNativeFreeTextEditor} from '@contracts/electronApiDocuments';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import type { AnnotationStore } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/engine/annotations/bridge/getPdfjsEditorFacadeState';
+import { getAnnotationStorageRawValue } from '@app/services/pdfjs/annotationEditorAdapter';
 
 export interface IPdfLiveAnnotationChangeSummary {
     ids: Set<string>;
@@ -47,6 +51,9 @@ const EMPTY_ANNOTATION_CHANGE_FINGERPRINT = 'empty';
 const MAX_NATIVE_FREE_TEXT_EDITOR_TEXT_LENGTH = 64 * 1024;
 const MAX_NATIVE_FREE_TEXT_EDITOR_KEY_LENGTH = 512;
 const nativeFreeTextEditorStableKeys = new WeakMap<PDFDocumentProxy, Map<string, string>>();
+const MARKER_RECT_TOLERANCE = 0.0001;
+
+interface ICollectLivePdfJsAnnotationChangeOptions {annotationStore?: Pick<AnnotationStore, 'get'> | undefined;}
 
 type TAnnotationStorageResetMethod = 'resetModified' | 'resetModifiedIds';
 
@@ -221,6 +228,70 @@ function hasActivePopupPayload(value: Record<string, unknown>) {
     return isRecord(popup) && popup.deleted !== true;
 }
 
+function markerRectsMatch(
+    left: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+    },
+    right: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+    },
+) {
+    return Math.abs(left.left - right.left) <= MARKER_RECT_TOLERANCE
+        && Math.abs(left.top - right.top) <= MARKER_RECT_TOLERANCE
+        && Math.abs(left.width - right.width) <= MARKER_RECT_TOLERANCE
+        && Math.abs(left.height - right.height) <= MARKER_RECT_TOLERANCE;
+}
+
+function isPersistedCleanCommentMarkerAnchor(input: {
+    document: PDFDocumentProxy;
+    keyId: string | null;
+    value: unknown;
+    annotationStore: Pick<AnnotationStore, 'get'> | undefined;
+}) {
+    if (
+        !input.keyId
+        || !input.annotationStore
+        || !isRecord(input.value)
+        || input.value.deleted === true
+        || !isFreeTextEditorStorageValue(input.value)
+        || !isBlankStringValue(input.value.value)
+        || hasTextPayload(input.value.comment)
+    ) {
+        return false;
+    }
+    const popup = input.value.popup;
+    if (!isRecord(popup) || popup.deleted === true || typeof popup.contents !== 'string') {
+        return false;
+    }
+    const editor = getAnnotationStorageRawValue(input.document, input.keyId);
+    if (!editor || typeof editor !== 'object') {
+        return false;
+    }
+    const editorState = getPdfjsEditorFacadeState(editor);
+    if (
+        editorState.commentMarkerAnchor !== true
+        || typeof editorState.canonicalAnnotationId !== 'string'
+        || !editorState.pendingAnchorRect
+    ) {
+        return false;
+    }
+    const entity = input.annotationStore.get(asAnnotationId(editorState.canonicalAnnotationId));
+    return entity?.kind === 'sticky-note'
+        && !entity.deleted
+        && Boolean(entity.identity.pdfRef)
+        && entity.revision === entity.persistedRevision
+        && entity.pageIndex === input.value.pageIndex
+        && markerRectsMatch(editorState.pendingAnchorRect, entity.anchor)
+        && popup.contents.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '')
+        === entity.text.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '');
+}
+
 function isReplayableFreeTextNoteStorageValue(value: unknown) {
     if (!isRecord(value) || value.deleted === true) {
         return false;
@@ -391,6 +462,7 @@ function resetCachedModifiedIds(storage: unknown) {
 
 export function collectLivePdfJsAnnotationChangeIds(
     document: PDFDocumentProxy | null | undefined,
+    options: ICollectLivePdfJsAnnotationChangeOptions = {},
 ): IPdfLiveAnnotationChangeSummary {
     if (!document) {
         return {
@@ -411,11 +483,9 @@ export function collectLivePdfJsAnnotationChangeIds(
         const nativeFreeTextEditors = new Map<string, IPdfNativeFreeTextEditor>();
         const serializableRuntimeIdsMappedToPdfRefs = new Set<string>();
         const deletedEditorOnlyRuntimeIds = new Set<string>();
+        const countedSerializableEntries: Array<[string, unknown]> = [];
         const serializable = storage?.serializable;
         const serializableMap = serializable?.map;
-        const serializableHash = typeof serializable?.hash === 'string'
-            ? serializable.hash
-            : '';
         const modifiedIds = storage?.modifiedIds?.ids;
         let hasSerializableChanges = false;
 
@@ -425,6 +495,12 @@ export function collectLivePdfJsAnnotationChangeIds(
                 if (
                     isDeletedEditorOnlyStorageValue(value)
                     || isUntrackedBlankEditorOnlyFreeTextStorageValue(value, keyId, modifiedIds)
+                    || isPersistedCleanCommentMarkerAnchor({
+                        document,
+                        keyId,
+                        value,
+                        annotationStore: options.annotationStore,
+                    })
                 ) {
                     if (keyId) {
                         deletedEditorOnlyRuntimeIds.add(keyId);
@@ -433,6 +509,10 @@ export function collectLivePdfJsAnnotationChangeIds(
                 }
 
                 hasSerializableChanges = true;
+                countedSerializableEntries.push([
+                    typeof key === 'string' ? key : String(key),
+                    value,
+                ]);
                 const existingPdfAnnotationId = getExistingPdfAnnotationIdFromStorageValue(value);
                 if (existingPdfAnnotationId) {
                     ids.add(existingPdfAnnotationId);
@@ -474,9 +554,9 @@ export function collectLivePdfJsAnnotationChangeIds(
         const hasChanges = ids.size > 0 || hasSerializableChanges;
         const fingerprint = hasChanges
             ? JSON.stringify({
-                hash: serializableHash,
                 ids: [...ids].sort(),
-                serializable: hasSerializableChanges,
+                serializable: countedSerializableEntries
+                    .sort(([left], [right]) => left.localeCompare(right)),
             })
             : EMPTY_ANNOTATION_CHANGE_FINGERPRINT;
 

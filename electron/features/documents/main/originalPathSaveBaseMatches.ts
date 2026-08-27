@@ -1,110 +1,39 @@
-import {
-    open,
-    stat,
-} from 'fs/promises';
-import { getWorkingCopyOriginalFileExpectation } from '@electron/file-access/workingCopyStore';
-import { createOriginalFileContentFingerprint } from '@electron/file-access/workingCopyOriginalFileExpectation';
+import {stat} from 'fs/promises';
+import {getWorkingCopyOriginalFileExpectation} from '@electron/file-access/workingCopyStore';
 
-const SAVE_BASE_COMPARE_CHUNK_BYTES = 1024 * 1024;
-
-async function originalPathMatchesStoredExpectation(
-    originalPath: string,
-    expectedOriginal: NonNullable<ReturnType<typeof getWorkingCopyOriginalFileExpectation>>,
-) {
-    if (!expectedOriginal.contentFingerprint) {
-        return null;
-    }
-    const originalStat = await stat(originalPath);
-    if (originalStat.size !== expectedOriginal.size) {
-        return false;
-    }
-    return await createOriginalFileContentFingerprint(originalPath, originalStat.size)
-        === expectedOriginal.contentFingerprint;
-}
-
-function yieldBetweenCompareChunks() {
-    return new Promise<void>((resolve) => {
-        setImmediate(resolve);
-    });
-}
-
-async function compareFilesByChunk(originalPath: string, workingPath: string, size: number) {
-    const originalHandle = await open(originalPath, 'r');
-    let workingHandle: Awaited<ReturnType<typeof open>> | null = null;
-
-    try {
-        workingHandle = await open(workingPath, 'r');
-        const originalBuffer = Buffer.allocUnsafe(Math.min(SAVE_BASE_COMPARE_CHUNK_BYTES, size));
-        const workingBuffer = Buffer.allocUnsafe(originalBuffer.byteLength);
-        let offset = 0;
-
-        while (offset < size) {
-            const length = Math.min(originalBuffer.byteLength, size - offset);
-            const [
-                originalRead,
-                workingRead,
-            ] = await Promise.all([
-                originalHandle.read(originalBuffer, 0, length, offset),
-                workingHandle.read(workingBuffer, 0, length, offset),
-            ]);
-
-            if (
-                originalRead.bytesRead !== length
-                || workingRead.bytesRead !== length
-                || Buffer.compare(
-                    originalBuffer.subarray(0, length),
-                    workingBuffer.subarray(0, length),
-                ) !== 0
-            ) {
-                return false;
-            }
-
-            offset += length;
-            if (offset < size) {
-                await yieldBetweenCompareChunks();
-            }
-        }
-
-        return true;
-    } finally {
-        await Promise.all([
-            originalHandle.close().catch(() => undefined),
-            workingHandle?.close().catch(() => undefined),
-        ]);
-    }
-}
-
-async function originalPathMatchesWorkingCopyBytes(
-    originalPath: string,
-    workingPath: string,
-) {
-    const [
-        originalStat,
-        workingStat,
-    ] = await Promise.all([
-        stat(originalPath),
-        stat(workingPath),
-    ]);
-    if (originalStat.size !== workingStat.size) {
-        return false;
-    }
-
-    return compareFilesByChunk(originalPath, workingPath, originalStat.size);
-}
-
+/**
+ * Fences an original-path save without reading the document bytes.
+ *
+ * A full SHA-256 made every annotation save proportional to the PDF size. The
+ * expectation now captures filesystem identity and change timestamps when the
+ * source is opened or last published. On POSIX, ctime cannot be restored by an
+ * ordinary writer, so same-size and backdated external edits still fail the
+ * fence. Older restored registrations may only have size and mtime; those stay
+ * compatible without falling back to a whole-document comparison.
+ */
 export async function originalPathSaveBaseMatches(
     workingPath: string,
     originalPath: string,
     senderWebContentsId: number,
 ) {
-    const expectedOriginal = getWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);
-    if (!expectedOriginal) {
-        return originalPathMatchesWorkingCopyBytes(originalPath, workingPath);
-    }
-    const storedExpectationMatches = await originalPathMatchesStoredExpectation(originalPath, expectedOriginal);
-    if (storedExpectationMatches !== null) {
-        return storedExpectationMatches;
+    const expected = getWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);
+    if (!expected) {
+        return false;
     }
 
-    return originalPathMatchesWorkingCopyBytes(originalPath, workingPath);
+    const actual = await stat(originalPath, {bigint: true});
+    const matches = {
+        ctime: expected.ctimeNs === undefined || actual.ctimeNs.toString() === expected.ctimeNs,
+        device: expected.deviceId === undefined || actual.dev.toString() === expected.deviceId,
+        file: actual.isFile(),
+        inode: expected.inode === undefined || actual.ino.toString() === expected.inode,
+        mtime: expected.mtimeNs === undefined || actual.mtimeNs.toString() === expected.mtimeNs,
+        size: actual.size === BigInt(expected.size),
+    };
+    if (Object.values(matches).includes(false)) {
+        return false;
+    }
+
+    return expected.mtimeNs !== undefined
+        || Number(actual.mtimeNs) / 1_000_000 === expected.mtimeMs;
 }

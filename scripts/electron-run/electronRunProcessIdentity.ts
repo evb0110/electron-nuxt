@@ -271,6 +271,7 @@ export async function killVerifiedSessionProcess(options: {
     pid: number;
     expectation: ISessionProcessIdentityExpectation;
     graceMs?: number;
+    force?: boolean;
 }) {
     if (!isProcessAlive(options.pid)) {
         return true;
@@ -288,6 +289,10 @@ export async function killVerifiedSessionProcess(options: {
         );
         return false;
     }
-    await killProcessTree(options.pid, options.graceMs);
+    await killProcessTree(
+        options.pid,
+        options.graceMs,
+        options.force === undefined ? {} : {force: options.force},
+    );
     return !isProcessAlive(options.pid);
 }

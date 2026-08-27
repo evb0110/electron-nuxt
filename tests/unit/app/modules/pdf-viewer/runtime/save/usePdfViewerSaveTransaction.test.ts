@@ -19,6 +19,7 @@ import {
 } from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/engine/annotations/bridge/getPdfjsEditorFacadeState';
 
 vi.mock(
     '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/bindCanonicalAnnotationIdentitiesOffThread',
@@ -158,6 +159,71 @@ describe('usePdfViewerSaveTransaction', () => {
         expect(result.baseBytes).toBeNull();
         expect(result.serializedBytes).toBe(bytes);
         expect(result.nativeMutationProjection).toBeNull();
+        expect(result.annotationSavePlan).toMatchObject({
+            route: 'source-clean',
+            reason: 'no-live-pdfjs-annotation-work',
+        });
+    });
+
+    it('keeps an unchanged persisted comment marker anchor off the save plan', async () => {
+        const editorKey = 'pdfjs_internal_editor_0';
+        const markerRect = {
+            left: 0.1,
+            top: 0.2,
+            width: 0.02,
+            height: 0.02,
+        };
+        const application = new AnnotationApplication('persisted-anchor-document');
+        application.store.import({
+            kind: 'sticky-note',
+            identity: {
+                id: asAnnotationId('persisted-note'),
+                elementId: editorKey,
+                pdfRef: '12R',
+            },
+            pageIndex: 0,
+            revision: 0,
+            persistedRevision: 0,
+            deleted: false,
+            createdAt: 1_781_000_000_000,
+            modifiedAt: null,
+            author: 'Tester',
+            text: 'saved note',
+            anchor: markerRect,
+            color: '#f59e0b',
+        });
+        const anchorEditor = {};
+        Object.assign(getPdfjsEditorFacadeState(anchorEditor), {
+            canonicalAnnotationId: 'persisted-note',
+            commentMarkerAnchor: true,
+            pendingAnchorRect: markerRect,
+        });
+        const getPdfDocument = vi.fn(() => ({annotationStorage: {
+            serializable: {map: new Map([[
+                editorKey,
+                {
+                    annotationType: 3,
+                    pageIndex: 0,
+                    value: '\u200B',
+                    popup: {
+                        contents: 'saved note',
+                        deleted: false,
+                    },
+                },
+            ]])},
+            modifiedIds: {ids: new Set()},
+            resetModifiedIds: vi.fn(),
+            getRawValue: (key: string) => key === editorKey ? anchorEditor : undefined,
+        }}) as never);
+        const materializePdfJsDocumentForInternalUse = vi.fn(async () => new Uint8Array([1]));
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({
+            annotationApplication: shallowRef(application),
+            getPdfDocument,
+            materializePdfJsDocumentForInternalUse,
+        });
+
+        const result = await runSaveTransaction({mode: 'persist'});
+
         expect(result.annotationSavePlan).toMatchObject({
             route: 'source-clean',
             reason: 'no-live-pdfjs-annotation-work',

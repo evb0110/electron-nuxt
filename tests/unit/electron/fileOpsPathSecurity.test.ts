@@ -480,10 +480,10 @@ describe('fileOps path security', () => {
             ownerWebContentsId: 42,
             reason: 'ocr-persist',
         });
-        expect(mocks.copyFile).toHaveBeenCalledWith(
+        expect(mocks.copyFile).toHaveBeenNthCalledWith(
+            2,
             '/tmp/electron-test/ocr-1-merged.pdf',
             expect.stringMatching(/\/\.work\.pdf\.\d+\..+\.tmp$/u),
-            4,
         );
         expect(mocks.rename).toHaveBeenCalledWith(
             expect.stringMatching(/\/\.work\.pdf\.\d+\..+\.tmp$/u),
@@ -1373,7 +1373,10 @@ describe('fileOps path security', () => {
     it('routes PDF conformance checks through the worker-backed helper', async () => {
         const result = await handleAnalyzePdfConformance(readContext, '/tmp/electron-test/safe.pdf');
 
-        expect(mocks.analyzePdfConformanceFile).toHaveBeenCalledWith('/tmp/electron-test/safe.pdf');
+        expect(mocks.analyzePdfConformanceFile).toHaveBeenCalledWith(
+            '/tmp/electron-test/safe.pdf',
+            {markerEvidence: 'full'},
+        );
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(result).toEqual({
             isSigned: false,
@@ -1411,7 +1414,10 @@ describe('fileOps path security', () => {
 
         await handleAnalyzePdfConformance(readContext, '/tmp/electron-test/lazy.pdf');
 
-        expect(mocks.analyzePdfConformanceFile).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf');
+        expect(mocks.analyzePdfConformanceFile).toHaveBeenCalledWith(
+            '/Users/alice/Documents/file.pdf',
+            {markerEvidence: 'full'},
+        );
         expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
     });
 

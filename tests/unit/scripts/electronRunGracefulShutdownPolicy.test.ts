@@ -105,6 +105,30 @@ describe('Electron automation graceful shutdown policy', () => {
         }
     });
 
+    it('retains the crash-recovery checkpoint for a non-clean process restart', async () => {
+        const sessionName = `checkpoint-restart-policy-${String(process.pid)}-${String(Date.now())}`;
+        const checkpointPath = workspaceCrashCheckpointPath(sessionName);
+        processTree.isProcessAlive.mockReset();
+        processTree.isProcessAlive.mockReturnValue(false);
+        try {
+            mkdirSync(dirname(checkpointPath), {recursive: true});
+            writeFileSync(checkpointPath, '{"checkpoint":true}', 'utf8');
+
+            await stopSingleSession(sessionName, {preserveWorkspaceCheckpoint: true});
+
+            expect(existsSync(checkpointPath)).toBe(true);
+            const stopSource = readProjectSource('scripts/electron-run/stopSession.ts');
+            const controllerSource = readProjectSource('scripts/electron-run/sessionController.ts');
+            expect(stopSource).toContain('sessionPreserveWorkspaceCheckpointMarkerPath(name)');
+            expect(controllerSource).toContain('if (!preserveWorkspaceCheckpoint)');
+        } finally {
+            rmSync(sessionDir(sessionName), {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
     it('preserves crash recovery during a normal start until an explicit stop owns cleanup', () => {
         const sessionSource = readProjectSource('scripts/electron-run/sessionController.ts');
         const startBody = sessionSource.slice(

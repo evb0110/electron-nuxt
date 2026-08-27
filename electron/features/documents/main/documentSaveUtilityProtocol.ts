@@ -134,6 +134,7 @@ export function getDocumentSaveUtilityReusePlan(
 ): IDocumentSaveUtilityReusePlan {
     const artifact = request.stagedArtifact;
     const receiptReuseEnabled = process.platform !== 'win32'
+        && artifact?.receiptVersion === 1
         && artifact?.fileIdentity.platform === 'posix';
     const changedObjectRefs = request.changedObjectRefs ?? [];
     const nativeIncrementalCheck = receiptReuseEnabled

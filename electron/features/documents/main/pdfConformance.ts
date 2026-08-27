@@ -151,6 +151,7 @@ function runPdfConformanceWorker(
         workerData: {
             filePath,
             ...(options.cancelGroup === undefined ? {} : {cancelGroup: options.cancelGroup}),
+            ...(options.markerEvidence === undefined ? {} : {markerEvidence: options.markerEvidence}),
         },
         invalidPayloadMessage: 'PDF conformance worker returned an invalid payload',
         invalidResultMessage: 'PDF conformance worker returned an invalid payload',

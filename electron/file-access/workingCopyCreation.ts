@@ -167,7 +167,6 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
             {
                 ...(admissionSnapshot ? {admissionSnapshot} : {}),
                 backingState,
-                deferOriginalFileExpectation: !encrypted,
             },
         ));
         const revision = await measureWorkingCopyPhase(phaseTimings, 'revision-sidecar', () =>
@@ -186,10 +185,7 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
         }
 
         logger.debug(`Working copy source-critical timings: ${JSON.stringify({
-            deferredUntilNeeded: [
-                'original-file-expectation-on-save',
-                'page-identity-on-mutation',
-            ],
+            deferredUntilNeeded: ['page-identity-on-mutation'],
             backingState,
             materializationMode,
             phases: phaseTimings,
@@ -236,7 +232,6 @@ export async function createWorkingCopyFromPath(
         if (mappedOriginalPath) {
             await setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {
                 backingState: 'eager',
-                deferOriginalFileExpectation: true,
                 role,
             });
         }
@@ -297,7 +292,6 @@ export async function createWorkingCopyFromData(
             const role = isKnownWorkingCopyOriginalPath(normalizedOriginalPath, ownerWebContentsId) ? 'snapshot' : 'current';
             await setWorkingCopyOriginalPath(workingPath, normalizedOriginalPath, ownerWebContentsId, {
                 backingState: 'eager',
-                deferOriginalFileExpectation: true,
                 role,
             });
         }

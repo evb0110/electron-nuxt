@@ -23,7 +23,6 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { createOriginalFileContentFingerprintSync } from '@electron/file-access/workingCopyOriginalFileExpectation';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { createPdfPersistenceErrorFrame } from '@contracts/documentPersistenceFrames';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
@@ -106,12 +105,14 @@ vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({
 vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: (...args: unknown[]) => mocks.ensureWorkingCopyMaterialized(...args)}));
 
 function createOriginalFileExpectationForTest(originalPath: string) {
-    const originalStat = statSync(originalPath);
-    const contentFingerprint = createOriginalFileContentFingerprintSync(originalPath, originalStat.size);
+    const originalStat = statSync(originalPath, {bigint: true});
     return {
-        contentFingerprint,
-        mtimeMs: originalStat.mtimeMs,
-        size: originalStat.size,
+        ctimeNs: originalStat.ctimeNs.toString(),
+        deviceId: originalStat.dev.toString(),
+        inode: originalStat.ino.toString(),
+        mtimeMs: Number(originalStat.mtimeNs) / 1_000_000,
+        mtimeNs: originalStat.mtimeNs.toString(),
+        size: Number(originalStat.size),
     };
 }
 

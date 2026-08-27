@@ -6,10 +6,25 @@ const PDF_REFERENCE_LIMIT: usize = 128;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PdfConformanceFacts {
+    is_signed: bool,
     is_encrypted: bool,
     is_tagged: bool,
     has_acro_form: bool,
     has_xfa: bool,
+}
+
+fn dictionary_is_signature(dictionary: &Dictionary) -> bool {
+    dictionary
+        .get(b"Type")
+        .ok()
+        .and_then(|value| value.as_name().ok())
+        .is_some_and(|value| value == b"Sig")
+        || dictionary
+            .get(b"FT")
+            .ok()
+            .and_then(|value| value.as_name().ok())
+            .is_some_and(|value| value == b"Sig")
+        || (dictionary.has(b"ByteRange") && dictionary.has(b"Contents"))
 }
 
 fn resolved_object<'a>(document: &'a Document, object: &'a Object) -> Result<&'a Object> {
@@ -71,6 +86,11 @@ pub(crate) fn write_pdf_conformance_path(
         "StructTreeRoot",
     )?;
     let facts = PdfConformanceFacts {
+        is_signed: document.objects.values().any(|object| match object {
+            Object::Dictionary(dictionary) => dictionary_is_signature(dictionary),
+            Object::Stream(stream) => dictionary_is_signature(&stream.dict),
+            _ => false,
+        }),
         is_encrypted: document
             .trailer
             .get(b"Encrypt")

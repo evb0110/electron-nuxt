@@ -37,17 +37,33 @@ export interface IStagedArtifactValidations {
     changedObjectRefsSha256?: string;
 }
 
-export interface ITypedStagedArtifact {
-    receiptVersion: 1;
+interface ITypedStagedArtifactBase {
     artifactKind: 'pdf';
     path: TDocumentRef;
     size: number;
-    sha256: string;
     fileIdentity: TArtifactFileIdentity;
     validations: IStagedArtifactValidations;
     leaseId: string;
     revision: TDocumentRevisionToken | null;
 }
+
+export interface IContentFingerprintStagedArtifact extends ITypedStagedArtifactBase {
+    receiptVersion: 1;
+    sha256: string;
+}
+
+/**
+ * Main-process-owned native output. The lease's file identity and private stat
+ * witness authorize promotion; this receipt is never a reusable content hash.
+ */
+export interface IOpaqueNativeStagedArtifact extends ITypedStagedArtifactBase {
+    receiptVersion: 2;
+    fileIdentity: Extract<TArtifactFileIdentity, {platform: 'posix'}>;
+}
+
+export type ITypedStagedArtifact =
+    | IContentFingerprintStagedArtifact
+    | IOpaqueNativeStagedArtifact;
 
 function decodeFileIdentity(value: unknown): TArtifactFileIdentity | null {
     if (!isRecord(value)) {
@@ -128,15 +144,18 @@ function decodeValidations(value: unknown): IStagedArtifactValidations | null {
 export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact | null {
     if (
         !isRecord(value)
-        || value.receiptVersion !== 1
+        || (value.receiptVersion !== 1 && value.receiptVersion !== 2)
         || value.artifactKind !== 'pdf'
         || typeof value.path !== 'string'
         || value.path.length === 0
         || typeof value.size !== 'number'
         || !Number.isSafeInteger(value.size)
         || value.size < 0
-        || typeof value.sha256 !== 'string'
-        || !SHA256_PATTERN.test(value.sha256)
+        || (value.receiptVersion === 1 && (
+            typeof value.sha256 !== 'string'
+            || !SHA256_PATTERN.test(value.sha256)
+        ))
+        || (value.receiptVersion === 2 && value.sha256 !== undefined)
         || typeof value.leaseId !== 'string'
         || value.leaseId.length === 0
         || (value.revision !== null && typeof value.revision !== 'string')
@@ -149,12 +168,28 @@ export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact 
     if (fileIdentity === null || validations === null || revision === null && value.revision !== null) {
         return null;
     }
+    if (value.receiptVersion === 2 && fileIdentity.platform !== 'posix') {
+        return null;
+    }
+    if (value.receiptVersion === 2) {
+        const posixIdentity = fileIdentity as Extract<TArtifactFileIdentity, {platform: 'posix'}>;
+        return {
+            receiptVersion: 2,
+            artifactKind: 'pdf',
+            path: value.path,
+            size: value.size,
+            fileIdentity: posixIdentity,
+            validations,
+            leaseId: value.leaseId,
+            revision,
+        };
+    }
     return {
         receiptVersion: 1,
         artifactKind: 'pdf',
         path: value.path,
         size: value.size,
-        sha256: value.sha256,
+        sha256: value.sha256 as string,
         fileIdentity,
         validations,
         leaseId: value.leaseId,

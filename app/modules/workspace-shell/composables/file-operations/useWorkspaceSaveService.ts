@@ -844,6 +844,14 @@ async function completeWorkspaceSave(
     deps: IWorkspaceSaveDependencies,
 ) {
     if (!plan || result.status !== 'saved') {
+        BrowserLogger.warn('workspace', 'Workspace save did not commit', {
+            planKind: plan?.kind ?? null,
+            status: result.status,
+            ...(result.status === 'not-saved' ? {
+                reason: result.reason,
+                phase: result.origin.phase,
+            } : {}),
+        });
         result.reloadWaiter?.cancel();
         deps.shapes.clearPendingPersistedState?.();
         return false;
@@ -909,8 +917,8 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
     const failureSurface = deps.failureSurface ?? useWorkspaceFailureSurface();
     const runWithDocumentOperationLease = deps.runWithDocumentOperationLease
         ?? runWithoutDocumentOperationLease;
-    let saveOperationInProgress = false;
     let saveOperations = 0;
+    let saveQueueTail: Promise<void> = Promise.resolve();
 
     // A save that failed keeps its state until the workspace adopts a different
     // document or a fresh attempt supersedes it, so the status bar cannot
@@ -929,16 +937,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         {flush: 'sync'},
     );
 
-    function hasSaveOperationInProgress() {
-        return saveOperationInProgress
-            || deps.status.isSaving.value
-            || deps.status.isSavingAs.value;
-    }
-
-    async function save(request: TWorkspaceSaveRequest) {
-        if (hasSaveOperationInProgress()) {
-            return false;
-        }
+    async function executeSave(request: TWorkspaceSaveRequest) {
         saveOperations += 1;
         const operationId = `save-${saveOperations}`;
         failureSurface.clearSaveFailure();
@@ -950,7 +949,6 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         const expectedOriginalPath = deps.document.originalPath.value;
         const expectedWorkingPath = deps.document.workingCopyPath.value;
         let saveSucceeded = false;
-        saveOperationInProgress = true;
         indicator.value = true;
 
         /**
@@ -1120,10 +1118,16 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     request: request.kind,
                     success: saveSucceeded,
                 });
-                saveOperationInProgress = false;
                 indicator.value = false;
             }
         });
+    }
+
+    function save(request: TWorkspaceSaveRequest) {
+        const execute = () => executeSave(request);
+        const result = saveQueueTail.then(execute, execute);
+        saveQueueTail = result.then(() => undefined, () => undefined);
+        return result;
     }
 
     return {

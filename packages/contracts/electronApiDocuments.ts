@@ -37,6 +37,7 @@ import type {
     TPdfViewMode,
 } from '@contracts/shared';
 import type {
+    IPdfConformanceAnalysisOptions,
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
@@ -872,7 +873,10 @@ export interface IDocumentsFileCapability {
     fileExists: (path: TDocumentRef) => Promise<boolean>;
     getDocumentRevision: (path: TDocumentRef) => Promise<IDocumentRevisionInfo>;
     getWorkingCopyBackingStatus?: (path: TDocumentRef) => Promise<IWorkingCopyBackingStatus | null>;
-    analyzePdfConformance: (path: TDocumentRef) => Promise<IPdfConformanceProfile>;
+    analyzePdfConformance: (
+        path: TDocumentRef,
+        options?: IPdfConformanceAnalysisOptions,
+    ) => Promise<IPdfConformanceProfile>;
     validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
     openPdfInDefaultAppData: (data: Uint8Array, fileName?: string) => Promise<{
         success: boolean;

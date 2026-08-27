@@ -167,15 +167,15 @@ describe('workspaceSavePlan', () => {
         });
     });
 
-    it('keeps saved PDF.js baseline changes out of native mutation persistence', () => {
+    it('lets the classifier decide whether saved PDF.js baseline changes are natively replayable', () => {
         const plan = buildPlan({
             dirtyState: dirtyState({savedPdfjsAnnotationBaseline: true}),
             canPersistNativeMutations: true,
         });
 
         expect(plan).toMatchObject({
-            kind: 'serialized',
-            body: {
+            kind: 'native-mutation',
+            serializedFallback: {
                 source: 'live-pdfjs',
                 preserveLoadedSource: false,
             },

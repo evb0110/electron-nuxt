@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {performance} from 'node:perf_hooks';
 import {
     cp,
     lstat,
@@ -17,6 +18,7 @@ import {
 import {readWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
 import {
     copyFileAtomic,
+    linkOrCopyFileDurably,
     writeFileAtomic,
 } from '@electron/file-access/documentFileWriteAtomic';
 import {getCompactSearchIndexPath} from '@electron/search/searchIndexSidecar';
@@ -290,14 +292,20 @@ async function removeSidecarBackups(sidecars: readonly ITransitionSidecarBackup[
 export async function prepareWorkingCopyContentTransition(
     workingCopyPath: string,
     nextRevisionToken: TDocumentRevisionToken,
+    onPhase?: (phase: string, durationMs: number) => void,
+    backupMode: 'copy-on-write' | 'hard-link' = 'copy-on-write',
 ) {
-    await recoverWorkingCopyContentTransition(workingCopyPath);
+    await measureContentTransitionPhase('content-recover', onPhase, () =>
+        recoverWorkingCopyContentTransition(workingCopyPath));
     const suffix = `${process.pid}-${randomUUID()}`;
     const backupPath = `${workingCopyPath}.evb-content-${suffix}.bak`;
-    await copyFileAtomic(workingCopyPath, backupPath);
+    await measureContentTransitionPhase('content-backup-pdf', onPhase, () => backupMode === 'hard-link'
+        ? linkOrCopyFileDurably(workingCopyPath, backupPath)
+        : copyFileAtomic(workingCopyPath, backupPath));
     const sidecars: ITransitionSidecarBackup[] = [];
     try {
-        await backupSidecars(workingCopyPath, suffix, sidecars);
+        await measureContentTransitionPhase('content-backup-sidecars', onPhase, () =>
+            backupSidecars(workingCopyPath, suffix, sidecars));
     } catch (error) {
         await Promise.all([
             rm(backupPath, {force: true}),
@@ -313,8 +321,22 @@ export async function prepareWorkingCopyContentTransition(
         nextRevisionToken,
         sidecars,
     };
-    await writeJsonAtomic(journalPathFor(workingCopyPath), journal);
+    await measureContentTransitionPhase('content-write-journal', onPhase, () =>
+        writeJsonAtomic(journalPathFor(workingCopyPath), journal));
     return journal;
+}
+
+async function measureContentTransitionPhase<T>(
+    phase: string,
+    onPhase: ((phase: string, durationMs: number) => void) | undefined,
+    operation: () => Promise<T>,
+): Promise<T> {
+    const startedAt = performance.now();
+    try {
+        return await operation();
+    } finally {
+        onPhase?.(phase, Math.round((performance.now() - startedAt) * 10) / 10);
+    }
 }
 
 export async function rollbackWorkingCopyContentTransition(

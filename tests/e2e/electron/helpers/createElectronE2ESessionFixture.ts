@@ -96,16 +96,25 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
                     `Disconnecting Electron E2E session '${previousSession.name}' browser transport`,
                     async () => previousSession.browser.disconnect(),
                 );
-                if (hard) {
+                if (hard && clean) {
                     await previousSession.stop({
                         keepNuxt,
                         preserveArtifacts: preserveFailureArtifacts,
                     });
                 } else {
+                    // A non-clean hard restart must retain Electron user data.
+                    // Calling the session wrapper's stop method here removes
+                    // the whole session directory, including the workspace
+                    // checkpoint, and turns the supposed restart into a fresh
+                    // profile launch.
                     await runElectronE2EInfrastructureStage(
                         'session-runner',
                         `Stopping Electron E2E session '${previousSession.name}' for restart`,
-                        async () => stopSingleSession(previousSession.name, {keepNuxt}),
+                        async () => stopSingleSession(previousSession.name, {
+                            keepNuxt,
+                            preserveWorkspaceCheckpoint: hard && !clean,
+                            crashElectronBeforeStop: hard && !clean,
+                        }),
                     );
                 }
                 session = null;

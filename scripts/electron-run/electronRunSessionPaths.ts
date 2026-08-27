@@ -60,6 +60,10 @@ export function sessionKeepNuxtMarkerPath(name = getCurrentSessionName()) {
     return join(sessionDir(name), 'keep-nuxt-on-stop');
 }
 
+export function sessionPreserveWorkspaceCheckpointMarkerPath(name = getCurrentSessionName()) {
+    return join(sessionDir(name), 'preserve-workspace-checkpoint-on-stop');
+}
+
 export function electronUserDataPath(name = getCurrentSessionName()) {
     return join(sessionDir(name), 'electron-user-data');
 }

@@ -63,6 +63,7 @@ import {
     sessionDir,
     sessionFilePath,
     sessionKeepNuxtMarkerPath,
+    sessionPreserveWorkspaceCheckpointMarkerPath,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import type { ISessionState } from '@scripts/electron-run/electronRunSessionTypes';
 import { clearAutomationWorkspaceCrashCheckpoint } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
@@ -248,6 +249,7 @@ function clearRuntimeSessionFiles() {
 async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<typeof createServer> | null) {
     console.log('\nShutting down...');
     const keepNuxtOnStop = existsSync(sessionKeepNuxtMarkerPath());
+    const preserveWorkspaceCheckpoint = existsSync(sessionPreserveWorkspaceCheckpointMarkerPath());
     if (keepNuxtOnStop) {
         console.log('[Nuxt] Keeping dev server alive for fast restart');
     }
@@ -258,7 +260,12 @@ async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<ty
     // SIGINT/SIGTERM are normal developer-owned restarts. Electron has already
     // been closed gracefully above, so retaining its checkpoint here turns a
     // successful `pnpm dev` restart into an accidental document restore.
-    clearAutomationWorkspaceCrashCheckpointAfterSessionExit(exitCode);
+    if (!preserveWorkspaceCheckpoint) {
+        clearAutomationWorkspaceCrashCheckpointAfterSessionExit(exitCode);
+    }
+    try {
+        unlinkSync(sessionPreserveWorkspaceCheckpointMarkerPath());
+    } catch {}
     await stopSessionNuxtProcess(sessionState, keepNuxtOnStop);
     sessionState = null;
     closeActiveDevServerOutputTee();

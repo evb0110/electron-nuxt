@@ -16,19 +16,17 @@ import {
 } from 'fs';
 import {
     readFile,
-    unlink,
+    rename,
     writeFile,
 } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { createOriginalFileContentFingerprintSync } from '@electron/file-access/workingCopyOriginalFileExpectation';
 import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
     atomicReplace: vi.fn(async (sourcePath: string, targetPath: string) => {
-        await writeFile(targetPath, await readFile(sourcePath));
-        await unlink(sourcePath);
+        await rename(sourcePath, targetPath);
     }),
     validatePdfFile: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn(),
@@ -101,12 +99,14 @@ vi.mock('@electron/file-access/workingCopyMaterialization', () => {
 });
 
 function createOriginalFileExpectationForTest(originalPath: string) {
-    const originalStat = statSync(originalPath);
-    const contentFingerprint = createOriginalFileContentFingerprintSync(originalPath, originalStat.size);
+    const originalStat = statSync(originalPath, {bigint: true});
     return {
-        contentFingerprint,
-        mtimeMs: originalStat.mtimeMs,
-        size: originalStat.size,
+        ctimeNs: originalStat.ctimeNs.toString(),
+        deviceId: originalStat.dev.toString(),
+        inode: originalStat.ino.toString(),
+        mtimeMs: Number(originalStat.mtimeNs) / 1_000_000,
+        mtimeNs: originalStat.mtimeNs.toString(),
+        size: Number(originalStat.size),
     };
 }
 

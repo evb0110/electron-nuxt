@@ -148,7 +148,6 @@ export function createWorkspaceSavePlan(input: {
         request.kind === 'save'
         && forcedByDirtyState
         && input.canPersistNativeMutations
-        && !dirtyState.savedPdfjsAnnotationBaseline
         && !includeManagedShapes
     ) {
         return {

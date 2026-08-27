@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import {performance} from 'node:perf_hooks';
 import {
     existsSync,
     statSync,
@@ -60,6 +61,19 @@ interface IProvisionalWorkingCopyRevision {
     sidecar: IWorkingCopyRevisionSidecar;
 }
 const provisionalWorkingCopyRevisions = new Map<string, IProvisionalWorkingCopyRevision>();
+
+async function measureRevisionTransitionPhase<T>(
+    phase: string,
+    onPhase: ((phase: string, durationMs: number) => void) | undefined,
+    operation: () => Promise<T>,
+): Promise<T> {
+    const startedAt = performance.now();
+    try {
+        return await operation();
+    } finally {
+        onPhase?.(phase, Math.round((performance.now() - startedAt) * 10) / 10);
+    }
+}
 
 function getRevisionQueueKey(workingCopyPath: string) {
     return normalizePathForLookup(workingCopyPath) || workingCopyPath;
@@ -303,32 +317,45 @@ export async function transitionWorkingCopyContentRevision(
     reason: TDocumentRevisionChangeReason,
     commit: (nextRevision: IDocumentRevisionInfo) => Promise<void>,
     senderId?: number,
+    onPhase?: (phase: string, durationMs: number) => void,
+    contentBackupMode: 'copy-on-write' | 'hard-link' = 'copy-on-write',
 ): Promise<IDocumentRevisionChangedEvent> {
     const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
     if (!normalizedWorkingPath) {
         throw new Error('Invalid file path');
     }
     assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
-    await awaitWorkingCopyRevisionDurability(normalizedWorkingPath);
+    await measureRevisionTransitionPhase('revision-await-existing-durability', onPhase, () =>
+        awaitWorkingCopyRevisionDurability(normalizedWorkingPath));
 
-    const previous = await readWorkingCopyRevisionSidecar(normalizedWorkingPath);
+    const previous = await measureRevisionTransitionPhase('revision-read-previous', onPhase, () =>
+        readWorkingCopyRevisionSidecar(normalizedWorkingPath));
     const sidecar = createRevisionSidecar(normalizedWorkingPath, (previous?.contentRevision ?? 0) + 1, senderId);
-    const contentJournal = await prepareWorkingCopyContentTransition(normalizedWorkingPath, sidecar.token);
+    const contentJournal = await measureRevisionTransitionPhase('revision-prepare-journal', onPhase, () =>
+        prepareWorkingCopyContentTransition(
+            normalizedWorkingPath,
+            sidecar.token,
+            onPhase,
+            contentBackupMode,
+        ));
     try {
-        await commit(toRevisionInfo(sidecar));
+        await measureRevisionTransitionPhase('revision-commit-files', onPhase, () =>
+            commit(toRevisionInfo(sidecar)));
     } catch (error) {
         await rollbackWorkingCopyContentTransition(contentJournal);
         throw error;
     }
 
     stageWorkingCopyRevisionSidecarCommit(normalizedWorkingPath, sidecar, reason);
-    await writeWorkingCopyRevisionSidecar(normalizedWorkingPath, sidecar);
+    await measureRevisionTransitionPhase('revision-write-sidecar', onPhase, () =>
+        writeWorkingCopyRevisionSidecar(normalizedWorkingPath, sidecar));
     try {
         clearWorkingCopyRevisionSidecarCommit(normalizedWorkingPath, sidecar.token);
     } catch (error) {
         log.debug(`Failed to clear document revision journal entry: ${getErrorMessage(error)}`);
     }
-    await completeWorkingCopyContentTransition(contentJournal);
+    await measureRevisionTransitionPhase('revision-complete-journal', onPhase, () =>
+        completeWorkingCopyContentTransition(contentJournal));
 
     const event: IDocumentRevisionChangedEvent = {
         ...toRevisionInfo(sidecar),

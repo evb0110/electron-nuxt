@@ -2,11 +2,23 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
 } from 'vitest';
 import {
+    constants,
     copyFileSync,
+    createReadStream,
+    mkdtempSync,
     readFileSync,
+    realpathSync,
+    rmSync,
+    statSync,
 } from 'node:fs';
+import {execFile} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {promisify} from 'node:util';
 import { delay } from 'es-toolkit/promise';
 import {
     PDFArray,
@@ -17,21 +29,40 @@ import {
     PDFRef,
     PDFString,
 } from 'pdf-lib';
-import type { Page } from 'puppeteer-core';
+import type {Page} from 'puppeteer-core';
+import {
+    PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES,
+    type IPdfAnnotationIndexEntry,
+    type IPdfAnnotationIndexSession,
+} from '@contracts/electronApiDocuments';
+import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {
     copyLargePdfFixture,
     resolveLargePdfFixtureAvailability,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
-import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     openAnnotationsTab,
     openPdfInApp,
+    saveViaVisibleToolbar,
     saveViaWindowHandle,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {createFreeTextAnnotation} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {
+    clickAnnotationTool,
+    createFreeTextAnnotation,
+    createFreeTextAnnotationWithPointer,
+    createStickyNoteWithPointer,
+    waitForNoOpenNoteWindows,
+} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import { workspaceCrashCheckpointPath } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
+import {
+    collectDescendantPidsUnix,
+    isProcessAlive,
+} from '@scripts/electron-run/electronRunProcessTree';
 import {
     callWorkspaceCommand,
     collectWorkspaceExposeDebugState,
@@ -43,8 +74,15 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const LARGE_PDF_TIMEOUT_MS = 360_000;
-const LARGE_PDF_SAVE_TIMEOUT_MS = 90_000;
+const LARGE_PDF_SAVE_TIMEOUT_MS = 8_000;
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
+const execFileAsync = promisify(execFile);
+const EXACT_ZALIZNYAK_REQUIRED_ENV = 'EVB_E2E_REQUIRE_EXACT_ZALIZNYAK';
+const EXACT_ZALIZNYAK_SHA256 = '1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6';
+const EXACT_ZALIZNYAK_BYTES = 722_178_517;
+const EXACT_ZALIZNYAK_PAGES = 882;
+const ANNOTATION_INDEX_CHUNK_BYTES = 512 * 1_024;
+const IPC_PAYLOAD_MAX_BYTES = 8 * 1_024 * 1_024;
 const largePdfFixture = resolveLargePdfFixtureAvailability();
 const largePdfDescribe = selectFixtureDescribe(describe, largePdfFixture);
 
@@ -67,6 +105,553 @@ interface IAgentActionResult extends Record<string, unknown> {
     created?: boolean;
     markerRect?: unknown;
     tabId?: string;
+}
+
+interface IAnnotationIndexRead {
+    chunkByteLengths: number[];
+    entries: IPdfAnnotationIndexEntry[];
+    session: IPdfAnnotationIndexSession;
+    transportPayloadByteLengths: number[];
+}
+
+interface IVerifiedStickyNote {
+    annotation: IPdfAnnotationIndexEntry;
+    annotationObject: string;
+    appearanceRef: {
+        generationNumber: number;
+        objectNumber: number
+    };
+    name: string;
+    popup: IPdfAnnotationIndexEntry;
+    rect: [number, number, number, number];
+}
+
+interface IStagedArtifactCaptureWindow extends Window {
+    __largePdfStagedArtifactCapture?: {artifact: ITypedStagedArtifact | null;};
+    __resumeLargePdfStagedArtifactCommit?: () => void;
+}
+
+async function installStagedArtifactCapture(page: Page) {
+    await page.evaluate(() => {
+        const captureWindow = window as IStagedArtifactCaptureWindow;
+        captureWindow.__largePdfStagedArtifactCapture = {artifact: null};
+        let resumeCommit = () => {};
+        const commitBarrier = new Promise<void>((resolve) => {
+            resumeCommit = resolve;
+        });
+        captureWindow.__resumeLargePdfStagedArtifactCommit = resumeCommit;
+        captureWindow.__stagedPdfNativeMutationCommitBarrierForAutomation = async (artifact) => {
+            const capture = captureWindow.__largePdfStagedArtifactCapture;
+            if (capture) {
+                capture.artifact = artifact;
+            }
+            await commitBarrier;
+        };
+    });
+}
+
+async function waitForStagedArtifact(page: Page) {
+    await page.waitForFunction(
+        () => (window as IStagedArtifactCaptureWindow).__largePdfStagedArtifactCapture?.artifact !== null,
+        {timeout: LARGE_PDF_SAVE_TIMEOUT_MS},
+    );
+    const artifact = await page.evaluate(
+        () => (window as IStagedArtifactCaptureWindow).__largePdfStagedArtifactCapture?.artifact ?? null,
+    );
+    if (!artifact) {
+        throw new Error('Native save did not expose its staged artifact');
+    }
+    return artifact;
+}
+
+async function resumeStagedArtifactCommit(page: Page) {
+    await page.evaluate(() => {
+        (window as IStagedArtifactCaptureWindow).__resumeLargePdfStagedArtifactCommit?.();
+    });
+}
+
+function hashFileSha256(filePath: string, maxBytes?: number) {
+    return new Promise<string>((resolve, reject) => {
+        const digest = createHash('sha256');
+        const input = maxBytes === undefined
+            ? createReadStream(filePath)
+            : createReadStream(filePath, {end: maxBytes - 1});
+        input.on('data', chunk => digest.update(chunk));
+        input.on('error', reject);
+        input.on('end', () => resolve(digest.digest('hex')));
+    });
+}
+
+function toPdfUtf16BeHex(value: string) {
+    const bytes = [
+        0xfe,
+        0xff,
+    ];
+    for (const character of value) {
+        const codePoint = character.codePointAt(0);
+        if (codePoint === undefined) {
+            continue;
+        }
+        if (codePoint <= 0xffff) {
+            bytes.push(codePoint >> 8, codePoint & 0xff);
+            continue;
+        }
+        const adjusted = codePoint - 0x10000;
+        const high = 0xd800 + (adjusted >> 10);
+        const low = 0xdc00 + (adjusted & 0x3ff);
+        bytes.push(high >> 8, high & 0xff, low >> 8, low & 0xff);
+    }
+    return bytes.map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function readSessionProcessSnapshot(sessionName: string) {
+    const info = getSessionInfo(sessionName);
+    const rootPid = info?.electronPid ?? info?.pid ?? null;
+    if (!rootPid) {
+        throw new Error(`Electron E2E session '${sessionName}' has no live process identity`);
+    }
+    return {
+        pids: [
+            rootPid,
+            ...collectDescendantPidsUnix(rootPid),
+        ],
+        rootPid,
+    };
+}
+
+async function expectProcessesExited(pids: readonly number[]) {
+    await expect.poll(() => pids.filter(isProcessAlive), {
+        interval: 100,
+        timeout: 15_000,
+    }).toEqual([]);
+}
+
+async function waitForCrashCheckpointPath(sessionName: string, expectedPath: string) {
+    const expectedRealPath = realpathSync(expectedPath);
+    await expect.poll(() => {
+        try {
+            const stored = JSON.parse(readFileSync(workspaceCrashCheckpointPath(sessionName), 'utf8')) as {checkpoint?: {tabs?: Array<{sourceRef?: string | null;}>;};};
+            return stored.checkpoint?.tabs?.some(tab => (
+                typeof tab.sourceRef === 'string'
+                && realpathSync(tab.sourceRef) === expectedRealPath
+            )) ?? false;
+        } catch {
+            return false;
+        }
+    }, {timeout: 10_000}).toBe(true);
+}
+
+async function waitForRestoredDocument(page: Page, expectedPath: string) {
+    const expectedRealPath = realpathSync(expectedPath);
+    await expect.poll(async () => {
+        const state = await readWorkspaceStateValues<{originalPath?: string | null;}>(
+            page,
+            ['originalPath'],
+        );
+        return typeof state.originalPath === 'string'
+            ? realpathSync(state.originalPath)
+            : null;
+    }, {timeout: LARGE_PDF_TIMEOUT_MS}).toBe(expectedRealPath);
+    await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
+    await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
+}
+
+async function expectCleanAnnotationHydration(page: Page) {
+    await expect.poll(async () => {
+        const state = await readWorkspaceStateValues<{dirtyState?: {
+            annotationDirty: boolean;
+            hasAnnotationChanges: boolean;
+            hasLivePdfJsAnnotationChanges: boolean;
+            hasPendingUnsavedChanges: boolean;
+            pdfJsAnnotationStorage: {
+                hasChanges: boolean;
+                ids: string[];
+            } | null;
+        };}>(page, ['dirtyState']);
+        const dirty = state.dirtyState;
+        return Boolean(dirty)
+            && dirty?.annotationDirty === false
+            && dirty.hasAnnotationChanges === false
+            && dirty.hasLivePdfJsAnnotationChanges === false
+            && dirty.hasPendingUnsavedChanges === false
+            && (dirty.pdfJsAnnotationStorage === null || (
+                dirty.pdfJsAnnotationStorage.hasChanges === false
+                && dirty.pdfJsAnnotationStorage.ids.length === 0
+            ));
+    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(true);
+}
+
+async function readDocumentSaveIdentity(page: Page) {
+    return page.evaluate(async () => {
+        const documentFiles = window.electronAPI?.documentFiles;
+        if (!documentFiles) {
+            throw new Error('Document file capability is unavailable in the renderer');
+        }
+        const workspace = (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({requiredProperties: ['workingCopyPath']}) as {workingCopyPath?: string | null} | null;
+        const workingCopyPath = workspace?.workingCopyPath ?? null;
+        if (!workingCopyPath) {
+            throw new Error('The restored workspace has no path-backed working copy');
+        }
+        return {
+            revision: await documentFiles.getDocumentRevision(workingCopyPath),
+            workingCopyPath,
+        };
+    });
+}
+
+async function qpdfCheck(filePath: string) {
+    await execFileAsync('qpdf', [
+        '--check',
+        filePath,
+    ], {
+        maxBuffer: 1024 * 1024,
+        timeout: 120_000,
+    });
+}
+
+async function qpdfPageCount(filePath: string) {
+    const {stdout} = await execFileAsync('qpdf', [
+        '--show-npages',
+        filePath,
+    ], {
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024,
+        timeout: 120_000,
+    });
+    const pageCount = Number.parseInt(stdout.trim(), 10);
+    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
+        throw new Error(`qpdf returned an invalid page count: ${JSON.stringify(stdout)}`);
+    }
+    return pageCount;
+}
+
+async function admitExactZaliznyakFixture(filePath: string) {
+    if (process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] !== '1') {
+        return null;
+    }
+    const identity = {
+        bytes: statSync(filePath).size,
+        pages: await qpdfPageCount(filePath),
+        sha256: await hashFileSha256(filePath),
+    };
+    expect(identity).toEqual({
+        bytes: EXACT_ZALIZNYAK_BYTES,
+        pages: EXACT_ZALIZNYAK_PAGES,
+        sha256: EXACT_ZALIZNYAK_SHA256,
+    });
+    await qpdfCheck(filePath);
+    return identity;
+}
+
+async function readBoundedAnnotationIndex(
+    page: Page,
+    documentPath: string,
+    expectedRevisionToken?: string,
+): Promise<IAnnotationIndexRead> {
+    const result = await page.evaluate(async (input: {
+        chunkBytes: number;
+        documentPath: string;
+        payloadBudget: number;
+    }) => {
+        const documentFiles = window.electronAPI?.documentFiles;
+        if (
+            !documentFiles
+            || typeof documentFiles.beginPdfAnnotationIndex !== 'function'
+            || typeof documentFiles.readPdfAnnotationIndexChunk !== 'function'
+            || typeof documentFiles.releasePdfAnnotationIndex !== 'function'
+        ) {
+            throw new Error('PDF annotation index capability is unavailable in the renderer');
+        }
+
+        const revision = await documentFiles.getDocumentRevision(input.documentPath);
+        const session = await documentFiles.beginPdfAnnotationIndex(input.documentPath, {expectedDocumentRevisionToken: revision.token});
+        const entries: IPdfAnnotationIndexEntry[] = [];
+        const chunkByteLengths: number[] = [];
+        const transportPayloadByteLengths: number[] = [];
+        let offset = 0;
+        let released = false;
+        try {
+            while (true) {
+                const chunk = await documentFiles.readPdfAnnotationIndexChunk(
+                    session.sessionId,
+                    offset,
+                    {chunkBytes: input.chunkBytes},
+                );
+                if (chunk.offset !== offset) {
+                    throw new Error(`PDF annotation index offset mismatch: ${chunk.offset} !== ${offset}`);
+                }
+                const transportBytes = new TextEncoder().encode(JSON.stringify(chunk)).byteLength;
+                if (
+                    chunk.byteLength < 0
+                    || chunk.byteLength > input.payloadBudget
+                    || transportBytes < 1
+                    || transportBytes > input.payloadBudget
+                ) {
+                    throw new Error(`PDF annotation index exceeded ${input.payloadBudget} bytes`);
+                }
+                chunkByteLengths.push(chunk.byteLength);
+                transportPayloadByteLengths.push(transportBytes);
+                entries.push(...chunk.entries);
+                if (chunk.done) {
+                    if (chunk.nextOffset !== null) {
+                        throw new Error('Completed annotation index chunk has a next offset');
+                    }
+                    break;
+                }
+                if (chunk.nextOffset === null || chunk.nextOffset <= offset) {
+                    throw new Error('PDF annotation index chunk offset did not advance');
+                }
+                offset = chunk.nextOffset;
+            }
+        } finally {
+            released = await documentFiles.releasePdfAnnotationIndex(session.sessionId);
+        }
+        if (!released) {
+            throw new Error('PDF annotation index session was not released');
+        }
+        return {
+            chunkByteLengths,
+            entries,
+            session,
+            transportPayloadByteLengths,
+        };
+    }, {
+        chunkBytes: ANNOTATION_INDEX_CHUNK_BYTES,
+        documentPath,
+        payloadBudget: IPC_PAYLOAD_MAX_BYTES,
+    });
+    const read = result as IAnnotationIndexRead;
+    if (expectedRevisionToken) {
+        expect(read.session.documentRevisionToken).toBe(expectedRevisionToken);
+    }
+    return read;
+}
+
+async function readQpdfObject(
+    filePath: string,
+    objectRef: {
+        generationNumber: number;
+        objectNumber: number
+    },
+    streamData: 'filtered' | 'none' | 'raw' = 'raw',
+) {
+    const {stdout} = await execFileAsync('qpdf', [
+        `--show-object=${objectRef.objectNumber},${objectRef.generationNumber}`,
+        ...(streamData === 'filtered'
+            ? ['--filtered-stream-data']
+            : streamData === 'raw'
+                ? ['--raw-stream-data']
+                : []),
+        filePath,
+    ], {
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024,
+        timeout: 120_000,
+    });
+    return stdout;
+}
+
+function parseRectFromQpdfObject(value: string): [number, number, number, number] {
+    const match = value.match(/\/Rect\s*\[\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\]/u);
+    if (!match) {
+        throw new Error(`Annotation object has no bounded /Rect: ${value.slice(0, 1000)}`);
+    }
+    const rect = match.slice(1).map(Number) as [number, number, number, number];
+    if (rect.some(coordinate => !Number.isFinite(coordinate)) || rect[2] <= rect[0] || rect[3] <= rect[1]) {
+        throw new Error(`Annotation object has an invalid /Rect: ${JSON.stringify(rect)}`);
+    }
+    return rect;
+}
+
+function parseAppearanceRefFromQpdfObject(value: string) {
+    const match = value.match(/\/AP\s*<<[\s\S]*?\/N\s+(\d+)\s+(\d+)\s+R/u);
+    if (!match) {
+        throw new Error(`Annotation object has no indirect normal appearance: ${value.slice(0, 1000)}`);
+    }
+    return {
+        objectNumber: Number(match[1]),
+        generationNumber: Number(match[2]),
+    };
+}
+
+function qpdfObjectContainsText(value: string, text: string) {
+    return value.includes(text)
+        || value.toLowerCase().replace(/\s+/gu, '').includes(toPdfUtf16BeHex(text));
+}
+
+async function verifyStickyNoteStructure(
+    page: Page,
+    filePath: string,
+    expectedText: string,
+    expectedPageIndex = 0,
+    expectedRevisionToken?: string,
+    indexPath = filePath,
+): Promise<IVerifiedStickyNote> {
+    const index = await readBoundedAnnotationIndex(page, indexPath, expectedRevisionToken);
+    expect(index.session.pageCount).toBe(process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] === '1'
+        ? EXACT_ZALIZNYAK_PAGES
+        : index.session.pageCount);
+    expect(ANNOTATION_INDEX_CHUNK_BYTES).toBeLessThanOrEqual(PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES);
+    expect(index.chunkByteLengths.length).toBeGreaterThan(0);
+    expect(index.transportPayloadByteLengths.every(bytes => bytes > 0 && bytes <= IPC_PAYLOAD_MAX_BYTES)).toBe(true);
+
+    const candidates = index.entries.filter(entry => (
+        entry.pageIndex === expectedPageIndex
+        && entry.subtype === 'FreeText'
+        && entry.popupRef !== null
+        && typeof entry.name === 'string'
+        && entry.name.length > 0
+    ));
+    const matches: Array<{
+        annotation: IPdfAnnotationIndexEntry;
+        annotationObject: string
+    }> = [];
+    const candidateObjects: Array<{
+        annotation: IPdfAnnotationIndexEntry;
+        annotationObject: string;
+    }> = [];
+    for (const annotation of candidates) {
+        const annotationObject = await readQpdfObject(filePath, annotation);
+        candidateObjects.push({
+            annotation,
+            annotationObject,
+        });
+        if (qpdfObjectContainsText(annotationObject, expectedText)) {
+            matches.push({
+                annotation,
+                annotationObject,
+            });
+        }
+    }
+    expect(matches, JSON.stringify({
+        candidates,
+        candidateObjects,
+        expectedText,
+    })).toHaveLength(1);
+    const match = matches[0];
+    if (!match || !match.annotation.popupRef || !match.annotation.name) {
+        throw new Error('Verified sticky note lost its identity or Popup reference');
+    }
+    const popup = index.entries.find(entry => (
+        entry.objectNumber === match.annotation.popupRef?.objectNumber
+        && entry.generationNumber === match.annotation.popupRef.generationNumber
+        && entry.subtype === 'Popup'
+    ));
+    if (!popup) {
+        throw new Error('Verified sticky note Popup is absent from the bounded annotation index');
+    }
+    expect(popup.parentRef).toEqual({
+        objectNumber: match.annotation.objectNumber,
+        generationNumber: match.annotation.generationNumber,
+    });
+    const popupObject = await readQpdfObject(filePath, popup);
+    expect(qpdfObjectContainsText(popupObject, expectedText)).toBe(true);
+    expect(popupObject).toMatch(new RegExp(`/Parent\\s+${match.annotation.objectNumber}\\s+${match.annotation.generationNumber}\\s+R`, 'u'));
+
+    const rect = parseRectFromQpdfObject(match.annotationObject);
+    const appearanceRef = parseAppearanceRefFromQpdfObject(match.annotationObject);
+    const appearanceObject = await readQpdfObject(filePath, appearanceRef, 'none');
+    const appearanceStream = await readQpdfObject(filePath, appearanceRef, 'filtered');
+    expect(appearanceObject).toMatch(/\/Type\s*\/XObject/u);
+    expect(appearanceObject).toMatch(/\/Subtype\s*\/Form/u);
+    expect(appearanceObject).toMatch(/\/BBox\s*\[\s*0\s+0\s+0\s+0\s*\]/u);
+    // Sticky-note FreeText annotations deliberately use a shared blank form.
+    // The visible marker is rendered by the comment UI, not by this PDF form.
+    expect(appearanceStream).toBe('');
+    expect(match.annotationObject).toMatch(/\/NM\s*(?:\(|<)/u);
+    return {
+        annotation: match.annotation,
+        annotationObject: match.annotationObject,
+        appearanceRef,
+        name: match.annotation.name,
+        popup,
+        rect,
+    };
+}
+
+async function editVisibleStickyNote(page: Page, currentText: string, nextText: string) {
+    await openAnnotationsTab(page, 30_000);
+    const items = await page.$$('.editor-pane.is-active .workspace-host .notes-list .note-item');
+    let matchingItem: (typeof items)[number] | null = null;
+    for (const item of items) {
+        const matches = await item.evaluate((candidate, text) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return candidate.textContent?.includes(text) === true
+                && style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0;
+        }, currentText);
+        if (matches) {
+            matchingItem = item;
+            break;
+        }
+    }
+    if (!matchingItem) {
+        throw new Error(`Visible sidebar note was not restored: ${currentText}`);
+    }
+    await matchingItem.click({
+        count: 2,
+        delay: 80,
+    });
+    const textarea = await page.waitForSelector('textarea.note-window__textarea', {
+        timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS,
+        visible: true,
+    });
+    if (!textarea) {
+        throw new Error('Double-clicking the restored note did not open its editor');
+    }
+    await delay(100);
+    await textarea.click({
+        count: 3,
+        delay: 80,
+    });
+    const selectedText = await textarea.evaluate(input => ({
+        end: input.selectionEnd,
+        length: input.value.length,
+        start: input.selectionStart,
+    }));
+    expect(selectedText).toEqual({
+        end: selectedText.length,
+        length: currentText.length,
+        start: 0,
+    });
+    await page.keyboard.type(nextText, {delay: 10});
+    await page.keyboard.press('Tab');
+
+    await expect.poll(async () => {
+        const state = await readWorkspaceStateValues<{dirtyState?: {
+            annotationDirty: boolean;
+            hasAnnotationChanges: boolean;
+        };}>(page, ['dirtyState']);
+        return state.dirtyState?.annotationDirty === true
+            && state.dirtyState.hasAnnotationChanges === true;
+    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(true);
+
+    const closeButtons = await page.$$('.editor-pane.is-active .workspace-host .note-window__close');
+    let closed = false;
+    for (const closeButton of closeButtons.reverse()) {
+        const visible = await closeButton.evaluate((candidate) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0;
+        });
+        if (visible) {
+            await closeButton.click();
+            closed = true;
+            break;
+        }
+    }
+    if (!closed) {
+        throw new Error('Edited sticky note had no visible close control');
+    }
+    await waitForNoOpenNoteWindows(page);
 }
 
 async function saveLargePdfViaAgentAction(page: Page) {
@@ -294,11 +879,20 @@ async function tryCreatePageNoteViaAgentAction(page: Page, text: string) {
 async function placePageNote(
     page: Page,
     text: string,
-    options: {toolbarOnly?: boolean} = {},
+    options: {
+        position?: {
+            xRatio: number;
+            yRatio: number
+        };
+        toolbarOnly?: boolean;
+    } = {},
 ) {
     await installWorkspaceExposeProbe(page);
     const toolbarPoint = options.toolbarOnly
-        ? await page.evaluate(async () => {
+        ? await page.evaluate(async ({
+            xRatio,
+            yRatio,
+        }) => {
             const probeWindow = window as IWorkspaceExposeProbeWindow;
             const workspace = probeWindow.__evbFindWorkspaceExpose?.({requiredMethods: ['handleQuickNote']}) as {
                 getToolbarSnapshot?: () => {isPlacingPageNote?: boolean};
@@ -344,16 +938,39 @@ async function placePageNote(
             }
             const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
             return {
-                x: clamp(rect.left + rect.width * 0.72, left, right),
-                y: clamp(rect.top + rect.height * 0.24, top, bottom),
+                x: clamp(rect.left + rect.width * xRatio, left, right),
+                y: clamp(rect.top + rect.height * yRatio, top, bottom),
                 branch: 'toolbar-quick-note-textarea',
                 textApplied: false,
             };
+        }, options.position ?? {
+            xRatio: 0.72,
+            yRatio: 0.24,
         })
         : null;
-    const point = toolbarPoint ?? (options.toolbarOnly
-        ? null
-        : await tryCreatePageNoteViaContextMenu(page)
+    const toolbarCreatedNote = toolbarPoint && options.toolbarOnly
+        ? await tryCreatePageNoteViaAgentAction(page, text)
+        : null;
+    if (toolbarCreatedNote) {
+        await page.evaluate(async () => {
+            const probeWindow = window as IWorkspaceExposeProbeWindow;
+            const workspace = probeWindow.__evbFindWorkspaceExpose?.({requiredMethods: ['handleQuickNote']}) as {
+                getToolbarSnapshot?: () => {isPlacingPageNote?: boolean};
+                handleQuickNote?: () => unknown;
+            } | null;
+            if (workspace?.getToolbarSnapshot?.().isPlacingPageNote === true) {
+                await Promise.resolve(workspace.handleQuickNote?.());
+            }
+        });
+    }
+    const point = toolbarCreatedNote
+        ? {
+            ...toolbarCreatedNote,
+            branch: `toolbar-${toolbarCreatedNote.branch}`,
+        }
+        : toolbarPoint ?? (options.toolbarOnly
+            ? null
+            : await tryCreatePageNoteViaContextMenu(page)
         ?? await tryCreatePageNoteViaAgentAction(page, text)
         ?? await page.evaluate(async (noteText: string) => {
             const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
@@ -587,6 +1204,15 @@ async function placePageNote(
         await page.waitForSelector('textarea.note-window__textarea', { timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS });
     } catch (error) {
         const debugState = await collectLargePdfAnnotationDebugState(page);
+        const commentTextApplied = Array.isArray(debugState.annotationComments)
+            && debugState.annotationComments.some(comment => comment.text === text);
+        if (commentTextApplied) {
+            return {
+                ...point,
+                branch: `${point.branch}-comment-state`,
+                textApplied: true,
+            };
+        }
         throw new Error(`Large PDF note editor did not open: ${JSON.stringify({
             point,
             debugState,
@@ -680,6 +1306,12 @@ async function placePageNote(
 }
 
 async function collectLargePdfAnnotationDebugState(page: Page) {
+    const automationState = await readWorkspaceStateValues<{dirtyState?: {
+        annotationDirty: boolean;
+        hasAnnotationChanges: boolean;
+        hasLivePdfJsAnnotationChanges: boolean;
+        hasPendingUnsavedChanges: boolean;
+    };}>(page, ['dirtyState']);
     const workspaceDebug = await collectWorkspaceExposeDebugState(page, { requiredProperties: ['annotationComments'] });
     const annotationDebug = await page.evaluate(() => {
         const setupState = (
@@ -764,6 +1396,10 @@ async function collectLargePdfAnnotationDebugState(page: Page) {
     });
     return {
         ...annotationDebug,
+        annotationDirty: automationState.dirtyState?.annotationDirty ?? annotationDebug.annotationDirty,
+        hasAnnotationChanges: automationState.dirtyState?.hasAnnotationChanges ?? annotationDebug.hasAnnotationChanges,
+        hasLivePdfJsAnnotationChanges: automationState.dirtyState?.hasLivePdfJsAnnotationChanges ?? null,
+        hasPendingUnsavedChanges: automationState.dirtyState?.hasPendingUnsavedChanges ?? null,
         componentCount: workspaceDebug.componentCount,
         componentSamples: workspaceDebug.componentSamples,
         matchingComponentSamples: workspaceDebug.matchingComponentSamples,
@@ -785,6 +1421,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
 
         const fixturePath = copyLargePdfFixture(`large-pdf-note-${Date.now()}.pdf`);
         const firstText = `фвыафыва ${Date.now()}`;
+        const secondText = `second toolbar note ${Date.now()}`;
         const existingFixtureNotes = await readPdfNoteContents(fixturePath);
 
         await openPdfInApp(page, fixturePath, LARGE_PDF_TIMEOUT_MS);
@@ -797,7 +1434,9 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const placement = await placePageNote(page, firstText, {toolbarOnly: true});
         await openAnnotationsTab(page, 30_000);
         expect(await createFreeTextAnnotation(page, `first editor ${Date.now()}`)).toBeGreaterThan(0);
+        await page.keyboard.press('Escape');
         expect(await createFreeTextAnnotation(page, `second editor ${Date.now()}`)).toBeGreaterThan(0);
+        await page.keyboard.press('Escape');
         const saveStartedAt = Date.now();
         try {
             await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);
@@ -824,7 +1463,37 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 ? fallbackSavedState.originalPath
                 : fixturePath;
         const savedPath = fallbackSavedPath;
+        const secondPlacement = await placePageNote(page, secondText, {
+            position: {
+                xRatio: 0.58,
+                yRatio: 0.42,
+            },
+            toolbarOnly: true,
+        });
+        const secondSaveStartedAt = Date.now();
+        try {
+            await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);
+        } catch (error) {
+            const debugState = await collectLargePdfAnnotationDebugState(page).catch(() => null);
+            throw new Error(`Second large PDF save failed after ${secondPlacement.branch}: ${JSON.stringify({
+                secondPlacement,
+                debugState,
+                cause: error instanceof Error ? error.message : String(error),
+            })}`);
+        }
+        expect(Date.now() - secondSaveStartedAt).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
+        await new Promise(resolve => setTimeout(resolve, 750));
+        const visibleToasts = await page.evaluate(() => Array.from(document.querySelectorAll('.app-toast'))
+            .filter((element) => {
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden';
+            })
+            .map(element => element.textContent ?? ''));
+        expect(visibleToasts.some(text => text.includes('Failed to save file')), JSON.stringify({visibleToasts}))
+            .toBe(false);
+
         const savedNotes = await expectPdfContainsE2ENote(savedPath, firstText);
+        expect(savedNotes.filter(note => note.contents === secondText)).toHaveLength(1);
         expect(savedNotes, JSON.stringify({
             savedPath,
             savedNotes: savedNotes.slice(0, 20),
@@ -840,10 +1509,290 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             reopenPath,
             reopenedNotes: reopenedNotes.slice(0, 20),
         })).toHaveLength(1);
+        expect(reopenedNotes.filter(note => note.contents === secondText), JSON.stringify({
+            reopenPath,
+            reopenedNotes: reopenedNotes.slice(0, 20),
+        })).toHaveLength(1);
         expect(reopenedNotes, JSON.stringify({
             reopenPath,
             reopenedNotes: reopenedNotes.slice(0, 20),
         })).toEqual(expect.arrayContaining(existingFixtureNotes));
+    }, LARGE_PDF_TIMEOUT_MS);
+
+    it('reopens a saved sticky note cleanly after a hard restart', async () => {
+        const initialSession = sessionFixture.getSession();
+        if (!initialSession) {
+            return;
+        }
+        const fixtureSourcePath = largePdfFixture.path;
+        if (!fixtureSourcePath) {
+            throw new Error(`Required large PDF fixture is unavailable: ${largePdfFixture.reason}`);
+        }
+        const exactFixtureIdentity = await admitExactZaliznyakFixture(fixtureSourcePath);
+        const initialProcesses = readSessionProcessSnapshot(initialSession.name);
+        const freshSession = await sessionFixture.restart({
+            clean: true,
+            hard: true,
+            keepNuxt: true,
+        });
+        if (!freshSession) {
+            throw new Error('Could not start a fresh Electron process for the exact-fixture test');
+        }
+        await expectProcessesExited(initialProcesses.pids);
+        const freshProcesses = readSessionProcessSnapshot(freshSession.name);
+        expect(freshProcesses.rootPid).not.toBe(initialProcesses.rootPid);
+
+        const restartArtifactDir = mkdtempSync(join(tmpdir(), 'evb-large-pdf-sticky-restart-'));
+        onTestFinished(() => rmSync(restartArtifactDir, {
+            force: true,
+            recursive: true,
+        }));
+        const fixturePath = join(restartArtifactDir, 'saved.pdf');
+        try {
+            copyFileSync(fixtureSourcePath, fixturePath, constants.COPYFILE_FICLONE);
+        } catch {
+            copyFileSync(fixtureSourcePath, fixturePath);
+        }
+        const fixtureRealPath = realpathSync(fixturePath);
+        const firstText = `large pdf sticky note ${Date.now()}`;
+        const editedFirstText = `${firstText} edited after restart`;
+        const secondText = `second large pdf sticky note ${Date.now()}`;
+        const sourceBytes = exactFixtureIdentity?.bytes ?? statSync(fixtureSourcePath).size;
+        const sourceHash = exactFixtureIdentity?.sha256 ?? await hashFileSha256(fixtureSourcePath);
+
+        await openPdfInApp(freshSession.page, fixtureRealPath, LARGE_PDF_TIMEOUT_MS);
+        await waitForPdfLoaded(freshSession.page, LARGE_PDF_TIMEOUT_MS);
+        await waitForViewerInteractive(freshSession.page, LARGE_PDF_TIMEOUT_MS);
+        await createStickyNoteWithPointer(freshSession.page, firstText, {
+            x: 0.72,
+            y: 0.24,
+        });
+        await waitForSaveFrontierReady(freshSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+        const firstDirtyState = await readWorkspaceStateValues<{dirtyState?: {
+            annotationDirty: boolean;
+            hasLivePdfJsAnnotationChanges: boolean;
+            pdfJsAnnotationStorage: {
+                hasChanges: boolean;
+                ids: string[]
+            } | null;
+        };}>(freshSession.page, ['dirtyState']);
+        expect(firstDirtyState.dirtyState?.annotationDirty).toBe(true);
+        expect(firstDirtyState.dirtyState?.hasLivePdfJsAnnotationChanges).toBe(true);
+        expect(firstDirtyState.dirtyState?.pdfJsAnnotationStorage?.hasChanges).toBe(true);
+        expect(firstDirtyState.dirtyState?.pdfJsAnnotationStorage?.ids.length ?? 0).toBeGreaterThan(0);
+
+        const firstSaveStartedAt = Date.now();
+        const firstSaveEvent = await saveViaVisibleToolbar(
+            freshSession.page,
+            LARGE_PDF_SAVE_TIMEOUT_MS,
+            fixtureRealPath,
+        );
+        const firstSaveElapsedMs = Date.now() - firstSaveStartedAt;
+        expect(firstSaveElapsedMs).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
+        expect(realpathSync(String(firstSaveEvent.detail.path))).toBe(fixtureRealPath);
+        const firstRevisionToken = firstSaveEvent.detail.documentRevisionToken;
+        expect(firstRevisionToken).toEqual(expect.any(String));
+        expect(String(firstRevisionToken).length).toBeGreaterThan(0);
+        const firstSaveIdentity = await readDocumentSaveIdentity(freshSession.page);
+        expect(firstSaveIdentity.revision.token).toBe(firstRevisionToken);
+
+        await qpdfCheck(fixtureRealPath);
+        expect(statSync(fixtureRealPath).size).toBeGreaterThan(sourceBytes);
+        expect(await hashFileSha256(fixtureRealPath, sourceBytes)).toBe(sourceHash);
+        const firstOutputHash = await hashFileSha256(fixtureRealPath);
+        expect(firstOutputHash).not.toBe(sourceHash);
+        const firstStructure = await verifyStickyNoteStructure(
+            freshSession.page,
+            fixtureRealPath,
+            firstText,
+            0,
+            String(firstRevisionToken),
+            firstSaveIdentity.workingCopyPath,
+        );
+
+        await waitForCrashCheckpointPath(freshSession.name, fixtureRealPath);
+        const firstProcesses = readSessionProcessSnapshot(freshSession.name);
+        const restartedSession = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+            keepNuxt: true,
+        });
+        if (!restartedSession) {
+            throw new Error('First hard restart did not produce a new Electron process');
+        }
+        await expectProcessesExited(firstProcesses.pids);
+        const restartedProcesses = readSessionProcessSnapshot(restartedSession.name);
+        expect(restartedProcesses.rootPid).not.toBe(firstProcesses.rootPid);
+        await waitForRestoredDocument(restartedSession.page, fixtureRealPath);
+        await expectCleanAnnotationHydration(restartedSession.page);
+        const restoredFirstIdentity = await readDocumentSaveIdentity(restartedSession.page);
+        expect(restoredFirstIdentity.revision.token).toBe(firstRevisionToken);
+        await verifyStickyNoteStructure(
+            restartedSession.page,
+            fixtureRealPath,
+            firstText,
+            0,
+            String(firstRevisionToken),
+            restoredFirstIdentity.workingCopyPath,
+        );
+
+        await editVisibleStickyNote(restartedSession.page, firstText, editedFirstText);
+        await createStickyNoteWithPointer(restartedSession.page, secondText, {
+            x: 0.45,
+            y: 0.4,
+        });
+        await waitForSaveFrontierReady(restartedSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+        const secondDirtyState = await readWorkspaceStateValues<{dirtyState?: {
+            annotationDirty: boolean;
+            hasAnnotationChanges: boolean;
+            hasLivePdfJsAnnotationChanges: boolean;
+            pdfJsAnnotationStorage: {
+                hasChanges: boolean;
+                ids: string[]
+            } | null;
+        };}>(restartedSession.page, ['dirtyState']);
+        expect(secondDirtyState.dirtyState?.annotationDirty).toBe(true);
+        expect(secondDirtyState.dirtyState?.hasAnnotationChanges).toBe(true);
+        expect(secondDirtyState.dirtyState?.hasLivePdfJsAnnotationChanges).toBe(true);
+        expect(secondDirtyState.dirtyState?.pdfJsAnnotationStorage?.hasChanges).toBe(true);
+        expect(secondDirtyState.dirtyState?.pdfJsAnnotationStorage?.ids.length ?? 0).toBeGreaterThan(0);
+        await installStagedArtifactCapture(restartedSession.page);
+        const secondSaveStartedAt = Date.now();
+        const secondSavePromise = saveViaVisibleToolbar(
+            restartedSession.page,
+            LARGE_PDF_SAVE_TIMEOUT_MS,
+            fixtureRealPath,
+        );
+        const stagedClonePath = join(restartArtifactDir, 'second-save-staged.pdf');
+        let stagedArtifact: ITypedStagedArtifact | null = null;
+        try {
+            stagedArtifact = await waitForStagedArtifact(restartedSession.page);
+            try {
+                copyFileSync(stagedArtifact.path, stagedClonePath, constants.COPYFILE_FICLONE);
+            } catch {
+                copyFileSync(stagedArtifact.path, stagedClonePath);
+            }
+        } finally {
+            await resumeStagedArtifactCommit(restartedSession.page);
+        }
+        const secondSaveEvent = await secondSavePromise;
+        const secondSaveElapsedMs = Date.now() - secondSaveStartedAt;
+        expect(secondSaveElapsedMs).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
+        expect(realpathSync(String(secondSaveEvent.detail.path))).toBe(fixtureRealPath);
+        const secondRevisionToken = secondSaveEvent.detail.documentRevisionToken;
+        expect(secondRevisionToken).toEqual(expect.any(String));
+        expect(String(secondRevisionToken).length).toBeGreaterThan(0);
+        expect(secondRevisionToken).not.toBe(firstRevisionToken);
+        const secondSaveIdentity = await readDocumentSaveIdentity(restartedSession.page);
+        expect(secondSaveIdentity.revision.token).toBe(secondRevisionToken);
+
+        await qpdfCheck(fixtureRealPath);
+        expect(await hashFileSha256(fixtureRealPath, sourceBytes)).toBe(sourceHash);
+        const secondOutputHash = await hashFileSha256(fixtureRealPath);
+        expect(secondOutputHash).not.toBe(firstOutputHash);
+        const stagedFirstObject = await readQpdfObject(stagedClonePath, firstStructure.annotation);
+        const publishedFirstObject = await readQpdfObject(fixtureRealPath, firstStructure.annotation);
+        const workingCopyFirstObject = await readQpdfObject(
+            secondSaveIdentity.workingCopyPath,
+            firstStructure.annotation,
+        );
+        const publicationProbe = {
+            stagedArtifact,
+            stagedHash: await hashFileSha256(stagedClonePath),
+            originalHash: secondOutputHash,
+            workingCopyHash: await hashFileSha256(secondSaveIdentity.workingCopyPath),
+            stagedFirstObject,
+            publishedFirstObject,
+            workingCopyFirstObject,
+        };
+        expect(
+            qpdfObjectContainsText(stagedFirstObject, editedFirstText),
+            JSON.stringify(publicationProbe),
+        ).toBe(true);
+        expect(
+            qpdfObjectContainsText(publishedFirstObject, editedFirstText),
+            JSON.stringify(publicationProbe),
+        ).toBe(true);
+        expect(
+            qpdfObjectContainsText(workingCopyFirstObject, editedFirstText),
+            JSON.stringify(publicationProbe),
+        ).toBe(true);
+        const secondStructure = await verifyStickyNoteStructure(
+            restartedSession.page,
+            fixtureRealPath,
+            editedFirstText,
+            0,
+            String(secondRevisionToken),
+            secondSaveIdentity.workingCopyPath,
+        );
+        await verifyStickyNoteStructure(
+            restartedSession.page,
+            fixtureRealPath,
+            secondText,
+            0,
+            String(secondRevisionToken),
+            secondSaveIdentity.workingCopyPath,
+        );
+        expect({
+            generationNumber: secondStructure.annotation.generationNumber,
+            name: secondStructure.name,
+            objectNumber: secondStructure.annotation.objectNumber,
+            popupGenerationNumber: secondStructure.popup.generationNumber,
+            popupObjectNumber: secondStructure.popup.objectNumber,
+            rect: secondStructure.rect,
+        }).toEqual({
+            generationNumber: firstStructure.annotation.generationNumber,
+            name: firstStructure.name,
+            objectNumber: firstStructure.annotation.objectNumber,
+            popupGenerationNumber: firstStructure.popup.generationNumber,
+            popupObjectNumber: firstStructure.popup.objectNumber,
+            rect: firstStructure.rect,
+        });
+
+        await waitForCrashCheckpointPath(restartedSession.name, fixtureRealPath);
+        const secondProcesses = readSessionProcessSnapshot(restartedSession.name);
+        const twiceRestartedSession = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+            keepNuxt: true,
+        });
+        if (!twiceRestartedSession) {
+            throw new Error('Second hard restart did not produce a new Electron process');
+        }
+        await expectProcessesExited(secondProcesses.pids);
+        const twiceRestartedProcesses = readSessionProcessSnapshot(twiceRestartedSession.name);
+        expect(twiceRestartedProcesses.rootPid).not.toBe(secondProcesses.rootPid);
+        await waitForRestoredDocument(twiceRestartedSession.page, fixtureRealPath);
+        await expectCleanAnnotationHydration(twiceRestartedSession.page);
+        await openAnnotationsTab(twiceRestartedSession.page, 30_000);
+        await expect.poll(() => twiceRestartedSession.page.evaluate((expectedText: string) => (
+            Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .workspace-host .notes-list .note-item',
+            )).some(item => item.textContent?.includes(expectedText) === true)
+        ), editedFirstText), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(true);
+        await expect.poll(() => twiceRestartedSession.page.evaluate((expectedText: string) => (
+            Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .workspace-host .notes-list .note-item',
+            )).some(item => item.textContent?.includes(expectedText) === true)
+        ), secondText), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(true);
+        const restoredSecondIdentity = await readDocumentSaveIdentity(twiceRestartedSession.page);
+        expect(restoredSecondIdentity.revision.token).toBe(secondRevisionToken);
+        await verifyStickyNoteStructure(
+            twiceRestartedSession.page,
+            fixtureRealPath,
+            editedFirstText,
+            0,
+            String(secondRevisionToken),
+            restoredSecondIdentity.workingCopyPath,
+        );
+        await verifyStickyNoteStructure(
+            twiceRestartedSession.page,
+            fixtureRealPath,
+            secondText,
+            0,
+            String(secondRevisionToken),
+            restoredSecondIdentity.workingCopyPath,
+        );
     }, LARGE_PDF_TIMEOUT_MS);
 
     it('creates, saves, and reopens an ordinary FreeText box on a large PDF', async () => {
@@ -852,7 +1801,17 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             return;
         }
         const {page} = session;
-        const fixturePath = copyLargePdfFixture(`large-pdf-free-text-${Date.now()}.pdf`);
+        const fixtureSourcePath = largePdfFixture.path;
+        if (!fixtureSourcePath) {
+            throw new Error(`Required large PDF fixture is unavailable: ${largePdfFixture.reason}`);
+        }
+        const restartArtifactDir = mkdtempSync(join(tmpdir(), 'evb-large-pdf-hard-restart-'));
+        onTestFinished(() => rmSync(restartArtifactDir, {
+            force: true,
+            recursive: true,
+        }));
+        const fixturePath = join(restartArtifactDir, 'saved.pdf');
+        copyFileSync(fixtureSourcePath, fixturePath, constants.COPYFILE_FICLONE);
         const textSentinel = Date.now().toString();
         const text = `large pdf free text ${textSentinel}`;
 
@@ -920,16 +1879,157 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(persistedText).toBeTruthy();
         expect(persistedName).toMatch(/^evb-freetext:freetext-[0-9a-f-]{36}$/u);
 
-        const reopenPath = copyLargePdfFixture(`large-pdf-free-text-reopen-${Date.now()}.pdf`);
-        copyFileSync(savedPath, reopenPath);
-        await openPdfInApp(page, reopenPath, LARGE_PDF_TIMEOUT_MS);
-        await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
-        await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
-        const reopenedNotes = await readPdfNoteContents(reopenPath);
+        // Require the durable original to reach the crash checkpoint before
+        // stopping Electron. The restarted process must restore this tab
+        // itself; an explicit open would exercise a different lifecycle.
+        const expectedFixtureRealPath = realpathSync(fixturePath);
+        const liveDocumentState = await readWorkspaceStateValues<{
+            originalPath?: string | null;
+            workingCopyPath?: string | null;
+        }>(page, [
+            'originalPath',
+            'workingCopyPath',
+        ]);
+        expect(
+            typeof liveDocumentState.originalPath === 'string'
+                ? realpathSync(liveDocumentState.originalPath)
+                : null,
+            JSON.stringify(liveDocumentState),
+        ).toBe(expectedFixtureRealPath);
+        await expect.poll(() => {
+            try {
+                const stored = JSON.parse(readFileSync(workspaceCrashCheckpointPath(session.name), 'utf8')) as {checkpoint?: {tabs?: Array<{sourceRef?: string | null;}>;};};
+                return stored.checkpoint?.tabs?.some(tab => (
+                    typeof tab.sourceRef === 'string'
+                    && realpathSync(tab.sourceRef) === expectedFixtureRealPath
+                )) ?? false;
+            } catch {
+                return false;
+            }
+        }, {timeout: 10_000}).toBe(true);
+
+        const restartedSession = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+            keepNuxt: true,
+        });
+        expect(restartedSession).not.toBeNull();
+        const restartedPage = restartedSession!.page;
+        await expect.poll(async () => {
+            const state = await readWorkspaceStateValues<{originalPath?: string | null;}>(restartedPage, ['originalPath']);
+            return typeof state.originalPath === 'string'
+                ? realpathSync(state.originalPath)
+                : null;
+        }, {timeout: LARGE_PDF_TIMEOUT_MS}).toBe(expectedFixtureRealPath);
+        await waitForPdfLoaded(restartedPage, LARGE_PDF_TIMEOUT_MS);
+        await waitForViewerInteractive(restartedPage, LARGE_PDF_TIMEOUT_MS);
+        const restoredDebugState = await collectLargePdfAnnotationDebugState(restartedPage);
+        expect(restoredDebugState.annotationDirty, JSON.stringify(restoredDebugState)).toBe(false);
+        expect(restoredDebugState.hasAnnotationChanges, JSON.stringify(restoredDebugState)).toBe(false);
+
+        const reopenedNotes = await readPdfNoteContents(fixturePath);
         expect(reopenedNotes.filter(note => note.contents === persistedText)).toEqual([expect.objectContaining({
             name: persistedName,
             popup: '',
             subtype: '/FreeText',
         })]);
+
+        const secondText = `large pdf second free text ${Date.now()}`;
+        await openAnnotationsTab(restartedPage, 30_000);
+        await clickAnnotationTool(restartedPage, 'Text', 30_000);
+        await restartedPage.evaluate(async () => {
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        });
+        await restartedPage.waitForFunction(() => {
+            const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+            const activeTool = host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null;
+            const layer = host?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
+            return activeTool !== 'text' || layer?.classList.contains('freetextEditing') === true;
+        }, {timeout: 15_000});
+        const editorHydrationDebugState = await collectLargePdfAnnotationDebugState(restartedPage);
+        const editorHydrationDomState = await restartedPage.evaluate(() => {
+            const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+            const layer = host?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
+            return {
+                activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null,
+                editorCount: host?.querySelectorAll('.freeTextEditor:not(.pdf-comment-marker-anchor-editor)').length ?? 0,
+                layerClassName: layer?.className ?? null,
+            };
+        });
+        expect(editorHydrationDebugState.annotationDirty, JSON.stringify({
+            editorHydrationDebugState,
+            editorHydrationDomState,
+        })).toBe(false);
+        expect(editorHydrationDebugState.hasLivePdfJsAnnotationChanges, JSON.stringify({
+            editorHydrationDebugState,
+            editorHydrationDomState,
+        })).toBe(false);
+        expect(editorHydrationDomState.activeTool, JSON.stringify({
+            editorHydrationDebugState,
+            editorHydrationDomState,
+        })).toBe('text');
+        expect(editorHydrationDomState.layerClassName, JSON.stringify({
+            editorHydrationDebugState,
+            editorHydrationDomState,
+        })).toContain('freetextEditing');
+        let secondFreeTextCount: number;
+        try {
+            secondFreeTextCount = await createFreeTextAnnotationWithPointer(
+                restartedPage,
+                secondText,
+                {
+                    x: 0.72,
+                    y: 0.68,
+                },
+            );
+        } catch (error) {
+            const failedEditorDebugState = await collectLargePdfAnnotationDebugState(restartedPage);
+            throw new Error(`Restored FreeText creation failed: ${JSON.stringify({
+                editorHydrationDebugState,
+                editorHydrationDomState,
+                failedEditorDebugState,
+                cause: error instanceof Error ? error.message : String(error),
+            })}`);
+        }
+        expect(secondFreeTextCount).toBeGreaterThan(0);
+        try {
+            await waitForSaveFrontierReady(restartedPage, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+        } catch (error) {
+            const failedFrontierDebugState = await collectLargePdfAnnotationDebugState(restartedPage);
+            const failedFrontierDomState = await restartedPage.evaluate(() => {
+                const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+                const workspace = (window as Window & {__evbTestApi?: {getActiveWorkspaceHandle?: () => {
+                    getAutomationStateSnapshot?: () => unknown;
+                    getToolbarSnapshot?: () => unknown;
+                } | null;};}).__evbTestApi?.getActiveWorkspaceHandle?.() ?? null;
+                const layer = host?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
+                return {
+                    activeElement: document.activeElement?.outerHTML.slice(0, 1_000) ?? null,
+                    activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null,
+                    editorCount: host?.querySelectorAll('.freeTextEditor:not(.pdf-comment-marker-anchor-editor)').length ?? 0,
+                    editors: Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []).map(editor => ({
+                        id: editor.id,
+                        text: editor.textContent ?? '',
+                        classes: editor.className,
+                    })),
+                    layerClassName: layer?.className ?? null,
+                    toolbar: workspace?.getToolbarSnapshot?.() ?? null,
+                    automationState: workspace?.getAutomationStateSnapshot?.() ?? null,
+                };
+            });
+            throw new Error(`Restored FreeText save frontier did not become ready: ${JSON.stringify({
+                failedFrontierDebugState,
+                failedFrontierDomState,
+                cause: error instanceof Error ? error.message : String(error),
+            })}`);
+        }
+        const secondAgentSaveResult = await saveLargePdfViaAgentAction(restartedPage);
+        if (!secondAgentSaveResult) {
+            await saveViaWindowHandle(restartedPage, LARGE_PDF_TIMEOUT_MS);
+        }
+        const twiceSavedNotes = await readPdfNoteContents(fixturePath);
+        expect(twiceSavedNotes.filter(note => note.contents === persistedText)).toHaveLength(1);
+        expect(twiceSavedNotes.filter(note => note.contents === secondText)).toHaveLength(1);
     }, LARGE_PDF_TIMEOUT_MS);
 });

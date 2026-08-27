@@ -424,7 +424,7 @@ export async function startElectronE2ESession(sessionName: string, options?: {
             scopedSessionName,
             `Stopping stale Electron E2E session '${scopedSessionName}'`,
             SESSION_STOP_TIMEOUT_MS,
-            stopSingleSession(scopedSessionName),
+            stopSingleSession(scopedSessionName, {preserveWorkspaceCheckpoint: !clean}),
         ),
     );
     if (clean) {

@@ -261,6 +261,13 @@ export interface IWorkspaceAutomationStateSnapshot {
         hasSavedPdfJsAnnotationBaselineChanges: boolean;
         pageLabelsDirty: boolean;
         pendingEmbeddedAnnotationDeleteCount: number;
+        pdfJsAnnotationStorage: {
+            fingerprint: string;
+            hasChanges: boolean;
+            hasUnknownChanges: boolean;
+            ids: string[];
+            replayableEditorNoteIds: string[];
+        } | null;
     };
     originalPath: TDocumentRef | null;
     pdfSourceState?: {

@@ -5,6 +5,7 @@ import type {
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type {
+    IPdfConformanceAnalysisOptions,
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
@@ -193,7 +194,11 @@ export interface IDocumentsService {
     onWorkingCopyBackingStatusChanged: (
         listener: (event: IWorkingCopyBackingStatusServiceEvent) => void,
     ) => () => void;
-    analyzePdfConformance: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IPdfConformanceProfile>;
+    analyzePdfConformance: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+        options?: IPdfConformanceAnalysisOptions,
+    ) => Promise<IPdfConformanceProfile>;
     validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
     validatePdfPath: (
         context: IDocumentsSenderIdContext,

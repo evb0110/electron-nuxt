@@ -8,6 +8,7 @@ import type { FileHandle } from 'node:fs/promises';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import {
     captureWorkingCopyAdmissionSnapshot,
+    createOriginalFileExpectationFromStat,
     getWorkingCopyBackingEntry,
     normalizePathForLookup,
     runWithWorkingCopyRegistrationFence,
@@ -320,6 +321,9 @@ async function publishMaterializedTarget(
     sourceHandle: FileHandle,
     sourceFingerprint: string,
 ) {
+    const sourceFileExpectation = createOriginalFileExpectationFromStat(
+        await sourceHandle.stat({bigint: true}),
+    );
     const publication = await runWithWorkingCopyRegistrationFence(
         flight.logicalRef,
         flight.registrationId,
@@ -342,9 +346,8 @@ async function publishMaterializedTarget(
             await atomicReplace(tempPath, flight.logicalRef, {markMutationCommitStarted: false});
             entry.backingState = 'materialized';
             entry.originalFileExpectation = {
+                ...sourceFileExpectation,
                 contentFingerprint: sourceFingerprint,
-                mtimeMs: Number(flight.admissionSnapshot.mtimeNs) / 1_000_000,
-                size: flight.totalBytes,
             };
             delete entry.sourceBackingErrorCode;
         },

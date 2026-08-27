@@ -487,8 +487,8 @@ export function registerDocumentsIpcAdapter(
                 stagedOutput,
                 revisionOptions,
             ),
-        analyzePdfConformance: (context, filePath) =>
-            service.analyzePdfConformance(context, filePath),
+        analyzePdfConformance: (context, filePath, options) =>
+            service.analyzePdfConformance(context, filePath, options),
         validatePdfData: (data, fileName) =>
             service.validatePdfData(data, fileName),
         validatePdfPath: (context, filePath, options) =>

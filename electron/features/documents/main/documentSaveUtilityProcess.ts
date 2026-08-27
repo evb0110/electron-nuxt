@@ -146,7 +146,10 @@ parentPort.once('message', (event) => {
         const reuse = getDocumentSaveUtilityReusePlan(request);
         let receiptSha256: string | undefined;
         if (reuse.fingerprint) {
-            if (request.stagedArtifact === undefined) {
+            if (
+                request.stagedArtifact === undefined
+                || request.stagedArtifact.receiptVersion !== 1
+            ) {
                 throw new Error('Document save receipt reuse was enabled without an artifact');
             }
             receiptSha256 = request.stagedArtifact.sha256;

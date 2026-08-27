@@ -54,6 +54,7 @@ import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessio
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 
 const PDF_SAVE_TIMEOUT_QUIESCE_MS = 2_000;
+const SLOW_SAVE_PREPARATION_STEP_MS = 250;
 const DEFAULT_TRANSACTION_SAVE_MODE = 'rewrite';
 const AVAILABLE_SERIALIZATION_BACKENDS = [
     'native-append',
@@ -103,7 +104,11 @@ interface ISavePdfDocumentWithCommittedEditorsOptions {
     commitEditors?: boolean;
 }
 
-async function waitForCommittedEditorsToSettle() {
+async function waitForCommittedEditorModelsToSettle() {
+    await nextTick();
+}
+
+async function waitForCommittedEditorsToRender() {
     await nextTick();
     if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
         return;
@@ -128,10 +133,15 @@ function isSaveTargetCurrent(
 async function commitPdfEditorsForSave(
     annotationUiManager: AnnotationEditorUIManager | null,
     commitPendingEditorDraftsForSave?: () => void,
+    waitForRender = false,
 ) {
     commitPendingEditorDraftsForSave?.();
     annotationUiManager?.commitOrRemove();
-    await waitForCommittedEditorsToSettle();
+    if (waitForRender) {
+        await waitForCommittedEditorsToRender();
+        return;
+    }
+    await waitForCommittedEditorModelsToSettle();
 }
 
 /**
@@ -147,7 +157,7 @@ export async function savePdfDocumentWithCommittedEditors(
         return null;
     }
     if (options.commitEditors !== false) {
-        await commitPdfEditorsForSave(options.annotationUiManager);
+        await commitPdfEditorsForSave(options.annotationUiManager, undefined, true);
     }
     if (!isSaveTargetCurrent(options, pdfDocument)) {
         return null;
@@ -175,6 +185,7 @@ async function collectPreexistingPdfAnnotationRefs(
         .map(mutation => mutation.fields.pageIndex)
         .filter((value): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0));
     const refs = new Set<string>();
+    const startedAt = performance.now();
     await Promise.all(Array.from(pageIndexes, async (pageIndex) => {
         const page = await doc.getPage(pageIndex + 1);
         const annotations = await page.getAnnotations({intent: 'display'});
@@ -185,6 +196,15 @@ async function collectPreexistingPdfAnnotationRefs(
             if (id) refs.add(id);
         });
     }));
+    const durationMs = Math.round((performance.now() - startedAt) * 10) / 10;
+    if (durationMs >= SLOW_SAVE_PREPARATION_STEP_MS) {
+        BrowserLogger.warn('workspace', 'Slow PDF save preparation step', {
+            phase: 'collect-preexisting-annotation-refs',
+            durationMs,
+            pageCount: pageIndexes.size,
+            refCount: refs.size,
+        });
+    }
     return Array.from(refs);
 }
 
@@ -290,6 +310,10 @@ export const usePdfViewerSaveTransaction = (
     options: IUsePdfViewerSaveTransactionOptions,
 ) => {
     const getPdfDocument = () => options.pdfDocument?.value ?? options.getPdfDocument?.() ?? null;
+    const collectLiveAnnotationChanges = () => collectLivePdfJsAnnotationChangeIds(
+        getPdfDocument(),
+        {annotationStore: options.annotationApplication?.value.store},
+    );
     async function materializePdfJsDocumentForInternalUse(commitEditors = true) {
         if (options.materializePdfJsDocumentForInternalUse) {
             return options.materializePdfJsDocumentForInternalUse();
@@ -331,9 +355,10 @@ export const usePdfViewerSaveTransaction = (
 
     async function runSaveDocumentAttemptWithTimeout() {
         const savePromise = (async () => {
-            // The transaction committed and settled the editor frontier before
-            // route selection. Do not commit it a second time while
-            // materializing the selected PDF.js byte route.
+            // Native route selection only needs the committed editor model.
+            // PDF.js byte materialization still waits for its rendered editor
+            // surface, but native saves never depend on animation frames.
+            await waitForCommittedEditorsToRender();
             const data = await materializePdfJsDocumentForInternalUse(false);
             if (!data) {
                 throw new Error('saveDocument returned no data');
@@ -570,15 +595,41 @@ export const usePdfViewerSaveTransaction = (
             }
             assertSaveTargetCurrent();
         }
-        const pdfjsLiveChangesBeforeCommit = collectLivePdfJsAnnotationChangeIds(getPdfDocument());
-        await options.flushAnnotationMutationsForSave?.();
-        assertSaveTargetCurrent();
-        await commitPdfEditorsForSave(
-            options.annotationUiManager?.value ?? null,
-            options.commitPendingEditorDraftsForSave,
+        const measurePreparationStep = async <T>(phase: string, operation: () => Promise<T> | T) => {
+            const startedAt = performance.now();
+            try {
+                return await operation();
+            } finally {
+                const durationMs = Math.round((performance.now() - startedAt) * 10) / 10;
+                if (durationMs >= SLOW_SAVE_PREPARATION_STEP_MS) {
+                    BrowserLogger.warn('workspace', 'Slow PDF save preparation step', {
+                        phase,
+                        durationMs,
+                    });
+                }
+            }
+        };
+        const pdfjsLiveChangesBeforeCommit = await measurePreparationStep(
+            'collect-live-changes-before-commit',
+            collectLiveAnnotationChanges,
+        );
+        await measurePreparationStep(
+            'flush-annotation-mutations',
+            () => options.flushAnnotationMutationsForSave?.(),
         );
         assertSaveTargetCurrent();
-        const capturedPdfjsLiveChanges = collectLivePdfJsAnnotationChangeIds(getPdfDocument());
+        await measurePreparationStep(
+            'commit-editor-models',
+            () => commitPdfEditorsForSave(
+                options.annotationUiManager?.value ?? null,
+                options.commitPendingEditorDraftsForSave,
+            ),
+        );
+        assertSaveTargetCurrent();
+        const capturedPdfjsLiveChanges = await measurePreparationStep(
+            'collect-live-changes-after-commit',
+            collectLiveAnnotationChanges,
+        );
         const canonicalSave = prepareAnnotationSave(capturedTarget);
         // Complete the annotation frontier into the global immutable save plan
         // before route selection. From this point onward no backend is allowed to
@@ -656,7 +707,7 @@ export const usePdfViewerSaveTransaction = (
                     throw error;
                 }
                 assertSaveTargetCurrent();
-                const currentPdfjsLiveChanges = collectLivePdfJsAnnotationChangeIds(getPdfDocument());
+                const currentPdfjsLiveChanges = collectLiveAnnotationChanges();
                 if (currentPdfjsLiveChanges.fingerprint !== capturedPdfjsLiveChanges.fingerprint) {
                     throw staleTargetError('PDF.js annotations changed after the save frontier was captured');
                 }

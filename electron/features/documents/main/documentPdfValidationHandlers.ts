@@ -1,4 +1,5 @@
 import type {
+    IPdfConformanceAnalysisOptions,
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
@@ -28,8 +29,15 @@ async function readResolvedPdf<T>(
 export async function handleAnalyzePdfConformance(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
+    options?: IPdfConformanceAnalysisOptions,
 ): Promise<IPdfConformanceProfile> {
-    return readResolvedPdf(context, filePath, analyzePdfConformanceFile);
+    return readResolvedPdf(
+        context,
+        filePath,
+        physicalPath => analyzePdfConformanceFile(physicalPath, {markerEvidence: options?.purpose === 'save-restrictions'
+            ? 'structural-only'
+            : 'full'}),
+    );
 }
 
 export async function handleValidatePdfData(

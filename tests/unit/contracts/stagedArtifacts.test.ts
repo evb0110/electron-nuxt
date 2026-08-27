@@ -70,8 +70,21 @@ describe('typed staged artifact contracts', () => {
         expect(decodeTypedStagedArtifact(artifact)).toEqual(artifact);
     });
 
+    it('accepts an opaque POSIX native receipt without a reusable content hash', () => {
+        const {
+            sha256: _sha256,
+            ...artifact
+        } = createArtifact();
+        const opaqueArtifact = {
+            ...artifact,
+            receiptVersion: 2,
+        } as const;
+
+        expect(decodeTypedStagedArtifact(opaqueArtifact)).toEqual(opaqueArtifact);
+    });
+
     it.each([
-        {receiptVersion: 2},
+        {receiptVersion: 3},
         {artifactKind: 'binary'},
         {size: -1},
         {sha256: 'not-a-digest'},
