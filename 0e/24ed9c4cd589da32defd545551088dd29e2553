@@ -1,0 +1,19 @@
+tests/e2e/electron/prBlockingSmoke.e2e.test.ts
+  s_5ac4a3281ca4f3::t_19329b5351dbc1 9,413,417,425,429
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "0e24ed9c4cd589da32defd545551088dd29e2553",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
