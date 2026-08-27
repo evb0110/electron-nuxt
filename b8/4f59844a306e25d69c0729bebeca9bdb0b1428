@@ -1,0 +1,21 @@
+tests/unit/electron/agentDocumentTextSearchValidation.test.ts
+  s_5ac4a3281ca4f3::t_4a9e18f24e6fee 2,84-88
+tests/e2e/electron/prBlockingSmoke.e2e.test.ts
+  s_5ac4a3281ca4f3::t_5a48bd30fdeaae 415-416,422-433
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "b84f59844a306e25d69c0729bebeca9bdb0b1428",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
