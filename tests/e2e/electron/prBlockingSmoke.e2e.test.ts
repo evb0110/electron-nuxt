@@ -65,6 +65,8 @@ import {
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import { findViewportLifecycleViolations } from '@tests/e2e/electron/helpers/findViewportLifecycleViolations';
 import { resolveClockwiseRotationDelta } from '@tests/e2e/electron/helpers/resolveClockwiseRotationDelta';
+import {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 
 const PR_BLOCKING_SMOKE_TIMEOUT_MS = 90_000;
 const LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS = 45_000;
@@ -408,9 +410,10 @@ async function waitForManagedPdfRotation(
     timeoutMs = PR_BLOCKING_SMOKE_TIMEOUT_MS,
 ) {
     const deadline = Date.now() + timeoutMs;
+    const nativeTools = getPdfNativeToolPaths();
     let rotation: number | null = null;
     while (rotation !== expectedRotation) {
-        const {stdout} = await execFileAsync('pdfinfo', [
+        const {stdout} = await execFileAsync(nativeTools.pdfinfo, [
             '-box',
             '-f',
             '1',
@@ -418,6 +421,10 @@ async function waitForManagedPdfRotation(
             '1',
             workingCopyPath,
         ], {
+            env: {
+                ...process.env,
+                ...buildPopplerEnv(nativeTools),
+            },
             maxBuffer: 1024 * 1024,
             timeout: 10_000,
         });
