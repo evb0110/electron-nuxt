@@ -414,8 +414,9 @@ describe('package scripts', () => {
             'vitest --project e2e-regression --reporter verbose',
         );
         expect(scripts['test:e2e:electron:headless']).toBe('bash scripts/test-electron-e2e-headless.sh');
-        expect(scripts['test:e2e:electron:blocking-smoke:headless'])
-            .toContain('test-electron-e2e-headless.sh test:e2e:electron:blocking-smoke');
+        expect(scripts['test:e2e:electron:blocking-smoke:headless']).toBe(
+            'EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh test:e2e:electron:blocking-smoke',
+        );
 
         const launcher = await readFile(
             path.join(process.cwd(), 'scripts/test-electron-e2e-headless.sh'),
