@@ -6,11 +6,12 @@ import {
     it,
 } from 'vitest';
 import type {CDPSession} from 'puppeteer-core';
-import {PDFDocument} from 'pdf-lib';
+import {execFile} from 'node:child_process';
 import {
     readFile,
     stat,
 } from 'node:fs/promises';
+import {promisify} from 'node:util';
 import {
     cleanupRunFixtures,
     createLargeScannedFixturePdf,
@@ -90,6 +91,7 @@ const DJVU_FIRST_VISUAL_BUDGET_MS = 5_000;
 const DJVU_READY_AFTER_VISUAL_BUDGET_MS = 1_000;
 const PDF_NAVIGATION_SKELETON_DEBOUNCE_MS = 150;
 const CDP_CLEANUP_TIMEOUT_MS = 5_000;
+const execFileAsync = promisify(execFile);
 const prSmokeScope = process.env.EVB_PR_SMOKE_SCOPE;
 const blockingIt = prSmokeScope === 'pressure' ? it.skip : it;
 const pressureIt = prSmokeScope === 'blocking' ? it.skip : it;
@@ -408,8 +410,22 @@ async function waitForManagedPdfRotation(
     const deadline = Date.now() + timeoutMs;
     let rotation: number | null = null;
     while (rotation !== expectedRotation) {
-        const document = await PDFDocument.load(await readFile(workingCopyPath), {updateMetadata: false});
-        rotation = document.getPage(0).getRotation().angle;
+        const {stdout} = await execFileAsync('pdfinfo', [
+            '-box',
+            '-f',
+            '1',
+            '-l',
+            '1',
+            workingCopyPath,
+        ], {
+            maxBuffer: 1024 * 1024,
+            timeout: 10_000,
+        });
+        const match = /^Page\s+1\s+rot:\s+(-?\d+)\s*$/imu.exec(stdout);
+        const rawRotation = Number.parseInt(match?.[1] ?? '', 10);
+        rotation = Number.isSafeInteger(rawRotation)
+            ? ((rawRotation % 360) + 360) % 360
+            : null;
         if (Date.now() >= deadline) {
             throw new Error(`Timed out waiting for persisted PDF rotation ${expectedRotation}; last observed ${String(rotation)}`);
         }
