@@ -1,0 +1,28 @@
+tests/unit/app/modules/workspace-shell/composables/createWorkspaceExpose.test.ts
+  s_5ac4a3281ca4f3::t_1cff1d8b8e0a29 368-377
+tests/e2e/electron/prBlockingSmoke.e2e.test.ts
+  s_5ac4a3281ca4f3::t_7f41e3bb7fd572 1164-1165
+  s_5ac4a3281ca4f3::t_db19d53aef9b7d 1158-1163
+  s_5ac4a3281ca4f3::t_3a308eb9f48a06 1129-1132
+  s_5ac4a3281ca4f3::t_1cff1d8b8e0a29 1099
+app/types/workspaceExpose.ts
+  s_5ac4a3281ca4f3::t_1cff1d8b8e0a29 197-198
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_5ac4a3281ca4f3::t_1cff1d8b8e0a29 468-469,474-475
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "bbfbde1d1ead61833bafcbf53913247fb79d3568",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
