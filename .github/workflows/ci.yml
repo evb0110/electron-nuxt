@@ -10,14 +10,19 @@ on:
     branches:
       - main
     # Ordinary direct pushes use the required local all-gates validation.
-    # Hosted push CI is reserved for package metadata changes, including every
-    # release commit, so release.yml still receives an exact-SHA gates_ok run.
+    # Hosted push CI also covers package metadata and the blocking Electron
+    # smoke contract so fixes to that release gate receive an exact-SHA run.
     paths:
+      - '.github/workflows/ci.yml'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - '**/package.json'
       - '**/pnpm-workspace.yaml'
+      - 'scripts/test-electron-e2e-headless.sh'
+      - 'tests/e2e/electron/**'
+      - 'vitest.config.ts'
+      - 'vitest.shared.config.ts'
   workflow_dispatch:
 
 permissions:

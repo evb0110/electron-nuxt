@@ -325,7 +325,7 @@ function runAffectedOracleBranch({
 }
 
 describe('CI topology policy', () => {
-    it('runs hosted push CI only for package metadata without filtering required pull-request checks', async () => {
+    it('runs hosted push CI for package metadata and blocking Electron smoke changes without filtering required pull-request checks', async () => {
         const triggers = parseWorkflowTriggers(await readProjectFile('.github/workflows/ci.yml'));
         const push = triggers.push;
         if (!isRecord(push)) {
@@ -334,11 +334,16 @@ describe('CI topology policy', () => {
 
         expect(push.branches).toEqual(['main']);
         expect(push.paths).toEqual([
+            '.github/workflows/ci.yml',
             'package.json',
             'pnpm-lock.yaml',
             'pnpm-workspace.yaml',
             '**/package.json',
             '**/pnpm-workspace.yaml',
+            'scripts/test-electron-e2e-headless.sh',
+            'tests/e2e/electron/**',
+            'vitest.config.ts',
+            'vitest.shared.config.ts',
         ]);
         expect(push['paths-ignore']).toBeUndefined();
         expect(push.schedule).toBeUndefined();

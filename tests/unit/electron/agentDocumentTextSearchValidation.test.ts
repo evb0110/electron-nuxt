@@ -81,7 +81,6 @@ function createWindow() {
 
 describe('agent document search validation', () => {
     beforeEach(() => {
-        vi.resetModules();
         vi.clearAllMocks();
         mocks.resolveSearchablePdfPath.mockResolvedValue('/tmp/Grammar.pdf');
         mocks.stat.mockRejectedValue(new Error('missing test path'));

@@ -18,10 +18,7 @@ import {
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {
-    getActiveWorkspaceWorkingCopyPath,
-    rotatePages,
-} from '@tests/e2e/electron/helpers/electronApiHelpers';
+import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
     clickVisibleToolbarButton,
     goToPageViaToolbar,
@@ -401,6 +398,24 @@ async function readManagedPdfOpeningGeometry(
         }
         return readOpeningGeometry(path);
     }, workingCopyPath);
+}
+
+async function waitForManagedPdfRotation(
+    page: Parameters<typeof evaluateInPage>[0],
+    workingCopyPath: string,
+    expectedRotation: number,
+    timeoutMs = PR_BLOCKING_SMOKE_TIMEOUT_MS,
+) {
+    const deadline = Date.now() + timeoutMs;
+    let geometry = await readManagedPdfOpeningGeometry(page, workingCopyPath);
+    while (geometry?.rotation !== expectedRotation) {
+        if (Date.now() >= deadline) {
+            throw new Error(`Timed out waiting for persisted PDF rotation ${expectedRotation}; last observed ${String(geometry?.rotation)}`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+        geometry = await readManagedPdfOpeningGeometry(page, workingCopyPath);
+    }
+    return geometry;
 }
 
 async function waitForCommittedPdfCanvasResize(
@@ -1074,15 +1089,76 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             90,
         );
         if (rotationDelta !== 0) {
-            await expect(
-                runPdfDiagnosticStage(session.page, 'rotation:persist-ipc-mutation', () => (
-                    rotatePages(session.page, workingCopyPath, [1], 3, rotationDelta)
-                )),
-            ).resolves.toMatchObject({success: true});
+            const surfaceRevisionBeforeRotation = await evaluateInPage(session.page, () => (
+                document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-viewer-chassis',
+                )?.dataset.openSurfaceDocumentRevision ?? null
+            ));
+            const sidebarResult = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
+            expect(sidebarResult.called).toBe(true);
+            await waitForWorkspaceToolbarSnapshot(
+                session.page,
+                {showSidebar: true},
+                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+            );
+            await runPdfDiagnosticStage(
+                session.page,
+                'rotation:select-first-page',
+                () => session.page.click(
+                    '.editor-pane.is-active .pdf-thumbnail[data-page="1"] .pdf-thumbnail-selection-toggle',
+                ),
+            );
+            await waitForFunctionInPage(session.page, () => (
+                (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.selectedPageCount === 1
+            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
+            const rotationResult = await runPdfDiagnosticStage(
+                session.page,
+                'rotation:persist-workspace-mutation',
+                () => callWorkspaceCommand(session.page, 'handleRotateCw'),
+            );
+            expect(rotationResult.called).toBe(true);
+            await runPdfDiagnosticStage(session.page, 'rotation:wait-workspace-reload', () => (
+                waitForFunctionInPage(session.page, (previousRevision: string | null) => {
+                    const chassis = document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-viewer-chassis',
+                    );
+                    const viewer = document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                    );
+                    const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
+                    return Boolean(
+                        chassis
+                        && chassis.dataset.openSurfaceDocumentRevision !== previousRevision
+                        && chassis.dataset.openSurfacePresentation === 'committed'
+                        && viewer?.dataset.openSurfacePhase === 'ready'
+                        && toolbar
+                        && toolbar.currentPage === 1
+                        && !toolbar.isPageOperationInProgress,
+                    );
+                }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, surfaceRevisionBeforeRotation)
+            ));
+            await runPdfDiagnosticStage(
+                session.page,
+                'rotation:deselect-first-page',
+                () => session.page.click(
+                    '.editor-pane.is-active .pdf-thumbnail[data-page="1"] .pdf-thumbnail-selection-toggle',
+                ),
+            );
+            await waitForFunctionInPage(session.page, () => (
+                (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.selectedPageCount === 0
+            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
+            const closeSidebarResult = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
+            expect(closeSidebarResult.called).toBe(true);
+            await waitForWorkspaceToolbarSnapshot(
+                session.page,
+                {showSidebar: false},
+                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+            );
         }
-        const rotatedGeometry = await readManagedPdfOpeningGeometry(
+        const rotatedGeometry = await waitForManagedPdfRotation(
             session.page,
             workingCopyPath,
+            90,
         );
         expect(rotatedGeometry?.rotation).toBe(90);
 

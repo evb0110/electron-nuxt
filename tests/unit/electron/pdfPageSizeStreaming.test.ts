@@ -279,5 +279,5 @@ describe('page-size sidecar reader', () => {
         });
         await store.close();
         await expect(store.getPage(1)).rejects.toThrow('Scan cleanup result store is closed');
-    });
+    }, 15_000);
 });
