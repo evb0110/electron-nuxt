@@ -1,4 +1,5 @@
 import {
+    afterAll,
     beforeEach,
     describe,
     expect,
@@ -80,6 +81,11 @@ function createWindow() {
 }
 
 describe('agent document search validation', () => {
+    afterAll(() => {
+        vi.doUnmock('node:fs/promises');
+        vi.resetModules();
+    });
+
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.resolveSearchablePdfPath.mockResolvedValue('/tmp/Grammar.pdf');

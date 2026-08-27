@@ -65,7 +65,6 @@ import {
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import { findViewportLifecycleViolations } from '@tests/e2e/electron/helpers/findViewportLifecycleViolations';
 import { resolveClockwiseRotationDelta } from '@tests/e2e/electron/helpers/resolveClockwiseRotationDelta';
-import {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 
 const PR_BLOCKING_SMOKE_TIMEOUT_MS = 90_000;
@@ -413,22 +412,25 @@ async function waitForManagedPdfRotation(
     const nativeTools = getPdfNativeToolPaths();
     let rotation: number | null = null;
     while (rotation !== expectedRotation) {
-        const {stdout} = await execFileAsync(nativeTools.pdfinfo, [
-            '-box',
-            '-f',
-            '1',
-            '-l',
-            '1',
+        const {stdout: pageListing} = await execFileAsync(nativeTools.qpdf, [
+            '--show-pages',
             workingCopyPath,
         ], {
-            env: {
-                ...process.env,
-                ...buildPopplerEnv(nativeTools),
-            },
             maxBuffer: 1024 * 1024,
             timeout: 10_000,
         });
-        const match = /^Page\s+1\s+rot:\s+(-?\d+)\s*$/imu.exec(stdout);
+        const pageObjectMatch = /^page\s+1:\s+(\d+)\s+(\d+)\s+R\s*$/imu.exec(pageListing);
+        if (!pageObjectMatch?.[1] || !pageObjectMatch[2]) {
+            throw new Error('qpdf did not report the page 1 object');
+        }
+        const {stdout: pageObject} = await execFileAsync(nativeTools.qpdf, [
+            `--show-object=${pageObjectMatch[1]},${pageObjectMatch[2]}`,
+            workingCopyPath,
+        ], {
+            maxBuffer: 1024 * 1024,
+            timeout: 10_000,
+        });
+        const match = /\/Rotate\s+(-?\d+)\b/u.exec(pageObject);
         const rawRotation = Number.parseInt(match?.[1] ?? '', 10);
         rotation = Number.isSafeInteger(rawRotation)
             ? ((rawRotation % 360) + 360) % 360
