@@ -1,0 +1,33 @@
+.github/workflows/ci.yml
+  s_5ac4a3281ca4f3::t_5c2fd73cbfb99a 13-14,16,22-25
+tests/e2e/electron/prBlockingSmoke.e2e.test.ts
+  s_5ac4a3281ca4f3::t_fbd8b07dee5f2a 1092,1095,1121,1131,1138
+  s_5ac4a3281ca4f3::t_954b849f32101d 1140-1156
+  s_5ac4a3281ca4f3::t_b676b44580dcda 1125-1127,1133
+  s_5ac4a3281ca4f3::t_493d74538a83f8 21
+  s_5ac4a3281ca4f3::t_bb47f942de2c8d 1136
+  s_5ac4a3281ca4f3::t_faceb32e0444cf 403-420,1097-1113,1117,1119,1158,1161
+  s_5ac4a3281ca4f3::t_8052c50036f2a2 1094,1123
+  s_5ac4a3281ca4f3::t_3ade7ef4fc9efc 1114-1116,1118
+  s_5ac4a3281ca4f3::t_20766e60b10c7c 1093,1096,1120,1122,1124,1128-1130,1132,1134-1135,1137,1139
+tests/unit/electron/pdfPageSizeStreaming.test.ts
+  s_5ac4a3281ca4f3::t_0efb4b05182193 282
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_5ac4a3281ca4f3::t_5c2fd73cbfb99a 328,337,343-346
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "9297673a9fc67077aeccc6f4b721dabfde77b1aa",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
