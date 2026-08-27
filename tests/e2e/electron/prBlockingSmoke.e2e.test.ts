@@ -6,12 +6,11 @@ import {
     it,
 } from 'vitest';
 import type {CDPSession} from 'puppeteer-core';
-import {execFile} from 'node:child_process';
+import {execFileSync} from 'node:child_process';
 import {
     readFile,
     stat,
 } from 'node:fs/promises';
-import {promisify} from 'node:util';
 import {
     cleanupRunFixtures,
     createLargeScannedFixturePdf,
@@ -92,7 +91,6 @@ const DJVU_FIRST_VISUAL_BUDGET_MS = 5_000;
 const DJVU_READY_AFTER_VISUAL_BUDGET_MS = 1_000;
 const PDF_NAVIGATION_SKELETON_DEBOUNCE_MS = 150;
 const CDP_CLEANUP_TIMEOUT_MS = 5_000;
-const execFileAsync = promisify(execFile);
 const prSmokeScope = process.env.EVB_PR_SMOKE_SCOPE;
 const blockingIt = prSmokeScope === 'pressure' ? it.skip : it;
 const pressureIt = prSmokeScope === 'blocking' ? it.skip : it;
@@ -412,10 +410,11 @@ async function waitForManagedPdfRotation(
     const nativeTools = getPdfNativeToolPaths();
     let rotation: number | null = null;
     while (rotation !== expectedRotation) {
-        const {stdout: pageListing} = await execFileAsync(nativeTools.qpdf, [
+        const pageListing = execFileSync(nativeTools.qpdf, [
             '--show-pages',
             workingCopyPath,
         ], {
+            encoding: 'utf8',
             maxBuffer: 1024 * 1024,
             timeout: 10_000,
         });
@@ -423,10 +422,11 @@ async function waitForManagedPdfRotation(
         if (!pageObjectMatch?.[1] || !pageObjectMatch[2]) {
             throw new Error('qpdf did not report the page 1 object');
         }
-        const {stdout: pageObject} = await execFileAsync(nativeTools.qpdf, [
+        const pageObject = execFileSync(nativeTools.qpdf, [
             `--show-object=${pageObjectMatch[1]},${pageObjectMatch[2]}`,
             workingCopyPath,
         ], {
+            encoding: 'utf8',
             maxBuffer: 1024 * 1024,
             timeout: 10_000,
         });
