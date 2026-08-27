@@ -465,14 +465,14 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                 void deps.pageOpsExtract(pages);
             }
         },
-        handleRotateCw: () => {
-            const pages = getSelectedPages(deps.selectedThumbnailPages);
+        handleRotateCw: (explicitPages?: number[]) => {
+            const pages = explicitPages ?? getSelectedPages(deps.selectedThumbnailPages);
             if (pages.length > 0) {
                 void deps.handlePageRotate(pages, 90);
             }
         },
-        handleRotateCcw: () => {
-            const pages = getSelectedPages(deps.selectedThumbnailPages);
+        handleRotateCcw: (explicitPages?: number[]) => {
+            const pages = explicitPages ?? getSelectedPages(deps.selectedThumbnailPages);
             if (pages.length > 0) {
                 void deps.handlePageRotate(pages, 270);
             }

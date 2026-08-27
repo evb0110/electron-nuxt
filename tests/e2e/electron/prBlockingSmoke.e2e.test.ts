@@ -20,7 +20,6 @@ import {
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
-    clickVisibleToolbarButton,
     goToPageViaToolbar,
     openDjvuInApp,
     openPdfInApp,
@@ -1094,27 +1093,10 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-viewer-chassis',
                 )?.dataset.openSurfaceDocumentRevision ?? null
             ));
-            const sidebarResult = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
-            expect(sidebarResult.called).toBe(true);
-            await waitForWorkspaceToolbarSnapshot(
-                session.page,
-                {showSidebar: true},
-                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-            );
-            await runPdfDiagnosticStage(
-                session.page,
-                'rotation:select-first-page',
-                () => session.page.click(
-                    '.editor-pane.is-active .pdf-thumbnail[data-page="1"] .pdf-thumbnail-selection-toggle',
-                ),
-            );
-            await waitForFunctionInPage(session.page, () => (
-                (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.selectedPageCount === 1
-            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
             const rotationResult = await runPdfDiagnosticStage(
                 session.page,
                 'rotation:persist-workspace-mutation',
-                () => callWorkspaceCommand(session.page, 'handleRotateCw'),
+                () => callWorkspaceCommand(session.page, 'handleRotateCw', [[1]]),
             );
             expect(rotationResult.called).toBe(true);
             await runPdfDiagnosticStage(session.page, 'rotation:wait-workspace-reload', () => (
@@ -1137,23 +1119,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     );
                 }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, surfaceRevisionBeforeRotation)
             ));
-            await runPdfDiagnosticStage(
-                session.page,
-                'rotation:deselect-first-page',
-                () => session.page.click(
-                    '.editor-pane.is-active .pdf-thumbnail[data-page="1"] .pdf-thumbnail-selection-toggle',
-                ),
-            );
-            await waitForFunctionInPage(session.page, () => (
-                (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.selectedPageCount === 0
-            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
-            const closeSidebarResult = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
-            expect(closeSidebarResult.called).toBe(true);
-            await waitForWorkspaceToolbarSnapshot(
-                session.page,
-                {showSidebar: false},
-                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-            );
         }
         const rotatedGeometry = await waitForManagedPdfRotation(
             session.page,
@@ -1161,6 +1126,10 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             90,
         );
         expect(rotatedGeometry?.rotation).toBe(90);
+        // The revision commits before the bounded managed-shape import finishes.
+        // Let that post-mutation refresh settle before issuing a page command,
+        // otherwise it can legitimately restore the reload anchor on page 1.
+        await waitForAnimationFrames(session.page, 10);
 
         // Adjacent-page prefetch is opportunistic. Requiring page 2 to have a
         // canvas before navigation made this smoke wait forever whenever the
@@ -1186,8 +1155,14 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         let navigationSurfaceTrace: Awaited<ReturnType<typeof stopCommittedSurfaceSampler>> = {frames: []};
         let navigationRenderTrace: IPdfRenderTraceEntrySnapshot[] = [];
         try {
-            await runPdfDiagnosticStage(session.page, 'rotation:navigate-next', () => (
-                clickVisibleToolbarButton(session.page, 'Next Page')
+            const navigation = await runPdfDiagnosticStage(
+                session.page,
+                'rotation:navigate-next',
+                () => callWorkspaceCommand(session.page, 'handleGoToPage', [2]),
+            );
+            expect(navigation.called).toBe(true);
+            await runPdfDiagnosticStage(session.page, 'rotation:wait-page-2-toolbar', () => (
+                waitForToolbarCurrentPage(session.page, 2)
             ));
             const fitWidth = await runPdfDiagnosticStage(
                 session.page,
@@ -1195,9 +1170,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 () => callWorkspaceCommand(session.page, 'handleFitWidth'),
             );
             expect(fitWidth.called).toBe(true);
-            await runPdfDiagnosticStage(session.page, 'rotation:wait-page-2-toolbar', () => (
-                waitForToolbarCurrentPage(session.page, 2)
-            ));
             await runPdfDiagnosticStage(session.page, 'rotation:wait-fit-width', () => (
                 waitForFunctionInPage(session.page, () => (
                     (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'

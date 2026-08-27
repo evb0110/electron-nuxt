@@ -365,6 +365,16 @@ describe('createWorkspaceExpose', () => {
         ], 270);
     });
 
+    it('rotates explicit pages without changing thumbnail selection', () => {
+        const deps = createDeps({selectedThumbnailPages: ref([3])});
+        const exposed = createWorkspaceExpose(deps);
+
+        exposed.handleRotateCw([1]);
+
+        expect(deps.handlePageRotate).toHaveBeenCalledWith([1], 90);
+        expect(deps.selectedThumbnailPages.value).toEqual([3]);
+    });
+
     it('opens conversion dialog in DjVu mode and file picker otherwise', async () => {
         const deps = createDeps({ isDjvuMode: ref(true) });
         const exposed = createWorkspaceExpose(deps);

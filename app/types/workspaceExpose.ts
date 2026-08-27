@@ -194,8 +194,8 @@ export interface IWorkspaceViewPort {
 export interface IWorkspacePageOpsPort {
     handleDeletePages: () => void;
     handleExtractPages: () => void;
-    handleRotateCw: () => void;
-    handleRotateCcw: () => void;
+    handleRotateCw: (pages?: number[]) => void;
+    handleRotateCcw: (pages?: number[]) => void;
     handleInsertPages: () => void;
     handleConvertToPdf: () => void;
 }
