@@ -508,7 +508,13 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'pr_changed_areas')).toContain('fetch-depth: 0');
         expect(workflowJob(workflow, 'pr_changed_areas')).not.toContain('dorny/paths-filter');
         expect(workflowJob(workflow, 'pr_changed_areas')).not.toContain('native/**');
-        expect(workflowJob(workflow, 'pr_electron_blocking_smoke')).toContain('needs.pr_changed_areas.outputs.electron_smoke == \'true\'');
+        const electronBlockingSmoke = workflowJob(workflow, 'pr_electron_blocking_smoke');
+        expect(electronBlockingSmoke).toContain('needs.pr_changed_areas.outputs.electron_smoke == \'true\'');
+        expect(electronBlockingSmoke).toContain('name: Restore staged Electron native binaries');
+        expect(electronBlockingSmoke).toContain('.tmp/scan-cleanup');
+        expect(electronBlockingSmoke).toContain('.tmp/pdf-page-ops');
+        expect(electronBlockingSmoke).toContain('electron-native-v2-');
+        expect(electronBlockingSmoke).toContain('run: pnpm run test:e2e:electron:blocking-smoke:headless');
         expect(workflowJob(workflow, 'pr_browser_integration')).toContain('needs.pr_changed_areas.outputs.browser_integration == \'true\'');
         expect(workflowJob(workflow, 'pr_browser_integration')).toContain('run: pnpm run test:integration:browser');
         expect(workflowJob(workflow, 'pr_browser_integration')).toContain('playwright install --with-deps chromium');
