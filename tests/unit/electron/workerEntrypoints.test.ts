@@ -22,6 +22,7 @@ vi.mock('worker_threads', () => ({
     parentPort: {
         close: mocks.close,
         on: mocks.on,
+        off: vi.fn(),
         postMessage: mocks.postMessage,
     },
     workerData: mocks.workerData,

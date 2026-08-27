@@ -19,6 +19,7 @@ import {
     forgetRetiredWorkingCopyOriginal,
     forgetWorkingCopyOriginalPath,
     getWorkingCopyOwnerWebContentsId,
+    normalizePathForLookup,
     rememberRetiredWorkingCopyOriginal,
     runWithWorkingCopyRegistrationFence,
     workingCopyMap,
@@ -104,6 +105,25 @@ const STALE_WORK_DIR_SCAN_LIMIT = (() => {
 
 export interface ICleanupStaleWorkingCopyDirectoriesOptions {statConcurrency?: number;}
 
+function getWorkingCopyLogicalPath(
+    mapPath: string,
+    entry: Pick<IWorkingCopyOriginalEntry, 'logicalPath'>,
+) {
+    const logicalPath = typeof entry.logicalPath === 'string' ? entry.logicalPath.trim() : '';
+    return logicalPath || mapPath;
+}
+
+function isRegisteredWorkingCopyDirectory(workDir: string) {
+    const normalizedDirectory = normalizePathForLookup(workDir);
+    return [...workingCopyMap.entries()]
+        .some(([
+            mapPath,
+            entry,
+        ]) => normalizePathForLookup(
+            dirname(getWorkingCopyLogicalPath(mapPath, entry)),
+        ) === normalizedDirectory);
+}
+
 export async function cleanupStaleWorkingCopyDirectories(
     options: ICleanupStaleWorkingCopyDirectoriesOptions = {},
 ): Promise<{
@@ -171,6 +191,10 @@ export async function cleanupStaleWorkingCopyDirectories(
                 continue;
             }
 
+            if (isRegisteredWorkingCopyDirectory(workDir)) {
+                continue;
+            }
+
             if (await safeRemoveDirectory(workDir)) {
                 removedDirectories += 1;
             }
@@ -212,10 +236,10 @@ async function cleanupWorkingCopyDirectory(
 
     try {
         const tempDirs = new Set([
-            resolve(getAppTempDir()),
-            resolve(getLegacyAppTempDirPath()),
+            normalizePathForLookup(getAppTempDir()),
+            normalizePathForLookup(getLegacyAppTempDirPath()),
         ]);
-        const workDir = resolve(dirname(normalizedPath));
+        const workDir = normalizePathForLookup(dirname(normalizedPath));
         const workDirName = basename(workDir);
         const isWithinTemp = Array.from(tempDirs).some((tempDir) => {
             const relativePath = relative(tempDir, workDir);
@@ -227,7 +251,7 @@ async function cleanupWorkingCopyDirectory(
 
         if (isWithinTemp && isWorkingCopyDir) {
             const ocrDir = `${workDir}.ocr`;
-            const resolvedOriginalPath = originalPath ? resolve(originalPath) : null;
+            const resolvedOriginalPath = originalPath ? normalizePathForLookup(originalPath) : null;
             if (resolvedOriginalPath && isPathWithin(workDir, resolvedOriginalPath)) {
                 logger.error(`Refused to delete a working directory containing its original backing: ${workDir}`);
                 await rm(ocrDir, {
@@ -345,10 +369,10 @@ export async function settleAllWorkingCopyMaterializations() {
             , entry,
         ]) => entry.backingState === 'materializing');
     await Promise.allSettled(materializingEntries.map(([
-        workingPath,
+        mapPath,
         entry,
     ]) => (
-        settleWorkingCopyMaterialization(workingPath, entry)
+        settleWorkingCopyMaterialization(getWorkingCopyLogicalPath(mapPath, entry), entry)
     )));
 }
 
@@ -580,6 +604,7 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         logger.warn(`Rejected cleanup for unmanaged working copy path "${normalizedPath}"`);
         return;
     }
+    const workingCopyPath = getWorkingCopyLogicalPath(normalizedPath, originalEntry);
     const ownerWebContentsId = getWorkingCopyOwnerWebContentsId(normalizedPath);
     if (
         typeof ownerWebContentsId === 'number'
@@ -593,22 +618,22 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
     // dependents are stopped lets a write finish rather than be torn out from
     // under itself, and draining again afterwards catches whatever the unwinding
     // dependents enqueued on their way out.
-    await drainWorkingCopyMutations(normalizedPath);
-    const ownership = createClosingOwnership(normalizedPath, originalEntry.registrationId);
+    await drainWorkingCopyMutations(workingCopyPath);
+    const ownership = createClosingOwnership(workingCopyPath, originalEntry.registrationId);
     const settlement = await stopWorkingCopyDependents(
-        normalizedPath,
+        workingCopyPath,
         ownership,
         DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS,
     );
     if (settlement.outcome === 'ownership-lost') {
         logger.warn(
-            `Skipped cleanup for a working copy re-registered while its dependents settled "${normalizedPath}"`,
+            `Skipped cleanup for a working copy re-registered while its dependents settled "${workingCopyPath}"`,
         );
         return;
     }
     if (settlement.outcome === 'unsettled') {
         reportRetainedWorkingCopy(
-            normalizedPath,
+            workingCopyPath,
             describeUnsettledDependents(
                 settlement,
                 'while its registration was still active',
@@ -618,33 +643,33 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         return;
     }
 
-    await drainWorkingCopyMutations(normalizedPath);
-    const currentOwnerWebContentsId = getWorkingCopyOwnerWebContentsId(normalizedPath);
+    await drainWorkingCopyMutations(workingCopyPath);
+    const currentOwnerWebContentsId = getWorkingCopyOwnerWebContentsId(workingCopyPath);
     if (
         typeof currentOwnerWebContentsId === 'number'
         && currentOwnerWebContentsId !== senderWebContentsId
     ) {
-        logger.warn(`Rejected cleanup for working copy path whose owner changed while waiting "${normalizedPath}"`);
+        logger.warn(`Rejected cleanup for working copy path whose owner changed while waiting "${workingCopyPath}"`);
         return;
     }
 
-    await settleWorkingCopyMaterialization(normalizedPath, originalEntry);
+    await settleWorkingCopyMaterialization(workingCopyPath, originalEntry);
     // Materialization settling can admit new dependents, so the cancel-and-wait
     // loop runs once more before the registration is retired.
     const postMaterializationSettlement = await stopWorkingCopyDependents(
-        normalizedPath,
+        workingCopyPath,
         ownership,
         DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS,
     );
     if (postMaterializationSettlement.outcome === 'ownership-lost') {
         logger.warn(
-            `Skipped cleanup for a working copy re-registered while its dependents settled "${normalizedPath}"`,
+            `Skipped cleanup for a working copy re-registered while its dependents settled "${workingCopyPath}"`,
         );
         return;
     }
     if (postMaterializationSettlement.outcome === 'unsettled') {
         reportRetainedWorkingCopy(
-            normalizedPath,
+            workingCopyPath,
             describeUnsettledDependents(
                 postMaterializationSettlement,
                 'while its materialization settled',
@@ -654,30 +679,38 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         return;
     }
 
-    const retirement = await retireAndDeleteWorkingCopy(normalizedPath, originalEntry);
+    const retirement = await retireAndDeleteWorkingCopy(workingCopyPath, originalEntry);
     if (retirement.status === 'skipped') {
-        logger.warn(`Skipped cleanup for a working copy: ${retirement.reason} "${normalizedPath}"`);
+        logger.warn(`Skipped cleanup for a working copy: ${retirement.reason} "${workingCopyPath}"`);
         return;
     }
     if (retirement.status === 'retained') {
-        reportRetainedWorkingCopy(normalizedPath, retirement.reason);
+        reportRetainedWorkingCopy(workingCopyPath, retirement.reason);
     }
 }
 
 export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<string>} = {}) {
     await drainWorkingCopyMutations();
-    const paths = [...workingCopyMap.keys()];
+    const paths = [...workingCopyMap.entries()].map(([
+        mapPath,
+        entry,
+    ]) => ({
+        entry,
+        mapPath,
+        workingPath: getWorkingCopyLogicalPath(mapPath, entry),
+    }));
     const skipPaths = new Set(Array.from(options.skipPaths ?? [])
         .map(path => typeof path === 'string' ? path.trim() : '')
         .filter(Boolean));
-    for (const workingPath of paths) {
+    const skipPathKeys = new Set(Array.from(skipPaths).map(path => normalizePathForLookup(path)));
+    for (const path of paths) {
+        const {workingPath} = path;
         if (hasWorkingCopySyncRequired(workingPath)) {
             skipPaths.add(workingPath);
+            skipPathKeys.add(normalizePathForLookup(workingPath));
         }
     }
-    const pathsToDelete = skipPaths.size === 0
-        ? paths
-        : paths.filter(path => !skipPaths.has(path));
+    const pathsToDelete = paths.filter(({workingPath}) => !skipPathKeys.has(normalizePathForLookup(workingPath)));
 
     const retiredPaths = new Set<string>();
     // Kept apart from `skipPaths`: a path retained because its readers could not
@@ -685,11 +718,11 @@ export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<strin
     // while `skipPaths` is the unsaved-work list that shutdown reports as a
     // fault. Merging them would turn every quarantine into an application error.
     const retainedPaths = new Set<string>();
-    await Promise.all(pathsToDelete.map(async (workingPath) => {
-        const entry = workingCopyMap.get(workingPath);
-        if (!entry) {
-            return;
-        }
+    await Promise.all(pathsToDelete.map(async (path) => {
+        const {
+            entry,
+            workingPath,
+        } = path;
         // Shutdown cancels every main operation before this step, but a cancel
         // is still only a request. The abortable dependents that read these
         // bytes — OCR, search indexing, image export, DjVu conversion — have to

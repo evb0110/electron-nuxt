@@ -16,6 +16,7 @@ import {
     SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW,
 } from '@contracts/scan-cleanup/stagedInputWindow';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import {SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {
     resolveEffectiveScanCleanupOptions,
     resolveScanCleanupPipelineMaxPixels,
@@ -350,6 +351,11 @@ function assembleNativeScanCleanupManifest({
     stagedInputWindow,
     stagedInputPeakPixels,
 }: IBuildNativeScanCleanupManifestInput, allowedPathRoot: string | null): INativeScanCleanupManifestV3 {
+    if (pages.length > SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES) {
+        throw new ScanCleanupContractError(
+            `One native scan-cleanup manifest may contain at most ${String(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES)} page records; replay bounded batches for longer documents`,
+        );
+    }
     // One canonical root per manifest: every field is judged against the same
     // resolved directory instead of re-resolving the root for each path.
     const allowedRoot = allowedPathRoot === null ? null : canonicalizeScanCleanupAllowedRoot(allowedPathRoot);

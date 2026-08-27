@@ -477,18 +477,44 @@ describe('serializedPdfPersistence', () => {
         });
     });
 
-    it('rejects impossible serialized PDF stream sizes before opening a temp file', async () => {
-        const workingPath = join(tempRoot, 'oversized-working.pdf');
-        const targetPath = join(tempRoot, 'oversized-saved.pdf');
+    it('allows serialized PDF streams above the former 16 GiB product cap', async () => {
+        const workingPath = join(tempRoot, 'xlarge-working.pdf');
+        const targetPath = join(tempRoot, 'xlarge-saved.pdf');
+        const sender = new FakeSender();
+        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
+
+        const result = await beginSerializedPdfSaveAs(
+            createInvokeEvent(sender),
+            workingPath,
+            (16 * 1024 * 1024 * 1024) + 1,
+            targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
+        );
+
+        expect(result).toMatchObject({
+            sessionId: expect.any(String),
+            maxTotalBytes: Number.MAX_SAFE_INTEGER,
+            path: targetPath,
+        });
+        sender.emit('destroyed');
+        await waitForCondition(() => {
+            expect(existsSync(`${targetPath}.tmp.pdf`)).toBe(false);
+        });
+    });
+
+    it('rejects byte counts outside the protocol safe-integer range', async () => {
+        const workingPath = join(tempRoot, 'invalid-size-working.pdf');
+        const targetPath = join(tempRoot, 'invalid-size-saved.pdf');
         const sender = new FakeSender();
         const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
 
         await expect(beginSerializedPdfSaveAs(
             createInvokeEvent(sender),
             workingPath,
-            Number.MAX_SAFE_INTEGER,
+            Number.MAX_SAFE_INTEGER + 1,
             targetPath,
-        )).rejects.toThrow('Invalid PDF persistence stream: exceeds maximum size');
+        )).rejects.toThrow('Invalid total byte count');
 
         expect(mocks.makeSiblingTempPath).not.toHaveBeenCalled();
         expect(existsSync(`${targetPath}.tmp.pdf`)).toBe(false);

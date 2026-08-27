@@ -3,11 +3,7 @@ import { AnnotationEditorType } from '@app/services/pdfjs/runtimeLib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
-import {
-    clamp,
-    range,
-    sumBy,
-} from 'es-toolkit/math';
+import { clamp } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
 import { isSelectionMarkupTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionMarkupTool';
@@ -20,6 +16,7 @@ import { escapeCssAttr } from '@app/modules/pdf-viewer/engine/annotation-css-uti
 import { findAnnotationSummaryFromPoint as findAnnotationSummaryFromPointHelper } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findAnnotationSummaryFromPoint';
 import { findEditorByAnnotationElementId as findEditorByAnnotationElementIdHelper } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findEditorByAnnotationElementId';
 import { findEditorForComment as findEditorForCommentHelper } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findEditorForComment';
+import { getAnnotationEditorPageSearchOrder } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/getAnnotationEditorPageSearchOrder';
 import { findEditorFromTarget as findEditorFromTargetHelper } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findEditorFromTarget';
 import { findPdfAnnotationSummaryFromTarget } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findPdfAnnotationSummaryFromTarget';
 import type { IEditorTargetMatch } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/editorTargetMatch';
@@ -56,6 +53,8 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         annotationUiManager,
         numPages,
         currentPage,
+        getMountedPageNumbers,
+        getAnnotationPageIndexes,
         annotationTool,
         annotationCommentsCache,
         getIdentity,
@@ -112,22 +111,65 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         );
     }
 
+    function resolveMountedPageIndexes() {
+        const pageNumbers = getMountedPageNumbers?.();
+        if (pageNumbers) {
+            return Array.from(pageNumbers, pageNumber => (
+                Number.isSafeInteger(pageNumber) ? pageNumber - 1 : Number.NaN
+            ));
+        }
+        const container = viewerContainer.value;
+        if (!container) {
+            return [];
+        }
+        const mountedPageIndexes: number[] = [];
+        for (const pageContainer of container.querySelectorAll<HTMLElement>('.page_container[data-page]')) {
+            const pageNumber = Number.parseInt(pageContainer.dataset.page ?? '', 10);
+            if (Number.isSafeInteger(pageNumber) && pageNumber > 0) {
+                mountedPageIndexes.push(pageNumber - 1);
+            }
+        }
+        return mountedPageIndexes;
+    }
+
+    function resolveAnnotationPageIndexes() {
+        return getAnnotationPageIndexes?.() ?? annotationCommentsCache.value.map(comment => comment.pageIndex);
+    }
+
+    function resolveEditorSearchPages(preferredPageIndex: number) {
+        return getAnnotationEditorPageSearchOrder({
+            annotationPageIndexes: resolveAnnotationPageIndexes(),
+            mountedPageIndexes: resolveMountedPageIndexes(),
+            numPages: numPages.value,
+            preferredPageIndex,
+        });
+    }
+
     function findEditorForComment(comment: IAnnotationCommentSummary) {
         return findEditorForCommentHelper(
             annotationUiManager.value,
             numPages.value,
             comment,
             getIdentity().getEditorIdentity,
+            {
+                annotationPageIndexes: resolveAnnotationPageIndexes(),
+                mountedPageIndexes: resolveMountedPageIndexes(),
+            },
         );
     }
 
     function findEditorByAnnotationElementId(pageIndex: number, annotationId: string) {
-        return findEditorByAnnotationElementIdHelper(
-            annotationUiManager.value,
-            numPages.value,
-            pageIndex,
-            annotationId,
-        );
+        return getStoredAnnotationEditor(pdfDocument.value, annotationId)
+            ?? findEditorByAnnotationElementIdHelper(
+                annotationUiManager.value,
+                numPages.value,
+                pageIndex,
+                annotationId,
+                {
+                    annotationPageIndexes: resolveAnnotationPageIndexes(),
+                    mountedPageIndexes: resolveMountedPageIndexes(),
+                },
+            );
     }
 
     function resolveCommentForDelete(comment: IAnnotationCommentSummary) {
@@ -237,7 +279,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         ]);
         const uiManager = annotationUiManager.value;
         const editorCountsByPage = uiManager
-            ? range(Math.max(0, numPages.value)).map(pageIndex => ({
+            ? resolveEditorSearchPages(resolvedComment.pageIndex).map(pageIndex => ({
                 pageIndex,
                 count: getEditorsOnPage(uiManager, pageIndex).length,
             }))
@@ -245,7 +287,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         const nonEmptyPages = editorCountsByPage
             .filter(entry => entry.count > 0)
             .slice(0, 8);
-        const totalEditors = sumBy(editorCountsByPage, entry => entry.count);
+        const totalEditors = editorCountsByPage.reduce((total, entry) => total + entry.count, 0);
         BrowserLogger.warn('annotations', 'updateAnnotationComment: unable to resolve editor for note persistence', {
             stableKey: comment.stableKey,
             source: comment.source,

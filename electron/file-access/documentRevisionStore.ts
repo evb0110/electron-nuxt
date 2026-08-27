@@ -8,7 +8,6 @@ import {
     dirname,
     isAbsolute,
     relative,
-    resolve,
     sep,
 } from 'path';
 import type {
@@ -80,8 +79,8 @@ function isUnregisteredWorkingCopyPath(workingCopyPath: string) {
         return false;
     }
 
-    const tempDir = resolve(getAppTempDir());
-    const parentDir = resolve(dirname(normalizedWorkingPath));
+    const tempDir = normalizePathForLookup(getAppTempDir());
+    const parentDir = normalizePathForLookup(dirname(normalizedWorkingPath));
     const relativePath = relative(tempDir, parentDir);
     return (
         relativePath !== '..'

@@ -12,8 +12,11 @@ describe('page ops platform feature schemas', () => {
     it('preserves every async channel without an event layer', () => {
         expect(channels).toEqual({
             delete: 'page-ops:delete',
+            deleteRanges: 'page-ops:delete-ranges',
             extract: 'page-ops:extract',
             reorder: 'page-ops:reorder',
+            move: 'page-ops:move',
+            moveRanges: 'page-ops:move-ranges',
             insert: 'page-ops:insert',
             insertFile: 'page-ops:insert-file',
             rotate: 'page-ops:rotate',
@@ -22,7 +25,58 @@ describe('page ops platform feature schemas', () => {
             getPageGeometry: 'page-ops:get-page-geometry',
         });
         expect(PAGE_OPS_PLATFORM_FEATURE.eventChannels).toEqual({});
-        expect(PAGE_OPS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(9);
+        expect(PAGE_OPS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(12);
+    });
+
+    it('round-trips the compact native move tuple', () => {
+        const input = [
+            '/tmp/work.pdf',
+            2,
+            4,
+            0,
+            12,
+            undefined,
+        ] as const;
+        const codec = codecs[channels.move]!;
+
+        expect(codec.decodeArgs(codec.encodeArgs([...input]))).toEqual([...input]);
+    });
+
+    it('round-trips compact native delete ranges', () => {
+        const input = [
+            '/tmp/work.pdf',
+            [{
+                startPage: 2,
+                endPage: 4,
+            }],
+            12,
+            undefined,
+        ] as const;
+        const codec = codecs[channels.deleteRanges]!;
+
+        expect(codec.decodeArgs(codec.encodeArgs([...input]))).toEqual([...input]);
+    });
+
+    it('round-trips compact non-contiguous move ranges', () => {
+        const input = [
+            '/tmp/work.pdf',
+            [
+                {
+                    startPage: 2,
+                    endPage: 2,
+                },
+                {
+                    startPage: 4,
+                    endPage: 5,
+                },
+            ],
+            0,
+            12,
+            undefined,
+        ] as const;
+        const codec = codecs[channels.moveRanges]!;
+
+        expect(codec.decodeArgs(codec.encodeArgs([...input]))).toEqual([...input]);
     });
 
     it('round-trips mutation tuples and normalizes revision options', () => {
@@ -107,6 +161,31 @@ describe('page ops platform feature schemas', () => {
                 pages: [{}],
             },
         })).toThrow('pageIdentityDelta.pages entries must carry fromPageNumber or insertedId');
+
+        const moveResult = codecs[channels.move]!.decodeResult({
+            success: true,
+            pageCount: 1_000_000,
+            pageIdentityDelta: {
+                previousPageCount: 1_000_000,
+                nextPageCount: 1_000_000,
+                ranges: [
+                    {
+                        kind: 'retain',
+                        fromPageNumber: 1,
+                        toPageNumber: 1,
+                        count: 1,
+                    },
+                    {
+                        kind: 'move',
+                        fromPageNumber: 2,
+                        toPageNumber: 1,
+                        count: 1,
+                    },
+                ],
+            },
+        });
+        expect(moveResult.pageIdentityDelta?.pages).toBeUndefined();
+        expect(moveResult.pageIdentityDelta?.nextPageCount).toBe(1_000_000);
     });
 
     it('keeps malformed tuple and result messages stable', () => {

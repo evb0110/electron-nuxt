@@ -117,7 +117,7 @@ describe('app source-shape architecture policy', () => {
         expect(previewSession).toContain('const cache = createScanCleanupPreviewCache()');
         expect(previewSession).toContain('capability.cancelPreview({');
         expect(previewSession).toContain(
-            'inFlightPreviewPages.length === 0 ? 0 : SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS',
+            'inFlightPreviewPages.size === 0 ? 0 : SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS',
         );
         expect(previewSession).toContain('...(navigated');
         expect(previewSession).toContain('requestSequence !== sequence');

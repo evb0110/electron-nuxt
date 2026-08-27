@@ -1,0 +1,42 @@
+import type { TDocumentRef } from '@contracts/documentRef';
+
+/** Binary chunks accepted by the desktop DOCX output sink. */
+export type TDocxExportChunkSource = Iterable<Uint8Array> | AsyncIterable<Uint8Array>;
+
+/** Optional file capability kept separate from the legacy all-at-once API. */
+export interface IDocxExportFileCapability {writeDocxFileChunks: (
+    path: TDocumentRef,
+    chunks: TDocxExportChunkSource,
+) => Promise<boolean>;}
+
+export const DOCX_EXPORT_STREAM_CHANNELS = {
+    begin: 'file:writeDocx:stream:begin',
+    writeChunk: 'file:writeDocx:stream:chunk',
+    commit: 'file:writeDocx:stream:commit',
+    cancel: 'file:writeDocx:stream:cancel',
+} as const;
+
+export const DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES = 4 * 1024 * 1024;
+export const DOCX_EXPORT_STREAM_SESSION_TIMEOUT_MS = 10 * 60 * 1000;
+
+export interface IDocxExportStreamBeginResult {sessionId: string;}
+
+/** Invoke contract for the validated Electron IPC boundary. */
+export interface IDocxExportInvokeMap {
+    [DOCX_EXPORT_STREAM_CHANNELS.begin]: {
+        args: [filePath: string];
+        result: IDocxExportStreamBeginResult;
+    };
+    [DOCX_EXPORT_STREAM_CHANNELS.writeChunk]: {
+        args: [sessionId: string, chunk: Uint8Array];
+        result: boolean;
+    };
+    [DOCX_EXPORT_STREAM_CHANNELS.commit]: {
+        args: [sessionId: string];
+        result: boolean;
+    };
+    [DOCX_EXPORT_STREAM_CHANNELS.cancel]: {
+        args: [sessionId: string];
+        result: boolean;
+    };
+}

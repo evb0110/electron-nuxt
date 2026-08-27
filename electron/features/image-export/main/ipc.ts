@@ -4,20 +4,13 @@ import {
     type IpcMainInvokeEvent,
     type WebContents,
 } from 'electron';
-import { existsSync } from 'fs';
+import {existsSync} from 'fs';
 import { rm } from 'fs/promises';
 import { extname } from 'path';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
-import {
-    captureWorkingCopyAdmissionSnapshot,
-    getWorkingCopyBackingEntry,
-    runWithWorkingCopyRegistrationFence,
-    transitionWorkingCopyBackingState,
-    workingCopyAdmissionSnapshotsMatch,
-    type IWorkingCopyOriginalEntry,
-} from '@electron/file-access/workingCopyStore';
-import { WorkingCopyMaterializationError } from '@electron/file-access/workingCopyMaterialization';
+import {getWorkingCopyBackingEntry} from '@electron/file-access/workingCopyStore';
+import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
 import {
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
@@ -62,8 +55,6 @@ interface IImageExportOperationContext {
     senderId: number;
     parentWindow: BrowserWindow | null;
 }
-type TDiscardImageExportResult<T> = (result: T) => Promise<void>;
-
 const imageExportReplay = IMAGE_EXPORT_PLATFORM_FEATURE.events.onProgress.subscription.replay;
 const imageExportJobs = createMainJobRegistry<IImageExportProgress, IImageExportResult, TImageExportError>({
     retention: {
@@ -131,107 +122,6 @@ async function validateDjvuWorkingPath(path: unknown, senderWebContentsId: numbe
     return resolvedPath;
 }
 
-function throwImageExportBackingError(
-    entry: IWorkingCopyOriginalEntry,
-    logicalRef: string,
-    code: 'SOURCE_BACKING_CHANGED' | 'SOURCE_BACKING_UNAVAILABLE',
-    cause?: unknown,
-): never {
-    transitionWorkingCopyBackingState(
-        logicalRef,
-        entry.registrationId,
-        'lazy-original',
-        {
-            expectedBackingState: [
-                'lazy-original',
-                'materializing',
-            ],
-            sourceBackingErrorCode: code,
-        },
-    );
-    throw new WorkingCopyMaterializationError(
-        code,
-        code === 'SOURCE_BACKING_CHANGED'
-            ? 'The original document changed during image export'
-            : 'The original document is unavailable',
-        cause === undefined ? {} : {cause},
-    );
-}
-
-async function assertImageExportSourceWitness(
-    entry: IWorkingCopyOriginalEntry,
-    logicalRef: string,
-) {
-    if (!entry.admissionSnapshot) {
-        throw new WorkingCopyMaterializationError(
-            'WORKING_COPY_MATERIALIZATION_FAILED',
-            'Lazy working copy has no admission snapshot',
-        );
-    }
-    let snapshot;
-    try {
-        snapshot = await captureWorkingCopyAdmissionSnapshot(entry.originalPath);
-    } catch (error) {
-        throwImageExportBackingError(entry, logicalRef, 'SOURCE_BACKING_UNAVAILABLE', error);
-    }
-    if (!workingCopyAdmissionSnapshotsMatch(snapshot, entry.admissionSnapshot)) {
-        throwImageExportBackingError(entry, logicalRef, 'SOURCE_BACKING_CHANGED');
-    }
-}
-
-async function runWithPdfReadBacking<T>(
-    logicalRef: string,
-    senderWebContentsId: number,
-    operation: (physicalReadPath: string) => Promise<T>,
-    discard?: TDiscardImageExportResult<T>,
-) {
-    const entry = getWorkingCopyBackingEntry(logicalRef, senderWebContentsId);
-    if (!entry) {
-        throw new Error('Path is not a managed working copy');
-    }
-    const fenced = await runWithWorkingCopyRegistrationFence(
-        logicalRef,
-        entry.registrationId,
-        async currentEntry => {
-            const originalBacked = currentEntry.backingState === 'lazy-original'
-                || currentEntry.backingState === 'materializing';
-            if (!originalBacked) {
-                if (!existsSync(logicalRef)) {
-                    throw new Error(`Working copy not found: ${logicalRef}`);
-                }
-                return operation(logicalRef);
-            }
-            if (
-                currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-                || currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
-            ) {
-                throw new WorkingCopyMaterializationError(
-                    currentEntry.sourceBackingErrorCode,
-                    currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-                        ? 'The original document changed after it was opened'
-                        : 'The original document is unavailable',
-                );
-            }
-            await assertImageExportSourceWitness(currentEntry, logicalRef);
-            const result = await operation(currentEntry.originalPath);
-            try {
-                await assertImageExportSourceWitness(currentEntry, logicalRef);
-            } catch (error) {
-                await discard?.(result);
-                throw error;
-            }
-            return result;
-        },
-    );
-    if (!fenced.matched) {
-        throw new WorkingCopyMaterializationError(
-            'WORKING_COPY_REGISTRATION_CHANGED',
-            'Working-copy registration changed during image export',
-        );
-    }
-    return fenced.value;
-}
-
 async function discardExportedPaths(paths: string[]) {
     await Promise.all(paths.map(path => rm(path, {force: true}).catch(() => undefined)));
 }
@@ -287,14 +177,14 @@ async function prepareImageExportSource(
         : await validateDjvuWorkingPath(workingCopyPath, senderWebContentsId);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
     if (sourceKind === 'pdf') {
-        await runWithPdfReadBacking(
+        await runWithWorkingCopyReadBacking(
             normalizedWorkingCopyPath,
-            senderWebContentsId,
             physicalReadPath => validateRequestedPageNumbersWithinPdf(
                 physicalReadPath,
                 normalizedPageNumbers,
                 operationOptions,
             ),
+            {ownerWebContentsId: senderWebContentsId},
         );
     }
     return {
@@ -456,11 +346,13 @@ export async function handlePdfExportImages(
         };
         const outputPaths = sourceKind === 'djvu'
             ? await exportDjvuPagesAsPng(normalizedWorkingCopyPath, normalizedPath, exportOptions)
-            : await runWithPdfReadBacking(
+            : await runWithWorkingCopyReadBacking(
                 normalizedWorkingCopyPath,
-                context.senderId,
                 physicalReadPath => exportPdfPagesAsImages(physicalReadPath, normalizedPath, exportOptions),
-                discardExportedPaths,
+                {
+                    discard: discardExportedPaths,
+                    ownerWebContentsId: context.senderId,
+                },
             );
         if (job.signal.aborted) {
             job.terminal.cancel(job.signal.reason);
@@ -524,11 +416,13 @@ export async function handlePdfExportMultiPageTiff(
         };
         const outputPaths = sourceKind === 'djvu'
             ? await exportDjvuAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, exportOptions)
-            : await runWithPdfReadBacking(
+            : await runWithWorkingCopyReadBacking(
                 normalizedWorkingCopyPath,
-                context.senderId,
                 physicalReadPath => exportPdfAsMultiPageTiff(physicalReadPath, result.filePath, exportOptions),
-                discardExportedPaths,
+                {
+                    discard: discardExportedPaths,
+                    ownerWebContentsId: context.senderId,
+                },
             );
         if (job.signal.aborted) {
             job.terminal.cancel(job.signal.reason);

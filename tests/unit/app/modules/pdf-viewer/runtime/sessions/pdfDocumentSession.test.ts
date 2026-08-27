@@ -187,6 +187,103 @@ describe('PdfDocumentSession range loading', () => {
         }));
     });
 
+    it('does not impose a total-page product cap on path-backed PDFs', async () => {
+        const pageCount = 100_001;
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: pageCount,
+                getPage: vi.fn(async () => ({
+                    cleanup: vi.fn(),
+                    getViewport: vi.fn(() => ({
+                        width: 100,
+                        height: 200,
+                    })),
+                })),
+                destroy: vi.fn(),
+            }),
+            destroy: vi.fn(),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = createPdfDocumentSession();
+        const result = await documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/many-pages.pdf',
+            size: 2048,
+        });
+
+        expect(result).not.toBeNull();
+        expect(documentState.numPages.value).toBe(pageCount);
+        expect(documentState.loadError.value).toBeNull();
+    });
+
+    it('keeps million-page metric hydration sparse and cancels a far scroll', async () => {
+        const pageCount = 1_000_000;
+        const farPage = {
+            cleanup: vi.fn(),
+            getViewport: vi.fn(() => ({
+                width: 320,
+                height: 520,
+            })),
+        };
+        const farPageReady = Promise.withResolvers<typeof farPage>();
+        const getPage = vi.fn(async (pageNumber: number) => {
+            if (pageNumber === 1) {
+                return {
+                    cleanup: vi.fn(),
+                    getViewport: vi.fn(() => ({
+                        width: 300,
+                        height: 500,
+                    })),
+                };
+            }
+            return farPageReady.promise;
+        });
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: pageCount,
+                getPage,
+                destroy: vi.fn(),
+            }),
+            destroy: vi.fn(),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = createPdfDocumentSession();
+        const result = await documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/million-pages.pdf',
+            size: 2048,
+        });
+
+        expect(result).not.toBeNull();
+        expect(documentState.numPages.value).toBe(pageCount);
+        expect(documentState.pageMetrics.value.length).toBe(1);
+        expect(Object.keys(documentState.pageMetrics.value)).toEqual(['0']);
+
+        const farScroll = documentState.ensurePageMetricsInRange(pageCount - 1, pageCount);
+        await vi.waitFor(() => {
+            expect(getPage).toHaveBeenCalledTimes(3);
+        });
+
+        documentState.cleanup();
+        farPageReady.resolve(farPage);
+
+        await expect(farScroll).rejects.toThrow('Rendering cancelled: PDF page request became stale');
+        expect(documentState.pageMetrics.value).toEqual([]);
+        expect(documentState.numPages.value).toBe(0);
+    });
+
     it('keeps the preloaded tail cached until PDF.js requests it', async () => {
         const getDocumentCalled = Promise.withResolvers<MockPdfDataRangeTransport>();
         const deferred = Promise.withResolvers<{
@@ -924,7 +1021,7 @@ describe('PdfDocumentSession range loading', () => {
         range?.requestDataRange?.(2 * 1024 * 1024, 12 * 1024 * 1024);
 
         await vi.waitFor(() => {
-            expect(range?.onDataRange).toHaveBeenCalledTimes(1);
+            expect(range?.onDataRange).toHaveBeenCalledTimes(10);
         });
         expect(electronApi.documentFiles.readFileRange).toHaveBeenNthCalledWith(
             1,
@@ -938,8 +1035,10 @@ describe('PdfDocumentSession range loading', () => {
             10 * 1024 * 1024,
             2 * 1024 * 1024,
         );
-        expect(range?.onDataRange.mock.calls[0]?.[0]).toBe(2 * 1024 * 1024);
-        expect(range?.onDataRange.mock.calls[0]?.[1]).toHaveLength(10 * 1024 * 1024);
+        expect(range?.onDataRange.mock.calls.every(call => call[0] === 2 * 1024 * 1024)).toBe(true);
+        expect(range?.onDataRange.mock.calls.every(call => call[1]?.byteLength === 1024 * 1024)).toBe(true);
+        expect(range?.onDataRange.mock.calls.slice(0, -1).every(call => call[2] === false)).toBe(true);
+        expect(range?.onDataRange.mock.calls.at(-1)?.[2]).toBeUndefined();
 
         deferred.resolve({
             numPages: 1,
@@ -994,7 +1093,7 @@ describe('PdfDocumentSession range loading', () => {
         expect(loggerError).not.toHaveBeenCalled();
     });
 
-    it('rejects pathological aggregate PDF.js range requests before reading or allocating them', async () => {
+    it('streams pathological-size PDF.js range requests without an aggregate allocation', async () => {
         const deferred = Promise.withResolvers<{
             numPages: number;
             getPage: ReturnType<typeof vi.fn>;
@@ -1009,12 +1108,11 @@ describe('PdfDocumentSession range loading', () => {
             promise: deferred.promise,
             destroy,
         });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        electronApi.documentFiles.readFileRange.mockImplementation(async (
+            _path: string,
+            _offset: number,
+            length: number,
+        ) => new Uint8Array(length));
 
         const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
@@ -1033,55 +1131,17 @@ describe('PdfDocumentSession range loading', () => {
         electronApi.documentFiles.readFileRange.mockClear();
         range?.requestDataRange?.(0, 64 * 1024 * 1024 + 1);
 
-        await expect(loadPromise).resolves.toBeNull();
-        expect(electronApi.documentFiles.readFileRange).not.toHaveBeenCalled();
-        expect(range?.onDataRange).not.toHaveBeenCalled();
-        expect(destroy).toHaveBeenCalledTimes(1);
-    });
-
-    it('allows an explicitly gated automation benchmark to aggregate an oversized range', async () => {
-        const deferred = Promise.withResolvers<never>();
-        const destroy = vi.fn(() => {
-            deferred.reject(new Error('oversized automation range test cancelled load'));
-            return Promise.resolve();
-        });
-        pdfjsState.getDocument.mockReturnValue({
-            promise: deferred.promise,
-            destroy,
-        });
-        electronApi.documentFiles.readFileRange.mockImplementation(
-            async (_path, _offset, length) => new Uint8Array(length),
-        );
-        vi.stubGlobal('window', {
-            __allowRendererFileOpenForAutomation: vi.fn(),
-            __allowLargeSerializedSaveForAutomation: true,
-        });
-
-        const documentState = createPdfDocumentSession();
-        const loadPromise = documentState.loadPdf({
-            kind: 'path',
-            path: '/tmp/oversized-automation-range.pdf',
-            size: 128 * 1024 * 1024,
-        });
         await vi.waitFor(() => {
-            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+            expect(range?.onDataRange).toHaveBeenCalledTimes(65);
         });
-
-        const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
-        const rangeEnd = 64 * 1024 * 1024 + 1;
-        electronApi.documentFiles.readFileRange.mockClear();
-        range?.requestDataRange?.(0, rangeEnd);
-        await vi.waitFor(() => {
-            expect(range?.onDataRange).toHaveBeenCalledTimes(1);
-        });
-
         expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledTimes(9);
-        expect(range?.onDataRange).toHaveBeenCalledWith(0, expect.any(Uint8Array));
-        expect((range?.onDataRange.mock.calls[0]?.[1] as Uint8Array).byteLength).toBe(rangeEnd);
+        expect(range?.onDataRange.mock.calls.every(call => call[1]?.byteLength <= 1024 * 1024)).toBe(true);
+        expect(range?.onDataRange.mock.calls.slice(0, -1).every(call => call[2] === false)).toBe(true);
+        expect(range?.onDataRange.mock.calls.at(-1)?.[2]).toBeUndefined();
 
         documentState.cleanup();
-        vi.stubGlobal('window', undefined);
         await expect(loadPromise).resolves.toBeNull();
+        expect(destroy).toHaveBeenCalledTimes(1);
     });
 
     it('invalidates an accepted document when a later range read rejects', async () => {

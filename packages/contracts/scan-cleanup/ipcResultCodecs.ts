@@ -26,6 +26,10 @@ import {
     isScanCleanupOutputModeRecommendationReason,
 } from '@contracts/scan-cleanup/outputModeGuards';
 import {decodeSplitDiagnostics} from '@contracts/scan-cleanup/decodeSplitDiagnostics';
+import {
+    decodeBoundedScanCleanupString,
+    SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+} from '@contracts/scan-cleanup/inputLimits';
 
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PREVIEW_MAX_TOTAL_BYTES = 96 * 1024 * 1024;
@@ -953,6 +957,11 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
         || !Number.isFinite(value.updatedAtMs)
         || !isRecord(value.progress)
         || !Array.isArray(value.results)
+        || (value.resultCount !== undefined && (
+            typeof value.resultCount !== 'number'
+            || !Number.isSafeInteger(value.resultCount)
+            || value.resultCount < 0
+        ))
     ) throw new Error('invalid scan-cleanup detection job state');
     const progress = SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress);
     const results = value.results.map(result => {
@@ -1056,9 +1065,13 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
             ...(splitDiagnostics === undefined ? {} : {splitDiagnostics}),
         };
     });
+    const resultCount = value.resultCount === undefined
+        ? results.length
+        : decodeNonNegativeInteger(value.resultCount, 'detection result count');
     if (
-        results.length > progress.totalUnits
-        || (value.status === 'completed' && results.length !== progress.completedUnits)
+        resultCount < results.length
+        || resultCount > progress.totalUnits
+        || (value.status === 'completed' && resultCount !== progress.completedUnits)
     ) throw new Error('invalid scan-cleanup detection result count');
     const base = {
         jobId: value.jobId,
@@ -1066,6 +1079,14 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
             ? {documentCanvasSignature: value.documentCanvasSignature}
             : {}),
         progress,
+        ...(value.resultCount === undefined ? {} : {resultCount}),
+        ...(value.detectionResultStoreId === undefined
+            ? {}
+            : {detectionResultStoreId: decodeBoundedScanCleanupString(
+                value.detectionResultStoreId,
+                'detection result store id',
+                SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+            )}),
         results,
         updatedAtMs: value.updatedAtMs,
     };

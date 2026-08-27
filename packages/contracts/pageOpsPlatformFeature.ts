@@ -5,8 +5,12 @@ import type {
     IPageOpsMetadataSnapshot,
     IPageOpsMutationOptions,
     IPageOpsResult,
+    TPageIdentityDeltaPage,
+    TPageIdentityRangeOperation,
     TPageOpsRotationAngle,
 } from '@contracts/electronApiPageOps';
+import type { IPageMoveRangeSegment } from '@contracts/pageNumbers';
+import { createPageMoveRanges } from '@contracts/pageNumbers';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import {
@@ -36,8 +40,11 @@ const MAX_COLLECTION_ITEMS = 100_000;
 const METHOD_TIMEOUT_MS = 30 * 60 * 1_000;
 
 type TDeleteArgs = [string, number[], number, IPageOpsMutationOptions | undefined];
+type TDeleteRangesArgs = [string, IPageMoveRangeSegment[], number, IPageOpsMutationOptions | undefined];
 type TExtractArgs = [string, number[]];
 type TReorderArgs = [string, number[], IPageOpsMutationOptions | undefined];
+type TMoveArgs = [string, number, number, number, number, IPageOpsMutationOptions | undefined];
+type TMoveRangesArgs = [string, IPageMoveRangeSegment[], number, number, IPageOpsMutationOptions | undefined];
 type TInsertArgs = [string, number, number, IPageOpsMutationOptions | undefined];
 type TInsertFileArgs = [
     string,
@@ -97,6 +104,53 @@ function decodePositiveIntegerArray(args: unknown[], index: number, fieldName: s
         throw new Error(`${fieldName} must contain positive safe integers`);
     }
     return value as number[];
+}
+
+function decodePageMoveRangeSegments(args: unknown[], index: number, fieldName: string) {
+    const value = args[index];
+    if (!Array.isArray(value) || value.length === 0) {
+        throw new Error(`${fieldName} must be a non-empty array`);
+    }
+    if (value.length > MAX_COLLECTION_ITEMS) {
+        throw new Error(`${fieldName} exceeds maximum item count (${MAX_COLLECTION_ITEMS})`);
+    }
+    return value.map((item): IPageMoveRangeSegment => {
+        if (
+            !isRecord(item)
+            || typeof item.startPage !== 'number'
+            || !Number.isSafeInteger(item.startPage)
+            || item.startPage < 1
+            || typeof item.endPage !== 'number'
+            || !Number.isSafeInteger(item.endPage)
+            || item.endPage < item.startPage
+        ) {
+            throw new Error(`${fieldName} must contain non-empty page ranges`);
+        }
+        return {
+            startPage: item.startPage,
+            endPage: item.endPage,
+        };
+    });
+}
+
+function decodePageDeleteRangeSegments(
+    args: unknown[],
+    index: number,
+    fieldName: string,
+    totalPages: number,
+) {
+    const ranges = decodePageMoveRangeSegments(args, index, fieldName);
+    let previousEnd = 0;
+    for (const range of ranges) {
+        if (
+            range.endPage > totalPages
+            || range.startPage <= previousEnd
+        ) {
+            throw new Error(`${fieldName} must be sorted, disjoint, and within the document`);
+        }
+        previousEnd = range.endPage;
+    }
+    return ranges;
 }
 
 function decodeStringArray(args: unknown[], index: number, fieldName: string) {
@@ -269,26 +323,148 @@ function decodePageIdentityDelta(value: unknown): IPageIdentityDelta | undefined
         0,
         'pageIdentityDelta.previousPageCount',
     );
-    if (!Array.isArray(value.pages) || value.pages.length > MAX_COLLECTION_ITEMS) {
-        throw new Error('pageIdentityDelta.pages must be a bounded array');
+    const pages = value.pages === undefined
+        ? undefined
+        : (() => {
+            if (!Array.isArray(value.pages) || value.pages.length > MAX_COLLECTION_ITEMS) {
+                throw new Error('pageIdentityDelta.pages must be a bounded array');
+            }
+            return value.pages.map((page): TPageIdentityDeltaPage => {
+                if (isRecord(page) && typeof page.insertedId === 'string' && page.insertedId.length > 0) {
+                    return {insertedId: page.insertedId};
+                }
+                if (
+                    isRecord(page)
+                    && typeof page.fromPageNumber === 'number'
+                    && Number.isSafeInteger(page.fromPageNumber)
+                    && page.fromPageNumber >= 1
+                ) {
+                    return {fromPageNumber: page.fromPageNumber};
+                }
+                throw new Error('pageIdentityDelta.pages entries must carry fromPageNumber or insertedId');
+            });
+        })();
+    const nextPageCount = value.nextPageCount === undefined
+        ? undefined
+        : decodeSafeInteger(
+            [value.nextPageCount],
+            0,
+            'pageIdentityDelta.nextPageCount',
+        );
+    const ranges = value.ranges === undefined
+        ? undefined
+        : (() => {
+            if (!Array.isArray(value.ranges) || value.ranges.length > MAX_COLLECTION_ITEMS) {
+                throw new Error('pageIdentityDelta.ranges must be a bounded array');
+            }
+            return value.ranges.map((range): TPageIdentityRangeOperation => {
+                if (!isRecord(range) || typeof range.kind !== 'string') {
+                    throw new Error('pageIdentityDelta.ranges entries must be valid range operations');
+                }
+                const count = typeof range.count === 'number'
+                    && Number.isSafeInteger(range.count)
+                    && range.count > 0
+                    ? range.count
+                    : null;
+                if (count === null) {
+                    throw new Error('pageIdentityDelta.ranges count must be a positive safe integer');
+                }
+                if (range.kind === 'retain' || range.kind === 'move') {
+                    if (
+                        typeof range.fromPageNumber !== 'number'
+                        || !Number.isSafeInteger(range.fromPageNumber)
+                        || range.fromPageNumber < 1
+                        || typeof range.toPageNumber !== 'number'
+                        || !Number.isSafeInteger(range.toPageNumber)
+                        || range.toPageNumber < 1
+                    ) {
+                        throw new Error('pageIdentityDelta.ranges mappings must contain positive page numbers');
+                    }
+                    return {
+                        kind: range.kind,
+                        fromPageNumber: range.fromPageNumber,
+                        toPageNumber: range.toPageNumber,
+                        count,
+                    };
+                }
+                if (range.kind === 'insert') {
+                    if (
+                        typeof range.toPageNumber !== 'number'
+                        || !Number.isSafeInteger(range.toPageNumber)
+                        || range.toPageNumber < 1
+                        || typeof range.identitySeed !== 'string'
+                        || range.identitySeed.length === 0
+                    ) {
+                        throw new Error('pageIdentityDelta.ranges insert must contain a destination and identity seed');
+                    }
+                    let insertedIds: string[] | undefined;
+                    const rawInsertedIds: unknown = range.insertedIds;
+                    if (rawInsertedIds !== undefined) {
+                        if (
+                            !Array.isArray(rawInsertedIds)
+                            || rawInsertedIds.length !== count
+                            || rawInsertedIds.length > MAX_COLLECTION_ITEMS
+                            || !rawInsertedIds.every(id => typeof id === 'string' && id.length > 0)
+                        ) {
+                            throw new Error('pageIdentityDelta.ranges insertedIds must match the range count');
+                        }
+                        insertedIds = rawInsertedIds.filter(
+                            (id): id is string => typeof id === 'string',
+                        );
+                    }
+                    return {
+                        kind: 'insert',
+                        toPageNumber: range.toPageNumber,
+                        count,
+                        identitySeed: range.identitySeed,
+                        ...(insertedIds === undefined ? {} : {insertedIds}),
+                    };
+                }
+                if (range.kind === 'delete') {
+                    if (
+                        typeof range.fromPageNumber !== 'number'
+                        || !Number.isSafeInteger(range.fromPageNumber)
+                        || range.fromPageNumber < 1
+                    ) {
+                        throw new Error('pageIdentityDelta.ranges delete must contain a positive source page');
+                    }
+                    return {
+                        kind: 'delete',
+                        fromPageNumber: range.fromPageNumber,
+                        count,
+                    };
+                }
+                if (range.kind === 'touch') {
+                    if (
+                        typeof range.toPageNumber !== 'number'
+                        || !Number.isSafeInteger(range.toPageNumber)
+                        || range.toPageNumber < 1
+                        || ![
+                            'rotate',
+                            'crop',
+                            'remove-crop',
+                        ].includes(range.reason as string)
+                    ) {
+                        throw new Error('pageIdentityDelta.ranges touch must contain a destination and reason');
+                    }
+                    return {
+                        kind: 'touch',
+                        toPageNumber: range.toPageNumber,
+                        count,
+                        reason: range.reason as 'rotate' | 'crop' | 'remove-crop',
+                    };
+                }
+                throw new Error('pageIdentityDelta.ranges entries must be valid range operations');
+            });
+        })();
+    if (pages === undefined && ranges === undefined) {
+        throw new Error('pageIdentityDelta must contain pages or ranges');
     }
-    const pages = value.pages.map((page): IPageIdentityDelta['pages'][number] => {
-        if (isRecord(page) && typeof page.insertedId === 'string') {
-            return {insertedId: page.insertedId};
-        }
-        if (
-            isRecord(page)
-            && typeof page.fromPageNumber === 'number'
-            && Number.isSafeInteger(page.fromPageNumber)
-            && page.fromPageNumber >= 1
-        ) {
-            return {fromPageNumber: page.fromPageNumber};
-        }
-        throw new Error('pageIdentityDelta.pages entries must carry fromPageNumber or insertedId');
-    });
     return {
         previousPageCount,
-        pages,
+        ...(pages === undefined ? {} : {pages}),
+        ...(nextPageCount === undefined ? {} : {nextPageCount}),
+        ...(ranges === undefined ? {} : {ranges}),
     };
 }
 
@@ -471,6 +647,39 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 options,
             ],
         ),
+        deleteRanges: method(
+            'deleteRanges',
+            'page-ops:delete-ranges',
+            args<TDeleteRangesArgs>(4, value => {
+                const totalPages = decodeSafeInteger(value, 2, 'totalPages', 1);
+                return [
+                    decodeString(value, 0, 'workingCopyPath'),
+                    decodePageDeleteRangeSegments(value, 1, 'ranges', totalPages),
+                    totalPages,
+                    decodeMutationOptions(value[3]),
+                ];
+            }, () => [
+                '/tmp/fixture.pdf',
+                [{
+                    startPage: 1,
+                    endPage: 1,
+                }],
+                2,
+                fixtureOptions,
+            ]),
+            pageOpsResult,
+            (
+                workingCopyPath: string,
+                ranges: IPageMoveRangeSegment[],
+                totalPages: number,
+                options?: IPageOpsMutationOptions,
+            ): TDeleteRangesArgs => [
+                workingCopyPath,
+                ranges,
+                totalPages,
+                options,
+            ],
+        ),
         extract: method(
             'extract',
             'page-ops:extract',
@@ -507,6 +716,83 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             ): TReorderArgs => [
                 workingCopyPath,
                 newOrder,
+                options,
+            ],
+        ),
+        move: method(
+            'move',
+            'page-ops:move',
+            args<TMoveArgs>(6, value => [
+                decodeString(value, 0, 'workingCopyPath'),
+                decodeSafeInteger(value, 1, 'startPage', 1),
+                decodeSafeInteger(value, 2, 'endPage', 1),
+                decodeSafeInteger(value, 3, 'insertAt'),
+                decodeSafeInteger(value, 4, 'totalPages', 1),
+                decodeMutationOptions(value[5]),
+            ], () => [
+                '/tmp/fixture.pdf',
+                1,
+                1,
+                0,
+                1,
+                fixtureOptions,
+            ]),
+            pageOpsResult,
+            (
+                workingCopyPath: string,
+                startPage: number,
+                endPage: number,
+                insertAt: number,
+                totalPages: number,
+                options?: IPageOpsMutationOptions,
+            ): TMoveArgs => [
+                workingCopyPath,
+                startPage,
+                endPage,
+                insertAt,
+                totalPages,
+                options,
+            ],
+        ),
+        moveRanges: method(
+            'moveRanges',
+            'page-ops:move-ranges',
+            args<TMoveRangesArgs>(5, value => {
+                const totalPages = decodeSafeInteger(value, 3, 'totalPages', 1);
+                const move = createPageMoveRanges(
+                    totalPages,
+                    decodePageMoveRangeSegments(value, 1, 'ranges'),
+                    decodeSafeInteger(value, 2, 'insertAt'),
+                );
+                return [
+                    decodeString(value, 0, 'workingCopyPath'),
+                    move.ranges,
+                    move.insertAt,
+                    totalPages,
+                    decodeMutationOptions(value[4]),
+                ];
+            }, () => [
+                '/tmp/fixture.pdf',
+                [{
+                    startPage: 1,
+                    endPage: 1,
+                }],
+                0,
+                1,
+                fixtureOptions,
+            ]),
+            pageOpsResult,
+            (
+                workingCopyPath: string,
+                ranges: IPageMoveRangeSegment[],
+                insertAt: number,
+                totalPages: number,
+                options?: IPageOpsMutationOptions,
+            ): TMoveRangesArgs => [
+                workingCopyPath,
+                ranges,
+                insertAt,
+                totalPages,
                 options,
             ],
         ),

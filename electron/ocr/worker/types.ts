@@ -3,6 +3,7 @@ import type {
     IOcrErrorEnvelope,
     IOcrDiagnostic,
     IOcrSearchablePdfOptions,
+    TOcrSearchablePdfPages,
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
 import type {
@@ -35,6 +36,8 @@ export interface IOcrPdfPageRequest {
     languages: string[];
 }
 
+export type TOcrPdfPageSelection = TOcrSearchablePdfPages;
+
 export interface IOcrPageWithWords {
     pageNumber: number;
     words: IOcrWord[];
@@ -53,7 +56,7 @@ export interface IOcrFileResult {
 export interface IOcrWorkerStartPayload {
     sourcePdfPath: string;
     documentRevision: IDocumentRevisionInfo;
-    pages: IOcrPdfPageRequest[];
+    pages: TOcrPdfPageSelection;
     renderDpi?: number;
     options?: IOcrSearchablePdfOptions;
 }

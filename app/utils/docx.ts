@@ -1,29 +1,13 @@
 import { sumBy } from 'es-toolkit/math';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
-
-const CRC_TABLE = (() => {
-    const table = new Uint32Array(256);
-    for (let i = 0; i < 256; i += 1) {
-        let c = i;
-        for (let j = 0; j < 8; j += 1) {
-            c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
-        }
-        table[i] = c >>> 0;
-    }
-    return table;
-})();
-
-function crc32(data: Uint8Array) {
-    let crc = 0xFFFFFFFF;
-    for (const byte of data) {
-        crc = (CRC_TABLE[(crc ^ byte) & 0xFF] ?? 0) ^ (crc >>> 8);
-    }
-    return (crc ^ 0xFFFFFFFF) >>> 0;
-}
-
-function encodeUtf8(input: string) {
-    return new TextEncoder().encode(input);
-}
+import {
+    crc32,
+    encodeUtf8,
+    escapeXml,
+    makeCentralHeader,
+    makeEndOfCentralDirectory,
+    makeLocalHeader,
+} from '@app/utils/docxStreaming';
 
 function concatBytes(parts: Uint8Array[]) {
     const total = sumBy(parts, part => part.length);
@@ -34,62 +18,6 @@ function concatBytes(parts: Uint8Array[]) {
         offset += part.length;
     }
     return output;
-}
-
-function makeLocalHeader(fileName: Uint8Array, crc: number, size: number) {
-    const header = new Uint8Array(30 + fileName.length);
-    const view = new DataView(header.buffer);
-    view.setUint32(0, 0x04034b50, true);
-    view.setUint16(4, 20, true);
-    view.setUint16(6, 0, true);
-    view.setUint16(8, 0, true);
-    view.setUint16(10, 0, true);
-    view.setUint16(12, 0, true);
-    view.setUint32(14, crc, true);
-    view.setUint32(18, size, true);
-    view.setUint32(22, size, true);
-    view.setUint16(26, fileName.length, true);
-    view.setUint16(28, 0, true);
-    header.set(fileName, 30);
-    return header;
-}
-
-function makeCentralHeader(fileName: Uint8Array, crc: number, size: number, offset: number) {
-    const header = new Uint8Array(46 + fileName.length);
-    const view = new DataView(header.buffer);
-    view.setUint32(0, 0x02014b50, true);
-    view.setUint16(4, 20, true);
-    view.setUint16(6, 20, true);
-    view.setUint16(8, 0, true);
-    view.setUint16(10, 0, true);
-    view.setUint16(12, 0, true);
-    view.setUint16(14, 0, true);
-    view.setUint32(16, crc, true);
-    view.setUint32(20, size, true);
-    view.setUint32(24, size, true);
-    view.setUint16(28, fileName.length, true);
-    view.setUint16(30, 0, true);
-    view.setUint16(32, 0, true);
-    view.setUint16(34, 0, true);
-    view.setUint16(36, 0, true);
-    view.setUint32(38, 0, true);
-    view.setUint32(42, offset, true);
-    header.set(fileName, 46);
-    return header;
-}
-
-function makeEndOfCentralDirectory(entryCount: number, centralSize: number, centralOffset: number) {
-    const footer = new Uint8Array(22);
-    const view = new DataView(footer.buffer);
-    view.setUint32(0, 0x06054b50, true);
-    view.setUint16(4, 0, true);
-    view.setUint16(6, 0, true);
-    view.setUint16(8, entryCount, true);
-    view.setUint16(10, entryCount, true);
-    view.setUint32(12, centralSize, true);
-    view.setUint32(16, centralOffset, true);
-    view.setUint16(20, 0, true);
-    return footer;
 }
 
 function createZip(entries: Array<{
@@ -121,15 +49,6 @@ function createZip(entries: Array<{
         ...centralParts,
         footer,
     ]);
-}
-
-function escapeXml(text: string) {
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
 }
 
 function buildDocumentXml(text: string, isRtl?: boolean) {

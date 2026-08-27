@@ -920,7 +920,7 @@ describe('handleNativeNoteTextSave', () => {
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
 
-    it('skips working-copy native mutations when the queued base expectation changes', async () => {
+    it('rejects a stale working-copy revision inside the queue before cloning', async () => {
         const workingPath = join(tempRoot, 'working.pdf');
         writeFileSync(workingPath, 'base-before');
         const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
@@ -929,6 +929,7 @@ describe('handleNativeNoteTextSave', () => {
             await blockedMutation.promise;
             writeFileSync(workingPath, 'changed-before-native');
         });
+        mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(new Error('stale revision'));
         const { handleNativePdfMutationsApplyToWorkingCopy } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
         const savePromise = handleNativePdfMutationsApplyToWorkingCopy(
@@ -945,12 +946,6 @@ describe('handleNativeNoteTextSave', () => {
                 source: createNativePlacedImage().source,
             }]},
             'D:20260609133855+03\'00\'',
-            {
-                byteLength: Buffer.byteLength('base-before'),
-                sha256: createHash('sha256')
-                    .update('base-before')
-                    .digest('hex'),
-            },
             revisionOptions,
         );
         await waitForSettledQueueTurn();
@@ -958,13 +953,14 @@ describe('handleNativeNoteTextSave', () => {
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
         blockedMutation.resolve(undefined);
         await queuedMutation;
-        await expect(savePromise).resolves.toMatchObject({applied: false});
+        await expect(savePromise).rejects.toThrow('stale revision');
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
         expect(readFileSyncUtf8(workingPath)).toBe('changed-before-native');
-        expect(mocks.fingerprintFileWithUtilityProcess).toHaveBeenCalledWith(workingPath);
-        expect(mocks.loggerWarn).toHaveBeenCalledWith(expect.stringContaining(
-            'Native working-copy mutation skipped because base expectation no longer matches',
-        ));
+        expect(mocks.assertWorkingCopyRevisionCurrent).toHaveBeenCalledWith(
+            workingPath,
+            revisionOptions.expectedDocumentRevisionToken,
+        );
+        expect(mocks.fingerprintFileWithUtilityProcess).not.toHaveBeenCalled();
     });
 
     it('stages native output without exposing it and commits the verified artifact once', async () => {
@@ -975,6 +971,12 @@ describe('handleNativeNoteTextSave', () => {
         mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(workingPath);
         mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            expect(args).toEqual(expect.arrayContaining([
+                'save-mutations',
+                '--qpdf',
+                '/native/qpdf',
+                '--append',
+            ]));
             const outputIndex = args.indexOf('--output') + 1;
             const outputPath = args[outputIndex];
             if (!outputPath) throw new Error('missing output path');
@@ -990,10 +992,6 @@ describe('handleNativeNoteTextSave', () => {
             workingPath,
             {placedImages: [createNativePlacedImage()]},
             'D:20260609133855+03\'00\'',
-            {
-                byteLength: Buffer.byteLength('base-before'),
-                sha256: createHash('sha256').update('base-before').digest('hex'),
-            },
             revisionOptions,
         );
 
@@ -1015,7 +1013,7 @@ describe('handleNativeNoteTextSave', () => {
         expect(readFileSyncUtf8(workingPath)).toBe('base-before');
         expect(readFileSyncUtf8(originalPath)).toBe('base-before');
         expect(staged.stagedOutput && readFileSyncUtf8(staged.stagedOutput.path)).toContain('% staged mutation');
-        expect(mocks.fingerprintFileWithUtilityProcess).toHaveBeenCalledWith(workingPath);
+        expect(mocks.fingerprintFileWithUtilityProcess).not.toHaveBeenCalled();
         if (!staged.stagedOutput) {
             throw new Error('Expected a staged artifact');
         }
@@ -1144,27 +1142,13 @@ describe('handleNativeNoteTextSave', () => {
                 createNativePlacedImage,
             )},
             modifiedAt,
-            {
-                byteLength: 3,
-                sha256: 'a'.repeat(64),
-            },
+            revisionOptions,
         )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.placedImages} images`);
-
-        await expect(handleNativePdfMutationsApplyToWorkingCopy(
-            context,
-            workingPath,
-            {placedImages: [createNativePlacedImage()]},
-            modifiedAt,
-            {
-                byteLength: 3,
-                sha256: 'not-a-digest',
-            },
-        )).rejects.toThrow('Invalid native working-copy expectation');
 
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
     });
 
-    it('rejects working-copy native mutations without a base expectation', async () => {
+    it('rejects working-copy native mutations without a document revision', async () => {
         const { handleNativePdfMutationsApplyToWorkingCopy } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
         await expect(handleNativePdfMutationsApplyToWorkingCopy(
@@ -1181,9 +1165,10 @@ describe('handleNativeNoteTextSave', () => {
                 source: createNativePlacedImage().source,
             }]},
             'D:20260609133855+03\'00\'',
-            undefined,
-        )).rejects.toThrow('Invalid native working-copy expectation');
+            undefined as never,
+        )).rejects.toThrow('Document revision token is required');
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
+        expect(mocks.fingerprintFileWithUtilityProcess).not.toHaveBeenCalled();
     });
 });
 

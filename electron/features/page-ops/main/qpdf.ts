@@ -25,6 +25,19 @@ import {
     QPDF_OUTPUT_SUCCESS_EXIT_CODES,
     QPDF_TIMEOUT_MS,
 } from '@electron/pdf/pdfPageCount';
+import {
+    createPageMoveRange,
+    createPageMoveRanges,
+    formatPageDeleteRanges,
+    formatPageMoveRange,
+    formatPageMoveRanges,
+    isPageMoveNoOp,
+    isPageMoveRangesNoOp,
+} from '@electron/features/page-ops/domain/pageNumbers';
+import type {
+    IPageMoveRangeSegment,
+    IPageMoveRanges,
+} from '@contracts/pageNumbers';
 
 const log = createLogger('page-ops-qpdf');
 export {
@@ -100,34 +113,30 @@ function formatPageList(pages: number[]) {
 }
 
 function formatComplementPageList(pagesToRemove: number[], totalPages: number) {
-    const removePages = new Set(pagesToRemove);
+    const removePages = [...new Set(pagesToRemove)]
+        .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= totalPages)
+        .sort((left, right) => left - right);
     const ranges: string[] = [];
-    let keptCount = 0;
-    let rangeStart: number | null = null;
-    let previous: number | null = null;
+    let nextKeptPage = 1;
 
-    for (let page = 1; page <= totalPages; page += 1) {
-        if (removePages.has(page)) {
-            if (rangeStart !== null && previous !== null) {
-                ranges.push(rangeStart === previous ? String(rangeStart) : `${rangeStart}-${previous}`);
-                rangeStart = null;
-                previous = null;
-            }
-            continue;
+    for (const removedPage of removePages) {
+        if (nextKeptPage < removedPage) {
+            ranges.push(nextKeptPage === removedPage - 1
+                ? String(nextKeptPage)
+                : `${nextKeptPage}-${removedPage - 1}`);
         }
-
-        keptCount += 1;
-        rangeStart ??= page;
-        previous = page;
+        nextKeptPage = removedPage + 1;
     }
 
-    if (rangeStart !== null && previous !== null) {
-        ranges.push(rangeStart === previous ? String(rangeStart) : `${rangeStart}-${previous}`);
+    if (nextKeptPage <= totalPages) {
+        ranges.push(nextKeptPage === totalPages
+            ? String(nextKeptPage)
+            : `${nextKeptPage}-${totalPages}`);
     }
 
     return {
         pageList: ranges.join(','),
-        keptCount,
+        keptCount: totalPages - removePages.length,
     };
 }
 
@@ -337,6 +346,62 @@ export async function deletePages(
     return { pageCount: keptCount };
 }
 
+/**
+ * Deletes sorted, disjoint page runs using qpdf's compact survivor list.
+ * Unlike the legacy page-array operation, this path never expands a large
+ * selection into one entry per document page.
+ */
+export async function deletePageRanges(
+    workingCopyPath: string,
+    ranges: readonly IPageMoveRangeSegment[],
+    expectedTotalPages?: number,
+    senderWebContentsId?: number,
+    options: IQpdfOperationOptions = {},
+) {
+    const materializedPath = await materializePageOperationWorkingCopy(
+        workingCopyPath,
+        senderWebContentsId,
+        options.signal,
+    );
+    const totalPages = await getPdfPageCount(materializedPath, options);
+    if (expectedTotalPages !== undefined && expectedTotalPages !== totalPages) {
+        throw new Error('Renderer page count is stale');
+    }
+
+    const {
+        pageList,
+        keptCount,
+    } = formatPageDeleteRanges(ranges, totalPages);
+    if (keptCount === 0) {
+        throw new Error('Cannot delete all pages from the document');
+    }
+
+    const tempPath = makeTempPdfOutputPath(materializedPath);
+    try {
+        await runQpdfCommand([
+            materializedPath,
+            '--pages',
+            materializedPath,
+            pageList,
+            '--',
+            tempPath,
+        ], {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
+            commandLabel: 'qpdf(delete-page-ranges)',
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+        });
+        await assertNonEmptyPdfOutput(tempPath, 'Deleting page ranges');
+        await replaceQpdfOutput(tempPath, materializedPath);
+    } catch (err) {
+        await cleanupQpdfTemp(tempPath);
+        throw err;
+    }
+
+    return { pageCount: keptCount };
+}
+
 export async function reorderPages(
     workingCopyPath: string,
     newOrder: number[],
@@ -373,6 +438,113 @@ export async function reorderPages(
     }
 
     return { pageCount: newOrder.length };
+}
+
+/**
+ * Moves one contiguous page range using qpdf's compact page-list syntax.
+ * Unlike reorderPages this never constructs the full permutation, which is
+ * what lets the desktop path handle a very large page count.
+ */
+export async function movePages(
+    workingCopyPath: string,
+    startPage: number,
+    endPage: number,
+    insertAt: number,
+    expectedTotalPages?: number,
+    senderWebContentsId?: number,
+    options: IQpdfOperationOptions = {},
+) {
+    const materializedPath = await materializePageOperationWorkingCopy(
+        workingCopyPath,
+        senderWebContentsId,
+        options.signal,
+    );
+    const totalPages = await getPdfPageCount(materializedPath, options);
+    if (expectedTotalPages !== undefined && expectedTotalPages !== totalPages) {
+        throw new Error('Renderer page count is stale');
+    }
+    const move = createPageMoveRange(totalPages, startPage, endPage, insertAt);
+    if (isPageMoveNoOp(move)) {
+        return { pageCount: totalPages };
+    }
+
+    const tempPath = makeTempPdfOutputPath(materializedPath);
+    try {
+        await runQpdfCommand([
+            materializedPath,
+            '--pages',
+            materializedPath,
+            formatPageMoveRange(move),
+            '--',
+            tempPath,
+        ], {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
+            commandLabel: 'qpdf(move-pages)',
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+        });
+        await assertNonEmptyPdfOutput(tempPath, 'Moving pages');
+        await replaceQpdfOutput(tempPath, materializedPath);
+    } catch (err) {
+        await cleanupQpdfTemp(tempPath);
+        throw err;
+    }
+
+    return { pageCount: totalPages };
+}
+
+export const movePageRange = movePages;
+
+/**
+ * Moves sorted, non-contiguous page runs using a compact qpdf page list.
+ * The JavaScript side retains only the selected runs and source gaps.
+ */
+export async function movePageRanges(
+    workingCopyPath: string,
+    requestedMove: IPageMoveRanges,
+    expectedTotalPages?: number,
+    senderWebContentsId?: number,
+    options: IQpdfOperationOptions = {},
+) {
+    const materializedPath = await materializePageOperationWorkingCopy(
+        workingCopyPath,
+        senderWebContentsId,
+        options.signal,
+    );
+    const totalPages = await getPdfPageCount(materializedPath, options);
+    if (expectedTotalPages !== undefined && expectedTotalPages !== totalPages) {
+        throw new Error('Renderer page count is stale');
+    }
+    const move = createPageMoveRanges(totalPages, requestedMove.ranges, requestedMove.insertAt);
+    if (isPageMoveRangesNoOp(move)) {
+        return {pageCount: totalPages};
+    }
+
+    const tempPath = makeTempPdfOutputPath(materializedPath);
+    try {
+        await runQpdfCommand([
+            materializedPath,
+            '--pages',
+            materializedPath,
+            formatPageMoveRanges(move),
+            '--',
+            tempPath,
+        ], {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
+            commandLabel: 'qpdf(move-page-ranges)',
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+        });
+        await assertNonEmptyPdfOutput(tempPath, 'Moving page ranges');
+        await replaceQpdfOutput(tempPath, materializedPath);
+    } catch (err) {
+        await cleanupQpdfTemp(tempPath);
+        throw err;
+    }
+
+    return {pageCount: totalPages};
 }
 
 export type TRotationAngle = 90 | 180 | 270;

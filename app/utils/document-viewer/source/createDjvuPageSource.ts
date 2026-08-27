@@ -72,7 +72,10 @@ export async function createDjvuPageSource(
         pageCount = sourceInfo.pageCount;
         pageSizes.set(sourceInfo.pageNumber, sourceInfo.pageSize);
     } else {
-        const compatibilityPageSizes = await previewSource.getPageSizes() as IDjvuPointPageSize[];
+        const compatibilityPageSizes = await previewSource.getPageSizes();
+        if (!Array.isArray(compatibilityPageSizes)) {
+            throw new Error('DjVu page-size preview returned compact PDF metadata');
+        }
         pageCount = compatibilityPageSizes.length;
         compatibilityPageSizes.forEach((size, index) => pageSizes.set(index + 1, size));
     }
@@ -87,7 +90,10 @@ export async function createDjvuPageSource(
             pageSizes.set(pageNumber, size);
             return size;
         }
-        const compatibilityPageSizes = await previewSource.getPageSizes() as IDjvuPointPageSize[];
+        const compatibilityPageSizes = await previewSource.getPageSizes();
+        if (!Array.isArray(compatibilityPageSizes)) {
+            throw new Error('DjVu page-size preview returned compact PDF metadata');
+        }
         compatibilityPageSizes.forEach((size, index) => pageSizes.set(index + 1, size));
         const size = pageSizes.get(pageNumber);
         if (!size) {

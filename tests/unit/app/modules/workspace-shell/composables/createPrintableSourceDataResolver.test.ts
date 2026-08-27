@@ -66,7 +66,7 @@ async function flushPendingWork() {
 function createResolverHarness(options: {
     dirty?: boolean;
     pdfData?: Uint8Array | null;
-    workingCopyBytes?: Uint8Array | null;
+    sourceBytes?: Uint8Array | null;
     viewer?: IPrintTestViewer | null;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
@@ -76,14 +76,12 @@ function createResolverHarness(options: {
     const hasPendingUnsavedChanges = ref(options.dirty ?? true);
     const pdfData = shallowRef<Uint8Array | null>(options.pdfData ?? null);
     const pdfViewerRef = shallowRef<IPrintTestViewer | null>(options.viewer ?? null);
-    const readWorkingCopyBytes = vi.fn(async () => options.workingCopyBytes ?? null);
-    const getSourcePdfData = vi.fn(async () => Uint8Array.of(4, 4));
+    const getSourcePdfData = vi.fn(async () => options.sourceBytes ?? Uint8Array.of(4, 4));
     const serializePdfForSave = vi.fn(async (data: Uint8Array) => data);
     const getPrintableSourceData = createPrintableSourceDataResolver({
         hasPendingUnsavedChanges,
         pdfData,
         pdfViewerRef,
-        readWorkingCopyBytes,
         source: {
             getSourcePdfData,
             serializePdfForSave,
@@ -98,7 +96,6 @@ function createResolverHarness(options: {
         hasPendingUnsavedChanges,
         pdfData,
         pdfViewerRef,
-        readWorkingCopyBytes,
         getSourcePdfData,
         serializePdfForSave,
     };
@@ -121,19 +118,19 @@ describe('createPrintableSourceDataResolver', () => {
         await expect(harness.getPrintableSourceData()).resolves.toEqual(Uint8Array.of(7, 7, 7));
 
         expect(runSaveTransaction).not.toHaveBeenCalled();
-        expect(harness.readWorkingCopyBytes).not.toHaveBeenCalled();
+        expect(harness.getSourcePdfData).not.toHaveBeenCalled();
         expect(leaseKinds).toEqual([]);
     });
 
-    it('reads the working copy when a clean document has no loaded bytes', async () => {
+    it('reads the source when a clean document has no loaded bytes', async () => {
         const harness = createResolverHarness({
             dirty: false,
             pdfData: null,
-            workingCopyBytes: Uint8Array.of(5, 5),
+            sourceBytes: Uint8Array.of(5, 5),
         });
 
         await expect(harness.getPrintableSourceData()).resolves.toEqual(Uint8Array.of(5, 5));
-        expect(harness.readWorkingCopyBytes).toHaveBeenCalledTimes(1);
+        expect(harness.getSourcePdfData).toHaveBeenCalledTimes(1);
     });
 
     it('materializes a dirty document under the document operation lease without acknowledging the frontier', async () => {
@@ -252,7 +249,7 @@ describe('createPrintableSourceDataResolver', () => {
         const runSaveTransaction = vi.fn(async () => createTransactionResult(Uint8Array.of(1)));
         const harness = createResolverHarness({
             dirty: true,
-            workingCopyBytes: Uint8Array.of(8, 8),
+            sourceBytes: Uint8Array.of(8, 8),
             viewer: {runSaveTransaction},
             runWithDocumentOperationLease: controller.operationLease.runExclusive,
         });
@@ -277,7 +274,7 @@ describe('createPrintableSourceDataResolver', () => {
         const runSaveTransaction = vi.fn(async () => createTransactionResult(Uint8Array.of(1)));
         const harness = createResolverHarness({
             dirty: true,
-            workingCopyBytes: Uint8Array.of(2, 2),
+            sourceBytes: Uint8Array.of(2, 2),
             viewer: {runSaveTransaction},
             runWithDocumentOperationLease: controller.operationLease.runExclusive,
         });
@@ -347,7 +344,7 @@ describe('createPrintableSourceDataResolver', () => {
         });
         const harness = createResolverHarness({
             dirty: true,
-            workingCopyBytes: Uint8Array.of(4),
+            sourceBytes: Uint8Array.of(4),
             viewer: {runSaveTransaction},
             runWithDocumentOperationLease: controller.operationLease.runExclusive,
         });
@@ -446,7 +443,6 @@ describe('createPrintableSourceDataResolver', () => {
             )),
             pdfData: shallowRef(null),
             pdfViewerRef: shallowRef<IPrintTestViewer | null>({runSaveTransaction: runTransaction}),
-            readWorkingCopyBytes: async () => null,
             source: {
                 getSourcePdfData: async () => documentBytes.value,
                 serializePdfForSave: async (bytes: Uint8Array) => bytes,

@@ -18,7 +18,15 @@ pub struct AtomicOutput {
     file: Option<File>,
     temporary_path: PathBuf,
     destination_path: PathBuf,
+    destination_state: Option<DestinationState>,
     published: bool,
+}
+
+struct DestinationState {
+    identity: Option<FileIdentity>,
+    length: u64,
+    modified: Option<std::time::SystemTime>,
+    permissions: fs::Permissions,
 }
 
 impl AtomicOutput {
@@ -28,6 +36,19 @@ impl AtomicOutput {
             .file_name()
             .and_then(|value| value.to_str())
             .unwrap_or("output");
+        let destination_state = match File::open(destination) {
+            Ok(file) => {
+                let metadata = file.metadata()?;
+                Some(DestinationState {
+                    identity: file_identity(&file)?,
+                    length: metadata.len(),
+                    modified: metadata.modified().ok(),
+                    permissions: metadata.permissions(),
+                })
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -49,6 +70,7 @@ impl AtomicOutput {
                         file: Some(file),
                         temporary_path,
                         destination_path: destination.to_path_buf(),
+                        destination_state,
                         published: false,
                     })
                 }
@@ -69,17 +91,60 @@ impl AtomicOutput {
             .ok_or_else(|| io::Error::other("Temporary output file is already closed"))
     }
 
+    pub fn file(&self) -> io::Result<&File> {
+        self.file
+            .as_ref()
+            .ok_or_else(|| io::Error::other("Temporary output file is already closed"))
+    }
+
+    pub fn temporary_path(&self) -> &Path {
+        &self.temporary_path
+    }
+
     pub fn publish(mut self) -> io::Result<()> {
         {
             let file = self.file_mut()?;
             file.flush()?;
             file.sync_all()?;
         }
+        if let Some(state) = &self.destination_state {
+            fs::set_permissions(&self.temporary_path, state.permissions.clone())?;
+        }
         drop(self.file.take());
         replace_file_atomically(&self.temporary_path, &self.destination_path)?;
         self.published = true;
         sync_parent_directory(&self.destination_path);
         Ok(())
+    }
+
+    pub fn publish_if_unchanged(self) -> io::Result<()> {
+        self.assert_destination_unchanged()?;
+        self.publish()
+    }
+
+    fn assert_destination_unchanged(&self) -> io::Result<()> {
+        match (&self.destination_state, File::open(&self.destination_path)) {
+            (None, Err(error)) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            (None, Ok(_)) => Err(io::Error::other(
+                "Destination appeared during atomic output",
+            )),
+            (None, Err(error)) => Err(error),
+            (Some(_), Err(error)) if error.kind() == io::ErrorKind::NotFound => Err(
+                io::Error::other("Destination disappeared during atomic output"),
+            ),
+            (Some(_), Err(error)) => Err(error),
+            (Some(state), Ok(file)) => {
+                let metadata = file.metadata()?;
+                let identity = file_identity(&file)?;
+                if identity != state.identity
+                    || metadata.len() != state.length
+                    || metadata.modified().ok() != state.modified
+                {
+                    return Err(io::Error::other("Destination changed during atomic output"));
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -189,7 +254,7 @@ fn native_failure(message: impl Into<String>) -> NativeError {
     NativeError::new(NativeErrorCode::NativeFailure, message)
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 struct FileIdentity {
     volume: u64,
     index: u64,
@@ -390,6 +455,35 @@ mod tests {
         fs::remove_file(destination).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn publish_failure_preserves_existing_destination() {
+        let parent = test_path("publish-failure-dir");
+        fs::create_dir(&parent).unwrap();
+        let destination = parent.join("output");
+        fs::write(&destination, b"existing-output").unwrap();
+        let mut output = AtomicOutput::create(&destination).unwrap();
+        let temporary_path = output.temporary_path.clone();
+        output
+            .file_mut()
+            .unwrap()
+            .write_all(b"complete-replacement")
+            .unwrap();
+
+        // Replace the staged file with a directory. The publish rename now
+        // fails after the file has been flushed, which models a crash-window
+        // failure at the final publication boundary.
+        fs::remove_file(&temporary_path).unwrap();
+        fs::create_dir(&temporary_path).unwrap();
+        let publish_result = output.publish_if_unchanged();
+
+        assert!(publish_result.is_err());
+        assert_eq!(fs::read(&destination).unwrap(), b"existing-output");
+        fs::remove_dir(temporary_path).unwrap();
+        fs::remove_file(destination).unwrap();
+        fs::remove_dir(parent).unwrap();
+    }
+
     #[test]
     fn concurrent_sibling_creation_is_unique() {
         let destination = Arc::new(test_path("concurrent"));
@@ -472,6 +566,26 @@ mod tests {
         write_bytes_atomically(&destination, b"new-output").unwrap();
 
         assert_eq!(fs::read(&destination).unwrap(), b"new-output");
+        assert_no_sibling_temporary(&destination);
+        fs::remove_file(destination).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomically_replaces_existing_destination_with_its_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let destination = test_path("replacement-permissions");
+        fs::write(&destination, b"old-output").unwrap();
+        fs::set_permissions(&destination, fs::Permissions::from_mode(0o600)).unwrap();
+
+        write_bytes_atomically(&destination, b"new-output").unwrap();
+
+        assert_eq!(fs::read(&destination).unwrap(), b"new-output");
+        assert_eq!(
+            fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         assert_no_sibling_temporary(&destination);
         fs::remove_file(destination).unwrap();
     }

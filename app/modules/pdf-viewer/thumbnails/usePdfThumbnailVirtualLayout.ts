@@ -15,7 +15,10 @@ interface IUsePdfThumbnailVirtualLayoutOptions {
 export const usePdfThumbnailVirtualLayout = (options: IUsePdfThumbnailVirtualLayoutOptions) => {
     const itemChromeHeight = ref(DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT);
     const layoutWidth = ref(THUMBNAIL_WIDTH);
-    const aspectRatios = shallowRef<Array<number | null>>([]);
+    // Aspect ratios are sparse because PDF metadata arrives as pages render.
+    // A page-indexed array would allocate a large logical range when a late
+    // page is measured in a very large document.
+    const aspectRatios = shallowRef(new Map<number, number>());
     const revision = ref(0);
     const layout = shallowRef(new DocumentThumbnailLayout({
         adoptFirstAspectAsEstimate: true,
@@ -31,7 +34,14 @@ export const usePdfThumbnailVirtualLayout = (options: IUsePdfThumbnailVirtualLay
 
     function updateAspectRatio(page: number, aspectRatio: number | null) {
         const anchor = options.captureAnchor();
-        aspectRatios.value[page - 1] = aspectRatio;
+        if (page < 1 || page > options.pageCount.value) {
+            return;
+        }
+        if (aspectRatio === null) {
+            aspectRatios.value.delete(page);
+        } else {
+            aspectRatios.value.set(page, aspectRatio);
+        }
         triggerRef(aspectRatios);
         if (layout.value.updatePageAspect(page, aspectRatio)) {
             commitLayoutReaction(anchor);
@@ -40,7 +50,7 @@ export const usePdfThumbnailVirtualLayout = (options: IUsePdfThumbnailVirtualLay
 
     function clearAspectRatios() {
         const anchor = options.captureAnchor();
-        aspectRatios.value = [];
+        aspectRatios.value = new Map();
         layout.value.resetDocument({
             itemChromeHeight: itemChromeHeight.value,
             pageCount: options.pageCount.value,
@@ -55,6 +65,16 @@ export const usePdfThumbnailVirtualLayout = (options: IUsePdfThumbnailVirtualLay
         layoutWidth,
     ], () => {
         const anchor = options.captureAnchor();
+        let pruned = false;
+        for (const page of aspectRatios.value.keys()) {
+            if (page > options.pageCount.value) {
+                aspectRatios.value.delete(page);
+                pruned = true;
+            }
+        }
+        if (pruned) {
+            triggerRef(aspectRatios);
+        }
         layout.value.reset({
             itemChromeHeight: itemChromeHeight.value,
             pageCount: options.pageCount.value,

@@ -4,7 +4,10 @@ export const DOCUMENTS_STORE = 'documents';
 export const DOCUMENT_CHUNKS_STORE = 'document-chunks';
 export const WORKSPACE_RECOVERY_STORE = 'workspace-recovery';
 export const BROWSER_DOCUMENT_CHUNK_SIZE = 4 * 1024 * 1024;
-export const BROWSER_MAX_FULL_READ_BYTES = 64 * 1024 * 1024;
+// Browser records may be larger and stay chunked, but any operation that asks
+// for one complete JavaScript value is limited to the shared small-input
+// compatibility budget.
+export const BROWSER_MAX_FULL_READ_BYTES = 16 * 1024 * 1024;
 export const BROWSER_MAX_RECENT_FILES = 30;
 export const BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES = 512 * 1024 * 1024;
 export const BROWSER_CHUNK_WRITE_YIELD_EVERY = 2;

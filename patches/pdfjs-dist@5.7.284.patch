@@ -1,8 +1,7 @@
 diff --git a/build/pdf.mjs b/build/pdf.mjs
-index 3b08593dd20d37f9679d0ba0f7999ad96d393682..aa0d0936d88ed7a8cfbe95f635a8f4e12c823702 100644
 --- a/build/pdf.mjs
 +++ b/build/pdf.mjs
-@@ -10934,7 +10934,7 @@ class CanvasGraphics {
+@@ -10934,7 +10934,7 @@
        }
      }
    }
@@ -11,7 +10,7 @@ index 3b08593dd20d37f9679d0ba0f7999ad96d393682..aa0d0936d88ed7a8cfbe95f635a8f4e1
      const width = img.width ?? img.displayWidth;
      const height = img.height ?? img.displayHeight;
      const widthScale = Math.max(Math.hypot(inverseTransform[0], inverseTransform[1]), 1);
-@@ -10944,14 +10944,14 @@ class CanvasGraphics {
+@@ -10944,14 +10944,14 @@
        hs = heightScale,
        pw = width,
        ph = height;
@@ -29,7 +28,7 @@ index 3b08593dd20d37f9679d0ba0f7999ad96d393682..aa0d0936d88ed7a8cfbe95f635a8f4e1
          nh = Math.ceil(ph / 2);
          hs /= ph / nh;
        }
-@@ -11054,7 +11054,7 @@ class CanvasGraphics {
+@@ -11054,7 +11054,7 @@
      fillCtx.transform(...maskToCanvas);
      let scaledEntry = null;
      if (!scaled) {
@@ -38,7 +37,76 @@ index 3b08593dd20d37f9679d0ba0f7999ad96d393682..aa0d0936d88ed7a8cfbe95f635a8f4e1
        scaled = scaleResult.img;
        scaledEntry = scaleResult.tmpCanvas;
        if (scaled !== maskCanvas.canvas) {
-@@ -14456,7 +14456,7 @@ class TextLayer {
+@@ -13162,7 +13162,7 @@
+       switch (args.type) {
+         case "range":
+         case "progressiveRead":
+-          this.#onReceiveData(args.begin, args.chunk);
++          this.#onReceiveData(args.begin, args.chunk, args.isLast);
+           break;
+         case "progressiveDone":
+           this._fullReader?.progressiveDone();
+@@ -13172,7 +13172,7 @@
+     };
+     pdfDataRangeTransport.transportReady(listener);
+   }
+-  #onReceiveData(begin, chunk) {
++  #onReceiveData(begin, chunk, isLast = true) {
+     const buffer = transport_stream_getArrayBuffer(chunk);
+     if (begin === undefined) {
+       if (this._fullReader) {
+@@ -13183,7 +13183,7 @@
+     } else {
+       const rangeReader = this._rangeReaders.keys().find(r => r._begin === begin);
+       assert(rangeReader, "#onReceiveData - no `PDFDataTransportStreamRangeReader` instance found.");
+-      rangeReader._enqueue(buffer);
++      rangeReader._enqueue(buffer, isLast);
+     }
+   }
+   getFullReader() {
+@@ -13289,18 +13289,18 @@
+   onDone = null;
+   _begin = -1;
+   _done = false;
+-  _queuedChunk = null;
++  _queuedChunks = [];
+   _requests = [];
+   constructor(stream, begin, end) {
+     super(stream, begin, end);
+     this._begin = begin;
+   }
+-  _enqueue(chunk) {
++  _enqueue(chunk, isLast = true) {
+     if (this._done) {
+       return;
+     }
+     if (this._requests.length === 0) {
+-      this._queuedChunk = chunk;
++      this._queuedChunks.push(chunk);
+     } else {
+       const capability = this._requests.shift();
+       capability.resolve({
+@@ -13309,13 +13309,14 @@
+       });
+       this.#endRequests();
+     }
+-    this._done = true;
+-    this.onDone?.();
++    if (isLast) {
++      this._done = true;
++      this.onDone?.();
++    }
+   }
+   async read() {
+-    if (this._queuedChunk) {
+-      const chunk = this._queuedChunk;
+-      this._queuedChunk = null;
++    if (this._queuedChunks.length > 0) {
++      const chunk = this._queuedChunks.shift();
+       return {
+         value: chunk,
+         done: false
+@@ -14456,7 +14457,7 @@
          Object.assign(this.#styleCache, value.styles);
          this.#processItems(value.items);
          pump();
@@ -47,7 +115,7 @@ index 3b08593dd20d37f9679d0ba0f7999ad96d393682..aa0d0936d88ed7a8cfbe95f635a8f4e1
      };
      this.#reader = this.#textContentSource.getReader();
      TextLayer.#pendingTextLayers.add(this);
-@@ -14529,7 +14529,9 @@ class TextLayer {
+@@ -14529,7 +14530,9 @@
            }
            parent.append(this.#container);
          } else if (item.type === "endMarkedContent") {
@@ -58,11 +126,557 @@ index 3b08593dd20d37f9679d0ba0f7999ad96d393682..aa0d0936d88ed7a8cfbe95f635a8f4e1
          }
          continue;
        }
+@@ -14950,11 +14953,12 @@
+       }
+     });
+   }
+-  onDataRange(begin, chunk) {
++  onDataRange(begin, chunk, isLast = true) {
+     this.#listener({
+       type: "range",
+       begin,
+-      chunk
++      chunk,
++      isLast
+     });
+   }
+   onDataProgressiveRead(chunk) {
+@@ -26948,4 +26952,4 @@
+
+ export { AbortException, AnnotationEditorLayer, AnnotationEditorParamsType, AnnotationEditorType, AnnotationEditorUIManager, AnnotationLayer, AnnotationMode, AnnotationType, CSSConstants, ColorPicker, DOMSVGFactory, DrawLayer, FeatureTest, GlobalWorkerOptions, ImageKind, InvalidPDFException, MathClamp, OPS, OutputScale, PDFDataRangeTransport, PDFDateString, PDFWorker, PasswordResponses, PermissionFlag, PixelsPerInch, RenderingCancelledException, ResponseException, SignatureExtractor, SupportedImageMimeTypes, TextLayer, TextLayerImages, TouchManager, Util, VerbosityLevel, XfaLayer, applyOpacity, build, createValidAbsoluteUrl, fetchData, findContrastColor, getDocument, getFilenameFromUrl, getPdfFilenameFromUrl, getRGB, getRGBA, getUuid, getXfaPageViewport, isDataScheme, isPdfFile, isValidExplicitDest, makeArr, makeMap, makeObj, noContextMenu, normalizeUnicode, renderRichText, setLayerDimensions, shadow, stopEvent, updateUrlHash, version };
+
+-//# sourceMappingURL=pdf.mjs.map
+\ No newline at end of file
++//# sourceMappingURL=pdf.mjs.map
+diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
+--- a/build/pdf.worker.mjs
++++ b/build/pdf.worker.mjs
+@@ -2932,12 +2932,75 @@
+   progressiveDataLength = 0;
+   _lastSuccessfulEnsureByteChunk = -1;
+   _loadedChunks = new Set();
++  _storedChunks = new Map();
+   constructor(length, chunkSize, manager) {
+-    super(new Uint8Array(length), 0, length, null);
++    super(new Uint8Array(0), 0, 0, null);
++    this.end = length;
+     this.chunkSize = chunkSize;
+     this.numChunks = Math.ceil(length / chunkSize);
+     this.manager = manager;
++  }
++  _storeBytes(begin, bytes) {
++    let sourceOffset = 0;
++    while (sourceOffset < bytes.length) {
++      const position = begin + sourceOffset;
++      const chunk = Math.floor(position / this.chunkSize);
++      const chunkBegin = chunk * this.chunkSize;
++      const chunkLength = Math.min(this.chunkSize, this.end - chunkBegin);
++      const targetOffset = position - chunkBegin;
++      const copyLength = Math.min(bytes.length - sourceOffset, chunkLength - targetOffset);
++      let target = this._storedChunks.get(chunk);
++      if (!target) {
++        if (targetOffset === 0 && copyLength === chunkLength) {
++          target = bytes.subarray(sourceOffset, sourceOffset + copyLength);
++        } else {
++          target = new Uint8Array(chunkLength);
++          target.set(bytes.subarray(sourceOffset, sourceOffset + copyLength), targetOffset);
++        }
++        this._storedChunks.set(chunk, target);
++      } else {
++        target.set(bytes.subarray(sourceOffset, sourceOffset + copyLength), targetOffset);
++      }
++      sourceOffset += copyLength;
++    }
+   }
++  _getStoredByte(pos) {
++    const chunk = Math.floor(pos / this.chunkSize);
++    const bytes = this._storedChunks.get(chunk);
++    if (!bytes) {
++      throw new MissingDataException(pos, pos + 1);
++    }
++    return bytes[pos - chunk * this.chunkSize];
++  }
++  _getStoredRange(begin, end) {
++    if (begin >= end) {
++      return new Uint8Array(0);
++    }
++    const beginChunk = Math.floor(begin / this.chunkSize);
++    const endChunk = Math.floor((end - 1) / this.chunkSize);
++    if (beginChunk === endChunk) {
++      const bytes = this._storedChunks.get(beginChunk);
++      if (!bytes) {
++        throw new MissingDataException(begin, end);
++      }
++      const chunkBegin = beginChunk * this.chunkSize;
++      return bytes.subarray(begin - chunkBegin, end - chunkBegin);
++    }
++    const result = new Uint8Array(end - begin);
++    let resultOffset = 0;
++    for (let chunk = beginChunk; chunk <= endChunk; chunk++) {
++      const bytes = this._storedChunks.get(chunk);
++      if (!bytes) {
++        throw new MissingDataException(begin, end);
++      }
++      const chunkBegin = chunk * this.chunkSize;
++      const copyBegin = Math.max(begin, chunkBegin) - chunkBegin;
++      const copyEnd = Math.min(end, chunkBegin + bytes.length) - chunkBegin;
++      result.set(bytes.subarray(copyBegin, copyEnd), resultOffset);
++      resultOffset += copyEnd - copyBegin;
++    }
++    return result;
++  }
+   getMissingChunks() {
+     const chunks = [];
+     for (let chunk = 0, n = this.numChunks; chunk < n; ++chunk) {
+@@ -2959,10 +3022,13 @@
+       throw new Error(`Bad begin offset: ${begin}`);
+     }
+     const end = begin + chunk.byteLength;
+-    if (end % chunkSize !== 0 && end !== this.bytes.length) {
++    if (end > this.end) {
+       throw new Error(`Bad end offset: ${end}`);
+     }
+-    this.bytes.set(new Uint8Array(chunk), begin);
++    if (end % chunkSize !== 0 && end !== this.end) {
++      throw new Error(`Bad end offset: ${end}`);
++    }
++    this._storeBytes(begin, new Uint8Array(chunk));
+     const beginChunk = Math.floor(begin / chunkSize);
+     const endChunk = Math.floor((end - 1) / chunkSize) + 1;
+     for (let curChunk = beginChunk; curChunk < endChunk; ++curChunk) {
+@@ -2972,7 +3038,10 @@
+   onReceiveProgressiveData(data) {
+     let position = this.progressiveDataLength;
+     const beginChunk = Math.floor(position / this.chunkSize);
+-    this.bytes.set(new Uint8Array(data), position);
++    if (position + data.byteLength > this.end) {
++      throw new Error(`Bad progressive data end offset: ${position + data.byteLength}`);
++    }
++    this._storeBytes(position, new Uint8Array(data));
+     position += data.byteLength;
+     this.progressiveDataLength = position;
+     const endChunk = position >= this.end ? this.numChunks : Math.floor(position / this.chunkSize);
+@@ -3035,10 +3104,11 @@
+     if (pos >= this.progressiveDataLength) {
+       this.ensureByte(pos);
+     }
+-    return this.bytes[this.pos++];
++    const byte = this._getStoredByte(pos);
++    this.pos++;
++    return byte;
+   }
+   getBytes(length) {
+-    const bytes = this.bytes;
+     const pos = this.pos;
+     const strEnd = this.end;
+     if (!length) {
+@@ -3046,7 +3116,7 @@
+         this.ensureRange(pos, strEnd);
+       }
+       this.pos = strEnd;
+-      return bytes.subarray(pos, strEnd);
++      return this._getStoredRange(pos, strEnd);
+     }
+     let end = pos + length;
+     if (end > strEnd) {
+@@ -3056,7 +3126,7 @@
+       this.ensureRange(pos, end);
+     }
+     this.pos = end;
+-    return bytes.subarray(pos, end);
++    return this._getStoredRange(pos, end);
+   }
+   getByteRange(begin, end) {
+     if (begin < 0) {
+@@ -3068,8 +3138,18 @@
+     if (end > this.progressiveDataLength) {
+       this.ensureRange(begin, end);
+     }
+-    return this.bytes.subarray(begin, end);
++    return this._getStoredRange(begin, end);
+   }
++  discardChunksBefore(position) {
++    const firstChunk = Math.max(0, Math.floor(position / this.chunkSize));
++    const progressiveChunkCount = Math.ceil(this.progressiveDataLength / this.chunkSize);
++    for (const chunk of this._storedChunks.keys()) {
++      if (chunk < firstChunk && chunk >= progressiveChunkCount) {
++        this._storedChunks.delete(chunk);
++        this._loadedChunks.delete(chunk);
++      }
++    }
++  }
+   makeSubStream(start, length, dict = null) {
+     if (length) {
+       if (start + length > this.progressiveDataLength) {
+@@ -3107,6 +3187,15 @@
+     subStream.dict = dict;
+     return subStream;
+   }
++  clone() {
++    function ChunkedStreamClone() {}
++    ChunkedStreamClone.prototype = Object.create(this);
++    const clone = new ChunkedStreamClone();
++    clone.pos = clone.start = this.start;
++    clone.end = this.end;
++    clone.dict = this.dict?.clone?.() ?? this.dict;
++    return clone;
++  }
+   getBaseStreams() {
+     return [this];
+   }
+@@ -3128,30 +3217,39 @@
+   }
+   async sendRequest(begin, end) {
+     const rangeReader = this.pdfStream.getRangeReader(begin, end);
+-    let chunks = [];
++    let nextBegin = begin;
++    let receivedBytes = 0;
+     while (true) {
+       const {
+         value,
+         done
+       } = await rangeReader.read();
+       if (this.aborted) {
+-        chunks = null;
+         return;
+       }
+       if (done) {
+         break;
+       }
+-      chunks.push(value);
++      if (value.byteLength === 0) {
++        continue;
++      }
++      const nextEnd = nextBegin + value.byteLength;
++      if (nextEnd > end) {
++        throw new Error(`Range reader returned data beyond the requested end: ${nextEnd} > ${end}`);
++      }
++      this.onReceiveData({
++        chunk: value,
++        begin: nextBegin
++      });
++      nextBegin = nextEnd;
++      receivedBytes += value.byteLength;
+     }
+-    if (chunks.length === 0 && this.disableAutoFetch) {
++    if (receivedBytes === 0 && this.disableAutoFetch) {
+       return;
+     }
+-    const data = arrayBuffersToBytes(chunks);
+-    chunks = null;
+-    this.onReceiveData({
+-      chunk: data.buffer,
+-      begin
+-    });
++    if (nextBegin !== end) {
++      throw new Error(`Range reader ended before the requested end: ${nextBegin} < ${end}`);
++    }
+   }
+   requestAllChunks(noFetch = false) {
+     if (!noFetch) {
+@@ -3228,6 +3326,7 @@
+   }
+   groupChunks(chunks) {
+     const groupedChunks = [];
++    const maxChunksPerRequest = Math.max(1, Math.floor(8 * 1024 * 1024 / this.chunkSize));
+     let beginChunk = -1;
+     let prevChunk = -1;
+     for (let i = 0, ii = chunks.length; i < ii; ++i) {
+@@ -3235,7 +3334,10 @@
+       if (beginChunk < 0) {
+         beginChunk = chunk;
+       }
+-      if (prevChunk >= 0 && prevChunk + 1 !== chunk) {
++      if (prevChunk >= 0 && (
++        prevChunk + 1 !== chunk
++        || chunk - beginChunk >= maxChunksPerRequest
++      )) {
+         groupedChunks.push({
+           beginChunk,
+           endChunk: prevChunk + 1
+@@ -36549,7 +36651,7 @@
+       hash.update(`${firstChar}-${lastChar}`);
+       if (toUnicode instanceof BaseStream) {
+         const stream = toUnicode.stream || toUnicode;
+-        const uint8array = stream.buffer ? new Uint8Array(stream.buffer.buffer, 0, stream.bufferLength) : new Uint8Array(stream.bytes.buffer, stream.start, stream.end - stream.start);
++        const uint8array = stream.buffer ? new Uint8Array(stream.buffer.buffer, 0, stream.bufferLength) : stream.getByteRange(stream.start, stream.end);
+         hash.update(uint8array);
+       } else if (toUnicode instanceof Name) {
+         hash.update(toUnicode.name);
+@@ -57265,6 +57367,9 @@
+     }
+   }
+   indexObjects() {
++    if (this.pdfManager instanceof NetworkPdfManager && this.stream instanceof ChunkedStream) {
++      return this.indexObjectsBounded();
++    }
+     const TAB = 0x9,
+       LF = 0xa,
+       CR = 0xd,
+@@ -57496,6 +57601,168 @@
+     }
+     throw new InvalidPDFException("Invalid PDF structure.");
+   }
++  indexObjectsBounded() {
++    const SCAN_WINDOW_BYTES = 1024 * 1024;
++    const HEADER_OVERLAP_BYTES = 64;
++    const stream = this.stream;
++    const length = stream.end;
++    const objectHeaderRegExp = /(\d{1,20})\s+(\d{1,20})\s+obj\b/g;
++    const trailerRegExp = /\btrailer\b/g;
++    const isNewRecovery = !this._boundedRecoveryState;
++    const recoveryState = this._boundedRecoveryState ||= {
++      position: stream.start,
++      trailers: [],
++      trailerOffsets: new Set(),
++      scanned: false
++    };
++    const isWhitespace = byte => byte === 0x00 || byte === 0x09 || byte === 0x0a || byte === 0x0c || byte === 0x0d || byte === 0x20;
++
++    if (isNewRecovery) {
++      this.entries.length = 0;
++      this._cacheMap.clear();
++      this._xrefStms.clear();
++      delete this.tableState;
++      delete this.streamState;
++      this.topDict = null;
++      this.startXRefQueue = [];
++    }
++
++    for (let position = recoveryState.position; position < length; position += SCAN_WINDOW_BYTES) {
++      const windowBegin = Math.max(stream.start, position - HEADER_OVERLAP_BYTES);
++      const windowEnd = Math.min(length, position + SCAN_WINDOW_BYTES);
++      const buffer = stream.getByteRange(windowBegin, windowEnd);
++      const bufferStr = bytesToString(buffer);
++
++      objectHeaderRegExp.lastIndex = 0;
++      let match;
++      while ((match = objectHeaderRegExp.exec(bufferStr)) !== null) {
++        const matchOffset = match.index;
++        if (matchOffset > 0 && !isWhitespace(buffer[matchOffset - 1])) {
++          continue;
++        }
++        const num = Number(match[1]);
++        const gen = Number(match[2]);
++        if (!Number.isSafeInteger(num) || !Number.isSafeInteger(gen)) {
++          continue;
++        }
++        this.entries[num] = {
++          offset: windowBegin + matchOffset - stream.start,
++          gen,
++          uncompressed: true
++        };
++      }
++
++      trailerRegExp.lastIndex = 0;
++      while ((match = trailerRegExp.exec(bufferStr)) !== null) {
++        const matchOffset = match.index;
++        if (matchOffset > 0 && !isWhitespace(buffer[matchOffset - 1])) {
++          continue;
++        }
++        const trailerOffset = windowBegin + matchOffset;
++        if (!recoveryState.trailerOffsets.has(trailerOffset)) {
++          recoveryState.trailerOffsets.add(trailerOffset);
++          recoveryState.trailers.push(trailerOffset);
++        }
++      }
++
++      if (position + SCAN_WINDOW_BYTES < length) {
++        stream.discardChunksBefore(windowEnd - HEADER_OVERLAP_BYTES);
++      }
++      recoveryState.position = position + SCAN_WINDOW_BYTES;
++    }
++    recoveryState.scanned = true;
++
++    const trailerDicts = [];
++    let isEncrypted = false;
++    for (const trailer of recoveryState.trailers) {
++      stream.pos = trailer;
++      const parser = new Parser({
++        lexer: new Lexer(stream),
++        xref: this,
++        allowStreams: true,
++        recoveryMode: true
++      });
++      const obj = parser.getObj();
++      if (!isCmd(obj, "trailer")) {
++        continue;
++      }
++      const dict = parser.getObj();
++      if (!(dict instanceof Dict)) {
++        continue;
++      }
++      trailerDicts.push(dict);
++      if (dict.has("Encrypt")) {
++        isEncrypted = true;
++      }
++    }
++
++    let trailerDict;
++    let trailerError;
++    for (const dict of [...trailerDicts, "genFallback", ...trailerDicts]) {
++      if (dict === "genFallback") {
++        if (!trailerError) {
++          break;
++        }
++        this._generationFallback = true;
++        continue;
++      }
++      let validPagesDict = false;
++      try {
++        const rootDict = dict.get("Root");
++        if (!(rootDict instanceof Dict)) {
++          continue;
++        }
++        const pagesDict = rootDict.get("Pages");
++        if (!(pagesDict instanceof Dict)) {
++          continue;
++        }
++        const pagesCount = pagesDict.get("Count");
++        if (Number.isInteger(pagesCount)) {
++          validPagesDict = true;
++        }
++      } catch (ex) {
++        trailerError = ex;
++        continue;
++      }
++      if (validPagesDict && (!isEncrypted || dict.has("Encrypt")) && dict.has("ID")) {
++        delete this._boundedRecoveryState;
++        return dict;
++      }
++      trailerDict = dict;
++    }
++    if (trailerDict) {
++      delete this._boundedRecoveryState;
++      return trailerDict;
++    }
++    if (this.topDict) {
++      delete this._boundedRecoveryState;
++      return this.topDict;
++    }
++    if (!trailerDicts.length) {
++      for (const num in this.entries) {
++        const entry = this.entries[num];
++        if (!entry) {
++          continue;
++        }
++        const ref = Ref.get(parseInt(num, 10), entry.gen);
++        let obj;
++        try {
++          obj = this.fetch(ref);
++        } catch {
++          continue;
++        }
++        if (obj instanceof BaseStream) {
++          obj = obj.dict;
++        }
++        if (obj instanceof Dict && obj.has("Root")) {
++          delete this._boundedRecoveryState;
++          return obj;
++        }
++      }
++    }
++    delete this._boundedRecoveryState;
++    throw new InvalidPDFException("Invalid PDF structure.");
++  }
+   readXRef(recoveryMode = false) {
+     const stream = this.stream;
+     const startXRefParsedCache = new Set();
+@@ -62635,10 +62902,14 @@
+             onFailure(reason);
+             return;
+           }
+-          pdfManager.requestLoadedStream().then(function () {
+-            ensureNotTerminated();
++          if (pdfManager instanceof NetworkPdfManager) {
+             loadDocument(true).then(onSuccess, onFailure);
+-          });
++          } else {
++            pdfManager.requestLoadedStream().then(function () {
++              ensureNotTerminated();
++              loadDocument(true).then(onSuccess, onFailure);
++            });
++          }
+         });
+       }
+       ensureNotTerminated();
+@@ -62650,7 +62921,7 @@
+         pdfManager = newPdfManager;
+         pdfManager.requestLoadedStream(true).then(stream => {
+           handler.send("DataLoaded", {
+-            length: stream.bytes.byteLength
++            length: stream.length
+           });
+         });
+       }).then(pdfManagerReady, onFailure);
+@@ -62756,7 +63042,23 @@
+       return pdfManager.ensureCatalog("markInfo");
+     });
++function throwIfRangeSourceMaterializationUnsupported(pdfManager, operation) {
++  if (!(pdfManager instanceof NetworkPdfManager)) {
++    return;
++  }
++  const error = new UnknownErrorException(
++    `PDF.js ${operation} cannot materialize a range-backed document; use a native path operation.`,
++    {
++      code: "native-save-required",
++      operation
++    }
++  );
++  error.code = "native-save-required";
++  error.operation = operation;
++  throw error;
++}
+     handler.on("GetData", function (data) {
++      throwIfRangeSourceMaterializationUnsupported(pdfManager, "GetData");
+-      return pdfManager.requestLoadedStream().then(stream => stream.bytes);
++      return pdfManager.requestLoadedStream().then(stream => stream.getByteRange(0, stream.end));
+     });
+     handler.on("GetAnnotations", function ({
+       pageIndex,
+@@ -62880,8 +63167,9 @@
+     handler.on("SaveDocument", async function ({
+       isPureXfa,
+       numPages,
+       annotationStorage,
+       filename
+     }) {
++      throwIfRangeSourceMaterializationUnsupported(pdfManager, "SaveDocument");
+       const globalPromises = [pdfManager.requestLoadedStream(), pdfManager.ensureCatalog("acroForm"), pdfManager.ensureCatalog("acroFormRef"), pdfManager.ensureDoc("startXRef"), pdfManager.ensureDoc("xref"), pdfManager.ensureCatalog("structTreeRoot")];
+       const changes = new RefSetCache();
+@@ -62954,10 +63225,10 @@
+       if (isPureXfa) {
+         xfaData = refs[0];
+         if (!xfaData) {
+-          return stream.bytes;
++          return stream.getByteRange(0, stream.end);
+         }
+       } else if (changes.size === 0) {
+-        return stream.bytes;
++        return stream.getByteRange(0, stream.end);
+       }
+       const needAppearances = acroFormRef && acroForm instanceof Dict && changes.values().some(ref => ref.needAppearances);
+       const xfa = acroForm instanceof Dict && acroForm.get("XFA") || null;
+@@ -62999,7 +63270,7 @@
+         };
+       }
+       return incrementalUpdate({
+-        originalData: stream.bytes,
++        originalData: stream.getByteRange(0, stream.end),
+         xrefInfo: newXrefInfo,
+         changes,
+         xref,
+@@ -63130,4 +63401,4 @@
+
+ export { WorkerMessageHandler };
+
+-//# sourceMappingURL=pdf.worker.mjs.map
+\ No newline at end of file
++//# sourceMappingURL=pdf.worker.mjs.map
 diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
-index 5559b93393787671a0e2bfacc190fd94b7084fb6..1e512a6ee8cd67b9af5dd1eca2ab8a241edb3df8 100644
 --- a/legacy/build/pdf.mjs
 +++ b/legacy/build/pdf.mjs
-@@ -17569,7 +17569,7 @@ class CanvasGraphics {
+@@ -17569,7 +17569,7 @@
        }
      }
    }
@@ -71,7 +685,7 @@ index 5559b93393787671a0e2bfacc190fd94b7084fb6..1e512a6ee8cd67b9af5dd1eca2ab8a24
      const width = img.width ?? img.displayWidth;
      const height = img.height ?? img.displayHeight;
      const widthScale = Math.max(Math.hypot(inverseTransform[0], inverseTransform[1]), 1);
-@@ -17579,14 +17579,14 @@ class CanvasGraphics {
+@@ -17579,14 +17579,14 @@
        hs = heightScale,
        pw = width,
        ph = height;
@@ -89,7 +703,7 @@ index 5559b93393787671a0e2bfacc190fd94b7084fb6..1e512a6ee8cd67b9af5dd1eca2ab8a24
          nh = Math.ceil(ph / 2);
          hs /= ph / nh;
        }
-@@ -17689,7 +17689,7 @@ class CanvasGraphics {
+@@ -17689,7 +17689,7 @@
      fillCtx.transform(...maskToCanvas);
      let scaledEntry = null;
      if (!scaled) {
@@ -98,7 +712,76 @@ index 5559b93393787671a0e2bfacc190fd94b7084fb6..1e512a6ee8cd67b9af5dd1eca2ab8a24
        scaled = scaleResult.img;
        scaledEntry = scaleResult.tmpCanvas;
        if (scaled !== maskCanvas.canvas) {
-@@ -21168,7 +21168,7 @@ class TextLayer {
+@@ -19832,7 +19832,7 @@
+       switch (args.type) {
+         case "range":
+         case "progressiveRead":
+-          this.#onReceiveData(args.begin, args.chunk);
++          this.#onReceiveData(args.begin, args.chunk, args.isLast);
+           break;
+         case "progressiveDone":
+           this._fullReader?.progressiveDone();
+@@ -19842,7 +19842,7 @@
+     };
+     pdfDataRangeTransport.transportReady(listener);
+   }
+-  #onReceiveData(begin, chunk) {
++  #onReceiveData(begin, chunk, isLast = true) {
+     const buffer = transport_stream_getArrayBuffer(chunk);
+     if (begin === undefined) {
+       if (this._fullReader) {
+@@ -19853,7 +19853,7 @@
+     } else {
+       const rangeReader = this._rangeReaders.keys().find(r => r._begin === begin);
+       assert(rangeReader, "#onReceiveData - no `PDFDataTransportStreamRangeReader` instance found.");
+-      rangeReader._enqueue(buffer);
++      rangeReader._enqueue(buffer, isLast);
+     }
+   }
+   getFullReader() {
+@@ -19959,18 +19959,18 @@
+   onDone = null;
+   _begin = -1;
+   _done = false;
+-  _queuedChunk = null;
++  _queuedChunks = [];
+   _requests = [];
+   constructor(stream, begin, end) {
+     super(stream, begin, end);
+     this._begin = begin;
+   }
+-  _enqueue(chunk) {
++  _enqueue(chunk, isLast = true) {
+     if (this._done) {
+       return;
+     }
+     if (this._requests.length === 0) {
+-      this._queuedChunk = chunk;
++      this._queuedChunks.push(chunk);
+     } else {
+       const capability = this._requests.shift();
+       capability.resolve({
+@@ -19979,13 +19979,14 @@
+       });
+       this.#endRequests();
+     }
+-    this._done = true;
+-    this.onDone?.();
++    if (isLast) {
++      this._done = true;
++      this.onDone?.();
++    }
+   }
+   async read() {
+-    if (this._queuedChunk) {
+-      const chunk = this._queuedChunk;
+-      this._queuedChunk = null;
++    if (this._queuedChunks.length > 0) {
++      const chunk = this._queuedChunks.shift();
+       return {
+         value: chunk,
+         done: false
+@@ -21168,7 +21169,7 @@
          Object.assign(this.#styleCache, value.styles);
          this.#processItems(value.items);
          pump();
@@ -107,7 +790,7 @@ index 5559b93393787671a0e2bfacc190fd94b7084fb6..1e512a6ee8cd67b9af5dd1eca2ab8a24
      };
      this.#reader = this.#textContentSource.getReader();
      TextLayer.#pendingTextLayers.add(this);
-@@ -21241,7 +21241,9 @@ class TextLayer {
+@@ -21241,7 +21242,9 @@
            }
            parent.append(this.#container);
          } else if (item.type === "endMarkedContent") {
@@ -118,3 +801,550 @@ index 5559b93393787671a0e2bfacc190fd94b7084fb6..1e512a6ee8cd67b9af5dd1eca2ab8a24
          }
          continue;
        }
+@@ -21691,11 +21694,12 @@
+       }
+     });
+   }
+-  onDataRange(begin, chunk) {
++  onDataRange(begin, chunk, isLast = true) {
+     this.#listener({
+       type: "range",
+       begin,
+-      chunk
++      chunk,
++      isLast
+     });
+   }
+   onDataProgressiveRead(chunk) {
+@@ -33802,4 +33806,4 @@
+
+ export { AbortException, AnnotationEditorLayer, AnnotationEditorParamsType, AnnotationEditorType, AnnotationEditorUIManager, AnnotationLayer, AnnotationMode, AnnotationType, CSSConstants, ColorPicker, DOMSVGFactory, DrawLayer, FeatureTest, GlobalWorkerOptions, ImageKind, InvalidPDFException, MathClamp, OPS, OutputScale, PDFDataRangeTransport, PDFDateString, PDFWorker, PasswordResponses, PermissionFlag, PixelsPerInch, RenderingCancelledException, ResponseException, SignatureExtractor, SupportedImageMimeTypes, TextLayer, TextLayerImages, TouchManager, Util, VerbosityLevel, XfaLayer, applyOpacity, build, createValidAbsoluteUrl, fetchData, findContrastColor, getDocument, getFilenameFromUrl, getPdfFilenameFromUrl, getRGB, getRGBA, getUuid, getXfaPageViewport, isDataScheme, isPdfFile, isValidExplicitDest, makeArr, makeMap, makeObj, noContextMenu, normalizeUnicode, renderRichText, setLayerDimensions, shadow, stopEvent, updateUrlHash, version };
+
+-//# sourceMappingURL=pdf.mjs.map
+\ No newline at end of file
++//# sourceMappingURL=pdf.mjs.map
+diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
+--- a/legacy/build/pdf.worker.mjs
++++ b/legacy/build/pdf.worker.mjs
+@@ -8922,12 +8922,75 @@
+   progressiveDataLength = 0;
+   _lastSuccessfulEnsureByteChunk = -1;
+   _loadedChunks = new Set();
++  _storedChunks = new Map();
+   constructor(length, chunkSize, manager) {
+-    super(new Uint8Array(length), 0, length, null);
++    super(new Uint8Array(0), 0, 0, null);
++    this.end = length;
+     this.chunkSize = chunkSize;
+     this.numChunks = Math.ceil(length / chunkSize);
+     this.manager = manager;
++  }
++  _storeBytes(begin, bytes) {
++    let sourceOffset = 0;
++    while (sourceOffset < bytes.length) {
++      const position = begin + sourceOffset;
++      const chunk = Math.floor(position / this.chunkSize);
++      const chunkBegin = chunk * this.chunkSize;
++      const chunkLength = Math.min(this.chunkSize, this.end - chunkBegin);
++      const targetOffset = position - chunkBegin;
++      const copyLength = Math.min(bytes.length - sourceOffset, chunkLength - targetOffset);
++      let target = this._storedChunks.get(chunk);
++      if (!target) {
++        if (targetOffset === 0 && copyLength === chunkLength) {
++          target = bytes.subarray(sourceOffset, sourceOffset + copyLength);
++        } else {
++          target = new Uint8Array(chunkLength);
++          target.set(bytes.subarray(sourceOffset, sourceOffset + copyLength), targetOffset);
++        }
++        this._storedChunks.set(chunk, target);
++      } else {
++        target.set(bytes.subarray(sourceOffset, sourceOffset + copyLength), targetOffset);
++      }
++      sourceOffset += copyLength;
++    }
+   }
++  _getStoredByte(pos) {
++    const chunk = Math.floor(pos / this.chunkSize);
++    const bytes = this._storedChunks.get(chunk);
++    if (!bytes) {
++      throw new MissingDataException(pos, pos + 1);
++    }
++    return bytes[pos - chunk * this.chunkSize];
++  }
++  _getStoredRange(begin, end) {
++    if (begin >= end) {
++      return new Uint8Array(0);
++    }
++    const beginChunk = Math.floor(begin / this.chunkSize);
++    const endChunk = Math.floor((end - 1) / this.chunkSize);
++    if (beginChunk === endChunk) {
++      const bytes = this._storedChunks.get(beginChunk);
++      if (!bytes) {
++        throw new MissingDataException(begin, end);
++      }
++      const chunkBegin = beginChunk * this.chunkSize;
++      return bytes.subarray(begin - chunkBegin, end - chunkBegin);
++    }
++    const result = new Uint8Array(end - begin);
++    let resultOffset = 0;
++    for (let chunk = beginChunk; chunk <= endChunk; chunk++) {
++      const bytes = this._storedChunks.get(chunk);
++      if (!bytes) {
++        throw new MissingDataException(begin, end);
++      }
++      const chunkBegin = chunk * this.chunkSize;
++      const copyBegin = Math.max(begin, chunkBegin) - chunkBegin;
++      const copyEnd = Math.min(end, chunkBegin + bytes.length) - chunkBegin;
++      result.set(bytes.subarray(copyBegin, copyEnd), resultOffset);
++      resultOffset += copyEnd - copyBegin;
++    }
++    return result;
++  }
+   getMissingChunks() {
+     const chunks = [];
+     for (let chunk = 0, n = this.numChunks; chunk < n; ++chunk) {
+@@ -8949,10 +9012,13 @@
+       throw new Error(`Bad begin offset: ${begin}`);
+     }
+     const end = begin + chunk.byteLength;
+-    if (end % chunkSize !== 0 && end !== this.bytes.length) {
++    if (end > this.end) {
+       throw new Error(`Bad end offset: ${end}`);
+     }
+-    this.bytes.set(new Uint8Array(chunk), begin);
++    if (end % chunkSize !== 0 && end !== this.end) {
++      throw new Error(`Bad end offset: ${end}`);
++    }
++    this._storeBytes(begin, new Uint8Array(chunk));
+     const beginChunk = Math.floor(begin / chunkSize);
+     const endChunk = Math.floor((end - 1) / chunkSize) + 1;
+     for (let curChunk = beginChunk; curChunk < endChunk; ++curChunk) {
+@@ -8962,7 +9028,10 @@
+   onReceiveProgressiveData(data) {
+     let position = this.progressiveDataLength;
+     const beginChunk = Math.floor(position / this.chunkSize);
+-    this.bytes.set(new Uint8Array(data), position);
++    if (position + data.byteLength > this.end) {
++      throw new Error(`Bad progressive data end offset: ${position + data.byteLength}`);
++    }
++    this._storeBytes(position, new Uint8Array(data));
+     position += data.byteLength;
+     this.progressiveDataLength = position;
+     const endChunk = position >= this.end ? this.numChunks : Math.floor(position / this.chunkSize);
+@@ -9025,10 +9094,11 @@
+     if (pos >= this.progressiveDataLength) {
+       this.ensureByte(pos);
+     }
+-    return this.bytes[this.pos++];
++    const byte = this._getStoredByte(pos);
++    this.pos++;
++    return byte;
+   }
+   getBytes(length) {
+-    const bytes = this.bytes;
+     const pos = this.pos;
+     const strEnd = this.end;
+     if (!length) {
+@@ -9036,7 +9106,7 @@
+         this.ensureRange(pos, strEnd);
+       }
+       this.pos = strEnd;
+-      return bytes.subarray(pos, strEnd);
++      return this._getStoredRange(pos, strEnd);
+     }
+     let end = pos + length;
+     if (end > strEnd) {
+@@ -9046,7 +9116,7 @@
+       this.ensureRange(pos, end);
+     }
+     this.pos = end;
+-    return bytes.subarray(pos, end);
++    return this._getStoredRange(pos, end);
+   }
+   getByteRange(begin, end) {
+     if (begin < 0) {
+@@ -9058,8 +9128,18 @@
+     if (end > this.progressiveDataLength) {
+       this.ensureRange(begin, end);
+     }
+-    return this.bytes.subarray(begin, end);
++    return this._getStoredRange(begin, end);
+   }
++  discardChunksBefore(position) {
++    const firstChunk = Math.max(0, Math.floor(position / this.chunkSize));
++    const progressiveChunkCount = Math.ceil(this.progressiveDataLength / this.chunkSize);
++    for (const chunk of this._storedChunks.keys()) {
++      if (chunk < firstChunk && chunk >= progressiveChunkCount) {
++        this._storedChunks.delete(chunk);
++        this._loadedChunks.delete(chunk);
++      }
++    }
++  }
+   makeSubStream(start, length, dict = null) {
+     if (length) {
+       if (start + length > this.progressiveDataLength) {
+@@ -9097,6 +9177,15 @@
+     subStream.dict = dict;
+     return subStream;
+   }
++  clone() {
++    function ChunkedStreamClone() {}
++    ChunkedStreamClone.prototype = Object.create(this);
++    const clone = new ChunkedStreamClone();
++    clone.pos = clone.start = this.start;
++    clone.end = this.end;
++    clone.dict = this.dict?.clone?.() ?? this.dict;
++    return clone;
++  }
+   getBaseStreams() {
+     return [this];
+   }
+@@ -9118,30 +9207,39 @@
+   }
+   async sendRequest(begin, end) {
+     const rangeReader = this.pdfStream.getRangeReader(begin, end);
+-    let chunks = [];
++    let nextBegin = begin;
++    let receivedBytes = 0;
+     while (true) {
+       const {
+         value,
+         done
+       } = await rangeReader.read();
+       if (this.aborted) {
+-        chunks = null;
+         return;
+       }
+       if (done) {
+         break;
+       }
+-      chunks.push(value);
++      if (value.byteLength === 0) {
++        continue;
++      }
++      const nextEnd = nextBegin + value.byteLength;
++      if (nextEnd > end) {
++        throw new Error(`Range reader returned data beyond the requested end: ${nextEnd} > ${end}`);
++      }
++      this.onReceiveData({
++        chunk: value,
++        begin: nextBegin
++      });
++      nextBegin = nextEnd;
++      receivedBytes += value.byteLength;
+     }
+-    if (chunks.length === 0 && this.disableAutoFetch) {
++    if (receivedBytes === 0 && this.disableAutoFetch) {
+       return;
+     }
+-    const data = arrayBuffersToBytes(chunks);
+-    chunks = null;
+-    this.onReceiveData({
+-      chunk: data.buffer,
+-      begin
+-    });
++    if (nextBegin !== end) {
++      throw new Error(`Range reader ended before the requested end: ${nextBegin} < ${end}`);
++    }
+   }
+   requestAllChunks(noFetch = false) {
+     if (!noFetch) {
+@@ -9218,6 +9316,7 @@
+   }
+   groupChunks(chunks) {
+     const groupedChunks = [];
++    const maxChunksPerRequest = Math.max(1, Math.floor(8 * 1024 * 1024 / this.chunkSize));
+     let beginChunk = -1;
+     let prevChunk = -1;
+     for (let i = 0, ii = chunks.length; i < ii; ++i) {
+@@ -9225,7 +9324,10 @@
+       if (beginChunk < 0) {
+         beginChunk = chunk;
+       }
+-      if (prevChunk >= 0 && prevChunk + 1 !== chunk) {
++      if (prevChunk >= 0 && (
++        prevChunk + 1 !== chunk
++        || chunk - beginChunk >= maxChunksPerRequest
++      )) {
+         groupedChunks.push({
+           beginChunk,
+           endChunk: prevChunk + 1
+@@ -42912,7 +43014,7 @@
+       hash.update(`${firstChar}-${lastChar}`);
+       if (toUnicode instanceof BaseStream) {
+         const stream = toUnicode.stream || toUnicode;
+-        const uint8array = stream.buffer ? new Uint8Array(stream.buffer.buffer, 0, stream.bufferLength) : new Uint8Array(stream.bytes.buffer, stream.start, stream.end - stream.start);
++        const uint8array = stream.buffer ? new Uint8Array(stream.buffer.buffer, 0, stream.bufferLength) : stream.getByteRange(stream.start, stream.end);
+         hash.update(uint8array);
+       } else if (toUnicode instanceof Name) {
+         hash.update(toUnicode.name);
+@@ -63883,6 +63985,9 @@
+     }
+   }
+   indexObjects() {
++    if (this.pdfManager instanceof NetworkPdfManager && this.stream instanceof ChunkedStream) {
++      return this.indexObjectsBounded();
++    }
+     const TAB = 0x9,
+       LF = 0xa,
+       CR = 0xd,
+@@ -64114,6 +64219,168 @@
+     }
+     throw new InvalidPDFException("Invalid PDF structure.");
+   }
++  indexObjectsBounded() {
++    const SCAN_WINDOW_BYTES = 1024 * 1024;
++    const HEADER_OVERLAP_BYTES = 64;
++    const stream = this.stream;
++    const length = stream.end;
++    const objectHeaderRegExp = /(\d{1,20})\s+(\d{1,20})\s+obj\b/g;
++    const trailerRegExp = /\btrailer\b/g;
++    const isNewRecovery = !this._boundedRecoveryState;
++    const recoveryState = this._boundedRecoveryState ||= {
++      position: stream.start,
++      trailers: [],
++      trailerOffsets: new Set(),
++      scanned: false
++    };
++    const isWhitespace = byte => byte === 0x00 || byte === 0x09 || byte === 0x0a || byte === 0x0c || byte === 0x0d || byte === 0x20;
++
++    if (isNewRecovery) {
++      this.entries.length = 0;
++      this._cacheMap.clear();
++      this._xrefStms.clear();
++      delete this.tableState;
++      delete this.streamState;
++      this.topDict = null;
++      this.startXRefQueue = [];
++    }
++
++    for (let position = recoveryState.position; position < length; position += SCAN_WINDOW_BYTES) {
++      const windowBegin = Math.max(stream.start, position - HEADER_OVERLAP_BYTES);
++      const windowEnd = Math.min(length, position + SCAN_WINDOW_BYTES);
++      const buffer = stream.getByteRange(windowBegin, windowEnd);
++      const bufferStr = bytesToString(buffer);
++
++      objectHeaderRegExp.lastIndex = 0;
++      let match;
++      while ((match = objectHeaderRegExp.exec(bufferStr)) !== null) {
++        const matchOffset = match.index;
++        if (matchOffset > 0 && !isWhitespace(buffer[matchOffset - 1])) {
++          continue;
++        }
++        const num = Number(match[1]);
++        const gen = Number(match[2]);
++        if (!Number.isSafeInteger(num) || !Number.isSafeInteger(gen)) {
++          continue;
++        }
++        this.entries[num] = {
++          offset: windowBegin + matchOffset - stream.start,
++          gen,
++          uncompressed: true
++        };
++      }
++
++      trailerRegExp.lastIndex = 0;
++      while ((match = trailerRegExp.exec(bufferStr)) !== null) {
++        const matchOffset = match.index;
++        if (matchOffset > 0 && !isWhitespace(buffer[matchOffset - 1])) {
++          continue;
++        }
++        const trailerOffset = windowBegin + matchOffset;
++        if (!recoveryState.trailerOffsets.has(trailerOffset)) {
++          recoveryState.trailerOffsets.add(trailerOffset);
++          recoveryState.trailers.push(trailerOffset);
++        }
++      }
++
++      if (position + SCAN_WINDOW_BYTES < length) {
++        stream.discardChunksBefore(windowEnd - HEADER_OVERLAP_BYTES);
++      }
++      recoveryState.position = position + SCAN_WINDOW_BYTES;
++    }
++    recoveryState.scanned = true;
++
++    const trailerDicts = [];
++    let isEncrypted = false;
++    for (const trailer of recoveryState.trailers) {
++      stream.pos = trailer;
++      const parser = new Parser({
++        lexer: new Lexer(stream),
++        xref: this,
++        allowStreams: true,
++        recoveryMode: true
++      });
++      const obj = parser.getObj();
++      if (!isCmd(obj, "trailer")) {
++        continue;
++      }
++      const dict = parser.getObj();
++      if (!(dict instanceof Dict)) {
++        continue;
++      }
++      trailerDicts.push(dict);
++      if (dict.has("Encrypt")) {
++        isEncrypted = true;
++      }
++    }
++
++    let trailerDict;
++    let trailerError;
++    for (const dict of [...trailerDicts, "genFallback", ...trailerDicts]) {
++      if (dict === "genFallback") {
++        if (!trailerError) {
++          break;
++        }
++        this._generationFallback = true;
++        continue;
++      }
++      let validPagesDict = false;
++      try {
++        const rootDict = dict.get("Root");
++        if (!(rootDict instanceof Dict)) {
++          continue;
++        }
++        const pagesDict = rootDict.get("Pages");
++        if (!(pagesDict instanceof Dict)) {
++          continue;
++        }
++        const pagesCount = pagesDict.get("Count");
++        if (Number.isInteger(pagesCount)) {
++          validPagesDict = true;
++        }
++      } catch (ex) {
++        trailerError = ex;
++        continue;
++      }
++      if (validPagesDict && (!isEncrypted || dict.has("Encrypt")) && dict.has("ID")) {
++        delete this._boundedRecoveryState;
++        return dict;
++      }
++      trailerDict = dict;
++    }
++    if (trailerDict) {
++      delete this._boundedRecoveryState;
++      return trailerDict;
++    }
++    if (this.topDict) {
++      delete this._boundedRecoveryState;
++      return this.topDict;
++    }
++    if (!trailerDicts.length) {
++      for (const num in this.entries) {
++        const entry = this.entries[num];
++        if (!entry) {
++          continue;
++        }
++        const ref = Ref.get(parseInt(num, 10), entry.gen);
++        let obj;
++        try {
++          obj = this.fetch(ref);
++        } catch {
++          continue;
++        }
++        if (obj instanceof BaseStream) {
++          obj = obj.dict;
++        }
++        if (obj instanceof Dict && obj.has("Root")) {
++          delete this._boundedRecoveryState;
++          return obj;
++        }
++      }
++    }
++    delete this._boundedRecoveryState;
++    throw new InvalidPDFException("Invalid PDF structure.");
++  }
+   readXRef(recoveryMode = false) {
+     const stream = this.stream;
+     const startXRefParsedCache = new Set();
+@@ -69339,10 +69606,14 @@
+             onFailure(reason);
+             return;
+           }
+-          pdfManager.requestLoadedStream().then(function () {
+-            ensureNotTerminated();
++          if (pdfManager instanceof NetworkPdfManager) {
+             loadDocument(true).then(onSuccess, onFailure);
+-          });
++          } else {
++            pdfManager.requestLoadedStream().then(function () {
++              ensureNotTerminated();
++              loadDocument(true).then(onSuccess, onFailure);
++            });
++          }
+         });
+       }
+       ensureNotTerminated();
+@@ -69354,7 +69625,7 @@
+         pdfManager = newPdfManager;
+         pdfManager.requestLoadedStream(true).then(stream => {
+           handler.send("DataLoaded", {
+-            length: stream.bytes.byteLength
++            length: stream.length
+           });
+         });
+       }).then(pdfManagerReady, onFailure);
+@@ -69460,7 +69746,23 @@
+       return pdfManager.ensureCatalog("markInfo");
+     });
++function throwIfRangeSourceMaterializationUnsupported(pdfManager, operation) {
++  if (!(pdfManager instanceof NetworkPdfManager)) {
++    return;
++  }
++  const error = new UnknownErrorException(
++    `PDF.js ${operation} cannot materialize a range-backed document; use a native path operation.`,
++    {
++      code: "native-save-required",
++      operation
++    }
++  );
++  error.code = "native-save-required";
++  error.operation = operation;
++  throw error;
++}
+     handler.on("GetData", function (data) {
++      throwIfRangeSourceMaterializationUnsupported(pdfManager, "GetData");
+-      return pdfManager.requestLoadedStream().then(stream => stream.bytes);
++      return pdfManager.requestLoadedStream().then(stream => stream.getByteRange(0, stream.end));
+     });
+     handler.on("GetAnnotations", function ({
+       pageIndex,
+@@ -69584,8 +69870,9 @@
+     handler.on("SaveDocument", async function ({
+       isPureXfa,
+       numPages,
+       annotationStorage,
+       filename
+     }) {
++      throwIfRangeSourceMaterializationUnsupported(pdfManager, "SaveDocument");
+       const globalPromises = [pdfManager.requestLoadedStream(), pdfManager.ensureCatalog("acroForm"), pdfManager.ensureCatalog("acroFormRef"), pdfManager.ensureDoc("startXRef"), pdfManager.ensureDoc("xref"), pdfManager.ensureCatalog("structTreeRoot")];
+       const changes = new RefSetCache();
+@@ -69658,10 +69929,10 @@
+       if (isPureXfa) {
+         xfaData = refs[0];
+         if (!xfaData) {
+-          return stream.bytes;
++          return stream.getByteRange(0, stream.end);
+         }
+       } else if (changes.size === 0) {
+-        return stream.bytes;
++        return stream.getByteRange(0, stream.end);
+       }
+       const needAppearances = acroFormRef && acroForm instanceof Dict && changes.values().some(ref => ref.needAppearances);
+       const xfa = acroForm instanceof Dict && acroForm.get("XFA") || null;
+@@ -69703,7 +69974,7 @@
+         };
+       }
+       return incrementalUpdate({
+-        originalData: stream.bytes,
++        originalData: stream.getByteRange(0, stream.end),
+         xrefInfo: newXrefInfo,
+         changes,
+         xref,
+@@ -69834,4 +70105,4 @@
+
+ export { WorkerMessageHandler };
+
+-//# sourceMappingURL=pdf.worker.mjs.map
+\ No newline at end of file
++//# sourceMappingURL=pdf.worker.mjs.map

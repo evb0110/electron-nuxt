@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{BufReader, BufWriter, Cursor, Read, Seek, Write},
+    io::{BufReader, BufWriter, Cursor, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
 };
 
@@ -15,6 +15,7 @@ use tiff::{
 use crate::{
     flate::deflate_up_filtered_slices,
     image::assert_pixel_limit,
+    netpbm::read_netpbm_file,
     pdf::{ImagePage, ImagePayload},
     Result, CM_PER_INCH, DEFAULT_DPI,
 };
@@ -272,7 +273,14 @@ fn combine_validated_tiff_pages(
     Ok(())
 }
 
-fn read_first_tiff_rgba_page(file: File, max_pixels: u64) -> Result<RgbaTiffPage> {
+fn read_first_tiff_rgba_page(mut file: File, max_pixels: u64) -> Result<RgbaTiffPage> {
+    let mut magic = [0u8; 2];
+    let bytes_read = file.read(&mut magic)?;
+    file.seek(SeekFrom::Start(0))?;
+    if bytes_read == magic.len() && (magic == *b"P5" || magic == *b"P6") {
+        return read_first_netpbm_rgba_page(file, max_pixels);
+    }
+
     let mut decoder = Decoder::new(BufReader::new(file))?;
     let (width, height) = decoder.dimensions()?;
     assert_pixel_limit(width, height, max_pixels)?;
@@ -280,6 +288,47 @@ fn read_first_tiff_rgba_page(file: File, max_pixels: u64) -> Result<RgbaTiffPage
     let decoded = decoder.read_image()?;
     let rgba = build_tiff_rgba_payload(width, height, color_type, decoded)?;
 
+    Ok(RgbaTiffPage {
+        width,
+        height,
+        rgba,
+    })
+}
+
+fn read_first_netpbm_rgba_page(file: File, max_pixels: u64) -> Result<RgbaTiffPage> {
+    let netpbm = read_netpbm_file(file, max_pixels)?;
+    let width = netpbm.width;
+    let height = netpbm.height;
+    let pixel_count = usize::try_from(u64::from(width) * u64::from(height))
+        .map_err(|_| "Netpbm dimensions exceed the native address space")?;
+    let rgba_len = pixel_count
+        .checked_mul(4)
+        .ok_or("Netpbm RGBA payload is too large")?;
+    let mut rgba = Vec::with_capacity(rgba_len);
+
+    match netpbm.channels {
+        1 => {
+            if netpbm.pixels.len() != pixel_count {
+                return Err("Decoded grayscale Netpbm payload does not match dimensions".into());
+            }
+            for gray in netpbm.pixels {
+                rgba.extend_from_slice(&[gray, gray, gray, 255]);
+            }
+        }
+        3 => {
+            if netpbm.pixels.len() != pixel_count * 3 {
+                return Err("Decoded RGB Netpbm payload does not match dimensions".into());
+            }
+            for pixel in netpbm.pixels.chunks_exact(3) {
+                rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+            }
+        }
+        _ => return Err("Unsupported Netpbm color type for native TIFF fast path".into()),
+    }
+
+    if rgba.len() != rgba_len {
+        return Err("Decoded Netpbm RGBA payload does not match dimensions".into());
+    }
     Ok(RgbaTiffPage {
         width,
         height,
@@ -417,6 +466,40 @@ mod tests {
         let second = decoder.read_image().unwrap();
         assert_eq!(decode_u8(second), vec![0, 255, 0, 255]);
         assert!(!decoder.more_images());
+
+        let _ = fs::remove_file(first_path);
+        let _ = fs::remove_file(second_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn combines_netpbm_pages_as_rgba_output() {
+        let first_path = temp_tiff_path("combine-ppm-first");
+        let second_path = temp_tiff_path("combine-pgm-second");
+        let output_path = temp_tiff_path("combine-netpbm-output");
+        fs::write(&first_path, b"P6\n1 1\n255\n\xff\x00\x00").unwrap();
+        fs::write(&second_path, b"P5\n1 1\n255\n\x80").unwrap();
+
+        combine_tiff_pages(
+            &[first_path.clone(), second_path.clone()],
+            &output_path,
+            1_000_000,
+            10,
+        )
+        .unwrap();
+
+        let file = File::open(&output_path).unwrap();
+        let mut decoder = Decoder::new(BufReader::new(file)).unwrap();
+        assert_eq!(decoder.colortype().unwrap(), TiffColorType::RGBA(8));
+        assert_eq!(
+            decode_u8(decoder.read_image().unwrap()),
+            vec![255, 0, 0, 255]
+        );
+        decoder.next_image().unwrap();
+        assert_eq!(
+            decode_u8(decoder.read_image().unwrap()),
+            vec![128, 128, 128, 255]
+        );
 
         let _ = fs::remove_file(first_path);
         let _ = fs::remove_file(second_path);

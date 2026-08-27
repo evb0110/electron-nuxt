@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-import { parseOcrIndexV3Manifest } from '@contracts/ocrIndex';
 import type {
     IOcrDiagnostic,
     TOcrTextSupersessionPolicy,
@@ -9,9 +7,9 @@ import type {
     IOcrPdfPageRequest,
     TWorkerLog,
 } from '@electron/ocr/worker/types';
+import { iterateOcrPageRanges } from '@electron/ocr/contracts';
 import {
     classifyOcrPageText,
-    type IOcrPdfTextVisibility,
     inspectPdfPageTextVisibility,
     shouldOcrClassifiedPage,
 } from '@electron/ocr/worker/pageTextClassifier';
@@ -22,6 +20,7 @@ import {
 } from '@electron/pdf/pdfTextPageBatching';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
+import {openCatalog} from '@electron/ocr/ocrCatalogV4';
 
 const TEXT_PROBE_TIMEOUT_MS = 2 * 60 * 1000;
 const TEXT_PROBE_MAX_STDOUT_BYTES = 64 * 1024 * 1024;
@@ -30,25 +29,42 @@ const TEXT_PROBE_UNAVAILABLE = '[text-probe-unavailable]';
 async function readCurrentEvbGenerations(
     sourcePdfPath: string,
     documentRevisionToken: TDocumentRevisionToken,
+    requestedPageNumbers: readonly number[],
 ) {
     const generations = new Map<number, string>();
-    const manifest = await readFile(`${sourcePdfPath}.ocr/manifest.json`, 'utf8')
-        .then(raw => parseOcrIndexV3Manifest(JSON.parse(raw), 'strict'))
-        .catch(() => null);
-    if (manifest?.documentRevision.token !== documentRevisionToken) {
+    const catalog = await openCatalog(`${sourcePdfPath}.ocr`, {expectedDocumentRevision: documentRevisionToken}).catch(() => null);
+    if (!catalog) {
         return generations;
     }
-
-    // A page listed under the current revision was written by this app, so the
-    // manifest alone answers the question. Catalogs written before the manifest
-    // carried per-page generations fall back to the catalog-wide stamp, which
-    // marks the page as evb-written exactly as the per-page value would.
-    const catalogGeneration = `manifest-${manifest.createdAt}`;
-    for (const [
-        rawPageNumber,
-        mapping,
-    ] of Object.entries(manifest.pages)) {
-        generations.set(Number(rawPageNumber), mapping.generation ?? catalogGeneration);
+    try {
+        const orderedPages = Array.from(new Set(requestedPageNumbers))
+            .filter(pageNumber => Number.isSafeInteger(pageNumber) && pageNumber > 0)
+            .sort((left, right) => left - right);
+        for (let index = 0; index < orderedPages.length;) {
+            const start = orderedPages[index]!;
+            let count = 1;
+            while (
+                index + count < orderedPages.length
+                && count < 256
+                && orderedPages[index + count] === start + count
+            ) {
+                count += 1;
+            }
+            const mappings = await catalog.readWindowMappings(start, count).catch(() => []);
+            for (const entry of mappings) {
+                if (!entry.mapping) {
+                    continue;
+                }
+                if (catalog.header.version === 3 || entry.mapping.generation === 0) {
+                    generations.set(entry.pageNumber, 'legacy-v3');
+                } else if (entry.mapping.generation > 0) {
+                    generations.set(entry.pageNumber, `gen-${String(entry.mapping.generation).padStart(8, '0')}`);
+                }
+            }
+            index += count;
+        }
+    } finally {
+        await catalog.close?.();
     }
     return generations;
 }
@@ -74,42 +90,42 @@ async function extractPageTextForClassification(input: {
     };
 
     const orderedPages = Array.from(new Set(input.pageNumbers)).sort((left, right) => left - right);
-    if (input.pdftotextBinary === undefined) {
-        for (const range of groupContiguousPages(orderedPages)) {
-            failClosed(range.firstPage, range.lastPage, 'pdftotext is unavailable');
-        }
-        return {
-            texts,
-            warnings,
-        };
-    }
-
     for (const range of groupContiguousPages(orderedPages)) {
         const rangeLength = range.lastPage - range.firstPage + 1;
-        try {
-            const probe = await runOcrCommand(input.pdftotextBinary, [
-                '-f',
-                String(range.firstPage),
-                '-l',
-                String(range.lastPage),
-                input.sourcePdfPath,
-                '-',
-            ], {
-                commandLabel: 'pdftotext(ocr-supersession-probe)',
-                timeoutMs: TEXT_PROBE_TIMEOUT_MS,
-                maxStdoutBytes: TEXT_PROBE_MAX_STDOUT_BYTES,
-                rejectOnStdoutTruncation: true,
-                signal: input.signal,
-            });
-            const rangeTexts = splitPdfTextOutput(probe.stdout, rangeLength);
-            for (let index = 0; index < rangeLength; index += 1) {
-                texts.set(range.firstPage + index, rangeTexts[index] ?? '');
+        for (const pageBatch of iterateOcrPageRanges(rangeLength)) {
+            const firstPage = range.firstPage + pageBatch.firstPage - 1;
+            const lastPage = range.firstPage + pageBatch.lastPage - 1;
+            if (input.pdftotextBinary === undefined) {
+                failClosed(firstPage, lastPage, 'pdftotext is unavailable');
+                continue;
             }
-        } catch (err) {
-            if (isAbortError(err)) {
-                throw err;
+
+            const batchLength = lastPage - firstPage + 1;
+            try {
+                const probe = await runOcrCommand(input.pdftotextBinary, [
+                    '-f',
+                    String(firstPage),
+                    '-l',
+                    String(lastPage),
+                    input.sourcePdfPath,
+                    '-',
+                ], {
+                    commandLabel: 'pdftotext(ocr-supersession-probe)',
+                    timeoutMs: TEXT_PROBE_TIMEOUT_MS,
+                    maxStdoutBytes: TEXT_PROBE_MAX_STDOUT_BYTES,
+                    rejectOnStdoutTruncation: true,
+                    signal: input.signal,
+                });
+                const rangeTexts = splitPdfTextOutput(probe.stdout, batchLength);
+                for (let index = 0; index < batchLength; index += 1) {
+                    texts.set(firstPage + index, rangeTexts[index] ?? '');
+                }
+            } catch (err) {
+                if (isAbortError(err)) {
+                    throw err;
+                }
+                failClosed(firstPage, lastPage, getErrorMessage(err));
             }
-            failClosed(range.firstPage, range.lastPage, getErrorMessage(err));
         }
     }
     return {
@@ -124,6 +140,7 @@ export async function selectOcrPagesForSupersession(input: {
     pages: readonly IOcrPdfPageRequest[];
     supersessionPolicy: TOcrTextSupersessionPolicy;
     pdftotextBinary?: string;
+    qpdfBinary?: string;
     log: TWorkerLog;
     signal: AbortSignal;
 }) {
@@ -133,21 +150,20 @@ export async function selectOcrPagesForSupersession(input: {
     const generations = await readCurrentEvbGenerations(
         input.sourcePdfPath,
         input.documentRevisionToken,
+        input.pages.map(page => page.pageNumber),
     );
     const requestedPageNumbers = input.pages.map(page => page.pageNumber);
-    const visibility = await inspectPdfPageTextVisibility(
+    const visibilityAnalysis = await inspectPdfPageTextVisibility(
         input.sourcePdfPath,
         requestedPageNumbers,
+        input.qpdfBinary,
         input.signal,
-    ).catch((err: unknown) => {
-        if (isAbortError(err)) {
-            throw err;
-        }
-        const message = `Text-visibility inspection failed; hidden OCR layers could not be detected and pages carrying text were kept as-is: ${getErrorMessage(err)}`;
-        input.log('warn', message);
-        warnings.push(message);
-        return new Map<number, IOcrPdfTextVisibility>();
-    });
+    );
+    if (visibilityAnalysis.status === 'degraded') {
+        input.log('warn', visibilityAnalysis.message);
+        warnings.push(visibilityAnalysis.message);
+    }
+    const visibility = visibilityAnalysis.visibility;
     const textProbe = await extractPageTextForClassification({
         sourcePdfPath: input.sourcePdfPath,
         pageNumbers: requestedPageNumbers,

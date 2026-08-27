@@ -3,7 +3,6 @@ import {
     randomUUID,
 } from 'crypto';
 import {
-    cp,
     lstat,
     mkdir,
     readFile,
@@ -30,10 +29,7 @@ import type {
     IOcrIndexV3Manifest,
     IOcrIndexV3Page,
 } from '@contracts/ocrIndex';
-import {
-    decodeOcrPage,
-    parseOcrIndexV3Manifest as decodeOcrIndexV3Manifest,
-} from '@contracts/ocrIndex';
+import {decodeOcrPage} from '@contracts/ocrIndex';
 import type {
     IDocumentRevisionInfo,
     TDocumentRevisionToken,
@@ -44,15 +40,36 @@ import {
 } from '@contracts/ocrText';
 import {
     COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
+    getCompactSearchIndexPath,
     loadCompactSearchIndex,
     persistCompactSearchIndex,
 } from '@electron/search/searchIndexSidecar';
+import {classifyXlargeSearchPathFromFile} from '@electron/search/xlargeSearchRouting';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     abortErrorFromSignal,
     isAbortError,
 } from '@electron/utils/abort';
 import { assertWorkingCopyRevisionSidecarCurrent as assertWorkingCopyRevisionCurrent } from '@electron/file-access/documentRevisionSidecar';
+import {
+    streamOcrIndexV3ManifestMappings,
+    readOcrIndexV3ManifestMetadata,
+} from '@electron/ocr/ocrIndexV3Stream';
+import type {IOcrIndexV3ManifestStreamMetadata} from '@electron/ocr/ocrIndexV3Stream';
+import {resolveCatalogPath} from '@electron/ocr/ocrCatalogV4';
+import {writeOcrIndexV4} from '@electron/ocr/worker/indexWriterV4';
+
+const OCR_V3_COMPATIBILITY_PAGE_LIMIT = 1_024;
+
+type TExistingOcrIndexV3Manifest =
+    | {
+        kind: 'manifest';
+        manifest: IOcrIndexV3Manifest;
+    }
+    | {
+        kind: 'streaming-required';
+        metadata: IOcrIndexV3ManifestStreamMetadata;
+    };
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
@@ -75,14 +92,51 @@ function isPathInsideAnyBaseDir(baseDirs: string[], candidatePath: string) {
     return baseDirs.some(baseDir => isPathInsideBaseDir(baseDir, candidatePath));
 }
 
-function parseOcrIndexV3Manifest(rawManifest: string): IOcrIndexV3Manifest | null {
-    return decodeOcrIndexV3Manifest(JSON.parse(rawManifest), 'strict');
-}
-
-async function readExistingOcrIndexV3Manifest(ocrDir: string): Promise<IOcrIndexV3Manifest | null> {
+async function readExistingOcrIndexV3Manifest(
+    ocrDir: string,
+): Promise<TExistingOcrIndexV3Manifest | null> {
+    let metadata: IOcrIndexV3ManifestStreamMetadata | null;
+    const pages: IOcrIndexV3Manifest['pages'] = {};
     try {
-        const rawManifest = await readFile(join(ocrDir, 'manifest.json'), 'utf-8');
-        return parseOcrIndexV3Manifest(rawManifest);
+        metadata = await readOcrIndexV3ManifestMetadata(join(ocrDir, 'manifest.json'));
+        if (metadata === null) {
+            return null;
+        }
+        if (metadata.pageCount > OCR_V3_COMPATIBILITY_PAGE_LIMIT) {
+            return {
+                kind: 'streaming-required',
+                metadata,
+            };
+        }
+        const streamedMetadata = await streamOcrIndexV3ManifestMappings(
+            join(ocrDir, 'manifest.json'),
+            mapping => {
+                pages[mapping.pageNumber] = {
+                    path: mapping.path,
+                    ...(mapping.generation === undefined ? {} : {generation: mapping.generation}),
+                };
+            },
+        );
+        if (
+            streamedMetadata === null
+            || streamedMetadata.documentRevision.token !== metadata.documentRevision.token
+            || streamedMetadata.pageCount !== metadata.pageCount
+        ) {
+            return null;
+        }
+        return {
+            kind: 'manifest',
+            manifest: {
+                version: 3,
+                documentRevision: metadata.documentRevision,
+                createdAt: metadata.createdAt,
+                source: metadata.source,
+                pageCount: metadata.pageCount,
+                pageBox: metadata.pageBox,
+                ocr: metadata.ocr,
+                pages,
+            },
+        };
     } catch {
         return null;
     }
@@ -222,19 +276,11 @@ function resolveManifestPagePath(
         return null;
     }
 
-    const resolvedOcrDir = resolve(ocrDir);
-    const resolvedPath = resolve(resolvedOcrDir, relativePath);
-    const relativePathFromDir = relative(resolvedOcrDir, resolvedPath);
-    if (
-        relativePathFromDir === ''
-        || relativePathFromDir === '..'
-        || relativePathFromDir.startsWith(`..${sep}`)
-        || isAbsolute(relativePathFromDir)
-    ) {
+    try {
+        return resolveCatalogPath(ocrDir, relativePath, {kind: 'legacy'});
+    } catch {
         return null;
     }
-
-    return resolvedPath;
 }
 
 function parseOcrPageTextPayload(payload: unknown) {
@@ -361,6 +407,24 @@ async function writeCompactSearchIndexForOcr(
 ) {
     throwIfAborted(signal);
     await assertWorkingCopyRevisionCurrent(workingCopyPath, manifest.documentRevision.token);
+    const classification = await classifyXlargeSearchPathFromFile(
+        workingCopyPath,
+        manifest.pageCount,
+    );
+    if (classification.isXlarge) {
+        const indexPath = getCompactSearchIndexPath(workingCopyPath);
+        try {
+            await rm(indexPath, {force: true});
+        } catch (error) {
+            if (isAbortError(error)) {
+                throw error;
+            }
+            log('warn', `Failed to invalidate xlarge OCR search sidecar: ${getErrorMessage(error)}`);
+        }
+        throwIfAborted(signal);
+        log('debug', `Skipped eager compact OCR search sidecar for xlarge document ${workingCopyPath}`);
+        return;
+    }
     const pages = await collectCompactSearchIndexPages(
         workingCopyPath,
         ocrDir,
@@ -454,22 +518,34 @@ export async function writeOcrIndexV3(
 ) {
     throwIfAborted(signal);
     assertValidOcrPageData(ocrPageData, pageCount);
-    const liveOcrDir = `${workingCopyPath}.ocr`;
     const ocrDir = `${stagedResultPdfPath ?? workingCopyPath}.ocr`;
     if (stagedResultPdfPath) {
         await rm(ocrDir, {
             recursive: true,
             force: true,
         });
-        await cp(liveOcrDir, ocrDir, {recursive: true}).catch((error: unknown) => {
-            if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
-                throw error;
-            }
-        });
     }
     await mkdir(ocrDir, { recursive: true });
     const manifestPath = join(ocrDir, 'manifest.json');
-    const existingManifest = await readExistingOcrIndexV3Manifest(ocrDir);
+    const existingResult = await readExistingOcrIndexV3Manifest(ocrDir);
+    if (existingResult?.kind === 'streaming-required' && !stagedResultPdfPath) {
+        await writeOcrIndexV4({
+            catalogRoot: ocrDir,
+            sourcePdfPath: workingCopyPath,
+            documentRevision,
+            pageCount,
+            pageBatches: [ocrPageData],
+            workingCopyPath,
+            ...(signal === undefined ? {} : {signal}),
+            log,
+            extractionDpi,
+        });
+        log('debug', `Migrated large OCR v3 catalog to v4 before writing compatibility output for ${workingCopyPath}`);
+        return;
+    }
+    const existingManifest = existingResult?.kind === 'manifest'
+        ? existingResult.manifest
+        : null;
     const existingManifestMtimeMs = existingManifest
         ? await statMtimeMs(manifestPath)
         : undefined;

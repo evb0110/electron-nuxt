@@ -55,3 +55,15 @@ export function getPageRowBoundsForViewMode(options: {
 }) {
     return resolveSpreadRowBounds(options.pageNumber, options.viewMode, options.totalPages);
 }
+
+export function getPageNumbersForViewMode(options: {
+    pageNumber: number;
+    viewMode: TPdfViewMode;
+    totalPages: number;
+}) {
+    const bounds = getPageRowBoundsForViewMode(options);
+    return Array.from(
+        {length: Math.max(0, bounds.end - bounds.start + 1)},
+        (_, index) => bounds.start + index,
+    );
+}

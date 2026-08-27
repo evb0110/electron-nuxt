@@ -4,6 +4,7 @@ import type {
     IScanCleanupPixelRect,
     IScanCleanupPlacementAnchor,
     TScanCleanupLayoutByPage,
+    TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
     TScanCleanupPageRotation,
     TScanCleanupWarningEvent,
@@ -308,6 +309,227 @@ function isAutomaticLayout(options: IScanCleanupOptions, pageNumber: number) {
 
 function readObservedLayout(layoutByPage: TScanCleanupLayoutByPage | undefined, pageNumber: number) {
     return layoutByPage?.[String(pageNumber)];
+}
+
+type TScanCleanupCanvasShare = 1 | 2;
+
+export interface IScanCleanupCanvasSummaryBucket {
+    count: number;
+    hasContinuousTone: boolean;
+    largestOutputRect: IScanCleanupOrientedRect | null;
+}
+
+/**
+ * The bounded state needed to answer the document-canvas decision. The two
+ * automatic layout buckets are the only dynamic groups, so this remains a
+ * constant-size summary even when the source has millions of pages.
+ */
+export interface IScanCleanupDocumentCanvasAccumulator {
+    producedPageCount: number;
+    unclassifiedAutomaticPageCount: number;
+    forced: IScanCleanupCanvasSummaryBucket;
+    automaticSingle: IScanCleanupCanvasSummaryBucket;
+    automaticSpread: IScanCleanupCanvasSummaryBucket;
+    automaticUnclassified: IScanCleanupCanvasSummaryBucket;
+    firstObservedAutomaticShare: TScanCleanupCanvasShare | null;
+}
+
+function createScanCleanupCanvasSummaryBucket(): IScanCleanupCanvasSummaryBucket {
+    return {
+        count: 0,
+        hasContinuousTone: false,
+        largestOutputRect: null,
+    };
+}
+
+export function createScanCleanupDocumentCanvasAccumulator(): IScanCleanupDocumentCanvasAccumulator {
+    return {
+        producedPageCount: 0,
+        unclassifiedAutomaticPageCount: 0,
+        forced: createScanCleanupCanvasSummaryBucket(),
+        automaticSingle: createScanCleanupCanvasSummaryBucket(),
+        automaticSpread: createScanCleanupCanvasSummaryBucket(),
+        automaticUnclassified: createScanCleanupCanvasSummaryBucket(),
+        firstObservedAutomaticShare: null,
+    };
+}
+
+function isLargerOutputRect(
+    candidate: IScanCleanupOrientedRect,
+    current: IScanCleanupOrientedRect | null,
+) {
+    if (current === null) {
+        return true;
+    }
+    const area = candidate.widthPoints * candidate.heightPoints;
+    const currentArea = current.widthPoints * current.heightPoints;
+    return area > currentArea
+        || (area === currentArea && candidate.widthPoints > current.widthPoints)
+        || (area === currentArea
+            && candidate.widthPoints === current.widthPoints
+            && candidate.heightPoints > current.heightPoints);
+}
+
+function addScanCleanupCanvasSummaryPage(
+    bucket: IScanCleanupCanvasSummaryBucket,
+    pageSize: IPdfPageSize,
+    options: IScanCleanupOptions,
+    shares: number,
+) {
+    bucket.count += 1;
+    const outputMode = getScanCleanupPageOverride(options.pageOverrides, pageSize.pageNumber).outputModeOverride
+        ?? options.outputMode;
+    bucket.hasContinuousTone ||= outputMode !== 'bw';
+    const outputRect = resolveScanCleanupOutputPageRect(pageSize, shares);
+    if (isLargerOutputRect(outputRect, bucket.largestOutputRect)) {
+        bucket.largestOutputRect = outputRect;
+    }
+}
+
+/** Add one page's geometry to the constant-size canvas summary. */
+export function addScanCleanupDocumentCanvasPage(
+    accumulator: IScanCleanupDocumentCanvasAccumulator,
+    pageSize: IPdfPageSize,
+    options: IScanCleanupOptions,
+    observedLayout?: TScanCleanupLayoutClassification,
+) {
+    const pageOverride = getScanCleanupPageOverride(options.pageOverrides, pageSize.pageNumber);
+    if (pageOverride.excluded) {
+        return;
+    }
+    accumulator.producedPageCount += 1;
+    if (!isAutomaticLayout(options, pageSize.pageNumber)) {
+        addScanCleanupCanvasSummaryPage(
+            accumulator.forced,
+            pageSize,
+            options,
+            resolveSheetShares(options, pageSize.pageNumber, {[String(pageSize.pageNumber)]: observedLayout}),
+        );
+        return;
+    }
+    if (observedLayout === undefined) {
+        accumulator.unclassifiedAutomaticPageCount += 1;
+        addScanCleanupCanvasSummaryPage(
+            accumulator.automaticUnclassified,
+            pageSize,
+            options,
+            1,
+        );
+        return;
+    }
+    addScanCleanupDocumentCanvasObservedPage(accumulator, pageSize, options, observedLayout);
+}
+
+/**
+ * Add a known automatic-layout observation to its bounded share bucket. The
+ * caller supplies the page from its current geometry window, so no geometry
+ * cache grows with the document.
+ */
+export function addScanCleanupDocumentCanvasObservedPage(
+    accumulator: IScanCleanupDocumentCanvasAccumulator,
+    pageSize: IPdfPageSize,
+    options: IScanCleanupOptions,
+    observedLayout: TScanCleanupLayoutClassification,
+) {
+    if (getScanCleanupPageOverride(options.pageOverrides, pageSize.pageNumber).excluded) {
+        return;
+    }
+    if (!isAutomaticLayout(options, pageSize.pageNumber)) {
+        return;
+    }
+    const shares = resolveSheetShares(options, pageSize.pageNumber, {[String(pageSize.pageNumber)]: observedLayout});
+    const bucket = shares === 2 ? accumulator.automaticSpread : accumulator.automaticSingle;
+    accumulator.firstObservedAutomaticShare ??= shares === 2 ? 2 : 1;
+    addScanCleanupCanvasSummaryPage(bucket, pageSize, options, shares);
+}
+
+function resolveScanCleanupCanvasSummaryRect(
+    buckets: readonly IScanCleanupCanvasSummaryBucket[],
+) {
+    let largest: IScanCleanupOrientedRect | null = null;
+    let hasContinuousTone = false;
+    for (const bucket of buckets) {
+        hasContinuousTone ||= bucket.hasContinuousTone;
+        if (bucket.largestOutputRect !== null && isLargerOutputRect(bucket.largestOutputRect, largest)) {
+            largest = bucket.largestOutputRect;
+        }
+    }
+    return {
+        largest,
+        hasContinuousTone,
+    };
+}
+
+/** Resolve the canvas from bounded summary state rather than page arrays. */
+export function resolveScanCleanupDocumentCanvasFromAccumulator(
+    accumulator: IScanCleanupDocumentCanvasAccumulator,
+    renderDpi: number,
+    options: IScanCleanupOptions,
+    layoutEvidenceComplete = false,
+): IScanCleanupDocumentCanvasPlan | null {
+    void options;
+    if (accumulator.producedPageCount === 0 || !Number.isFinite(renderDpi) || renderDpi <= 0) {
+        return null;
+    }
+    const buckets: IScanCleanupCanvasSummaryBucket[] = [accumulator.forced];
+    if (layoutEvidenceComplete) {
+        buckets.push(
+            accumulator.automaticSingle,
+            accumulator.automaticSpread,
+            accumulator.automaticUnclassified,
+        );
+    } else {
+        // Unknown automatic pages must still contribute their whole sheet.
+        // A partial observation cannot safely halve the document canvas: an
+        // unclassified page may be a single sheet even when the first verdict
+        // was a spread. This is the same conservative answer as the legacy
+        // page-array planner and keeps an all-unknown document measurable.
+        buckets.push(accumulator.automaticUnclassified);
+        const observedBuckets = accumulator.firstObservedAutomaticShare === 2
+            ? [
+                accumulator.automaticSpread,
+                accumulator.automaticSingle,
+            ]
+            : [
+                accumulator.automaticSingle,
+                accumulator.automaticSpread,
+            ];
+        const dominant = observedBuckets.reduce<IScanCleanupCanvasSummaryBucket | null>((best, candidate) => {
+            if (candidate.count === 0) {
+                return best;
+            }
+            if (best === null || candidate.count > best.count) {
+                return candidate;
+            }
+            return best;
+        }, null);
+        if (dominant !== null) buckets.push(dominant);
+    }
+    const {
+        largest,
+        hasContinuousTone,
+    } = resolveScanCleanupCanvasSummaryRect(buckets);
+    if (largest === null) {
+        return null;
+    }
+    const maxPixels = resolveScanCleanupMatchedCanvasMaxPixels([hasContinuousTone ? 'color' : 'bw']);
+    const dpi = resolveCanvasDpi(largest, renderDpi, maxPixels);
+    const plan = {
+        widthPoints: largest.widthPoints,
+        heightPoints: largest.heightPoints,
+        ...resolveCanvasGrid(largest, dpi, maxPixels),
+    };
+    return Object.values(plan).every(value => Number.isFinite(value) && value > 0)
+        ? plan
+        : null;
+}
+
+export function resolveScanCleanupDroppedMatchWarningEventFromAccumulator(
+    accumulator: IScanCleanupDocumentCanvasAccumulator,
+): TScanCleanupWarningEvent | null {
+    return accumulator.producedPageCount === 0
+        ? null
+        : {code: 'matched-canvas-dropped'};
 }
 
 /**

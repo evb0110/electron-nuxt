@@ -18,6 +18,10 @@ import type {
     IBeginSerializedPdfSaveAsResult,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
+import {
+    DOCX_EXPORT_STREAM_CHANNELS,
+    type IDocxExportInvokeMap,
+} from '@contracts/docxExport';
 
 export const DOCUMENTS_CHANNELS = {
     openDocumentDirect: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect,
@@ -43,6 +47,14 @@ export const DOCUMENTS_CHANNELS = {
     pdfNativePageSizes: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfNativePageSizes,
     pdfNativePagePreviewCancel: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfNativePagePreview,
     pdfNativePagePreview: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.renderPdfNativePagePreview,
+    pdfAnnotationIndexBegin: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.beginPdfAnnotationIndex,
+    pdfAnnotationIndexReadChunk: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfAnnotationIndexChunk,
+    pdfAnnotationIndexRelease: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfAnnotationIndex,
+    pdfAnnotationIndexCancel: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfAnnotationIndex,
+    pdfEmbeddedShapeIndexBegin: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.beginPdfEmbeddedShapeIndex,
+    pdfEmbeddedShapeIndexReadChunk: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfEmbeddedShapeIndexChunk,
+    pdfEmbeddedShapeIndexRelease: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfEmbeddedShapeIndex,
+    pdfEmbeddedShapeIndexCancel: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfEmbeddedShapeIndex,
     fileReadText: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readTextFile,
     fileExists: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.fileExists,
     documentRevisionGet: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getDocumentRevision,
@@ -58,6 +70,10 @@ export const DOCUMENTS_CHANNELS = {
     fileWrite: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.writeFile,
     fileReplaceWorkingCopyFromPath: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.replaceWorkingCopyFromPath,
     fileWriteDocx: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.writeDocxFile,
+    fileWriteDocxStreamBegin: DOCX_EXPORT_STREAM_CHANNELS.begin,
+    fileWriteDocxStreamChunk: DOCX_EXPORT_STREAM_CHANNELS.writeChunk,
+    fileWriteDocxStreamCommit: DOCX_EXPORT_STREAM_CHANNELS.commit,
+    fileWriteDocxStreamCancel: DOCX_EXPORT_STREAM_CHANNELS.cancel,
     fileSaveStructured: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveFileStructured,
     fileResyncWorkingCopy: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.resyncWorkingCopy,
     fileRepairPdf: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.repairPdf,
@@ -75,6 +91,10 @@ export const DOCUMENTS_CHANNELS = {
         DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy,
     fileCommitStagedPdfNativeMutations:
         DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.commitStagedPdfNativeMutations,
+    fileCloneStagedPdfNativeMutationToWorkingCopy:
+        DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cloneStagedPdfNativeMutationToWorkingCopy,
+    fileReplaceWorkingCopyFromStagedPdfNativeMutation:
+        DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.replaceWorkingCopyFromStagedPdfNativeMutation,
     fileCleanup: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.cleanupFile,
     fileCleanupOcrTemp: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.cleanupOcrTemp,
 } as const;
@@ -158,6 +178,7 @@ export type IDocumentsInvokeMap =
     & IDocumentWorkingCopyInvokeMap
     & IDocumentFilesInvokeMap
     & IDocumentPdfInvokeMap
-    & IDocumentsDirectPersistenceInvokeMap;
+    & IDocumentsDirectPersistenceInvokeMap
+    & IDocxExportInvokeMap;
 
 export type { TOpenFileResult } from '@contracts/electronApiDocuments';

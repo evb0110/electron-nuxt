@@ -2,6 +2,7 @@ import type {IScanCleanupMarginsMm} from '@contracts/scan-cleanup/geometry';
 import {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/scan-cleanup/geometry';
 import type {
     IScanCleanupOptions,
+    IScanCleanupPageOverride,
     TScanCleanupBinarizationMethod,
     TScanCleanupDespeckleLevel,
     TScanCleanupOutputModeSetting,
@@ -21,7 +22,10 @@ import {
     SCAN_CLEANUP_LEGACY_STORAGE_MAX_BYTES,
     scanCleanupUtf8ByteLength,
 } from '@contracts/scan-cleanup/inputLimits';
-import {decodeScanCleanupPageOverrides} from '@contracts/scan-cleanup/ipcRequestCodecs';
+import {
+    decodeScanCleanupPageOverride,
+    decodeScanCleanupPageOverrides,
+} from '@contracts/scan-cleanup/ipcRequestCodecs';
 
 export const SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION = 2 as const;
 // Schema 1 predates the `ink` alignment: a stored `top-center` was the
@@ -34,7 +38,7 @@ export const SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES = 50;
 
 export interface IScanCleanupGlobalPreferences extends Omit<
     IScanCleanupOptions,
-    'autoDewarp' | 'autoDewarpDepth' | 'binarization' | 'despeckle' | 'despeckleLevel' | 'normalizeIllumination' | 'outputMode' | 'pageOverrides'
+    'autoDewarp' | 'autoDewarpDepth' | 'binarization' | 'despeckle' | 'despeckleLevel' | 'normalizeIllumination' | 'outputMode' | 'pageOverrides' | 'pageOverrideDefaults'
 > {
     autoDewarp: boolean;
     autoDewarpDepth: number | undefined;
@@ -69,6 +73,7 @@ export const DEFAULT_SCAN_CLEANUP_PREFERENCES: Readonly<IScanCleanupGlobalPrefer
 
 export interface IScanCleanupDocumentOverrideEntry {
     overrides?: TScanCleanupPageOverrides;
+    pageOverrideDefaults?: IScanCleanupPageOverride;
     marginsMm?: IScanCleanupMarginsMm;
     outputMode?: TScanCleanupOutputModeSetting;
     lastUsedAtMs: number;
@@ -98,6 +103,7 @@ export interface IScanCleanupSettingsReadRequest {
 
 export interface IScanCleanupDocumentPreferencePatch {
     overrides?: TScanCleanupPageOverrides;
+    pageOverrideDefaults?: IScanCleanupPageOverride;
     marginsMm?: IScanCleanupMarginsMm;
     outputMode?: TScanCleanupOutputModeSetting;
     resetOverrides?: boolean;
@@ -189,8 +195,12 @@ function decodeDocumentPatch(value: unknown): IScanCleanupDocumentPreferencePatc
     const overrides = stored.overrides === undefined
         ? undefined
         : decodeScanCleanupPageOverrides(stored.overrides);
+    const pageOverrideDefaults = stored.pageOverrideDefaults === undefined
+        ? undefined
+        : decodeScanCleanupPageOverride(stored.pageOverrideDefaults);
     return {
         ...(overrides === undefined ? {} : {overrides}),
+        ...(pageOverrideDefaults === undefined ? {} : {pageOverrideDefaults}),
         ...(marginsMm === undefined ? {} : {marginsMm}),
         ...(outputMode === undefined ? {} : {outputMode}),
         ...(stored.resetOverrides === undefined ? {} : {resetOverrides: stored.resetOverrides}),
@@ -390,8 +400,12 @@ function decodeDocumentOverrideEntry(
     const decodedOverrides = overrides === null
         ? undefined
         : decodeScanCleanupPageOverrides(overrides, budget);
+    const pageOverrideDefaults = stored?.pageOverrideDefaults === undefined
+        ? undefined
+        : decodeScanCleanupPageOverride(stored.pageOverrideDefaults, budget);
     return {
         ...(decodedOverrides === undefined ? {} : {overrides: decodedOverrides}),
+        ...(pageOverrideDefaults === undefined ? {} : {pageOverrideDefaults}),
         ...(marginsMm === undefined ? {} : {marginsMm}),
         ...(outputMode === undefined ? {} : {outputMode}),
         lastUsedAtMs,

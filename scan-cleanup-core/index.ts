@@ -16,3 +16,4 @@ export * from './assertScanCleanupPathWithinRoot';
 export * from './provenanceStamp';
 export * from './scratchCleanup';
 export * from './types';
+export * from './fileBackedResultStore';

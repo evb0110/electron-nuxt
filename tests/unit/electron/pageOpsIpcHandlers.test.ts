@@ -50,6 +50,7 @@ const mocks = vi.hoisted(() => ({
     existsSync: vi.fn<(path: string) => boolean>(),
     resolveAllowedWritePath: vi.fn<(path: string) => Promise<string | null>>(),
     deletePages: vi.fn(),
+    deletePageRanges: vi.fn(),
     extractPages: vi.fn(),
     getPdfPageCount: vi.fn(),
     reorderPages: vi.fn(),
@@ -58,6 +59,7 @@ const mocks = vi.hoisted(() => ({
     cropPages: vi.fn(),
     removeCropFromPages: vi.fn(),
     getPageGeometry: vi.fn(),
+    createPdfFileFromInputPaths: vi.fn(),
     createPdfFromInputPaths: vi.fn(),
     isPdfOrImagePath: vi.fn(),
     showSaveDialog: vi.fn(),
@@ -139,6 +141,7 @@ vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     ],
     QPDF_TIMEOUT_MS: 120000,
     assertNonEmptyPdfOutput: vi.fn(),
+    deletePageRanges: (...args: unknown[]) => mocks.deletePageRanges(...args),
     deletePages: (...args: unknown[]) => mocks.deletePages(...args),
     extractPages: (...args: unknown[]) => mocks.extractPages(...args),
     getPdfPageCount: (...args: unknown[]) => mocks.getPdfPageCount(...args),
@@ -153,6 +156,7 @@ vi.mock('@electron/features/page-ops/main/crop', () => ({
     getPageGeometry: (...args: unknown[]) => mocks.getPageGeometry(...args),
 }));
 vi.mock('@electron/image/pdfConversion', () => ({
+    createPdfFileFromInputPaths: (...args: unknown[]) => mocks.createPdfFileFromInputPaths(...args),
     createPdfFromInputPaths: (...args: unknown[]) => mocks.createPdfFromInputPaths(...args),
     isPdfOrImagePath: (...args: unknown[]) => mocks.isPdfOrImagePath(...args),
 }));
@@ -214,6 +218,7 @@ describe('page ops main bindings', () => {
             filePaths: [],
         });
         mocks.createPdfFromInputPaths.mockResolvedValue(new Uint8Array([1]));
+        mocks.createPdfFileFromInputPaths.mockResolvedValue(undefined);
         mocks.isPdfOrImagePath.mockReturnValue(true);
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
@@ -259,6 +264,7 @@ describe('page ops main bindings', () => {
         mocks.unlink.mockResolvedValue(undefined);
 
         mocks.deletePages.mockResolvedValue({pageCount: 1});
+        mocks.deletePageRanges.mockResolvedValue({pageCount: 1});
         mocks.extractPages.mockResolvedValue(undefined);
         mocks.getPdfPageCount.mockResolvedValue(3);
         mocks.reorderPages.mockResolvedValue({pageCount: 1});
@@ -438,6 +444,93 @@ describe('page ops main bindings', () => {
         );
     });
 
+    it('publishes a sparse identity delta for a million-page rotate', async () => {
+        const handler = getHandler('page-ops:rotate');
+        mocks.getPdfPageCount
+            .mockResolvedValueOnce(1_000_000)
+            .mockResolvedValueOnce(1_000_000);
+
+        await expect(handler(
+            {sender: {id: 1}},
+            '/tmp/million-page-rotate.pdf',
+            [500_000],
+            1_000_000,
+            90,
+            REVISION_OPTIONS,
+        )).resolves.toMatchObject({success: true});
+
+        expect(mocks.commitPageIdentityDelta).toHaveBeenCalledWith(
+            '/tmp/million-page-rotate.pdf',
+            expect.objectContaining({
+                previousPageCount: 1_000_000,
+                nextPageCount: 1_000_000,
+                ranges: expect.arrayContaining([{
+                    kind: 'touch',
+                    toPageNumber: 500_000,
+                    count: 1,
+                    reason: 'rotate',
+                }]),
+            }),
+            expect.objectContaining({contentRevision: 2}),
+        );
+    });
+
+    it('deletes a million-page select-all range without a legacy page array', async () => {
+        const handler = getHandler('page-ops:delete-ranges');
+        mocks.getPdfPageCount
+            .mockResolvedValueOnce(1_000_000)
+            .mockResolvedValueOnce(1);
+        mocks.deletePageRanges.mockResolvedValueOnce({pageCount: 1});
+
+        await expect(handler(
+            {sender: {id: 1}},
+            '/tmp/million-page-delete.pdf',
+            [{
+                startPage: 2,
+                endPage: 1_000_000,
+            }],
+            1_000_000,
+            REVISION_OPTIONS,
+        )).resolves.toMatchObject({
+            success: true,
+            pageCount: 1,
+        });
+
+        expect(mocks.deletePageRanges).toHaveBeenCalledOnce();
+        expect(mocks.deletePageRanges).toHaveBeenCalledWith(
+            '/tmp/million-page-delete.pdf',
+            [{
+                startPage: 2,
+                endPage: 1_000_000,
+            }],
+            1_000_000,
+            1,
+            expectNativeMutationOptions(),
+        );
+        expect(mocks.deletePages).not.toHaveBeenCalled();
+        expect(mocks.commitPageIdentityDelta).toHaveBeenCalledWith(
+            '/tmp/million-page-delete.pdf',
+            expect.objectContaining({
+                previousPageCount: 1_000_000,
+                nextPageCount: 1,
+                ranges: [
+                    {
+                        kind: 'retain',
+                        fromPageNumber: 1,
+                        toPageNumber: 1,
+                        count: 1,
+                    },
+                    {
+                        kind: 'delete',
+                        fromPageNumber: 2,
+                        count: 999_999,
+                    },
+                ],
+            }),
+            expect.objectContaining({contentRevision: 2}),
+        );
+    });
+
     it('passes the mutation abort signal to crop helpers', async () => {
         const handler = getHandler('page-ops:crop');
         const margins = {
@@ -482,8 +575,9 @@ describe('page ops main bindings', () => {
             cancelGroup?: string;
         };
         expect(nativeOptions).toEqual(expectNativeMutationOptions());
-        expect(mocks.createPdfFromInputPaths).toHaveBeenCalledWith(
+        expect(mocks.createPdfFileFromInputPaths).toHaveBeenCalledWith(
             ['/tmp/source.png'],
+            expect.stringMatching(/^\/tmp\/pdf-work-1\/insert-source-.+\.pdf$/u),
             expect.objectContaining({signal: nativeOptions.signal}),
         );
         expect(mocks.runCommand).toHaveBeenCalledWith(
@@ -594,6 +688,7 @@ describe('page ops main bindings', () => {
         await expect(handler({sender: {id: 1}}, '/tmp/pdf-work-1/work.pdf', 3, 1, sourcePaths))
             .rejects.toThrow('errors.file.invalid');
 
+        expect(mocks.createPdfFileFromInputPaths).not.toHaveBeenCalled();
         expect(mocks.createPdfFromInputPaths).not.toHaveBeenCalled();
         expect(mocks.runCommand).not.toHaveBeenCalled();
     });
@@ -866,11 +961,7 @@ describe('page ops main bindings', () => {
 
     it('recovers the working-copy directory before inserting converted source files', async () => {
         mocks.isPdfOrImagePath.mockReturnValue(true);
-        mocks.createPdfFromInputPaths.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-        ]));
+        mocks.createPdfFileFromInputPaths.mockResolvedValue(undefined);
 
         const handler = getHandler('page-ops:insert-file');
 
@@ -878,14 +969,13 @@ describe('page ops main bindings', () => {
             .resolves.toMatchObject({success: true});
 
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf', 1);
-        expect(mocks.writeFile).toHaveBeenCalledWith(
-            expect.stringMatching(/^\/tmp\/pdf-work-1\/insert-source-.+\.pdf$/),
-            new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
+        expect(mocks.createPdfFileFromInputPaths).toHaveBeenCalledWith(
+            ['/tmp/source.png'],
+            expect.stringMatching(/^\/tmp\/pdf-work-1\/insert-source-.+\.pdf$/u),
+            expect.objectContaining({signal: expect.any(AbortSignal)}),
         );
+        expect(mocks.createPdfFromInputPaths).not.toHaveBeenCalled();
+        expect(mocks.writeFile).not.toHaveBeenCalled();
         expect(mocks.runCommand).toHaveBeenCalled();
         expect(mocks.rename).toHaveBeenCalledWith(
             expect.stringMatching(/^\/tmp\/pdf-work-1\/tmp-.+\.pdf$/),
@@ -894,8 +984,9 @@ describe('page ops main bindings', () => {
     });
 
     it('emits insert-file batch progress with the supplied request id', async () => {
-        mocks.createPdfFromInputPaths.mockImplementation(async (
+        mocks.createPdfFileFromInputPaths.mockImplementation(async (
             _paths: string[],
+            _outputPath: string,
             options?: { onProgress?: TProgressCallback },
         ) => {
             options?.onProgress?.({
@@ -905,11 +996,7 @@ describe('page ops main bindings', () => {
                 elapsedMs: 25,
                 estimatedRemainingMs: 25,
             });
-            return new Uint8Array([
-                1,
-                2,
-                3,
-            ]);
+            return undefined;
         });
         const sender = {
             id: 1,
@@ -947,6 +1034,7 @@ describe('page ops main bindings', () => {
             oversizedRequestId,
         )).rejects.toThrow('requestId exceeds maximum length (128)');
 
+        expect(mocks.createPdfFileFromInputPaths).not.toHaveBeenCalled();
         expect(mocks.createPdfFromInputPaths).not.toHaveBeenCalled();
         expect(mocks.runCommand).not.toHaveBeenCalled();
     });

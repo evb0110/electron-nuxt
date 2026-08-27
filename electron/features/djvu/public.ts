@@ -1,4 +1,5 @@
 export {
+    getDjvuPageSizeWindowsForViewing,
     getDjvuPageSizesForViewing,
     getDjvuPageSizeForViewing,
     renderDjvuPagePreview,

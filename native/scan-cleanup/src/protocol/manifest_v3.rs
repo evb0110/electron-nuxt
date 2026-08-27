@@ -16,14 +16,17 @@ pub const MAX_STAGED_INPUT_WINDOW: usize = 16;
 /// One gigapixel is far above any page a 150-DPI analysis raster can reach and
 /// still keeps the declared peak inside the arithmetic the pool sizing uses.
 pub const MAX_STAGED_INPUT_PEAK_PIXELS: u64 = 1_000_000_000;
-pub const MAX_MANIFEST_PAGES: usize = 20_000;
+/// Maximum page records admitted in one native process invocation. The
+/// Electron/core orchestrator replays this bounded manifest for long source
+/// documents, so this is never a document page-count limit.
+pub const MAX_MANIFEST_PAGES_PER_BATCH: usize = 20_000;
 pub const MAX_MANIFEST_PATH_BYTES: usize = 4_096;
 
 fn deserialize_manifest_pages<'de, D>(deserializer: D) -> Result<Vec<Page>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    deserialize_bounded_vec::<D, Page, MAX_MANIFEST_PAGES>(deserializer)
+    deserialize_bounded_vec::<D, Page, MAX_MANIFEST_PAGES_PER_BATCH>(deserializer)
 }
 
 const fn default_raster_window() -> usize {
@@ -313,10 +316,12 @@ impl ManifestV3 {
         if self.pages.is_empty() {
             return Err(invalid("Batch manifest contains no pages"));
         }
-        if self.pages.len() > MAX_MANIFEST_PAGES {
+        if self.pages.len() > MAX_MANIFEST_PAGES_PER_BATCH {
             return Err(NativeError::new(
                 NativeErrorCode::TooLarge,
-                format!("Batch manifest exceeds the {MAX_MANIFEST_PAGES}-page admission ceiling"),
+                format!(
+                    "Native scan-cleanup manifest batch exceeds the {MAX_MANIFEST_PAGES_PER_BATCH}-page admission limit"
+                ),
             ));
         }
         if self.document_canvas.is_some_and(|canvas| {
@@ -719,6 +724,25 @@ mod tests {
             let manifest: ManifestV3 = serde_json::from_slice(&bytes).unwrap();
             manifest.validate().unwrap();
         }
+    }
+
+    #[test]
+    fn manifest_page_limit_is_per_batch_and_page_numbers_have_no_20000_cap() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/preview-raster-v3.json"),
+        )
+        .unwrap();
+        let mut manifest: ManifestV3 = serde_json::from_slice(&bytes).unwrap();
+        manifest.pages[0].source_page_index = MAX_MANIFEST_PAGES_PER_BATCH;
+        manifest.validate().unwrap();
+
+        manifest.pages =
+            std::iter::repeat_n(manifest.pages[0].clone(), MAX_MANIFEST_PAGES_PER_BATCH + 1)
+                .collect();
+        let error = manifest.validate().unwrap_err();
+        assert_eq!(error.code, NativeErrorCode::TooLarge);
+        assert!(error.message.contains("manifest batch"));
     }
 
     #[test]

@@ -21,6 +21,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut bottom = None;
     let mut left = None;
     let mut right = None;
+    let mut page_number = None;
     let mut qpdf_path = None;
     let mut append = false;
 
@@ -87,7 +88,17 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
                     "right",
                 )?)
             }
-            "--qpdf" => qpdf_path = Some(PathBuf::from(args.next().ok_or("Missing --qpdf value")?)),
+            "--page" | "--page-number" => {
+                let value = args.next().ok_or("Missing --page value")?;
+                let parsed = value.parse::<u32>()?;
+                if parsed == 0 {
+                    return Err("Page number must be positive".into());
+                }
+                page_number = Some(parsed);
+            }
+            "--qpdf" | "--qpdf-path" => {
+                qpdf_path = Some(PathBuf::from(args.next().ok_or("Missing --qpdf value")?))
+            }
             "--append" => {
                 append = true;
             }
@@ -130,6 +141,12 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             modified_at: modified_at.ok_or("Missing --modified-at value")?,
             append,
         },
+        "annotation-index" | "annotation-name-index" => Operation::AnnotationNameIndex,
+        "embedded-shape-index" | "shape-index" => Operation::EmbeddedShapeIndex,
+        "pdf-conformance" | "conformance" => Operation::PdfConformance,
+        "page-geometry" | "get-page-geometry" => Operation::PageGeometry {
+            page_number: page_number.ok_or("Missing --page value")?,
+        },
         "page-sizes" => Operation::PageSizes,
         _ => return Err(format!("Unknown command: {command}").into()),
     };
@@ -140,4 +157,59 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         output_path: output_path.ok_or("Missing --output value")?,
         qpdf_path,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_page_geometry_request() {
+        let config = parse_args(
+            [
+                "page-geometry",
+                "--input",
+                "input.pdf",
+                "--output",
+                "geometry.json",
+                "--page",
+                "7",
+                "--qpdf",
+                "qpdf",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            config.operation,
+            Operation::PageGeometry { page_number: 7 }
+        ));
+        assert_eq!(config.input_path, PathBuf::from("input.pdf"));
+        assert_eq!(config.output_path, PathBuf::from("geometry.json"));
+        assert_eq!(config.qpdf_path, Some(PathBuf::from("qpdf")));
+    }
+
+    #[test]
+    fn rejects_page_zero_for_page_geometry() {
+        let error = parse_args(
+            [
+                "page-geometry",
+                "--input",
+                "input.pdf",
+                "--output",
+                "geometry.json",
+                "--page",
+                "0",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .err()
+        .expect("page zero should be rejected")
+        .to_string();
+
+        assert!(error.contains("Page number must be positive"));
+    }
 }

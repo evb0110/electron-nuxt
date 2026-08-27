@@ -20,10 +20,12 @@ export { usePageContextMenu } from '@app/modules/pdf-viewer/runtime/composables/
 export { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
 export { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 export { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
+export {hasActivePdfjsAnnotationEditorDraft} from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
 export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 export { usePdfSerialization } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
+export type { TPdfPlacedImageEmbeddingResult } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
+export { isPdfPlacedImageNativePathResult } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-export type { INativePdfMutationProjection } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 export {
     collectLivePdfJsAnnotationChangeFingerprint,
     collectLivePdfJsAnnotationChangeIds,
@@ -33,9 +35,14 @@ export {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations
 export {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 export type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 export type {
+    INativePdfMutationProjection,
     IPdfSaveByteRouteDecision,
+    IPdfViewerNativeRequiredFailure,
+    IPdfViewerSaveTransactionDocumentStructure,
+    IPdfViewerSaveTransactionNativeCapabilities,
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
+    IPdfViewerSaveTransactionSource,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 export { resolvePdfViewerSaveTransactionFinalBytes } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 export { escapeCssAttr } from '@app/modules/pdf-viewer/engine/annotation-css-utils/escapeCssAttr';

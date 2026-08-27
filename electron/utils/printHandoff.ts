@@ -3,7 +3,7 @@ import type { WebContentsPrintOptions } from 'electron';
 import {
     mkdtemp,
     readdir,
-    readFile,
+    open,
     rm,
     stat,
     unlink,
@@ -19,13 +19,13 @@ import { delay } from 'es-toolkit/promise';
 import { tmpdir } from 'os';
 import { sortBy } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
-import { PDFDocument } from 'pdf-lib';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import { includesAsciiToken } from '@electron/utils/includesAsciiToken';
 
 const logger = createLogger('documents-print');
 // Low-end Windows machines can report the PDF plugin as loaded before it has painted.
@@ -39,7 +39,7 @@ const PRINT_WINDOW_WIDTH_PX = 1280;
 const PRINT_WINDOW_HEIGHT_PX = 1600;
 const PRINT_WINDOW_VISIBLE_ON_DARWIN = process.platform === 'darwin';
 export const PRINT_DJVU_TEMP_PREFIX = 'print-djvu-';
-const MAX_PRINT_PDF_BYTES = parseIntegerEnv('EVB_PRINT_PDF_MAX_MB', 256, 1, 2048) * 1024 * 1024;
+const MAX_PRINT_PDF_DATA_BYTES = parseIntegerEnv('EVB_PRINT_PDF_MAX_MB', 16, 1, 16) * 1024 * 1024;
 const PRINT_RASTER_DPI = parseIntegerEnv('EVB_PRINT_RASTER_DPI', 180, 72, 300);
 const PRINT_RASTER_CHUNK_PAGES = parseIntegerEnv('EVB_PRINT_RASTER_CHUNK_PAGES', 50, 1, 100);
 const PRINT_RASTER_MAX_PAGES = parseIntegerEnv('EVB_PRINT_RASTER_MAX_PAGES', 100, 1, 1000);
@@ -51,6 +51,8 @@ const PRINT_RASTER_MAX_TOTAL_PIXELS = parseIntegerEnv(
 );
 const PRINT_RASTER_RENDER_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_RASTER_TIMEOUT_MS', 3 * 60 * 1000, 5_000);
 const PRINT_RASTER_IMAGE_LOAD_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_RASTER_IMAGE_LOAD_TIMEOUT_MS', 30_000, 1_000);
+const PRINT_RASTER_METADATA_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_RASTER_METADATA_TIMEOUT_MS', 30_000, 5_000);
+const PRINT_RASTER_METADATA_MAX_STDOUT_BYTES = 64 * 1024;
 const PDF_HEADER_SCAN_BYTES = 1024;
 const PDF_EOF_SCAN_BYTES = 1024 * 1024;
 const scheduledPrintTempCleanup = new Map<string, ReturnType<typeof setTimeout>>();
@@ -83,29 +85,11 @@ interface IPrintImagePage {
     path: string;
 }
 
-function includesAsciiToken(data: Uint8Array, token: string, start: number, end: number) {
-    const tokenBytes = Buffer.from(token, 'ascii');
-    const lastStart = end - tokenBytes.byteLength;
-    for (let offset = start; offset <= lastStart; offset += 1) {
-        let matches = true;
-        for (let index = 0; index < tokenBytes.byteLength; index += 1) {
-            if (data[offset + index] !== tokenBytes[index]) {
-                matches = false;
-                break;
-            }
-        }
-        if (matches) {
-            return true;
-        }
-    }
-    return false;
-}
-
 export function validatePdfBytesForHandoff(data: Uint8Array, label: string) {
     if (!(data instanceof Uint8Array) || data.byteLength === 0) {
         throw new Error(`Invalid ${label} payload`);
     }
-    if (data.byteLength > MAX_PRINT_PDF_BYTES) {
+    if (data.byteLength > MAX_PRINT_PDF_DATA_BYTES) {
         throw new Error(`${label} payload is too large`);
     }
 
@@ -121,12 +105,54 @@ export function validatePdfBytesForHandoff(data: Uint8Array, label: string) {
 
 export async function assertPdfPathWithinSizeLimit(filePath: string) {
     const fileStat = await stat(filePath);
-    if (!fileStat.isFile()) {
+    if (!fileStat.isFile() || !Number.isSafeInteger(fileStat.size) || fileStat.size <= 0) {
         throw new Error('Invalid PDF path');
     }
-    if (fileStat.size > MAX_PRINT_PDF_BYTES) {
-        throw new Error('PDF file is too large');
+
+    const file = await open(filePath, 'r');
+    try {
+        const headerAndTail = fileStat.size <= PDF_EOF_SCAN_BYTES
+            ? await readPdfPathRange(file, 0, fileStat.size)
+            : null;
+        const header = headerAndTail ?? await readPdfPathRange(file, 0, PDF_HEADER_SCAN_BYTES);
+        const tail = headerAndTail ?? await readPdfPathRange(
+            file,
+            Math.max(0, fileStat.size - PDF_EOF_SCAN_BYTES),
+            Math.min(fileStat.size, PDF_EOF_SCAN_BYTES),
+        );
+        const headerEnd = Math.min(header.byteLength, PDF_HEADER_SCAN_BYTES);
+        const eofStart = Math.max(0, tail.byteLength - PDF_EOF_SCAN_BYTES);
+        if (
+            !includesAsciiToken(header, '%PDF-', 0, headerEnd)
+            || !includesAsciiToken(tail, '%%EOF', eofStart, tail.byteLength)
+        ) {
+            throw new Error('Invalid PDF path');
+        }
+    } finally {
+        await file.close();
     }
+}
+
+async function readPdfPathRange(
+    file: Awaited<ReturnType<typeof open>>,
+    position: number,
+    length: number,
+) {
+    const buffer = Buffer.allocUnsafe(Math.max(0, length));
+    let bytesReadTotal = 0;
+    while (bytesReadTotal < buffer.byteLength) {
+        const result = await file.read(
+            buffer,
+            bytesReadTotal,
+            buffer.byteLength - bytesReadTotal,
+            position + bytesReadTotal,
+        );
+        if (result.bytesRead === 0) {
+            break;
+        }
+        bytesReadTotal += result.bytesRead;
+    }
+    return buffer.subarray(0, bytesReadTotal);
 }
 
 export function schedulePrintTempCleanup(path: string, delayMs = PRINT_JOB_RESOURCE_RETENTION_MS) {
@@ -212,40 +238,49 @@ function escapeHtml(value: string) {
         .replace(/'/g, '&#39;');
 }
 
-function normalizePdfPageSize(rawSize: {
-    height?: unknown;
-    width?: unknown;
-} | undefined): IPdfPageSize {
-    const width = typeof rawSize?.width === 'number' && Number.isFinite(rawSize.width) && rawSize.width > 0
-        ? rawSize.width
-        : 612;
-    const height = typeof rawSize?.height === 'number' && Number.isFinite(rawSize.height) && rawSize.height > 0
-        ? rawSize.height
-        : 792;
+function parsePdfInfoPageCount(stdout: string) {
+    const match = stdout.match(/^Pages:\s*(\d+)\s*$/imu);
+    const pageCount = Number.parseInt(match?.[1] ?? '', 10);
+    return Number.isSafeInteger(pageCount) && pageCount > 0 ? pageCount : null;
+}
+
+function parsePdfInfoFirstPageSize(stdout: string) {
+    const match = stdout.match(/^Page size:\s*([\d.]+)\s+x\s+([\d.]+)\s+pts(?:\s|$)/imu);
+    if (!match) {
+        return null;
+    }
+    const width = Number.parseFloat(match[1] ?? '');
+    const height = Number.parseFloat(match[2] ?? '');
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return null;
+    }
     return {
         width,
         height,
     };
 }
 
-async function readPdfPrintLayout(path: string): Promise<IPdfPrintLayout> {
-    const pdfData = await readFile(path);
-    const pdfDocument = await PDFDocument.load(pdfData, {updateMetadata: false});
-    const pageCount = pdfDocument.getPageCount();
-    if (!Number.isInteger(pageCount) || pageCount < 1) {
-        throw new Error('Printable PDF has no pages');
-    }
-    if (pageCount > PRINT_RASTER_MAX_PAGES) {
-        throw new Error(`Native print handoff is capped at ${PRINT_RASTER_MAX_PAGES} pages`);
+async function readPdfPrintLayout(path: string, signal?: AbortSignal): Promise<IPdfPrintLayout> {
+    const paths = getPdfNativeToolPaths();
+    const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
+        timeoutMs: PRINT_RASTER_METADATA_TIMEOUT_MS,
+        maxStdoutBytes: PRINT_RASTER_METADATA_MAX_STDOUT_BYTES,
+        rejectOnStdoutTruncation: true,
+        commandLabel: 'pdfinfo(print-raster)',
+        ...(signal ? {signal} : {}),
+    };
+    const popplerEnv = buildPopplerEnv(paths);
+    if (popplerEnv !== undefined) {
+        commandOptions.env = popplerEnv;
     }
 
-    const firstPage = pdfDocument.getPage(0);
-    const firstPageSize = normalizePdfPageSize(firstPage.getSize());
-    const pagePixels = Math.ceil(firstPageSize.width * PRINT_RASTER_DPI / 72)
-        * Math.ceil(firstPageSize.height * PRINT_RASTER_DPI / 72);
-    if (pagePixels * pageCount > PRINT_RASTER_MAX_TOTAL_PIXELS) {
-        throw new Error(`Raster print is capped at ${PRINT_RASTER_MAX_TOTAL_PIXELS} decoded pixels`);
+    const result = await runNativeToolCommand(paths.pdfinfo, [path], commandOptions);
+    const pageCount = parsePdfInfoPageCount(result.stdout ?? '');
+    const firstPageSize = parsePdfInfoFirstPageSize(result.stdout ?? '');
+    if (pageCount === null || firstPageSize === null) {
+        throw new Error('pdfinfo did not return printable PDF metadata');
     }
+
     return {
         pageCount,
         firstPageSize,
@@ -411,7 +446,23 @@ async function createRasterPrintHtmlPath(path: string, documentTitle: string, si
     const workDir = await mkdtemp(join(tmpdir(), 'evb-print-raster-'));
     try {
         throwIfPrintHandoffAborted(signal);
-        const layout = await readPdfPrintLayout(path);
+        const layout = await readPdfPrintLayout(path, signal);
+        if (layout.pageCount > PRINT_RASTER_MAX_PAGES) {
+            await rm(workDir, {
+                force: true,
+                recursive: true,
+            });
+            return null;
+        }
+        const pagePixels = Math.ceil(layout.firstPageSize.width * PRINT_RASTER_DPI / 72)
+            * Math.ceil(layout.firstPageSize.height * PRINT_RASTER_DPI / 72);
+        if (pagePixels * layout.pageCount > PRINT_RASTER_MAX_TOTAL_PIXELS) {
+            await rm(workDir, {
+                force: true,
+                recursive: true,
+            });
+            return null;
+        }
         throwIfPrintHandoffAborted(signal);
         const imagePages = await renderPdfPrintImages(path, layout, workDir, signal);
         throwIfPrintHandoffAborted(signal);

@@ -30,7 +30,7 @@ import {
     decodeScanCleanupPageNumber,
     type IScanCleanupInputBudget,
     SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
-    SCAN_CLEANUP_INPUT_MAX_PAGES,
+    SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
     SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
     SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON,
     SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE,
@@ -47,6 +47,7 @@ import type {
 } from '@contracts/scan-cleanup/ipc';
 import {isScanCleanupOutputMode} from '@contracts/scan-cleanup/outputModeGuards';
 import {assertSimpleScanCleanupPolygon} from '@contracts/scan-cleanup/assertSimpleScanCleanupPolygon';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
 
 function decodeTextToneEvidence(value: unknown, label: string): IScanCleanupTextToneDiagnostics {
     if (
@@ -415,6 +416,14 @@ function decodePageOverride(
     };
 }
 
+/** Decodes the single document-wide page override carried beside sparse pages. */
+export function decodeScanCleanupPageOverride(
+    value: unknown,
+    budget = createScanCleanupInputBudget(),
+): IScanCleanupPageOverride {
+    return decodePageOverride(value, budget);
+}
+
 function decodeManualZones(
     value: unknown,
     rotationDegrees: IScanCleanupPageOverride['rotationDegrees'],
@@ -554,7 +563,7 @@ function decodePageMapEntries(value: unknown, label: string) {
         throw new Error(`invalid scan-cleanup ${label}`);
     }
     const entries = Object.entries(value);
-    if (entries.length > SCAN_CLEANUP_INPUT_MAX_PAGES) {
+    if (entries.length > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES) {
         throw new Error(`too many scan-cleanup ${label}`);
     }
     return entries.map(([
@@ -665,6 +674,11 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         || typeof options.preserveOriginalQuality !== 'boolean'
     ) throw new Error('invalid scan-cleanup options');
     const marginsMm = decodeMarginsMm(options.marginsMm, 'margins');
+    const pageOverrideDefaults = options.pageOverrideDefaults === undefined
+        ? undefined
+        : decodePageOverride(options.pageOverrideDefaults, createScanCleanupInputBudget());
+    const pageOverrides = decodeScanCleanupPageOverrides(options.pageOverrides);
+    attachScanCleanupPageOverrideDefaults(pageOverrides, pageOverrideDefaults, marginsMm);
     return {
         preserveOriginalQuality: options.preserveOriginalQuality,
         layoutMode: options.layoutMode as IScanCleanupStartRequest['options']['layoutMode'],
@@ -682,7 +696,8 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         ...(autoDewarpDepth === undefined ? {} : {autoDewarpDepth}),
         readingOrder: options.readingOrder as IScanCleanupStartRequest['options']['readingOrder'],
         skipBlankPages: options.skipBlankPages,
-        pageOverrides: decodeScanCleanupPageOverrides(options.pageOverrides),
+        pageOverrides,
+        ...(pageOverrideDefaults === undefined ? {} : {pageOverrideDefaults}),
     };
 }
 
@@ -835,7 +850,7 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
             if (
                 !Array.isArray(value.sourcePageNumbers)
                 || value.sourcePageNumbers.length === 0
-                || value.sourcePageNumbers.length > SCAN_CLEANUP_INPUT_MAX_PAGES
+                || value.sourcePageNumbers.length > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
                 || new Set(value.sourcePageNumbers).size !== value.sourcePageNumbers.length
             ) {
                 throw new Error('invalid scan-cleanup source page numbers');
@@ -845,6 +860,38 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
                 'source page number',
             ));
         })();
+    const sourcePageRange = value.sourcePageRange === undefined
+        ? undefined
+        : (() => {
+            if (!isRecord(value.sourcePageRange)) {
+                throw new Error('invalid scan-cleanup source page range');
+            }
+            const startPageNumber = decodeScanCleanupPageNumber(
+                value.sourcePageRange.startPageNumber,
+                'source page range start',
+            );
+            const endPageNumber = decodeScanCleanupPageNumber(
+                value.sourcePageRange.endPageNumber,
+                'source page range end',
+            );
+            if (endPageNumber < startPageNumber) {
+                throw new Error('invalid scan-cleanup source page range');
+            }
+            return {
+                startPageNumber,
+                endPageNumber,
+            };
+        })();
+    const detectionResultStoreId = value.detectionResultStoreId === undefined
+        ? undefined
+        : decodeBoundedScanCleanupString(
+            value.detectionResultStoreId,
+            'detection result store id',
+            SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+        );
+    if (sourcePageNumbers !== undefined && sourcePageRange !== undefined) {
+        throw new Error('scan-cleanup source page scope must use a list or range');
+    }
     const sourcePageMetadataByPage = value.sourcePageMetadataByPage === undefined
         ? undefined
         : (() => {
@@ -900,6 +947,8 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
         ...decodeOwnerContext(value),
         options: decodeOptions(value.options),
         ...(sourcePageNumbers === undefined ? {} : {sourcePageNumbers}),
+        ...(sourcePageRange === undefined ? {} : {sourcePageRange}),
+        ...(detectionResultStoreId === undefined ? {} : {detectionResultStoreId}),
         ...(outputModeRecommendations === undefined ? {} : {outputModeRecommendations}),
         ...(softAlphaForegroundRecommendations === undefined
             ? {}

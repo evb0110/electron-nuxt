@@ -54,7 +54,6 @@ vi.mock('@app/modules/workspace-shell/composables/usePdfFile', () => ({usePdfFil
     reloadWorkingCopyIntoHistory: vi.fn(),
     loadPdfFromData: vi.fn(),
     persistPdfDataSilently: vi.fn(),
-    readWorkingCopyBytes: vi.fn(),
     closeFile: mocks.closeFile,
     saveFile: vi.fn(),
     repairWorkingCopy: vi.fn(),

@@ -40,8 +40,10 @@ import {
     resolvePostReclaimResidencyState,
     type TViewerResidencyState,
 } from '@app/modules/pdf-viewer/runtime/memory/resolvePdfViewerResidencyDecision';
-
-const PDFJS_MAX_SUPPORTED_PAGE_COUNT = 100_000;
+import {
+    cloneSparsePageMetrics,
+    forEachKnownPageMetric,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 
 type TPdfDocumentLoadState = TaggedUnion<'status', {
     idle: { version: number };
@@ -350,13 +352,10 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     function replaceTrustedBaseMetrics() {
         let width = 0;
         let height = 0;
-        for (const metric of pageMetrics.value) {
-            if (!isValidPageMetric(metric)) {
-                continue;
-            }
+        forEachKnownPageMetric(pageMetrics.value, (metric) => {
             width = Math.max(width, metric.width);
             height = Math.max(height, metric.height);
-        }
+        });
         basePageWidth.value = width > 0 ? width : null;
         basePageHeight.value = height > 0 ? height : null;
         trustedGeometrySeedPageNumber = null;
@@ -439,28 +438,32 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
         const rangeStart = clamp(Math.min(startPage, endPage), 1, totalPages);
         const rangeEnd = clamp(Math.max(startPage, endPage), 1, totalPages);
-        const pagesToLoad: number[] = [];
-
+        const missingPageCount = rangeEnd - rangeStart + 1;
+        let hasMissingPage = false;
         for (let pageNumber = rangeStart; pageNumber <= rangeEnd; pageNumber += 1) {
             if (!isValidPageMetric(pageMetrics.value[pageNumber - 1])) {
-                pagesToLoad.push(pageNumber);
+                hasMissingPage = true;
+                break;
             }
         }
 
-        if (pagesToLoad.length === 0) {
+        if (!hasMissingPage) {
             return false;
         }
 
         const version = getRenderVersion();
-        const concurrency = Math.min(4, pagesToLoad.length);
-        let nextPageIndex = 0;
+        const concurrency = Math.min(4, missingPageCount);
+        let nextPageNumber = rangeStart;
 
         await Promise.all(Array.from({ length: concurrency }, async () => {
-            while (nextPageIndex < pagesToLoad.length) {
-                const pageNumber = pagesToLoad[nextPageIndex]!;
-                nextPageIndex += 1;
+            while (nextPageNumber <= rangeEnd) {
+                const pageNumber = nextPageNumber;
+                nextPageNumber += 1;
                 if (version !== getRenderVersion()) {
                     return;
+                }
+                if (isValidPageMetric(pageMetrics.value[pageNumber - 1])) {
+                    continue;
                 }
                 await loadPageMetric(document, pageNumber, version);
             }
@@ -522,10 +525,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         if (
             !Number.isSafeInteger(document.numPages)
             || document.numPages < 1
-            || document.numPages > PDFJS_MAX_SUPPORTED_PAGE_COUNT
         ) {
             destroyPdfDocument(document, 'Failed to destroy PDF document after page-count rejection', lifecycleKey);
-            throw new RangeError(`PDF.js viewer supports at most ${PDFJS_MAX_SUPPORTED_PAGE_COUNT.toLocaleString()} pages`);
+            throw new RangeError('PDF.js returned an invalid page count');
         }
 
         activeLifecycleKey = lifecycleKey;
@@ -569,7 +571,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             basePageWidth: shouldPreserve ? basePageWidth.value : null,
             basePageHeight: shouldPreserve ? basePageHeight.value : null,
             pageMetrics: shouldPreserve
-                ? pageMetrics.value.map(metric => ({ ...metric }))
+                ? cloneSparsePageMetrics(pageMetrics.value)
                 : [],
             trustedGeometrySeedPageNumber: shouldPreserve
                 ? trustedGeometrySeedPageNumber

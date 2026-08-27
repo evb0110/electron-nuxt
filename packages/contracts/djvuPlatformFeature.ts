@@ -26,10 +26,7 @@ import {
     isDjvuDocumentOutputOperation,
 } from '@contracts/electronApiDjvu';
 import type { TDocumentRef } from '@contracts/documentRef';
-import {
-    SEARCH_PAGE_COUNT_DEFAULT_MAX,
-    SEARCH_WIRE_CODEC,
-} from '@contracts/search';
+import { SEARCH_WIRE_CODEC } from '@contracts/search';
 import {
     definePlatformFeature,
     runtimeSchema as s,
@@ -365,11 +362,7 @@ function decodeTextSearchOptions(value: unknown) {
             }
         }
     }
-    const options = normalizeDjvuTextSearchOptions(value as IDjvuTextSearchOptions);
-    if (options.pageCount > SEARCH_PAGE_COUNT_DEFAULT_MAX) {
-        throw new Error('text search options require a valid requestId and pageCount');
-    }
-    return options;
+    return normalizeDjvuTextSearchOptions(value as IDjvuTextSearchOptions);
 }
 
 function decodeOptionalNonNegativeInteger(value: unknown) {

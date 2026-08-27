@@ -1,12 +1,15 @@
 use std::{
+    cell::RefCell,
     env,
-    io::{BufWriter, Write},
+    fs::File,
+    io::{BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
+    rc::Rc,
     time::Instant,
 };
 
 use evb_native_support::{
-    bounded_io::{deserialize_bounded_vec, deserialize_json_slice, read_file_bounded},
+    bounded_io::{deserialize_bounded_vec, read_file_bounded},
     generated_native_tool_protocols::PDF_IMAGE_COMBINE,
     output::{AtomicOutput, ValidatedInputFiles},
     NativeError, NativeErrorCode,
@@ -19,9 +22,16 @@ use evb_pdf_image_combine::{
 };
 use serde::Deserialize;
 
-const MAX_COMBINE_PAGES: usize = 10_000;
+// The command receives a caller-selected page budget. Keep this bound at the
+// platform integer limit so desktop file-backed combines do not inherit a
+// product page ceiling. Sidecar and path byte limits still bound protocol
+// input before it reaches the PDF writer.
+const MAX_COMBINE_PAGES: usize = usize::MAX;
 const MAX_SIDECAR_BYTES: usize = 64 * 1024 * 1024;
+const MAX_COMPACT_MANIFEST_LINE_BYTES: usize = 64 * 1024;
 const MAX_PATH_BYTES: usize = 4_096;
+const COMPACT_MANIFEST_JSONL_FORMAT: &str = "evb-pdf-image-combine-jsonl";
+const COMPACT_MANIFEST_JSONL_SCHEMA_VERSION: u64 = 1;
 
 struct Config {
     output_path: PathBuf,
@@ -95,6 +105,47 @@ fn run(raw_args: Vec<String>) -> Result<()> {
         }
         encode_netpbm_path_as_png(&config.input_paths[0], &config.output_path, max_pixels)?;
         return Ok(());
+    }
+
+    if let Some(manifest_path) = &config.compact_manifest_path {
+        if compact_manifest_is_jsonl(manifest_path)? {
+            let stream = open_compact_manifest_jsonl(manifest_path, max_pages)?;
+            let total = stream.page_count;
+            let provenance_stamp_hex = stream.provenance_stamp_hex.clone();
+            let started_at = Instant::now();
+            return write_pdf_file_streaming(
+                stream,
+                &config.output_path,
+                &PdfBuildOptions {
+                    default_dpi: config.dpi,
+                    max_pages,
+                    max_pixels,
+                    max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
+                    max_output_bytes: read_limit(
+                        "EVB_PDF_COMBINE_MAX_OUTPUT_BYTES",
+                        512 * 1024 * 1024,
+                        1024 * 1024,
+                        u64::MAX,
+                    ),
+                    max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000)
+                        as usize,
+                    provenance_stamp_hex,
+                    worker_threads: read_limit(
+                        "EVB_PDF_COMBINE_THREADS",
+                        1,
+                        1,
+                        MAX_WORKER_THREADS as u64,
+                    ) as usize,
+                    enable_shared_symbol_encoding: config.shared_jbig2_symbols,
+                },
+                total,
+                |processed| {
+                    if config.json_progress {
+                        print_progress(processed, total, started_at);
+                    }
+                },
+            );
+        }
     }
 
     let (page_specs, provenance_stamp_hex) =
@@ -222,6 +273,239 @@ fn write_pdf_file(
         let writer = BufWriter::new(output.file_mut()?);
         let mut writer = write_pdf(writer, page_specs, options, on_processed)?;
         writer.flush()?;
+    }
+    output.publish()?;
+    Ok(())
+}
+
+struct CompactManifestJsonl {
+    path: PathBuf,
+    page_count: usize,
+    provenance_stamp_hex: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CompactManifestJsonlHeader {
+    format: String,
+    schema_version: u64,
+    page_count: usize,
+    #[serde(default)]
+    provenance_stamp_hex: Option<String>,
+}
+
+struct CompactManifestJsonlIterator {
+    reader: BufReader<File>,
+    output_path: PathBuf,
+    max_pages: usize,
+    page_count: usize,
+    page_number: usize,
+    line_number: usize,
+    error: Rc<RefCell<Option<String>>>,
+}
+
+enum CompactManifestLine {
+    End,
+    Value(Vec<u8>),
+    TooLong,
+}
+
+fn read_compact_manifest_line(
+    reader: &mut BufReader<File>,
+) -> std::io::Result<CompactManifestLine> {
+    let mut line = Vec::new();
+    loop {
+        let buffer = reader.fill_buf()?;
+        if buffer.is_empty() {
+            return Ok(if line.is_empty() {
+                CompactManifestLine::End
+            } else {
+                CompactManifestLine::Value(line)
+            });
+        }
+        let newline = buffer.iter().position(|byte| *byte == b'\n');
+        let length = newline.map_or(buffer.len(), |index| index + 1);
+        if line.len() + length > MAX_COMPACT_MANIFEST_LINE_BYTES {
+            return Ok(CompactManifestLine::TooLong);
+        }
+        line.extend_from_slice(&buffer[..length]);
+        reader.consume(length);
+        if newline.is_some() {
+            return Ok(CompactManifestLine::Value(line));
+        }
+    }
+}
+
+impl Iterator for CompactManifestJsonlIterator {
+    type Item = PageSpec<InputSource<'static>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.page_number >= self.max_pages {
+            match read_compact_manifest_line(&mut self.reader) {
+                Ok(CompactManifestLine::End) => return None,
+                Ok(CompactManifestLine::Value(line)) => {
+                    if line.iter().any(|byte| !byte.is_ascii_whitespace()) {
+                        *self.error.borrow_mut() = Some(format!(
+                            "Compact image manifest exceeds the {}-page admission ceiling",
+                            self.max_pages
+                        ));
+                    }
+                    return None;
+                }
+                Ok(CompactManifestLine::TooLong) => {
+                    *self.error.borrow_mut() = Some(format!(
+                        "Compact image manifest record exceeds the {MAX_COMPACT_MANIFEST_LINE_BYTES}-byte admission ceiling"
+                    ));
+                    return None;
+                }
+                Err(error) => {
+                    *self.error.borrow_mut() = Some(error.to_string());
+                    return None;
+                }
+            }
+        }
+        loop {
+            let line = match read_compact_manifest_line(&mut self.reader) {
+                Ok(CompactManifestLine::End) => {
+                    if self.page_number != self.page_count {
+                        *self.error.borrow_mut() = Some(format!(
+                            "Compact JSONL manifest declared {} pages but contained {}",
+                            self.page_count, self.page_number
+                        ));
+                    }
+                    return None;
+                }
+                Ok(CompactManifestLine::Value(line)) => line,
+                Ok(CompactManifestLine::TooLong) => {
+                    *self.error.borrow_mut() = Some(format!(
+                        "Compact image manifest record exceeds the {MAX_COMPACT_MANIFEST_LINE_BYTES}-byte admission ceiling"
+                    ));
+                    return None;
+                }
+                Err(error) => {
+                    *self.error.borrow_mut() = Some(error.to_string());
+                    return None;
+                }
+            };
+            self.line_number += 1;
+            let line = match std::str::from_utf8(&line) {
+                Ok(line) => line,
+                Err(error) => {
+                    *self.error.borrow_mut() =
+                        Some(format!("Invalid compact JSONL manifest UTF-8: {error}"));
+                    return None;
+                }
+            };
+            let trimmed = line.trim_end_matches(['\r', '\n']);
+            if trimmed.trim().is_empty() {
+                continue;
+            }
+            self.page_number += 1;
+            match parse_compact_manifest_line(trimmed, self.line_number, self.page_number).and_then(
+                |spec| map_page_spec_to_files(spec, self.error.clone(), &self.output_path),
+            ) {
+                Ok(spec) => return Some(spec),
+                Err(error) => {
+                    *self.error.borrow_mut() = Some(error.to_string());
+                    return None;
+                }
+            }
+        }
+    }
+}
+
+fn map_page_spec_to_files(
+    spec: PageSpec<PathBuf>,
+    error_slot: Rc<RefCell<Option<String>>>,
+    output_path: &Path,
+) -> Result<PageSpec<InputSource<'static>>> {
+    let mut paths = Vec::new();
+    match &spec {
+        PageSpec::Image { image, .. } => paths.push(image.source.clone()),
+        PageSpec::Layered {
+            background,
+            foreground_mask,
+            ..
+        } => {
+            paths.push(background.source.clone());
+            paths.push(foreground_mask.clone());
+        }
+        PageSpec::SoftLayered {
+            background,
+            foreground_alpha,
+            ..
+        } => {
+            paths.push(background.source.clone());
+            paths.push(foreground_alpha.clone());
+        }
+        PageSpec::AffineMaskedLayered {
+            background,
+            foreground,
+            foreground_mask,
+            ..
+        } => {
+            paths.push(background.source.clone());
+            paths.push(foreground.source.clone());
+            paths.push(foreground_mask.clone());
+        }
+        PageSpec::Mask {
+            foreground_mask, ..
+        } => paths.push(foreground_mask.clone()),
+    }
+    let validated = ValidatedInputFiles::open(&paths, output_path).inspect_err(|error| {
+        *error_slot.borrow_mut() = Some(error.to_string());
+    })?;
+    let mut input_index = 0usize;
+    spec.map_sources(&mut |label| {
+        let file = validated.clone_file(input_index)?;
+        input_index += 1;
+        Ok::<_, std::io::Error>(InputSource::File { label, file })
+    })
+    .map_err(|error| {
+        *error_slot.borrow_mut() = Some(error.to_string());
+        error.into()
+    })
+}
+
+fn write_pdf_file_streaming(
+    stream: CompactManifestJsonl,
+    output_path: &Path,
+    options: &PdfBuildOptions,
+    total: usize,
+    on_processed: impl FnMut(usize),
+) -> Result<()> {
+    let error_slot = Rc::new(RefCell::new(None));
+    let file = File::open(&stream.path)?;
+    let mut reader = BufReader::new(file);
+    match read_compact_manifest_line(&mut reader)? {
+        CompactManifestLine::End => {
+            return Err("Compact JSONL manifest is missing its header".into())
+        }
+        CompactManifestLine::TooLong => {
+            return Err("Compact JSONL manifest header exceeds the admission ceiling".into());
+        }
+        CompactManifestLine::Value(_) => {}
+    }
+    let page_specs = CompactManifestJsonlIterator {
+        reader,
+        output_path: output_path.to_path_buf(),
+        max_pages: options.max_pages,
+        page_count: stream.page_count,
+        page_number: 0,
+        line_number: 1,
+        error: error_slot.clone(),
+    };
+    let mut output = AtomicOutput::create(output_path)?;
+    {
+        let writer = BufWriter::new(output.file_mut()?);
+        let mut writer = write_pdf(writer, page_specs, options, on_processed)?;
+        writer.flush()?;
+    }
+    if let Some(error) = error_slot.borrow_mut().take() {
+        return Err(error.into());
+    }
+    if total == 0 {
+        return Err("At least one image input is required".into());
     }
     output.publish()?;
     Ok(())
@@ -380,17 +664,15 @@ impl CompactManifestPage {
 }
 
 fn read_compact_manifest(path: &Path, max_pages: usize) -> Result<ParsedCompactManifest> {
-    let bytes = read_file_bounded(path, MAX_SIDECAR_BYTES, "compact image manifest")?;
-    let contents = std::str::from_utf8(&bytes).map_err(|error| {
-        NativeError::new(
-            NativeErrorCode::InvalidRequest,
-            format!("Invalid compact image manifest UTF-8: {error}"),
-        )
-    })?;
-
-    if contents.trim_start().starts_with('{') {
-        let envelope: CompactManifestEnvelope =
-            deserialize_json_slice(&bytes, "compact image manifest")?;
+    if compact_manifest_starts_with_json(path)? {
+        let file = File::open(path)?;
+        let envelope: CompactManifestEnvelope = serde_json::from_reader(BufReader::new(file))
+            .map_err(|error| {
+                NativeError::new(
+                    NativeErrorCode::InvalidRequest,
+                    format!("Invalid compact image manifest JSON: {error}"),
+                )
+            })?;
         let mut page_specs = Vec::new();
         for (index, line) in envelope
             .pages
@@ -419,7 +701,31 @@ fn read_compact_manifest(path: &Path, max_pages: usize) -> Result<ParsedCompactM
     }
 
     let mut page_specs = Vec::new();
-    for (index, line) in contents.lines().enumerate() {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let mut line_number = 0usize;
+    loop {
+        let line = match read_compact_manifest_line(&mut reader)? {
+            CompactManifestLine::End => break,
+            CompactManifestLine::TooLong => {
+                return Err(NativeError::new(
+                    NativeErrorCode::TooLarge,
+                    format!(
+                        "Compact image manifest record exceeds the {MAX_COMPACT_MANIFEST_LINE_BYTES}-byte admission ceiling"
+                    ),
+                )
+                .into());
+            }
+            CompactManifestLine::Value(line) => line,
+        };
+        line_number += 1;
+        let line = std::str::from_utf8(&line).map_err(|error| {
+            NativeError::new(
+                NativeErrorCode::InvalidRequest,
+                format!("Invalid compact image manifest UTF-8: {error}"),
+            )
+        })?;
+        let line = line.trim_end_matches(['\r', '\n']);
         if !line.trim().is_empty() {
             if page_specs.len() == max_pages {
                 return Err(NativeError::new(
@@ -431,12 +737,113 @@ fn read_compact_manifest(path: &Path, max_pages: usize) -> Result<ParsedCompactM
                 .into());
             }
             let page = page_specs.len() + 1;
-            page_specs.push(parse_compact_manifest_line(line, index + 1, page)?);
+            page_specs.push(parse_compact_manifest_line(line, line_number, page)?);
         }
     }
     Ok(ParsedCompactManifest {
         page_specs,
         provenance_stamp_hex: None,
+    })
+}
+
+fn compact_manifest_starts_with_json(path: &Path) -> Result<bool> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+    loop {
+        let buffer = reader.fill_buf()?;
+        if buffer.is_empty() {
+            return Ok(false);
+        }
+        if let Some(byte) = buffer
+            .iter()
+            .copied()
+            .find(|byte| !byte.is_ascii_whitespace())
+        {
+            return Ok(byte == b'{');
+        }
+        let consumed = buffer.len();
+        reader.consume(consumed);
+    }
+}
+
+fn compact_manifest_is_jsonl(path: &Path) -> Result<bool> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let line = match read_compact_manifest_line(&mut reader)? {
+        CompactManifestLine::End | CompactManifestLine::TooLong => return Ok(false),
+        CompactManifestLine::Value(line) => line,
+    };
+    let Some(first) = line
+        .iter()
+        .copied()
+        .find(|byte| !byte.is_ascii_whitespace())
+    else {
+        return Ok(false);
+    };
+    if first != b'{' {
+        return Ok(false);
+    }
+    let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&line) else {
+        // A legacy JSON envelope may be pretty-printed, so its first line is
+        // only the opening brace. Let read_compact_manifest consume the full
+        // envelope instead of rejecting it as malformed JSONL.
+        return Ok(false);
+    };
+    Ok(payload.get("format").and_then(serde_json::Value::as_str)
+        == Some(COMPACT_MANIFEST_JSONL_FORMAT))
+}
+
+fn open_compact_manifest_jsonl(path: &Path, max_pages: usize) -> Result<CompactManifestJsonl> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let line = match read_compact_manifest_line(&mut reader)? {
+        CompactManifestLine::End => {
+            return Err("Compact JSONL manifest is missing its header".into())
+        }
+        CompactManifestLine::TooLong => {
+            return Err(NativeError::new(
+                NativeErrorCode::TooLarge,
+                format!(
+                    "Compact JSONL manifest header exceeds the {MAX_COMPACT_MANIFEST_LINE_BYTES}-byte admission ceiling"
+                ),
+            )
+            .into());
+        }
+        CompactManifestLine::Value(line) => line,
+    };
+    let line = std::str::from_utf8(&line).map_err(|error| {
+        NativeError::new(
+            NativeErrorCode::InvalidRequest,
+            format!("Invalid compact JSONL manifest UTF-8: {error}"),
+        )
+    })?;
+    let header =
+        serde_json::from_str::<CompactManifestJsonlHeader>(line.trim()).map_err(|error| {
+            NativeError::new(
+                NativeErrorCode::InvalidRequest,
+                format!("Invalid compact JSONL manifest header: {error}"),
+            )
+        })?;
+    if header.format != COMPACT_MANIFEST_JSONL_FORMAT {
+        return Err("Unsupported compact JSONL manifest format".into());
+    }
+    if header.schema_version != COMPACT_MANIFEST_JSONL_SCHEMA_VERSION {
+        return Err("Unsupported compact JSONL manifest schema version".into());
+    }
+    if header.page_count == 0 {
+        return Err("Compact JSONL manifest must contain at least one page".into());
+    }
+    if header.page_count > max_pages {
+        return Err(NativeError::new(
+            NativeErrorCode::TooLarge,
+            format!("Compact image manifest exceeds the {max_pages}-page admission ceiling"),
+        )
+        .into());
+    }
+    Ok(CompactManifestJsonl {
+        path: path.to_path_buf(),
+        page_count: header.page_count,
+        provenance_stamp_hex: header.provenance_stamp_hex,
     })
 }
 
@@ -892,6 +1299,21 @@ mod tests {
         let native = error.downcast_ref::<NativeError>().unwrap();
         assert_eq!(native.code, NativeErrorCode::TooLarge);
         assert!(native.message.contains("1-page admission ceiling"));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn pretty_printed_legacy_compact_manifest_falls_through_jsonl_detection() {
+        let path = temp_manifest_path("pretty-legacy");
+        let manifest = serde_json::json!({
+            "pages": ["image\t72\t72\t/tmp/page.ppm"],
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+
+        assert!(!compact_manifest_is_jsonl(&path).unwrap());
+        let parsed = read_compact_manifest(&path, 1).unwrap();
+        assert_eq!(parsed.page_specs.len(), 1);
+        assert!(parsed.provenance_stamp_hex.is_none());
         std::fs::remove_file(path).unwrap();
     }
 }

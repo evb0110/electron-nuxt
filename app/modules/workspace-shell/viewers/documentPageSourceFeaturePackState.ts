@@ -15,6 +15,7 @@ import {
     createProvisionalDocumentPageMetrics,
     hydrateRemainingDocumentPageMetrics,
     loadInitialDocumentPageMetric,
+    type TDocumentPageMetricsCollection,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
 import { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/public';
 import { createDjvuPageSource } from '@app/utils/document-viewer/source/createDjvuPageSource';
@@ -219,7 +220,7 @@ export async function openDocumentPageSource(
         openingPageFrameOwnerId: string;
         markExactPageMetric: (pageNumber: number) => void;
         measureViewport: () => void;
-        publishPageMetrics: (metrics: IDocumentPageMetrics[]) => void;
+        publishPageMetrics: (metrics: TDocumentPageMetricsCollection) => void;
         readCurrentPage: () => number;
         readPageMetric: (pageNumber: number) => IDocumentPageMetrics | undefined;
         readPolicy: () => {

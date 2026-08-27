@@ -4,7 +4,6 @@ import {
     readFile,
     rm,
     stat,
-    writeFile,
 } from 'fs/promises';
 import { randomUUID } from 'crypto';
 import { tmpdir } from 'os';
@@ -47,12 +46,11 @@ import {
     tryCreatePdfFromInputPathsNative,
     tryWritePdfFromInputPathsNative,
 } from '@electron/image/tryCreatePdfFromInputPathsNative';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
+import {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { abortErrorFromSignal } from '@electron/utils/abort';
+
+export { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
@@ -73,6 +71,40 @@ interface ICombineInputResourceUsage {
         size: number;
     }>;
     totalBytes: number;
+}
+
+const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+
+function toSafeByteCount(value: number | bigint, inputPath: string) {
+    if (typeof value === 'bigint') {
+        if (value < 0n || value > MAX_SAFE_INTEGER_BIGINT) {
+            throw new PdfCombineCapabilityError(
+                'native-unavailable',
+                `Input file size is outside the safe integer range: ${inputPath}`,
+                {operation: 'pdf-combine'},
+            );
+        }
+        return Number(value);
+    }
+    if (!Number.isSafeInteger(value) || value < 0) {
+        throw new PdfCombineCapabilityError(
+            'native-unavailable',
+            `Input file size is not a safe integer: ${inputPath}`,
+            {operation: 'pdf-combine'},
+        );
+    }
+    return value;
+}
+
+function addSafeByteCounts(total: number, next: number) {
+    if (next > Number.MAX_SAFE_INTEGER - total) {
+        throw new PdfCombineCapabilityError(
+            'native-unavailable',
+            'Combined input size is outside the safe integer range',
+            {operation: 'pdf-combine'},
+        );
+    }
+    return total + next;
 }
 
 type TCombineWorkerPayload =
@@ -110,14 +142,17 @@ const PDF_COMBINE_WORKER_RESOURCE_LIMITS: ResourceLimits = {
     maxYoungGenerationSizeMb: parseIntegerEnv('EVB_PDF_COMBINE_WORKER_MAX_YOUNG_MB', 64, 16, 256),
     stackSizeMb: parseIntegerEnv('EVB_PDF_COMBINE_WORKER_STACK_MB', 8, 2, 64),
 };
-const PDF_COMBINE_MAX_INPUT_BYTES = (() => {
+// These limits belong only to the small in-memory compatibility route. The
+// path-backed route switches to the native file writer before it can consult
+// them.
+const PDF_COMBINE_SMALL_MEMORY_MAX_INPUT_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_INPUT_MB ?? '512', 10);
     if (!Number.isFinite(parsed) || parsed < 16) {
         return 512 * 1024 * 1024;
     }
     return parsed * 1024 * 1024;
 })();
-const PDF_COMBINE_MAX_TOTAL_INPUT_BYTES = (() => {
+const PDF_COMBINE_SMALL_MEMORY_MAX_TOTAL_INPUT_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_TOTAL_INPUT_MB ?? '1024', 10);
     if (!Number.isFinite(parsed) || parsed < 16) {
         return 1024 * 1024 * 1024;
@@ -131,7 +166,7 @@ const PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = (() => {
     }
     return Math.min(parsed, 256) * 1024 * 1024;
 })();
-const PDF_COMBINE_MAX_OUTPUT_BYTES = (() => {
+const PDF_COMBINE_SMALL_MEMORY_MAX_OUTPUT_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_OUTPUT_MB ?? '512', 10);
     return (Number.isFinite(parsed) && parsed >= 1 ? parsed : 512) * 1024 * 1024;
 })();
@@ -386,18 +421,19 @@ async function inspectInputResourceUsage(inputPaths: string[]): Promise<ICombine
     let totalBytes = 0;
     const files: ICombineInputResourceUsage['files'] = [];
     for (const inputPath of inputPaths) {
-        const fileStat = await stat(inputPath);
+        const fileStat = await stat(inputPath, {bigint: true});
         if (!fileStat.isFile()) {
             throw new Error(`Input path is not a regular file: ${inputPath}`);
         }
-        if (fileStat.size <= 0) {
+        const size = toSafeByteCount(fileStat.size, inputPath);
+        if (size <= 0) {
             throw new Error(`Input file is empty: ${inputPath}`);
         }
         files.push({
             path: inputPath,
-            size: fileStat.size,
+            size,
         });
-        totalBytes += fileStat.size;
+        totalBytes = addSafeByteCounts(totalBytes, size);
     }
 
     return {
@@ -406,17 +442,21 @@ async function inspectInputResourceUsage(inputPaths: string[]): Promise<ICombine
     };
 }
 
+function isSmallMemoryCombine(resourceUsage: ICombineInputResourceUsage) {
+    return resourceUsage.totalBytes <= PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES;
+}
+
 function assertMemoryCombineInputResourceLimits(resourceUsage: ICombineInputResourceUsage) {
     for (const file of resourceUsage.files) {
-        if (file.size > PDF_COMBINE_MAX_INPUT_BYTES) {
+        if (file.size > PDF_COMBINE_SMALL_MEMORY_MAX_INPUT_BYTES) {
             throw new Error(`Input file is too large to combine safely: ${file.path}`);
         }
     }
-    if (resourceUsage.totalBytes > PDF_COMBINE_MAX_TOTAL_INPUT_BYTES) {
+    if (resourceUsage.totalBytes > PDF_COMBINE_SMALL_MEMORY_MAX_TOTAL_INPUT_BYTES) {
         throw new Error('Combined input files are too large to combine safely');
     }
     const estimatedMinimumOutputBytes = Math.ceil(resourceUsage.totalBytes * 1.25);
-    if (estimatedMinimumOutputBytes > PDF_COMBINE_MAX_OUTPUT_BYTES) {
+    if (estimatedMinimumOutputBytes > PDF_COMBINE_SMALL_MEMORY_MAX_OUTPUT_BYTES) {
         throw new Error('Combined PDF is estimated to exceed the in-memory output limit; use file-backed conversion');
     }
 }
@@ -435,8 +475,12 @@ async function assertLocalPdfReadLimit(pdfPath: string) {
     if (!pdfStat.isFile()) {
         throw new Error(`Converted DjVu PDF is not a regular file: ${pdfPath}`);
     }
-    if (pdfStat.size > PDF_COMBINE_MAX_INPUT_BYTES) {
-        throw new Error(`Converted DjVu PDF is too large to combine safely: ${pdfPath}`);
+    if (toSafeByteCount(pdfStat.size, pdfPath) > PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES) {
+        throw new PdfCombineCapabilityError(
+            'native-failure',
+            `Converted DjVu PDF is too large for the small-input compatibility path: ${pdfPath}`,
+            {operation: 'pdf-combine'},
+        );
     }
 }
 
@@ -556,7 +600,7 @@ function createPdfFromInputPathsWorker(
                         reject(new Error('Image combine worker returned invalid PDF data'));
                         return;
                     }
-                    if (data.byteLength > PDF_COMBINE_MAX_OUTPUT_BYTES) {
+                    if (data.byteLength > PDF_COMBINE_SMALL_MEMORY_MAX_OUTPUT_BYTES) {
                         reject(new Error('Combined PDF output is too large to return safely'));
                         return;
                     }
@@ -626,35 +670,23 @@ export async function createPdfFileFromInputPaths(
         throw new Error('No output file was provided');
     }
 
-    const resourceUsage = await inspectInputResourceUsage(normalizedPaths);
+    const nativeOptions = {
+        ...(options ?? {}),
+        failureMode: 'capability-error' as const,
+    };
     const nativeWrote = await tryWritePdfFromInputPathsNative(
         normalizedPaths,
         normalizedOutputPath,
-        options,
+        nativeOptions,
     );
     if (nativeWrote) {
         return normalizedOutputPath;
     }
-
-    const pdfBytes = await createPdfFromNormalizedInputPaths(
-        normalizedPaths,
-        resourceUsage,
-        options,
-        true,
+    throw new PdfCombineCapabilityError(
+        'native-failure',
+        'Native PDF combine did not produce an output file for the path-backed input set',
+        {operation: 'pdf-combine'},
     );
-    const stagedOutputPath = makeSiblingTempPath(normalizedOutputPath);
-    let replaced = false;
-    try {
-        await writeFile(stagedOutputPath, pdfBytes);
-        if (options?.signal?.aborted) throw abortErrorFromSignal(options.signal);
-        await atomicReplace(stagedOutputPath, normalizedOutputPath);
-        replaced = true;
-    } finally {
-        if (!replaced) {
-            await rm(stagedOutputPath, { force: true }).catch(() => undefined);
-        }
-    }
-    return normalizedOutputPath;
 }
 
 async function createPdfFromNormalizedInputPaths(
@@ -663,6 +695,15 @@ async function createPdfFromNormalizedInputPaths(
     options?: ICreatePdfFromInputPathsOptions,
     nativeAlreadyAttempted = false,
 ) {
+    const smallMemoryCombine = isSmallMemoryCombine(resourceUsage);
+    if (!smallMemoryCombine) {
+        throw new PdfCombineCapabilityError(
+            'native-failure',
+            'In-memory PDF combine is unavailable for inputs larger than the small-input limit; use file-backed conversion',
+            {operation: 'pdf-combine'},
+        );
+    }
+
     assertMemoryCombineInputResourceLimits(resourceUsage);
     if (!nativeAlreadyAttempted) {
         const nativePdf = await tryCreatePdfFromInputPathsNative(normalizedPaths, options);

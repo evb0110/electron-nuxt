@@ -14,6 +14,15 @@ import {
     COMPACT_SEARCH_INDEX_MAX_BYTES,
     COMPACT_SEARCH_INDEX_MAX_PAGE_RECORDS,
     COMPACT_SEARCH_INDEX_MAX_TOTAL_TEXT_BYTES,
+    COMPACT_SEARCH_INDEX_STREAMING_DIRECTORY_ENTRY_SIZE,
+    COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE,
+    COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE,
+    COMPACT_SEARCH_INDEX_STREAMING_FLAG_TRUNCATED_COVERAGE,
+    COMPACT_SEARCH_INDEX_STREAMING_FOOTER_MAGIC,
+    COMPACT_SEARCH_INDEX_STREAMING_FOOTER_SIZE,
+    COMPACT_SEARCH_INDEX_STREAMING_HEADER_SIZE,
+    COMPACT_SEARCH_INDEX_STREAMING_MAGIC,
+    COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION,
 } from '@contracts/searchIndexSidecar';
 import {
     EXCERPT_CONTEXT_CHARS,
@@ -64,6 +73,10 @@ interface INativeSearchIndexMetadata {
     documentRevision: TDocumentRevisionToken;
     pageCount: number;
     pageRecordCount: number;
+    streaming: boolean;
+    pagesScanned?: number;
+    partialCoverage?: boolean;
+    truncatedCoverage?: boolean;
 }
 
 interface INativeSearchOptions extends IResolvedSearchMatchOptions {
@@ -73,11 +86,60 @@ interface INativeSearchOptions extends IResolvedSearchMatchOptions {
     nativeServiceIdleTimeoutMs?: number;
     pageCount?: number;
     signal?: AbortSignal;
+    /** Make native availability mandatory for the path-backed xlarge route. */
+    strictXlarge?: boolean;
+    /** Never hydrate the legacy JSON index for xlarge results. */
+    skipLegacyGeometry?: boolean;
 }
 
 export interface INativeSearchResult {
     response: ISearchResponse;
     totalPages: number;
+}
+
+export type TXlargeNativeSearchFailureKind =
+    | 'unsupported-options'
+    | 'native-unavailable'
+    | 'index-missing-or-stale'
+    | 'native-failure'
+    | 'invalid-response';
+
+/** A typed failure for the xlarge path. It is intentionally never JS-fallbackable. */
+export class XlargeNativeSearchCapabilityError extends Error {
+    constructor(
+        readonly kind: TXlargeNativeSearchFailureKind,
+        message: string,
+        options: {cause?: unknown} = {},
+    ) {
+        super(message);
+        this.name = 'XlargeNativeSearchCapabilityError';
+        if (options.cause !== undefined) {
+            Object.defineProperty(this, 'cause', {
+                configurable: true,
+                enumerable: false,
+                value: options.cause,
+                writable: false,
+            });
+        }
+    }
+}
+
+export function isXlargeNativeSearchCapabilityError(
+    error: unknown,
+): error is XlargeNativeSearchCapabilityError {
+    return error instanceof XlargeNativeSearchCapabilityError;
+}
+
+function throwXlargeNativeSearchError(
+    kind: TXlargeNativeSearchFailureKind,
+    message: string,
+    cause?: unknown,
+): never {
+    throw new XlargeNativeSearchCapabilityError(
+        kind,
+        message,
+        cause === undefined ? {} : {cause},
+    );
 }
 
 function getBinaryName() {
@@ -152,7 +214,128 @@ async function loadNativeSearchIndexMetadata(
             return null;
         }
 
-        if (header.toString('ascii', 0, 8) !== NATIVE_SEARCH_INDEX_MAGIC) {
+        const magic = header.toString('ascii', 0, 8);
+        const fileStat = await file.stat();
+
+        if (magic === COMPACT_SEARCH_INDEX_STREAMING_MAGIC) {
+            const schemaVersion = header.readUInt32LE(8);
+            const headerSize = header.readUInt32LE(12);
+            const pageCount = header.readUInt32LE(16);
+            const pageRecordCount = header.readUInt32LE(20);
+            const flags = header.readUInt32LE(24);
+            const revisionTokenByteLength = header.readUInt32LE(28);
+            const revisionTokenByteOffset = bigintToSafeNumber(header.readBigUInt64LE(32));
+            const directoryOffset = bigintToSafeNumber(header.readBigUInt64LE(40));
+            const textDataOffset = bigintToSafeNumber(header.readBigUInt64LE(48));
+            const footerOffset = bigintToSafeNumber(header.readBigUInt64LE(56));
+            const directoryLength = BigInt(pageCount)
+                * BigInt(COMPACT_SEARCH_INDEX_STREAMING_DIRECTORY_ENTRY_SIZE);
+            const directoryEnd = bigintToSafeNumber(
+                BigInt(directoryOffset ?? 0) + directoryLength,
+            );
+            const footerEnd = footerOffset === null
+                ? null
+                : footerOffset + COMPACT_SEARCH_INDEX_STREAMING_FOOTER_SIZE;
+            const revisionTokenEnd = revisionTokenByteOffset === null
+                ? null
+                : revisionTokenByteOffset + revisionTokenByteLength;
+            const totalTextBytes = footerOffset === null || textDataOffset === null
+                ? null
+                : footerOffset - textDataOffset;
+            const knownFlags = COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE
+                | COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE
+                | COMPACT_SEARCH_INDEX_STREAMING_FLAG_TRUNCATED_COVERAGE;
+            if (
+                schemaVersion !== COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION
+                || headerSize !== COMPACT_SEARCH_INDEX_STREAMING_HEADER_SIZE
+                || pageCount <= 0
+                || pageRecordCount > pageCount
+                || (flags & COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE) === 0
+                || (flags & ~knownFlags) !== 0
+                || revisionTokenByteLength <= 0
+                || revisionTokenByteLength > 8_192
+                || revisionTokenByteOffset === null
+                || directoryOffset === null
+                || textDataOffset === null
+                || footerOffset === null
+                || directoryEnd === null
+                || footerEnd === null
+                || revisionTokenEnd === null
+                || totalTextBytes === null
+                || !Number.isSafeInteger(revisionTokenEnd)
+                || !Number.isSafeInteger(footerEnd)
+                || !Number.isSafeInteger(totalTextBytes)
+                || totalTextBytes < 0
+                || revisionTokenByteOffset < COMPACT_SEARCH_INDEX_STREAMING_HEADER_SIZE
+                || revisionTokenEnd > directoryOffset
+                || textDataOffset !== directoryEnd
+                || footerOffset < textDataOffset
+                || footerEnd !== fileStat.size
+                || !Number.isSafeInteger(fileStat.size)
+                || fileStat.size < 0
+            ) {
+                return null;
+            }
+
+            const footer = Buffer.alloc(COMPACT_SEARCH_INDEX_STREAMING_FOOTER_SIZE);
+            const {bytesRead: footerBytesRead} = await file.read(
+                footer,
+                0,
+                COMPACT_SEARCH_INDEX_STREAMING_FOOTER_SIZE,
+                footerOffset,
+            );
+            if (
+                footerBytesRead !== COMPACT_SEARCH_INDEX_STREAMING_FOOTER_SIZE
+                || footer.toString('ascii', 0, 8) !== COMPACT_SEARCH_INDEX_STREAMING_FOOTER_MAGIC
+                || footer.readUInt32LE(8) !== COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION
+                || footer.readUInt32LE(12) !== COMPACT_SEARCH_INDEX_STREAMING_FOOTER_SIZE
+                || footer.readUInt32LE(16) !== flags
+                || footer.readUInt32LE(24) !== pageRecordCount
+                || footer.readBigUInt64LE(32) !== BigInt(totalTextBytes)
+                || footer.readBigUInt64LE(40) !== BigInt(fileStat.size)
+                || footer.readBigUInt64LE(48) !== directoryLength
+            ) {
+                return null;
+            }
+            const pagesScannedBigInt = footer.readBigUInt64LE(56);
+            const pagesScanned = bigintToSafeNumber(pagesScannedBigInt);
+            if (
+                pagesScanned === null
+                || pagesScanned > pageCount
+                || (pagesScanned < pageCount
+                    && (flags & COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE) === 0)
+            ) {
+                return null;
+            }
+
+            const revisionBuffer = Buffer.alloc(revisionTokenByteLength);
+            const {bytesRead: revisionBytesRead} = await file.read(
+                revisionBuffer,
+                0,
+                revisionTokenByteLength,
+                revisionTokenByteOffset,
+            );
+            if (revisionBytesRead !== revisionTokenByteLength) {
+                return null;
+            }
+            const documentRevision = parseDocumentRevisionToken(revisionBuffer.toString('utf8'));
+            if (documentRevision === null || documentRevision !== expectedRevision) {
+                return null;
+            }
+            const partialCoverage = (flags & COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE) !== 0;
+            const truncatedCoverage = (flags & COMPACT_SEARCH_INDEX_STREAMING_FLAG_TRUNCATED_COVERAGE) !== 0;
+            return {
+                documentRevision,
+                pageCount,
+                pageRecordCount,
+                streaming: true,
+                pagesScanned,
+                partialCoverage,
+                truncatedCoverage,
+            };
+        }
+
+        if (magic !== NATIVE_SEARCH_INDEX_MAGIC) {
             return null;
         }
 
@@ -171,7 +354,6 @@ async function loadNativeSearchIndexMetadata(
         const revisionTokenByteOffset = bigintToSafeNumber(header.readBigUInt64LE(32));
         const pageTableOffset = bigintToSafeNumber(header.readBigUInt64LE(40));
         const textDataOffset = bigintToSafeNumber(header.readBigUInt64LE(48));
-        const fileStat = await file.stat();
         if (
             revisionTokenByteOffset === null
             || pageTableOffset === null
@@ -213,6 +395,7 @@ async function loadNativeSearchIndexMetadata(
             documentRevision,
             pageCount,
             pageRecordCount,
+            streaming: false,
         };
     } finally {
         await file.close();
@@ -223,6 +406,7 @@ async function isNativeSearchIndexFresh(
     pdfPath: string,
     documentRevision: TDocumentRevisionToken,
     expectedPageCount?: number,
+    requireStreaming = false,
 ) {
     const indexPath = getNativeSearchIndexPath(pdfPath);
     const [
@@ -238,6 +422,10 @@ async function isNativeSearchIndexFresh(
 
     const metadata = await loadNativeSearchIndexMetadata(indexPath, documentRevision);
     if (!metadata) {
+        return null;
+    }
+
+    if (requireStreaming && !metadata.streaming) {
         return null;
     }
 
@@ -369,19 +557,66 @@ function attachGeometryToNativeResponse(
 }
 
 export async function tryRunNativeSearch(options: INativeSearchOptions): Promise<INativeSearchResult | null> {
-    if (isNativeSearchDisabled() || !isNativeSearchSupportedOptions(options)) {
+    const strictXlarge = options.strictXlarge === true;
+    if (isNativeSearchDisabled()) {
+        if (strictXlarge) {
+            throwXlargeNativeSearchError(
+                'native-unavailable',
+                'Native search is disabled for an xlarge document',
+            );
+        }
+        log.debug('Native search skipped: disabled or unsupported options');
+        return null;
+    }
+
+    if (!isNativeSearchSupportedOptions(options)) {
+        if (strictXlarge) {
+            throwXlargeNativeSearchError(
+                'unsupported-options',
+                'Native search does not support the requested xlarge search options',
+            );
+        }
         log.debug('Native search skipped: disabled or unsupported options');
         return null;
     }
 
     const binaryPath = resolveNativeSearchPath();
     if (!binaryPath) {
+        if (strictXlarge) {
+            throwXlargeNativeSearchError(
+                'native-unavailable',
+                'The native search binary is unavailable for an xlarge document',
+            );
+        }
         log.debug('Native search skipped: evb-pdf-search binary unavailable');
         return null;
     }
 
-    const freshIndex = await isNativeSearchIndexFresh(options.pdfPath, options.documentRevision, options.pageCount);
+    let freshIndex: Awaited<ReturnType<typeof isNativeSearchIndexFresh>>;
+    try {
+        freshIndex = await isNativeSearchIndexFresh(
+            options.pdfPath,
+            options.documentRevision,
+            options.pageCount,
+            strictXlarge,
+        );
+    } catch (error) {
+        if (strictXlarge) {
+            throwXlargeNativeSearchError(
+                'native-failure',
+                `Could not inspect the xlarge search sidecar: ${error instanceof Error ? error.message : String(error)}`,
+                error,
+            );
+        }
+        throw error;
+    }
     if (!freshIndex) {
+        if (strictXlarge) {
+            throwXlargeNativeSearchError(
+                'index-missing-or-stale',
+                'The xlarge search sidecar is missing, stale, or not streaming',
+            );
+        }
         log.debug(`Native search skipped: missing or stale sidecar for ${options.pdfPath}`);
         return null;
     }
@@ -417,15 +652,32 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
         log.warn(`Persistent native search failed; using one-shot fallback: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (parsed === null) {
-        const result = await runNativeToolCommand(
-            binaryPath,
-            createNativeSearchArgs(freshIndex.indexPath, options),
-            commandOptions,
-        );
-        parsed = JSON.parse(result.stdout ?? '');
+        try {
+            const result = await runNativeToolCommand(
+                binaryPath,
+                createNativeSearchArgs(freshIndex.indexPath, options),
+                commandOptions,
+            );
+            parsed = JSON.parse(result.stdout ?? '');
+        } catch (error) {
+            if (strictXlarge) {
+                throwXlargeNativeSearchError(
+                    'native-failure',
+                    `Native xlarge search failed: ${error instanceof Error ? error.message : String(error)}`,
+                    error,
+                );
+            }
+            throw error;
+        }
     }
     const nativeResult = parseNativeSearchResponse(parsed);
     if (!nativeResult) {
+        if (strictXlarge) {
+            throwXlargeNativeSearchError(
+                'invalid-response',
+                'Native xlarge search returned an invalid response',
+            );
+        }
         return null;
     }
     log.debug(
@@ -433,6 +685,10 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
         + `(results=${nativeResult.response.results.length}, totalPages=${nativeResult.totalPages})`,
     );
     if (nativeResult.response.results.length === 0) {
+        return nativeResult;
+    }
+
+    if (options.skipLegacyGeometry || strictXlarge) {
         return nativeResult;
     }
 

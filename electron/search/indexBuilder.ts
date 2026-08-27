@@ -5,7 +5,6 @@ import {
     writeFile,
 } from 'fs/promises';
 import { sortBy } from 'es-toolkit/array';
-import { range } from 'es-toolkit/math';
 import { isOcrWord } from '@contracts/shared';
 import { isRecord } from '@contracts/runtimeGuards';
 import type { IOcrWord } from '@contracts/shared';
@@ -267,7 +266,7 @@ function hasCompleteExpectedCoverage(
     if (!isPositiveInteger(expectedCount)) {
         return false;
     }
-    for (const pageNumber of range(1, expectedCount + 1)) {
+    for (let pageNumber = 1; pageNumber <= expectedCount; pageNumber += 1) {
         throwIfAborted(signal);
         if (!pagesByNumber.has(pageNumber)) {
             return false;
@@ -452,6 +451,9 @@ async function seedFromPdfjs(
                 }
             },
         };
+        if (isPositiveInteger(expectedCount)) {
+            extractOptions.pageCount = expectedCount;
+        }
         if (signal !== undefined) {
             extractOptions.signal = signal;
         }
@@ -579,7 +581,7 @@ function padMissingPages(
         return pagesByNumber;
     }
     const nextPages = new Map(pagesByNumber);
-    for (const pageNumber of range(1, expectedCount + 1)) {
+    for (let pageNumber = 1; pageNumber <= expectedCount; pageNumber += 1) {
         throwIfAborted(signal);
         if (nextPages.has(pageNumber)) {
             continue;

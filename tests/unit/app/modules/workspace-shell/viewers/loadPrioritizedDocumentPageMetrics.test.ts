@@ -8,6 +8,7 @@ import {
     createColdOpenProvisionalDocumentPageMetrics,
     createProvisionalDocumentPageMetrics,
     hydrateRemainingDocumentPageMetrics,
+    isSparseDocumentPageMetrics,
     loadInitialDocumentPageMetric,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
@@ -65,6 +66,26 @@ describe('prioritized document page metrics', () => {
             && metric.rotation === 0
         ))).toBe(true);
         expect(metrics[0]).not.toBe(metrics[1]);
+    });
+
+    it('keeps a million-page provisional model sparse', () => {
+        const arrayFrom = vi.spyOn(Array, 'from');
+        const metrics = createProvisionalDocumentPageMetrics(1_000_000, {
+            widthPoints: 600,
+            heightPoints: 800,
+            rotation: 0,
+        });
+
+        expect(metrics).toHaveLength(1_000_000);
+        expect(isSparseDocumentPageMetrics(metrics)).toBe(true);
+        expect(Object.keys(metrics).filter(key => /^\d+$/.test(key))).toEqual([]);
+        expect(metrics[999_999]).toEqual({
+            widthPoints: 600,
+            heightPoints: 800,
+            rotation: 0,
+        });
+        expect(arrayFrom).not.toHaveBeenCalled();
+        arrayFrom.mockRestore();
     });
 
     it('loads only the initial page on the first-visual critical path', async () => {
@@ -228,5 +249,37 @@ describe('prioritized document page metrics', () => {
             concurrency: 1,
         })).resolves.toBeNull();
         expect(calls).toEqual([2]);
+    });
+
+    it('cancels a million-page hydration before enumerating the document', async () => {
+        const {
+            calls,
+            source,
+        } = createSource(1_000_000);
+        const controller = new AbortController();
+        source.getPageMetrics = async (pageNumber, signal) => {
+            calls.push(pageNumber);
+            controller.abort();
+            signal?.throwIfAborted();
+            return {
+                widthPoints: 600,
+                heightPoints: 800,
+                rotation: 0,
+            };
+        };
+
+        await expect(hydrateRemainingDocumentPageMetrics({
+            source,
+            initialPage: 500_000,
+            initialMetric: {
+                widthPoints: 600,
+                heightPoints: 800,
+                rotation: 0,
+            },
+            signal: controller.signal,
+            isCurrent: () => true,
+            concurrency: 1,
+        })).rejects.toThrow();
+        expect(calls).toEqual([499_999]);
     });
 });

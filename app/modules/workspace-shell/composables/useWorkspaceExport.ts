@@ -17,8 +17,14 @@ import {
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getErrorMessage } from '@app/utils/error';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+import type { TPageSelection } from '@contracts/pageNumbers';
+import {
+    materializePageSelection,
+    pageSelectionCount,
+} from '@contracts/pageNumbers';
 
 type TExportDialogMode = 'images' | 'multipage-tiff';
+type TPageSelectionInput = number[] | TPageSelection;
 
 export interface IWorkspaceExportOverlay {
     kind: 'images' | 'multipage-tiff';
@@ -471,22 +477,36 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         );
     }
 
-    async function handleExportImages(selectedPages: number[] = []) {
+    async function handleExportImages(selectedPages: TPageSelectionInput = []) {
         if (!sourcePath.value) {
             return;
         }
-        const pageNumbers = await openExportScopeDialog('images', selectedPages);
+        const initialPages = Array.isArray(selectedPages)
+            ? selectedPages
+            : pageSelectionCount(selectedPages) === totalPages.value
+                ? []
+                : pageSelectionCount(selectedPages) <= 100_000
+                    ? materializePageSelection(selectedPages)
+                    : [];
+        const pageNumbers = await openExportScopeDialog('images', initialPages);
         if (pageNumbers === null) {
             return;
         }
         await runImageExport(pageNumbers);
     }
 
-    async function handleExportMultiPageTiff(selectedPages: number[] = []) {
+    async function handleExportMultiPageTiff(selectedPages: TPageSelectionInput = []) {
         if (!sourcePath.value) {
             return;
         }
-        const pageNumbers = await openExportScopeDialog('multipage-tiff', selectedPages);
+        const initialPages = Array.isArray(selectedPages)
+            ? selectedPages
+            : pageSelectionCount(selectedPages) === totalPages.value
+                ? []
+                : pageSelectionCount(selectedPages) <= 100_000
+                    ? materializePageSelection(selectedPages)
+                    : [];
+        const pageNumbers = await openExportScopeDialog('multipage-tiff', initialPages);
         if (pageNumbers === null) {
             return;
         }

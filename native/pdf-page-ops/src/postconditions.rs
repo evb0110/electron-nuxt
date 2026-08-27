@@ -1,5 +1,17 @@
 use super::*;
 
+const FULL_POSTCONDITION_AUDIT_ENV: &str = "EVB_PDF_PAGE_OPS_FULL_POSTCONDITION_AUDIT";
+
+/// Production saves validate the pages named by the mutation projection. A
+/// full page-tree audit is still available for explicit diagnostics and test
+/// runs, but it must never be an accidental cost of a sparse save.
+fn full_postcondition_audit_requested() -> bool {
+    matches!(
+        std::env::var_os(FULL_POSTCONDITION_AUDIT_ENV).as_deref(),
+        Some(value) if value == "1"
+    )
+}
+
 pub(crate) fn validate_appended_revision_postconditions(
     document: &impl PdfObjectSource,
     mutations: &NativeMutationsFile,
@@ -97,13 +109,13 @@ pub(crate) fn validate_free_text_note_document_postconditions(
         return Ok(());
     }
 
-    let page_map = document.page_ids();
+    let page_resolver = PageTreeResolver::new(document)?;
     for note in notes {
         let page_number = note
             .page_index
             .checked_add(1)
             .ok_or("Invalid FreeText note page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = page_resolver.page_id(document, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let expected_rect = marker_rect_to_pdf_rect(note.marker_rect, page_view, page_rotation)?;
@@ -164,13 +176,13 @@ pub(crate) fn validate_free_text_editor_document_postconditions(
     if editors.is_empty() {
         return Ok(());
     }
-    let page_map = document.page_ids();
+    let page_resolver = PageTreeResolver::new(document)?;
     for editor in editors {
         let page_number = editor
             .page_index
             .checked_add(1)
             .ok_or("Invalid FreeText editor page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = page_resolver.page_id(document, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
         let expected_rect = validate_free_text_editor_rect(editor, page_view)?;
         let expected_name = free_text_editor_name(editor);
@@ -227,14 +239,16 @@ pub(crate) fn validate_annotation_delete_document_postconditions(
         return Ok(());
     }
 
-    let page_map = document.page_ids();
+    let page_resolver = PageTreeResolver::new(document)?;
     let mut refs_to_delete = HashSet::new();
+    let mut touched_page_ids = HashSet::new();
     for delete in deletes {
         let page_number = delete
             .page_index
             .checked_add(1)
             .ok_or("Invalid annotation delete page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = page_resolver.page_id(document, page_number)?;
+        touched_page_ids.insert(page_id);
         if delete.object_number.is_some() || delete.generation_number.is_some() {
             for target_id in resolve_annotation_delete_target_refs(document, page_id, delete)? {
                 for object_id in collect_annotation_refs_to_delete(document, target_id)? {
@@ -243,8 +257,13 @@ pub(crate) fn validate_annotation_delete_document_postconditions(
             }
         }
     }
+    for object_id in &refs_to_delete {
+        if let Some(page_id) = annotation_page_id(document, *object_id) {
+            touched_page_ids.insert(page_id);
+        }
+    }
 
-    for page_id in page_map.values().copied() {
+    let mut validate_page = |page_id| {
         for object in get_page_annots(document, page_id)? {
             if let Ok(object_id) = object.as_reference() {
                 if refs_to_delete.contains(&object_id) {
@@ -260,6 +279,15 @@ pub(crate) fn validate_annotation_delete_document_postconditions(
                 }
             }
         }
+        Ok(())
+    };
+
+    if full_postcondition_audit_requested() {
+        page_resolver.for_each_page_id(document, &mut validate_page)?;
+    } else {
+        for page_id in touched_page_ids {
+            validate_page(page_id)?;
+        }
     }
     Ok(())
 }
@@ -273,13 +301,13 @@ pub(crate) fn validate_placed_image_document_postconditions(
         return Ok(());
     }
 
-    let page_map = document.page_ids();
+    let page_resolver = PageTreeResolver::new(document)?;
     for (index, image) in images.iter().enumerate() {
         let page_number = image
             .page_index
             .checked_add(1)
             .ok_or("Invalid placed image page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = page_resolver.page_id(document, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let expected_geometry = placed_image_geometry(image, page_view, page_rotation)?;
@@ -560,13 +588,20 @@ pub(crate) fn validate_bookmarks_document_postconditions(
     }
     let first = outlines.get(b"First")?.as_reference()?;
     let last = outlines.get(b"Last")?.as_reference()?;
-    let page_map = document.page_ids();
-    validate_bookmark_level(document, &page_map, &normalized, outlines_id, first, last)
+    let page_resolver = PageTreeResolver::new(document)?;
+    validate_bookmark_level(
+        document,
+        &page_resolver,
+        &normalized,
+        outlines_id,
+        first,
+        last,
+    )
 }
 
 fn validate_bookmark_level(
     document: &impl PdfObjectSource,
-    page_map: &BTreeMap<u32, ObjectId>,
+    page_resolver: &PageTreeResolver,
     items: &[BookmarkEntry],
     parent_id: ObjectId,
     first: ObjectId,
@@ -589,7 +624,7 @@ fn validate_bookmark_level(
         if bookmark.get(b"Title")?.as_str()? != encode_pdf_text_string(&item.title) {
             return Err("Bookmark title did not match the request".into());
         }
-        validate_bookmark_destination(document, page_map, bookmark, item)?;
+        validate_bookmark_destination(document, page_resolver, bookmark, item)?;
 
         if item.items.is_empty() {
             if bookmark.get(b"First").is_ok()
@@ -608,7 +643,7 @@ fn validate_bookmark_level(
             }
             validate_bookmark_level(
                 document,
-                page_map,
+                page_resolver,
                 &item.items,
                 object_id,
                 child_first,
@@ -630,13 +665,13 @@ fn validate_bookmark_level(
 
 fn validate_bookmark_destination(
     document: &impl PdfObjectSource,
-    page_map: &BTreeMap<u32, ObjectId>,
+    page_resolver: &PageTreeResolver,
     bookmark: &Dictionary,
     item: &BookmarkEntry,
 ) -> Result<()> {
     if let Some(page_index) = item.page_index {
-        let page_id = resolve_page_id(
-            page_map,
+        let page_id = page_resolver.page_id(
+            document,
             page_index
                 .checked_add(1)
                 .ok_or("Invalid bookmark page index")?,
@@ -678,8 +713,26 @@ pub(crate) fn validate_shapes_document_postconditions(
         .filter_map(|shape| normalize_managed_shape_stable_key(shape.stable_key.as_deref()))
         .collect();
     let mut found_stable_keys = HashSet::new();
-    let page_map = document.page_ids();
-    for page_id in page_map.values().copied() {
+    let page_resolver = PageTreeResolver::new(document)?;
+    let mut touched_page_ids = HashSet::new();
+    for shape in &shapes.shapes {
+        let page_number = shape
+            .page_index
+            .checked_add(1)
+            .ok_or("Invalid shape page index")?;
+        touched_page_ids.insert(page_resolver.page_id(document, page_number)?);
+    }
+    for annotation_id in &deleted_refs.annotation_ids {
+        let Some(annotation_id) = parse_pdfjs_annotation_object_id(annotation_id) else {
+            continue;
+        };
+        let Some(page_id) = annotation_page_id(document, annotation_id) else {
+            continue;
+        };
+        touched_page_ids.insert(page_id);
+    }
+
+    let mut validate_page = |page_id| {
         for object in get_page_annots(document, page_id)? {
             let Ok(object_id) = object.as_reference() else {
                 continue;
@@ -701,6 +754,14 @@ pub(crate) fn validate_shapes_document_postconditions(
                     found_stable_keys.insert(stable_key);
                 }
             }
+        }
+        Ok(())
+    };
+    if full_postcondition_audit_requested() {
+        page_resolver.for_each_page_id(document, &mut validate_page)?;
+    } else {
+        for page_id in touched_page_ids {
+            validate_page(page_id)?;
         }
     }
     for stable_key in expected_stable_keys {

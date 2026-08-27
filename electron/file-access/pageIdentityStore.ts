@@ -1,4 +1,7 @@
-import {randomUUID} from 'node:crypto';
+import {
+    createHash,
+    randomUUID,
+} from 'node:crypto';
 import {constants} from 'node:fs';
 import {
     copyFile,
@@ -6,15 +9,20 @@ import {
     readFile,
     rename,
     rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
-import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
+import {
+    mapPageNumberThroughPageIdentityDelta,
+    type IPageIdentityDelta,
+} from '@contracts/electronApiPageOps';
 import type {IOcrIndexV3Manifest} from '@contracts/ocrIndex';
 import {parseOcrIndexV3Manifest} from '@contracts/ocrIndex';
 import {isRecord} from '@contracts/runtimeGuards';
 import {readWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
+import {readOcrIndexV3ManifestMetadata} from '@electron/ocr/ocrIndexV3Stream';
 import {
     loadCompactSearchIndex,
     persistCompactSearchIndex,
@@ -32,50 +40,578 @@ import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {isAbortError} from '@electron/utils/abort';
+import {
+    classifySearchIndexOperation,
+    invalidateSearchIndexSidecars,
+} from '@electron/search/searchIndexOperationPolicy';
+import {
+    assertIdentitySeed,
+    assertPageCount,
+    assertPositivePageNumber,
+    assertRangeCount,
+    createPageIdentityDeltaPlan,
+    PAGE_IDENTITY_INLINE_PAGE_COUNT,
+    PAGE_IDENTITY_MAX_RANGE_OPERATIONS,
+} from '@electron/file-access/pageIdentityDelta';
+import {
+    readIdentityAtFromSidecar,
+    readPageIdentitySidecarHeader,
+    streamPageIdentityIds,
+    writeIdentityStateFromSidecarSource,
+    type IPageIdentitySidecarSource,
+} from '@electron/file-access/pageIdentitySidecarStreaming';
+import {
+    createOcrRangeDelta,
+    OCR_V3_DIRECT_REMAP_PAGE_LIMIT,
+    type IOcrRangeIdentityDelta,
+} from '@electron/file-access/pageIdentityOcrRemap';
+import {
+    migrateOcrIndexV3ToV4,
+    remapOcrCatalogV4PageRanges,
+} from '@electron/ocr/worker/indexWriterV4';
 
+/**
+ * The v1 sidecar kept one UUID in a JSON array for every page. A range
+ * sidecar keeps a small ordered list of identity runs instead. The default
+ * seed and offset derive the UUID for a page, so an untouched million-page
+ * document needs no million-element JavaScript collection.
+ */
+const PAGE_IDENTITY_SIDECAR_VERSION = 2;
 
-interface IPageIdentitySidecar {
-    version: 1;
+export {
+    createCropIdentityDelta,
+    createDeleteIdentityDelta,
+    createDeleteRangeIdentityDelta,
+    createDeleteRangesIdentityDelta,
+    createIdentityDelta,
+    createInsertIdentityDelta,
+    createMoveIdentityDelta,
+    createPageMoveRangesIdentityDelta,
+    createRemoveCropIdentityDelta,
+    createReorderIdentityDelta,
+    createRotateIdentityDelta,
+} from '@electron/file-access/pageIdentityDelta';
+
+const PAGE_IDENTITY_STREAMING_SIDECAR_BYTES = 4 * 1024 * 1024;
+
+interface IPageIdentitySegment {
+    count: number;
+    identitySeed: string;
+    identityStart: number;
+    pageIds?: string[];
+}
+
+interface IPageIdentityState {
+    documentRevisionToken?: string;
+    pageCount: number;
+    segments: IPageIdentitySegment[];
+    /** A legacy or explicit range sidecar kept on disk for bounded reads. */
+    sidecarSource?: IPageIdentitySidecarSource;
+}
+
+interface IPageIdentitySidecarRange {
+    startPage: number;
+    count: number;
+    identitySeed: string;
+    identityStart: number;
+    pageIds?: string[];
+}
+
+interface IPageIdentitySidecarV2 {
+    version: 2;
+    storage: 'ranges';
     documentRevisionToken: string;
-    pageIds: string[];
+    pageCount: number;
+    identitySeed: string;
+    pageIds?: string[];
+    ranges?: IPageIdentitySidecarRange[];
 }
 
 const logger = createLogger('page-identity');
+
 interface IPageIdentityInitializationTask {
     abortController?: AbortController;
-    promise?: Promise<string[]>;
+    promise?: Promise<IPageIdentityState>;
     revision: IDocumentRevisionInfo;
     sourcePath?: string;
 }
 
 const initializationTasks = new Map<string, IPageIdentityInitializationTask>();
 
-function sidecarPath(workingCopyPath: string) {
+function getPageIdentitySidecarPath(workingCopyPath: string) {
     return `${workingCopyPath}.evb-pages.json`;
+}
+
+function makeDerivedSegment(
+    count: number,
+    identitySeed: string,
+    identityStart = 0,
+): IPageIdentitySegment {
+    assertRangeCount(count, 'identity range count');
+    assertIdentitySeed(identitySeed);
+    if (!Number.isSafeInteger(identityStart) || identityStart < 0) {
+        throw new Error('identity range offset must be a non-negative safe integer');
+    }
+    return {
+        count,
+        identitySeed,
+        identityStart,
+    };
+}
+
+function makeExplicitSegment(pageIds: readonly string[]): IPageIdentitySegment {
+    if (pageIds.length === 0) {
+        throw new Error('identity range must contain at least one page');
+    }
+    if (!pageIds.every(id => typeof id === 'string' && id.length > 0)) {
+        throw new Error('page identities must be non-empty strings');
+    }
+    return {
+        count: pageIds.length,
+        identitySeed: `explicit:${randomUUID()}`,
+        identityStart: 0,
+        pageIds: [...pageIds],
+    };
+}
+
+function normalizeSegments(segments: readonly IPageIdentitySegment[]) {
+    const normalized: IPageIdentitySegment[] = [];
+    for (const segment of segments) {
+        if (segment.count <= 0) continue;
+        const previous = normalized.at(-1);
+        if (
+            previous
+            && previous.identitySeed === segment.identitySeed
+            && previous.identityStart + previous.count === segment.identityStart
+            && previous.pageIds === undefined
+            && segment.pageIds === undefined
+        ) {
+            previous.count += segment.count;
+            continue;
+        }
+        if (
+            previous
+            && previous.pageIds !== undefined
+            && segment.pageIds !== undefined
+            && previous.pageIds.length + segment.pageIds.length <= PAGE_IDENTITY_INLINE_PAGE_COUNT
+        ) {
+            previous.pageIds.push(...segment.pageIds);
+            previous.count += segment.count;
+            continue;
+        }
+        normalized.push({
+            count: segment.count,
+            identitySeed: segment.identitySeed,
+            identityStart: segment.identityStart,
+            ...(segment.pageIds === undefined ? {} : {pageIds: [...segment.pageIds]}),
+        });
+    }
+    return normalized;
+}
+
+function createIdentityState(
+    pageCount: number,
+    identitySeed = randomUUID(),
+    documentRevisionToken?: string,
+): IPageIdentityState {
+    assertPageCount(pageCount, 'pageCount');
+    const segments = pageCount === 0
+        ? []
+        : [makeDerivedSegment(pageCount, identitySeed)];
+    return {
+        pageCount,
+        segments,
+        ...(documentRevisionToken === undefined ? {} : {documentRevisionToken}),
+    };
+}
+
+/** Derives a stable RFC 4122 UUID from an identity seed and logical offset. */
+export function derivePageIdentity(identitySeed: string, identityOffset: number) {
+    assertIdentitySeed(identitySeed);
+    if (!Number.isSafeInteger(identityOffset) || identityOffset < 0) {
+        throw new Error('identityOffset must be a non-negative safe integer');
+    }
+    const digest = createHash('sha256')
+        .update(`evb-page-identity-v2\0${identitySeed}\0${identityOffset}`)
+        .digest();
+    const bytes = Buffer.from(digest.subarray(0, 16));
+    bytes[6] = (bytes[6]! & 0x0F) | 0x50;
+    bytes[8] = (bytes[8]! & 0x3F) | 0x80;
+    const hex = bytes.toString('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function identityAt(state: IPageIdentityState, zeroBasedPageNumber: number) {
+    if (!Number.isSafeInteger(zeroBasedPageNumber) || zeroBasedPageNumber < 0 || zeroBasedPageNumber >= state.pageCount) {
+        return undefined;
+    }
+    let offset = zeroBasedPageNumber;
+    for (const segment of state.segments) {
+        if (offset >= segment.count) {
+            offset -= segment.count;
+            continue;
+        }
+        return segment.pageIds?.[offset]
+            ?? derivePageIdentity(segment.identitySeed, segment.identityStart + offset);
+    }
+    return undefined;
+}
+
+async function identityAtFromState(state: IPageIdentityState, zeroBasedPageNumber: number) {
+    if (state.sidecarSource === undefined) {
+        return identityAt(state, zeroBasedPageNumber);
+    }
+    if (
+        !Number.isSafeInteger(zeroBasedPageNumber)
+        || zeroBasedPageNumber < 0
+        || zeroBasedPageNumber >= state.pageCount
+    ) {
+        return undefined;
+    }
+    return readIdentityAtFromSidecar(state.sidecarSource, zeroBasedPageNumber);
+}
+
+function sliceSegments(
+    segments: readonly IPageIdentitySegment[],
+    start: number,
+    count: number,
+) {
+    if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(count) || count < 0) {
+        throw new Error('identity slice must use non-negative safe integers');
+    }
+    if (count === 0) {
+        return [];
+    }
+    const sliced: IPageIdentitySegment[] = [];
+    let remainingStart = start;
+    let remainingCount = count;
+    for (const segment of segments) {
+        if (remainingStart >= segment.count) {
+            remainingStart -= segment.count;
+            continue;
+        }
+        const localStart = remainingStart;
+        const take = Math.min(segment.count - localStart, remainingCount);
+        sliced.push({
+            count: take,
+            identitySeed: segment.identitySeed,
+            identityStart: segment.identityStart + localStart,
+            ...(segment.pageIds === undefined
+                ? {}
+                : {pageIds: segment.pageIds.slice(localStart, localStart + take)}),
+        });
+        remainingCount -= take;
+        remainingStart = 0;
+        if (remainingCount === 0) break;
+    }
+    if (remainingCount !== 0) {
+        throw new Error('identity range exceeds the previous page count');
+    }
+    return sliced;
+}
+
+function materializePageIds(state: IPageIdentityState) {
+    if (state.pageCount > PAGE_IDENTITY_INLINE_PAGE_COUNT) {
+        throw new Error('Refusing to materialize a large page identity state');
+    }
+    return Array.from({length: state.pageCount}, (_value, index) => identityAt(state, index)!);
 }
 
 async function writeJsonAtomic(path: string, value: unknown) {
     const tempPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
-    await writeFile(tempPath, JSON.stringify(value), 'utf8');
-    await rename(tempPath, path);
+    try {
+        await writeFile(tempPath, JSON.stringify(value), 'utf8');
+        await atomicReplace(tempPath, path);
+    } catch (error) {
+        await rm(tempPath, {force: true}).catch(() => undefined);
+        throw error;
+    }
 }
 
-async function readPageIds(workingCopyPath: string, pageCount: number) {
-    const value: unknown = await readFile(sidecarPath(workingCopyPath), 'utf8')
+
+function parsePageIds(value: unknown, expectedPageCount: number) {
+    if (
+        !Array.isArray(value)
+        || value.length !== expectedPageCount
+        || !value.every((id): id is string => typeof id === 'string' && id.length > 0)
+    ) {
+        return null;
+    }
+    return [...value];
+}
+
+function parseRangeSegment(value: unknown): IPageIdentitySegment | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const count = value.count;
+    const identityStart = value.identityStart;
+    const identitySeed = value.identitySeed;
+    if (
+        typeof count !== 'number'
+        || !Number.isSafeInteger(count)
+        || count < 1
+        || typeof identityStart !== 'number'
+        || !Number.isSafeInteger(identityStart)
+        || identityStart < 0
+        || typeof identitySeed !== 'string'
+        || identitySeed.length === 0
+        || identitySeed.length > 512
+    ) {
+        return null;
+    }
+    const pageIds = value.pageIds === undefined
+        ? undefined
+        : parsePageIds(value.pageIds, count);
+    if (pageIds === null) {
+        return null;
+    }
+    return {
+        count,
+        identitySeed,
+        identityStart,
+        ...(pageIds === undefined ? {} : {pageIds}),
+    };
+}
+
+function parsePageIdentitySidecar(
+    value: unknown,
+    expectedPageCount: number,
+): IPageIdentityState | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    if (value.version === 1) {
+        const pageIds = parsePageIds(value.pageIds, expectedPageCount);
+        if (
+            pageIds === null
+            || typeof value.documentRevisionToken !== 'string'
+            || value.documentRevisionToken.length === 0
+        ) {
+            return null;
+        }
+        return {
+            pageCount: expectedPageCount,
+            segments: pageIds.length === 0 ? [] : [makeExplicitSegment(pageIds)],
+            documentRevisionToken: value.documentRevisionToken,
+        };
+    }
+    if (value.version !== PAGE_IDENTITY_SIDECAR_VERSION || value.storage !== 'ranges') {
+        return null;
+    }
+    const pageCount = value.pageCount;
+    if (
+        typeof pageCount !== 'number'
+        || !Number.isSafeInteger(pageCount)
+        || pageCount < 0
+        || pageCount !== expectedPageCount
+        || typeof value.documentRevisionToken !== 'string'
+        || value.documentRevisionToken.length === 0
+        || typeof value.identitySeed !== 'string'
+        || value.identitySeed.length === 0
+        || value.identitySeed.length > 512
+    ) {
+        return null;
+    }
+    const topLevelPageIds = value.pageIds === undefined
+        ? undefined
+        : parsePageIds(value.pageIds, pageCount);
+    if (topLevelPageIds === null) {
+        return null;
+    }
+    if (topLevelPageIds !== undefined) {
+        return {
+            pageCount,
+            segments: pageCount === 0 ? [] : [makeExplicitSegment(topLevelPageIds)],
+            documentRevisionToken: value.documentRevisionToken,
+        };
+    }
+    if (!Array.isArray(value.ranges) || value.ranges.length > PAGE_IDENTITY_MAX_RANGE_OPERATIONS) {
+        return null;
+    }
+    const segments: IPageIdentitySegment[] = [];
+    let startPage = 1;
+    for (const rawRange of value.ranges) {
+        if (!isRecord(rawRange) || rawRange.startPage !== startPage) {
+            return null;
+        }
+        const segment = parseRangeSegment(rawRange);
+        if (!segment) {
+            return null;
+        }
+        segments.push(segment);
+        startPage += segment.count;
+    }
+    if (startPage !== pageCount + 1) {
+        return null;
+    }
+    return {
+        pageCount,
+        segments: normalizeSegments(segments),
+        documentRevisionToken: value.documentRevisionToken,
+    };
+}
+
+async function readPageIdentityState(
+    workingCopyPath: string,
+    expectedPageCount: number,
+): Promise<IPageIdentityState | null> {
+    const path = getPageIdentitySidecarPath(workingCopyPath);
+    const fileStat = await stat(path).catch(() => null);
+    if (!fileStat) {
+        return null;
+    }
+    // Keep legacy v1 arrays lazy regardless of their byte size. The streaming
+    // reader below never builds an in-memory page-sized array, and mutation
+    // commits convert the source to the v2 range format.
+    const header = await readPageIdentitySidecarHeader(path);
+    if (
+        header?.version === 1
+        && typeof header.documentRevisionToken === 'string'
+        && header.documentRevisionToken.length > 0
+    ) {
+        return {
+            pageCount: expectedPageCount,
+            segments: [],
+            documentRevisionToken: header.documentRevisionToken,
+            sidecarSource: {
+                format: 'v1',
+                path,
+            },
+        };
+    }
+    if (fileStat.size > PAGE_IDENTITY_STREAMING_SIDECAR_BYTES || (header?.pageCount ?? 0) > PAGE_IDENTITY_INLINE_PAGE_COUNT) {
+        if (
+            header?.version === PAGE_IDENTITY_SIDECAR_VERSION
+            && header.storage === 'ranges'
+            && header.pageCount === expectedPageCount
+            && typeof header.documentRevisionToken === 'string'
+            && header.documentRevisionToken.length > 0
+        ) {
+            const scan = await streamPageIdentityIds(path).catch(() => null);
+            if (scan?.foundPageIds) {
+                return {
+                    pageCount: expectedPageCount,
+                    segments: [],
+                    documentRevisionToken: header.documentRevisionToken,
+                    sidecarSource: {
+                        format: 'v2',
+                        path,
+                    },
+                };
+            }
+        }
+    }
+    const value: unknown = await readFile(path, 'utf8')
         .then(raw => JSON.parse(raw) as unknown)
         .catch(() => null);
-    const pageIds = isRecord(value) ? value.pageIds : null;
-    if (
-        Array.isArray(pageIds)
-        && pageIds.length === pageCount
-        && pageIds.every((id): id is string => typeof id === 'string' && id.length > 0)
-    ) {
-        return [...pageIds];
-    }
-    return Array.from({length: pageCount}, () => randomUUID());
+    return parsePageIdentitySidecar(value, expectedPageCount);
 }
 
-/** Creates the durable identity ledger before the first structural mutation. */
+function serializeIdentityState(
+    state: IPageIdentityState,
+    documentRevisionToken: string,
+): IPageIdentitySidecarV2 {
+    const baseSeed = state.segments[0]?.identitySeed ?? randomUUID();
+    const pageIds = state.pageCount <= PAGE_IDENTITY_INLINE_PAGE_COUNT
+        ? materializePageIds(state)
+        : undefined;
+    if (pageIds !== undefined) {
+        return {
+            version: PAGE_IDENTITY_SIDECAR_VERSION,
+            storage: 'ranges',
+            documentRevisionToken,
+            pageCount: state.pageCount,
+            identitySeed: baseSeed,
+            pageIds,
+        };
+    }
+    const ranges: IPageIdentitySidecarRange[] = [];
+    let startPage = 1;
+    for (const segment of state.segments) {
+        if (segment.pageIds === undefined) {
+            ranges.push({
+                startPage,
+                count: segment.count,
+                identitySeed: segment.identitySeed,
+                identityStart: segment.identityStart,
+            });
+            startPage += segment.count;
+            continue;
+        }
+        for (let offset = 0; offset < segment.count; offset += PAGE_IDENTITY_INLINE_PAGE_COUNT) {
+            const count = Math.min(PAGE_IDENTITY_INLINE_PAGE_COUNT, segment.count - offset);
+            const range: IPageIdentitySidecarRange = {
+                startPage,
+                count,
+                identitySeed: segment.identitySeed,
+                identityStart: segment.identityStart + offset,
+                ...(segment.pageIds === undefined
+                    ? {}
+                    : {pageIds: segment.pageIds.slice(offset, offset + count)}),
+            };
+            ranges.push(range);
+            startPage += count;
+        }
+    }
+    return {
+        version: PAGE_IDENTITY_SIDECAR_VERSION,
+        storage: 'ranges',
+        documentRevisionToken,
+        pageCount: state.pageCount,
+        identitySeed: baseSeed,
+        ranges,
+    };
+}
+
+async function writeIdentityState(
+    workingCopyPath: string,
+    state: IPageIdentityState,
+    documentRevisionToken: string,
+) {
+    await writeJsonAtomic(
+        getPageIdentitySidecarPath(workingCopyPath),
+        serializeIdentityState(state, documentRevisionToken),
+    );
+}
+
+async function assertRevisionFence(
+    workingCopyPath: string,
+    state: IPageIdentityState,
+    nextRevision: IDocumentRevisionInfo,
+) {
+    const currentRevision = await readWorkingCopyRevisionSidecar(workingCopyPath);
+    if (!currentRevision) {
+        return;
+    }
+    if (
+        state.documentRevisionToken !== undefined
+        && state.documentRevisionToken !== currentRevision.token
+    ) {
+        throw new Error('Page identity state belongs to a stale document revision');
+    }
+    if (
+        nextRevision.token !== currentRevision.token
+        && nextRevision.contentRevision !== currentRevision.contentRevision + 1
+    ) {
+        throw new Error('Page identity publication has a stale document revision');
+    }
+}
+
+/** Reads one identity without materializing its document or its sidecar. */
+export async function readPageIdentity(
+    workingCopyPath: string,
+    pageNumber: number,
+    expectedPageCount?: number,
+) {
+    assertPositivePageNumber(pageNumber, 'pageNumber');
+    const pageCount = expectedPageCount ?? await getPdfPageCount(workingCopyPath);
+    assertPageCount(pageCount, 'pageCount');
+    const state = await readPageIdentityState(workingCopyPath, pageCount)
+        ?? createIdentityState(pageCount);
+    return await identityAtFromState(state, pageNumber - 1) ?? null;
+}
+
 async function initializePageIdentityStore(
     workingCopyPath: string,
     revision: IDocumentRevisionInfo,
@@ -86,26 +622,44 @@ async function initializePageIdentityStore(
     signal?.throwIfAborted();
     const pageCount = await getPdfPageCount(workingCopyPath, signal ? {signal} : {});
     signal?.throwIfAborted();
-    const pageIds = sourcePath
-        ? await readPageIds(sourcePath, pageCount)
-        : Array.from({length: pageCount}, () => randomUUID());
+    const sourceState = sourcePath
+        ? await readPageIdentityState(sourcePath, pageCount)
+        : null;
+    const state = sourceState ?? createIdentityState(pageCount);
     signal?.throwIfAborted();
     if (shouldPublish()) {
-        await writeJsonAtomic(sidecarPath(workingCopyPath), {
-            version: 1,
-            documentRevisionToken: revision.token,
-            pageIds,
-        } satisfies IPageIdentitySidecar);
+        const sidecarSource = state.sidecarSource;
+        if (sidecarSource !== undefined) {
+            await writeIdentityStateFromSidecarSource(
+                getPageIdentitySidecarPath(workingCopyPath),
+                {
+                    pageCount: state.pageCount,
+                    sidecarSource,
+                },
+                {
+                    previousPageCount: pageCount,
+                    nextPageCount: pageCount,
+                    ranges: pageCount === 0
+                        ? []
+                        : [{
+                            kind: 'retain',
+                            fromPageNumber: 1,
+                            toPageNumber: 1,
+                            count: pageCount,
+                        }],
+                },
+                revision.token,
+                PAGE_IDENTITY_SIDECAR_VERSION,
+                derivePageIdentity,
+            );
+        } else {
+            await writeIdentityState(workingCopyPath, state, revision.token);
+        }
     }
-    return pageIds;
+    return state;
 }
 
-/**
- * Registers the inputs needed for page-ledger discovery without starting qpdf.
- * Opening a document is read-only, so page identities are not needed until the
- * first structural mutation. Keeping this task cold prevents repeated opens
- * from stacking page-count subprocesses behind the user-visible open path.
- */
+/** Registers the inputs needed for page-ledger discovery without starting qpdf. */
 export function schedulePageIdentityStoreInitialization(
     workingCopyPath: string,
     revision: IDocumentRevisionInfo,
@@ -139,9 +693,9 @@ export async function awaitPageIdentityStoreInitialization(workingCopyPath: stri
             abortController.signal,
         );
         void entry.promise.then(
-            pageIds => logger.debug(`Page identity initialization complete: ${JSON.stringify({
+            state => logger.debug(`Page identity initialization complete: ${JSON.stringify({
                 durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
-                pageCount: pageIds.length,
+                pageCount: state.pageCount,
                 workingCopyPath,
             })}`),
             error => {
@@ -167,77 +721,68 @@ export function clearPageIdentityStoreInitializations() {
     initializationTasks.clear();
 }
 
-export function createIdentityDelta(pageCount: number): IPageIdentityDelta {
+
+function applyPageIdentityDelta(state: IPageIdentityState, delta: IPageIdentityDelta) {
+    const {
+        nextPageCount,
+        parts,
+    } = createPageIdentityDeltaPlan(state.pageCount, delta);
+    const nextSegments = parts.map(part => part.kind === 'source'
+        ? sliceSegments(state.segments, part.fromPageNumber - 1, part.count)
+        : part.insertedIds === undefined
+            ? makeDerivedSegment(part.count, part.identitySeed)
+            : makeExplicitSegment(part.insertedIds));
     return {
-        previousPageCount: pageCount,
-        pages: Array.from({length: pageCount}, (_value, index) => ({fromPageNumber: index + 1})),
-    };
+        pageCount: nextPageCount,
+        segments: normalizeSegments(nextSegments.flat()),
+        ...(state.documentRevisionToken === undefined
+            ? {}
+            : {documentRevisionToken: state.documentRevisionToken}),
+    } satisfies IPageIdentityState;
 }
 
-export function createDeleteIdentityDelta(pageCount: number, deletedPages: readonly number[]): IPageIdentityDelta {
-    const deleted = new Set(deletedPages);
-    return {
-        previousPageCount: pageCount,
-        pages: Array.from({length: pageCount}, (_value, index) => index + 1)
-            .filter(pageNumber => !deleted.has(pageNumber))
-            .map(fromPageNumber => ({fromPageNumber})),
-    };
-}
-
-export function createReorderIdentityDelta(pageCount: number, order: readonly number[]): IPageIdentityDelta {
-    return {
-        previousPageCount: pageCount,
-        pages: order.map(fromPageNumber => ({fromPageNumber})),
-    };
-}
-
-export function createInsertIdentityDelta(
-    pageCount: number,
-    afterPage: number,
-    insertedPageCount: number,
-): IPageIdentityDelta {
-    const before = Array.from({length: afterPage}, (_value, index) => ({fromPageNumber: index + 1}));
-    const inserted = Array.from({length: insertedPageCount}, () => ({insertedId: randomUUID()}));
-    const after = Array.from({length: pageCount - afterPage}, (_value, index) => ({fromPageNumber: afterPage + index + 1}));
-    return {
-        previousPageCount: pageCount,
-        pages: [
-            ...before,
-            ...inserted,
-            ...after,
-        ],
-    };
-}
-
-/** Publishes durable page IDs and remaps the OCR catalog through the same delta. */
+/** Publishes durable page identities and leaves OCR remapping at its existing seam. */
 export async function commitPageIdentityDelta(
     workingCopyPath: string,
     delta: IPageIdentityDelta,
     nextRevision: IDocumentRevisionInfo,
 ) {
-    const priorIds = await readPageIds(workingCopyPath, delta.previousPageCount);
-    const mappedPageIds = delta.pages.map(page => (
-        'insertedId' in page ? page.insertedId : priorIds[page.fromPageNumber - 1]
-    ));
-    if (mappedPageIds.some(id => !id) || new Set(mappedPageIds).size !== mappedPageIds.length) {
-        throw new Error('Page identity delta is not a one-to-one mapping');
-    }
-    const pageIds = mappedPageIds.filter((id): id is string => typeof id === 'string');
+    assertPageCount(delta.previousPageCount, 'previousPageCount');
+    const priorState = await readPageIdentityState(workingCopyPath, delta.previousPageCount) ?? createIdentityState(delta.previousPageCount);
+    const nextState = priorState.sidecarSource === undefined
+        ? applyPageIdentityDelta(priorState, delta)
+        : undefined;
+    await assertRevisionFence(workingCopyPath, priorState, nextRevision);
     await remapOcrCatalog(workingCopyPath, delta, nextRevision);
     await remapSearchIndexes(workingCopyPath, delta, nextRevision);
-    const sidecar: IPageIdentitySidecar = {
-        version: 1,
-        documentRevisionToken: nextRevision.token,
-        pageIds,
-    };
-    await writeJsonAtomic(sidecarPath(workingCopyPath), sidecar);
+    await assertRevisionFence(workingCopyPath, priorState, nextRevision);
+    if (nextState === undefined) {
+        const sidecarSource = priorState.sidecarSource;
+        if (sidecarSource === undefined) {
+            throw new Error('Page identity source is not available for streaming migration');
+        }
+        await writeIdentityStateFromSidecarSource(
+            getPageIdentitySidecarPath(workingCopyPath),
+            {
+                pageCount: priorState.pageCount,
+                sidecarSource,
+            },
+            delta,
+            nextRevision.token,
+            PAGE_IDENTITY_SIDECAR_VERSION,
+            derivePageIdentity,
+        );
+    } else {
+        await writeIdentityState(workingCopyPath, nextState, nextRevision.token);
+    }
 }
 
-async function remapSearchIndexes(
-    workingCopyPath: string,
-    delta: IPageIdentityDelta,
-    nextRevision: IDocumentRevisionInfo,
-) {
+async function remapSearchIndexes(workingCopyPath: string, delta: IPageIdentityDelta, nextRevision: IDocumentRevisionInfo) {
+    const classification = await classifySearchIndexOperation(workingCopyPath, delta.previousPageCount);
+    if (classification.isXlarge) {
+        await invalidateSearchIndexSidecars(workingCopyPath);
+        return;
+    }
     const previousRevision = await readWorkingCopyRevisionSidecar(workingCopyPath);
     if (!previousRevision) {
         return;
@@ -249,24 +794,13 @@ async function remapSearchIndexes(
         loadSearchIndex(workingCopyPath, previousRevision.token),
         loadCompactSearchIndex(workingCopyPath, {documentRevision: previousRevision.token}),
     ]);
-    const remapPages = <T extends {pageNumber: number}>(pages: readonly T[]) => {
-        const pagesByNumber = new Map(pages.map(page => [
-            page.pageNumber,
-            page,
-        ]));
-        return delta.pages.flatMap((identity, index): T[] => {
-            if (!('fromPageNumber' in identity)) {
-                return [];
-            }
-            const page = pagesByNumber.get(identity.fromPageNumber);
-            return page
-                ? [{
-                    ...page,
-                    pageNumber: index + 1,
-                }]
-                : [];
-        });
-    };
+    const remapPages = <T extends {pageNumber: number}>(pages: readonly T[]) => pages.flatMap(page => {
+        const pageNumber = mapPageNumberThroughPageIdentityDelta(delta, page.pageNumber);
+        return pageNumber === null ? [] : [{
+            ...page,
+            pageNumber,
+        }];
+    });
     await Promise.all([
         legacy
             ? (async () => {
@@ -278,7 +812,7 @@ async function remapSearchIndexes(
                         schemaVersion: SEARCH_INDEX_SCHEMA_VERSION,
                         documentRevision: {token: nextRevision.token},
                         createdAt: Date.now(),
-                        pageCount: delta.pages.length,
+                        pageCount: delta.nextPageCount ?? delta.pages?.length ?? 0,
                         pages: remapPages(legacy.pages),
                     }), 'utf8');
                     await atomicReplace(tempPath, indexPath);
@@ -290,7 +824,7 @@ async function remapSearchIndexes(
         compact
             ? persistCompactSearchIndex(workingCopyPath, {
                 documentRevision: nextRevision.token,
-                pageCount: delta.pages.length,
+                pageCount: delta.nextPageCount ?? delta.pages?.length ?? 0,
                 pages: remapPages(compact.pages),
                 textSource: compact.textSource,
             })
@@ -299,17 +833,65 @@ async function remapSearchIndexes(
 }
 
 function isIdentityPageDelta(delta: IPageIdentityDelta) {
-    return delta.pages.length === delta.previousPageCount
+    return delta.pages !== undefined
+        && delta.pages.length === delta.previousPageCount
         && delta.pages.every((page, index) => 'fromPageNumber' in page && page.fromPageNumber === index + 1);
 }
 
-async function remapOcrCatalog(
+async function remapOcrCatalogAfterV3Migration(
     workingCopyPath: string,
-    delta: IPageIdentityDelta,
+    delta: IOcrRangeIdentityDelta,
     nextRevision: IDocumentRevisionInfo,
 ) {
+    await migrateOcrIndexV3ToV4({
+        catalogRoot: `${workingCopyPath}.ocr`,
+        sourcePdfPath: workingCopyPath,
+        workingCopyPath,
+    });
+    return remapOcrCatalogV4PageRanges(workingCopyPath, delta, nextRevision);
+}
+
+async function remapOcrCatalog(workingCopyPath: string, delta: IPageIdentityDelta, nextRevision: IDocumentRevisionInfo) {
+    const rangeDelta = createOcrRangeDelta(delta);
+    // OCR v4 stores page mappings in bounded shards. Give it range operations
+    // first so a large document never falls back to a full page permutation.
+    if (rangeDelta !== null) {
+        const remappedV4 = await remapOcrCatalogV4PageRanges(workingCopyPath, rangeDelta, nextRevision);
+        if (remappedV4) {
+            return;
+        }
+    }
+
+    if (delta.pages === undefined || delta.previousPageCount > OCR_V3_DIRECT_REMAP_PAGE_LIMIT) {
+        if (rangeDelta === null) {
+            throw new Error('Large OCR page remaps require sparse range operations');
+        }
+        await remapOcrCatalogAfterV3Migration(workingCopyPath, rangeDelta, nextRevision);
+        return;
+    }
+
+    // OCR v3 stores one manifest entry per page. Keep this seam for the
+    // existing small-document remapper when no v4 catalog exists. Read only
+    // bounded metadata before deciding whether the legacy object is safe to
+    // parse. Larger catalogs are migrated to v4 and remapped through shards.
     const ocrDir = `${workingCopyPath}.ocr`;
     const manifestPath = join(ocrDir, 'manifest.json');
+    const metadata = await readOcrIndexV3ManifestMetadata(manifestPath).catch(() => null);
+    if (metadata === null) {
+        return;
+    }
+
+    if (
+        metadata.pageCount > OCR_V3_DIRECT_REMAP_PAGE_LIMIT
+        || rangeDelta === null
+    ) {
+        if (rangeDelta === null) {
+            throw new Error('Large OCR page remaps require sparse range operations');
+        }
+        await remapOcrCatalogAfterV3Migration(workingCopyPath, rangeDelta, nextRevision);
+        return;
+    }
+
     const manifest = await readFile(manifestPath, 'utf8')
         .then(raw => parseOcrIndexV3Manifest(JSON.parse(raw), 'strict'))
         .catch(() => null);

@@ -9,7 +9,6 @@ import type {
     ShallowRef,
 } from 'vue';
 import { delay } from 'es-toolkit/promise';
-import { range } from 'es-toolkit/math';
 import type {
     IAnnotationMarkerRect,
     IAnnotationSettings,
@@ -29,6 +28,7 @@ import type {
 import { errorToLogText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/errorToLogText';
 import { toCssColor } from '@app/modules/pdf-viewer/engine/annotation-css-utils/toCssColor';
 import {
+    asPdfjsEditor,
     clearSelectedEditorState,
     createPdfHighlightEditorClassPatch,
     getActiveEditor,
@@ -41,6 +41,7 @@ import {
     updateEditorDefaultParams,
     updatePdfjsAnnotationManagerParams,
 } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
+import { getAnnotationEditorPageSearchOrder } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/getAnnotationEditorPageSearchOrder';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { createAnnotationMarkupSubtypeDrawLayer } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer';
 import { findClosestHighlightDrawLayerSvg } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/findClosestHighlightDrawLayerSvg';
@@ -92,6 +93,8 @@ interface IUseAnnotationToolStateOptions {
     annotationKeepActive: Ref<boolean>;
     annotationSettings: Ref<IAnnotationSettings | null>;
     numPages: Ref<number>;
+    getMountedPageNumbers?: () => readonly number[];
+    getAnnotationPageIndexes?: () => Iterable<number>;
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
     /** Canonical text-markup subtypes keyed by external id, owned by AnnotationStore. */
     getCanonicalMarkupSubtypes: () => ReadonlyMap<string, TMarkupSubtype>;
@@ -117,6 +120,8 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         annotationKeepActive,
         annotationSettings,
         numPages,
+        getMountedPageNumbers,
+        getAnnotationPageIndexes,
         getEditorIdentity,
         getCanonicalMarkupSubtypes,
         recordCanonicalMarkupSubtype,
@@ -219,6 +224,22 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
             || Boolean(getPdfjsEditorFacadeState(editor).markupBoxes?.length)
             || Boolean(resolveEditorMarkupSubtypeOverride(editor, pageIndex))
             || Boolean(resolveEditorSubtypeFromPresentation(editor));
+    }
+
+    function resolveMountedPageIndexes() {
+        const pageNumbers = getMountedPageNumbers?.() ?? [currentPage.value];
+        return Array.from(pageNumbers, pageNumber => (
+            Number.isSafeInteger(pageNumber) ? pageNumber - 1 : Number.NaN
+        ));
+    }
+
+    function resolvePresentationPageIndexes(preferredPageIndex = currentPage.value - 1) {
+        return getAnnotationEditorPageSearchOrder({
+            annotationPageIndexes: getAnnotationPageIndexes?.(),
+            mountedPageIndexes: resolveMountedPageIndexes(),
+            numPages: numPages.value,
+            preferredPageIndex,
+        });
     }
 
     function resolveEditorPageMarkupIndex(editor: IPdfjsEditor, pageIndex: number, identity: string) {
@@ -669,16 +690,26 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     function readMarkupSubtypeEditorPresentation(pageNumbers?: readonly number[]) {
         const uiManager = annotationUiManager.value;
         const requestedPages = pageNumbers
-            ?? Array.from({length: numPages.value}, (_unused, pageIndex) => pageIndex + 1);
+            ?? resolvePresentationPageIndexes().map(pageIndex => pageIndex + 1);
         if (!uiManager) {
             return {
                 editors: [],
                 unresolvedPageNumbers: requestedPages,
             };
         }
+        const editorsByPage = new Map<number, IPdfjsEditor[]>();
+        const getPageEditors = (pageIndex: number) => {
+            const existing = editorsByPage.get(pageIndex);
+            if (existing) {
+                return existing;
+            }
+            const pageEditors = getEditorsOnPage(uiManager, pageIndex);
+            editorsByPage.set(pageIndex, pageEditors);
+            return pageEditors;
+        };
         const editors = requestedPages.flatMap((pageNumber) => {
             const pageIndex = pageNumber - 1;
-            return getEditorsOnPage(uiManager, pageIndex)
+            return getPageEditors(pageIndex)
                 .filter(editor => isMarkupEditorCandidate(editor, pageIndex))
                 .map(editor => ({
                     color: (() => {
@@ -695,7 +726,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         const unresolvedPageNumbers: number[] = [];
         for (const pageNumber of requestedPages) {
             const pageIndex = pageNumber - 1;
-            if (getEditorsOnPage(uiManager, pageIndex).some(editor => (
+            if (getPageEditors(pageIndex).some(editor => (
                 isMarkupEditorCandidate(editor, pageIndex) && !editor.div
             ))) {
                 unresolvedPageNumbers.push(pageNumber);
@@ -831,15 +862,19 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         }
 
         const activeEditor = getActiveEditor(uiManager);
-        const candidates = activeEditor
-            ? [activeEditor]
-            : range(numPages.value).flatMap(pageIndex => getEditorsOnPage(uiManager, pageIndex));
+        const firstSelectedEditor = asPdfjsEditor(
+            (uiManager as AnnotationEditorUIManager & {firstSelectedEditor?: unknown}).firstSelectedEditor,
+        );
+        const selectedEditor = activeEditor ?? firstSelectedEditor;
+        const candidates = selectedEditor
+            ? [selectedEditor]
+            : resolvePresentationPageIndexes().flatMap(pageIndex => getEditorsOnPage(uiManager, pageIndex));
 
         for (const editor of candidates) {
             const pageIndex = Number.isFinite(editor.parentPageIndex)
                 ? Math.max(0, editor.parentPageIndex as number)
                 : Math.max(0, currentPage.value - 1);
-            const isSelected = activeEditor === editor
+            const isSelected = selectedEditor === editor
                 || editor.isSelected === true
                 || editor.div?.classList.contains('selectedEditor') === true
                 || editor.div?.classList.contains('selected') === true;

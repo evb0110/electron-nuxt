@@ -24,7 +24,9 @@ import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/compos
 import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
+import { isNativeDocumentRef } from '@app/utils/documentRef';
 import { hasViewerShapeChanges } from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
+import type { INativePdfSaveTransactionOptions } from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
 
 type TPageSaveViewer = IPdfViewerExpose & {
     captureScrollSnapshot?: () => IScrollSnapshot | null;
@@ -211,6 +213,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         },
         pdf: {
             document: pdfDocument,
+            commitEditorsForSave: async () => {
+                await pdfViewerRef.value?.commitPdfEditorsForSave?.();
+            },
             runSaveTransaction: request => pdfViewerRef.value?.runSaveTransaction(request)
                 ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
             getSourceData: getSourcePdfData,
@@ -352,6 +357,46 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         return handleSaveWithReload();
     }
 
+    function getNativeSaveTransactionOptions(): INativePdfSaveTransactionOptions {
+        const documentFiles = getDocumentFilesCapability();
+        const canStageNativeMutation = (
+            typeof documentFiles.createManagedTempFileHandle === 'function'
+            && typeof documentFiles.releaseManagedTempFileHandle === 'function'
+            && typeof documentFiles.applyPdfNativeMutationsToWorkingCopy === 'function'
+        );
+        const canConsumeNativeMutation = (
+            typeof documentFiles.cloneStagedPdfNativeMutationToWorkingCopy === 'function'
+            && typeof documentFiles.replaceWorkingCopyFromStagedPdfNativeMutation === 'function'
+        );
+        return {
+            forcePdfjsMaterialize: (
+                (hasPreservedAnnotationSourceChanges?.() ?? false)
+                || (hasSavedPdfJsAnnotationBaselineChanges?.() ?? false)
+            ),
+            nativeCapabilities: {
+                hasNativePdfMutationCapability: canStageNativeMutation,
+                canPersistNativeMetadataMutations: canStageNativeMutation && canConsumeNativeMutation,
+            },
+            dirtyState: {
+                annotationDirty: annotationDirty.value,
+                hasAnnotationChanges: hasAnnotationChanges(),
+                hasLivePdfJsAnnotationChanges: hasLivePdfJsAnnotationChanges?.() ?? false,
+                savedPdfjsAnnotationBaselineDirty: hasSavedPdfJsAnnotationBaselineChanges?.() ?? false,
+                shapeStateDirty: hasViewerShapeChanges(pdfViewerRef.value),
+            },
+            documentStructure: {
+                pageLabelsDirty: pageLabelsDirty.value,
+                pageLabelRanges: pageLabelRanges.value,
+                bookmarksDirty: bookmarksDirty.value,
+                bookmarkItems: bookmarkItems.value,
+                untitledBookmarkLabel: t('bookmarks.untitled'),
+                totalPages: totalPages.value > 0
+                    ? totalPages.value
+                    : (pdfDocument.value?.numPages ?? 0),
+            },
+        };
+    }
+
     async function createRecoverySnapshotBytesUnlocked() {
         const viewer = pdfViewerRef.value;
         const capturedWorkingCopyPath = workingCopyPath.value;
@@ -361,6 +406,14 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             && documentRevisionToken.value === capturedDocumentRevisionToken
         );
         if (!viewer || !capturedWorkingCopyPath || !hasPendingUnsavedChanges?.value) {
+            return null;
+        }
+
+        // Desktop recovery persists the managed working-copy path through the
+        // workspace checkpoint. Do not create a detached renderer byte snapshot
+        // for a native path. Browser recovery still uses this byte API because
+        // its durable store is browser-owned.
+        if (isNativeDocumentRef(capturedWorkingCopyPath)) {
             return null;
         }
         if (!await persistAllAnnotationNotes()) {
@@ -449,6 +502,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         handleOptimizePdfAsCopy,
         handleSaveAs,
         saveForExternalRead,
+        getNativeSaveTransactionOptions,
         createRecoverySnapshotBytes,
         isAnySaving,
         canSave,

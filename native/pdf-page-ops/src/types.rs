@@ -87,6 +87,301 @@ impl PdfRect {
 }
 
 const PDF_REFERENCE_LIMIT: usize = 128;
+const PAGE_TREE_DEPTH_LIMIT: usize = 256;
+
+#[cfg(test)]
+thread_local! {
+    static PAGE_TREE_NODE_READ_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_page_tree_node_read_count() {
+    PAGE_TREE_NODE_READ_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn page_tree_node_read_count() -> usize {
+    PAGE_TREE_NODE_READ_COUNT.with(std::cell::Cell::get)
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PageTreeResolver {
+    root_pages_id: ObjectId,
+    page_count: u32,
+}
+
+impl PageTreeResolver {
+    pub(crate) fn new(document: &impl PdfObjectSource) -> Result<Self> {
+        let catalog = document.dictionary(document.root_id()?)?;
+        let root_pages_id = catalog
+            .get(b"Pages")?
+            .as_reference()
+            .map_err(|_| "PDF catalog /Pages must be an indirect reference")?;
+        let root_pages = page_tree_dictionary(document, root_pages_id)?;
+        if page_tree_node_kind(root_pages)? != PageTreeNodeKind::Pages {
+            return Err("PDF catalog /Pages must reference a /Pages node".into());
+        }
+        let page_count = page_tree_count(document, root_pages)?;
+        let page_count = u32::try_from(page_count)
+            .map_err(|_| "PDF page count exceeds the supported integer range")?;
+        Ok(Self {
+            root_pages_id,
+            page_count,
+        })
+    }
+
+    pub(crate) fn page_count(&self) -> u32 {
+        self.page_count
+    }
+
+    /// Return the root `/Pages /Count` declaration. Consumers that enumerate
+    /// the tree should compare it with `for_each_page_id_with_count` rather
+    /// than treating it as proof that every leaf is reachable.
+    pub(crate) fn declared_page_count(&self) -> u32 {
+        self.page_count
+    }
+
+    pub(crate) fn page_id(
+        &self,
+        document: &impl PdfObjectSource,
+        page_number: u32,
+    ) -> Result<ObjectId> {
+        if page_number == 0 || page_number > self.page_count {
+            return Err(page_range_error(page_number, self.page_count));
+        }
+        let mut seen = HashSet::new();
+        resolve_page_tree_id(
+            document,
+            self.root_pages_id,
+            u64::from(page_number - 1),
+            &mut seen,
+            0,
+        )
+    }
+
+    /// Visit every leaf page without retaining a page-number-to-object map.
+    /// Callers should use this only for checks whose result depends on every
+    /// page, such as proving that a deleted annotation is no longer referenced.
+    pub(crate) fn for_each_page_id<F>(
+        &self,
+        document: &impl PdfObjectSource,
+        visit: F,
+    ) -> Result<()>
+    where
+        F: FnMut(ObjectId) -> Result<()>,
+    {
+        self.for_each_page_id_with_count(document, visit)
+            .map(|_| ())
+    }
+
+    /// Visit every leaf page and return the number of reachable leaves.
+    ///
+    /// The walk keeps only the current structural path in `seen`; callers can
+    /// use the returned count to distinguish the root `/Count` declaration
+    /// from the pages that were actually reachable without building a dense
+    /// page map. A mismatch fails before the caller can publish its output.
+    pub(crate) fn for_each_page_id_with_count<F>(
+        &self,
+        document: &impl PdfObjectSource,
+        mut visit: F,
+    ) -> Result<u64>
+    where
+        F: FnMut(ObjectId) -> Result<()>,
+    {
+        let mut seen = HashSet::new();
+        let visited = walk_page_tree(document, self.root_pages_id, &mut seen, 0, &mut visit)?;
+        if visited != u64::from(self.page_count) {
+            return Err(format!(
+                "PDF page tree declared {} pages but contains {visited}",
+                self.page_count
+            )
+            .into());
+        }
+        Ok(visited)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PageTreeNodeKind {
+    Page,
+    Pages,
+}
+
+fn page_tree_node_kind(dictionary: &Dictionary) -> Result<PageTreeNodeKind> {
+    match dictionary.get(b"Type")?.as_name()? {
+        b"Page" => Ok(PageTreeNodeKind::Page),
+        b"Pages" => Ok(PageTreeNodeKind::Pages),
+        type_name => Err(format!(
+            "PDF page tree node has unsupported /Type /{}",
+            String::from_utf8_lossy(type_name)
+        )
+        .into()),
+    }
+}
+
+fn page_tree_count(document: &impl PdfObjectSource, dictionary: &Dictionary) -> Result<u64> {
+    let count = document.resolved(dictionary.get(b"Count")?)?.as_i64()?;
+    if count < 0 {
+        return Err("PDF page tree /Count must not be negative".into());
+    }
+    u64::try_from(count).map_err(|_| "PDF page tree /Count is invalid".into())
+}
+
+fn page_tree_dictionary(document: &impl PdfObjectSource, node_id: ObjectId) -> Result<&Dictionary> {
+    let dictionary = document.dictionary(node_id)?;
+    #[cfg(test)]
+    if dictionary
+        .get(b"Type")
+        .ok()
+        .and_then(|object| object.as_name().ok())
+        .is_some_and(|name| name == b"Page" || name == b"Pages")
+    {
+        PAGE_TREE_NODE_READ_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+    }
+    Ok(dictionary)
+}
+
+fn page_tree_kids<'a>(
+    document: &'a impl PdfObjectSource,
+    dictionary: &'a Dictionary,
+) -> Result<&'a [Object]> {
+    Ok(document
+        .resolved(dictionary.get(b"Kids")?)?
+        .as_array()?
+        .as_slice())
+}
+
+fn page_tree_child_id(object: &Object) -> Result<ObjectId> {
+    object
+        .as_reference()
+        .map_err(|_| "PDF page tree /Kids must contain indirect references".into())
+}
+
+fn page_range_error(page_number: u32, page_count: u32) -> Box<dyn Error> {
+    format!("Page {page_number} is outside the document page range 1-{page_count}").into()
+}
+
+fn resolve_page_tree_id(
+    document: &impl PdfObjectSource,
+    node_id: ObjectId,
+    target_page_index: u64,
+    seen: &mut HashSet<ObjectId>,
+    depth: usize,
+) -> Result<ObjectId> {
+    if depth >= PAGE_TREE_DEPTH_LIMIT {
+        return Err("PDF page tree exceeded the structural depth limit".into());
+    }
+    if !seen.insert(node_id) {
+        return Err("PDF page tree contains a reference cycle".into());
+    }
+
+    let dictionary = page_tree_dictionary(document, node_id)?;
+    let result = match page_tree_node_kind(dictionary)? {
+        PageTreeNodeKind::Page => {
+            if target_page_index == 0 {
+                Ok(node_id)
+            } else {
+                Err("PDF page tree did not contain the requested page".into())
+            }
+        }
+        PageTreeNodeKind::Pages => {
+            let kids = page_tree_kids(document, dictionary)?;
+            let declared_count = page_tree_count(document, dictionary)?;
+            // A /Kids array whose length equals /Count has one page per child
+            // in a well-formed tree. Indexing that array directly keeps flat
+            // million-page trees sparse; a multi-page child falls through to
+            // the count-aware walk below.
+            if let Ok(kid_index) = usize::try_from(target_page_index) {
+                if declared_count == u64::try_from(kids.len()).unwrap_or(u64::MAX) {
+                    if let Some(kid) = kids.get(kid_index) {
+                        let kid_id = page_tree_child_id(kid)?;
+                        let kid_dictionary = page_tree_dictionary(document, kid_id)?;
+                        match page_tree_node_kind(kid_dictionary)? {
+                            PageTreeNodeKind::Page => {
+                                seen.remove(&node_id);
+                                return Ok(kid_id);
+                            }
+                            PageTreeNodeKind::Pages
+                                if page_tree_count(document, kid_dictionary)? == 1 =>
+                            {
+                                let result =
+                                    resolve_page_tree_id(document, kid_id, 0, seen, depth + 1);
+                                seen.remove(&node_id);
+                                return result;
+                            }
+                            PageTreeNodeKind::Pages => {}
+                        }
+                    }
+                }
+            }
+            let mut skipped_pages = 0_u64;
+            let mut result = Err("PDF page tree did not contain the requested page".into());
+            for kid in kids {
+                let kid_id = page_tree_child_id(kid)?;
+                let kid_dictionary = page_tree_dictionary(document, kid_id)?;
+                let kid_count = match page_tree_node_kind(kid_dictionary)? {
+                    PageTreeNodeKind::Page => 1,
+                    PageTreeNodeKind::Pages => page_tree_count(document, kid_dictionary)?,
+                };
+                let end = skipped_pages
+                    .checked_add(kid_count)
+                    .ok_or("PDF page tree page count overflow")?;
+                if target_page_index < end {
+                    result = resolve_page_tree_id(
+                        document,
+                        kid_id,
+                        target_page_index - skipped_pages,
+                        seen,
+                        depth + 1,
+                    );
+                    break;
+                }
+                skipped_pages = end;
+            }
+            result
+        }
+    };
+    seen.remove(&node_id);
+    result
+}
+
+fn walk_page_tree<F>(
+    document: &impl PdfObjectSource,
+    node_id: ObjectId,
+    seen: &mut HashSet<ObjectId>,
+    depth: usize,
+    visit: &mut F,
+) -> Result<u64>
+where
+    F: FnMut(ObjectId) -> Result<()>,
+{
+    if depth >= PAGE_TREE_DEPTH_LIMIT {
+        return Err("PDF page tree exceeded the structural depth limit".into());
+    }
+    if !seen.insert(node_id) {
+        return Err("PDF page tree contains a reference cycle".into());
+    }
+
+    let dictionary = page_tree_dictionary(document, node_id)?;
+    let result = match page_tree_node_kind(dictionary)? {
+        PageTreeNodeKind::Page => {
+            visit(node_id)?;
+            Ok(1)
+        }
+        PageTreeNodeKind::Pages => {
+            let mut count = 0_u64;
+            for kid in page_tree_kids(document, dictionary)? {
+                let kid_id = page_tree_child_id(kid)?;
+                count = count
+                    .checked_add(walk_page_tree(document, kid_id, seen, depth + 1, visit)?)
+                    .ok_or("PDF page tree page count overflow")?;
+            }
+            Ok(count)
+        }
+    };
+    seen.remove(&node_id);
+    result
+}
 
 pub(crate) trait PdfObjectSource {
     fn stored_object(&self, object_id: ObjectId) -> Option<&Object>;
@@ -204,6 +499,12 @@ pub(crate) enum Operation {
         mutations_file: PathBuf,
         modified_at: String,
         append: bool,
+    },
+    AnnotationNameIndex,
+    EmbeddedShapeIndex,
+    PdfConformance,
+    PageGeometry {
+        page_number: u32,
     },
     PageSizes,
 }

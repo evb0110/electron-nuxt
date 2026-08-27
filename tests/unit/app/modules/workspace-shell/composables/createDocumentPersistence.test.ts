@@ -11,6 +11,7 @@ import { createDocumentSessionState } from '@app/modules/workspace-shell/viewers
 import { requirePageIndex } from '@contracts/pageNumbers';
 import type { TTranslateFn } from '@i18n-app';
 import {requireDocumentRevisionToken} from '@contracts';
+import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 const TEST_DOCUMENT_REVISION_TOKEN = requireDocumentRevisionToken('drt1:test:persistence-base');
 
@@ -68,8 +69,8 @@ vi.mock('@app/utils/platformDocuments', () => ({
 vi.mock('@app/services/pdf-file/savePdfBytesToWorkingCopy', () => ({savePdfBytesToWorkingCopy: mocks.savePdfBytesToWorkingCopy}));
 vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: mocks.readDocumentBytes}));
 
-function createPersistenceHarness() {
-    const state = createDocumentSessionState({ isDesktopRuntime: ref(false) });
+function createPersistenceHarness(isDesktopRuntime = false) {
+    const state = createDocumentSessionState({ isDesktopRuntime: ref(isDesktopRuntime) });
     state.workingCopyPath.value = '/tmp/old-working.pdf';
     state.originalPath.value = '/tmp/original.pdf';
     state.documentRevisionToken.value = TEST_DOCUMENT_REVISION_TOKEN;
@@ -461,9 +462,9 @@ describe('createDocumentPersistence', () => {
             '/tmp/old-working.pdf',
             mutations,
             'D:20260628123456+03\'00\'',
-            expect.objectContaining({byteLength: 3}),
             {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
+        expect(mocks.documentFilesCapability.createManagedTempFileHandle).not.toHaveBeenCalled();
         expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledWith(
             '/tmp/old-working.pdf',
             expect.objectContaining({leaseId: 'staged-native-lease'}),
@@ -568,7 +569,7 @@ describe('createDocumentPersistence', () => {
 
     it('never allocates a renderer byte array for a large staged native artifact', async () => {
         const { persistence } = createPersistenceHarness();
-        const largeSize = 512 * 1024 * 1024;
+        const largeSize = (2 * 1024 * 1024 * 1024) + 1;
         mocks.documentFilesCapability.applyPdfNativeMutationsToWorkingCopy.mockResolvedValueOnce({
             applied: true,
             validation: {
@@ -617,6 +618,7 @@ describe('createDocumentPersistence', () => {
 
         expect(result?.success).toBe(true);
         expect(mocks.readDocumentBytes).not.toHaveBeenCalled();
+        expect(mocks.documentFilesCapability.createManagedTempFileHandle).not.toHaveBeenCalled();
         expect(callOrder).toEqual([
             'verify',
             'commit',
@@ -649,7 +651,6 @@ describe('createDocumentPersistence', () => {
             '/tmp/old-working.pdf',
             mutations,
             'D:20260628123526+03\'00\'',
-            expect.objectContaining({byteLength: 3}),
             {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledWith(
@@ -808,6 +809,28 @@ describe('createDocumentPersistence', () => {
         ]));
     });
 
+    it('keeps a browser snapshot above the full-read budget on the path reload branch', async () => {
+        const {
+            deps,
+            persistence,
+            state,
+        } = createPersistenceHarness();
+        const data = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
+
+        await expect(persistence.saveFile(data, { preserveLoadedSource: true }))
+            .resolves.toMatchObject({success: true});
+
+        expect(deps.readPdfStateFromPath).not.toHaveBeenCalled();
+        expect(state.pdfData.value).toBeNull();
+        expect(state.pdfSrc.value).toBeNull();
+        expect(state.pdfReloadSrc.value).toEqual({
+            kind: 'path',
+            path: '/tmp/old-working.pdf',
+            size: 3,
+            revision: expect.any(String),
+        });
+    });
+
     it('adopts a native save as a revision-bound path without rereading renderer bytes', async () => {
         const {
             deps,
@@ -855,6 +878,58 @@ describe('createDocumentPersistence', () => {
                 workingPath: '/tmp/old-working.pdf',
                 revision: nextRevision,
                 size: 3,
+            },
+            recordSnapshotChange: false,
+        });
+    });
+
+    it('adopts a 2+ GiB desktop path save without reading renderer bytes', async () => {
+        const {
+            deps,
+            persistence,
+            state,
+        } = createPersistenceHarness(true);
+        const largeDocumentSize = (2 * 1024 * 1024 * 1024) + 1;
+        const pathSource = {
+            kind: 'path' as const,
+            path: '/tmp/old-working.pdf',
+            size: largeDocumentSize,
+            revision: TEST_DOCUMENT_REVISION_TOKEN,
+        };
+        state.pdfSrc.value = pathSource;
+        state.pdfReloadSrc.value = pathSource;
+        state.pdfData.value = null;
+        const nextRevision = requireDocumentRevisionToken('drt1:test:persistence-after-save');
+        mocks.documentFilesCapability.statFile.mockResolvedValueOnce({
+            size: largeDocumentSize,
+            modifiedAt: 2,
+        });
+
+        const result = await persistence.saveWorkingCopy();
+
+        expect(result.success).toBe(true);
+        expect(mocks.documentFilesCapability.saveFileStructured).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
+        );
+        expect(mocks.readDocumentBytes).not.toHaveBeenCalled();
+        expect(deps.readPdfStateFromPath).not.toHaveBeenCalled();
+        expect(state.pdfData.value).toBeNull();
+        expect(state.pdfSrc.value).toEqual({
+            ...pathSource,
+            size: largeDocumentSize,
+            revision: nextRevision,
+        });
+        expect(state.pdfReloadSrc.value).toEqual({
+            ...pathSource,
+            size: largeDocumentSize,
+            revision: nextRevision,
+        });
+        expect(deps.markCurrentHistoryEntryClean).toHaveBeenCalledWith(null, {
+            lazyBaseline: {
+                workingPath: '/tmp/old-working.pdf',
+                revision: nextRevision,
+                size: largeDocumentSize,
             },
             recordSnapshotChange: false,
         });

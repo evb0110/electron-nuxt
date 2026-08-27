@@ -1,12 +1,5 @@
 use super::*;
 
-#[derive(Clone, Copy)]
-pub(crate) struct PageGeometry {
-    pub(crate) media_box: PdfRect,
-    pub(crate) crop_box: Option<PdfRect>,
-    pub(crate) rotation: i64,
-}
-
 pub(crate) struct PageMutationBytes {
     pub(crate) data: Vec<u8>,
     pub(crate) page_count: u32,
@@ -170,19 +163,58 @@ pub(crate) fn get_browser_page_geometry(
     document: &Document,
     page_number: u32,
 ) -> Result<PageGeometry> {
-    let page_map = document.get_pages();
-    let page_id = resolve_page_id(&page_map, page_number)?;
-    let media_box = resolve_inherited_box(document, page_id, b"MediaBox")?;
-    let crop_box = resolve_inherited_box(document, page_id, b"CropBox")
-        .ok()
-        .and_then(|crop_box| intersect_rect(crop_box, media_box))
-        .filter(|crop_box| !pdf_rects_equal(*crop_box, media_box));
+    get_page_geometry(document, page_number)
+}
 
-    Ok(PageGeometry {
-        media_box,
-        crop_box,
-        rotation: resolve_page_rotation(document, page_id)?,
-    })
+pub(crate) fn crop_pages(
+    document: &mut Document,
+    pages: &[u32],
+    margins: CropMargins,
+) -> Result<()> {
+    validate_crop_margins(margins)?;
+    let page_map = document.get_pages();
+    let mut preflighted_pages = Vec::new();
+    preflighted_pages
+        .try_reserve_exact(pages.len())
+        .map_err(|_| "Too many pages selected for crop")?;
+    for page_number in pages {
+        let page_id = resolve_page_id(&page_map, *page_number)?;
+        let media_box = resolve_inherited_box(document, page_id, b"MediaBox")?;
+        let crop_width = media_box.width() - margins.left - margins.right;
+        let crop_height = media_box.height() - margins.top - margins.bottom;
+        if crop_width <= 0.0 || crop_height <= 0.0 {
+            return Err(format!(
+                "Crop margins consume page {page_number} ({} x {})",
+                media_box.width(),
+                media_box.height()
+            )
+            .into());
+        }
+        let crop_box = PdfRect {
+            x1: media_box.x1 + margins.left,
+            y1: media_box.y1 + margins.bottom,
+            x2: media_box.x1 + margins.left + crop_width,
+            y2: media_box.y1 + margins.bottom + crop_height,
+        };
+        preflighted_pages.push((page_id, crop_box));
+    }
+
+    for (page_id, crop_box) in preflighted_pages {
+        let page = document.get_dictionary_mut(page_id)?;
+        set_page_crop_box_on_dictionary(page, crop_box);
+    }
+    Ok(())
+}
+
+pub(crate) fn remove_crop_from_pages(document: &mut Document, pages: &[u32]) -> Result<()> {
+    let page_map = document.get_pages();
+    for page_number in pages {
+        let page_id = resolve_page_id(&page_map, *page_number)?;
+        let media_box = resolve_inherited_box(document, page_id, b"MediaBox")?;
+        let page = document.get_dictionary_mut(page_id)?;
+        set_page_crop_box_on_dictionary(page, media_box);
+    }
+    Ok(())
 }
 
 pub(crate) fn crop_browser_pdf_bytes(
@@ -644,8 +676,4 @@ pub(crate) fn resolve_inherited_object(
     }
 
     Ok(None)
-}
-
-pub(crate) fn pdf_rects_equal(left: PdfRect, right: PdfRect) -> bool {
-    left.x1 == right.x1 && left.y1 == right.y1 && left.x2 == right.x2 && left.y2 == right.y2
 }

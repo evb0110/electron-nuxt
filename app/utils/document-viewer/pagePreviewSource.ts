@@ -3,6 +3,7 @@ import type {
     IPdfSearchResponse,
     IResolvedSearchMatchOptions,
 } from '@contracts/search';
+import type {IPdfNativePageSizes} from '@contracts/electronApiDocuments';
 
 export interface IDocumentPreviewPageState {
     failedRenderPx: number;
@@ -17,6 +18,8 @@ export interface IPreviewPageSize {
     height: number;
     dpi?: number | undefined;
 }
+
+export type TPreviewPageSizes = IPreviewPageSize[] | IPdfNativePageSizes;
 
 export interface IPagePreviewSourceInfo {
     pageCount: number;
@@ -45,7 +48,7 @@ export interface IPagePreviewOutlineItem {
 export interface IPagePreviewSource {
     readonly fullResolutionDecodeBeforeScale?: boolean;
     cancelPagePreview?(pageNumber: number, requestId?: string): void;
-    getPageSizes(): Promise<IPreviewPageSize[]>;
+    getPageSizes(): Promise<TPreviewPageSizes>;
     getPageSize?(pageNumber: number): Promise<IPreviewPageSize>;
     getPageSourceInfo?(pageNumber: number): Promise<IPagePreviewSourceInfo>;
     getPageText?(pageNumber: number): Promise<string>;

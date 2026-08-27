@@ -74,6 +74,25 @@ export {
     PLATFORM_API_DESCRIPTOR,
 } from '@contracts/platformApi';
 export type { IElectronAPI } from '@contracts/electronApi';
+export {
+    PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES,
+    PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES,
+    PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES,
+} from '@contracts/electronApiDocuments';
+export type {
+    IPdfAnnotationIndexChunk,
+    IPdfAnnotationIndexChunkOptions,
+    IPdfAnnotationIndexEntry,
+    IPdfAnnotationIndexObjectRef,
+    IPdfAnnotationIndexOptions,
+    IPdfAnnotationIndexSession,
+    IPdfEmbeddedShapeIndexChunk,
+    IPdfEmbeddedShapeIndexChunkOptions,
+    IPdfEmbeddedShapeIndexEntry,
+    IPdfEmbeddedShapeIndexOptions,
+    IPdfEmbeddedShapeIndexPoint,
+    IPdfEmbeddedShapeIndexSession,
+} from '@contracts/electronApiDocuments';
 
 export {
     HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX,
@@ -268,22 +287,67 @@ export type {
 } from '@contracts/geometry';
 
 export type {
+    IAllPageSelection,
+    IComplementPageSelection,
+    IEmptyPageSelection,
+    IExceptionPageSelection,
+    IExplicitPageSelection,
+    IMappedPageSelection,
+    IPredicatePageSelection,
+    IRangePageSelection,
+    IPageMoveRange,
+    IPageMoveRangeSegment,
+    IPageMoveRanges,
+    IPageSelectionBatchOptions,
     TPageIndex,
     TPageNumber,
+    TPageMoveOperation,
+    TPageSelection,
+    TPageSelectionPredicate,
 } from '@contracts/pageNumbers';
 export {
+    buildPageMoveOrder,
+    buildPageMoveRangesOrder,
+    createAllPageSelection,
+    createComplementOfPageSelection,
+    createComplementPageSelection,
+    createEmptyPageSelection,
+    createExplicitPageSelection,
+    createMappedPageSelection,
+    createPageMoveRange,
+    createPageMoveRanges,
+    createPredicatePageSelection,
+    createRangePageSelection,
+    invertPageSelection,
+    isPageMoveNoOp,
+    isPageMoveOperationNoOp,
+    isPageMoveRangesNoOp,
+    isPageSelected,
+    iteratePageSelection,
+    iteratePageSelectionBatches,
+    iteratePageSelectionRanges,
+    mapPageNumberAfterPageMove,
+    mapPageNumberBeforePageMove,
+    materializePageSelection,
+    pageMoveRangeLength,
+    pageMoveRangesRestInsertIndex,
+    pageMoveRangesSelectedPageCount,
+    pageMoveRestInsertIndex,
+    pageSelectionCount,
     pageIndexToPageNumber,
     pageNumberToPageIndex,
     parsePageIndex,
     parsePageNumber,
     requirePageIndex,
     requirePageNumber,
+    togglePageSelection,
 } from '@contracts/pageNumbers';
 
 export { PDF_PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
 export type {
     IPdfPageLabelRange,
     IPdfPageLabelsMutation,
+    IPdfPageLabelSegment,
     TPdfPageLabelStyle,
 } from '@contracts/pdfPageLabels';
 
@@ -304,12 +368,10 @@ export {
     PDF_NATIVE_DATE_PATTERN,
     PDF_NATIVE_MUTATION_ENUM_VALUES,
     PDF_NATIVE_MUTATION_LIMITS,
-    PDF_NATIVE_SHA256_HEX_PATTERN,
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
-    normalizePdfNativeWorkingCopyExpectation,
 } from '@contracts/nativePdfMutations';
 export type {
     IPdfNativePlacedImageNativeToolPayload,
@@ -467,9 +529,42 @@ export {
 } from '@contracts/ocrText';
 
 export type {
+    IOcrCatalogV4PreparedDescriptor,
+    IOcrCatalogRootV4,
+    IOcrCatalogSourceV4,
+    IOcrGenerationV4,
+    IOcrIndexV4PageMapping,
     IOcrIndexV3Manifest,
     IOcrIndexV3Page,
+    IOcrPageMappingV4,
+    IOcrShardIndex,
+    IOcrShardIndexHeader,
+    IOcrShardIndexRecord,
+    IOcrShardV4,
     TOcrIndexRotation,
+    TOcrPageArtifact,
+} from '@contracts/ocrIndex';
+export {
+    OCR_CATALOG_PREPARED_DESCRIPTOR_VERSION,
+    OCR_CATALOG_ROOT_MAX_BYTES,
+    OCR_CATALOG_VERSION,
+    OCR_MAX_GENERATION,
+    OCR_MAX_PAGE_NUMBER,
+    OCR_MAX_SHARD_NUMBER,
+    OCR_MAX_CATALOG_RELATIVE_PATH_LENGTH,
+    OCR_MAX_WINDOW_PAGES,
+    OCR_SCALAR_PAGE_LIMIT,
+    OCR_SHARD_INDEX_HEADER_BYTES,
+    OCR_SHARD_INDEX_MAGIC,
+    OCR_SHARD_INDEX_RECORD_BYTES,
+    OCR_SHARD_SIZE,
+    decodeOcrShardIndex,
+    encodeOcrShardIndex,
+    parseOcrCatalogRootV4,
+    parseOcrCatalogV4PreparedDescriptor,
+    parseOcrGenerationV4,
+    parseOcrShardIndexHeader,
+    parseOcrShardV4,
 } from '@contracts/ocrIndex';
 
 export type {

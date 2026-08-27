@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -14,11 +15,20 @@ import {
     getDocumentFilesCapability,
     getDocumentWorkingCopyCapability,
 } from '@app/utils/platformDocuments';
-import { resolveDocumentRefBackend } from '@app/utils/documentRef';
+import {
+    isNativeDocumentRef,
+    resolveDocumentRefBackend,
+} from '@app/utils/documentRef';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
 import { resolvePdfViewerSaveTransactionFinalBytes } from '@app/modules/pdf-viewer/public';
+import { isPathPdfSource } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
+import {
+    consumeNativePdfMutationProjection,
+    NativePdfSaveRequiredError,
+    type INativePdfSaveTransactionOptions,
+} from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
 
 interface IUseWorkspaceSplitPayloadOptions {
     pdfSrc: Ref<TPdfSource | null>;
@@ -43,6 +53,8 @@ interface IUseWorkspaceSplitPayloadOptions {
     openFileWithViewerLifecycle: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
+    documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
+    getNativeSaveTransactionOptions?: () => INativePdfSaveTransactionOptions;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
@@ -70,6 +82,17 @@ function normalizeSplitPayloadTotalPages(total: number | undefined, fallbackPage
 export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptions) => {
     const runWithDocumentOperationLease = options.runWithDocumentOperationLease
         ?? runWithoutDocumentOperationLease;
+
+    function isPathBackedDesktopSnapshot() {
+        const sourcePath = options.workingCopyPath.value;
+        const source = options.pdfSrc.value;
+        return Boolean(
+            isPathPdfSource(source)
+            && sourcePath
+            && source.path === sourcePath
+            && isNativeDocumentRef(sourcePath),
+        );
+    }
 
     function createPdfSnapshotPayload(snapshotPath: TDocumentRef, isDirty: boolean): TPdfSnapshotSplitPayload {
         const normalizedCurrentPage = normalizeSplitPayloadPage(options.currentPage.value) ?? 1;
@@ -110,6 +133,15 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
 
     async function resolvePdfSnapshotData() {
         return runWithDocumentOperationLease('split-capture', async () => {
+            const workingCopyPath = options.workingCopyPath.value;
+            if (isNativeDocumentRef(workingCopyPath) && !options.pdfData.value) {
+                throw new NativePdfSaveRequiredError({
+                    code: 'native-save-required',
+                    phase: 'pre-write',
+                    reason: 'missing-native-capability',
+                    detail: 'Renderer split serialization cannot read a native path-backed working copy',
+                });
+            }
             const viewerTransaction = await options.pdfViewerRef.value?.runSaveTransaction({
                 mode: 'snapshot',
                 forcePdfjsMaterialize: true,
@@ -122,8 +154,8 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                             if (options.pdfData.value) {
                                 return options.pdfData.value;
                             }
-                            return options.workingCopyPath.value
-                                ? readDocumentBytes(options.workingCopyPath.value)
+                            return workingCopyPath
+                                ? readDocumentBytes(workingCopyPath)
                                 : null;
                         },
                         serializePdfForSave: options.serializePdfForSave,
@@ -139,15 +171,15 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                 return options.pdfData.value;
             }
 
-            if (!options.workingCopyPath.value) {
+            if (!workingCopyPath) {
                 return null;
             }
 
             try {
-                return await readDocumentBytes(options.workingCopyPath.value);
+                return await readDocumentBytes(workingCopyPath);
             } catch (error) {
                 BrowserLogger.warn('workspace', 'Failed to read working copy for split payload', {
-                    path: options.workingCopyPath.value,
+                    path: workingCopyPath,
                     error,
                 });
                 return null;
@@ -155,10 +187,86 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         });
     }
 
+    async function resolveNativePdfSnapshotPath(sourcePath: TDocumentRef) {
+        return runWithDocumentOperationLease('split-capture', async () => {
+            const expectedDocumentRevisionToken = options.documentRevisionToken?.value ?? null;
+            const viewerTransaction = await options.pdfViewerRef.value?.runSaveTransaction({
+                mode: 'snapshot',
+                saveFlowMode: 'save',
+                forcePdfjsMaterialize: false,
+                workingPath: sourcePath,
+                ...(options.getNativeSaveTransactionOptions?.() ?? {}),
+            });
+            if (!viewerTransaction) {
+                throw new NativePdfSaveRequiredError({
+                    code: 'native-save-required',
+                    phase: 'pre-write',
+                    reason: 'missing-native-projection',
+                    detail: 'Native PDF split staging is unavailable',
+                });
+            }
+            if (viewerTransaction.nativeRequiredFailure) {
+                throw new NativePdfSaveRequiredError(viewerTransaction.nativeRequiredFailure);
+            }
+            if (!viewerTransaction.nativeMutationProjection) {
+                throw new NativePdfSaveRequiredError({
+                    code: 'native-save-required',
+                    phase: 'pre-write',
+                    reason: 'missing-native-projection',
+                    detail: 'Native PDF split staging did not produce a replayable mutation',
+                });
+            }
+            if (expectedDocumentRevisionToken === null) {
+                throw new NativePdfSaveRequiredError({
+                    code: 'native-save-required',
+                    phase: 'pre-write',
+                    reason: 'missing-native-capability',
+                    detail: 'Native PDF split staging requires the document revision',
+                });
+            }
+            await viewerTransaction.assertAnnotationSaveCurrent?.();
+            return consumeNativePdfMutationProjection({
+                workingPath: sourcePath,
+                expectedDocumentRevisionToken,
+                projection: viewerTransaction.nativeMutationProjection,
+                operation: 'clone',
+                originalPath: options.originalPath.value,
+                ...(viewerTransaction.verifyAnnotationSavePath
+                    ? {verifyPathBeforeExpose: viewerTransaction.verifyAnnotationSavePath}
+                    : {}),
+                ...(viewerTransaction.assertAnnotationSaveCurrent
+                    ? {assertBeforeExpose: viewerTransaction.assertAnnotationSaveCurrent}
+                    : {}),
+            });
+        });
+    }
+
     async function capturePdfSnapshotPayload(): Promise<TSplitPayload> {
         const cleanWorkingCopySnapshot = await captureCleanWorkingCopySnapshot();
         if (cleanWorkingCopySnapshot) {
             return cleanWorkingCopySnapshot;
+        }
+
+        if (isPathBackedDesktopSnapshot()) {
+            const sourcePath = options.workingCopyPath.value;
+            if (!sourcePath) {
+                throw new NativePdfSaveRequiredError({
+                    code: 'native-save-required',
+                    phase: 'pre-write',
+                    reason: 'missing-native-capability',
+                    detail: 'Native PDF split staging requires the working-copy path',
+                });
+            }
+            const snapshotPath = await resolveNativePdfSnapshotPath(sourcePath);
+            if (!snapshotPath) {
+                throw new NativePdfSaveRequiredError({
+                    code: 'native-save-required',
+                    phase: 'pre-write',
+                    reason: 'native-error',
+                    detail: 'Native PDF split staging did not return a working copy',
+                });
+            }
+            return createPdfSnapshotPayload(snapshotPath, true);
         }
 
         const snapshot = await resolvePdfSnapshotData();

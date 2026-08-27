@@ -2,6 +2,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { createDocxFromTextAsync } from '@app/utils/docx';
+import { createDocxFromTextChunks } from '@app/utils/docxStreaming';
 import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';
@@ -38,6 +39,7 @@ export const useDocxExport = () => {
                 pdfDocument: params.pdfDocument,
                 hasRtl,
                 buildDocx: createDocxFromTextAsync,
+                buildDocxChunks: createDocxFromTextChunks,
                 t,
                 toast,
                 setError: message => {

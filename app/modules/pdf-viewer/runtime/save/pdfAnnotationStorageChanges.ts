@@ -254,15 +254,20 @@ function isUntrackedBlankEditorOnlyFreeTextStorageValue(
         && value.hasComment !== true;
 }
 
-function isNativeFreeTextEditorText(value: unknown): value is string {
-    return typeof value === 'string'
-        && !isBlankStringValue(value)
-        && value.length <= MAX_NATIVE_FREE_TEXT_EDITOR_TEXT_LENGTH
-        && Array.from(value).every(character => (
+function normalizeNativeFreeTextEditorText(value: unknown) {
+    if (typeof value !== 'string') {
+        return null;
+    }
+    const normalized = value.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '');
+    return !isBlankStringValue(normalized)
+        && normalized.length <= MAX_NATIVE_FREE_TEXT_EDITOR_TEXT_LENGTH
+        && Array.from(normalized).every(character => (
             character === '\n'
             || character === '\t'
             || (character.charCodeAt(0) >= 0x20 && character.charCodeAt(0) <= 0x7e)
-        ));
+        ))
+        ? normalized
+        : null;
 }
 
 function isNativeFreeTextEditorRect(value: unknown): value is [number, number, number, number] {
@@ -318,6 +323,9 @@ function toNativeFreeTextEditor(
     key: string,
     value: unknown,
 ): IPdfNativeFreeTextEditor | null {
+    const nativeText = isRecord(value)
+        ? normalizeNativeFreeTextEditorText(value.value)
+        : null;
     if (
         !key.startsWith('pdfjs_internal_editor_')
         || !isRecord(value)
@@ -325,7 +333,7 @@ function toNativeFreeTextEditor(
         || getExistingPdfAnnotationIdFromStorageValue(value)
         || !isFreeTextEditorStorageValue(value)
         || isReplayableFreeTextNoteStorageValue(value)
-        || !isNativeFreeTextEditorText(value.value)
+        || nativeText === null
         || typeof value.pageIndex !== 'number'
         || !Number.isSafeInteger(value.pageIndex)
         || value.pageIndex < 0
@@ -350,7 +358,7 @@ function toNativeFreeTextEditor(
     return {
         pageIndex: requirePageIndex(value.pageIndex),
         stableKey,
-        text: value.value,
+        text: nativeText,
         rect: [...value.rect],
         rotation: value.rotation,
         fontSize: value.fontSize,

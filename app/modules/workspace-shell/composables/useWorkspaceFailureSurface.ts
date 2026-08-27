@@ -19,6 +19,7 @@ export type TWorkspaceSaveFailureReason =
     | 'validation-rejected'
     | 'note-persistence-failed'
     | 'capability-unavailable'
+    | 'native-save-required'
     | 'persist-rejected'
     | 'document-changed'
     | 'unexpected-error';
@@ -72,6 +73,7 @@ export const useWorkspaceFailureSurface = () => {
             case 'document-changed':
                 return t('errors.save.documentChanged');
             case 'capability-unavailable':
+            case 'native-save-required':
             case 'persist-rejected':
             case 'unexpected-error':
                 return t('errors.save.notCompleted');

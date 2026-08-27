@@ -6,6 +6,7 @@ import {
     getOptionalNumberArray,
 } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import type {
     IPdfTextPreviewItem,
     IPdfTextPreviewViewport,
@@ -123,11 +124,10 @@ export async function loadPdfPageAnnotations(
             Array.isArray(rawAnnotations)
             && rawAnnotations.length > MAX_BACKGROUND_PDF_ANNOTATIONS_PER_PAGE
         ) {
-            BrowserLogger.warn(
-                'annotations',
-                `Skipping background annotation inventory for page ${pageNumber}: ${rawAnnotations.length} records exceed the ${MAX_BACKGROUND_PDF_ANNOTATIONS_PER_PAGE} record limit`,
-            );
-            return null;
+            // The old limit was a refusal cap. Keep the same number as a
+            // page-local scheduling budget so a pathological page yields to
+            // paint, while still returning every annotation on that page.
+            await yieldToBrowser();
         }
         const annotations = attachPdfAnnotationNames(
             Array.isArray(rawAnnotations)

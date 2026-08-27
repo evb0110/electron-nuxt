@@ -526,6 +526,218 @@ describe('page-ops qpdf working-copy mutations', () => {
         }
     });
 
+    it('formats a million-page single deletion without scanning the document', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
+        const workingCopyPath = join(workDir, 'work.pdf');
+        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
+
+        try {
+            await writeFile(workingCopyPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockResolvedValueOnce({
+                exitCode: 0,
+                stdout: '1000000\n',
+                stderr: '',
+            });
+            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs).toEqual([
+                    workingCopyPath,
+                    '--pages',
+                    workingCopyPath,
+                    '1-899999,900001-1000000',
+                    '--',
+                    tempOutputPath,
+                ]);
+                await writeFile(tempOutputPath, '%PDF-1.7\ndeleted');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            });
+
+            const { deletePages } = await import('@electron/features/page-ops/main/qpdf');
+
+            await expect(deletePages(workingCopyPath, [900_000], 1_000_000, 12))
+                .resolves.toEqual({pageCount: 999_999});
+            expect(runNativeToolCommandMock).toHaveBeenCalledTimes(2);
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('deletes a million-page select-all range while retaining one page', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
+        const workingCopyPath = join(workDir, 'work.pdf');
+        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
+
+        try {
+            await writeFile(workingCopyPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockResolvedValueOnce({
+                exitCode: 0,
+                stdout: '1000000\n',
+                stderr: '',
+            });
+            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs).toEqual([
+                    workingCopyPath,
+                    '--pages',
+                    workingCopyPath,
+                    '1',
+                    '--',
+                    tempOutputPath,
+                ]);
+                await writeFile(tempOutputPath, '%PDF-1.7\nkept');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            });
+
+            const { deletePageRanges } = await import('@electron/features/page-ops/main/qpdf');
+
+            await expect(deletePageRanges(workingCopyPath, [{
+                startPage: 2,
+                endPage: 1_000_000,
+            }], 1_000_000, 12)).resolves.toEqual({pageCount: 1});
+            expect(runNativeToolCommandMock).toHaveBeenCalledTimes(2);
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\nkept');
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('moves a contiguous range with compact qpdf ranges instead of a full permutation', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
+        const workingCopyPath = join(workDir, 'work.pdf');
+        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
+
+        try {
+            await writeFile(workingCopyPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockResolvedValueOnce({
+                exitCode: 0,
+                stdout: '7\n',
+                stderr: '',
+            });
+            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs).toEqual([
+                    workingCopyPath,
+                    '--pages',
+                    workingCopyPath,
+                    '2-3,1,4-7',
+                    '--',
+                    tempOutputPath,
+                ]);
+                await writeFile(tempOutputPath, '%PDF-1.7\nmoved');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            });
+
+            const { movePages } = await import('@electron/features/page-ops/main/qpdf');
+
+            await expect(movePages(workingCopyPath, 2, 3, 0, 7, 12)).resolves.toEqual({pageCount: 7});
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\nmoved');
+            expect(runNativeToolCommandMock).toHaveBeenCalledTimes(2);
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('moves non-contiguous ranges with a compact qpdf page list', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
+        const workingCopyPath = join(workDir, 'work.pdf');
+        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
+
+        try {
+            await writeFile(workingCopyPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockResolvedValueOnce({
+                exitCode: 0,
+                stdout: '7\n',
+                stderr: '',
+            });
+            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs).toEqual([
+                    workingCopyPath,
+                    '--pages',
+                    workingCopyPath,
+                    '2,4,1,3,5-7',
+                    '--',
+                    tempOutputPath,
+                ]);
+                await writeFile(tempOutputPath, '%PDF-1.7\nmoved');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            });
+
+            const { movePageRanges } = await import('@electron/features/page-ops/main/qpdf');
+
+            await expect(movePageRanges(workingCopyPath, {
+                pageCount: 7,
+                ranges: [
+                    {
+                        startPage: 2,
+                        endPage: 2,
+                    },
+                    {
+                        startPage: 4,
+                        endPage: 4,
+                    },
+                ],
+                insertAt: 0,
+            }, 7, 12)).resolves.toEqual({pageCount: 7});
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\nmoved');
+            expect(runNativeToolCommandMock).toHaveBeenCalledTimes(2);
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('skips qpdf for an in-place range move', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
+        const workingCopyPath = join(workDir, 'work.pdf');
+
+        try {
+            await writeFile(workingCopyPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockResolvedValueOnce({
+                exitCode: 0,
+                stdout: '7\n',
+                stderr: '',
+            });
+
+            const { movePages } = await import('@electron/features/page-ops/main/qpdf');
+
+            await expect(movePages(workingCopyPath, 2, 3, 2, 7, 12)).resolves.toEqual({pageCount: 7});
+            expect(runNativeToolCommandMock).toHaveBeenCalledTimes(1);
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
     it('passes cancellation options through page-count and mutation qpdf commands', async () => {
         const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
         const workingCopyPath = join(workDir, 'work.pdf');

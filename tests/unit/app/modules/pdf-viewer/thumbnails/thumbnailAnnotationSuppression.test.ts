@@ -218,11 +218,20 @@ function mountThumbnailRuntime(annotationComments: ReturnType<typeof ref<IAnnota
                 clearThumbnailAspectRatios: () => {},
                 resolveViewportAnchorPage: () => 1,
                 shouldPreferVisibleAnchorOverCurrentPage: () => false,
-                thumbnailAspectRatios: ref<Array<number | null>>([
-                    1.4,
-                    1.4,
-                    1.4,
-                ]),
+                thumbnailAspectRatios: ref(new Map([
+                    [
+                        1,
+                        1.4,
+                    ],
+                    [
+                        2,
+                        1.4,
+                    ],
+                    [
+                        3,
+                        1.4,
+                    ],
+                ])),
                 thumbnailLayoutWidth: ref(128),
                 thumbnailRenderWidth: ref(128),
                 updateThumbnailAspectRatio: () => {},

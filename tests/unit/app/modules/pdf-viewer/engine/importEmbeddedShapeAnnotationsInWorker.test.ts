@@ -7,10 +7,12 @@ import {
     vi,
 } from 'vitest';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import {
     importEmbeddedShapeAnnotationsFromPathInWorker,
     importEmbeddedShapeAnnotationsUsingWorker,
 } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient';
+import { readDocumentBytes } from '@app/utils/documentBytes';
 
 const documentMocks = vi.hoisted(() => ({
     readFileRange: vi.fn(),
@@ -18,6 +20,7 @@ const documentMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations', () => ({ importEmbeddedShapeAnnotations: vi.fn() }));
+vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: vi.fn()}));
 vi.mock('@app/utils/platformDocuments', () => ({ getDocumentFilesCapability: () => documentMocks }));
 
 describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
@@ -25,6 +28,7 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         vi.mocked(importEmbeddedShapeAnnotations).mockReset().mockResolvedValue([]);
         documentMocks.readFileRange.mockReset();
         documentMocks.statFile.mockReset();
+        vi.mocked(readDocumentBytes).mockReset();
     });
 
     afterEach(() => {
@@ -38,6 +42,21 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         await expect(importEmbeddedShapeAnnotationsUsingWorker(data)).resolves.toEqual([]);
 
         expect(importEmbeddedShapeAnnotations).toHaveBeenCalledWith(data);
+    });
+
+    it('keeps the worker-unavailable browser path fallback explicitly bounded', async () => {
+        const bytes = new Uint8Array([
+            1,
+            2,
+            3,
+        ]);
+        vi.mocked(readDocumentBytes).mockResolvedValue(bytes);
+
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('/tmp/browser.pdf'))
+            .resolves.toEqual([]);
+
+        expect(readDocumentBytes).toHaveBeenCalledWith('/tmp/browser.pdf', {maxBytes: EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES});
+        expect(importEmbeddedShapeAnnotations).toHaveBeenCalledWith(bytes);
     });
 
     it('transfers an owned copy to a module worker without detaching session bytes', async () => {

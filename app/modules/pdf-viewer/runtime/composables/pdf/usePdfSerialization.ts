@@ -14,6 +14,7 @@ import type {
 } from '@app/types/pdfContracts';
 import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
 import type { IPdfSerializedPlacedImagePayload } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-placed-images/pdfSerializedPlacedImagePayload';
+import type { INativePdfMutationProjection } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import { collectMarkupSubtypeHints } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/collectMarkupSubtypeHints';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import { deleteEmbeddedAnnotationOffThread } from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/deleteEmbeddedAnnotationOffThread';
@@ -30,8 +31,13 @@ import { measureDevPerfAsync } from '@app/utils/devPerf';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import { getErrorMessage } from '@app/utils/error';
+import { isNativeDocumentRef } from '@app/utils/documentRef';
 import type {ISerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import {projectAnnotationBackendMutations} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
+import {
+    consumeNativePdfMutationProjection,
+    NativePdfSaveRequiredError,
+} from '@app/modules/workspace-shell/public/nativePdfMutationArtifact';
 
 const PDF_SERIALIZATION_LOG_SECTION = 'pdf-serialization';
 
@@ -59,6 +65,23 @@ interface ISerializePdfForSaveOptions {
     includeShapes?: boolean;
     rewriteShapeState?: boolean;
     placedImage?: IPdfPlacedImageFinalizePayload | null;
+}
+
+export interface IPdfPlacedImageNativePathResult {
+    readonly kind: 'native-path';
+    readonly path: TDocumentRef;
+    readonly revisionToken: TDocumentRevisionToken;
+}
+
+export type TPdfPlacedImageEmbeddingResult = Uint8Array | IPdfPlacedImageNativePathResult;
+
+export function isPdfPlacedImageNativePathResult(
+    result: TPdfPlacedImageEmbeddingResult,
+): result is IPdfPlacedImageNativePathResult {
+    return typeof result === 'object'
+        && result !== null
+        && 'kind' in result
+        && result.kind === 'native-path';
 }
 
 export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
@@ -89,6 +112,14 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     }
 
     async function readDisposableWorkingCopy(path: TDocumentRef) {
+        if (isNativeDocumentRef(path)) {
+            throw new NativePdfSaveRequiredError({
+                code: 'native-save-required',
+                phase: 'pre-write',
+                reason: 'missing-native-capability',
+                detail: 'Renderer PDF serialization cannot read a native path-backed working copy',
+            });
+        }
         const documentFiles = getDocumentFilesCapability();
         const before = await documentFiles.getDocumentRevision(path);
         const expectedRevision = documentRevisionToken?.value ?? before.token;
@@ -237,53 +268,114 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         };
     }
 
-    function bytesToHex(bytes: Uint8Array) {
-        return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-    }
-
-    async function createWorkingCopyExpectation(baseData: Uint8Array) {
-        if (typeof crypto === 'undefined' || !crypto.subtle) {
-            return null;
-        }
-        const hashInput = new Uint8Array(baseData.byteLength);
-        hashInput.set(baseData);
-        const digest = await crypto.subtle.digest('SHA-256', hashInput);
-        return {
-            byteLength: baseData.byteLength,
-            sha256: bytesToHex(new Uint8Array(digest)),
-        };
-    }
-
     async function tryEmbedPlacedImageNative(
-        baseData: Uint8Array,
+        baseData: Uint8Array | null,
         payload: IPdfSerializedPlacedImagePayload,
     ) {
         const workingPath = workingCopyPath.value;
         const nativeImage = toNativePlacedImagePayload(payload);
         const documentFiles = getDocumentFilesCapability();
+        const nativePathBacked = isNativeDocumentRef(workingPath);
         if (
             !workingPath
             || !nativeImage
             || typeof documentFiles.applyPdfNativeMutationsToWorkingCopy !== 'function'
         ) {
+            if (nativePathBacked) {
+                throw new NativePdfSaveRequiredError({
+                    code: 'native-save-required',
+                    phase: 'pre-write',
+                    reason: 'missing-native-capability',
+                    detail: 'Native placed-image persistence is unavailable for this working copy',
+                });
+            }
             return null;
         }
 
+        if (nativePathBacked) {
+            if (documentRevisionToken?.value === null || documentRevisionToken?.value === undefined) {
+                throw new NativePdfSaveRequiredError({
+                    code: 'native-save-required',
+                    phase: 'pre-write',
+                    reason: 'missing-native-capability',
+                    detail: 'Native placed-image persistence requires the document revision',
+                });
+            }
+
+            const projection: INativePdfMutationProjection = {
+                canonicalAnnotationProgram: [],
+                mutations: {placedImages: [nativeImage]},
+                noteTextUpdates: [],
+                freeTextNotes: [],
+                freeTextEditors: [],
+                annotationDeletes: [],
+                hasMetadataMutations: false,
+                hasShapeMutations: false,
+                hasMarkupMutations: false,
+                phase: 'placed-image',
+            };
+
+            try {
+                await consumeNativePdfMutationProjection({
+                    workingPath,
+                    expectedDocumentRevisionToken: documentRevisionToken.value,
+                    projection,
+                    operation: 'replace',
+                });
+                if (workingCopyPath.value !== workingPath) {
+                    throw new NativePdfSaveRequiredError({
+                        code: 'native-save-required',
+                        phase: 'pre-write',
+                        reason: 'native-error',
+                        detail: 'Working copy changed while placing the image',
+                    });
+                }
+                const revision = await documentFiles.getDocumentRevision(workingPath);
+                return {
+                    kind: 'native-path' as const,
+                    path: workingPath,
+                    revisionToken: revision.token,
+                };
+            } catch (error) {
+                if (error instanceof NativePdfSaveRequiredError) {
+                    throw error;
+                }
+                throw new NativePdfSaveRequiredError({
+                    code: 'native-save-required',
+                    phase: 'pre-write',
+                    reason: 'native-error',
+                    detail: getErrorMessage(error),
+                });
+            } finally {
+                if (typeof documentFiles.releaseManagedTempFileHandle === 'function') {
+                    await documentFiles.releaseManagedTempFileHandle(nativeImage.source.leaseId).catch(() => false);
+                }
+            }
+        }
+
+        if (nativePathBacked) {
+            throw new NativePdfSaveRequiredError({
+                code: 'native-save-required',
+                phase: 'pre-write',
+                reason: 'missing-native-capability',
+                detail: 'Renderer PDF serialization cannot read a native path-backed working copy',
+            });
+        }
+
         try {
-            const expectedBase = await createWorkingCopyExpectation(baseData);
-            if (!expectedBase) {
-                BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Native placed image mutation skipped because base hashing is unavailable', {pageNumber: payload.pageNumber});
+            if (!baseData) {
                 return null;
             }
-            const revisionOptions = documentRevisionToken?.value === null || documentRevisionToken?.value === undefined
-                ? undefined
-                : {expectedDocumentRevisionToken: documentRevisionToken.value};
+            const expectedDocumentRevisionToken = documentRevisionToken?.value;
+            if (!expectedDocumentRevisionToken) {
+                BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Native placed image mutation skipped because the document revision is unavailable', {pageNumber: payload.pageNumber});
+                return null;
+            }
             const result = await documentFiles.applyPdfNativeMutationsToWorkingCopy(
                 workingPath,
                 {placedImages: [nativeImage]},
                 toPdfDateString(),
-                expectedBase,
-                revisionOptions,
+                {expectedDocumentRevisionToken},
             );
             if (!result.applied || !result.validation?.isValid) {
                 BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Native placed image mutation was not applied', {
@@ -465,7 +557,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     }
 
     async function embedPlacedImageToPage(
-        data: Uint8Array,
+        data: Uint8Array | null,
         placement: IPdfPlacedImageFinalizePayload,
     ) {
         const serializedPlacement = await toSerializedPlacedImagePayload(placement);
@@ -477,6 +569,14 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         }
         if (!serializedPlacement) {
             throw new Error('Failed to prepare placed image for PDF embedding');
+        }
+        if (!data) {
+            throw new NativePdfSaveRequiredError({
+                code: 'native-save-required',
+                phase: 'pre-write',
+                reason: 'missing-native-capability',
+                detail: 'Native placed-image persistence did not return a path result',
+            });
         }
         const payload = createEmptySavePayload();
         payload.placedImage = serializedPlacement;

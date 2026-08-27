@@ -22,6 +22,11 @@ import {
     DOCUMENT_PDF_PLATFORM_FEATURE,
     DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
+import {
+    DOCX_EXPORT_STREAM_CHANNELS,
+    DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
+    type IDocxExportStreamBeginResult,
+} from '@contracts/docxExport';
 import type { TIpcCodecMap } from '@contracts/ipcMain';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
@@ -137,6 +142,30 @@ const decodeValidationResult = (value: unknown) => requireDecoded(
     'PDF validation',
 );
 
+function decodeDocxStreamBeginResult(value: unknown): IDocxExportStreamBeginResult {
+    if (!isRecord(value) || typeof value.sessionId !== 'string' || value.sessionId.trim().length === 0) {
+        throw new Error('invalid DOCX stream begin result');
+    }
+    return {sessionId: value.sessionId};
+}
+
+function decodeDocxStreamChunkArgs(args: readonly unknown[]) {
+    const sessionId = decodeStringArg(args, 0, 'sessionId');
+    const chunk = decodeUint8ArrayArg(
+        args,
+        1,
+        'chunk',
+        DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
+    );
+    if (chunk.byteLength === 0) {
+        throw new Error('chunk must not be empty');
+    }
+    return [
+        sessionId,
+        chunk,
+    ] as [string, Uint8Array];
+}
+
 export const DOCUMENTS_IPC_CODECS = {
     ...DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs,
     ...DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.ipcCodecs,
@@ -238,6 +267,22 @@ export const DOCUMENTS_IPC_CODECS = {
                 stagedOutput,
             ];
         },
+        decodeResult: decodeBooleanResult,
+    },
+    [DOCX_EXPORT_STREAM_CHANNELS.begin]: {
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'filePath')],
+        decodeResult: decodeDocxStreamBeginResult,
+    },
+    [DOCX_EXPORT_STREAM_CHANNELS.writeChunk]: {
+        decodeArgs: decodeDocxStreamChunkArgs,
+        decodeResult: decodeBooleanResult,
+    },
+    [DOCX_EXPORT_STREAM_CHANNELS.commit]: {
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'sessionId')],
+        decodeResult: decodeBooleanResult,
+    },
+    [DOCX_EXPORT_STREAM_CHANNELS.cancel]: {
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'sessionId')],
         decodeResult: decodeBooleanResult,
     },
 } satisfies TIpcCodecMap<IDocumentsInvokeMap>;

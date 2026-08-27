@@ -5,10 +5,13 @@ use std::sync::{
     Mutex,
 };
 
-const MAX_ENCODED_PDF_BYTES: usize = 512 * 1024 * 1024;
+pub(crate) const MAX_ENCODED_PDF_BYTES: usize = 512 * 1024 * 1024;
 pub(crate) const MAX_DECOMPRESSED_PDF_STREAM_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PDF_OBJECTS: usize = 1_000_000;
-const MAX_PDF_PAGES: usize = 100_000;
+// Eager byte-array and WASM loads keep their existing page admission budget.
+// Path-backed incremental loads use the bounded structural reader instead of
+// treating this compatibility budget as a document limit.
+const MAX_BYTE_INPUT_PDF_PAGES: usize = 100_000;
 const MAX_PDF_STRUCTURAL_NESTING: usize = 256;
 const MAX_PDF_XREF_REVISIONS: usize = 4_096;
 
@@ -17,7 +20,7 @@ struct PdfLoadPolicy {
     max_encoded_bytes: usize,
     max_decompressed_stream_bytes: usize,
     max_objects: usize,
-    max_pages: usize,
+    max_pages: Option<usize>,
     max_structural_nesting: usize,
 }
 
@@ -25,8 +28,13 @@ const PDF_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
     max_encoded_bytes: MAX_ENCODED_PDF_BYTES,
     max_decompressed_stream_bytes: MAX_DECOMPRESSED_PDF_STREAM_BYTES,
     max_objects: MAX_PDF_OBJECTS,
-    max_pages: MAX_PDF_PAGES,
+    max_pages: Some(MAX_BYTE_INPUT_PDF_PAGES),
     max_structural_nesting: MAX_PDF_STRUCTURAL_NESTING,
+};
+
+const PDF_PATH_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
+    max_pages: None,
+    ..PDF_LOAD_POLICY
 };
 
 static PDF_LOAD_GUARD: Mutex<()> = Mutex::new(());
@@ -76,13 +84,28 @@ pub(crate) fn load_incremental_pdf_path(
     path: &Path,
     qpdf_path: Option<&Path>,
 ) -> Result<IncrementalDocument> {
+    load_incremental_pdf_path_with_policy(path, qpdf_path, PDF_PATH_LOAD_POLICY)
+}
+
+pub(crate) fn load_annotation_index_pdf_path(
+    path: &Path,
+    qpdf_path: Option<&Path>,
+) -> Result<IncrementalDocument> {
+    load_incremental_pdf_path_with_policy(path, qpdf_path, PDF_PATH_LOAD_POLICY)
+}
+
+fn load_incremental_pdf_path_with_policy(
+    path: &Path,
+    qpdf_path: Option<&Path>,
+    policy: PdfLoadPolicy,
+) -> Result<IncrementalDocument> {
     let encoded_len = fs::metadata(path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
         .len();
-    let incremental = if encoded_len <= PDF_LOAD_POLICY.max_encoded_bytes as u64 {
-        let bytes = read_file_bounded(path, PDF_LOAD_POLICY.max_encoded_bytes, "PDF input")
+    let incremental = if encoded_len <= policy.max_encoded_bytes as u64 {
+        let bytes = read_file_bounded(path, policy.max_encoded_bytes, "PDF input")
             .map_err(|error| Box::new(error) as Box<dyn Error>)?;
-        let document = load_pdf_bytes_with_policy(&bytes, PDF_LOAD_POLICY)?;
+        let document = load_pdf_bytes_with_policy(&bytes, policy)?;
         IncrementalDocument::from_document(
             document,
             u64::try_from(bytes.len())?,
@@ -97,7 +120,7 @@ pub(crate) fn load_incremental_pdf_path(
         })?;
         load_qpdf_structural_incremental_pdf(path, qpdf_path)?
     };
-    validate_loaded_document(incremental.get_prev_documents(), PDF_LOAD_POLICY)?;
+    validate_loaded_document(incremental.get_prev_documents(), policy)?;
     Ok(incremental)
 }
 
@@ -1091,14 +1114,8 @@ fn validate_admission_dictionary(
                 declared_object_stream_objects.saturating_add(declared);
         }
         Some(AdmissionDictionaryType::PageTree) => {
-            if dictionary
-                .count
-                .is_some_and(|count| count > policy.max_pages as u64)
-            {
-                return Err(limit_error(format!(
-                    "PDF page tree declares more than the {}-page admission ceiling",
-                    policy.max_pages
-                )));
+            if let Some(count) = dictionary.count {
+                validate_page_count(count, policy)?;
             }
         }
         Some(AdmissionDictionaryType::Xref) => {
@@ -1142,12 +1159,30 @@ fn validate_loaded_document(document: &Document, policy: PdfLoadPolicy) -> Resul
         )));
     }
 
-    let page_count = document.page_iter().take(policy.max_pages + 1).count();
-    if page_count > policy.max_pages {
-        return Err(limit_error(format!(
-            "PDF page count exceeds the {}-page admission ceiling",
-            policy.max_pages
-        )));
+    let page_resolver = PageTreeResolver::new(document)?;
+    let page_count = page_resolver.page_count();
+    if page_count > 0 {
+        // Check both ends of the declared tree without iterating every leaf.
+        // This catches a stale /Count or an unreachable branch while keeping
+        // path-backed admission independent of document page count.
+        page_resolver.page_id(document, 1)?;
+        if page_count > 1 {
+            page_resolver.page_id(document, page_count)?;
+        }
+    }
+    validate_page_count(u64::from(page_count), policy)
+}
+
+fn validate_page_count(page_count: u64, policy: PdfLoadPolicy) -> Result<()> {
+    let page_count = usize::try_from(page_count)
+        .map_err(|_| limit_error("PDF page count exceeds the supported integer range"))?;
+    if let Some(max_pages) = policy.max_pages {
+        if page_count > max_pages {
+            return Err(limit_error(format!(
+                "PDF page count exceeds the {}-page byte-input admission ceiling",
+                max_pages
+            )));
+        }
     }
     Ok(())
 }
@@ -1184,7 +1219,7 @@ mod tests {
             max_encoded_bytes,
             max_decompressed_stream_bytes,
             max_objects,
-            max_pages,
+            max_pages: Some(max_pages),
             max_structural_nesting: 32,
         }
     }
@@ -1250,7 +1285,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_policy_accepts_small_documents_and_caps_encoded_bytes() {
+    fn byte_input_policy_accepts_small_documents_and_caps_encoded_bytes() {
         let bytes = document_bytes(1, false);
         load_pdf_bytes_with_policy(&bytes, policy(bytes.len(), 1_024, 16, 2)).unwrap();
         assert_too_large(
@@ -1264,7 +1299,7 @@ mod tests {
     }
 
     #[test]
-    fn incremental_path_loads_structure_without_an_encoded_size_policy() {
+    fn incremental_path_loads_small_input_with_path_policy() {
         struct RemoveOnDrop(std::path::PathBuf);
 
         impl Drop for RemoveOnDrop {
@@ -1284,12 +1319,17 @@ mod tests {
         std::fs::write(&temp_file.0, &bytes).unwrap();
 
         let loaded = load_incremental_pdf_path(&temp_file.0, None).unwrap();
-        assert_eq!(loaded.get_prev_documents().get_pages().len(), 1);
+        assert_eq!(
+            PageTreeResolver::new(loaded.get_prev_documents())
+                .unwrap()
+                .page_count(),
+            1
+        );
         assert_eq!(loaded.previous_len(), u64::try_from(bytes.len()).unwrap());
     }
 
     #[test]
-    fn shared_policy_caps_objects_and_pages_after_loading() {
+    fn byte_input_policy_caps_objects_and_pages_after_loading() {
         let bytes = document_bytes(2, false);
         assert_too_large(
             load_pdf_bytes_with_policy(&bytes, policy(bytes.len(), 1_024, 2, 10)).unwrap_err(),
@@ -1300,7 +1340,101 @@ mod tests {
     }
 
     #[test]
-    fn shared_policy_detects_lopdf_skipped_oversized_object_streams() {
+    fn path_policy_accepts_declared_page_count_above_byte_input_budget() {
+        let bytes = b"%PDF-1.7\n1 0 obj << /Type /Pages /Count 100001 /Kids [] >> endobj";
+
+        assert_too_large(
+            preflight_pdf_structure(&bytes[..], policy(1_024, 1_024, 10, 100_000)).unwrap_err(),
+        );
+        preflight_pdf_structure(&bytes[..], PDF_PATH_LOAD_POLICY).unwrap();
+        validate_page_count(100_001, PDF_PATH_LOAD_POLICY).unwrap();
+    }
+
+    #[test]
+    fn path_validation_checks_sparse_declared_pages_without_a_full_page_walk() {
+        const PAGE_COUNT: i64 = 1_000_000;
+        let mut document = Document::with_version("1.7");
+        let root_pages_id = document.new_object_id();
+        let first_group_id = document.new_object_id();
+        let last_group_id = document.new_object_id();
+        let first_page_id = document.new_object_id();
+        let last_page_id = document.new_object_id();
+        for (page_id, parent_id) in [
+            (first_page_id, first_group_id),
+            (last_page_id, last_group_id),
+        ] {
+            document.set_object(
+                page_id,
+                dictionary! {
+                    "Type" => "Page",
+                    "Parent" => parent_id,
+                    "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+                },
+            );
+        }
+        document.set_object(
+            first_group_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Parent" => root_pages_id,
+                "Kids" => vec![Object::Reference(first_page_id)],
+                "Count" => PAGE_COUNT - 1,
+            },
+        );
+        document.set_object(
+            last_group_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Parent" => root_pages_id,
+                "Kids" => vec![Object::Reference(last_page_id)],
+                "Count" => 1,
+            },
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => root_pages_id,
+        });
+        document.set_object(
+            root_pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![
+                    Object::Reference(first_group_id),
+                    Object::Reference(last_group_id),
+                ],
+                "Count" => PAGE_COUNT,
+            },
+        );
+        document.trailer.set("Root", catalog_id);
+
+        reset_page_tree_node_read_count();
+        validate_loaded_document(&document, PDF_PATH_LOAD_POLICY).unwrap();
+
+        assert_eq!(
+            document
+                .get_dictionary(first_page_id)
+                .unwrap()
+                .get(b"Type")
+                .unwrap()
+                .as_name()
+                .unwrap(),
+            b"Page"
+        );
+        assert_eq!(
+            document
+                .get_dictionary(last_page_id)
+                .unwrap()
+                .get(b"Type")
+                .unwrap()
+                .as_name()
+                .unwrap(),
+            b"Page"
+        );
+        assert!(page_tree_node_read_count() < 100);
+    }
+
+    #[test]
+    fn byte_input_policy_detects_lopdf_skipped_oversized_object_streams() {
         let bytes = document_bytes(1, true);
         assert_too_large(
             load_pdf_bytes_with_policy(&bytes, policy(bytes.len(), 64, 32, 2)).unwrap_err(),

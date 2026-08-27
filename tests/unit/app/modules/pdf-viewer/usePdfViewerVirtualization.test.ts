@@ -310,6 +310,78 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.pagesToRender.value.length).toBeLessThan(2_000);
     });
 
+    it('keeps million-page early virtualization bounded to visible chunks', () => {
+        const totalPages = 1_000_000;
+        const pageMetrics = ref<IPdfPageMetric[]>([]);
+        const pageMetricsVersion = ref(1);
+        pageMetrics.value[0] = {
+            width: 300,
+            height: 500,
+        };
+        pageMetrics.value[totalPages - 1] = {
+            width: 320,
+            height: 520,
+        };
+        const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
+            bufferPages: computed(() => 0),
+            viewMode: computed(() => 'facing'),
+            numPages: ref(totalPages),
+            currentPage: ref(1),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(1200),
+            basePageHeight: ref(1600),
+            pageMetrics,
+            pageMetricsVersion,
+            effectiveScale: ref(1),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 1,
+                end: 2,
+            }),
+            navigationAnchorPage: ref(null),
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+        });
+
+        expect(virtualization.virtualizedContinuousMode.value).toBe(true);
+        expect(virtualization.pageLayout.value?.base.pageWidths.length).toBe(totalPages);
+        expect(virtualization.pageLayout.value?.base.rowStartPages.length).toBe(500_000);
+        expect(virtualization.pagesToRender.value).toEqual([
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+        ]);
+        expect(virtualization.pagesToRender.value.length).toBeLessThan(100);
+        expect(virtualization.topVirtualSpacerStyle.value).toBeNull();
+        expect(virtualization.bottomVirtualSpacerStyle.value).toMatchObject({height: expect.stringMatching(/^\d+px$/)});
+        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+            width: '300px',
+            height: '500px',
+        });
+        expect(virtualization.getPagePlaceholderStyle(totalPages)).toMatchObject({
+            width: '320px',
+            height: '520px',
+        });
+
+        pageMetrics.value[500_000] = {
+            width: 360,
+            height: 900,
+        };
+        pageMetricsVersion.value = 2;
+
+        expect(virtualization.pageLayout.value?.base.pageHeights[500_000]).toBe(900);
+        expect(virtualization.getPagePlaceholderStyle(500_001)).toMatchObject({
+            width: '360px',
+            height: '900px',
+        });
+    });
+
     it('keeps the committed window mounted beside a far offscreen navigation target', () => {
         const visibleRange = ref({
             start: 1,

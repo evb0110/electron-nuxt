@@ -37,6 +37,7 @@ import {
     collectWorkspaceExposeDebugState,
     installWorkspaceExposeProbe,
     readWorkspaceStateValues,
+    waitForSaveFrontierReady,
     type IWorkspaceExpose,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
@@ -290,9 +291,69 @@ async function tryCreatePageNoteViaAgentAction(page: Page, text: string) {
     };
 }
 
-async function placePageNote(page: Page, text: string) {
+async function placePageNote(
+    page: Page,
+    text: string,
+    options: {toolbarOnly?: boolean} = {},
+) {
     await installWorkspaceExposeProbe(page);
-    const point = await tryCreatePageNoteViaContextMenu(page)
+    const toolbarPoint = options.toolbarOnly
+        ? await page.evaluate(async () => {
+            const probeWindow = window as IWorkspaceExposeProbeWindow;
+            const workspace = probeWindow.__evbFindWorkspaceExpose?.({requiredMethods: ['handleQuickNote']}) as {
+                getToolbarSnapshot?: () => {isPlacingPageNote?: boolean};
+                handleQuickNote?: () => unknown;
+            } | null;
+            const pageElement = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host .page_container--rendered',
+            ) ?? document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host .page_container',
+            );
+            if (!workspace?.handleQuickNote || !pageElement) {
+                return null;
+            }
+
+            await Promise.resolve(workspace.handleQuickNote());
+            const startedAt = Date.now();
+            while (
+                workspace.getToolbarSnapshot
+                && workspace.getToolbarSnapshot().isPlacingPageNote !== true
+                && Date.now() - startedAt < 5_000
+            ) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            if (workspace.getToolbarSnapshot?.().isPlacingPageNote !== true) {
+                return null;
+            }
+
+            pageElement.scrollIntoView({
+                block: 'center',
+                inline: 'center',
+            });
+            await new Promise<void>((resolve) => {
+                window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+            });
+            const rect = pageElement.getBoundingClientRect();
+            const hostRect = pageElement.closest<HTMLElement>('.workspace-host')?.getBoundingClientRect() ?? rect;
+            const left = Math.max(rect.left, hostRect.left, 0) + 24;
+            const right = Math.min(rect.right, hostRect.right, window.innerWidth) - 24;
+            const top = Math.max(rect.top, hostRect.top, 0) + 24;
+            const bottom = Math.min(rect.bottom, hostRect.bottom, window.innerHeight) - 24;
+            if (right <= left || bottom <= top) {
+                return null;
+            }
+            const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+            return {
+                x: clamp(rect.left + rect.width * 0.72, left, right),
+                y: clamp(rect.top + rect.height * 0.24, top, bottom),
+                branch: 'toolbar-quick-note-textarea',
+                textApplied: false,
+            };
+        })
+        : null;
+    const point = toolbarPoint ?? (options.toolbarOnly
+        ? null
+        : await tryCreatePageNoteViaContextMenu(page)
         ?? await tryCreatePageNoteViaAgentAction(page, text)
         ?? await page.evaluate(async (noteText: string) => {
             const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
@@ -510,7 +571,7 @@ async function placePageNote(page: Page, text: string) {
                 };
             }
             return null;
-        }, text);
+        }, text));
     if (!point) {
         throw new Error('Could not activate note placement on the large PDF');
     }
@@ -542,7 +603,13 @@ async function placePageNote(page: Page, text: string) {
         value: string | null;
     } | null = null;
     while (Date.now() - startedAt < NOTE_TEXT_ENTRY_TIMEOUT_MS) {
-        typedState = await page.evaluate(async (noteText: string) => {
+        typedState = await page.evaluate(async ({
+            noteText,
+            toolbarOnly,
+        }: {
+            noteText: string;
+            toolbarOnly: boolean;
+        }) => {
             const textareas = Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'));
             const textarea = textareas.at(-1) ?? null;
             const saveDot = document.querySelector<HTMLButtonElement>('.status-save-dot-button');
@@ -570,7 +637,7 @@ async function placePageNote(page: Page, text: string) {
             textarea.dispatchEvent(new Event('blur', { bubbles: true }));
             const stableKey = textarea.closest<HTMLElement>('.note-window')?.dataset.stableKey ?? null;
             let updatedText: string | null = null;
-            if (stableKey) {
+            if (stableKey && !toolbarOnly) {
                 const workspace = (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({ requiredMethods: ['runAgentAction'] }) as Pick<IWorkspaceExpose, 'runAgentAction'> | null;
                 const runAgentAction = workspace?.runAgentAction;
                 const updateResult = typeof runAgentAction === 'function'
@@ -587,13 +654,16 @@ async function placePageNote(page: Page, text: string) {
 
             return {
                 value: textarea.value,
-                includesText: updatedText === noteText,
-                noteText: updatedText,
+                includesText: toolbarOnly ? textarea.value === noteText : updatedText === noteText,
+                noteText: toolbarOnly ? textarea.value : updatedText,
                 noteWindowCount: document.querySelectorAll('.note-window').length,
                 saveLabel: saveDot?.getAttribute('aria-label') ?? null,
                 stableKey,
             };
-        }, text);
+        }, {
+            noteText: text,
+            toolbarOnly: options.toolbarOnly === true,
+        });
         if (typedState.includesText) {
             return point;
         }
@@ -706,17 +776,16 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         timeoutMs: LARGE_PDF_TIMEOUT_MS,
     });
 
-    it('creates, saves, and reopens a FreeText popup note on a large PDF', async () => {
+    it('saves a toolbar note with multiple ordinary FreeText editors on a large PDF', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
         }
-        const { page } = session;
+        const {page} = session;
 
         const fixturePath = copyLargePdfFixture(`large-pdf-note-${Date.now()}.pdf`);
         const firstText = `фвыафыва ${Date.now()}`;
         const existingFixtureNotes = await readPdfNoteContents(fixturePath);
-        expect(existingFixtureNotes.length).toBeGreaterThan(0);
 
         await openPdfInApp(page, fixturePath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
@@ -725,11 +794,13 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             (window as Window & {__diagnosticWarnAsWarn?: boolean}).__diagnosticWarnAsWarn = true;
         });
 
-        const placement = await placePageNote(page, firstText);
-        let agentSaveResult: Awaited<ReturnType<typeof saveLargePdfViaAgentAction>>;
+        const placement = await placePageNote(page, firstText, {toolbarOnly: true});
+        await openAnnotationsTab(page, 30_000);
+        expect(await createFreeTextAnnotation(page, `first editor ${Date.now()}`)).toBeGreaterThan(0);
+        expect(await createFreeTextAnnotation(page, `second editor ${Date.now()}`)).toBeGreaterThan(0);
         const saveStartedAt = Date.now();
         try {
-            agentSaveResult = await saveLargePdfViaAgentAction(page);
+            await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);
         } catch (error) {
             const debugState = await collectLargePdfAnnotationDebugState(page).catch(() => null);
             throw new Error(`Large PDF save failed after ${placement.branch}: ${JSON.stringify({
@@ -737,9 +808,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 debugState,
                 cause: error instanceof Error ? error.message : String(error),
             })}`);
-        }
-        if (!agentSaveResult) {
-            await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);
         }
         expect(Date.now() - saveStartedAt).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
 
@@ -755,11 +823,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             : typeof fallbackSavedState.originalPath === 'string'
                 ? fallbackSavedState.originalPath
                 : fixturePath;
-        const savedPath = typeof agentSaveResult?.status?.originalPath === 'string'
-            ? agentSaveResult.status.originalPath
-            : typeof agentSaveResult?.status?.workingCopyPath === 'string'
-                ? agentSaveResult.status.workingCopyPath
-                : fallbackSavedPath;
+        const savedPath = fallbackSavedPath;
         const savedNotes = await expectPdfContainsE2ENote(savedPath, firstText);
         expect(savedNotes, JSON.stringify({
             savedPath,
@@ -797,6 +861,27 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
         await openAnnotationsTab(page, 30_000);
         expect(await createFreeTextAnnotation(page, text)).toBeGreaterThan(0);
+        try {
+            await waitForSaveFrontierReady(page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+        } catch (error) {
+            const debugState = await collectLargePdfAnnotationDebugState(page).catch(() => null);
+            const editorState = await page.evaluate(() => ({
+                activeElement: document.activeElement?.outerHTML.slice(0, 1_000) ?? null,
+                activeTool: globalThis.__evbE2E.getActiveWorkspaceHost()
+                    ?.querySelector('.notes-panel .tool-button.is-active')
+                    ?.getAttribute('data-tool') ?? null,
+                editors: Array.from(document.querySelectorAll<HTMLElement>('.freeTextEditor')).map(editor => ({
+                    html: editor.outerHTML.slice(0, 2_000),
+                    page: editor.closest<HTMLElement>('.page_container')?.dataset.page ?? null,
+                    text: editor.textContent ?? '',
+                })),
+            })).catch(() => null);
+            throw new Error(`FreeText save frontier did not become ready: ${JSON.stringify({
+                debugState,
+                editorState,
+                cause: error instanceof Error ? error.message : String(error),
+            })}`);
+        }
 
         const agentSaveResult = await saveLargePdfViaAgentAction(page);
         if (!agentSaveResult) {

@@ -231,6 +231,25 @@ export const runtimeSchema = {
     },
 };
 
+export function argsSchema<TArgs extends unknown[]>(
+    decode: (args: readonly unknown[]) => TArgs,
+    example: () => TArgs,
+): IRuntimeSchema<TArgs> {
+    return runtimeSchema.declared<TArgs>()(runtimeSchema.fromParser((value) => {
+        if (!Array.isArray(value)) {
+            throw new Error('expected IPC arguments');
+        }
+        return decode(value);
+    }, example));
+}
+
+export function resultSchema<TResult>(
+    decode: (value: unknown) => TResult,
+    example: () => TResult,
+): IRuntimeSchema<TResult> {
+    return runtimeSchema.declared<TResult>()(runtimeSchema.fromParser(decode, example));
+}
+
 type TForwardedPlatformMethod<
     TName extends string,
     TChannel extends string,

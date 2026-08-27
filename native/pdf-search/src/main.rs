@@ -9,7 +9,7 @@ use std::error::Error;
 #[cfg(test)]
 use std::fs;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 #[cfg(test)]
 use std::process;
@@ -25,6 +25,17 @@ const MAGIC: &[u8; 8] = b"EVBSIDX2";
 const SCHEMA_VERSION: u32 = 2;
 const HEADER_SIZE: usize = 64;
 const PAGE_RECORD_SIZE: usize = 24;
+const STREAMING_MAGIC: &[u8; 8] = b"EVBSIDX3";
+const STREAMING_SCHEMA_VERSION: u32 = 3;
+const STREAMING_HEADER_SIZE: usize = 64;
+const STREAMING_FOOTER_MAGIC: &[u8; 8] = b"EVBSFTR3";
+const STREAMING_FOOTER_SIZE: usize = 64;
+const STREAMING_DIRECTORY_ENTRY_SIZE: usize = 24;
+const STREAMING_FLAG_COMPLETE: u32 = 1;
+const STREAMING_FLAG_PARTIAL_COVERAGE: u32 = 1 << 1;
+const STREAMING_FLAG_TRUNCATED_COVERAGE: u32 = 1 << 2;
+const STREAMING_KNOWN_FLAGS: u32 =
+    STREAMING_FLAG_COMPLETE | STREAMING_FLAG_PARTIAL_COVERAGE | STREAMING_FLAG_TRUNCATED_COVERAGE;
 const MAX_SERVICE_WORKERS: usize = 4;
 const MAX_SERVICE_CACHED_INDEXES: usize = 8;
 const MAX_SERVICE_CACHED_INDEX_BYTES: usize = 512 * 1024 * 1024;
@@ -35,7 +46,6 @@ const MAX_SEARCH_QUERY_CHARS: usize = 2_048;
 const MAX_SEARCH_DOCUMENT_REVISION_CHARS: usize = 8_192;
 const MAX_SEARCH_RESULT_LIMIT: usize = 500;
 const MAX_SEARCH_CONTEXT_CHARS: usize = 56;
-const MAX_SEARCH_PAGE_COUNT: u32 = 1_000_000;
 const MAX_SEARCH_INDEX_BYTES: usize = 320 * 1024 * 1024;
 const MAX_SEARCH_INDEX_PAGE_RECORDS: usize = 1_000_000;
 const MAX_SEARCH_INDEX_PAGE_TEXT_BYTES: usize = 32 * 1024 * 1024;
@@ -79,17 +89,34 @@ fn native_failure(message: impl Into<String>) -> NativeError {
     NativeError::new(NativeErrorCode::NativeFailure, message)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct PageRecord {
     page_number: u32,
     offset: usize,
     byte_len: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct StreamingDirectory {
+    directory_offset: usize,
+    text_data_offset: usize,
+    footer_offset: usize,
+    pages_written: u32,
+    bytes_written: u64,
+    pages_scanned: u32,
+    flags: u32,
+}
+
+#[derive(Debug)]
+enum SearchIndexRecords {
+    Legacy(Vec<PageRecord>),
+    Streaming(StreamingDirectory),
+}
+
 #[derive(Debug)]
 struct SearchIndex {
     page_count: u32,
-    records: Vec<PageRecord>,
+    records: SearchIndexRecords,
     data: SearchIndexData,
 }
 
@@ -193,10 +220,12 @@ fn usize_from_u64(value: u64, label: &str) -> Result<usize, NativeError> {
 }
 
 fn load_index(path: &PathBuf, expected_revision: &str) -> Result<SearchIndex, Box<dyn Error>> {
-    let file = File::open(path)?;
+    let mut file = File::open(path)?;
     let file_len = usize::try_from(file.metadata()?.len())
         .map_err(|_| too_large("Native search index is too large"))?;
-    if file_len > SEARCH_INDEX_LIMITS.max_index_bytes {
+    let mut magic = [0u8; 8];
+    file.read_exact(&mut magic)?;
+    if file_len > SEARCH_INDEX_LIMITS.max_index_bytes && magic != *STREAMING_MAGIC {
         return Err(Box::new(too_large(format!(
             "Native search index exceeds the {}-byte admission ceiling",
             SEARCH_INDEX_LIMITS.max_index_bytes
@@ -221,7 +250,8 @@ fn load_index_data_with_limits(
     limits: SearchIndexLimits,
 ) -> Result<SearchIndex, Box<dyn Error>> {
     let bytes = data.as_ref();
-    if bytes.len() > limits.max_index_bytes {
+    let is_streaming = bytes.get(0..8) == Some(&STREAMING_MAGIC[..]);
+    if !is_streaming && bytes.len() > limits.max_index_bytes {
         return Err(Box::new(too_large(format!(
             "Native search index exceeds the {}-byte admission ceiling",
             limits.max_index_bytes
@@ -232,11 +262,24 @@ fn load_index_data_with_limits(
             "Native search index is too small".to_string(),
         )));
     }
+    if is_streaming {
+        return load_streaming_index_data(data, expected_revision, limits);
+    }
     if bytes.get(0..8) != Some(&MAGIC[..]) {
         return Err(Box::new(native_failure(
             "Native search index magic mismatch".to_string(),
         )));
     }
+
+    load_legacy_index_data(data, expected_revision, limits)
+}
+
+fn load_legacy_index_data(
+    data: SearchIndexData,
+    expected_revision: &str,
+    limits: SearchIndexLimits,
+) -> Result<SearchIndex, Box<dyn Error>> {
+    let bytes = data.as_ref();
 
     let schema_version = read_u32_le(bytes, 8)?;
     if schema_version != SCHEMA_VERSION {
@@ -343,18 +386,282 @@ fn load_index_data_with_limits(
 
     Ok(SearchIndex {
         page_count,
-        records,
+        records: SearchIndexRecords::Legacy(records),
+        data,
+    })
+}
+
+fn load_streaming_index_data(
+    data: SearchIndexData,
+    expected_revision: &str,
+    _limits: SearchIndexLimits,
+) -> Result<SearchIndex, Box<dyn Error>> {
+    let bytes = data.as_ref();
+    let schema_version = read_u32_le(bytes, 8)?;
+    if schema_version != STREAMING_SCHEMA_VERSION {
+        return Err(Box::new(native_failure(format!(
+            "Unsupported native streaming search index schema version {schema_version}",
+        ))));
+    }
+
+    let header_size = usize::try_from(read_u32_le(bytes, 12)?)
+        .map_err(|_| too_large("Native streaming search index header size is too large"))?;
+    if header_size != STREAMING_HEADER_SIZE {
+        return Err(Box::new(native_failure(
+            "Native streaming search index header size mismatch".to_string(),
+        )));
+    }
+
+    let page_count = read_u32_le(bytes, 16)?;
+    if page_count == 0 {
+        return Err(Box::new(native_failure(
+            "Native streaming search index page count must be positive".to_string(),
+        )));
+    }
+    let header_pages_written = read_u32_le(bytes, 20)?;
+    if header_pages_written > page_count {
+        return Err(Box::new(native_failure(
+            "Native streaming search index pagesWritten exceeds page count".to_string(),
+        )));
+    }
+    let flags = read_u32_le(bytes, 24)?;
+    if flags & !STREAMING_KNOWN_FLAGS != 0 {
+        return Err(Box::new(native_failure(
+            "Native streaming search index contains unknown coverage flags".to_string(),
+        )));
+    }
+    if flags & STREAMING_FLAG_COMPLETE == 0 {
+        return Err(Box::new(native_failure(
+            "Native streaming search index is incomplete".to_string(),
+        )));
+    }
+
+    let revision_token_byte_length = usize::try_from(read_u32_le(bytes, 28)?)
+        .map_err(|_| too_large("Native streaming search index revision token is too large"))?;
+    if revision_token_byte_length == 0
+        || revision_token_byte_length > MAX_SEARCH_DOCUMENT_REVISION_CHARS
+    {
+        return Err(Box::new(too_large(format!(
+            "Native streaming search index revision token exceeds the {MAX_SEARCH_DOCUMENT_REVISION_CHARS}-byte admission ceiling"
+        ))));
+    }
+
+    let revision_token_byte_offset = read_u64_le(bytes, 32)?;
+    let directory_offset = read_u64_le(bytes, 40)?;
+    let text_data_offset = read_u64_le(bytes, 48)?;
+    let footer_offset = read_u64_le(bytes, 56)?;
+    let directory_length = u64::from(page_count)
+        .checked_mul(STREAMING_DIRECTORY_ENTRY_SIZE as u64)
+        .ok_or_else(|| too_large("Native streaming search index directory length overflow"))?;
+    let directory_end = directory_offset
+        .checked_add(directory_length)
+        .ok_or_else(|| too_large("Native streaming search index directory offset overflow"))?;
+    let revision_token_end = revision_token_byte_offset
+        .checked_add(revision_token_byte_length as u64)
+        .ok_or_else(|| too_large("Native streaming search index revision offset overflow"))?;
+    let footer_end = footer_offset
+        .checked_add(STREAMING_FOOTER_SIZE as u64)
+        .ok_or_else(|| too_large("Native streaming search index footer offset overflow"))?;
+    let file_len = u64::try_from(bytes.len())
+        .map_err(|_| too_large("Native streaming search index is too large"))?;
+
+    let valid_layout = revision_token_byte_offset >= STREAMING_HEADER_SIZE as u64
+        && revision_token_end <= directory_offset
+        && text_data_offset == directory_end
+        && footer_offset >= text_data_offset
+        && footer_end == file_len
+        && footer_offset != 0;
+    if !valid_layout {
+        return Err(Box::new(native_failure(
+            "Native streaming search index layout is invalid".to_string(),
+        )));
+    }
+    if directory_end > file_len {
+        return Err(Box::new(native_failure(
+            "Native streaming search index directory is truncated".to_string(),
+        )));
+    }
+
+    let revision_token_offset = usize_from_u64(
+        revision_token_byte_offset,
+        "streaming revision token byte offset",
+    )?;
+    let revision_token_end_usize =
+        usize_from_u64(revision_token_end, "streaming revision token end")?;
+    let directory_offset_usize = usize_from_u64(directory_offset, "streaming directory offset")?;
+    let text_data_offset_usize = usize_from_u64(text_data_offset, "streaming text data offset")?;
+    let footer_offset_usize = usize_from_u64(footer_offset, "streaming footer offset")?;
+    let revision_token = std::str::from_utf8(
+        bytes
+            .get(revision_token_offset..revision_token_end_usize)
+            .ok_or_else(|| {
+                corrupt_index("Native streaming search index revision token is truncated")
+            })?,
+    )
+    .map_err(|_| native_failure("Native streaming search index revision token is not UTF-8"))?;
+    if revision_token != expected_revision {
+        return Err(Box::new(native_failure(
+            "Native search index document revision mismatch".to_string(),
+        )));
+    }
+
+    let footer_flags = read_u32_le(bytes, footer_offset_usize + 16)?;
+    let footer_pages_written = read_u32_le(bytes, footer_offset_usize + 24)?;
+    let footer_bytes_written = read_u64_le(bytes, footer_offset_usize + 32)?;
+    let footer_file_length = read_u64_le(bytes, footer_offset_usize + 40)?;
+    let footer_directory_length = read_u64_le(bytes, footer_offset_usize + 48)?;
+    if bytes.get(footer_offset_usize..footer_offset_usize + 8) != Some(&STREAMING_FOOTER_MAGIC[..])
+        || read_u32_le(bytes, footer_offset_usize + 8)? != STREAMING_SCHEMA_VERSION
+        || read_u32_le(bytes, footer_offset_usize + 12)? != STREAMING_FOOTER_SIZE as u32
+        || footer_flags != flags
+        || footer_pages_written != header_pages_written
+        || footer_file_length != file_len
+        || footer_directory_length != directory_length
+    {
+        return Err(Box::new(native_failure(
+            "Native streaming search index completion footer is invalid".to_string(),
+        )));
+    }
+
+    if read_u32_le(bytes, footer_offset_usize + 28)? != 0 {
+        return Err(Box::new(native_failure(
+            "Native streaming search index footer reserved field is nonzero".to_string(),
+        )));
+    }
+    let pages_scanned = u32::try_from(read_u64_le(bytes, footer_offset_usize + 56)?)
+        .map_err(|_| native_failure("Native streaming search index pagesScanned is too large"))?;
+    if pages_scanned > page_count {
+        return Err(Box::new(native_failure(
+            "Native streaming search index pagesScanned exceeds page count".to_string(),
+        )));
+    }
+    if pages_scanned < page_count && flags & STREAMING_FLAG_PARTIAL_COVERAGE == 0 {
+        return Err(Box::new(native_failure(
+            "Native streaming search index pagesScanned requires partial coverage".to_string(),
+        )));
+    }
+
+    let mut counted_pages_written = 0u32;
+    let mut counted_bytes_written = 0u64;
+    for page_index in 0..page_count {
+        let record_offset_u64 = directory_offset
+            .checked_add(
+                u64::from(page_index)
+                    .checked_mul(STREAMING_DIRECTORY_ENTRY_SIZE as u64)
+                    .ok_or_else(|| {
+                        too_large("Native streaming search index directory entry overflow")
+                    })?,
+            )
+            .ok_or_else(|| too_large("Native streaming search index directory entry overflow"))?;
+        let record_offset = usize_from_u64(record_offset_u64, "streaming directory entry offset")?;
+        let byte_offset = read_u64_le(bytes, record_offset)?;
+        let byte_length = read_u64_le(bytes, record_offset + 8)?;
+        let text_utf16_length = read_u32_le(bytes, record_offset + 16)?;
+        let entry_marker = read_u32_le(bytes, record_offset + 20)?;
+        if entry_marker > 1 {
+            return Err(Box::new(native_failure(
+                "Native streaming search index directory entry marker is invalid".to_string(),
+            )));
+        }
+        if entry_marker == 0 {
+            if byte_offset != 0 || byte_length != 0 || text_utf16_length != 0 {
+                return Err(Box::new(native_failure(
+                    "Native streaming search index empty directory entry is invalid".to_string(),
+                )));
+            }
+            continue;
+        }
+
+        if byte_length == 0 {
+            if byte_offset != 0 || text_utf16_length != 0 {
+                return Err(Box::new(native_failure(
+                    "Native streaming search index empty page record is invalid".to_string(),
+                )));
+            }
+            continue;
+        }
+
+        let byte_end = byte_offset
+            .checked_add(byte_length)
+            .ok_or_else(|| too_large("Native streaming search index page text offset overflow"))?;
+        if byte_offset < text_data_offset || byte_end > footer_offset {
+            return Err(Box::new(native_failure(
+                "Native streaming search index page text is outside the text data range"
+                    .to_string(),
+            )));
+        }
+        let byte_offset_usize = usize_from_u64(byte_offset, "streaming page text offset")?;
+        let byte_end_usize = usize_from_u64(byte_end, "streaming page text end")?;
+        let text = std::str::from_utf8(bytes.get(byte_offset_usize..byte_end_usize).ok_or_else(
+            || corrupt_index("Native streaming search index page text is truncated"),
+        )?)
+        .map_err(|_| native_failure("Native streaming search index page text is not UTF-8"))?;
+        if text.encode_utf16().count() != text_utf16_length as usize {
+            return Err(Box::new(native_failure(
+                "Native streaming search index UTF-16 text length mismatch".to_string(),
+            )));
+        }
+        counted_pages_written = counted_pages_written
+            .checked_add(1)
+            .ok_or_else(|| too_large("Native streaming search index pagesWritten overflow"))?;
+        counted_bytes_written = counted_bytes_written
+            .checked_add(byte_length)
+            .ok_or_else(|| too_large("Native streaming search index bytesWritten overflow"))?;
+    }
+
+    let text_range_length = footer_offset
+        .checked_sub(text_data_offset)
+        .ok_or_else(|| native_failure("Native streaming search index text range is invalid"))?;
+    if counted_pages_written != header_pages_written
+        || counted_bytes_written != footer_bytes_written
+        || counted_bytes_written != text_range_length
+    {
+        return Err(Box::new(native_failure(
+            "Native streaming search index coverage counts are inconsistent".to_string(),
+        )));
+    }
+
+    Ok(SearchIndex {
+        page_count,
+        records: SearchIndexRecords::Streaming(StreamingDirectory {
+            directory_offset: directory_offset_usize,
+            text_data_offset: text_data_offset_usize,
+            footer_offset: footer_offset_usize,
+            pages_written: header_pages_written,
+            bytes_written: footer_bytes_written,
+            pages_scanned,
+            flags,
+        }),
         data,
     })
 }
 
 impl SearchIndex {
     fn cache_weight_bytes(&self) -> usize {
-        self.data.as_ref().len().saturating_add(
-            self.records
+        let record_weight = match &self.records {
+            SearchIndexRecords::Legacy(records) => records
                 .len()
                 .saturating_mul(std::mem::size_of::<PageRecord>()),
-        )
+            SearchIndexRecords::Streaming(directory) => {
+                debug_assert!(directory.text_data_offset <= directory.footer_offset);
+                debug_assert!(directory.pages_written <= self.page_count);
+                debug_assert!(directory.pages_scanned <= self.page_count);
+                debug_assert!(directory.flags & STREAMING_FLAG_COMPLETE != 0);
+                debug_assert!(directory.bytes_written <= self.data.as_ref().len() as u64);
+                std::mem::size_of_val(directory)
+            }
+        };
+        self.data.as_ref().len().saturating_add(record_weight)
+    }
+
+    fn records(&self) -> SearchIndexRecordIter<'_> {
+        SearchIndexRecordIter {
+            records: &self.records,
+            data: &self.data,
+            page_count: self.page_count,
+            next_page: 0,
+            emitted_pages: 0,
+        }
     }
 
     fn page_text(&self, record: &PageRecord) -> Result<&str, Box<dyn Error>> {
@@ -364,6 +671,89 @@ impl SearchIndex {
         Ok(std::str::from_utf8(
             &self.data.as_ref()[record.offset..end],
         )?)
+    }
+}
+
+struct SearchIndexRecordIter<'a> {
+    records: &'a SearchIndexRecords,
+    data: &'a SearchIndexData,
+    page_count: u32,
+    next_page: u32,
+    emitted_pages: u32,
+}
+
+impl Iterator for SearchIndexRecordIter<'_> {
+    type Item = Result<PageRecord, Box<dyn Error>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.records {
+            SearchIndexRecords::Legacy(records) => {
+                let record = records.get(self.next_page as usize).copied();
+                self.next_page = self.next_page.saturating_add(1);
+                record.map(Ok)
+            }
+            SearchIndexRecords::Streaming(directory) => loop {
+                if self.next_page >= self.page_count
+                    || self.emitted_pages >= directory.pages_written
+                {
+                    return None;
+                }
+                let page_number = self.next_page + 1;
+                self.next_page += 1;
+                let entry_offset =
+                    match (page_number as usize - 1).checked_mul(STREAMING_DIRECTORY_ENTRY_SIZE) {
+                        Some(offset) => offset,
+                        None => {
+                            return Some(Err(Box::new(too_large(
+                                "Native streaming search index directory entry overflow",
+                            ))))
+                        }
+                    };
+                let record_offset = match directory.directory_offset.checked_add(entry_offset) {
+                    Some(offset) => offset,
+                    None => {
+                        return Some(Err(Box::new(too_large(
+                            "Native streaming search index directory entry overflow",
+                        ))))
+                    }
+                };
+                let bytes = self.data.as_ref();
+                let byte_offset = match read_u64_le(bytes, record_offset) {
+                    Ok(value) => value,
+                    Err(error) => return Some(Err(Box::new(error))),
+                };
+                let byte_len = match read_u64_le(bytes, record_offset + 8) {
+                    Ok(value) => value,
+                    Err(error) => return Some(Err(Box::new(error))),
+                };
+                let marker = match read_u32_le(bytes, record_offset + 20) {
+                    Ok(value) => value,
+                    Err(error) => return Some(Err(Box::new(error))),
+                };
+                if marker == 0 || byte_len == 0 {
+                    continue;
+                }
+                if marker > 1 {
+                    return Some(Err(Box::new(native_failure(
+                        "Native streaming search index directory entry marker is invalid",
+                    ))));
+                }
+                let offset = match usize_from_u64(byte_offset, "streaming page text offset") {
+                    Ok(value) => value,
+                    Err(error) => return Some(Err(Box::new(error))),
+                };
+                let byte_len = match usize_from_u64(byte_len, "streaming page text length") {
+                    Ok(value) => value,
+                    Err(error) => return Some(Err(Box::new(error))),
+                };
+                self.emitted_pages = self.emitted_pages.saturating_add(1);
+                return Some(Ok(PageRecord {
+                    page_number,
+                    offset,
+                    byte_len,
+                }));
+            },
+        }
     }
 }
 
@@ -863,7 +1253,8 @@ fn search_index_with_cancel(
     let mut matches_examined = 0usize;
     let normalized_query = normalize_search_fragment(&options.query);
 
-    'pages: for record in &index.records {
+    'pages: for record_result in index.records() {
+        let record = record_result?;
         if canceled.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
             return Err(Box::new(native_failure("Search canceled".to_string())));
         }
@@ -871,7 +1262,7 @@ fn search_index_with_cancel(
             continue;
         }
 
-        let text = index.page_text(record)?;
+        let text = index.page_text(&record)?;
         let normalized_text = NormalizedText::new(text);
         let mut text_map: Option<PageTextMap> = None;
         for (page_match_index, (normalized_start, normalized_end)) in
@@ -1068,14 +1459,13 @@ fn validate_service_request(request: &ServiceRequest) -> Result<(), NativeError>
                     "Search context exceeds the {MAX_SEARCH_CONTEXT_CHARS}-character admission ceiling"
                 )));
             }
+            // `page_count` is a u32 on the native wire protocol. Serde
+            // rejects values outside that checked native integer range.
+            // Sparse sidecars may declare more pages than they retain
+            // records for, so this must not be tied to record admission.
             if let Some(page_count) = page_count {
                 if *page_count == 0 {
                     return Err(invalid_request("Search page count must be at least 1"));
-                }
-                if *page_count > MAX_SEARCH_PAGE_COUNT {
-                    return Err(too_large(format!(
-                        "Search page count exceeds the {MAX_SEARCH_PAGE_COUNT}-page admission ceiling"
-                    )));
                 }
             }
         }
@@ -1590,7 +1980,7 @@ mod tests {
         }
         SearchIndex {
             page_count: pages.len() as u32,
-            records,
+            records: SearchIndexRecords::Legacy(records),
             data: SearchIndexData::Owned(data),
         }
     }
@@ -1683,6 +2073,79 @@ mod tests {
         data
     }
 
+    fn serialized_streaming_index(
+        page_count: u32,
+        pages: &[(u32, &str)],
+        pages_scanned: u32,
+        flags: u32,
+    ) -> Vec<u8> {
+        let revision_token = TEST_DOCUMENT_REVISION.as_bytes();
+        let directory_offset = STREAMING_HEADER_SIZE + revision_token.len();
+        let directory_length = page_count as usize * STREAMING_DIRECTORY_ENTRY_SIZE;
+        let text_data_offset = directory_offset + directory_length;
+        let text_bytes = pages.iter().map(|(_, text)| text.len()).sum::<usize>();
+        let pages_written = pages.iter().filter(|(_, text)| !text.is_empty()).count() as u32;
+        let footer_offset = text_data_offset + text_bytes;
+        let mut data = vec![0u8; footer_offset + STREAMING_FOOTER_SIZE];
+
+        data[0..8].copy_from_slice(STREAMING_MAGIC);
+        data[8..12].copy_from_slice(&STREAMING_SCHEMA_VERSION.to_le_bytes());
+        data[12..16].copy_from_slice(&(STREAMING_HEADER_SIZE as u32).to_le_bytes());
+        data[16..20].copy_from_slice(&page_count.to_le_bytes());
+        data[20..24].copy_from_slice(&pages_written.to_le_bytes());
+        data[24..28].copy_from_slice(&flags.to_le_bytes());
+        data[28..32].copy_from_slice(&(revision_token.len() as u32).to_le_bytes());
+        data[32..40].copy_from_slice(&(STREAMING_HEADER_SIZE as u64).to_le_bytes());
+        data[40..48].copy_from_slice(&(directory_offset as u64).to_le_bytes());
+        data[48..56].copy_from_slice(&(text_data_offset as u64).to_le_bytes());
+        data[56..64].copy_from_slice(&(footer_offset as u64).to_le_bytes());
+        data[STREAMING_HEADER_SIZE..directory_offset].copy_from_slice(revision_token);
+
+        let mut next_text_offset = text_data_offset;
+        for (page_number, text) in pages {
+            let record_offset =
+                directory_offset + (*page_number as usize - 1) * STREAMING_DIRECTORY_ENTRY_SIZE;
+            let byte_offset = if text.is_empty() { 0 } else { next_text_offset };
+            data[record_offset..record_offset + 8]
+                .copy_from_slice(&(byte_offset as u64).to_le_bytes());
+            data[record_offset + 8..record_offset + 16]
+                .copy_from_slice(&(text.len() as u64).to_le_bytes());
+            data[record_offset + 16..record_offset + 20]
+                .copy_from_slice(&(text.encode_utf16().count() as u32).to_le_bytes());
+            data[record_offset + 20..record_offset + 24].copy_from_slice(&1u32.to_le_bytes());
+            data[next_text_offset..next_text_offset + text.len()].copy_from_slice(text.as_bytes());
+            next_text_offset += text.len();
+        }
+
+        data[footer_offset..footer_offset + 8].copy_from_slice(STREAMING_FOOTER_MAGIC);
+        data[footer_offset + 8..footer_offset + 12]
+            .copy_from_slice(&STREAMING_SCHEMA_VERSION.to_le_bytes());
+        data[footer_offset + 12..footer_offset + 16]
+            .copy_from_slice(&(STREAMING_FOOTER_SIZE as u32).to_le_bytes());
+        data[footer_offset + 16..footer_offset + 20].copy_from_slice(&flags.to_le_bytes());
+        data[footer_offset + 24..footer_offset + 28].copy_from_slice(&pages_written.to_le_bytes());
+        data[footer_offset + 32..footer_offset + 40]
+            .copy_from_slice(&(text_bytes as u64).to_le_bytes());
+        let file_length = data.len() as u64;
+        data[footer_offset + 40..footer_offset + 48].copy_from_slice(&file_length.to_le_bytes());
+        data[footer_offset + 48..footer_offset + 56]
+            .copy_from_slice(&(directory_length as u64).to_le_bytes());
+        data[footer_offset + 56..footer_offset + 64]
+            .copy_from_slice(&(pages_scanned as u64).to_le_bytes());
+
+        data
+    }
+
+    fn assert_streaming_index_rejected(bytes: Vec<u8>, message: &str) {
+        let error = load_index_data(SearchIndexData::Owned(bytes), TEST_DOCUMENT_REVISION)
+            .expect_err("malformed streaming search index must be rejected");
+        let native_error = error
+            .downcast_ref::<NativeError>()
+            .expect("streaming index failure should be a native error");
+        assert_eq!(native_error.code, NativeErrorCode::NativeFailure);
+        assert!(native_error.message.contains(message), "{native_error}");
+    }
+
     fn options(query: &str) -> SearchOptions {
         SearchOptions {
             index_path: PathBuf::new(),
@@ -1728,6 +2191,122 @@ mod tests {
                 r#""excerpt":{"prefix":true,"suffix":false,"before":"one ","match":"alpha","after":""}}"#,
                 r#"],"truncated":false,"pageCount":2}"#,
             ),
+        );
+    }
+
+    #[test]
+    fn searches_sparse_streaming_index_without_page_count_records() {
+        let page_count = 1_000_001;
+        let flags = STREAMING_FLAG_COMPLETE;
+        let index = load_index_data(
+            SearchIndexData::Owned(serialized_streaming_index(
+                page_count,
+                &[(1, "first needle"), (page_count, "last needle")],
+                page_count,
+                flags,
+            )),
+            TEST_DOCUMENT_REVISION,
+        )
+        .expect("load sparse streaming search index");
+
+        let directory = match &index.records {
+            SearchIndexRecords::Streaming(directory) => directory,
+            SearchIndexRecords::Legacy(_) => panic!("expected streaming index directory"),
+        };
+        assert_eq!(directory.pages_written, 2);
+        assert_eq!(directory.pages_scanned, page_count);
+        assert_eq!(directory.flags, flags);
+
+        let response = search_index(&index, &options("needle")).expect("search sparse index");
+        assert_eq!(response.page_count, page_count);
+        assert_eq!(response.results.len(), 2);
+        assert_eq!(response.results[0].page_number, 1);
+        assert_eq!(response.results[1].page_number, page_count);
+    }
+
+    #[test]
+    fn preserves_streaming_partial_and_truncated_coverage_metadata() {
+        let flags = STREAMING_FLAG_COMPLETE
+            | STREAMING_FLAG_PARTIAL_COVERAGE
+            | STREAMING_FLAG_TRUNCATED_COVERAGE;
+        let index = load_index_data(
+            SearchIndexData::Owned(serialized_streaming_index(3, &[(1, "needle")], 2, flags)),
+            TEST_DOCUMENT_REVISION,
+        )
+        .expect("load partial streaming search index");
+
+        let directory = match &index.records {
+            SearchIndexRecords::Streaming(directory) => directory,
+            SearchIndexRecords::Legacy(_) => panic!("expected streaming index directory"),
+        };
+        assert_eq!(directory.pages_scanned, 2);
+        assert_eq!(directory.flags, flags);
+        let response = search_index(&index, &options("needle")).expect("search partial index");
+        assert_eq!(response.page_count, 3);
+        assert_eq!(response.results.len(), 1);
+    }
+
+    #[test]
+    fn treats_present_empty_streaming_pages_as_blank() {
+        let index = load_index_data(
+            SearchIndexData::Owned(serialized_streaming_index(
+                3,
+                &[(1, ""), (2, "needle")],
+                3,
+                STREAMING_FLAG_COMPLETE,
+            )),
+            TEST_DOCUMENT_REVISION,
+        )
+        .expect("load streaming index with blank page");
+
+        let directory = match &index.records {
+            SearchIndexRecords::Streaming(directory) => directory,
+            SearchIndexRecords::Legacy(_) => panic!("expected streaming index directory"),
+        };
+        assert_eq!(directory.pages_written, 1);
+        let response = search_index(&index, &options("needle")).expect("search blank-page index");
+        assert_eq!(response.page_count, 3);
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].page_number, 2);
+    }
+
+    #[test]
+    fn rejects_malformed_streaming_index_metadata() {
+        let flags = STREAMING_FLAG_COMPLETE;
+        let valid = serialized_streaming_index(2, &[(1, "needle")], 2, flags);
+
+        let mut bad_footer_offset = valid.clone();
+        let bad_footer_offset_value = (bad_footer_offset.len() as u64) - 63;
+        bad_footer_offset[56..64].copy_from_slice(&bad_footer_offset_value.to_le_bytes());
+        assert_streaming_index_rejected(bad_footer_offset, "layout is invalid");
+
+        let mut bad_bytes_written = valid.clone();
+        let footer_offset =
+            u64::from_le_bytes(bad_bytes_written[56..64].try_into().unwrap()) as usize;
+        bad_bytes_written[footer_offset + 32..footer_offset + 40]
+            .copy_from_slice(&0u64.to_le_bytes());
+        assert_streaming_index_rejected(bad_bytes_written, "coverage counts are inconsistent");
+
+        let mut bad_pages_scanned = valid;
+        let footer_offset =
+            u64::from_le_bytes(bad_pages_scanned[56..64].try_into().unwrap()) as usize;
+        bad_pages_scanned[footer_offset + 56..footer_offset + 64]
+            .copy_from_slice(&3u64.to_le_bytes());
+        assert_streaming_index_rejected(bad_pages_scanned, "pagesScanned exceeds page count");
+    }
+
+    #[test]
+    fn rejects_streaming_index_with_mismatched_document_revision() {
+        let bytes = serialized_streaming_index(2, &[(1, "needle")], 2, STREAMING_FLAG_COMPLETE);
+        let error = load_index_data(SearchIndexData::Owned(bytes), "other-revision")
+            .expect_err("streaming revision mismatch should fail");
+        let native_error = error
+            .downcast_ref::<NativeError>()
+            .expect("streaming revision mismatch should be a native error");
+        assert_eq!(native_error.code, NativeErrorCode::NativeFailure);
+        assert!(
+            native_error.message.contains("document revision mismatch"),
+            "{native_error}"
         );
     }
 

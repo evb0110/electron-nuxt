@@ -15,6 +15,8 @@ import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domai
 import type { ISerializationPlanInputs } from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import { buildSerializationPlan } from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import { requireDocumentRevisionToken } from '@contracts';
+import { requirePageIndex } from '@contracts/pageNumbers';
+import type { IPdfNativeFreeTextEditor } from '@contracts/electronApiDocuments';
 
 const MARKER_RECT = {
     left: 0.1,
@@ -40,6 +42,14 @@ function embeddedNote(id: string, pdfRef: string): AnnotationEntity {
         text: `text-${id}`,
         anchor: MARKER_RECT,
         color: '#ffcc00',
+    };
+}
+
+function cleanEmbeddedFreeTextNote(id: string, pdfRef: string): AnnotationEntity {
+    return {
+        ...embeddedNote(id, pdfRef),
+        revision: 0,
+        persistedRevision: 0,
     };
 }
 
@@ -382,15 +392,75 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         });
     });
 
-    it('classifies an unprojectable PDF-backed FreeText edit before granting a route', () => {
+    it('projects a PDF-backed FreeText edit to a native text update', () => {
         const decision = classifyPdfSaveRoute(
             planOf([embeddedNote('anno_note', '12R')]),
             capabilities(),
         );
 
-        expect(decision.route).toBe('source-replay');
-        if (decision.route === 'native-append') throw new Error('expected a byte route');
-        expect(decision.nativeRejection).toBe('pending-texts-not-covered-by-native-mutations');
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.mutations).toMatchObject({updates: [expect.objectContaining({
+            objectNumber: 12,
+            generationNumber: 0,
+            text: 'text-anno_note',
+        })]});
+    });
+
+    it('keeps a clean embedded FreeText out of native pending texts beside a new editor', () => {
+        const editor: IPdfNativeFreeTextEditor = {
+            pageIndex: requirePageIndex(0),
+            stableKey: 'freetext-new-editor',
+            text: 'New editor text',
+            rect: [
+                20,
+                30,
+                180,
+                60,
+            ],
+            rotation: 0,
+            fontSize: 16,
+            color: [
+                245,
+                158,
+                11,
+            ],
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([cleanEmbeddedFreeTextNote('anno_clean_note', '12R')]),
+            capabilities({liveAnnotationChanges: liveChanges({
+                ids: new Set(['pdfjs_internal_editor_0']),
+                hasChanges: true,
+                fingerprint: 'new-editor',
+                nativeFreeTextEditors: new Map([[
+                    'pdfjs_internal_editor_0',
+                    editor,
+                ]]),
+            })}),
+        );
+
+        expect(decision.route).toBe('native-append');
+        expect(decision.canonical.pendingTexts).toEqual(new Map());
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.dirtyState.annotationDirty).toBe(true);
+        expect(decision.nativeMutationProjection).toMatchObject({
+            freeTextNotes: [],
+            freeTextEditors: [editor],
+        });
+    });
+
+    it('does not treat a clean embedded FreeText as live annotation work', () => {
+        const decision = classifyPdfSaveRoute(
+            planOf([cleanEmbeddedFreeTextNote('anno_clean_note', '12R')]),
+            capabilities(),
+        );
+
+        expect(decision.annotationPlan).toMatchObject({
+            route: 'source-clean',
+            reason: 'no-live-pdfjs-annotation-work',
+        });
+        expect(decision.canonical.pendingTexts).toEqual(new Map());
+        expect(decision.canonical.liveAnnotationChanges.hasChanges).toBe(false);
     });
 
     it('grants the native route with the unforced annotation route even under forced materialization', () => {

@@ -77,6 +77,107 @@ function createHistoryHarness(isDesktopRuntime = false) {
 }
 
 describe('createDocumentHistory', () => {
+    it('keeps 2+ GiB desktop path history in managed files without a byte snapshot', async () => {
+        const {
+            documentFiles,
+            documentWorkingCopy,
+            history,
+            state,
+        } = createHistoryHarness(true);
+        const largeDocumentSize = (2 * 1024 * 1024 * 1024) + 1;
+        state.pdfSrc.value = {
+            kind: 'path',
+            path: '/tmp/work.pdf',
+            size: largeDocumentSize,
+        };
+        state.pdfReloadSrc.value = state.pdfSrc.value;
+        documentWorkingCopy.createWorkingCopyFromPath
+            .mockResolvedValueOnce('/tmp/large-history-baseline.pdf')
+            .mockResolvedValueOnce('/tmp/large-history-next.pdf');
+
+        await expect(history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true})).resolves.toBe(true);
+        await expect(history.pushHistorySnapshot(new Uint8Array([2]), {reuseSnapshot: true})).resolves.toBe(true);
+
+        expect(history.getHistoryDebugState()).toEqual({
+            historyLength: 2,
+            historyIndex: 1,
+            historyCleanIndex: 0,
+        });
+        expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenNthCalledWith(
+            1,
+            '/tmp/work.pdf',
+            '/tmp/original.pdf',
+        );
+        expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenNthCalledWith(
+            2,
+            '/tmp/work.pdf',
+            '/tmp/original.pdf',
+        );
+        expect(documentWorkingCopy.createWorkingCopyFromData).not.toHaveBeenCalled();
+        expect(documentFiles.savePdfData).not.toHaveBeenCalled();
+    });
+
+    it('cleans a canceled desktop path history clone', async () => {
+        const {
+            documentWorkingCopy,
+            history,
+            state,
+        } = createHistoryHarness(true);
+        state.pdfSrc.value = {
+            kind: 'path',
+            path: '/tmp/work.pdf',
+            size: 2 * 1024 * 1024 * 1024,
+        };
+        const staging = Promise.withResolvers<string>();
+        documentWorkingCopy.createWorkingCopyFromPath.mockReturnValueOnce(staging.promise);
+        let isCurrent = true;
+
+        const reset = history.resetHistory(new Uint8Array([1]), {
+            reuseSnapshot: true,
+            isCurrent: () => isCurrent,
+        });
+        await vi.waitFor(() => {
+            expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledOnce();
+        });
+        isCurrent = false;
+        staging.resolve('/tmp/canceled-history.pdf');
+
+        await expect(reset).resolves.toBe(false);
+        expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/canceled-history.pdf');
+        expect(history.getHistoryDebugState().historyLength).toBe(0);
+    });
+
+    it('cleans a failed lazy desktop path history clone', async () => {
+        const {
+            documentFiles,
+            documentWorkingCopy,
+            history,
+        } = createHistoryHarness(true);
+        await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
+        await history.markCurrentHistoryEntryClean(null, {
+            lazyBaseline: {
+                workingPath: '/tmp/work.pdf',
+                revision: requireDocumentRevisionToken('revision-before-restore'),
+                size: 2 * 1024 * 1024 * 1024,
+            },
+            recordSnapshotChange: false,
+        });
+        documentWorkingCopy.createWorkingCopyFromPath.mockResolvedValueOnce('/tmp/failed-history.pdf');
+        documentFiles.getDocumentRevision
+            .mockResolvedValueOnce({
+                version: 1,
+                documentRef: '/tmp/work.pdf',
+                token: requireDocumentRevisionToken('revision-before-restore'),
+                contentRevision: 1,
+                authority: 'electron-working-copy',
+                mintedAt: 1,
+            })
+            .mockRejectedValueOnce(new Error('revision read failed'));
+
+        await expect(history.ensureHistoryBaselineForMutation()).resolves.toBe(false);
+        expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/failed-history.pdf');
+    });
+
     it('keeps document open viable when an oversized baseline cannot be staged', async () => {
         const {
             documentWorkingCopy,

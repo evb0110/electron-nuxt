@@ -264,6 +264,31 @@ describe('pdfOptimization', () => {
         ]));
     });
 
+    it('plans past former page-count limits in bounded lazy ranges', async () => {
+        const { createPageRanges } = await import('@electron/features/documents/main/pdfOptimization');
+
+        for (const pageCount of [
+            2_001,
+            100_001,
+        ]) {
+            let batchCount = 0;
+            let coveredPages = 0;
+            let previousLastPage = 0;
+            for (const pageRange of createPageRanges(pageCount, 25)) {
+                expect(pageRange.firstPage).toBe(previousLastPage + 1);
+                expect(pageRange.lastPage).toBeGreaterThanOrEqual(pageRange.firstPage);
+                expect(pageRange.lastPage - pageRange.firstPage + 1).toBeLessThanOrEqual(25);
+                coveredPages += pageRange.lastPage - pageRange.firstPage + 1;
+                previousLastPage = pageRange.lastPage;
+                batchCount += 1;
+            }
+
+            expect(coveredPages).toBe(pageCount);
+            expect(previousLastPage).toBe(pageCount);
+            expect(batchCount).toBe(Math.ceil(pageCount / 25));
+        }
+    });
+
     it('rejects unknown optimize presets', async () => {
         const { optimizePdfToFile } = await import('@electron/features/documents/main/pdfOptimization');
 

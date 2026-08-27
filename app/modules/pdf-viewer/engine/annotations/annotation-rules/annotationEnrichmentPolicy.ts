@@ -1,8 +1,8 @@
 /**
- * Annotation enrichment is the whole-document pdf-lib pass that reads every
- * annotation's `/NM` name so imported annotations keep a stable identity
- * across saves. It costs a full parse of the source bytes, so it runs only
- * while the document stays under the limits below.
+ * Browser annotation enrichment is the whole-document pdf-lib pass that reads
+ * every annotation's `/NM` name so imported annotations keep a stable identity
+ * across saves. Desktop path sources use the native pull-based index instead,
+ * so the limits below only govern the browser/in-memory fallback.
  *
  * The per-page annotation read that produces comment text, colour, timestamps
  * and author is a separate, always-on path. Enrichment being skipped reduces
@@ -17,9 +17,9 @@
 export const MAX_EAGER_ANNOTATION_ENRICHMENT_PAGE_COUNT = 512;
 
 /**
- * Interactive enrichment may inspect more pages than the open path, but it
- * still shares the full-document inventory ceiling. Past this point a click
- * must not start an unbounded pdf-lib pass.
+ * Interactive browser enrichment may inspect more pages than the open path.
+ * Past this point a click must not start an unbounded pdf-lib pass. Native
+ * path sources route around this browser-only fallback.
  */
 export const MAX_INTERACTIVE_ANNOTATION_ENRICHMENT_PAGE_COUNT = 5_000;
 

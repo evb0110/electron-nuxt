@@ -21,13 +21,355 @@ import {
     createShapeAnnotation,
     expectWorkspaceSaveMarked,
     expectWorkspaceSaveNotMarked,
+    TEST_BROWSER_WORKING_COPY_REF,
     toastAddMock,
     useWorkspaceSaveServiceForTest,
 } from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
 
+type TSaveFixtureOverrides = Parameters<typeof createDeps>[0];
+interface IStrictNativeMutationRow {
+    name: string;
+    configure: () => TSaveFixtureOverrides;
+    expectedMutationKeys: readonly string[];
+}
+type TStrictNativeFailureMode = 'missing' | 'success' | 'null' | 'error';
+interface IStrictNativeFailureRow {
+    name: string;
+    nativeMode: TStrictNativeFailureMode;
+    configure: () => TSaveFixtureOverrides;
+    expectedNativeCalls: number;
+}
+
 describe('workspaceSaveService native persistence', () => {
     beforeEach(() => {
         toastAddMock.mockClear();
+    });
+
+    const strictNativeMutationRows: readonly IStrictNativeMutationRow[] = [
+        {
+            name: 'notes',
+            configure: () => cast<TSaveFixtureOverrides>({
+                annotationDirty: ref(true),
+                canonicalAnnotationComments: shallowRef([createPdfNoteComment()]),
+                captureCanonicalPendingTextUpdates: vi.fn(() => new Map([[
+                    'ann:0:3856R',
+                    'Updated note',
+                ]])),
+                hasAnnotationChanges: vi.fn(() => true),
+                pdfDocument: shallowRef(null),
+            }),
+            expectedMutationKeys: ['updates'],
+        },
+        {
+            name: 'editor FreeText',
+            configure: () => cast<TSaveFixtureOverrides>({
+                annotationDirty: ref(true),
+                canonicalAnnotationComments: shallowRef([createEditorFreeTextNote()]),
+                hasAnnotationChanges: vi.fn(() => true),
+                pdfDocument: shallowRef(null),
+            }),
+            expectedMutationKeys: ['freeTextNotes'],
+        },
+        {
+            name: 'markup',
+            configure: () => cast<TSaveFixtureOverrides>({
+                annotationDirty: ref(true),
+                canonicalAnnotationComments: shallowRef([createPdfNoteComment({
+                    id: '44R',
+                    stableKey: 'ann:0:44R',
+                    annotationId: '44R',
+                    subtype: 'Highlight',
+                    text: '',
+                    color: '#22c55e',
+                    colorEdited: true,
+                    hasNote: false,
+                    markerRect: {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.2,
+                    },
+                })]),
+                hasAnnotationChanges: vi.fn(() => true),
+                pdfDocument: shallowRef(null),
+                getMarkupSubtypeHints: vi.fn(() => [{
+                    annotationId: '44R',
+                    id: '44R',
+                    subtype: 'Highlight' as const,
+                    pageIndex: 0,
+                    markerRect: {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.2,
+                    },
+                    color: '#22c55e',
+                    consumed: false,
+                    pageMarkupIndex: 0,
+                    source: 'pdf' as const,
+                }]),
+            }),
+            expectedMutationKeys: ['markup'],
+        },
+        {
+            name: 'shapes',
+            configure: () => cast<TSaveFixtureOverrides>({
+                annotationDirty: ref(false),
+                hasShapeChanges: vi.fn(() => true),
+                getAllShapes: vi.fn(() => [createShapeAnnotation()]),
+                totalPages: ref(2),
+            }),
+            expectedMutationKeys: ['shapes'],
+        },
+        {
+            name: 'page labels and bookmarks',
+            configure: () => cast<TSaveFixtureOverrides>({
+                totalPages: ref(3),
+                pageLabelsDirty: ref(true),
+                pageLabelRanges: ref([{
+                    startPage: 1,
+                    style: 'r',
+                    prefix: 'intro-',
+                    startNumber: 2,
+                }]),
+                bookmarksDirty: ref(true),
+                bookmarkItems: ref([{
+                    title: 'Chapter 1',
+                    pageIndex: 0,
+                    namedDest: null,
+                    bold: false,
+                    italic: false,
+                    color: null,
+                    items: [],
+                }]),
+            }),
+            expectedMutationKeys: [
+                'pageLabels',
+                'bookmarks',
+            ],
+        },
+        {
+            name: 'mixed payload',
+            configure: () => cast<TSaveFixtureOverrides>({
+                annotationDirty: ref(true),
+                canonicalAnnotationComments: shallowRef([createPdfNoteComment()]),
+                captureCanonicalPendingTextUpdates: vi.fn(() => new Map([[
+                    'ann:0:3856R',
+                    'Updated note',
+                ]])),
+                hasAnnotationChanges: vi.fn(() => true),
+                pdfDocument: shallowRef(null),
+                hasShapeChanges: vi.fn(() => true),
+                getAllShapes: vi.fn(() => [createShapeAnnotation()]),
+                totalPages: ref(2),
+                pageLabelsDirty: ref(true),
+                pageLabelRanges: ref([{
+                    startPage: 1,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 1,
+                }]),
+            }),
+            expectedMutationKeys: [
+                'updates',
+                'pageLabels',
+                'shapes',
+            ],
+        },
+    ];
+
+    it.each(strictNativeMutationRows)('commits strict path-backed $name through native persistence only', async ({
+        configure,
+        expectedMutationKeys,
+    }) => {
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            ...configure(),
+            workingCopyPath: ref('/tmp/work.pdf'),
+            trySavePdfNativeMutations,
+        });
+        const {handleSave} = useWorkspaceSaveServiceForTest(deps);
+
+        const result = await handleSave();
+        expect(result).toBe(true);
+
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        const nativeCall = cast<unknown[]>(trySavePdfNativeMutations.mock.calls[0]);
+        const mutations = nativeCall[0];
+        expectedMutationKeys.forEach(key => expect(mutations).toHaveProperty(key));
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+    });
+
+    const strictNativeFailureRows: readonly IStrictNativeFailureRow[] = [
+        {
+            name: 'missing native capability',
+            nativeMode: 'missing',
+            configure: () => cast<TSaveFixtureOverrides>({annotationDirty: ref(true)}),
+            expectedNativeCalls: 0,
+        },
+        {
+            name: 'unknown PDF.js mutation classifier rejection',
+            nativeMode: 'success',
+            configure: () => cast<TSaveFixtureOverrides>({
+                annotationDirty: ref(true),
+                hasLivePdfJsAnnotationChanges: vi.fn(() => true),
+                pdfDocument: shallowRef(cast<PDFDocumentProxy>({annotationStorage: {
+                    serializable: {
+                        map: new Map([[
+                            'unknown-editor',
+                            {value: 'unclassified'},
+                        ]]),
+                        hash: 'unknown-editor',
+                    },
+                    modifiedIds: {ids: new Set()},
+                    resetModified: vi.fn(),
+                }})),
+            }),
+            expectedNativeCalls: 0,
+        },
+        {
+            name: 'native decline',
+            nativeMode: 'null',
+            configure: () => cast<TSaveFixtureOverrides>({
+                totalPages: ref(1),
+                pageLabelsDirty: ref(true),
+                pageLabelRanges: ref([{
+                    startPage: 1,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 1,
+                }]),
+            }),
+            expectedNativeCalls: 1,
+        },
+        {
+            name: 'native error',
+            nativeMode: 'error',
+            configure: () => cast<TSaveFixtureOverrides>({
+                totalPages: ref(1),
+                pageLabelsDirty: ref(true),
+                pageLabelRanges: ref([{
+                    startPage: 1,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 1,
+                }]),
+            }),
+            expectedNativeCalls: 1,
+        },
+    ];
+
+    it.each(strictNativeFailureRows)('rejects strict path-backed $name before renderer fallback', async ({
+        nativeMode,
+        configure,
+        expectedNativeCalls,
+    }) => {
+        const trySavePdfNativeMutations = nativeMode === 'missing'
+            ? undefined
+            : vi.fn(async () => {
+                if (nativeMode === 'error') {
+                    throw new Error('native persistence failed');
+                }
+                if (nativeMode === 'null') {
+                    return null;
+                }
+                return {
+                    success: true,
+                    outPath: '/tmp/work.pdf',
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                };
+            });
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            ...configure(),
+            workingCopyPath: ref('/tmp/work.pdf'),
+            ...(trySavePdfNativeMutations ? {trySavePdfNativeMutations} : {}),
+        });
+        const {handleSave} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleSave()).resolves.toBe(false);
+
+        const nativeCallSpy = trySavePdfNativeMutations ?? vi.fn();
+        expect(nativeCallSpy).toHaveBeenCalledTimes(expectedNativeCalls);
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'error',
+            title: 'errors.file.save',
+            description: 'errors.save.notCompleted',
+        }));
+    });
+
+    const strictSerializedRouteRows = [
+        {
+            name: 'dirty Save As',
+            invoke: (service: ReturnType<typeof useWorkspaceSaveServiceForTest>) => service.handleSaveAs(),
+        },
+        {
+            name: 'dirty repair',
+            invoke: (service: ReturnType<typeof useWorkspaceSaveServiceForTest>) => service.handleRepairSave(),
+        },
+        {
+            name: 'dirty optimize',
+            invoke: (service: ReturnType<typeof useWorkspaceSaveServiceForTest>) => service.handleOptimizePdfForInteraction(),
+        },
+    ] as const;
+
+    it.each(strictSerializedRouteRows)('rejects $name on a native path before renderer serialization', async ({invoke}) => {
+        const repairWorkingCopy = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const optimizeWorkingCopy = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+            saveWorkingCopyAs,
+        } = createDeps({
+            annotationDirty: ref(true),
+            workingCopyPath: ref('/tmp/work.pdf'),
+            repairWorkingCopy,
+            optimizeWorkingCopy,
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(invoke(service)).resolves.toBe(false);
+
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(saveWorkingCopyAs).not.toHaveBeenCalled();
+        expect(repairWorkingCopy).not.toHaveBeenCalled();
+        expect(optimizeWorkingCopy).not.toHaveBeenCalled();
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'error',
+            title: 'errors.file.save',
+            description: 'errors.save.notCompleted',
+        }));
     });
 
     it('uses the native PDF mutation path for dirty managed shapes', async () => {
@@ -77,7 +419,7 @@ describe('workspaceSaveService native persistence', () => {
             }},
             expect.objectContaining({
                 saveMode: 'rewrite',
-                expectedWorkingPath: '/tmp/work.pdf',
+                expectedWorkingPath: TEST_BROWSER_WORKING_COPY_REF,
                 expectedDocumentRevisionToken: 'rev-1',
                 preserveLoadedSource: true,
             }),
@@ -87,6 +429,59 @@ describe('workspaceSaveService native persistence', () => {
         expect(deps.serializePdfForSave).not.toHaveBeenCalled();
         expect(saveFile).not.toHaveBeenCalled();
         expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        {
+            name: 'native index success',
+            prepared: {snapshot: true},
+            expectMarked: true,
+        },
+        {
+            name: 'native index failure',
+            prepared: null,
+            expectMarked: false,
+        },
+    ])('keeps dirty native shapes off the renderer byte path after $name', async ({
+        prepared,
+        expectMarked,
+    }) => {
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const getSourcePdfData = vi.fn(async () => {
+            throw new Error('whole-document shape reads are forbidden');
+        });
+        const preparePersistedShapeStateForSave = vi.fn(async (_data?: Uint8Array) => prepared);
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            totalPages: ref(2),
+            workingCopyPath: ref('/tmp/work.pdf'),
+            hasShapeChanges: vi.fn(() => true),
+            getAllShapes: vi.fn(() => [createShapeAnnotation()]),
+            trySavePdfNativeMutations,
+            getSourcePdfData,
+            preparePersistedShapeStateForSave,
+        });
+        const {handleSave} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        expect(preparePersistedShapeStateForSave).toHaveBeenCalledWith();
+        expect(getSourcePdfData).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        if (expectMarked) {
+            expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
+        } else {
+            expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
+            expect(deps.adoptPersistedShapeStateForNextReload).not.toHaveBeenCalled();
+        }
     });
 
     it('keeps a committed native shape save successful when saved bytes cannot be reread', async () => {
@@ -420,6 +815,9 @@ describe('workspaceSaveService native persistence', () => {
         const preparePersistedShapeStateForSave = deps.preparePersistedShapeStateForSave!;
         expect(preparePersistedShapeStateForSave).toHaveBeenCalledOnce();
         const preparedBytes = vi.mocked(preparePersistedShapeStateForSave).mock.calls[0]![0];
+        if (!preparedBytes) {
+            throw new Error('Expected serialized shape preparation bytes');
+        }
         expect(Array.from(preparedBytes)).toEqual([
             1,
             2,

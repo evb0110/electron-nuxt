@@ -9,7 +9,7 @@ import type {
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { IJobBrokerLease } from '@electron/resources/jobBroker';
 import type {
-    IOcrPdfPageRequest,
+    TOcrPdfPageSelection,
     TOcrWorkerCompleteResult,
 } from '@electron/ocr/worker/types';
 import type { IMainJobRunContext } from '@electron/operation-lifecycle/createMainJobRegistry';
@@ -41,7 +41,7 @@ export interface IOcrQueuedJob extends IOcrRegistryJob {
     webContentsId: number;
     sourcePdfPath: string;
     documentRevision: IDocumentRevisionInfo;
-    pages: IOcrPdfPageRequest[];
+    pages: TOcrPdfPageSelection;
     options: IOcrSearchablePdfOptions;
     queuedAtMs: number;
     requestedBytes: number;

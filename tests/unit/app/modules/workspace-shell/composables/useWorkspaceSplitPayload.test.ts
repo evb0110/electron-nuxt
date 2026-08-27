@@ -8,8 +8,9 @@ import {
 import { ref } from 'vue';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import type { INativePdfMutationProjection } from '@app/modules/pdf-viewer/public';
+import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
-import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 
@@ -18,6 +19,11 @@ const mocks = vi.hoisted(() => ({
     createWorkingCopyFromData: vi.fn(),
     cleanupFile: vi.fn(),
     getDocumentRevision: vi.fn(),
+    createManagedTempFileHandle: vi.fn(),
+    releaseManagedTempFileHandle: vi.fn(),
+    applyPdfNativeMutationsToWorkingCopy: vi.fn(),
+    cloneStagedPdfNativeMutationToWorkingCopy: vi.fn(),
+    replaceWorkingCopyFromStagedPdfNativeMutation: vi.fn(),
     savePdfData: vi.fn(),
     legacyCreateWorkingCopyFromPath: vi.fn(),
     legacyCreateWorkingCopyFromData: vi.fn(),
@@ -33,6 +39,11 @@ vi.mock('@app/utils/platformDocuments', () => ({
     }),
     getDocumentFilesCapability: () => ({
         getDocumentRevision: mocks.getDocumentRevision,
+        createManagedTempFileHandle: mocks.createManagedTempFileHandle,
+        releaseManagedTempFileHandle: mocks.releaseManagedTempFileHandle,
+        applyPdfNativeMutationsToWorkingCopy: mocks.applyPdfNativeMutationsToWorkingCopy,
+        cloneStagedPdfNativeMutationToWorkingCopy: mocks.cloneStagedPdfNativeMutationToWorkingCopy,
+        replaceWorkingCopyFromStagedPdfNativeMutation: mocks.replaceWorkingCopyFromStagedPdfNativeMutation,
         savePdfData: mocks.savePdfData,
     }),
 }));
@@ -41,11 +52,14 @@ vi.mock('@app/utils/documentBytes', () => ({ readDocumentBytes: mocks.readDocume
 
 type TUseWorkspaceSplitPayloadOptions = Parameters<typeof useWorkspaceSplitPayload>[0];
 
-function pathPdfSource(path = '/tmp/working.pdf'): TPdfSource {
+function pathPdfSource(
+    path = '/tmp/working.pdf',
+    size = 1024,
+): TPdfSource {
     return {
         kind: 'path',
         path,
-        size: 1024,
+        size,
     };
 }
 
@@ -60,6 +74,41 @@ function installLegacyThrowingMocks() {
         throw new Error('legacy cleanupFile should not be used');
     });
 }
+
+const nativeProjection: INativePdfMutationProjection = {
+    canonicalAnnotationProgram: [],
+    mutations: {updates: []},
+    noteTextUpdates: [],
+    freeTextNotes: [],
+    freeTextEditors: [],
+    annotationDeletes: [],
+    hasMetadataMutations: false,
+    hasShapeMutations: false,
+    hasMarkupMutations: false,
+    phase: 'test-native-split',
+};
+
+const nativeStagedArtifact: ITypedStagedArtifact = {
+    receiptVersion: 1,
+    artifactKind: 'pdf',
+    path: '/tmp/native-staged.pdf',
+    size: 3,
+    sha256: 'b'.repeat(64),
+    fileIdentity: {
+        platform: 'posix',
+        deviceId: '1',
+        inode: '2',
+    },
+    validations: {
+        qpdfCheck: false,
+        tailCheck: true,
+        semanticCheck: true,
+        semanticScopeSha256: 'c'.repeat(64),
+        fsynced: true,
+    },
+    leaseId: 'staged-lease',
+    revision: requireDocumentRevisionToken('split-revision'),
+};
 
 function createOptions(
     overrides: Partial<TUseWorkspaceSplitPayloadOptions> = {},
@@ -102,6 +151,26 @@ describe('useWorkspaceSplitPayload', () => {
             contentRevision: 1,
             mintedAt: 1,
         });
+        mocks.createManagedTempFileHandle.mockResolvedValue({
+            path: '/tmp/working.pdf',
+            size: 2,
+            sha256: 'a'.repeat(64),
+            leaseId: 'base-lease',
+            revision: requireDocumentRevisionToken('split-revision'),
+        });
+        mocks.releaseManagedTempFileHandle.mockResolvedValue(true);
+        mocks.applyPdfNativeMutationsToWorkingCopy.mockResolvedValue({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native',
+                errors: [],
+                warnings: [],
+            },
+            stagedOutput: nativeStagedArtifact,
+        });
+        mocks.cloneStagedPdfNativeMutationToWorkingCopy.mockResolvedValue('/tmp/native-split.pdf');
+        mocks.replaceWorkingCopyFromStagedPdfNativeMutation.mockResolvedValue(true);
         mocks.savePdfData.mockResolvedValue({
             isValid: true,
             tool: 'qpdf',
@@ -144,6 +213,7 @@ describe('useWorkspaceSplitPayload', () => {
         const { captureSplitPayload } = useWorkspaceSplitPayload(createOptions({
             hasPendingTabChanges: ref(true),
             pdfData: ref(pdfBytes),
+            pdfSrc: ref(new Blob([pdfBytes])),
         }));
 
         const payload = await captureSplitPayload();
@@ -229,6 +299,8 @@ describe('useWorkspaceSplitPayload', () => {
                 materializePdfJsDocumentForInternalUse: vi.fn(async () => null),
             }),
             serializePdfForSave,
+            pdfSrc: ref(new Blob([serializedBytes])),
+            workingCopyPath: ref(null),
         }));
 
         await captureSplitPayload();
@@ -242,29 +314,96 @@ describe('useWorkspaceSplitPayload', () => {
         );
     });
 
-    it('streams oversized dirty snapshots into a cloned working copy', async () => {
-        const pdfBytes = new Uint8Array(IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES + 1);
+    it('rejects a dirty native-path snapshot without reading the working copy', async () => {
         const { captureSplitPayload } = useWorkspaceSplitPayload(createOptions({
             hasPendingTabChanges: ref(true),
-            pdfData: ref(pdfBytes),
+            pdfData: ref(null),
+            pdfSrc: ref(pathPdfSource('/tmp/working.pdf', 2 * 1024 * 1024 * 1024)),
         }));
 
-        await expect(captureSplitPayload()).resolves.toMatchObject({
-            kind: 'pdfSnapshot',
-            snapshotPath: '/tmp/split-path.pdf',
-            isDirty: true,
+        await expect(captureSplitPayload()).rejects.toMatchObject({
+            code: 'native-save-required',
+            failure: {reason: 'missing-native-projection'},
         });
         expect(mocks.createWorkingCopyFromData).not.toHaveBeenCalled();
-        expect(mocks.createWorkingCopyFromPath).toHaveBeenCalledWith(
+        expect(mocks.createWorkingCopyFromPath).not.toHaveBeenCalled();
+        expect(mocks.savePdfData).not.toHaveBeenCalled();
+        expect(mocks.readDocumentBytes).not.toHaveBeenCalled();
+    });
+
+    it('clones a native replayable mutation into a disposable split snapshot without reading bytes', async () => {
+        const revision = requireDocumentRevisionToken('split-revision');
+        const runSaveTransaction = vi.fn(async (request) => {
+            expect(request).toMatchObject({
+                mode: 'snapshot',
+                saveFlowMode: 'save',
+                forcePdfjsMaterialize: false,
+                workingPath: '/tmp/working.pdf',
+            });
+            expect(request.source).toBeUndefined();
+            return {
+                source: 'native-mutation-projection' as const,
+                baseBytes: null,
+                serializedBytes: null,
+                serializedResult: null,
+                nativeMutationProjection: nativeProjection,
+                fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
+                annotationSavePlan: TEST_PDF_SAVE_BYTE_ROUTE_DECISION.annotationPlan,
+                assertAnnotationSaveCurrent: vi.fn(),
+            };
+        });
+        const {captureSplitPayload} = useWorkspaceSplitPayload(createOptions({
+            hasPendingTabChanges: ref(true),
+            pdfData: ref(null),
+            documentRevisionToken: ref(revision),
+            pdfViewerRef: ref({
+                runSaveTransaction,
+                saveDocument: vi.fn(async () => null),
+                materializePdfJsDocumentForInternalUse: vi.fn(async () => null),
+            }),
+            getNativeSaveTransactionOptions: () => ({
+                nativeCapabilities: {
+                    hasNativePdfMutationCapability: true,
+                    canPersistNativeMetadataMutations: true,
+                },
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: false,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                documentStructure: {
+                    pageLabelsDirty: false,
+                    pageLabelRanges: [],
+                    bookmarksDirty: false,
+                    bookmarkItems: [],
+                    untitledBookmarkLabel: 'Untitled',
+                    totalPages: 5,
+                },
+            }),
+        }));
+
+        const payload = await captureSplitPayload();
+
+        expect(payload).toMatchObject({
+            kind: 'pdfSnapshot',
+            snapshotPath: '/tmp/native-split.pdf',
+            isDirty: true,
+        });
+        expect(mocks.createManagedTempFileHandle).not.toHaveBeenCalled();
+        expect(mocks.applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
             '/tmp/working.pdf',
+            nativeProjection.mutations,
+            expect.any(String),
+            {expectedDocumentRevisionToken: revision},
+        );
+        expect(mocks.cloneStagedPdfNativeMutationToWorkingCopy).toHaveBeenCalledWith(
+            nativeStagedArtifact,
             '/tmp/original.pdf',
         );
-        const saveArgs = mocks.savePdfData.mock.calls[0]!;
-        expect(saveArgs[0]).toBe('/tmp/split-path.pdf');
-        expect(saveArgs[1]).toBe(pdfBytes);
-        expect(saveArgs[2]).toEqual({
-            expectedDocumentRevisionToken: requireDocumentRevisionToken('split-revision'),
-            workingCopyOnly: true,
-        });
+        expect(mocks.releaseManagedTempFileHandle).not.toHaveBeenCalledWith('base-lease');
+        expect(mocks.readDocumentBytes).not.toHaveBeenCalled();
+        expect(mocks.createWorkingCopyFromData).not.toHaveBeenCalled();
     });
 });

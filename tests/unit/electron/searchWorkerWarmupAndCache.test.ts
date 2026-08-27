@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => {
         stat: vi.fn(),
         loadSearchIndex: vi.fn(),
         buildSearchIndex: vi.fn(),
+        buildXlargeSearchIndex: vi.fn(),
         tryRunNativeSearch: vi.fn(),
         workerData: undefined as unknown,
     };
@@ -41,7 +42,21 @@ vi.mock('@electron/search/indexBuilder', () => ({
     loadSearchIndex: mocks.loadSearchIndex,
     buildSearchIndex: mocks.buildSearchIndex,
 }));
-vi.mock('@electron/search/nativeSearch', () => ({tryRunNativeSearch: mocks.tryRunNativeSearch}));
+vi.mock('@electron/search/nativeSearch', () => {
+    class XlargeNativeSearchCapabilityError extends Error {
+        constructor(readonly kind: string, message: string) {
+            super(message);
+        }
+    }
+    return {
+        tryRunNativeSearch: mocks.tryRunNativeSearch,
+        XlargeNativeSearchCapabilityError,
+        isXlargeNativeSearchCapabilityError: (error: unknown) => (
+            error instanceof XlargeNativeSearchCapabilityError
+        ),
+    };
+});
+vi.mock('@electron/search/xlargeIndexBuilder', () => ({buildXlargeSearchIndex: mocks.buildXlargeSearchIndex}));
 vi.mock('@electron/config/constants', () => ({
     EXCERPT_CONTEXT_CHARS: 32,
     SEARCH_RESULT_LIMIT: 100,
@@ -94,6 +109,16 @@ describe('search worker warmup and cache behavior', () => {
 
         mocks.loadSearchIndex.mockResolvedValue(null);
         mocks.tryRunNativeSearch.mockResolvedValue(null);
+        mocks.buildXlargeSearchIndex.mockResolvedValue({
+            indexPath: `${TEST_PDF_PATH}.index.evb-search-v2.bin`,
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 1,
+            pagesScanned: 1,
+            pagesWritten: 1,
+            textBytes: PAGE_TEXT.length,
+            truncated: false,
+            complete: true,
+        });
         mocks.buildSearchIndex.mockResolvedValue({
             schemaVersion: 7,
             documentRevision: {token: DOCUMENT_REVISION},
@@ -729,5 +754,246 @@ describe('search worker warmup and cache behavior', () => {
                 requestId: 'search-stream',
             }));
         });
+    });
+
+    it('routes xlarge warmup through the streaming builder without the legacy index', async () => {
+        const pageCount = 1_000_001;
+        mocks.stat.mockResolvedValue({
+            mtimeMs: 10,
+            size: 17 * 1024 * 1024,
+        });
+        mocks.buildXlargeSearchIndex.mockImplementation(async (options: {
+            pageCount: number;
+            onProgress?: (progress: {
+                complete: boolean;
+                pageCount: number;
+                pagesScanned: number;
+                pagesWritten: number;
+                textBytes: number;
+                truncated: boolean;
+                documentRevision: string;
+            }) => void;
+        }) => {
+            options.onProgress?.({
+                complete: false,
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: options.pageCount,
+                pagesScanned: options.pageCount,
+                pagesWritten: 1,
+                textBytes: PAGE_TEXT.length,
+                truncated: false,
+            });
+            options.onProgress?.({
+                complete: true,
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: options.pageCount,
+                pagesScanned: options.pageCount,
+                pagesWritten: 1,
+                textBytes: PAGE_TEXT.length,
+                truncated: false,
+            });
+            return {
+                indexPath: `${TEST_PDF_PATH}.index.evb-search-v2.bin`,
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: options.pageCount,
+                pagesScanned: options.pageCount,
+                pagesWritten: 1,
+                textBytes: PAGE_TEXT.length,
+                truncated: false,
+                complete: true,
+            };
+        });
+
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'xlarge-warmup',
+                pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
+                query: '',
+                pageCount,
+                warmup: true,
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.postedMessages).toContainEqual({
+                type: 'complete',
+                requestId: 'xlarge-warmup',
+                response: {
+                    results: [],
+                    truncated: false,
+                },
+            });
+        });
+        expect(mocks.buildXlargeSearchIndex).toHaveBeenCalledOnce();
+        expect(mocks.buildXlargeSearchIndex.mock.calls[0]?.[0]).not.toHaveProperty('maxPageTextBytes');
+        expect(mocks.buildXlargeSearchIndex.mock.calls[0]?.[0]).not.toHaveProperty('maxTotalTextBytes');
+        expect(mocks.buildSearchIndex).not.toHaveBeenCalled();
+        expect(mocks.loadSearchIndex).not.toHaveBeenCalled();
+        expect(mocks.tryRunNativeSearch).not.toHaveBeenCalled();
+
+        const progress = mocks.postedMessages.filter(message => (
+            message.type === 'progress' && message.requestId === 'xlarge-warmup'
+        ));
+        expect(progress[0]).toEqual(expect.objectContaining({
+            processed: pageCount - 1,
+            total: pageCount,
+        }));
+        expect(progress.at(-1)).toEqual(expect.objectContaining({
+            processed: pageCount,
+            total: pageCount,
+        }));
+    });
+
+    it('coalesces xlarge warmups for the same revision', async () => {
+        const pageCount = 1_000_001;
+        let resolveBuild!: () => void;
+        mocks.stat.mockResolvedValue({
+            mtimeMs: 10,
+            size: 17 * 1024 * 1024,
+        });
+        mocks.buildXlargeSearchIndex.mockImplementation(async () => new Promise((resolve) => {
+            resolveBuild = () => resolve({
+                indexPath: `${TEST_PDF_PATH}.index.evb-search-v2.bin`,
+                documentRevision: DOCUMENT_REVISION,
+                pageCount,
+                pagesScanned: pageCount,
+                pagesWritten: 1,
+                textBytes: PAGE_TEXT.length,
+                truncated: false,
+                complete: true,
+            });
+        }));
+
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        for (const requestId of [
+            'xlarge-warmup-1',
+            'xlarge-warmup-2',
+        ]) {
+            handleMessage?.({
+                type: 'search',
+                payload: {
+                    requestId,
+                    pdfPath: TEST_PDF_PATH,
+                    documentRevision: DOCUMENT_REVISION,
+                    query: '',
+                    pageCount,
+                    warmup: true,
+                },
+            });
+        }
+
+        await vi.waitFor(() => expect(mocks.buildXlargeSearchIndex).toHaveBeenCalledOnce());
+        resolveBuild();
+        await vi.waitFor(() => {
+            expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
+                type: 'complete',
+                requestId: 'xlarge-warmup-1',
+            }));
+            expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
+                type: 'complete',
+                requestId: 'xlarge-warmup-2',
+            }));
+        });
+        expect(mocks.buildSearchIndex).not.toHaveBeenCalled();
+        expect(mocks.loadSearchIndex).not.toHaveBeenCalled();
+    });
+
+    it('rebuilds a missing xlarge sidecar once, then searches natively', async () => {
+        const pageCount = 1_000_001;
+        mocks.stat.mockResolvedValue({
+            mtimeMs: 10,
+            size: 17 * 1024 * 1024,
+        });
+        mocks.tryRunNativeSearch
+            .mockRejectedValueOnce({
+                kind: 'index-missing-or-stale',
+                message: 'missing sidecar',
+            })
+            .mockResolvedValueOnce({
+                response: {
+                    results: [],
+                    truncated: false,
+                },
+                totalPages: pageCount,
+            });
+        mocks.buildXlargeSearchIndex.mockResolvedValue({
+            indexPath: `${TEST_PDF_PATH}.index.evb-search-v2.bin`,
+            documentRevision: DOCUMENT_REVISION,
+            pageCount,
+            pagesScanned: pageCount,
+            pagesWritten: 1,
+            textBytes: PAGE_TEXT.length,
+            truncated: false,
+            complete: true,
+        });
+
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'xlarge-rebuild',
+                pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
+                query: 'needle',
+                pageCount,
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
+                type: 'complete',
+                requestId: 'xlarge-rebuild',
+            }));
+        });
+        expect(mocks.tryRunNativeSearch).toHaveBeenCalledTimes(2);
+        expect(mocks.tryRunNativeSearch.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+            strictXlarge: true,
+            skipLegacyGeometry: true,
+            pageCount,
+        }));
+        expect(mocks.buildXlargeSearchIndex).toHaveBeenCalledOnce();
+        expect(mocks.buildSearchIndex).not.toHaveBeenCalled();
+        expect(mocks.loadSearchIndex).not.toHaveBeenCalled();
+    });
+
+    it('fails closed on xlarge native failure without a JS fallback', async () => {
+        const pageCount = 1_000_001;
+        mocks.stat.mockResolvedValue({
+            mtimeMs: 10,
+            size: 17 * 1024 * 1024,
+        });
+        mocks.tryRunNativeSearch.mockRejectedValue({
+            kind: 'native-failure',
+            message: 'native unavailable',
+        });
+
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'xlarge-native-failure',
+                pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
+                query: 'needle',
+                pageCount,
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
+                type: 'error',
+                requestId: 'xlarge-native-failure',
+            }));
+        });
+        expect(mocks.buildXlargeSearchIndex).not.toHaveBeenCalled();
+        expect(mocks.buildSearchIndex).not.toHaveBeenCalled();
+        expect(mocks.loadSearchIndex).not.toHaveBeenCalled();
     });
 });

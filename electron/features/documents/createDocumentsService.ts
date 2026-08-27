@@ -36,6 +36,18 @@ import {
     handlePdfNativePageSizes,
 } from '@electron/features/documents/main/nativePdfPreview';
 import {
+    beginPdfAnnotationIndex,
+    cancelPdfAnnotationIndex,
+    readPdfAnnotationIndexChunk,
+    releasePdfAnnotationIndex,
+} from '@electron/features/documents/main/pdfAnnotationIndex';
+import {
+    beginPdfEmbeddedShapeIndex,
+    cancelPdfEmbeddedShapeIndex,
+    readPdfEmbeddedShapeIndexChunk,
+    releasePdfEmbeddedShapeIndex,
+} from '@electron/features/documents/main/pdfEmbeddedShapeIndex';
+import {
     handleFileWrite,
     handleFileWriteDocx,
     handleReplaceWorkingCopyFromPath,
@@ -68,6 +80,10 @@ import {
     handleNativeNoteTextSave,
     handleNativePdfMutationsSave,
 } from '@electron/features/documents/main/nativePdfMutationSaveHandlers';
+import {
+    handleCloneStagedPdfNativeMutationToWorkingCopy,
+    handleReplaceWorkingCopyFromStagedPdfNativeMutation,
+} from '@electron/features/documents/main/stagedPdfNativeMutationHandlers';
 import {
     beginSerializedPdfSaveToOriginal,
     cancelStagedSerializedPdf,
@@ -237,6 +253,22 @@ export function createDocumentsService(): IDocumentsService {
             handleCancelPdfNativePagePreview(...args),
         renderPdfNativePagePreview: (...args: TDocumentsServiceArgs<'renderPdfNativePagePreview'>) =>
             handlePdfNativePagePreview(...args),
+        beginPdfAnnotationIndex: (...args: TDocumentsServiceArgs<'beginPdfAnnotationIndex'>) =>
+            beginPdfAnnotationIndex(...args),
+        readPdfAnnotationIndexChunk: (...args: TDocumentsServiceArgs<'readPdfAnnotationIndexChunk'>) =>
+            readPdfAnnotationIndexChunk(...args),
+        releasePdfAnnotationIndex: (...args: TDocumentsServiceArgs<'releasePdfAnnotationIndex'>) =>
+            releasePdfAnnotationIndex(...args),
+        cancelPdfAnnotationIndex: (...args: TDocumentsServiceArgs<'cancelPdfAnnotationIndex'>) =>
+            cancelPdfAnnotationIndex(...args),
+        beginPdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'beginPdfEmbeddedShapeIndex'>) =>
+            beginPdfEmbeddedShapeIndex(...args),
+        readPdfEmbeddedShapeIndexChunk: (...args: TDocumentsServiceArgs<'readPdfEmbeddedShapeIndexChunk'>) =>
+            readPdfEmbeddedShapeIndexChunk(...args),
+        releasePdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'releasePdfEmbeddedShapeIndex'>) =>
+            releasePdfEmbeddedShapeIndex(...args),
+        cancelPdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'cancelPdfEmbeddedShapeIndex'>) =>
+            cancelPdfEmbeddedShapeIndex(...args),
         readTextFile: (...args: TDocumentsServiceArgs<'readTextFile'>) => handleFileReadText(...args),
         fileExists: (...args: TDocumentsServiceArgs<'fileExists'>) => handleFileExists(...args),
         getDocumentRevision: (...args: TDocumentsServiceArgs<'getDocumentRevision'>) => {
@@ -311,6 +343,10 @@ export function createDocumentsService(): IDocumentsService {
             handleNativePdfMutationsApplyToWorkingCopy(...args),
         commitStagedPdfNativeMutations: (...args: TDocumentsServiceArgs<'commitStagedPdfNativeMutations'>) =>
             handleCommitStagedPdfNativeMutations(...args),
+        cloneStagedPdfNativeMutationToWorkingCopy: (...args: TDocumentsServiceArgs<'cloneStagedPdfNativeMutationToWorkingCopy'>) =>
+            handleCloneStagedPdfNativeMutationToWorkingCopy(...args),
+        replaceWorkingCopyFromStagedPdfNativeMutation: (...args: TDocumentsServiceArgs<'replaceWorkingCopyFromStagedPdfNativeMutation'>) =>
+            handleReplaceWorkingCopyFromStagedPdfNativeMutation(...args),
         beginSavePdfData: (...args: TDocumentsServiceArgs<'beginSavePdfData'>) =>
             beginSerializedPdfSaveToOriginal(...args),
         commitStagedSerializedPdf: (...args: TDocumentsServiceArgs<'commitStagedSerializedPdf'>) =>

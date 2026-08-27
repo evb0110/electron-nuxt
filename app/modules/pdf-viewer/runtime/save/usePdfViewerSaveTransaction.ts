@@ -25,9 +25,11 @@ import type {TPdfSaveRouteDecision} from '@app/modules/pdf-viewer/runtime/save/c
 import { classifyPdfSaveRoute } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
 import type {
     IPdfSaveByteRouteDecision,
+    IPdfViewerNativeRequiredFailure,
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
     IPdfViewerSaveTransactionSerializedResult,
+    TNativeSaveRouteRejection,
     TPdfViewerSaveTransactionSource,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import type {
@@ -45,6 +47,7 @@ import type {
     AnnotationApplication,
     IAnnotationSaveVerificationOptions,
 } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import { isNativeDocumentRef } from '@app/utils/documentRef';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
@@ -70,6 +73,7 @@ interface IUsePdfViewerSaveTransactionOptions {
     documentRevisionToken?: ComputedRef<TDocumentRevisionToken | null>;
     documentSession?: Pick<TPdfDocumentSession, 'captureFence' | 'isCurrent'>;
     flushAnnotationMutationsForSave?: () => Promise<unknown>;
+    commitPendingEditorDraftsForSave?: () => void;
     getPdfDocument?: () => PDFDocumentProxy | null;
     getMarkupSubtypeOverrides?: () => Map<string, TMarkupSubtype> | undefined;
     getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
@@ -121,7 +125,11 @@ function isSaveTargetCurrent(
         && options.isPdfDocumentCurrent?.(pdfDocument) !== false;
 }
 
-async function commitPdfEditorsForSave(annotationUiManager: AnnotationEditorUIManager | null) {
+async function commitPdfEditorsForSave(
+    annotationUiManager: AnnotationEditorUIManager | null,
+    commitPendingEditorDraftsForSave?: () => void,
+) {
+    commitPendingEditorDraftsForSave?.();
     annotationUiManager?.commitOrRemove();
     await waitForCommittedEditorsToSettle();
 }
@@ -247,6 +255,34 @@ function createSerializedResult(input: {
         saveMode: input.request.saveMode ?? DEFAULT_TRANSACTION_SAVE_MODE,
         source: input.resultSource,
         changedObjectRefs: input.request.annotationSerializationPlan?.changedObjectRefs ?? [],
+    };
+}
+
+function isNativeSaveRequired(request: IPdfViewerSaveTransactionRequest) {
+    return isNativeDocumentRef(request.workingPath);
+}
+
+function nativeRequiredFailureReason(
+    rejection: TNativeSaveRouteRejection,
+): IPdfViewerNativeRequiredFailure['reason'] {
+    if (
+        rejection === 'save-descriptors-unavailable'
+        || rejection === 'native-save-capability-unavailable'
+        || rejection === 'native-structured-save-capability-unavailable'
+    ) {
+        return 'missing-native-capability';
+    }
+    return 'classifier-rejection';
+}
+
+function createNativeRequiredFailure(
+    rejection: TNativeSaveRouteRejection,
+): IPdfViewerNativeRequiredFailure {
+    return {
+        code: 'native-save-required',
+        phase: 'pre-write',
+        reason: nativeRequiredFailureReason(rejection),
+        nativeRejection: rejection,
     };
 }
 
@@ -537,7 +573,10 @@ export const usePdfViewerSaveTransaction = (
         const pdfjsLiveChangesBeforeCommit = collectLivePdfJsAnnotationChangeIds(getPdfDocument());
         await options.flushAnnotationMutationsForSave?.();
         assertSaveTargetCurrent();
-        await commitPdfEditorsForSave(options.annotationUiManager?.value ?? null);
+        await commitPdfEditorsForSave(
+            options.annotationUiManager?.value ?? null,
+            options.commitPendingEditorDraftsForSave,
+        );
         assertSaveTargetCurrent();
         const capturedPdfjsLiveChanges = collectLivePdfJsAnnotationChangeIds(getPdfDocument());
         const canonicalSave = prepareAnnotationSave(capturedTarget);
@@ -654,6 +693,20 @@ export const usePdfViewerSaveTransaction = (
         });
         const annotationSavePlan = decision.annotationPlan;
         logSaveRouteDecision(request, decision);
+        if (isNativeSaveRequired(request) && decision.route !== 'native-append') {
+            await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
+            return {
+                source: 'native-required-failure',
+                baseBytes: null,
+                serializedBytes: null,
+                serializedResult: null,
+                nativeMutationProjection: null,
+                nativeRequiredFailure: createNativeRequiredFailure(decision.nativeRejection),
+                fallbackDecision: decision,
+                annotationSavePlan,
+                ...canonicalSaveCallbacks,
+            };
+        }
         async function executeByteRoute(
             byteRoute: IPdfSaveByteRouteDecision,
             executionRequest: IPdfViewerSaveTransactionRequest = request,
@@ -720,12 +773,7 @@ export const usePdfViewerSaveTransaction = (
                 globalSerializationPlan,
             )};
             await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
-            const fallbackExecutionRequest = {
-                ...request,
-                planOnly: false,
-            };
-            let fallbackExecution: Promise<IPdfViewerSaveTransactionResult> | null = null;
-            return {
+            const result: IPdfViewerSaveTransactionResult = {
                 source: 'native-mutation-projection',
                 baseBytes: null,
                 serializedBytes: null,
@@ -734,10 +782,18 @@ export const usePdfViewerSaveTransaction = (
                 fallbackDecision: decision.fallback,
                 annotationSavePlan,
                 ...canonicalSaveCallbacks,
-                executeFallback: () => (
-                    fallbackExecution ??= executeByteRoute(decision.fallback, fallbackExecutionRequest)
-                ),
             };
+            if (!isNativeSaveRequired(request)) {
+                const fallbackExecutionRequest = {
+                    ...request,
+                    planOnly: false,
+                };
+                let fallbackExecution: Promise<IPdfViewerSaveTransactionResult> | null = null;
+                result.executeFallback = () => (
+                    fallbackExecution ??= executeByteRoute(decision.fallback, fallbackExecutionRequest)
+                );
+            }
+            return result;
         }
 
         const byteRoute = decision;
@@ -765,7 +821,10 @@ export const usePdfViewerSaveTransaction = (
     }
 
     return {
-        commitPdfEditorsForSave: () => commitPdfEditorsForSave(options.annotationUiManager?.value ?? null),
+        commitPdfEditorsForSave: () => commitPdfEditorsForSave(
+            options.annotationUiManager?.value ?? null,
+            options.commitPendingEditorDraftsForSave,
+        ),
         materializePdfJsDocumentForInternalUse: () => materializePdfJsDocumentForInternalUse(),
         runSaveTransaction,
         saveViewerDocument: () => materializePdfJsDocumentForInternalUse(),

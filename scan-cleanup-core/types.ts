@@ -1,6 +1,7 @@
 import type {
     INativeScanCleanupOutputMetadataV3,
     IScanCleanupDocumentPrior,
+    IScanCleanupDetectionResult,
     IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
     IScanCleanupPlacementAnchor,
@@ -12,6 +13,7 @@ import type {
     TScanCleanupPageRotation,
 } from '@contracts/electronApiScanCleanup';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
+import type {IPdfPageSizeStore} from '@scan-cleanup-core/pdfPageSizes';
 
 export type TScanCleanupLog = (
     level: 'debug' | 'warn' | 'error',
@@ -63,6 +65,33 @@ export interface IPdfPageSize {
     dominantImageHeightPoints?: number;
 }
 
+/** Whether a page-size sidecar inspected image streams for dominant-raster facts. */
+export type TPdfPageSizeDominantImageAnalysis =
+    | 'performed'
+    | 'unavailable'
+    | 'skipped'
+    | 'unknown';
+
+/**
+ * One bounded window from the file-backed page geometry protocol. `offset`
+ * and `byteLength` identify the JSONL record in the sidecar. They are safe
+ * JavaScript numbers after checked u64 conversion by the reader.
+ */
+export interface IPdfPageSizeChunk {
+    pageCount: number;
+    /** `/Pages /Count` declared by the native page tree, when present. */
+    declaredPageCount?: number;
+    /** Number of reachable leaf pages validated by the native walker. */
+    reachablePageCount?: number;
+    chunkIndex: number;
+    firstPageNumber: number;
+    offset: number;
+    byteLength: number;
+    pages: IPdfPageSize[];
+    /** Old JSON/fallback producers omit this header-only capability. */
+    dominantImageAnalysis?: TPdfPageSizeDominantImageAnalysis;
+}
+
 /**
  * Positional consumers read this geometry as `pageSizes[pageNumber - 1]`, so a
  * full-length array whose records are out of order hands one page another
@@ -96,6 +125,53 @@ export interface IDetectedPageRaster {
     backgroundDpi?: number;
 }
 
+/**
+ * Bounded access to the source's raster facts. Native retention must expose
+ * one page at a time so a long document never leaves a raster map in memory.
+ * `documentDpi` is the optional scalar fallback for pages without a detected
+ * raster record.
+ */
+export interface IScanCleanupPageRasterSource {
+    detected: boolean;
+    documentDpi?: number | null;
+    getPageRaster: (
+        pageNumber: number,
+    ) => Promise<IDetectedPageRaster | undefined> | IDetectedPageRaster | undefined;
+}
+
+/**
+ * File-backed detection results for document-scale runs. The implementation
+ * keeps the JSON records on disk and exposes only the requested page window;
+ * callers must not turn the whole document back into a JavaScript collection.
+ */
+export interface IScanCleanupResultStore<TRecord> {
+    readonly pageCount: number;
+    readonly resultCount: number;
+    append: (result: TRecord) => Promise<void>;
+    replace: (pageNumber: number, result: TRecord) => Promise<void>;
+    getPage: (pageNumber: number) => Promise<TRecord | undefined>;
+    readRange: (
+        firstPageNumber: number,
+        lastPageNumberExclusive: number,
+    ) => Promise<TRecord[]>;
+    forEachChunk: (
+        onChunk: (
+            results: readonly TRecord[],
+            firstPageNumber: number,
+        ) => Promise<void> | void,
+    ) => Promise<void>;
+    close: () => Promise<void>;
+}
+
+/**
+ * Detection returns this store open on success. Reconciliation, preview, and
+ * conversion consumers own the successful handoff and must close it after
+ * their last bounded read. Detection closes it itself on cancellation or
+ * failure, before releasing the source document.
+ */
+export interface IScanCleanupDetectionResultStore
+    extends IScanCleanupResultStore<IScanCleanupDetectionResult> {}
+
 export interface ISourceDpiDetectionResult {
     documentDpi: number | null;
     pageDpiByNumber: Map<number, number>;
@@ -109,6 +185,46 @@ export function resolveSourceDpi(value: number | null | undefined, fallback = 30
         : fallback;
 }
 
+/** Read verified dominant-image metadata as one bounded page raster fact. */
+export function detectPageRasterFromPageSize(
+    page: IPdfPageSize,
+): IDetectedPageRaster | undefined {
+    const {
+        dominantImageWidthPx: width,
+        dominantImageHeightPx: height,
+        dominantImageWidthPoints: widthPoints,
+        dominantImageHeightPoints: heightPoints,
+    } = page;
+    if (
+        width === undefined
+        || height === undefined
+        || widthPoints === undefined
+        || heightPoints === undefined
+        || !Number.isSafeInteger(width)
+        || !Number.isSafeInteger(height)
+        || width <= 0
+        || height <= 0
+        || !Number.isFinite(widthPoints)
+        || !Number.isFinite(heightPoints)
+        || widthPoints <= 0
+        || heightPoints <= 0
+    ) {
+        return undefined;
+    }
+    const dpi = Math.max(
+        width / widthPoints * 72,
+        height / heightPoints * 72,
+    );
+    if (!Number.isFinite(dpi) || dpi <= 0) {
+        return undefined;
+    }
+    return {
+        dpi: Math.max(1, Math.round(dpi)),
+        width,
+        height,
+    };
+}
+
 export function detectSourceDpiFromPageSizes(
     pageSizes: readonly IPdfPageSize[],
 ): ISourceDpiDetectionResult | null {
@@ -117,40 +233,11 @@ export function detectSourceDpiFromPageSizes(
     }
     const pageRasterByNumber = new Map<number, IDetectedPageRaster>();
     for (const page of pageSizes) {
-        const {
-            dominantImageWidthPx: width,
-            dominantImageHeightPx: height,
-            dominantImageWidthPoints: widthPoints,
-            dominantImageHeightPoints: heightPoints,
-        } = page;
-        if (
-            width === undefined
-            || height === undefined
-            || widthPoints === undefined
-            || heightPoints === undefined
-            || !Number.isSafeInteger(width)
-            || !Number.isSafeInteger(height)
-            || width <= 0
-            || height <= 0
-            || !Number.isFinite(widthPoints)
-            || !Number.isFinite(heightPoints)
-            || widthPoints <= 0
-            || heightPoints <= 0
-        ) {
+        const raster = detectPageRasterFromPageSize(page);
+        if (raster === undefined) {
             return null;
         }
-        const dpi = Math.max(
-            width / widthPoints * 72,
-            height / heightPoints * 72,
-        );
-        if (!Number.isFinite(dpi) || dpi <= 0) {
-            return null;
-        }
-        pageRasterByNumber.set(page.pageNumber, {
-            dpi: Math.max(1, Math.round(dpi)),
-            width,
-            height,
-        });
+        pageRasterByNumber.set(page.pageNumber, raster);
     }
     const pageDpiByNumber = new Map<number, number>();
     let documentDpi = 0;
@@ -213,6 +300,7 @@ export type TScanCleanupGetPageCount = (
 
 export interface IReadPdfPageSizesOptions {
     pdfPageOpsBinary?: string;
+    qpdfBinary?: string;
     pdfinfoBinary?: string;
     tempDir: string;
     signal?: AbortSignal;
@@ -227,6 +315,20 @@ export type TScanCleanupGetPageSizes = (
     options: IReadPdfPageSizesOptions,
 ) => Promise<IPdfPageSize[]>;
 
+/**
+ * Open a bounded page-geometry view. The returned store owns its current
+ * chunk and must be closed by the conversion or detection caller.
+ */
+export type TScanCleanupGetPageSizeStore = (
+    pdfPath: string,
+    options: IReadPdfPageSizesOptions,
+) => Promise<IPdfPageSizeStore> | IPdfPageSizeStore;
+
+export type TScanCleanupGetPageSizeChunks = (
+    pdfPath: string,
+    options: IReadPdfPageSizesOptions,
+) => AsyncGenerator<IPdfPageSizeChunk>;
+
 export type TScanCleanupDetectSourceDpi = (
     pdfPath: string,
     pdfimagesBinary: string | undefined,
@@ -236,7 +338,7 @@ export type TScanCleanupDetectSourceDpi = (
     pageNumbers?: readonly number[],
     onProgress?: (completedPages: number, totalPages: number) => void,
     runCommand?: TScanCleanupRunCommand,
-) => Promise<ISourceDpiDetectionResult>;
+) => Promise<IScanCleanupPageRasterSource | ISourceDpiDetectionResult>;
 
 export interface IScanCleanupRasterRenderLimits {
     expectedWidthPx: number;
@@ -341,7 +443,17 @@ export interface IRunScanCleanupPipelineRequest {
     sourcePdfPath: string;
     outputPdfPath: string;
     options: IScanCleanupOptions;
+    /**
+     * Internal file-backed detection handoff. The conversion reads only the
+     * current bounded batch from this store. IPC callers keep using the
+     * compatibility page-keyed fields below until they adopt the handoff.
+     */
+    detectionResultStore?: IScanCleanupDetectionResultStore;
     sourcePageNumbers?: number[];
+    sourcePageRange?: {
+        startPageNumber: number;
+        endPageNumber: number
+    };
     outputModeRecommendations?: Partial<Record<string, TScanCleanupOutputMode>>;
     softAlphaForegroundRecommendations?: Partial<Record<string, boolean>>;
     layoutByPage?: TScanCleanupLayoutByPage;
@@ -360,6 +472,8 @@ export interface IRunScanCleanupPipelineRequest {
 
 export interface IRunScanCleanupPipelineDependencies {
     getPageCount: TScanCleanupGetPageCount;
+    getPageSizeStore?: TScanCleanupGetPageSizeStore;
+    /** Small-document/test compatibility adapter. Production uses getPageSizeStore. */
     getPageSizes?: TScanCleanupGetPageSizes;
     detectSourceDpi: TScanCleanupDetectSourceDpi;
     createRasterPipes?: (
@@ -451,4 +565,7 @@ export interface IScanCleanupRepresentationReport {
     compactSourceBudget: unknown;
     outputMappings: IScanCleanupOutputMapping[];
     pages: IScanCleanupOutputPageForSummary[];
+    /** Xlarge runs keep the detailed records in bounded JSONL sidecars. */
+    outputMappingsSidecarPath?: string;
+    pagesSidecarPath?: string;
 }

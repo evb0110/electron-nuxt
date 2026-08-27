@@ -221,9 +221,11 @@ async function createBridgeHarness(
     }
 
     return {
+        commitPendingFreeTextDraftsForSave: bridge.commitPendingFreeTextDraftsForSave,
         emitAnnotationModified,
         emitAnnotationState,
         markupSubtype,
+        maybeAutoResetAnnotationTool,
         recordPdfjsExecutorCommand,
         scheduleAnnotationCommentsSync,
         textMarkupPresentation,
@@ -362,6 +364,63 @@ describe('useAnnotationEditorBridge', () => {
 
         expect(uiManager.unselectAll).not.toHaveBeenCalled();
         expect(uiManager.__setSelectedSpy).not.toHaveBeenCalledWith(null);
+    });
+
+    it('does not auto-reset an empty FreeText editor before PDF.js can commit it', async () => {
+        const {
+            commitPendingFreeTextDraftsForSave,
+            emitAnnotationModified,
+            emitAnnotationState,
+            maybeAutoResetAnnotationTool,
+            uiManager,
+        } = await createBridgeHarness('text', {autoResetTo: 'select'});
+        const isEmpty = vi.fn(() => true);
+        let isInEditMode = false;
+        const editor = {
+            id: 'text-pending-commit',
+            div: document.createElement('div'),
+            annotationElementId: null,
+            parentPageIndex: 0,
+            isEmpty,
+            isInEditMode: vi.fn(() => isInEditMode),
+            enableEditMode: vi.fn(() => {
+                isInEditMode = true;
+                return true;
+            }),
+            commitOrRemove: vi.fn(),
+        };
+        editor.div.className = 'freeTextEditor';
+        const editable = document.createElement('div');
+        editable.className = 'internal';
+        editable.contentEditable = 'true';
+        editor.div.append(editable);
+
+        uiManager.addToAnnotationStorage(editor);
+
+        expect(maybeAutoResetAnnotationTool).not.toHaveBeenCalled();
+
+        editable.textContent = 'draft text';
+        editable.dispatchEvent(new InputEvent('input', {bubbles: true}));
+
+        expect(emitAnnotationState).toHaveBeenCalledWith({
+            isEditing: true,
+            isEmpty: false,
+        });
+        expect(emitAnnotationModified).toHaveBeenCalledWith({forceDirty: true});
+
+        isEmpty.mockReturnValue(false);
+        editor.commitOrRemove.mockImplementation(() => {
+            uiManager.addToAnnotationStorage(editor);
+            isInEditMode = false;
+        });
+        commitPendingFreeTextDraftsForSave();
+
+        expect(editor.enableEditMode).toHaveBeenCalledOnce();
+        expect(editor.commitOrRemove).toHaveBeenCalledOnce();
+
+        await vi.waitFor(() => {
+            expect(maybeAutoResetAnnotationTool).toHaveBeenCalledOnce();
+        });
     });
 
     it('does not infer the active underline tool for an existing PDF highlight editor', async () => {

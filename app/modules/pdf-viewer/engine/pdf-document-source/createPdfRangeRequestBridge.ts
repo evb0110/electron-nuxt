@@ -3,10 +3,11 @@ import type { TPdfSource } from '@app/types/pdfUi';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { isLargeSerializedSaveAllowedForAutomation } from '@app/utils/isLargeSerializedSaveAllowedForAutomation';
 
 const PDF_RANGE_SUBREAD_BYTES = 8 * 1024 * 1024;
-const MAX_AGGREGATE_PDF_RANGE_BYTES = 64 * 1024 * 1024;
+const PDF_RANGE_DELIVERY_BYTES = 1024 * 1024;
+
+interface IPdfChunkedRangeTransport extends PDFDataRangeTransport { onDataRange(begin: number, chunk: Uint8Array, isLast?: boolean): void; }
 
 export interface IPdfPreloadedRange {
     begin: number;
@@ -58,19 +59,15 @@ export function createPdfRangeRequestBridge({
     }
 
     /**
-     * Fulfill the exact byte interval requested by PDF.js range transport.
+     * Fulfill a PDF.js range request with bounded reads and deliveries.
      *
-     * The platform read capability is chunk-budgeted and may legally return
-     * fewer bytes than requested. PDF.js creates one range reader for the
-     * original `[begin, end)` interval, so the bridge must aggregate any
-     * subreads and call `onDataRange(begin, fullChunk)` exactly once. Delivering
-     * only the first short chunk leaves the worker waiting forever; delivering
-     * later chunks separately throws because there is no reader for their
-     * shifted offset. The Girgas page 928 repro hit this when PDF.js requested
-     * about 10 MB and Electron capped the read to 8 MB.
+     * PDF.js keys a range reader by its original begin offset. The patched
+     * transport keeps that key for every delivery and marks only the last
+     * delivery, so one large worker request can be streamed without creating a
+     * buffer for the whole interval.
      */
     async function fulfillPdfRangeRequest(
-        transport: PDFDataRangeTransport,
+        transport: IPdfChunkedRangeTransport,
         src: Extract<TPdfSource, { kind: 'path' }>,
         begin: number,
         end: number,
@@ -81,12 +78,6 @@ export function createPdfRangeRequestBridge({
         const totalLength = end - begin;
         if (!Number.isSafeInteger(totalLength) || totalLength <= 0) {
             throw new Error(`Invalid PDF range request ${begin}..${end}`);
-        }
-        if (
-            totalLength > MAX_AGGREGATE_PDF_RANGE_BYTES
-            && !isLargeSerializedSaveAllowedForAutomation()
-        ) {
-            throw new Error(`PDF range request ${begin}..${end} exceeds ${MAX_AGGREGATE_PDF_RANGE_BYTES} byte limit`);
         }
         if (isAbandoned()) {
             return;
@@ -114,8 +105,43 @@ export function createPdfRangeRequestBridge({
 
         const documentFiles = getDocumentFilesCapability();
         let cursor = begin;
-        let outputOffset = 0;
-        let output: Uint8Array | null = null;
+        let deliveryBegin = begin;
+        let deliveryBuffer: Uint8Array | null = null;
+        let deliveryLength = 0;
+
+        const deliver = (chunk: Uint8Array, isLast: boolean) => {
+            if (isAbandoned()) {
+                return false;
+            }
+            if (isLast) {
+                transport.onDataRange(begin, chunk);
+            } else {
+                transport.onDataRange(begin, chunk, false);
+            }
+            logPdfRenderTrace('pdf-document-range-delivery', {
+                begin: deliveryBegin,
+                end: deliveryBegin + chunk.byteLength,
+                requestedBegin: begin,
+                requestedEnd: end,
+                byteLength: chunk.byteLength,
+                isLast,
+                version,
+            });
+            deliveryBegin += chunk.byteLength;
+            return true;
+        };
+
+        const flushDeliveryBuffer = (isLast: boolean) => {
+            if (!deliveryBuffer || deliveryLength === 0) {
+                return true;
+            }
+            const chunk = deliveryBuffer.subarray(0, deliveryLength);
+            const delivered = deliver(chunk, isLast);
+            deliveryBuffer = null;
+            deliveryLength = 0;
+            return delivered;
+        };
+
         while (cursor < end) {
             if (isAbandoned()) {
                 logPdfRenderTrace('pdf-document-range-request-stale-before-read', {
@@ -144,23 +170,55 @@ export function createPdfRangeRequestBridge({
                 throw new Error(`Range read returned no bytes at ${cursor} before requested end ${end}`);
             }
 
-            if (cursor === begin && chunk.byteLength === totalLength) {
-                transport.onDataRange(begin, chunk);
-                logPdfRenderTrace('pdf-document-range-fulfilled-direct', {
-                    begin,
-                    end,
-                    byteLength: chunk.byteLength,
-                    version,
-                });
-                return;
+            if (chunk.byteLength > requestedLength) {
+                throw new Error(`Range read returned ${chunk.byteLength} bytes for ${requestedLength} requested bytes`);
             }
 
-            output ??= new Uint8Array(totalLength);
-            if (chunk.byteLength > output.byteLength - outputOffset) {
-                throw new Error(`Range read returned ${chunk.byteLength} bytes for ${output.byteLength - outputOffset} remaining bytes`);
-            }
+            let sourceOffset = 0;
+            while (sourceOffset < chunk.byteLength) {
+                if (!deliveryBuffer && deliveryLength === 0) {
+                    const remaining = chunk.byteLength - sourceOffset;
+                    const canDeliverDirectly = remaining >= PDF_RANGE_DELIVERY_BYTES
+                        && (remaining % PDF_RANGE_DELIVERY_BYTES === 0 || cursor + chunk.byteLength === end);
+                    if (canDeliverDirectly) {
+                        let directOffset = sourceOffset;
+                        while (directOffset < chunk.byteLength) {
+                            const directLength = Math.min(
+                                PDF_RANGE_DELIVERY_BYTES,
+                                chunk.byteLength - directOffset,
+                            );
+                            const directEnd = cursor + directOffset + directLength;
+                            if (!deliver(
+                                chunk.subarray(directOffset, directOffset + directLength),
+                                directEnd === end,
+                            )) {
+                                return;
+                            }
+                            directOffset += directLength;
+                        }
+                        sourceOffset = chunk.byteLength;
+                        continue;
+                    }
+                    deliveryBuffer = new Uint8Array(PDF_RANGE_DELIVERY_BYTES);
+                }
 
-            output.set(chunk, outputOffset);
+                const copyLength = Math.min(
+                    chunk.byteLength - sourceOffset,
+                    PDF_RANGE_DELIVERY_BYTES - deliveryLength,
+                );
+                deliveryBuffer!.set(
+                    chunk.subarray(sourceOffset, sourceOffset + copyLength),
+                    deliveryLength,
+                );
+                sourceOffset += copyLength;
+                deliveryLength += copyLength;
+                if (deliveryLength === PDF_RANGE_DELIVERY_BYTES) {
+                    const isLast = cursor + sourceOffset === end;
+                    if (!flushDeliveryBuffer(isLast)) {
+                        return;
+                    }
+                }
+            }
             logPdfRenderTrace('pdf-document-range-subread', {
                 begin: cursor,
                 end: cursor + chunk.byteLength,
@@ -169,18 +227,16 @@ export function createPdfRangeRequestBridge({
                 requestedLength,
                 version,
             });
-            outputOffset += chunk.byteLength;
             cursor += chunk.byteLength;
         }
 
-        if (!output) {
-            throw new Error(`Range read produced no output for ${begin}..${end}`);
+        if (deliveryLength > 0 && !flushDeliveryBuffer(true)) {
+            return;
         }
-        transport.onDataRange(begin, output);
         logPdfRenderTrace('pdf-document-range-fulfilled', {
             begin,
             end,
-            byteLength: output.byteLength,
+            byteLength: totalLength,
             version,
         });
     }

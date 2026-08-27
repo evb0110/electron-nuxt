@@ -11,6 +11,12 @@ import {
     ref,
 } from 'vue';
 import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
+import {
+    createAllPageSelection,
+    createExplicitPageSelection,
+    createRangePageSelection,
+    type TPageMoveOperation,
+} from '@contracts/pageNumbers';
 import { cast } from '@tests/helpers/cast';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
@@ -277,5 +283,192 @@ describe('usePageDragDrop', () => {
             3,
             1,
         ]);
+    });
+
+    it('emits a compact native move for a selected page in a million-page document', async () => {
+        const {
+            container,
+            windowTarget,
+        } = createDragEventTarget();
+        const onReorder = vi.fn();
+        const onMove = vi.fn<(move: TPageMoveOperation) => void>();
+        const dragDrop = usePageDragDrop({
+            containerRef: ref(container),
+            totalPages: ref(1_000_000),
+            selectedPages: ref([]),
+            selectedPageSelection: ref(createAllPageSelection(1_000_000)),
+            resolveDropIndex: () => 0,
+            onReorder,
+            onMove,
+        });
+
+        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
+            button: 0,
+            clientX: 0,
+            clientY: 0,
+        }), 900_000);
+        await nextTick();
+        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
+            buttons: 1,
+            clientX: 20,
+            clientY: 0,
+        }));
+        windowTarget.dispatchEvent(new MouseEvent('mouseup', {
+            buttons: 0,
+            clientX: 20,
+            clientY: 0,
+        }));
+
+        expect(onMove).toHaveBeenCalledExactlyOnceWith({
+            pageCount: 1_000_000,
+            startPage: 900_000,
+            endPage: 900_000,
+            insertAt: 0,
+        });
+        expect(onReorder).not.toHaveBeenCalled();
+    });
+
+    it('emits compact multi-range moves for explicit xlarge selections', async () => {
+        const {
+            container,
+            windowTarget,
+        } = createDragEventTarget();
+        const onReorder = vi.fn();
+        const onMove = vi.fn<(move: TPageMoveOperation) => void>();
+        const dragDrop = usePageDragDrop({
+            containerRef: ref(container),
+            totalPages: ref(1_000_000),
+            selectedPages: ref([]),
+            selectedPageSelection: ref(createExplicitPageSelection(1_000_000, [
+                900_000,
+                900_002,
+            ])),
+            resolveDropIndex: () => 0,
+            onReorder,
+            onMove,
+        });
+
+        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
+            button: 0,
+            clientX: 0,
+            clientY: 0,
+        }), 900_000);
+        await nextTick();
+        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
+            buttons: 1,
+            clientX: 20,
+            clientY: 0,
+        }));
+        windowTarget.dispatchEvent(new MouseEvent('mouseup', {
+            buttons: 0,
+            clientX: 20,
+            clientY: 0,
+        }));
+
+        expect(onMove).toHaveBeenCalledExactlyOnceWith({
+            pageCount: 1_000_000,
+            ranges: [
+                {
+                    startPage: 900_000,
+                    endPage: 900_000,
+                },
+                {
+                    startPage: 900_002,
+                    endPage: 900_002,
+                },
+            ],
+            insertAt: 0,
+        });
+        expect(onReorder).not.toHaveBeenCalled();
+    });
+
+    it('routes contiguous explicit selections through the compact move callback', async () => {
+        const {
+            container,
+            windowTarget,
+        } = createDragEventTarget();
+        const onReorder = vi.fn();
+        const onMove = vi.fn<(move: TPageMoveOperation) => void>();
+        const dragDrop = usePageDragDrop({
+            containerRef: ref(container),
+            totalPages: ref(1_000_000),
+            selectedPages: ref([]),
+            selectedPageSelection: ref(createExplicitPageSelection(1_000_000, [
+                900_000,
+                900_001,
+            ])),
+            resolveDropIndex: () => 0,
+            onReorder,
+            onMove,
+        });
+
+        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
+            button: 0,
+            clientX: 0,
+            clientY: 0,
+        }), 900_000);
+        await nextTick();
+        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
+            buttons: 1,
+            clientX: 20,
+            clientY: 0,
+        }));
+        windowTarget.dispatchEvent(new MouseEvent('mouseup', {
+            buttons: 0,
+            clientX: 20,
+            clientY: 0,
+        }));
+
+        expect(onMove).toHaveBeenCalledExactlyOnceWith({
+            pageCount: 1_000_000,
+            startPage: 900_000,
+            endPage: 900_001,
+            insertAt: 0,
+        });
+        expect(onReorder).not.toHaveBeenCalled();
+    });
+
+    it('keeps a million-page contiguous range drag bounded', async () => {
+        const {
+            container,
+            windowTarget,
+        } = createDragEventTarget();
+        const onReorder = vi.fn();
+        const onMove = vi.fn<(move: TPageMoveOperation) => void>();
+        const dragDrop = usePageDragDrop({
+            containerRef: ref(container),
+            totalPages: ref(1_000_000),
+            selectedPages: ref([]),
+            selectedPageSelection: ref(createRangePageSelection(1_000_000, 900_000, 999_999)),
+            resolveDropIndex: () => 0,
+            onReorder,
+            onMove,
+        });
+
+        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
+            button: 0,
+            clientX: 0,
+            clientY: 0,
+        }), 900_000);
+        await nextTick();
+        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
+            buttons: 1,
+            clientX: 20,
+            clientY: 0,
+        }));
+        expect(dragDrop.draggedPages.value).toEqual([900_000]);
+        windowTarget.dispatchEvent(new MouseEvent('mouseup', {
+            buttons: 0,
+            clientX: 20,
+            clientY: 0,
+        }));
+
+        expect(onMove).toHaveBeenCalledExactlyOnceWith({
+            pageCount: 1_000_000,
+            startPage: 900_000,
+            endPage: 999_999,
+            insertAt: 0,
+        });
+        expect(onReorder).not.toHaveBeenCalled();
     });
 });

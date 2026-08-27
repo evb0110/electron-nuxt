@@ -1,12 +1,15 @@
 import {
     readFile,
+    rm,
     stat,
     writeFile,
 } from 'fs/promises';
 import {join} from 'path';
 import type {
     INativeScanCleanupAnalysisOutputV3,
+    INativeScanCleanupOptionsV3,
     INativeScanCleanupPageMetadataV3,
+    IScanCleanupDocumentCanvasPlan,
     TScanCleanupOutputHalf,
     TScanCleanupWarningEvent,
 } from '@contracts/electronApiScanCleanup';
@@ -23,11 +26,18 @@ import {
     type IRunScanCleanupPipelineRequest,
     type IScanCleanupWorkerPaths,
     type IPdfPageSize,
+    type IDetectedPageRaster,
     type IScanCleanupOutputMapping,
     type IScanCleanupRepresentationReport,
+    type IScanCleanupPageRasterSource,
     type ISourceDpiDetectionResult,
     type TScanCleanupLog,
 } from '@scan-cleanup-core/types';
+import {
+    createArrayBackedPdfPageSizeStore,
+    toCropBoxPageSize,
+    type IPdfPageSizeStore,
+} from '@scan-cleanup-core/pdfPageSizes';
 import {DETECTION_DPI} from '@scan-cleanup-core/detection';
 import {buildRunnableNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
 import {
@@ -46,6 +56,8 @@ import {
 } from '@scan-cleanup-core/provenanceStamp';
 import {
     CANVAS_CONTENT_SCALE_EPSILON,
+    addScanCleanupDocumentCanvasPage,
+    createScanCleanupDocumentCanvasAccumulator,
     fitScanCleanupMarginAxisPx,
     isScanCleanupPaperLargerThanCanvas,
     type IScanCleanupRect,
@@ -53,8 +65,8 @@ import {
     orientScanCleanupInsetsToPageSpace,
     resolveScanCleanupCanvasFitScale,
     resolveScanCleanupCanvasGridAtDpi,
-    resolveScanCleanupDocumentCanvas,
-    resolveScanCleanupDroppedMatchWarningEvent,
+    resolveScanCleanupDocumentCanvasFromAccumulator,
+    resolveScanCleanupDroppedMatchWarningEventFromAccumulator,
     resolveScanCleanupOutputPageSpacePaperRect,
     resolveScanCleanupPageCanvasBox,
     placeScanCleanupCanvasBox,
@@ -69,19 +81,93 @@ import {
 } from '@scan-cleanup-core/createScanCleanupProgressReporter';
 import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
 import {
+    collectScanCleanupPageScopeBatch,
+    iterateScanCleanupPageBatches,
+} from '@scan-cleanup-core/pageBatches';
+import type {TScanCleanupPageScope} from '@scan-cleanup-core/pageScope';
+import {
     logRasterHandoff,
     mapScanCleanupRasterPages,
     resolveRasterHandoff,
 } from '@scan-cleanup-core/resolveRasterHandoff';
+
+/** The legacy map form remains accepted for focused direct/core tests. */
+type TScanCleanupLosslessDpiSource = IScanCleanupPageRasterSource | ISourceDpiDetectionResult;
+
+/**
+ * A streaming child may inherit the parent's document canvas. In that case the
+ * child must not restart a full geometry-sidecar pass just to rediscover the
+ * same rectangle. `documentCanvas: null` is an explicit decision to run without
+ * matched-page normalization; omitting it keeps the direct-call behavior.
+ */
+export interface IScanCleanupLosslessRunContext {
+    documentCanvas?: IScanCleanupDocumentCanvasPlan | null;
+    skipDocumentCanvasMeasurement?: boolean;
+}
+
+function resolveLosslessDpiSource(
+    source: TScanCleanupLosslessDpiSource,
+): IScanCleanupPageRasterSource {
+    if ('getPageRaster' in source) {
+        return source;
+    }
+    return {
+        detected: source.pageRasterByNumber.size > 0,
+        documentDpi: source.documentDpi,
+        getPageRaster: pageNumber => source.pageRasterByNumber.get(pageNumber),
+    };
+}
+
+function resolveLosslessPageSizeStore(
+    pageSizeStoreOrSizes: IPdfPageSizeStore | readonly IPdfPageSize[],
+): IPdfPageSizeStore {
+    if (Array.isArray(pageSizeStoreOrSizes)) {
+        assertCanonicalPdfPageSizes(pageSizeStoreOrSizes, 'Scan cleanup lossless assembly');
+        return createArrayBackedPdfPageSizeStore(pageSizeStoreOrSizes);
+    }
+    return pageSizeStoreOrSizes as IPdfPageSizeStore;
+}
+
+async function readLosslessPageSizeBatch(
+    pageSizeStore: IPdfPageSizeStore,
+    pageNumbers: readonly number[],
+) {
+    if (pageNumbers.length === 0) {
+        return [] as IPdfPageSize[];
+    }
+    const contiguous = pageNumbers.every((pageNumber, index) => (
+        index === 0 || pageNumber === pageNumbers[index - 1]! + 1
+    ));
+    const pages = contiguous
+        ? await pageSizeStore.readRange(pageNumbers[0]!, pageNumbers[pageNumbers.length - 1]! + 1)
+        : await Promise.all(pageNumbers.map(pageNumber => pageSizeStore.getPage(pageNumber)));
+    if (pages.length !== pageNumbers.length) {
+        throw new Error(
+            `Scan cleanup page-size store returned ${String(pages.length)} pages for ${String(pageNumbers.length)} requested pages`,
+        );
+    }
+    for (const [
+        index,
+        page,
+    ] of pages.entries()) {
+        const expectedPageNumber = pageNumbers[index]!;
+        if (page.pageNumber !== expectedPageNumber) {
+            throw new Error(
+                `Scan cleanup page-size store returned page ${String(page.pageNumber)} for requested page ${String(expectedPageNumber)}`,
+            );
+        }
+    }
+    return pages;
+}
 
 export async function runLosslessScanCleanup(
     request: IRunScanCleanupPipelineRequest,
     paths: IScanCleanupWorkerPaths,
     preparedPdfPath: string,
     preparedWarnings: string[],
-    pageNumbers: number[],
-    pageSizes: readonly IPdfPageSize[],
-    dpiDetails: ISourceDpiDetectionResult,
+    pageNumbers: TScanCleanupPageScope,
+    pageSizeStoreOrSizes: IPdfPageSizeStore | readonly IPdfPageSize[],
+    dpiDetails: TScanCleanupLosslessDpiSource,
     scratch: string,
     stagedPdfPath: string,
     signal: AbortSignal,
@@ -89,18 +175,19 @@ export async function runLosslessScanCleanup(
     log: TScanCleanupLog,
     policy: IScanCleanupRuntimePolicy,
     dependencies: IRunScanCleanupPipelineDependencies,
+    context: IScanCleanupLosslessRunContext = {},
 ) {
     // The assembler crops in the source page's own user space, so a page that
     // is handed another page's box writes a wrong document rather than a
     // failing one. This entry is reachable directly, not only through the
     // conversion run that already admitted its geometry.
-    assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup lossless assembly');
+    const pageSizeStore = resolveLosslessPageSizeStore(pageSizeStoreOrSizes);
+    const dpiSource = resolveLosslessDpiSource(dpiDetails);
     if (!paths.pdfPageOpsBinary) {
         throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }
-    const documentDpi = resolveSourceDpi(dpiDetails.documentDpi);
-    const rasterPlans = pageNumbers.map(pageNumber => {
-        const detected = dpiDetails.pageRasterByNumber.get(pageNumber);
+    const documentDpi = resolveSourceDpi(dpiSource.documentDpi);
+    const resolveRasterPlan = (pageNumber: number, detected?: IDetectedPageRaster) => {
         const dpi = resolveSourceDpi(detected?.dpi, documentDpi);
         return {
             pageNumber,
@@ -113,103 +200,10 @@ export async function runLosslessScanCleanup(
                     height: detected.height,
                 },
         };
-    });
-    const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
-        renderDpi: DETECTION_DPI,
-        raster: plan.raster,
-    })), scratch, dependencies.getAvailableScratchBytes);
-    logRasterHandoff(log, 'lossless analysis', rasterHandoff);
+    };
     let rasterizedCount = 0;
-    const rasterizedPageNumbers = new Set<number>();
     const pagePlanResolver = createPagePlanResolver(request, log, 'lossless');
     emitProgress('rasterizing', 0, pageNumbers.length, []);
-    const pageInputs = await mapScanCleanupRasterPages(rasterPlans, policy.rasterConcurrency, async plan => {
-        signal.throwIfAborted();
-        const extension = rasterHandoff.format;
-        const inputPath = join(scratch, `analysis-${plan.pageNumber}.${extension}`);
-        const renderer = extension === 'ppm'
-            ? dependencies.renderPagePpm
-            : dependencies.renderPage;
-        await renderer(
-            paths,
-            log,
-            plan.pageNumber,
-            preparedPdfPath,
-            inputPath,
-            DETECTION_DPI,
-            undefined,
-            signal,
-            undefined,
-            undefined,
-            pageSizes[plan.pageNumber - 1]?.renderBox ?? 'cropbox',
-        );
-        rasterizedCount += 1;
-        rasterizedPageNumbers.add(plan.pageNumber);
-        emitProgress('rasterizing', rasterizedCount, pageNumbers.length, rasterizedPageNumbers);
-        return {
-            inputPath,
-            analysisInputPath: inputPath,
-            analysisDpi: DETECTION_DPI,
-            pageNumber: plan.pageNumber,
-            dpi: DETECTION_DPI,
-            ...(request.layoutByPage?.[String(plan.pageNumber)] === undefined
-                ? {}
-                : {observedLayout: request.layoutByPage[String(plan.pageNumber)]}),
-            ...pagePlanResolver.resolve(plan.pageNumber),
-            pageMetadataPath: join(scratch, `analysis-${plan.pageNumber}.json`),
-        };
-    });
-    pagePlanResolver.report();
-    const manifest = buildRunnableNativeScanCleanupManifest({
-        operation: 'analyze',
-        renderMode: 'final',
-        canvasScope: 'document',
-        qualityPath: 'lossless',
-        hostMemoryBytes: policy.totalRamBytes,
-        options: request.options,
-        experimental: {
-            autoDewarp: request.options.autoDewarp ?? false,
-            ...(request.options.autoDewarpDepth === undefined
-                ? {}
-                : {autoDewarpDepth: request.options.autoDewarpDepth}),
-        },
-        pages: pageInputs,
-        // Lossless analysis reads rasters and trusted layers staged by the
-        // caller under the shared temp root, not only this scratch.
-        allowedPathRoot: paths.tempDir,
-    });
-    const pages = manifest.pages;
-    const manifestPath = join(scratch, 'lossless-analysis-manifest.json');
-    await writeFile(manifestPath, JSON.stringify(manifest));
-    emitProgress('classifying', 0, pageNumbers.length, []);
-    const classifiedPageNumbers = new Set<number>();
-    await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, nativeProgress => {
-        // The envelope only proves itself self-consistent: its page numbers are
-        // bounded by its own total, which nothing ties to the pages this run
-        // submitted. Both totals have to agree before a reported page number
-        // can be read as an index into the submitted scope.
-        if (nativeProgress.totalPages !== pageNumbers.length) {
-            throw new Error(
-                `evb-scan-cleanup analysis reported ${String(nativeProgress.totalPages)} total pages`
-                + ` for ${String(pageNumbers.length)} submitted pages`,
-            );
-        }
-        if (nativeProgress.stage !== 'page-complete') {
-            return;
-        }
-        if (nativeProgress.pageNumber !== undefined) {
-            const sourcePageNumber = pageNumbers[nativeProgress.pageNumber - 1];
-            if (sourcePageNumber === undefined) {
-                throw new Error(
-                    `evb-scan-cleanup analysis reported unknown page index ${String(nativeProgress.pageNumber)}`,
-                );
-            }
-            classifiedPageNumbers.add(sourcePageNumber);
-        }
-        emitProgress('classifying', classifiedPageNumbers.size, pageNumbers.length, classifiedPageNumbers);
-    }, {allowedPathRoot: paths.tempDir});
-    emitProgress('collecting', 0, pages.length, []);
-
     const summary = createEmptyScanCleanupSummary(pageNumbers.length, preparedWarnings);
     const warn = (message: string) => {
         summary.warnings.push(message);
@@ -230,6 +224,25 @@ export async function runLosslessScanCleanup(
             ...(half === undefined ? {} : {half}),
         }, warn);
     };
+    const canvasAccumulator = createScanCleanupDocumentCanvasAccumulator();
+    if (
+        request.options.matchPageSize
+        && context.documentCanvas === undefined
+        && context.skipDocumentCanvasMeasurement !== true
+    ) {
+        await pageSizeStore.forEachChunk(chunk => {
+            signal.throwIfAborted();
+            for (const page of chunk.pages) {
+                signal.throwIfAborted();
+                addScanCleanupDocumentCanvasPage(
+                    canvasAccumulator,
+                    toCropBoxPageSize(page),
+                    request.options,
+                    request.layoutByPage?.[String(page.pageNumber)],
+                );
+            }
+        });
+    }
     const analyzedPages: Array<{
         sourcePageIndex: number;
         rotationQuarterTurns: number;
@@ -246,88 +259,232 @@ export async function runLosslessScanCleanup(
         }>;
         pageOverride: ReturnType<typeof getScanCleanupPageOverride>;
         pageSize: IPdfPageSize;
+        sourceDpi: number;
+        sourceRasterDetected: boolean;
     }> = [];
     const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();
-    for (const [
-        index,
-        page,
-    ] of pages.entries()) {
-        const metadata = decodeNativeScanCleanupPageMetadataJson(
-            await readFile(page.pageMetadataPath, 'utf8'),
-        );
-        emitProgress('collecting', index + 1, pages.length);
-        const sourcePageNumber = pageNumbers[index]!;
-        pageMetadataBySource.set(sourcePageNumber, metadata);
-        const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, sourcePageNumber);
-        if (metadata.excluded) {
-            summary.excludedPages += 1;
-            continue;
+    const nativeOptionsBySource = new Map<number, INativeScanCleanupOptionsV3>();
+    let classifiedCount = 0;
+    let collectedCount = 0;
+    for (const batch of iterateScanCleanupPageBatches(pageNumbers.length)) {
+        signal.throwIfAborted();
+        const batchPageNumbers = collectScanCleanupPageScopeBatch(pageNumbers, batch);
+        const batchPageSizes = await readLosslessPageSizeBatch(pageSizeStore, batchPageNumbers);
+        const pageSizeByNumber = new Map(batchPageSizes.map(page => [
+            page.pageNumber,
+            page,
+        ]));
+        const batchRasterByNumber = new Map(await Promise.all(batchPageNumbers.map(async pageNumber => [
+            pageNumber,
+            await dpiSource.getPageRaster(pageNumber),
+        ] as const)));
+        const rasterPlans = batchPageNumbers.map(pageNumber => resolveRasterPlan(
+            pageNumber,
+            batchRasterByNumber.get(pageNumber),
+        ));
+        const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
+            renderDpi: DETECTION_DPI,
+            raster: plan.raster,
+        })), scratch, dependencies.getAvailableScratchBytes);
+        logRasterHandoff(log, 'lossless analysis', rasterHandoff);
+        const batchRasterizedPageNumbers = new Set<number>();
+        const pageInputs = await mapScanCleanupRasterPages(rasterPlans, policy.rasterConcurrency, async plan => {
+            signal.throwIfAborted();
+            const extension = rasterHandoff.format;
+            const inputPath = join(scratch, `analysis-${plan.pageNumber}.${extension}`);
+            const renderer = extension === 'ppm'
+                ? dependencies.renderPagePpm
+                : dependencies.renderPage;
+            try {
+                await renderer(
+                    paths,
+                    log,
+                    plan.pageNumber,
+                    preparedPdfPath,
+                    inputPath,
+                    DETECTION_DPI,
+                    undefined,
+                    signal,
+                    undefined,
+                    undefined,
+                    pageSizeByNumber.get(plan.pageNumber)?.renderBox ?? 'cropbox',
+                );
+                rasterizedCount += 1;
+                batchRasterizedPageNumbers.add(plan.pageNumber);
+                emitProgress('rasterizing', rasterizedCount, pageNumbers.length, batchRasterizedPageNumbers);
+                return {
+                    inputPath,
+                    analysisInputPath: inputPath,
+                    analysisDpi: DETECTION_DPI,
+                    pageNumber: plan.pageNumber,
+                    dpi: DETECTION_DPI,
+                    ...(request.layoutByPage?.[String(plan.pageNumber)] === undefined
+                        ? {}
+                        : {observedLayout: request.layoutByPage[String(plan.pageNumber)]}),
+                    ...pagePlanResolver.resolve(plan.pageNumber),
+                    pageMetadataPath: join(scratch, `analysis-${plan.pageNumber}.json`),
+                };
+            } catch (error) {
+                await rm(inputPath, {force: true}).catch(() => undefined);
+                throw error;
+            }
+        });
+        const manifest = buildRunnableNativeScanCleanupManifest({
+            operation: 'analyze',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'lossless',
+            hostMemoryBytes: policy.totalRamBytes,
+            options: request.options,
+            experimental: {
+                autoDewarp: request.options.autoDewarp ?? false,
+                ...(request.options.autoDewarpDepth === undefined
+                    ? {}
+                    : {autoDewarpDepth: request.options.autoDewarpDepth}),
+            },
+            pages: pageInputs,
+            // Lossless analysis reads rasters and trusted layers staged by the
+            // caller under the shared temp root, not only this scratch.
+            allowedPathRoot: paths.tempDir,
+        });
+        const pages = manifest.pages;
+        const manifestPath = join(scratch, 'lossless-analysis-manifest.json');
+        await writeFile(manifestPath, JSON.stringify(manifest));
+        for (const [
+            index,
+            page,
+        ] of pages.entries()) {
+            nativeOptionsBySource.set(batchPageNumbers[index]!, page.options);
         }
-        if (metadata.layoutClassification === 'two-page-spread') summary.spreadsSplit += 1;
-        if (metadata.layoutClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
-        const pageSize = pageSizes[sourcePageNumber - 1];
-        if (!pageSize) {
-            throw new Error(`evb-pdf-page-ops returned no geometry for page ${String(sourcePageNumber)}`);
+        const classifiedPageNumbers = new Set<number>();
+        emitProgress('classifying', classifiedCount, pageNumbers.length, []);
+        try {
+            await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, nativeProgress => {
+                // Native reports page numbers relative to this manifest. Keep
+                // the source mapping local to the bounded batch.
+                if (nativeProgress.totalPages !== pages.length) {
+                    throw new Error(
+                        `evb-scan-cleanup analysis reported ${String(nativeProgress.totalPages)} total pages`
+                        + ` for ${String(pages.length)} submitted pages`,
+                    );
+                }
+                if (nativeProgress.stage !== 'page-complete') {
+                    return;
+                }
+                if (nativeProgress.pageNumber !== undefined) {
+                    const sourcePageNumber = batchPageNumbers[nativeProgress.pageNumber - 1];
+                    if (sourcePageNumber === undefined) {
+                        throw new Error(
+                            `evb-scan-cleanup analysis reported unknown page index ${String(nativeProgress.pageNumber)}`,
+                        );
+                    }
+                    if (!classifiedPageNumbers.has(sourcePageNumber)) {
+                        classifiedPageNumbers.add(sourcePageNumber);
+                        classifiedCount += 1;
+                    }
+                }
+                emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers);
+            }, {allowedPathRoot: paths.tempDir});
+            emitProgress('collecting', collectedCount, pageNumbers.length, []);
+        } finally {
+            // Metadata is decoded below before this batch is discarded. The
+            // raster inputs can go as soon as the sidecar exits, so a long run
+            // never leaves one input per source page in scratch.
+            await Promise.all(pages.map(page => rm(page.inputPath, {force: true})));
         }
-        const outputs = (metadata.outputs ?? []).map(output => {
-            const paper = resolveScanCleanupOutputPageSpacePaperRect(
-                pageSize,
-                output.half === 'full' ? 1 : 2,
-                pageOverride.rotationDegrees,
-            );
-            return {
-                half: output.half,
-                contentDetected: output.contentBox !== undefined,
-                cropRect: mapLosslessAnalysisRectToPdf(
-                    output.cropRect,
-                    output.inputWidthPx,
-                    output.inputHeightPx,
-                    metadata.rotationDegrees,
+        try {
+            for (const [
+                index,
+                page,
+            ] of pages.entries()) {
+                const metadata = decodeNativeScanCleanupPageMetadataJson(
+                    await readFile(page.pageMetadataPath, 'utf8'),
+                );
+                collectedCount += 1;
+                emitProgress('collecting', collectedCount, pageNumbers.length);
+                const sourcePageNumber = batchPageNumbers[index]!;
+                pageMetadataBySource.set(sourcePageNumber, metadata);
+                const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, sourcePageNumber);
+                if (metadata.excluded) {
+                    summary.excludedPages += 1;
+                    continue;
+                }
+                if (metadata.layoutClassification === 'two-page-spread') summary.spreadsSplit += 1;
+                if (metadata.layoutClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
+                const pageSize = pageSizeByNumber.get(sourcePageNumber);
+                if (!pageSize) {
+                    throw new Error(`evb-pdf-page-ops returned no geometry for page ${String(sourcePageNumber)}`);
+                }
+                const outputs = (metadata.outputs ?? []).map(output => {
+                    const paper = resolveScanCleanupOutputPageSpacePaperRect(
+                        pageSize,
+                        output.half === 'full' ? 1 : 2,
+                        pageOverride.rotationDegrees,
+                    );
+                    return {
+                        half: output.half,
+                        contentDetected: output.contentBox !== undefined,
+                        cropRect: mapLosslessAnalysisRectToPdf(
+                            output.cropRect,
+                            output.inputWidthPx,
+                            output.inputHeightPx,
+                            metadata.rotationDegrees,
+                            pageSize,
+                        ),
+                        // The cutter selects source pixels; it does not measure the
+                        // paper. Both spread leaves inherit one half of the oriented
+                        // source sheet even when their selected regions are unequal.
+                        paperRect: {
+                            x: 0,
+                            y: 0,
+                            width: paper.widthPoints,
+                            height: paper.heightPoints,
+                        },
+                    };
+                });
+                if (request.options.readingOrder === 'rtl' && metadata.layoutClassification === 'two-page-spread') {
+                    outputs.reverse();
+                }
+                analyzedPages.push({
+                    sourcePageIndex: sourcePageNumber - 1,
+                    rotationQuarterTurns: pageOverride.rotationDegrees / 90,
+                    outputs,
+                    pageOverride,
                     pageSize,
-                ),
-                // The cutter selects source pixels; it does not measure the
-                // paper. Both spread leaves inherit one half of the oriented
-                // source sheet even when their selected regions are unequal.
-                paperRect: {
-                    x: 0,
-                    y: 0,
-                    width: paper.widthPoints,
-                    height: paper.heightPoints,
-                },
-            };
-        });
-        if (request.options.readingOrder === 'rtl' && metadata.layoutClassification === 'two-page-spread') {
-            outputs.reverse();
+                    sourceDpi: resolveRasterPlan(
+                        sourcePageNumber,
+                        batchRasterByNumber.get(sourcePageNumber),
+                    ).dpi,
+                    sourceRasterDetected: batchRasterByNumber.get(sourcePageNumber) !== undefined,
+                });
+            }
+        } finally {
+            await Promise.all(pages.map(page => rm(page.pageMetadataPath, {force: true})));
         }
-        analyzedPages.push({
-            sourcePageIndex: sourcePageNumber - 1,
-            rotationQuarterTurns: pageOverride.rotationDegrees / 90,
-            outputs,
-            pageOverride,
-            pageSize,
-        });
     }
+    pagePlanResolver.report();
     const allOutputs = analyzedPages.flatMap(page => page.outputs.map(output => ({
         ...output,
         sourcePageIndex: page.sourcePageIndex,
+        sourceDpi: page.sourceDpi,
+        sourceRasterDetected: page.sourceRasterDetected,
     })));
     if (allOutputs.length === 0) {
         throw new Error('evb-scan-cleanup analysis produced no output pages');
     }
-    const sourceDpiByPage = new Map(rasterPlans.map(plan => [
-        plan.pageNumber,
-        plan.dpi,
-    ]));
-    const documentCanvas = request.options.matchPageSize
-        ? resolveScanCleanupDocumentCanvas(
-            pageSizes,
+    const computedDocumentCanvas = request.options.matchPageSize
+        ? resolveScanCleanupDocumentCanvasFromAccumulator(
+            canvasAccumulator,
             SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
             request.options,
-            request.layoutByPage,
+            true,
         )
         : null;
+    const documentCanvas = context.documentCanvas === undefined
+        ? computedDocumentCanvas
+        : context.documentCanvas;
     if (documentCanvas === null && request.options.matchPageSize) {
-        const droppedEvent = resolveScanCleanupDroppedMatchWarningEvent(pageSizes, request.options);
+        const droppedEvent = resolveScanCleanupDroppedMatchWarningEventFromAccumulator(canvasAccumulator);
         if (droppedEvent) warnEvent(droppedEvent);
     }
     const scaledRasterPages = new Set<number>();
@@ -351,11 +508,10 @@ export async function runLosslessScanCleanup(
             // document disagreed about whether margins were reduced at all,
             // and delivered a margin that differed by the rounding. One grid
             // for the decision, exact points for the placement inside it.
-            // Every analyzed page came from `rasterPlans`, so the map answers
-            // for all of them; the fallback is the same document resolution
-            // those plans resolve an undetected page to, so a page can never be
-            // measured against a resolution this run did not resolve for it.
-            const pageRenderDpi = sourceDpiByPage.get(page.sourcePageIndex + 1) ?? documentDpi;
+            // Every analyzed page resolves through the same source-DPI helper;
+            // an undetected page falls back to the document resolution, so a
+            // page can never be measured against an unplanned resolution.
+            const pageRenderDpi = page.sourceDpi;
             const canvasGrid = resolveScanCleanupCanvasGridAtDpi(documentCanvas, pageRenderDpi);
             // The same grid seen from the page's own unrotated user space,
             // where its paper rectangle is stated.
@@ -557,7 +713,7 @@ export async function runLosslessScanCleanup(
                     width: box.widthPoints,
                     height: box.heightPoints,
                 };
-                if (dpiDetails.pageRasterByNumber.has(page.sourcePageIndex + 1)) {
+                if (page.sourceRasterDetected) {
                     scaledRasterPages.add(page.sourcePageIndex + 1);
                 }
             }
@@ -599,18 +755,24 @@ export async function runLosslessScanCleanup(
             blank: metadata?.excluded !== true,
         });
     }
-    const effectiveOptions = pages.map((page, index) => {
-        const sourcePage = pageNumbers[index]!;
-        const materialized = materializeScanCleanupStampOptions({
-            nativeOptions: page.options,
-            options: request.options,
-            qualityPath: 'lossless',
-        });
-        return {
+    const effectiveOptions: Array<{
+        sourcePage: number;
+        options: ReturnType<typeof materializeScanCleanupStampOptions>;
+    }> = [];
+    for (const sourcePage of pageNumbers) {
+        const nativeOptions = nativeOptionsBySource.get(sourcePage);
+        if (nativeOptions === undefined) {
+            throw new Error(`evb-scan-cleanup returned no options for page ${String(sourcePage)}`);
+        }
+        effectiveOptions.push({
             sourcePage,
-            options: materialized,
-        };
-    });
+            options: materializeScanCleanupStampOptions({
+                nativeOptions,
+                options: request.options,
+                qualityPath: 'lossless',
+            }),
+        });
+    }
     const pagePlanDigests = effectiveOptions.map(record => buildScanCleanupPagePlanDigest(
         record.sourcePage,
         record.options,
@@ -659,6 +821,8 @@ export async function runLosslessScanCleanup(
         'split-pages',
         '--input',
         preparedPdfPath,
+        '--qpdf',
+        paths.qpdfBinary,
         '--output',
         stagedPdfPath,
         '--instructions-file',
@@ -694,9 +858,9 @@ export async function runLosslessScanCleanup(
                 semanticMode: 'color' as const,
                 representation: 'source-preserved',
                 preservationReason: 'source-preserved',
-                sourceDpi: sourceDpiByPage.get(sourcePageNumber) ?? null,
+                sourceDpi: output.sourceDpi,
                 sourceBackgroundDpi: null,
-                renderDpi: sourceDpiByPage.get(sourcePageNumber) ?? 1,
+                renderDpi: output.sourceDpi,
                 illuminationNormalized: false,
                 textToneApplied: false,
                 binarizationMode: null,

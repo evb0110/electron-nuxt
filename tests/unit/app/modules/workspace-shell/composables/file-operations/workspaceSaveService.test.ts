@@ -19,6 +19,7 @@ import {
     createPdfNoteComment,
     expectWorkspaceSaveMarked,
     expectWorkspaceSaveNotMarked,
+    TEST_BROWSER_WORKING_COPY_REF,
     toastAddMock,
     type TPdfNativeMutationSave,
     useWorkspaceSaveServiceForTest,
@@ -46,7 +47,7 @@ describe('workspaceSaveService', () => {
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(saveFile).toHaveBeenCalledOnce();
         expect(saveFile.mock.calls[0]?.[1]).toMatchObject({
-            expectedWorkingPath: '/tmp/work.pdf',
+            expectedWorkingPath: TEST_BROWSER_WORKING_COPY_REF,
             expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
         });
         expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
@@ -61,6 +62,28 @@ describe('workspaceSaveService', () => {
         expectWorkspaceSaveMarked(deps);
         expect(deps.isSaving.value).toBe(false);
         expect(deps.validatePdfPath).not.toHaveBeenCalled();
+    });
+
+    it('commits active PDF.js editors before capturing the save plan', async () => {
+        const annotationDirty = ref(false);
+        const commitPdfEditorsForSave = vi.fn(async () => {
+            annotationDirty.value = true;
+        });
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty,
+            commitPdfEditorsForSave,
+        });
+        const {handleSave} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        expect(commitPdfEditorsForSave).toHaveBeenCalledOnce();
+        expect(saveFile).toHaveBeenCalledOnce();
+        expect(commitPdfEditorsForSave.mock.invocationCallOrder[0]!)
+            .toBeLessThan(saveFile.mock.invocationCallOrder[0]!);
     });
 
     it('rebuilds and retries a serialized save after a stale revision rejection', async () => {
@@ -153,7 +176,7 @@ describe('workspaceSaveService', () => {
         expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).toHaveBeenCalledWith({
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/work.pdf',
+            expectedWorkingPath: TEST_BROWSER_WORKING_COPY_REF,
             expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
         });
         expectWorkspaceSaveMarked(deps);
@@ -174,9 +197,9 @@ describe('workspaceSaveService', () => {
         const savePromise = handleSave();
 
         await vi.waitFor(() => {
-            expect(validatePdfPath).toHaveBeenCalledWith('/tmp/work.pdf');
+            expect(validatePdfPath).toHaveBeenCalledWith(TEST_BROWSER_WORKING_COPY_REF);
         });
-        deps.workingCopyPath.value = '/tmp/other-work.pdf';
+        deps.workingCopyPath.value = 'browser://documents/other-work.pdf';
         validation.resolve({
             isValid: true,
             tool: 'qpdf',
@@ -270,7 +293,7 @@ describe('workspaceSaveService', () => {
         await vi.waitFor(() => {
             expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         });
-        deps.workingCopyPath.value = '/tmp/other-work.pdf';
+        deps.workingCopyPath.value = 'browser://documents/other-work.pdf';
         sourceBytes.resolve(new Uint8Array([1]));
 
         await expect(savePromise).resolves.toBe(false);
@@ -300,7 +323,7 @@ describe('workspaceSaveService', () => {
         await vi.waitFor(() => {
             expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         });
-        deps.workingCopyPath.value = '/tmp/other-work.pdf';
+        deps.workingCopyPath.value = 'browser://documents/other-work.pdf';
         sourceBytes.resolve(new Uint8Array([1]));
 
         await expect(savePromise).resolves.toBe(false);
@@ -336,12 +359,12 @@ describe('workspaceSaveService', () => {
         await Promise.resolve();
 
         expect(deps.persistAllAnnotationNotes).toHaveBeenCalledOnce();
-        deps.workingCopyPath.value = '/tmp/other-work.pdf';
+        deps.workingCopyPath.value = 'browser://documents/other-work.pdf';
         notePersistence.resolve(true);
 
         await expect(savePromise).resolves.toBe(false);
         expect(trySaveEmbeddedNoteTextUpdates).not.toHaveBeenCalled();
-        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
         expect(deps.saveFile).not.toHaveBeenCalled();
         expectWorkspaceSaveNotMarked(deps);
         expect(deps.isSaving.value).toBe(false);
@@ -620,7 +643,7 @@ describe('workspaceSaveService', () => {
 
         expect(repairWorkingCopy).toHaveBeenCalledWith({
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/work.pdf',
+            expectedWorkingPath: TEST_BROWSER_WORKING_COPY_REF,
             expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
         });
         expect(deps.saveDocument).not.toHaveBeenCalled();
@@ -649,7 +672,7 @@ describe('workspaceSaveService', () => {
 
         expect(optimizeWorkingCopy).toHaveBeenCalledWith({
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/work.pdf',
+            expectedWorkingPath: TEST_BROWSER_WORKING_COPY_REF,
             expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
         });
         expect(deps.saveDocument).not.toHaveBeenCalled();
@@ -684,7 +707,7 @@ describe('workspaceSaveService', () => {
         expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
     });
 
-    it('blocks large unsupported serialized saves before reading or materializing full PDF bytes', async () => {
+    it('does not reject large serialized saves by renderer size', async () => {
         const getWorkingCopySize = vi.fn(async () => 512 * 1024 * 1024 + 1);
         const {
             deps,
@@ -695,21 +718,16 @@ describe('workspaceSaveService', () => {
         });
         const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
-        await expect(handleSave()).resolves.toBe(false);
+        await expect(handleSave()).resolves.toBe(true);
 
-        expect(getWorkingCopySize).toHaveBeenCalledWith('/tmp/work.pdf');
-        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(getWorkingCopySize).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         expect(deps.saveDocument).not.toHaveBeenCalled();
-        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
-        expect(saveFile).not.toHaveBeenCalled();
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: expect.stringContaining('Large PDF save requires a native save path'),
-        }));
+        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
+        expect(saveFile).toHaveBeenCalledOnce();
     });
 
-    it('allows the large serialized-save benchmark only behind both automation gates', async () => {
+    it('does not require automation gates for a large serialized save', async () => {
         const getWorkingCopySize = vi.fn(async () => 512 * 1024 * 1024 + 1);
         const {
             deps,
@@ -718,19 +736,17 @@ describe('workspaceSaveService', () => {
             annotationDirty: ref(true),
             getWorkingCopySize,
         });
-        vi.stubGlobal('window', {
-            __allowRendererFileOpenForAutomation: vi.fn(async () => true),
-            __allowLargeSerializedSaveForAutomation: true,
-        });
         try {
             const {handleSave} = useWorkspaceSaveServiceForTest(deps);
 
             await expect(handleSave()).resolves.toBe(true);
 
-            expect(getWorkingCopySize).toHaveBeenCalledWith('/tmp/work.pdf');
+            expect(getWorkingCopySize).not.toHaveBeenCalled();
             expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
             expect(saveFile).toHaveBeenCalledOnce();
         } finally {
+            // Keep the existing cleanup boundary for callers that add a
+            // window mock while extending this case.
             vi.stubGlobal('window', undefined);
         }
     });
@@ -750,7 +766,7 @@ describe('workspaceSaveService', () => {
         expect(deps.serializePdfForSave).not.toHaveBeenCalled();
         expect(saveWorkingCopyAs).toHaveBeenCalledWith(undefined, {
             saveMode: 'save_as_rewrite',
-            expectedWorkingPath: '/tmp/work.pdf',
+            expectedWorkingPath: TEST_BROWSER_WORKING_COPY_REF,
             optimizeLossless: false,
             expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
         });
@@ -801,7 +817,7 @@ describe('workspaceSaveService', () => {
         expect(saveWorkingCopyAs).toHaveBeenCalledOnce();
         expect(saveWorkingCopyAs.mock.calls[0]?.[1]).toMatchObject({
             saveMode: 'save_as_rewrite',
-            expectedWorkingPath: '/tmp/work.pdf',
+            expectedWorkingPath: TEST_BROWSER_WORKING_COPY_REF,
             optimizeLossless: true,
         });
     });
@@ -885,6 +901,7 @@ describe('workspaceSaveService', () => {
             saveFile,
         } = createDeps({
             totalPages: ref(3),
+            workingCopyPath: ref('/tmp/work.pdf'),
             pageLabelsDirty: ref(true),
             pageLabelRanges: ref([{
                 startPage: 1,
@@ -982,6 +999,7 @@ describe('workspaceSaveService', () => {
             saveFile,
         } = createDeps({
             totalPages: ref(3),
+            workingCopyPath: ref('/tmp/work.pdf'),
             pageLabelsDirty: ref(true),
             pageLabelRanges: ref([{
                 startPage: 1,
@@ -997,13 +1015,13 @@ describe('workspaceSaveService', () => {
         await expect(handleSave()).resolves.toBe(false);
 
         expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
-        expect(getWorkingCopySize).toHaveBeenCalledWith('/tmp/work.pdf');
+        expect(getWorkingCopySize).not.toHaveBeenCalled();
         expect(deps.getSourcePdfData).not.toHaveBeenCalled();
         expect(saveFile).not.toHaveBeenCalled();
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: expect.stringContaining('Large PDF save requires a native save path'),
+            description: 'errors.save.notCompleted',
         }));
     });
 
@@ -1210,7 +1228,7 @@ describe('workspaceSaveService', () => {
             'optimize-1',
             {
                 saveMode: 'save_as_rewrite',
-                expectedWorkingPath: '/tmp/work.pdf',
+                expectedWorkingPath: TEST_BROWSER_WORKING_COPY_REF,
                 expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
             },
         );

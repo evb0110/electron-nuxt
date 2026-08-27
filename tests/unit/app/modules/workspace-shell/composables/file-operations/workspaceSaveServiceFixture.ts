@@ -25,6 +25,8 @@ import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/seri
 import { cast } from '@tests/helpers/cast';
 
 export const toastAddMock = vi.fn();
+const TEST_BROWSER_SOURCE_REF = 'browser://documents/source.pdf';
+export const TEST_BROWSER_WORKING_COPY_REF = 'browser://documents/work.pdf';
 type TFileOperationsSaveControllerTestDeps =
     IWorkspaceSaveDependencies['status']
     & {
@@ -52,6 +54,7 @@ type TFileOperationsSaveControllerTestDeps =
         markBookmarksSaved: IWorkspaceSaveDependencies['metadata']['markBookmarksSaved'];
         getBookmarksSaveStateToken?: IWorkspaceSaveDependencies['metadata']['getBookmarksSaveStateToken'];
         pdfDocument: IWorkspaceSaveDependencies['pdf']['document'];
+        commitPdfEditorsForSave?: IWorkspaceSaveDependencies['pdf']['commitEditorsForSave'];
         runSaveTransaction: IWorkspaceSaveDependencies['pdf']['runSaveTransaction'];
         saveDocument: () => Promise<Uint8Array | null>;
         getSourcePdfData: IWorkspaceSaveDependencies['pdf']['getSourceData'];
@@ -157,6 +160,9 @@ function createSaveDependencies(
         },
         pdf: {
             document: deps.pdfDocument,
+            ...(deps.commitPdfEditorsForSave
+                ? {commitEditorsForSave: deps.commitPdfEditorsForSave}
+                : {}),
             runSaveTransaction: deps.runSaveTransaction,
             getSourceData: deps.getSourcePdfData,
             serializeForSave: deps.serializePdfForSave,
@@ -322,8 +328,11 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
     const deps = cast<Parameters<typeof useWorkspaceSaveServiceForTest>[0]>({
         isSaving: ref(false),
         isSavingAs: ref(false),
-        originalPath: ref('/tmp/source.pdf'),
-        workingCopyPath: ref('/tmp/work.pdf'),
+        // Most service tests exercise renderer fallback. Native-path cases opt
+        // into an absolute path explicitly so the strict desktop contract is
+        // visible in their setup.
+        originalPath: ref(TEST_BROWSER_SOURCE_REF),
+        workingCopyPath: ref(TEST_BROWSER_WORKING_COPY_REF),
         documentRevisionToken: ref('rev-1'),
         annotationDirty: ref(false),
         canonicalAnnotationComments: ref([]),

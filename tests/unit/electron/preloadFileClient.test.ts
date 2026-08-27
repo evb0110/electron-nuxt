@@ -10,6 +10,10 @@ import {
     DOCUMENTS_CHANNELS,
     DOCUMENTS_EVENT_CHANNELS,
 } from '@electron/features/documents/contract';
+import {
+    DOCX_EXPORT_STREAM_CHANNELS,
+    DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
+} from '@contracts/docxExport';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
@@ -51,11 +55,6 @@ class FakeMessagePort {
 }
 
 interface INativeMutationInvokePayload {placedImages: Array<{source: unknown}>}
-
-interface IWorkingCopyExpectationInvokePayload {
-    byteLength: number;
-    sha256: string;
-}
 
 interface INativeBookmarkTestItem {
     title: string;
@@ -215,6 +214,60 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(port1.close).toHaveBeenCalledTimes(1);
         expect(port1.postedMessages).toContainEqual({type: 'cancel'});
         expect(port1.listeners.size).toBe(0);
+    });
+
+    it('writes DOCX chunks through the dedicated stream channels', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => {
+                if (channel === DOCX_EXPORT_STREAM_CHANNELS.begin) {
+                    return {sessionId: 'docx-session'};
+                }
+                return true;
+            }),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        await expect(client.writeDocxFileChunks('/tmp/export.docx', [
+            Uint8Array.of(1, 2),
+            Uint8Array.of(3, 4),
+        ])).resolves.toBe(true);
+
+        expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(
+            1,
+            DOCX_EXPORT_STREAM_CHANNELS.begin,
+            '/tmp/export.docx',
+        );
+        expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(
+            2,
+            DOCX_EXPORT_STREAM_CHANNELS.writeChunk,
+            'docx-session',
+            Uint8Array.of(1, 2),
+        );
+        expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(
+            4,
+            DOCX_EXPORT_STREAM_CHANNELS.commit,
+            'docx-session',
+        );
+    });
+
+    it('cancels a DOCX stream when a chunk exceeds its IPC bound', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => {
+                if (channel === DOCX_EXPORT_STREAM_CHANNELS.begin) {
+                    return {sessionId: 'docx-session'};
+                }
+                return true;
+            }),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        await expect(client.writeDocxFileChunks('/tmp/export.docx', [new Uint8Array(DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES + 1)])).rejects.toThrow('writeDocxFileChunks chunk exceeds maximum size');
+        expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(
+            DOCX_EXPORT_STREAM_CHANNELS.cancel,
+            'docx-session',
+        );
     });
 
     it('passes lossless optimization options when starting streamed Save As persistence', async () => {
@@ -1237,7 +1290,6 @@ describe('createDocumentsPreloadFileClient', () => {
             path: string,
             mutations: INativeMutationInvokePayload,
             modifiedAt: string,
-            expectedBase: IWorkingCopyExpectationInvokePayload,
             options: unknown,
         ) => Promise<unknown>>(async () => ({
             applied: true,
@@ -1253,10 +1305,6 @@ describe('createDocumentsPreloadFileClient', () => {
             postMessage: vi.fn(),
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
-        const expectedBase = {
-            byteLength: 3,
-            sha256: 'a'.repeat(64),
-        };
         const imageSource = createNativePlacedImage().source;
 
         await expect(client.applyPdfNativeMutationsToWorkingCopy!(
@@ -1272,7 +1320,6 @@ describe('createDocumentsPreloadFileClient', () => {
                 source: imageSource,
             }]},
             'D:20260609133855+03\'00\'',
-            expectedBase,
             revisionOptions,
         )).resolves.toMatchObject({applied: true});
 
@@ -1285,7 +1332,6 @@ describe('createDocumentsPreloadFileClient', () => {
                 source: imageSource,
             })]},
             'D:20260609133855+03\'00\'',
-            expectedBase,
             revisionOptions,
         );
         const firstCall = invoke.mock.calls[0];
@@ -1376,21 +1422,15 @@ describe('createDocumentsPreloadFileClient', () => {
                 createNativePlacedImage,
             )},
             modifiedAt,
-            {
-                byteLength: 3,
-                sha256: 'a'.repeat(64),
-            },
+            revisionOptions,
         )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.placedImages} images`);
 
         expect(() => client.applyPdfNativeMutationsToWorkingCopy!(
             '/tmp/working.pdf',
             {placedImages: [createNativePlacedImage()]},
             modifiedAt,
-            {
-                byteLength: 3,
-                sha256: 'not-a-digest',
-            },
-        )).toThrow('SHA-256 hex digest');
+            undefined as never,
+        )).toThrow('applyPdfNativeMutationsToWorkingCopy.options.expectedDocumentRevisionToken');
 
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });

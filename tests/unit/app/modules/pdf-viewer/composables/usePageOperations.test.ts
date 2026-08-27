@@ -10,14 +10,21 @@ import { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/p
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts';
+import {
+    createPageMoveRange,
+    createPageMoveRanges,
+} from '@contracts/pageNumbers';
 
 const pageOpsApi = {
     delete: vi.fn(),
+    deleteRanges: vi.fn(),
     extract: vi.fn(),
     rotate: vi.fn(),
     insert: vi.fn(),
     insertFile: vi.fn(),
     reorder: vi.fn(),
+    move: vi.fn(),
+    moveRanges: vi.fn(),
     crop: vi.fn(),
     removeCrop: vi.fn(),
 };
@@ -123,6 +130,18 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    pageOpsApi.move.mockResolvedValue({
+        success: true,
+        pageCount: 1_000_000,
+    });
+    pageOpsApi.moveRanges.mockResolvedValue({
+        success: true,
+        pageCount: 1_000_000,
+    });
+    pageOpsApi.deleteRanges.mockResolvedValue({
+        success: true,
+        pageCount: 1,
+    });
     progressListeners.clear();
 });
 
@@ -428,6 +447,82 @@ describe('usePageOperations', () => {
 
         expect(pageOpsApi.delete).not.toHaveBeenCalled();
         expect(pageOps.error.value).toBe('msg:errors.pageOps.deleteAll');
+    });
+
+    it('sends a compact delete range for a million-page selection', async () => {
+        const { pageOps } = createHarness();
+
+        await expect(pageOps.deletePageRanges([{
+            startPage: 2,
+            endPage: 1_000_000,
+        }], 1_000_000)).resolves.toBe(true);
+
+        expect(pageOpsApi.deleteRanges).toHaveBeenCalledOnce();
+        expect(pageOpsApi.deleteRanges).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            [{
+                startPage: 2,
+                endPage: 1_000_000,
+            }],
+            1_000_000,
+        );
+        expect(pageOpsApi.delete).not.toHaveBeenCalled();
+        const deleteArgs = pageOpsApi.deleteRanges.mock.calls[0] as unknown[];
+        expect(deleteArgs.some(argument => argument instanceof Array && argument.length > 10_000)).toBe(false);
+    });
+
+    it('sends a compact native move tuple for a million-page document', async () => {
+        const { pageOps } = createHarness();
+        const move = createPageMoveRange(1_000_000, 900_000, 900_000, 0);
+
+        await expect(pageOps.movePages(move)).resolves.toBe(true);
+
+        expect(pageOpsApi.move).toHaveBeenCalledOnce();
+        expect(pageOpsApi.move).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            900_000,
+            900_000,
+            0,
+            1_000_000,
+        );
+        const moveArgs = pageOpsApi.move.mock.calls[0] as unknown[];
+        expect(moveArgs.some(argument => Array.isArray(argument))).toBe(false);
+    });
+
+    it('sends compact non-contiguous ranges without a full permutation', async () => {
+        const { pageOps } = createHarness();
+        const move = createPageMoveRanges(1_000_000, [
+            {
+                startPage: 900_000,
+                endPage: 900_000,
+            },
+            {
+                startPage: 900_002,
+                endPage: 900_002,
+            },
+        ], 0);
+
+        await expect(pageOps.movePages(move)).resolves.toBe(true);
+
+        expect(pageOpsApi.moveRanges).toHaveBeenCalledOnce();
+        expect(pageOpsApi.moveRanges).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            [
+                {
+                    startPage: 900_000,
+                    endPage: 900_000,
+                },
+                {
+                    startPage: 900_002,
+                    endPage: 900_002,
+                },
+            ],
+            0,
+            1_000_000,
+        );
+        expect(pageOpsApi.move).not.toHaveBeenCalled();
+        const moveArgs = pageOpsApi.moveRanges.mock.calls[0] as unknown[];
+        expect(moveArgs.some(argument => argument instanceof Array && argument.length > 10_000)).toBe(false);
     });
 
     it('writes localized fallback error message when operation throws a non-Error value', async () => {

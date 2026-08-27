@@ -19,6 +19,7 @@ import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     IPagePreviewRenderedObjectUrl,
     IPagePreviewSource,
+    TPreviewPageSizes,
 } from '@app/utils/document-viewer/pagePreviewSource';
 import NativePdfViewer from '@app/modules/native-pdf-viewer/components/NativePdfViewer.vue';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
@@ -72,10 +73,7 @@ const activeUnmounts = new Set<() => void>();
 
 function createSource(
     revision: string,
-    pageSizes: Array<{
-        width: number;
-        height: number
-    }>,
+    pageSizes: TPreviewPageSizes,
     rasterWidthCeilingPx?: number,
 ): ITestSource {
     return {
@@ -331,6 +329,83 @@ describe('NativePdfViewer revision lifecycle', () => {
         });
         expect(host.querySelector('[data-testid="native-pdf-viewer-error"]')?.textContent)
             .toContain('errors.file.noPages');
+    });
+
+    it('renders a bounded resident window from compact million-page metadata', async () => {
+        vi.useFakeTimers();
+        class PreloadImage {
+            onload: (() => void) | null = null;
+
+            set src(_value: string) {
+                queueMicrotask(() => this.onload?.());
+            }
+        }
+        vi.stubGlobal('Image', PreloadImage);
+
+        const pageCount = 1_000_000;
+        const source = createSource('million-pages', {
+            pageCount,
+            defaultPageSize: {
+                width: 400,
+                height: 800,
+            },
+            overrides: [{
+                pageNumber: pageCount,
+                width: 600,
+                height: 900,
+            }],
+        });
+        nativePdfMocks.createSource.mockReturnValue(source);
+        const host = document.createElement('div');
+        const viewport = document.createElement('div');
+        document.body.append(host, viewport);
+        Object.defineProperties(viewport, {
+            clientHeight: {
+                configurable: true,
+                value: 600,
+            },
+            clientWidth: {
+                configurable: true,
+                value: 800,
+            },
+        });
+        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        authority.bindViewportElement(viewport);
+        authority.openSurface.begin({
+            documentId: '/managed/million-pages.pdf',
+            documentRevision: 'drt1:test:million-pages',
+        });
+        const Root = defineComponent({setup() {
+            provide(documentViewerChassisAuthorityKey, authority);
+            return () => h(NativePdfViewer, {
+                src: '/managed/million-pages.pdf',
+                isActive: true,
+                currentPage: 1,
+            });
+        }});
+        const app = createApp(Root);
+        const ElementStub = defineComponent({setup: () => () => h('span')});
+        app.component('UButton', ElementStub);
+        app.component('UIcon', ElementStub);
+        app.component('USkeleton', ElementStub);
+        app.mount(host);
+        const unmount = () => {
+            app.unmount();
+            host.remove();
+            viewport.remove();
+            activeUnmounts.delete(unmount);
+        };
+        activeUnmounts.add(unmount);
+
+        await settlePendingWork();
+        await settleImagePaint(requireElement<HTMLImageElement>(host, 'img[src="blob:million-pages:page-1"]'));
+        await settlePendingWork();
+
+        expect(host.querySelectorAll('[data-page-number]').length).toBeLessThanOrEqual(256);
+        expect(source.renderPageObjectUrl.mock.calls.length).toBeLessThanOrEqual(256);
+        expect(source.renderPageObjectUrl.mock.calls.every(([pageNumber]) => (
+            pageNumber >= 1 && pageNumber <= pageCount
+        ))).toBe(true);
     });
 
     it('fully reloads a same-path document when its revision changes', async () => {

@@ -174,6 +174,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const ocrCancelMethod = lazyAsync(pathDescriptors.ocr.cancel.path);
     const ocrGetLanguagesMethod = lazyAsync(pathDescriptors.ocr.getLanguages.path);
     const ocrResolveDocumentTextCatalogMethod = lazyAsync(pathDescriptors.ocr.resolveDocumentTextCatalog.path);
+    const ocrResolveDocumentTextCatalogWindowMethod = lazyAsync(pathDescriptors.ocr.resolveDocumentTextCatalogWindow.path);
     const ocrAcknowledgeResultFileMethod = lazyAsync(pathDescriptors.ocr.acknowledgeResultFile.path);
     const ocrCreateSearchablePdfMethod = lazyAsync(pathDescriptors.ocr.createSearchablePdf.path);
     const ocrOnProgressMethod = lazyEvent(pathDescriptors.ocr.onProgress.path);
@@ -199,8 +200,11 @@ export function createLazyBrowserPlatformApiGenerated({
     const imageExportExportPdfToMultiPageTiffMethod = lazyAsync(pathDescriptors.imageExport.exportPdfToMultiPageTiff.path);
     const imageExportOnProgressMethod = lazyEvent(pathDescriptors.imageExport.onProgress.path);
     const pageOpsDeleteMethod = lazyAsync(pathDescriptors.pageOps.delete.path);
+    const pageOpsDeleteRangesMethod = lazyAsync(pathDescriptors.pageOps.deleteRanges.path);
     const pageOpsExtractMethod = lazyAsync(pathDescriptors.pageOps.extract.path);
     const pageOpsReorderMethod = lazyAsync(pathDescriptors.pageOps.reorder.path);
+    const pageOpsMoveMethod = lazyAsync(pathDescriptors.pageOps.move.path);
+    const pageOpsMoveRangesMethod = lazyAsync(pathDescriptors.pageOps.moveRanges.path);
     const pageOpsInsertMethod = lazyAsync(pathDescriptors.pageOps.insert.path);
     const pageOpsInsertFileMethod = lazyAsync(pathDescriptors.pageOps.insertFile.path);
     const pageOpsRotateMethod = lazyAsync(pathDescriptors.pageOps.rotate.path);
@@ -423,6 +427,7 @@ export function createLazyBrowserPlatformApiGenerated({
         cancel: ocrCancelMethod,
         getLanguages: ocrGetLanguagesMethod,
         resolveDocumentTextCatalog: ocrResolveDocumentTextCatalogMethod,
+        resolveDocumentTextCatalogWindow: ocrResolveDocumentTextCatalogWindowMethod,
         acknowledgeResultFile: ocrAcknowledgeResultFileMethod,
         createSearchablePdf: ocrCreateSearchablePdfMethod,
         onProgress: ocrOnProgressMethod,
@@ -454,8 +459,11 @@ export function createLazyBrowserPlatformApiGenerated({
     },
     pageOps: {
         delete: pageOpsDeleteMethod,
+        deleteRanges: pageOpsDeleteRangesMethod,
         extract: pageOpsExtractMethod,
         reorder: pageOpsReorderMethod,
+        move: pageOpsMoveMethod,
+        moveRanges: pageOpsMoveRangesMethod,
         insert: pageOpsInsertMethod,
         insertFile: pageOpsInsertFileMethod,
         rotate: pageOpsRotateMethod,

@@ -1,14 +1,14 @@
 import type {
-    IScanCleanupMarginsMm,
     IScanCleanupOptions,
     IScanCleanupPageOverride,
-    IScanCleanupPlacementAnchor,
-    IScanCleanupPreviewMetadata,
     TScanCleanupLayoutByPage,
     TScanCleanupOutputHalf,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageOverrides,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/domain';
+import type {IScanCleanupMarginsMm} from '@contracts/scan-cleanup/geometry';
+import type {IScanCleanupPreviewMetadata} from '@contracts/scan-cleanup/ipc';
+import type {IScanCleanupPlacementAnchor} from '@contracts/scan-cleanup/nativeProtocolV3';
 
 export type TScanCleanupResolvedPageLayout = ReturnType<typeof resolveScanCleanupPageLayout>;
 
@@ -18,6 +18,16 @@ export const DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE: Readonly<IScanCleanupPageOverri
     excluded: false,
     manualSplit: null,
 });
+
+// The options object crosses both Vue reactivity and worker structured-clone
+// boundaries. Keep the renderer-only association out of the page map so the
+// map remains a plain sparse record, and carry the scalar through options as
+// `pageOverrideDefaults`. Main and worker entry points attach it again before
+// calling the shared page resolver.
+const scanCleanupPageOverrideDefaults = new WeakMap<
+    TScanCleanupPageOverrides,
+    IScanCleanupPageOverride
+>();
 
 export function createScanCleanupPageOverride(
     value: Partial<IScanCleanupPageOverride> = {},
@@ -58,11 +68,51 @@ export function createScanCleanupPageOverride(
     };
 }
 
+/**
+ * Associates a document-wide default with a sparse page override record.
+ * The association is intentionally O(1); callers that cross a process boundary
+ * must pass the same value as `IScanCleanupOptions.pageOverrideDefaults` and
+ * attach it after decoding the request.
+ */
+export function attachScanCleanupPageOverrideDefaults(
+    overrides: TScanCleanupPageOverrides,
+    defaults: IScanCleanupPageOverride | undefined,
+    documentMargins?: IScanCleanupMarginsMm,
+) {
+    if (defaults === undefined) {
+        scanCleanupPageOverrideDefaults.delete(overrides);
+        return;
+    }
+    scanCleanupPageOverrideDefaults.set(
+        overrides,
+        createScanCleanupPageOverride(defaults, documentMargins),
+    );
+}
+
+export function setScanCleanupPageOverrideDefaults(
+    overrides: TScanCleanupPageOverrides,
+    defaults: IScanCleanupPageOverride,
+    documentMargins?: IScanCleanupMarginsMm,
+) {
+    const normalized = createScanCleanupPageOverride(defaults, documentMargins);
+    scanCleanupPageOverrideDefaults.set(overrides, normalized);
+    return normalized;
+}
+
+export function getScanCleanupPageOverrideDefaults(
+    overrides: TScanCleanupPageOverrides,
+): IScanCleanupPageOverride {
+    return createScanCleanupPageOverride(scanCleanupPageOverrideDefaults.get(overrides));
+}
+
 export function getScanCleanupPageOverride(
     overrides: TScanCleanupPageOverrides,
     pageNumber: number,
 ): IScanCleanupPageOverride {
-    return createScanCleanupPageOverride(overrides[String(pageNumber)]);
+    const explicit = overrides[String(pageNumber)];
+    return explicit === undefined
+        ? createScanCleanupPageOverride(scanCleanupPageOverrideDefaults.get(overrides))
+        : createScanCleanupPageOverride(explicit);
 }
 
 export function setScanCleanupPageOverride(
@@ -406,23 +456,34 @@ export function scanCleanupLayoutSignature(layouts: TScanCleanupLayoutByPage) {
  * entries the same way, so a signature taken off the raw record would distinguish
  * two documents the canvas cannot tell apart and drop the whole preview cache.
  */
-export function scanCleanupMatchedCanvasOverridesSignature(overrides: TScanCleanupPageOverrides) {
-    return Object.keys(overrides)
+export function scanCleanupMatchedCanvasOverridesSignature(
+    overrides: TScanCleanupPageOverrides,
+    pageOverrideDefaults?: IScanCleanupPageOverride,
+) {
+    const serialize = (override: IScanCleanupPageOverride) => [
+        override.excluded ? 'excluded' : '',
+        override.layoutOverride,
+        override.manualSplit ? 'split' : '',
+        // Only whether the page can leave the bilevel pixel budget.
+        override.outputModeOverride === undefined
+            ? ''
+            : override.outputModeOverride === 'bw' ? 'bw' : 'tonal',
+    ].join(':');
+    const defaults = serialize(pageOverrideDefaults ?? getScanCleanupPageOverride(overrides, 0));
+    const defaultEntry = defaults === ':auto::' ? '' : `@default=${defaults}`;
+    const pageEntries = Object.keys(overrides)
         .map(pageKey => {
-            const override = getScanCleanupPageOverride(overrides, Number(pageKey));
-            const canvasInputs = [
-                override.excluded ? 'excluded' : '',
-                override.layoutOverride,
-                override.manualSplit ? 'split' : '',
-                // Only whether the page can leave the bilevel pixel budget.
-                override.outputModeOverride === undefined
-                    ? ''
-                    : override.outputModeOverride === 'bw' ? 'bw' : 'tonal',
-            ].join(':');
+            const canvasInputs = serialize(getScanCleanupPageOverride(overrides, Number(pageKey)));
             return canvasInputs === ':auto::' ? '' : `${pageKey}=${canvasInputs}`;
         })
         .filter(entry => entry !== '')
         .sort()
+        .join(',');
+    return [
+        defaultEntry,
+        pageEntries,
+    ]
+        .filter(entry => entry !== '')
         .join(',');
 }
 
@@ -435,24 +496,84 @@ function automaticOutputCount(
 export function estimateScanCleanupOutputPages(
     totalPages: number,
     options: Pick<IScanCleanupOptions, 'layoutMode' | 'pageOverrides'>
+        & Partial<Pick<IScanCleanupOptions, 'pageOverrideDefaults'>>
         & Partial<Pick<IScanCleanupOptions, 'skipBlankPages'>>,
     classifications: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>,
 ) {
-    let outputPages = 0;
-    let exact = options.skipBlankPages !== true;
-    for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
-        const pageOverride = getScanCleanupPageOverride(options.pageOverrides, pageNumber);
-        if (pageOverride.excluded) continue;
-        const layout = resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride);
-        if (layout === 'force-two-page') {
-            outputPages += 2;
-        } else if (layout === 'force-single' || layout === 'keep-left' || layout === 'keep-right') {
-            outputPages += 1;
-        } else {
-            const classification = classifications.get(pageNumber);
-            if (classification === undefined) exact = false;
-            outputPages += automaticOutputCount(classification);
+    const pageCount = Math.max(0, Math.floor(totalPages));
+    const defaultOverride = options.pageOverrideDefaults
+        ?? getScanCleanupPageOverride(options.pageOverrides, 0);
+    const resolveOutput = (
+        override: IScanCleanupPageOverride,
+        classification: IScanCleanupPreviewMetadata['layoutClassification'] | undefined,
+    ) => {
+        if (override.excluded) {
+            return {
+                automatic: false,
+                count: 0,
+            };
         }
+        const layout = resolveScanCleanupPageLayout(options.layoutMode, override.layoutOverride);
+        if (layout === 'force-two-page' || override.manualSplit !== null) {
+            return {
+                automatic: false,
+                count: 2,
+            };
+        }
+        if (layout === 'force-single' || layout === 'keep-left' || layout === 'keep-right') {
+            return {
+                automatic: false,
+                count: 1,
+            };
+        }
+        return {
+            automatic: true,
+            count: classification === undefined ? 1 : automaticOutputCount(classification),
+        };
+    };
+    const defaultResolution = resolveOutput(defaultOverride, undefined);
+    let outputPages = defaultResolution.count * pageCount;
+    let exact = options.skipBlankPages !== true;
+    const fixedPages = new Set<number>();
+    let fixedAutomaticPagesMissingClassification = false;
+    for (const pageKey of Object.keys(options.pageOverrides)) {
+        const pageNumber = Number(pageKey);
+        if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > pageCount) {
+            continue;
+        }
+        fixedPages.add(pageNumber);
+        const classification = classifications.get(pageNumber);
+        const pageOverride = getScanCleanupPageOverride(options.pageOverrides, pageNumber);
+        const explicitPage = resolveOutput(pageOverride, classification);
+        // The document baseline starts with one default output per page. Any
+        // automatic classification adjustment is added only for pages that do
+        // not have a sparse exception below, so remove that same baseline here
+        // before applying the explicit page result.
+        outputPages += explicitPage.count - defaultResolution.count;
+        if (explicitPage.automatic && classification === undefined) {
+            fixedAutomaticPagesMissingClassification = true;
+        }
+    }
+    let classifiedAutomaticPages = 0;
+    for (const [
+        pageNumber,
+        classification,
+    ] of classifications) {
+        if (!Number.isSafeInteger(pageNumber)
+            || pageNumber < 1
+            || pageNumber > pageCount
+            || fixedPages.has(pageNumber)) {
+            continue;
+        }
+        classifiedAutomaticPages += 1;
+        if (defaultResolution.automatic) {
+            outputPages += automaticOutputCount(classification) - 1;
+        }
+    }
+    if (defaultResolution.automatic
+        && (classifiedAutomaticPages < pageCount - fixedPages.size
+            || fixedAutomaticPagesMissingClassification)) {
+        exact = false;
     }
     return {
         exact,

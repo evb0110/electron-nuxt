@@ -7,11 +7,18 @@ import {
 } from 'vitest';
 
 const resolveDocumentTextCatalogMock = vi.hoisted(() => vi.fn());
+const resolveDocumentTextCatalogWindowMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({resolveDocumentTextCatalog: resolveDocumentTextCatalogMock})}));
+vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({
+    resolveDocumentTextCatalog: resolveDocumentTextCatalogMock,
+    resolveDocumentTextCatalogWindow: resolveDocumentTextCatalogWindowMock,
+})}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
 
-const { loadOcrText } = await import('@app/utils/ocr/loadOcrText');
+const {
+    loadOcrText,
+    prepareDocumentTextCatalogTextPages,
+} = await import('@app/utils/ocr/loadOcrText');
 const TEST_DOCUMENT_REVISION = 'revision-token';
 
 describe('loadOcrText', () => {
@@ -28,6 +35,25 @@ describe('loadOcrText', () => {
             })),
             contentDigest: 'snapshot-digest',
         });
+        resolveDocumentTextCatalogWindowMock.mockImplementation(async (
+            _path: string,
+            documentRevision: string,
+            firstPage: number,
+            lastPage: number,
+            pageCount: number,
+        ) => ({
+            documentRevision,
+            pageCount,
+            firstPage,
+            lastPage,
+            pages: [{
+                pageNumber: firstPage,
+                text: `Page ${firstPage}`,
+                source: 'evb-ocr',
+                contentDigest: `digest-${firstPage}`,
+            }],
+            contentDigest: `window-${firstPage}`,
+        }));
     });
 
     it('reads all canonical pages through the production catalog capability', async () => {
@@ -43,5 +69,29 @@ describe('loadOcrText', () => {
             contentDigest: 'empty',
         });
         await expect(loadOcrText('/tmp/work.pdf', TEST_DOCUMENT_REVISION)).resolves.toBeNull();
+    });
+
+    it('opens only the first bounded window for a lazy 100,001-page DOCX stream', async () => {
+        const pageStream = await prepareDocumentTextCatalogTextPages(
+            '/tmp/work.pdf',
+            TEST_DOCUMENT_REVISION,
+            100_001,
+        );
+        expect(pageStream).not.toBeNull();
+        expect(resolveDocumentTextCatalogWindowMock).toHaveBeenCalledTimes(1);
+        expect(resolveDocumentTextCatalogWindowMock).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            TEST_DOCUMENT_REVISION,
+            1,
+            64,
+            100_001,
+        );
+
+        const iterator = pageStream![Symbol.asyncIterator]();
+        await expect(iterator.next()).resolves.toMatchObject({
+            done: false,
+            value: 'Page 1',
+        });
+        expect(resolveDocumentTextCatalogWindowMock).toHaveBeenCalledTimes(1);
     });
 });

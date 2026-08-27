@@ -6,6 +6,10 @@ import type {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+import type {
+    TPageMoveOperation,
+    TPageSelection,
+} from '@contracts/pageNumbers';
 
 export interface IPdfThumbnailsProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -14,6 +18,7 @@ export interface IPdfThumbnailsProps {
     totalPages: number;
     pageLabels?: string[] | null | undefined;
     selectedPages?: number[] | undefined;
+    selectedPageSelection?: TPageSelection | null | undefined;
     invalidationRequest?: {
         id: number;
         pages: number[];
@@ -28,12 +33,14 @@ export interface IPdfThumbnailsProps {
 export interface IPdfThumbnailsEmits {
     'go-to-page': [page: number, options?: IScrollToPageOptions];
     'update:selected-pages': [pages: number[]];
+    'update:selected-page-selection': [selection: TPageSelection];
     'page-context-menu': [payload: {
         clientX: number;
         clientY: number;
         pages: number[];
     }];
     reorder: [newOrder: number[]];
+    move: [move: TPageMoveOperation];
     'file-drop': [payload: {
         afterPage: number;
         filePaths: TDocumentRef[];

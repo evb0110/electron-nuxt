@@ -22,15 +22,6 @@ pub(crate) fn update_note_text(
     Ok(())
 }
 
-pub(crate) fn upsert_free_text_notes(
-    document: &mut Document,
-    notes: &[FreeTextNote],
-    modified_at: &str,
-) -> Result<()> {
-    let mut annotation_visits = 0usize;
-    upsert_free_text_notes_with_counter(document, notes, modified_at, &mut annotation_visits)
-}
-
 pub(crate) fn upsert_free_text_notes_with_counter(
     document: &mut Document,
     notes: &[FreeTextNote],
@@ -41,7 +32,7 @@ pub(crate) fn upsert_free_text_notes_with_counter(
         return Ok(());
     }
 
-    let page_map = document.get_pages();
+    let page_resolver = PageTreeResolver::new(document)?;
     let mut note_pages = Vec::with_capacity(notes.len());
     let mut annotation_indexes = HashMap::new();
     for note in notes {
@@ -49,7 +40,7 @@ pub(crate) fn upsert_free_text_notes_with_counter(
             .page_index
             .checked_add(1)
             .ok_or("Invalid FreeText note page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = page_resolver.page_id(document, page_number)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
         {
             let (index, scanned) = build_page_annotation_index(document, page_id)?;
@@ -127,7 +118,7 @@ pub(crate) fn upsert_free_text_notes_incremental_with_counter(
         return Ok(());
     }
 
-    let page_map = incremental.get_prev_documents().get_pages();
+    let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
     let mut note_pages = Vec::with_capacity(notes.len());
     let mut annotation_indexes = HashMap::new();
     for note in notes {
@@ -135,11 +126,10 @@ pub(crate) fn upsert_free_text_notes_incremental_with_counter(
             .page_index
             .checked_add(1)
             .ok_or("Invalid FreeText note page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
         {
-            let (index, scanned) =
-                build_page_annotation_index(incremental.get_prev_documents(), page_id)?;
+            let (index, scanned) = build_incremental_page_annotation_index(incremental, page_id)?;
             *annotation_visits = (*annotation_visits).saturating_add(scanned);
             entry.insert(index);
         }
@@ -220,14 +210,14 @@ pub(crate) fn upsert_free_text_editors_with_counter(
     if editors.is_empty() {
         return Ok(());
     }
-    let page_map = document.get_pages();
+    let page_resolver = PageTreeResolver::new(document)?;
     let mut annotation_indexes = HashMap::new();
     for editor in editors {
         let page_number = editor
             .page_index
             .checked_add(1)
             .ok_or("Invalid FreeText editor page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = page_resolver.page_id(document, page_number)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
         {
             let (index, scanned) = build_page_annotation_index(document, page_id)?;
@@ -273,18 +263,17 @@ pub(crate) fn upsert_free_text_editors_incremental_with_counter(
     if editors.is_empty() {
         return Ok(());
     }
-    let page_map = incremental.get_prev_documents().get_pages();
+    let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
     let mut annotation_indexes = HashMap::new();
     for editor in editors {
         let page_number = editor
             .page_index
             .checked_add(1)
             .ok_or("Invalid FreeText editor page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
         {
-            let (index, scanned) =
-                build_page_annotation_index(incremental.get_prev_documents(), page_id)?;
+            let (index, scanned) = build_incremental_page_annotation_index(incremental, page_id)?;
             *annotation_visits = (*annotation_visits).saturating_add(scanned);
             entry.insert(index);
         }
@@ -870,6 +859,13 @@ pub(crate) fn build_page_annotation_index(
     ))
 }
 
+pub(crate) fn build_incremental_page_annotation_index(
+    incremental: &IncrementalDocument,
+    page_id: ObjectId,
+) -> Result<(PageAnnotationIndex, usize)> {
+    build_page_annotation_index(&AppendedRevision::new(incremental), page_id)
+}
+
 pub(crate) fn write_page_annotation_index(
     document: &mut Document,
     page_id: ObjectId,
@@ -980,6 +976,19 @@ pub(crate) fn collect_annotation_refs_to_delete(
     Ok(refs)
 }
 
+/// Return the page that owns an annotation when the annotation carries the
+/// optional PDF `/P` back-reference. This is the authoritative owner for
+/// explicit object-reference deletes, even when the request's page hint is
+/// stale or points at another page.
+pub(crate) fn annotation_page_id(
+    document: &impl PdfObjectSource,
+    annotation_id: ObjectId,
+) -> Option<ObjectId> {
+    let annotation = document.dictionary(annotation_id).ok()?;
+    let page = annotation.get(b"P").ok()?;
+    page.as_reference().ok()
+}
+
 pub(crate) fn annotation_matches_stable_delete_name(
     document: &impl PdfObjectSource,
     object_id: ObjectId,
@@ -1052,11 +1061,38 @@ fn resolve_annotation_delete_target_refs_from_index(
     }
 }
 
+fn resolve_annotation_delete_page_ids(
+    document: &impl PdfObjectSource,
+    deletes: &[AnnotationDelete],
+    refs_to_delete: &HashSet<ObjectId>,
+    page_resolver: &PageTreeResolver,
+) -> Result<Vec<ObjectId>> {
+    let mut page_ids = HashSet::new();
+    for delete in deletes {
+        let page_number = delete
+            .page_index
+            .checked_add(1)
+            .ok_or("Invalid annotation delete page index")?;
+        page_ids.insert(page_resolver.page_id(document, page_number)?);
+    }
+
+    // Related popup/parent annotations can carry their own page reference.
+    // Include those pages when the source provides one, while keeping the
+    // mutation bounded by the object references already named by the delete.
+    for object_id in refs_to_delete {
+        if let Some(page_id) = annotation_page_id(document, *object_id) {
+            page_ids.insert(page_id);
+        }
+    }
+
+    Ok(page_ids.into_iter().collect())
+}
+
 pub(crate) fn collect_delete_refs(
     document: &Document,
     deletes: &[AnnotationDelete],
+    page_resolver: &PageTreeResolver,
 ) -> Result<HashSet<ObjectId>> {
-    let page_map = document.get_pages();
     let mut refs_to_delete = HashSet::new();
     let mut annotation_indexes = HashMap::new();
     for delete in deletes {
@@ -1064,7 +1100,7 @@ pub(crate) fn collect_delete_refs(
             .page_index
             .checked_add(1)
             .ok_or("Invalid annotation delete page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = page_resolver.page_id(document, page_number)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
         {
             entry.insert(build_page_annotation_index(document, page_id)?.0);
@@ -1117,10 +1153,12 @@ pub(crate) fn delete_annotations(
         return Ok(());
     }
 
-    let refs_to_delete = collect_delete_refs(document, deletes)?;
-    let page_map = document.get_pages();
+    let page_resolver = PageTreeResolver::new(document)?;
+    let refs_to_delete = collect_delete_refs(document, deletes, &page_resolver)?;
+    let page_ids =
+        resolve_annotation_delete_page_ids(document, deletes, &refs_to_delete, &page_resolver)?;
     let mut removed_any = false;
-    for page_id in page_map.values().copied() {
+    for page_id in page_ids {
         let annots = get_page_annots(document, page_id)?;
         let (filtered_annots, removed) = filter_annots_without_refs(annots, &refs_to_delete);
         if !removed {
@@ -1145,10 +1183,17 @@ pub(crate) fn delete_annotations_incremental(
         return Ok(());
     }
 
-    let refs_to_delete = collect_delete_refs(incremental.get_prev_documents(), deletes)?;
-    let page_map = incremental.get_prev_documents().get_pages();
+    let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
+    let refs_to_delete =
+        collect_delete_refs(incremental.get_prev_documents(), deletes, &page_resolver)?;
+    let page_ids = resolve_annotation_delete_page_ids(
+        incremental.get_prev_documents(),
+        deletes,
+        &refs_to_delete,
+        &page_resolver,
+    )?;
     let mut removed_any = false;
-    for page_id in page_map.values().copied() {
+    for page_id in page_ids {
         let annots = get_page_annots(&incremental.new_document, page_id)
             .or_else(|_| get_page_annots(incremental.get_prev_documents(), page_id))?;
         let (filtered_annots, removed) = filter_annots_without_refs(annots, &refs_to_delete);

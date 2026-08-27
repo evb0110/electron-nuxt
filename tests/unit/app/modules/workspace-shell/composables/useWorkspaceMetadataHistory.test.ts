@@ -4,9 +4,13 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    ref,
+    shallowRef,
+} from 'vue';
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
 import { maxWorkspaceMetadataHistoryEntries } from '@app/modules/workspace-shell/metadata/maxWorkspaceMetadataHistoryEntries';
+import { createPageLabelModel } from '@app/utils/document-viewer/pageLabels';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
@@ -22,6 +26,7 @@ function createHistory() {
         prefix: '',
         startNumber: 1,
     }]);
+    const pageLabelModel = shallowRef(createPageLabelModel(1, pageLabelRanges.value));
     const pageLabelsDirty = ref(false);
     const totalPages = ref(1);
 
@@ -29,6 +34,7 @@ function createHistory() {
         bookmarkItems,
         bookmarksDirty,
         pageLabels,
+        pageLabelModel,
         pageLabelRanges,
         pageLabelsDirty,
         totalPages,
@@ -36,6 +42,7 @@ function createHistory() {
             bookmarkItems,
             bookmarksDirty,
             pageLabels,
+            pageLabelModel,
             pageLabelRanges,
             pageLabelsDirty,
             totalPages,
@@ -156,6 +163,98 @@ describe('useWorkspaceMetadataHistory', () => {
             color: null,
             items: [],
         }]);
+    });
+
+    it('restores small page-label compatibility arrays while preserving range semantics', () => {
+        const {
+            pageLabels,
+            pageLabelModel,
+            pageLabelRanges,
+            history,
+        } = createHistory();
+
+        history.resetToCurrentState();
+        pageLabelRanges.value = [{
+            startPage: 1,
+            style: 'r',
+            prefix: 'Front ',
+            startNumber: 1,
+        }];
+        pageLabelModel.value = createPageLabelModel(1, pageLabelRanges.value);
+        history.recordCurrentState();
+
+        expect(history.undoMetadata()).toBe(true);
+        expect(pageLabels.value).toBeNull();
+        expect(pageLabelModel.value.labelAt(1)).toBe('1');
+
+        expect(history.redoMetadata()).toBe(true);
+        expect(pageLabels.value).toEqual(['Front i']);
+        expect(pageLabelModel.value.labelAt(1)).toBe('Front i');
+    });
+
+    it('restores million-page history through ranges without materializing labels', () => {
+        const totalPages = 1_000_000;
+        const initialRanges: IPdfPageLabelRange[] = [{
+            startPage: 1,
+            style: 'D',
+            prefix: '',
+            startNumber: 1,
+        }];
+        const changedRanges: IPdfPageLabelRange[] = [
+            ...initialRanges,
+            {
+                startPage: 500_001,
+                style: 'D',
+                prefix: 'Appendix ',
+                startNumber: 1,
+            },
+        ];
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
+        const bookmarksDirty = ref(false);
+        const pageLabels = ref<string[] | null>(null);
+        const pageLabelRanges = ref<IPdfPageLabelRange[]>(initialRanges);
+        const pageLabelModel = shallowRef(createPageLabelModel(totalPages, initialRanges));
+        const pageLabelsDirty = ref(false);
+        const totalPageCount = ref(totalPages);
+        const history = useWorkspaceMetadataHistory({
+            bookmarkItems,
+            bookmarksDirty,
+            pageLabels,
+            pageLabelModel,
+            pageLabelRanges,
+            pageLabelsDirty,
+            totalPages: totalPageCount,
+        });
+
+        history.resetToCurrentState();
+        pageLabelRanges.value = changedRanges;
+        pageLabelModel.value = createPageLabelModel(totalPages, changedRanges);
+        history.recordCurrentState();
+
+        expect(history.undoMetadata()).toBe(true);
+        expect(pageLabels.value).toBeNull();
+        expect(pageLabelRanges.value).toEqual(initialRanges);
+        expect(pageLabelModel.value.segments).toEqual([expect.objectContaining({
+            startPage: 1,
+            endPage: totalPages,
+        })]);
+        expect(pageLabelModel.value.labelAt(totalPages)).toBe(String(totalPages));
+
+        expect(history.redoMetadata()).toBe(true);
+        expect(pageLabels.value).toBeNull();
+        expect(pageLabelRanges.value).toEqual(changedRanges);
+        expect(pageLabelModel.value.segments).toEqual([
+            expect.objectContaining({
+                startPage: 1,
+                endPage: 500_000,
+            }),
+            expect.objectContaining({
+                startPage: 500_001,
+                endPage: totalPages,
+            }),
+        ]);
+        expect(pageLabelModel.value.labelAt(500_001)).toBe('Appendix 1');
+        expect(pageLabelModel.value.labelAt(totalPages)).toBe('Appendix 500000');
     });
 
     it('caps metadata history while preserving the baseline snapshot', () => {

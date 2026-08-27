@@ -12,6 +12,10 @@ import {
     type TPrintOrientation,
 } from '@app/utils/pdfPrintShared';
 import { buildPrintSelectionFileName } from '@app/utils/buildPrintSelectionFileName';
+import {
+    getDocumentPdfCapability,
+    isNativePrintCapabilityUnavailable,
+} from '@app/utils/platformDocuments';
 
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
@@ -20,6 +24,25 @@ const PRINT_PREPARING_TOAST_DELAY_MS = 600;
 const BROWSER_PRINT_FRAME_MIN_WIDTH_PX = 1280;
 const BROWSER_PRINT_FRAME_MIN_HEIGHT_PX = 1600;
 const PDF_MIME_TYPE = 'application/pdf';
+const NATIVE_PRINT_REQUIRED_REASON = 'requires-native-backend' as const;
+
+class NativePrintRequiredError extends Error {
+    readonly code = 'native-print-required' as const;
+    readonly unsupportedReason = NATIVE_PRINT_REQUIRED_REASON;
+
+    constructor(message = 'Native PDF printing is required for this request') {
+        super(message);
+        this.name = 'NativePrintRequiredError';
+    }
+}
+
+function isPathPdfSource(value: TPdfSource | null): value is Extract<TPdfSource, {kind: 'path'}> {
+    return typeof value === 'object'
+        && value !== null
+        && 'kind' in value
+        && value.kind === 'path'
+        && typeof value.path === 'string';
+}
 
 function isCrossOriginFrameAccessError(error: unknown) {
     if (!(error instanceof Error)) {
@@ -64,6 +87,7 @@ interface IWorkspacePrintDeps {
     getCurrentPrintPage?: () => number | null | undefined;
     getQuickPrintPageMetrics: () => Promise<IPdfPageMetric[] | null>;
     ensurePrintReady?: () => Promise<boolean>;
+    ensureWorkingCopyFreshForRead?: () => Promise<boolean | string | null>;
     getPrintableSourceData: (options?: { signal?: AbortSignal }) => Promise<Uint8Array | null>;
     renderLoadedPdfPagesForBrowserPrint?: (
         targetDocument: IBrowserPrintDocument,
@@ -258,6 +282,14 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         } satisfies IPrintDialogSubmitPayload;
 
         if (canPrintDjvuSource()) {
+            await handlePrintDialogSubmit(defaultPayload, {
+                action: 'default',
+                reopenDialogOnError: false,
+            });
+            return;
+        }
+
+        if (isPathPdfSource(deps.sourcePdf.value)) {
             await handlePrintDialogSubmit(defaultPayload, {
                 action: 'default',
                 reopenDialogOnError: false,
@@ -599,6 +631,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             ?? deps.hasPendingUnsavedChanges.value;
     }
 
+    function hasPendingPathPrintChanges() {
+        return deps.hasPendingUnsavedChanges.value || hasPendingPrintSerializationChanges();
+    }
+
     function resolveLoadedPdfSinglePagePrint(payload: IPrintDialogSubmitPayload) {
         if (
             !deps.renderLoadedPdfPagesForBrowserPrint
@@ -612,6 +648,114 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
         const pageNumbers = normalizePrintPageNumbers(payload.pageNumbers, deps.totalPages.value);
         return pageNumbers.length === 1 ? pageNumbers : null;
+    }
+
+    function resolveNativePathPrintPageNumbers(payload: IPrintDialogSubmitPayload) {
+        if (payload.viewMode !== 'single' || payload.orientation !== 'auto') {
+            return null;
+        }
+
+        if (!payload.pageNumbers?.length) {
+            return undefined;
+        }
+
+        const pageNumbers = normalizePrintPageNumbers(payload.pageNumbers, deps.totalPages.value);
+        if (pageNumbers.length === 0) {
+            return null;
+        }
+
+        const totalPages = deps.totalPages.value;
+        if (
+            totalPages > 0
+            && pageNumbers.length === totalPages
+            && pageNumbers.every((pageNumber, index) => pageNumber === index + 1)
+        ) {
+            return undefined;
+        }
+
+        return pageNumbers;
+    }
+
+    async function tryPrintPathInNativeDialog(
+        payload: IPrintDialogSubmitPayload,
+        signal: AbortSignal,
+    ) {
+        const sourcePdf = deps.sourcePdf.value;
+        if (!isPathPdfSource(sourcePdf)) {
+            return false;
+        }
+
+        const pageNumbers = resolveNativePathPrintPageNumbers(payload);
+        if (pageNumbers === null) {
+            throw new NativePrintRequiredError(
+                hasPendingPathPrintChanges()
+                    ? 'Native PDF printing is required because this dirty path-backed request cannot be represented without detached staging'
+                    : 'Native PDF printing is required because this path-backed request cannot be represented by the native path handoff',
+            );
+        }
+
+        const printPdfPath = getDocumentPdfCapability().printPdfPath;
+        if (typeof printPdfPath !== 'function') {
+            throw new NativePrintRequiredError(
+                'Native PDF printing is required because path printing is unavailable',
+            );
+        }
+
+        const wasDirty = hasPendingPathPrintChanges();
+        let printPath = sourcePdf.path;
+        if (wasDirty) {
+            throwIfPrintAborted(signal);
+            if (!deps.ensureWorkingCopyFreshForRead) {
+                throw new NativePrintRequiredError(
+                    'Native PDF printing is required because the dirty working copy could not be refreshed as a path',
+                );
+            }
+
+            const freshPath = await deps.ensureWorkingCopyFreshForRead();
+            throwIfPrintAborted(signal);
+            if (freshPath === false || freshPath === null) {
+                throw new NativePrintRequiredError(
+                    'Native PDF printing is required because the dirty working copy could not be saved as a path',
+                );
+            }
+
+            if (typeof freshPath === 'string') {
+                if (!freshPath) {
+                    throw new NativePrintRequiredError(
+                        'Native PDF printing is required because the refreshed working-copy path is empty',
+                    );
+                }
+                printPath = freshPath;
+            } else if (deps.workingCopyPath.value) {
+                printPath = deps.workingCopyPath.value;
+            } else {
+                const freshSource = deps.sourcePdf.value;
+                if (!isPathPdfSource(freshSource)) {
+                    throw new NativePrintRequiredError(
+                        'Native PDF printing is required because the refreshed working-copy path is unavailable',
+                    );
+                }
+                printPath = freshSource.path;
+            }
+        }
+
+        throwIfPrintAborted(signal);
+        closePrintDialogForSystemDialog();
+        const result = pageNumbers === undefined
+            ? await printPdfPath(printPath, deps.fileName.value ?? undefined)
+            : await printPdfPath(printPath, deps.fileName.value ?? undefined, pageNumbers);
+        throwIfPrintAborted(signal);
+        if (result.success || result.canceled) {
+            return true;
+        }
+
+        if (isNativePrintCapabilityUnavailable(result)) {
+            throw new NativePrintRequiredError(
+                result.error ?? 'Native PDF printing requires a native backend for this path-backed document',
+            );
+        }
+
+        throw new Error(result.error ?? 'Failed to open the native print dialog');
     }
 
     async function handlePrintDialogSubmit(
@@ -659,6 +803,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 if (!didStartNativePrintHandoff) {
                     closePrintDialogForSystemDialog();
                 }
+                return;
+            }
+
+            if (await tryPrintPathInNativeDialog(payload, signal)) {
                 return;
             }
 

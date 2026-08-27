@@ -2,6 +2,7 @@ import {
     runtimeSchema,
     type TInferSchema,
 } from '@contracts/platformFeature';
+import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 
 const s = runtimeSchema;
 const progress = s.refine(s.object({
@@ -53,6 +54,9 @@ const progress = s.refine(s.object({
         min: 1,
         message: 'invalid scan-cleanup completed page numbers',
     }))),
+    // A long run reports a bounded prefix of completed pages. Consumers must
+    // use completedUnits for the authoritative count when this is true.
+    completedPageNumbersTruncated: s.optional(s.boolean()),
 }), value =>
     value.completedUnits <= value.totalUnits
     && (
@@ -63,9 +67,17 @@ const progress = s.refine(s.object({
     && (
         value.completedPageNumbers === undefined
         || (
-            value.completedPageNumbers.length === value.completedUnits
+            value.completedPageNumbers.length <= SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
+            && (
+                value.completedPageNumbersTruncated === true
+                || value.completedPageNumbers.length === value.completedUnits
+            )
             && new Set(value.completedPageNumbers).size === value.completedPageNumbers.length
         )
+    )
+    && (
+        value.completedPageNumbersTruncated !== true
+        || value.completedPageNumbers !== undefined
     ),
 'invalid scan-cleanup progress');
 

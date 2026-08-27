@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import {
-    readFile,
     stat,
     unlink,
     writeFile,
@@ -17,15 +16,20 @@ import type {
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
 import { isRecord } from '@contracts/runtimeGuards';
-import {
-    createDefaultPdfConformanceProfile,
-    loadPdfStructure,
-} from '@pdf-core';
+import { createDefaultPdfConformanceProfile } from '@pdf-core';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    abortErrorFromSignal,
+    isAbortError,
+} from '@electron/utils/abort';
+import {
+    validatePdfStructureFromPath,
+    type IPdfConformancePathAnalysisOptions,
+} from '@electron/features/documents/main/pdfConformancePathAnalysis';
 import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
@@ -44,9 +48,10 @@ const QPDF_OPENING_VALIDATE_TIMEOUT_MS = 10_000;
 const QPDF_OPENING_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf-opening)';
 const QPDF_EXIT_CODE_OK = 0;
 const QPDF_EXIT_CODE_WARNINGS = 3;
-const PDF_STRUCTURAL_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
 const PDF_CONFORMANCE_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-conformance'].fileName;
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+export type {IPdfConformancePathAnalysisOptions};
 
 type TPdfFileStat = Awaited<ReturnType<typeof stat>>;
 
@@ -137,10 +142,16 @@ function createDefaultPdfConformanceResult(): IPdfConformanceProfile {
     };
 }
 
-function runPdfConformanceWorker(filePath: string) {
+function runPdfConformanceWorker(
+    filePath: string,
+    options: IPdfConformancePathAnalysisOptions = {},
+) {
     return runResultWorkerTask<IPdfConformanceProfile>({
         workerPath: getPdfConformanceWorkerPath(),
-        workerData: { filePath },
+        workerData: {
+            filePath,
+            ...(options.cancelGroup === undefined ? {} : {cancelGroup: options.cancelGroup}),
+        },
         invalidPayloadMessage: 'PDF conformance worker returned an invalid payload',
         invalidResultMessage: 'PDF conformance worker returned an invalid payload',
         createStartupError: (message) => new PdfConformanceWorkerStartupError(
@@ -153,12 +164,10 @@ function runPdfConformanceWorker(filePath: string) {
             `PDF conformance worker exited during startup with code ${code}`,
         ),
         createWorkerExitError: (code) => new Error(`PDF conformance worker exited with code ${code}`),
-        timeoutMs: 60_000,
-        resourceLimits: {
-            maxOldGenerationSizeMb: 512,
-            maxYoungGenerationSizeMb: 64,
-            stackSizeMb: 8,
-        },
+        timeoutMs: options.timeoutMs ?? QPDF_VALIDATE_MAX_TIMEOUT_MS,
+        createCancelMessage: () => ({type: 'cancel'}),
+        cooperativeCancelDelayMs: 5_000,
+        ...(options.signal === undefined ? {} : {signal: options.signal}),
         decodeResult: (data) => {
             if (data === undefined) {
                 return createDefaultPdfConformanceResult();
@@ -168,9 +177,12 @@ function runPdfConformanceWorker(filePath: string) {
     });
 }
 
-export async function analyzePdfConformanceFile(filePath: string): Promise<IPdfConformanceProfile> {
+export async function analyzePdfConformanceFile(
+    filePath: string,
+    options: IPdfConformancePathAnalysisOptions = {},
+): Promise<IPdfConformanceProfile> {
     try {
-        return await runPdfConformanceWorker(filePath);
+        return await runPdfConformanceWorker(filePath, options);
     } catch (error) {
         if (error instanceof PdfConformanceWorkerStartupError) {
             logger.warn(`PDF conformance worker unavailable for ${filePath}: ${error.message}`);
@@ -202,25 +214,14 @@ function isQpdfValidationTimeoutError(error: unknown) {
 async function validatePdfFileWithStructuralFallback(
     filePath: string,
     timeoutError: unknown,
-    knownFileStat: TPdfFileStat | null,
     validationTimeoutMs: number,
+    options: IPdfConformancePathAnalysisOptions = {},
 ): Promise<IPdfValidationResult> {
     try {
-        const fileStat = knownFileStat ?? await stat(filePath);
-        if (!fileStat.isFile()) {
-            throw new Error(`Fallback PDF structure validation requires a regular file: ${filePath}`);
-        }
-        if (fileStat.size > PDF_STRUCTURAL_FALLBACK_MAX_BYTES) {
-            const maxMb = Math.floor(PDF_STRUCTURAL_FALLBACK_MAX_BYTES / (1024 * 1024));
-            return {
-                isValid: false,
-                tool: 'qpdf',
-                errors: [`${getErrorMessage(timeoutError)}; fallback PDF structure validation skipped because "${filePath}" exceeds the safe read limit (${maxMb}MB)`],
-                warnings: [],
-            };
-        }
-        const data = await readFile(filePath);
-        await loadPdfStructure(new Uint8Array(data));
+        await validatePdfStructureFromPath(filePath, {
+            ...options,
+            timeoutMs: QPDF_VALIDATE_MAX_TIMEOUT_MS,
+        });
         logger.warn(
             `qpdf validation timed out for ${filePath}; fallback PDF structure validation succeeded: ${
                 getErrorMessage(timeoutError)
@@ -244,7 +245,10 @@ async function validatePdfFileWithStructuralFallback(
     }
 }
 
-export async function validatePdfFile(filePath: string): Promise<IPdfValidationResult> {
+export async function validatePdfFile(
+    filePath: string,
+    options: IPdfConformancePathAnalysisOptions = {},
+): Promise<IPdfValidationResult> {
     const fileStat = await tryStatPdfFile(filePath);
     const validationTimeoutMs = resolveQpdfValidationTimeoutMs(fileStat?.size);
     try {
@@ -259,6 +263,8 @@ export async function validatePdfFile(filePath: string): Promise<IPdfValidationR
                 QPDF_EXIT_CODE_WARNINGS,
             ],
             commandLabel: QPDF_VALIDATE_COMMAND_LABEL,
+            ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
         });
 
         return {
@@ -275,9 +281,15 @@ export async function validatePdfFile(filePath: string): Promise<IPdfValidationR
             return validatePdfFileWithStructuralFallback(
                 filePath,
                 error,
-                fileStat,
                 validationTimeoutMs,
+                options,
             );
+        }
+        if (options.signal?.aborted) {
+            throw abortErrorFromSignal(options.signal);
+        }
+        if (isAbortError(error)) {
+            throw error;
         }
         return {
             isValid: false,
@@ -291,7 +303,10 @@ export async function validatePdfFile(filePath: string): Promise<IPdfValidationR
 // Opening authorization is layered. qpdf proves that the page tree is readable,
 // then PDF.js must pass its render and viewport fences before the native preview
 // retires. Save operations still use validatePdfFile and its full qpdf check.
-export async function validatePdfFileForOpening(filePath: string): Promise<IPdfValidationResult> {
+export async function validatePdfFileForOpening(
+    filePath: string,
+    options: IPdfConformancePathAnalysisOptions = {},
+): Promise<IPdfValidationResult> {
     try {
         const qpdf = getPdfNativeToolPaths().qpdf;
         const result = await runNativeToolCommand(qpdf, [
@@ -304,6 +319,8 @@ export async function validatePdfFileForOpening(filePath: string): Promise<IPdfV
                 QPDF_EXIT_CODE_WARNINGS,
             ],
             commandLabel: QPDF_OPENING_VALIDATE_COMMAND_LABEL,
+            ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
         });
         const pageCountText = result.stdout.trim();
         const pageCount = Number(pageCountText);
@@ -322,6 +339,12 @@ export async function validatePdfFileForOpening(filePath: string): Promise<IPdfV
             warnings: extractQpdfWarnings(result.stderr),
         };
     } catch (error) {
+        if (options.signal?.aborted) {
+            throw abortErrorFromSignal(options.signal);
+        }
+        if (isAbortError(error)) {
+            throw error;
+        }
         return {
             isValid: false,
             tool: 'qpdf',

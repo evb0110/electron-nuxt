@@ -64,19 +64,33 @@ vi.mock('node:fs/promises', async (importActual) => {
         }
         return actual.readFile(...args);
     }) as typeof actual.readFile;
+    const open = ((...args: Parameters<typeof actual.open>) => {
+        const target = String(args[0]);
+        if (catalogReads.recording && /\.ocr[\\/]/u.test(target)) {
+            catalogReads.files.push(target.split(/[\\/]/u).at(-1) ?? target);
+        }
+        return actual.open(...args);
+    }) as typeof actual.open;
     return {
         ...actual,
         default: {
             ...actual,
             readFile,
+            open,
         },
         readFile,
+        open,
     };
 });
 
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: () => Promise.resolve()}));
 
 const { selectOcrPagesForSupersession } = await import('@electron/ocr/worker/selectOcrPagesForSupersession');
+const {
+    getOcrPageSelectionCount,
+    iterateOcrPageRequestBatches,
+    validateCreateSearchablePdfPayload,
+} = await import('@electron/ocr/contracts');
 const { writeOcrIndexV3 } = await import('@electron/ocr/worker/indexWriter');
 
 let tempDir: string | null = null;
@@ -239,6 +253,12 @@ function recordCatalogReads() {
     catalogReads.recording = true;
 }
 
+function expectBoundedCatalogReads() {
+    expect(catalogReads.files.length).toBeGreaterThan(0);
+    expect(catalogReads.files.length).toBeLessThanOrEqual(3);
+    expect(catalogReads.files.every(file => file === 'manifest.json')).toBe(true);
+}
+
 afterEach(async () => {
     probe.state.invocations = [];
     probe.state.textByPage = new Map();
@@ -255,6 +275,59 @@ afterEach(async () => {
 });
 
 describe('OCR supersession page selection', () => {
+    it('keeps million-page selections scalar and expands only bounded worker batches', () => {
+        for (const pageCount of [
+            100_001,
+            1_000_001,
+        ]) {
+            const validated = validateCreateSearchablePdfPayload(
+                '/tmp/source.pdf',
+                {
+                    kind: 'all',
+                    pageCount,
+                    languages: ['eng'],
+                },
+                'request-1',
+            );
+            expect(validated.pages).toEqual({
+                kind: 'all',
+                pageCount,
+                languages: ['eng'],
+            });
+            expect(getOcrPageSelectionCount(validated.pages)).toBe(pageCount);
+
+            let batchCount = 0;
+            let coveredPages = 0;
+            let previousLastPage = 0;
+            for (const pageBatch of iterateOcrPageRequestBatches(validated.pages)) {
+                expect(pageBatch.length).toBeLessThanOrEqual(5_000);
+                expect(pageBatch[0]?.pageNumber).toBe(previousLastPage + 1);
+                previousLastPage = pageBatch.at(-1)?.pageNumber ?? previousLastPage;
+                coveredPages += pageBatch.length;
+                batchCount += 1;
+            }
+
+            expect(coveredPages).toBe(pageCount);
+            expect(previousLastPage).toBe(pageCount);
+            expect(batchCount).toBe(Math.ceil(pageCount / 5_000));
+
+            const earlyIterator = iterateOcrPageRequestBatches(validated.pages);
+            const firstBatch = earlyIterator.next();
+            expect(firstBatch.done).toBe(false);
+            expect(firstBatch.value).toHaveLength(5_000);
+            expect(earlyIterator.return?.(undefined).done).toBe(true);
+
+            expect(() => validateCreateSearchablePdfPayload(
+                '/tmp/source.pdf',
+                Array.from({length: 100_001}, () => ({
+                    pageNumber: 1,
+                    languages: ['eng'],
+                })),
+                'request-2',
+            )).toThrow(/maximum size/u);
+        }
+    });
+
     it('probes existing text with one process per contiguous page run', async () => {
         const sourcePdfPath = await createSourcePdf(6);
         probe.state.textByPage = new Map([
@@ -371,7 +444,7 @@ describe('OCR supersession page selection', () => {
             2,
             3,
         ]);
-        expect(catalogReads.files).toEqual(['manifest.json']);
+        expectBoundedCatalogReads();
     });
 
     it('keeps pages from an earlier run current after a partial re-OCR', async () => {
@@ -391,7 +464,7 @@ describe('OCR supersession page selection', () => {
         ], []);
 
         expect(selection.pages).toEqual([]);
-        expect(catalogReads.files).toEqual(['manifest.json']);
+        expectBoundedCatalogReads();
         const generations = await readManifestGenerations(sourcePdfPath);
         expect(generations[2]).not.toBe(generations[1]);
         expect(generations[3]).toBe(generations[1]);
@@ -414,7 +487,7 @@ describe('OCR supersession page selection', () => {
         ], []);
 
         expect(selection.pages).toEqual([]);
-        expect(catalogReads.files).toEqual(['manifest.json']);
+        expectBoundedCatalogReads();
     });
 
     it('ignores a catalog left behind by an earlier document revision', async () => {
@@ -434,10 +507,10 @@ describe('OCR supersession page selection', () => {
             1,
             2,
         ]);
-        expect(catalogReads.files).toEqual(['manifest.json']);
+        expectBoundedCatalogReads();
     });
 
-    it('reports a failed text visibility inspection instead of swallowing it', async () => {
+    it('reports degraded text visibility analysis instead of swallowing it', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-supersession-'));
         const sourcePdfPath = join(tempDir, 'broken.pdf');
         await writeFile(sourcePdfPath, 'not a pdf at all');
@@ -453,7 +526,7 @@ describe('OCR supersession page selection', () => {
         expect(logs.some(([
             level,
             message,
-        ]) => level === 'warn' && message.includes('Text-visibility inspection failed'))).toBe(true);
-        expect(selection.warnings.some(warning => warning.includes('Text-visibility inspection failed'))).toBe(true);
+        ]) => level === 'warn' && message.includes('qpdf is unavailable'))).toBe(true);
+        expect(selection.warnings.some(warning => warning.includes('qpdf is unavailable'))).toBe(true);
     });
 });

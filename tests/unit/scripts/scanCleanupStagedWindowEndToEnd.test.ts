@@ -49,8 +49,10 @@ const pdftoppmBinary = resolveCliNativeToolPath('pdftoppm', 'poppler', process.c
 const pdfinfoBinary = resolveCliNativeToolPath('pdfinfo', 'poppler', process.cwd());
 
 const dirs: string[] = [];
+const resultStores: Array<{close: () => Promise<void>}> = [];
 
 afterAll(async () => {
+    await Promise.all(resultStores.splice(0).map(store => store.close()));
     await Promise.all(dirs.splice(0).map(dir => rm(dir, {
         force: true,
         recursive: true,
@@ -199,6 +201,7 @@ describe.skipIf(
                 diagnostics.push(message);
             },
         );
+        resultStores.push(detection.resultStore);
 
         expect(detection.results.map(result => result.pageNumber))
             .toEqual(Array.from({length: PAGE_COUNT}, (_, index) => index + 1));

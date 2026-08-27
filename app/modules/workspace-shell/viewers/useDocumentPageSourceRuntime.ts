@@ -14,6 +14,7 @@ import {
     createColdOpenProvisionalDocumentPageMetrics,
     createProvisionalDocumentPageMetrics,
     loadInitialDocumentPageMetric,
+    type TDocumentPageMetricsCollection,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
 import { clampDocumentManualZoom } from '@app/utils/document-viewer/zoomPolicy';
 import { resolveDocumentPageDisplayLayouts } from '@app/utils/document-viewer/layout/resolveDocumentPageDisplayLayout';
@@ -84,7 +85,7 @@ export const useDocumentPageSourceRuntime = (options: {
     const surfaceBudget = chassisAuthority?.surfaceBudget ?? workspaceSurfaceBudgetController;
     const rasterBufferProfile = getPerformanceProfile();
     const source = shallowRef<IDocumentPageSource | null>(null);
-    const pageMetrics = shallowRef<IDocumentPageMetrics[]>([]);
+    const pageMetrics = shallowRef<TDocumentPageMetricsCollection>([]);
     const exactPageMetricNumbers = new Set<number>();
     const exactPageMetricLoads = new Map<number, Promise<IDocumentPageMetrics>>();
     let loadSettled = Promise.resolve();
@@ -295,6 +296,7 @@ export const useDocumentPageSourceRuntime = (options: {
         readMetrics: () => pageMetrics.value,
         commitMetrics: metrics => layoutLifecycle.preserveLayoutMutation(() => {
             pageMetrics.value = metrics;
+            triggerRef(pageMetrics);
         }),
         onPublished: () => scheduleRender.schedule(),
     });

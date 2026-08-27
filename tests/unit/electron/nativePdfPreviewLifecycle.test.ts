@@ -605,6 +605,78 @@ describe('native PDF preview lifecycle', () => {
         );
     });
 
+    it('reads bounded first and last page-size windows for a million-page document', async () => {
+        const sender = new FakeSender();
+        const pageCount = 1_000_000;
+        mocks.runNativeToolCommand
+            .mockResolvedValueOnce({
+                exitCode: 0,
+                stderr: '',
+                stdout: `Pages: ${String(pageCount)}\nPage size: 612 x 792 pts\n`,
+            })
+            .mockResolvedValueOnce({
+                exitCode: 0,
+                stderr: '',
+                stdout: 'Page 1 size: 612 x 792 pts\n',
+            })
+            .mockResolvedValueOnce({
+                exitCode: 0,
+                stderr: '',
+                stdout: `Page ${String(pageCount)} size: 400 x 500 pts\n`,
+            });
+        const {handlePdfNativePageSizes} = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfNativePageSizes({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf')).resolves.toEqual({
+            pageCount,
+            defaultPageSize: {
+                width: 612,
+                height: 792,
+            },
+            overrides: [{
+                pageNumber: pageCount,
+                width: 400,
+                height: 500,
+            }],
+        });
+
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledTimes(3);
+        expect(mocks.runNativeToolCommand).toHaveBeenNthCalledWith(
+            2,
+            '/mock/pdfinfo',
+            [
+                '-box',
+                '-f',
+                '1',
+                '-l',
+                '64',
+                '/tmp/input.pdf',
+            ],
+            expect.objectContaining({
+                maxStdoutBytes: 256 * 1024,
+                rejectOnStdoutTruncation: true,
+            }),
+        );
+        expect(mocks.runNativeToolCommand).toHaveBeenNthCalledWith(
+            3,
+            '/mock/pdfinfo',
+            [
+                '-box',
+                '-f',
+                '999937',
+                '-l',
+                String(pageCount),
+                '/tmp/input.pdf',
+            ],
+            expect.objectContaining({
+                maxStdoutBytes: 256 * 1024,
+                rejectOnStdoutTruncation: true,
+            }),
+        );
+    });
+
     it('cancels an in-flight native preview by request id', async () => {
         const sender = new FakeSender();
         const capturedOptions: Array<{

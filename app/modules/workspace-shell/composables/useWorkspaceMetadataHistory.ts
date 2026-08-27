@@ -4,9 +4,11 @@ import type {
     IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
 import {
-    buildPageLabelsFromRanges,
-    isImplicitDefaultPageLabels,
+    createPageLabelModel,
+    materializePageLabelsForCompatibility,
+    PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
 } from '@app/utils/pdfPageLabels';
+import type { IDocumentPageLabelModel } from '@app/utils/document-viewer/pageLabels';
 import { maxWorkspaceMetadataHistoryEntries } from '@app/modules/workspace-shell/metadata/maxWorkspaceMetadataHistoryEntries';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 
@@ -43,6 +45,7 @@ export const useWorkspaceMetadataHistory = (deps: {
     bookmarksDirty: Ref<boolean>;
     pageLabels: Ref<string[] | null>;
     pageLabelRanges: Ref<IPdfPageLabelRange[]>;
+    pageLabelModel?: Ref<IDocumentPageLabelModel> | undefined;
     pageLabelsDirty: Ref<boolean>;
     totalPages: Ref<number>;
     commandSink?: IWorkspaceCommandSink | undefined;
@@ -88,12 +91,14 @@ export const useWorkspaceMetadataHistory = (deps: {
         try {
             deps.bookmarkItems.value = structuredClone(snapshot.bookmarkItems);
             deps.pageLabelRanges.value = structuredClone(snapshot.pageLabelRanges);
-            deps.pageLabels.value = deps.totalPages.value > 0
-                && !isImplicitDefaultPageLabels(
-                    deps.pageLabelRanges.value,
+            if (deps.pageLabelModel) {
+                deps.pageLabelModel.value = createPageLabelModel(
                     deps.totalPages.value,
-                )
-                ? buildPageLabelsFromRanges(
+                    deps.pageLabelRanges.value,
+                );
+            }
+            deps.pageLabels.value = deps.totalPages.value <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
+                ? materializePageLabelsForCompatibility(
                     deps.totalPages.value,
                     deps.pageLabelRanges.value,
                 )

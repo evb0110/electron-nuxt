@@ -159,6 +159,9 @@ interface IHarnessOverrides {
     editors?: IFakeEditor[];
     uiManagerNull?: boolean;
     uiManagerOpts?: ICreateUiManagerOpts;
+    numPages?: number;
+    mountedPageNumbers?: readonly number[];
+    annotationPageIndexes?: readonly number[];
     annotationStorageGetEditor?: (annotationElementId: string) => IFakeEditor | null;
     cache?: IAnnotationCommentSummary[];
     commentToReturnFromCache?: IAnnotationCommentSummary | null;
@@ -205,8 +208,14 @@ async function createHarness(overrides: IHarnessOverrides = {}) {
         viewerContainer: ref(null),
         pdfDocument,
         annotationUiManager,
-        numPages: ref(1),
+        numPages: ref(overrides.numPages ?? 1),
         currentPage: ref(1),
+        ...(overrides.mountedPageNumbers
+            ? {getMountedPageNumbers: () => overrides.mountedPageNumbers ?? []}
+            : {}),
+        ...(overrides.annotationPageIndexes
+            ? {getAnnotationPageIndexes: () => overrides.annotationPageIndexes ?? []}
+            : {}),
         annotationTool: ref<TAnnotationTool>('none'),
         annotationCommentsCache,
         getIdentity: () => ({
@@ -298,6 +307,50 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         expect(harness.scheduleAnnotationCommentsSync).not.toHaveBeenCalled();
         expect(harness.debouncedSyncInlineCommentIndicators).not.toHaveBeenCalled();
         expect(harness.forgetSummaryText).not.toHaveBeenCalled();
+    });
+
+    it('bounds sparse editor lookup on a million-page document', async () => {
+        const pageCount = 1_000_000;
+        const firstEditor = createFakeEditor({
+            id: 'first-editor',
+            uid: 'first-editor',
+            annotationElementId: 'first-annotation',
+            parentPageIndex: 0,
+        });
+        const lastEditor = createFakeEditor({
+            id: 'last-editor',
+            uid: 'last-editor',
+            annotationElementId: 'last-annotation',
+            parentPageIndex: pageCount - 1,
+        });
+        const harness = await createHarness({
+            editors: [
+                firstEditor,
+                lastEditor,
+            ],
+            numPages: pageCount,
+            mountedPageNumbers: [
+                1,
+                pageCount,
+            ],
+            annotationPageIndexes: [
+                0,
+                pageCount - 1,
+            ],
+        });
+
+        const result = harness.crud.findEditorForComment(createComment({
+            id: 'missing-comment',
+            uid: null,
+            annotationId: 'last-annotation',
+            pageIndex: 500_000,
+            pageNumber: 500_001,
+        }));
+
+        expect(result).toBe(lastEditor);
+        expect(harness.uiManager?.getEditors).toHaveBeenCalledWith(0);
+        expect(harness.uiManager?.getEditors).toHaveBeenCalledWith(pageCount - 1);
+        expect(harness.uiManager?.getEditors.mock.calls.length).toBeLessThan(40);
     });
 
     it('focuses a sidebar comment without opening editor comment controls', async () => {

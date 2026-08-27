@@ -1,6 +1,46 @@
 import {isFinitePositive} from '@contracts/runtimeGuards';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
+import {
+    createLazyIndexedCollection,
+    isLazyIndexedCollection,
+    type ILazyIndexedCollection,
+} from '@app/utils/document-viewer/virtualization/pageVirtualization';
 
+export { createLazyIndexedCollection };
+
+type IPdfLazyIndexedCollection<T> = ILazyIndexedCollection<T>;
+export type { IPdfLazyIndexedCollection };
+
+/**
+ * A page metric collection is deliberately small at the interface. Callers
+ * can still use `length`, numeric reads, and `map`, while large documents keep
+ * their values in bounded chunks instead of allocating one array per page.
+ */
+export interface IPdfPageMetricCollection extends ILazyIndexedCollection<IPdfPageMetric> {
+    readonly isSparsePageMetricCollection: true;
+    readonly exactPageCount: number;
+    readonly estimate: (index: number) => IPdfPageMetric;
+    readonly estimateRange: (
+        start: number,
+        end: number,
+        dimension: 'width' | 'height',
+    ) => number;
+    readonly maximumWidth: number;
+    readonly maximumHeight: number;
+    readonly knownIndices: readonly number[];
+    readonly hasExact: (index: number) => boolean;
+}
+
+export const PDF_PAGE_METRICS_CHUNK_SIZE = 256;
+// Keep the established dense behavior through the former product limit. The
+// sparse path starts above this boundary so ordinary desktop documents still
+// expose the same concrete normalized arrays and prefix tables.
+export const PDF_PAGE_METRICS_DENSE_LIMIT = 100_000;
+
+interface IKnownMetricEntry {
+    index: number;
+    metric: IPdfPageMetric;
+}
 
 function isValidPageMetric(metric: IPdfPageMetric | null | undefined): metric is IPdfPageMetric {
     return isFinitePositive(metric?.width) && isFinitePositive(metric?.height);
@@ -15,25 +55,307 @@ function clonePageMetric(metric: IPdfPageMetric): IPdfPageMetric {
     };
 }
 
+export function getIndexedValue<T>(values: readonly T[] | ILazyIndexedCollection<T>, index: number) {
+    if (isLazyIndexedCollection<T>(values)) {
+        return values.get(index);
+    }
+    return values[index];
+}
+
+function collectKnownMetricEntries(
+    pageMetrics: readonly IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>,
+    totalPages: number,
+): IKnownMetricEntry[] {
+    if (isLazyIndexedCollection<IPdfPageMetric>(pageMetrics)) {
+        const collection = pageMetrics as Partial<IPdfPageMetricCollection>;
+        if (collection.knownIndices) {
+            return collection.knownIndices
+                .map(index => {
+                    const metric = getIndexedValue(pageMetrics, index);
+                    return isValidPageMetric(metric)
+                        ? {
+                            index,
+                            metric,
+                        }
+                        : null;
+                })
+                .filter((entry): entry is IKnownMetricEntry => entry !== null);
+        }
+    }
+
+    // Object.keys walks only materialized sparse entries. That matters for a
+    // pageMetrics array whose length is one million but which has a handful of
+    // measured pages. Dense ordinary documents stay on the simpler path.
+    const entries: IKnownMetricEntry[] = [];
+    for (const key of Object.keys(pageMetrics)) {
+        if (!/^\d+$/.test(key)) {
+            continue;
+        }
+        const index = Number(key);
+        if (!Number.isSafeInteger(index) || index < 0 || index >= totalPages) {
+            continue;
+        }
+        const metric = getIndexedValue(pageMetrics, index);
+        if (isValidPageMetric(metric)) {
+            entries.push({
+                index,
+                metric,
+            });
+        }
+    }
+    entries.sort((left, right) => left.index - right.index);
+    return entries;
+}
+
 function resolveNearestMetricEstimate(
-    before: {
-        index: number;
-        metric: IPdfPageMetric;
-    } | null,
-    after: {
-        index: number;
-        metric: IPdfPageMetric;
-    } | null,
+    entries: readonly IKnownMetricEntry[],
     targetIndex: number,
     fallbackMetric: IPdfPageMetric,
 ) {
+    if (entries.length === 0) {
+        return fallbackMetric;
+    }
+
+    let low = 0;
+    let high = entries.length;
+    while (low < high) {
+        const middle = low + Math.floor((high - low) / 2);
+        if (entries[middle]!.index <= targetIndex) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+
+    const after = entries[low] ?? null;
+    const before = entries[low - 1] ?? null;
     if (before && after) {
         const beforeDistance = targetIndex - before.index;
         const afterDistance = after.index - targetIndex;
         return beforeDistance <= afterDistance ? before.metric : after.metric;
     }
-
     return before?.metric ?? after?.metric ?? fallbackMetric;
+}
+
+function sumNearestMetricEstimateRange(options: {
+    entries: readonly IKnownMetricEntry[];
+    totalPages: number;
+    fallbackMetric: IPdfPageMetric;
+    start: number;
+    end: number;
+    dimension: 'width' | 'height';
+}) {
+    const start = Math.max(0, Math.min(options.totalPages, Math.trunc(options.start)));
+    const end = Math.max(start, Math.min(options.totalPages, Math.trunc(options.end)));
+    if (start >= end) {
+        return 0;
+    }
+    if (options.entries.length === 0) {
+        return (end - start) * options.fallbackMetric[options.dimension];
+    }
+
+    let total = 0;
+    let segmentStart = 0;
+    for (let entryIndex = 0; entryIndex < options.entries.length; entryIndex += 1) {
+        const entry = options.entries[entryIndex]!;
+        const nextEntry = options.entries[entryIndex + 1];
+        const segmentEnd = nextEntry
+            ? Math.floor((entry.index + nextEntry.index) / 2) + 1
+            : options.totalPages;
+        const overlapStart = Math.max(start, segmentStart);
+        const overlapEnd = Math.min(end, segmentEnd);
+        if (overlapStart < overlapEnd) {
+            total += (overlapEnd - overlapStart) * entry.metric[options.dimension];
+        }
+        segmentStart = segmentEnd;
+        if (segmentStart >= end) {
+            break;
+        }
+    }
+    return total;
+}
+
+function createSparsePageMetrics(options: {
+    pageMetrics: readonly IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>;
+    totalPages: number;
+    fallbackMetric: IPdfPageMetric;
+    entries: readonly IKnownMetricEntry[];
+}): IPdfPageMetricCollection {
+    const exactIndices = new Set(options.entries.map(entry => entry.index));
+    let maximumWidth = options.fallbackMetric.width;
+    let maximumHeight = options.fallbackMetric.height;
+    for (const entry of options.entries) {
+        maximumWidth = Math.max(maximumWidth, entry.metric.width);
+        maximumHeight = Math.max(maximumHeight, entry.metric.height);
+    }
+
+    const estimate = (index: number) => clonePageMetric(resolveNearestMetricEstimate(
+        options.entries,
+        index,
+        options.fallbackMetric,
+    ));
+    const estimateRange = (
+        start: number,
+        end: number,
+        dimension: 'width' | 'height',
+    ) => sumNearestMetricEstimateRange({
+        entries: options.entries,
+        totalPages: options.totalPages,
+        fallbackMetric: options.fallbackMetric,
+        start,
+        end,
+        dimension,
+    });
+    const collection = createLazyIndexedCollection<IPdfPageMetric>({
+        length: options.totalPages,
+        getValue: index => {
+            const exactMetric = getIndexedValue(options.pageMetrics, index);
+            if (isValidPageMetric(exactMetric)) {
+                return clonePageMetric(exactMetric);
+            }
+            return estimate(index);
+        },
+    }) as IPdfPageMetricCollection;
+
+    Object.defineProperties(collection, {
+        isSparsePageMetricCollection: {
+            configurable: false,
+            enumerable: false,
+            value: true,
+        },
+        exactPageCount: {
+            configurable: false,
+            enumerable: false,
+            value: exactIndices.size,
+        },
+        estimate: {
+            configurable: false,
+            enumerable: false,
+            value: estimate,
+        },
+        estimateRange: {
+            configurable: false,
+            enumerable: false,
+            value: estimateRange,
+        },
+        maximumWidth: {
+            configurable: false,
+            enumerable: false,
+            value: maximumWidth,
+        },
+        maximumHeight: {
+            configurable: false,
+            enumerable: false,
+            value: maximumHeight,
+        },
+        knownIndices: {
+            configurable: false,
+            enumerable: false,
+            value: Object.freeze(options.entries.map(entry => entry.index)),
+        },
+        hasExact: {
+            configurable: false,
+            enumerable: false,
+            value: (index: number) => exactIndices.has(index),
+        },
+    });
+    return collection;
+}
+
+export function isSparsePageMetricCollection(value: unknown): value is IPdfPageMetricCollection {
+    return isLazyIndexedCollection<IPdfPageMetric>(value)
+        && (value as Partial<IPdfPageMetricCollection>).isSparsePageMetricCollection === true;
+}
+
+export function getPageMetricMaximum(
+    pageMetrics: readonly IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>,
+    dimension: 'width' | 'height',
+) {
+    if (isSparsePageMetricCollection(pageMetrics)) {
+        return dimension === 'width' ? pageMetrics.maximumWidth : pageMetrics.maximumHeight;
+    }
+
+    let maximum = 0;
+    if (pageMetrics.length > PDF_PAGE_METRICS_DENSE_LIMIT && !isLazyIndexedCollection(pageMetrics)) {
+        // A caller may hand the layout a raw sparse array instead of the
+        // normalized collection. Own numeric keys are the only measured
+        // pages, so do not probe every virtual hole just to find a maximum.
+        for (const key of Object.keys(pageMetrics)) {
+            if (!/^\d+$/.test(key)) {
+                continue;
+            }
+            const index = Number(key);
+            const metric = pageMetrics[index];
+            if (isValidPageMetric(metric)) {
+                maximum = Math.max(maximum, metric[dimension]);
+            }
+        }
+        return maximum;
+    }
+    for (let index = 0; index < pageMetrics.length; index += 1) {
+        const metric = getIndexedValue(pageMetrics, index);
+        if (isValidPageMetric(metric)) {
+            maximum = Math.max(maximum, metric[dimension]);
+        }
+    }
+    return maximum;
+}
+
+export function cloneSparsePageMetrics(
+    pageMetrics: readonly IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>,
+) {
+    const clone: IPdfPageMetric[] = [];
+    // Preserve the indexed snapshot contract without materializing holes. A
+    // million-page source therefore keeps a million-length sparse array, not
+    // a million metric objects.
+    clone.length = pageMetrics.length;
+    if (isLazyIndexedCollection<IPdfPageMetric>(pageMetrics)) {
+        for (const index of (pageMetrics as Partial<IPdfPageMetricCollection>).knownIndices ?? []) {
+            const metric = getIndexedValue(pageMetrics, index);
+            if (isValidPageMetric(metric)) {
+                clone[index] = clonePageMetric(metric);
+            }
+        }
+        return clone;
+    }
+
+    for (const key of Object.keys(pageMetrics)) {
+        if (!/^\d+$/.test(key)) {
+            continue;
+        }
+        const index = Number(key);
+        const metric = pageMetrics[index];
+        if (isValidPageMetric(metric)) {
+            clone[index] = clonePageMetric(metric);
+        }
+    }
+    return clone;
+}
+
+export function forEachKnownPageMetric(
+    pageMetrics: readonly IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>,
+    callback: (metric: IPdfPageMetric, index: number) => void,
+) {
+    if (isLazyIndexedCollection<IPdfPageMetric>(pageMetrics)) {
+        for (const index of (pageMetrics as Partial<IPdfPageMetricCollection>).knownIndices ?? []) {
+            const metric = getIndexedValue(pageMetrics, index);
+            if (isValidPageMetric(metric)) {
+                callback(metric, index);
+            }
+        }
+        return;
+    }
+
+    for (const key of Object.keys(pageMetrics)) {
+        if (!/^\d+$/.test(key)) {
+            continue;
+        }
+        const index = Number(key);
+        const metric = pageMetrics[index];
+        if (isValidPageMetric(metric)) {
+            callback(metric, index);
+        }
+    }
 }
 
 export function normalizePageMetrics(options: {
@@ -59,18 +381,25 @@ export function normalizePageMetrics(options: {
         width: safeFallbackWidth,
         height: safeFallbackHeight,
     } satisfies IPdfPageMetric;
-    const nearestBefore: Array<{
-        index: number;
-        metric: IPdfPageMetric;
-    } | null> = Array.from({ length: totalPages }, () => null);
-    let previousKnownMetric: {
-        index: number;
-        metric: IPdfPageMetric;
-    } | null = null;
+    if (totalPages > PDF_PAGE_METRICS_DENSE_LIMIT) {
+        const knownEntries = collectKnownMetricEntries(pageMetrics, totalPages);
+        // `IPdfPageMetric[]` remains the compatibility type used by the
+        // viewer. The returned value is a lazy indexed collection at this
+        // scale, with numeric reads supplied by its proxy.
+        return createSparsePageMetrics({
+            pageMetrics,
+            totalPages,
+            fallbackMetric,
+            entries: knownEntries,
+        });
+    }
+
+    const nearestBefore: Array<IKnownMetricEntry | null> = Array.from({length: totalPages}, () => null);
+    let previousKnownMetric: IKnownMetricEntry | null = null;
 
     for (let index = 0; index < totalPages; index += 1) {
         nearestBefore[index] = previousKnownMetric;
-        const metric = pageMetrics[index];
+        const metric = getIndexedValue(pageMetrics, index);
         if (isValidPageMetric(metric)) {
             previousKnownMetric = {
                 index,
@@ -80,13 +409,10 @@ export function normalizePageMetrics(options: {
     }
 
     const normalizedMetrics = new Array<IPdfPageMetric>(totalPages);
-    let nextKnownMetric: {
-        index: number;
-        metric: IPdfPageMetric;
-    } | null = null;
+    let nextKnownMetric: IKnownMetricEntry | null = null;
 
     for (let index = totalPages - 1; index >= 0; index -= 1) {
-        const metric = pageMetrics[index];
+        const metric = getIndexedValue(pageMetrics, index);
         if (isValidPageMetric(metric)) {
             normalizedMetrics[index] = clonePageMetric(metric);
             nextKnownMetric = {
@@ -96,12 +422,12 @@ export function normalizePageMetrics(options: {
             continue;
         }
 
-        normalizedMetrics[index] = clonePageMetric(resolveNearestMetricEstimate(
-            nearestBefore[index] ?? null,
-            nextKnownMetric,
-            index,
-            fallbackMetric,
-        ));
+        const before = nearestBefore[index];
+        const after = nextKnownMetric;
+        const estimate = before && after
+            ? (index - before.index <= after.index - index ? before.metric : after.metric)
+            : before?.metric ?? after?.metric ?? fallbackMetric;
+        normalizedMetrics[index] = clonePageMetric(estimate);
     }
 
     return normalizedMetrics;

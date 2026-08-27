@@ -50,7 +50,7 @@ export function normalizeIpcWritePayload(data: unknown) {
     return data;
 }
 
-function assertNoSymlinkPathSegments(resolvedPath: string) {
+export function assertNoSymlinkPathSegments(resolvedPath: string) {
     const segments: string[] = [];
     let currentPath = resolve(resolvedPath);
 

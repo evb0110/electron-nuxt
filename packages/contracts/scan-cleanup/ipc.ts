@@ -490,6 +490,10 @@ interface IScanCleanupDetectionJobBase {
      */
     documentCanvasSignature?: string;
     progress: TScanCleanupProgress;
+    /** Scalar count for xlarge jobs whose page records stay file-backed. */
+    resultCount?: number;
+    /** Opaque main-process handoff for xlarge detection results. */
+    detectionResultStoreId?: string;
     results: IScanCleanupDetectionResult[];
     updatedAtMs: number;
 }
@@ -525,6 +529,13 @@ export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
     options: IScanCleanupOptions;
     /** Ordered one-based source pages included in this output. Omitted means the full document. */
     sourcePageNumbers?: number[];
+    /** A contiguous partial selection, used when its page count exceeds one IPC list budget. */
+    sourcePageRange?: {
+        startPageNumber: number;
+        endPageNumber: number
+    };
+    /** Opaque id for the completed file-backed detection result store. */
+    detectionResultStoreId?: string;
     outputModeRecommendations?: Partial<Record<string, TScanCleanupOutputMode>>;
     softAlphaForegroundRecommendations?: Partial<Record<string, boolean>>;
     /** Document-level calibration priors settled by the completed detection pass. */

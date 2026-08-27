@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     writeFile: vi.fn(),
     copyFile: vi.fn(),
     cp: vi.fn(),
+    readdir: vi.fn(),
     rm: vi.fn(),
     access: vi.fn(),
     lstat: vi.fn<(path: string) => Promise<{ isSymbolicLink: () => boolean; }>>(),
@@ -47,6 +48,8 @@ const mocks = vi.hoisted(() => ({
     originalPathSaveBaseMatches: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn<(path: string) => boolean>(),
     findPendingOcrResultFileForPath: vi.fn(),
+    publishPreparedOcrCatalogV4: vi.fn(),
+    rollbackPreparedOcrCatalogV4: vi.fn(),
     backingSwapCacheInvalidator: null as null | ((logicalRef: string, previousPhysicalPath: string) => Promise<void> | void),
     ensureWorkingCopyMaterialized: vi.fn(),
 }));
@@ -71,6 +74,7 @@ vi.mock('fs/promises', () => ({
     cp: mocks.cp,
     copyFile: mocks.copyFile,
     readFile: mocks.readFile,
+    readdir: mocks.readdir,
     writeFile: mocks.writeFile,
     access: mocks.access,
     lstat: mocks.lstat,
@@ -150,6 +154,11 @@ vi.mock('@electron/features/documents/main/originalPathSaveBaseMatches', () => (
 vi.mock('@electron/djvu/viewing', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 vi.mock('@electron/ocr/createPendingResultFileStore', () => ({findPendingOcrResultFileForPath: mocks.findPendingOcrResultFileForPath}));
 vi.mock('@electron/ocr/documentTextCatalog', () => ({rebindDocumentTextCatalogRevision: vi.fn()}));
+vi.mock('@electron/ocr/worker/indexWriterV4', () => ({
+    getOcrCatalogV4PreparedDescriptorPath: (path: string) => `${path}.ocr-v4-prepared.json`,
+    publishPreparedOcrCatalogV4: mocks.publishPreparedOcrCatalogV4,
+    rollbackPreparedOcrCatalogV4: mocks.rollbackPreparedOcrCatalogV4,
+}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -214,6 +223,8 @@ describe('fileOps path security', () => {
         });
         mocks.refreshWorkingCopyOriginalFileExpectation.mockResolvedValue(true);
         mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
+        mocks.publishPreparedOcrCatalogV4.mockResolvedValue({});
+        mocks.rollbackPreparedOcrCatalogV4.mockResolvedValue(true);
         mocks.markWorkingCopyContentChanged.mockResolvedValue({});
         mocks.transitionWorkingCopyContentRevision.mockImplementation(async (
             _path: string,
@@ -275,6 +286,8 @@ describe('fileOps path security', () => {
         });
         mocks.writeFile.mockResolvedValue(undefined);
         mocks.copyFile.mockResolvedValue(undefined);
+        mocks.readdir.mockResolvedValue([]);
+        mocks.rm.mockResolvedValue(undefined);
         mocks.rename.mockResolvedValue(undefined);
         mocks.unlink.mockResolvedValue(undefined);
         mocks.open.mockImplementation(async () => ({
@@ -486,6 +499,123 @@ describe('fileOps path security', () => {
             '/tmp/electron-test/work.pdf.ocr-transition.json',
             expect.stringContaining('"targetDocumentRevisionToken":"next-revision"'),
             'utf8',
+        );
+    });
+
+    it('publishes a prepared v4 OCR root without recursively copying catalog artifacts', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
+        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
+        const resultIdentity = '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81';
+        mocks.cp.mockImplementation(() => {
+            throw new Error('recursive catalog copy forbidden');
+        });
+        mocks.readFile.mockImplementation(async (path: string) => {
+            if (path.endsWith('.ocr-v4-prepared.json')) {
+                return JSON.stringify({
+                    version: 1,
+                    catalogId: '00000000-0000-4000-8000-000000000001',
+                    catalogRoot: '/tmp/electron-test/work.pdf.ocr',
+                    sourceRootGeneration: null,
+                    sourceRootRevisionToken: null,
+                    stagedGeneration: 1,
+                    pageCount: 1_000_001,
+                    resultPath: '/tmp/electron-test/ocr-1-merged.pdf',
+                    resultIdentity,
+                    createdAt: '2026-08-27T00:00:00.000Z',
+                });
+            }
+            return Buffer.from([
+                1,
+                2,
+                3,
+            ]);
+        });
+
+        await expect(handleReplaceWorkingCopyFromPath(
+            writeContext,
+            '/tmp/electron-test/work.pdf',
+            '/tmp/electron-test/ocr-1-merged.pdf',
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-ocr')},
+        )).resolves.toBe(true);
+
+        expect(mocks.cp).not.toHaveBeenCalled();
+        expect(mocks.publishPreparedOcrCatalogV4).toHaveBeenCalledWith(expect.objectContaining({
+            catalogRoot: '/tmp/electron-test/work.pdf.ocr',
+            descriptorPath: '/tmp/electron-test/ocr-1-merged.pdf.ocr-v4-prepared.json',
+            resultIdentity,
+        }));
+    });
+
+    it('renames a large legacy OCR catalog during apply rollback without reading its manifest', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
+        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
+        const catalogPath = '/tmp/electron-test/work.pdf.ocr';
+        const stagedCatalogPath = '/tmp/electron-test/ocr-1-merged.pdf.ocr';
+        const manifestPath = `${catalogPath}/manifest.json`;
+        const stagedManifestPath = `${stagedCatalogPath}/manifest.json`;
+        const directoryStat = {
+            isSymbolicLink: () => false,
+            isDirectory: () => true,
+            isFile: () => false,
+            size: 0,
+        };
+        const largeManifestStat = {
+            isSymbolicLink: () => false,
+            isDirectory: () => false,
+            isFile: () => true,
+            size: 16 * 1024 * 1024 + 1,
+        };
+        const notFound = Object.assign(new Error('descriptor missing'), {code: 'ENOENT'});
+        mocks.lstat.mockImplementation(async (path: string) => {
+            if (path.endsWith('.ocr-v4-prepared.json')) {
+                throw notFound;
+            }
+            if (path === catalogPath || path === stagedCatalogPath) {
+                return directoryStat;
+            }
+            if (path === manifestPath || path === stagedManifestPath) {
+                return largeManifestStat;
+            }
+            return largeManifestStat;
+        });
+        mocks.readdir.mockResolvedValue(['manifest.json']);
+        mocks.readFile.mockImplementation(async (path: string) => {
+            if (path === manifestPath || path === stagedManifestPath) {
+                throw new Error('legacy manifest reads are forbidden');
+            }
+            return Buffer.from([
+                1,
+                2,
+                3,
+            ]);
+        });
+        mocks.cp.mockImplementation(() => {
+            throw new Error('recursive catalog copy forbidden');
+        });
+        mocks.rename
+            .mockResolvedValueOnce(undefined)
+            .mockResolvedValueOnce(undefined)
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(new Error('staged rename failed'))
+            .mockResolvedValueOnce(undefined);
+
+        await expect(handleReplaceWorkingCopyFromPath(
+            writeContext,
+            '/tmp/electron-test/work.pdf',
+            '/tmp/electron-test/ocr-1-merged.pdf',
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-ocr')},
+        )).rejects.toThrow('staged rename failed');
+
+        expect(mocks.readFile).not.toHaveBeenCalledWith(manifestPath, 'utf8');
+        expect(mocks.readFile).not.toHaveBeenCalledWith(stagedManifestPath, 'utf8');
+        expect(mocks.cp).not.toHaveBeenCalled();
+        expect(mocks.rename).toHaveBeenCalledWith(
+            catalogPath,
+            expect.stringMatching(/work\.pdf\.ocr\.transition-.*\.bak$/u),
+        );
+        expect(mocks.rename).toHaveBeenCalledWith(
+            expect.stringMatching(/work\.pdf\.ocr\.transition-.*\.bak$/u),
+            catalogPath,
         );
     });
 

@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import type {TScanCleanupOutputHalf} from '@contracts/electronApiScanCleanup';
 import {
+    attachScanCleanupPageOverrideDefaults,
     createScanCleanupPageOverride,
     estimateScanCleanupOutputPages,
     getScanCleanupPageOverride,
@@ -18,6 +19,22 @@ import {
 } from '@contracts/scanCleanupPageOverrides';
 
 describe('scan cleanup page overrides', () => {
+    it('estimates a million-page scalar exclusion without expanding page state', () => {
+        const pageOverrides = {};
+        const pageOverrideDefaults = createScanCleanupPageOverride({excluded: true});
+        attachScanCleanupPageOverrideDefaults(pageOverrides, pageOverrideDefaults);
+
+        expect(estimateScanCleanupOutputPages(1_000_000, {
+            layoutMode: 'auto',
+            pageOverrides,
+            pageOverrideDefaults,
+        }, new Map())).toEqual({
+            exact: true,
+            outputPages: 0,
+        });
+        expect(Object.keys(pageOverrides)).toHaveLength(0);
+    });
+
     it('merges sparse page values over stable defaults and removes reset entries', () => {
         const overrides = {};
         expect(getScanCleanupPageOverride(overrides, 3)).toEqual({

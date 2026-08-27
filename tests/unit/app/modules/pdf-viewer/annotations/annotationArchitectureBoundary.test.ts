@@ -350,9 +350,10 @@ describe('annotation architecture boundaries', () => {
         expect(policy).toContain('reason: TAnnotationEnrichmentSkipReason | null;');
         expect(policy).toContain('canRetry: boolean;');
 
-        // The bridge asks the policy. It keeps no page ceiling, byte
-        // comparison or state derivation of its own.
-        expect(sync).toContain('evaluateAnnotationEnrichmentEligibility');
+        // The bridge delegates source-aware eligibility and state resolution
+        // to the engine policy. It keeps no page ceiling, byte comparison or
+        // state derivation of its own.
+        expect(sync).toContain('resolvePdfAnnotationInteractiveEligibility');
         expect(sync).toContain('resolveAnnotationEnrichmentState');
         expect(duplicatesPolicyNumber(sync, eagerPageCeiling)).toBe(false);
         expect(sync).not.toMatch(/\b(?:eager|interactive)MaxBytes\b/);

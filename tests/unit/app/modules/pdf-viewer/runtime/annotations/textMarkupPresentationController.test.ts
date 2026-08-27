@@ -136,9 +136,11 @@ function createController(options: {
     const activeState = ref(true);
     const viewerContainer = ref<HTMLElement | null>(options.viewer);
     const presentedScales: number[] = [];
+    const readPageNumbers: Array<readonly number[] | undefined> = [];
     const clearEditorPresentation = vi.fn();
     const syncEditorPresentation = vi.fn(
-        (_pageNumbers?: readonly number[]) => {
+        (pageNumbers?: readonly number[]) => {
+            readPageNumbers.push(pageNumbers);
             presentedScales.push(effectiveScale.value);
             return {
                 editors: options.editor && (options.includeEditor?.() ?? true)
@@ -175,6 +177,7 @@ function createController(options: {
         controller,
         effectiveScale,
         presentedScales,
+        readPageNumbers,
         scope,
         syncEditorPresentation,
         viewerContainer,
@@ -373,7 +376,32 @@ describe('useTextMarkupPresentationController', () => {
         await settleFrame();
 
         expect(markupFill(pages, 1)).toBe(expectedHighlightFill('#ec4899'));
-        expect(harness.syncEditorPresentation).toHaveBeenCalledWith(undefined);
+        expect(harness.syncEditorPresentation).toHaveBeenCalledWith([1]);
+        harness.scope.stop();
+    });
+
+    it('reads only sparse mounted pages during a million-page restart', async () => {
+        const pageCount = 1_000_000;
+        const { viewer } = createViewerWithPages([
+            1,
+            pageCount,
+        ]);
+        const harness = createController({
+            comments: [
+                createComment(),
+                createComment({pageNumber: pageCount}),
+            ],
+            viewer,
+        });
+
+        harness.controller.notify({kind: 'editors-changed'});
+        await settleFrame();
+
+        expect(harness.readPageNumbers).toEqual([[
+            1,
+            pageCount,
+        ]]);
+        expect(harness.readPageNumbers.every(pageNumbers => pageNumbers !== undefined)).toBe(true);
         harness.scope.stop();
     });
 

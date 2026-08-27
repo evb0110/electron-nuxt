@@ -1,16 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'fs';
-import {
-    unlink,
-    writeFile,
-} from 'fs/promises';
+import {unlink} from 'fs/promises';
 import {
     extname,
     join,
 } from 'path';
 import {
     type ICreatePdfFromInputPathsProgress,
-    createPdfFromInputPaths,
+    createPdfFileFromInputPaths,
     isPdfOrImagePath,
 } from '@electron/image/pdfConversion';
 import { createLogger } from '@electron/utils/createLogger';
@@ -63,16 +60,17 @@ async function prepareInsertionSourcePdf(
         };
     }
 
-    const mergedPdf = await createPdfFromInputPaths(sourcePaths, {
+    const combineOptions = {
         ...(onProgress ? {onProgress} : {}),
         ...(options.signal ? {signal: options.signal} : {}),
-    });
+    };
     const tempSourcePdfPath = join(
         workingCopyPath,
         '..',
         `insert-source-${randomUUID()}.pdf`,
     );
-    await writeFile(tempSourcePdfPath, mergedPdf);
+
+    await createPdfFileFromInputPaths(sourcePaths, tempSourcePdfPath, combineOptions);
 
     return {
         sourcePdfPath: tempSourcePdfPath,

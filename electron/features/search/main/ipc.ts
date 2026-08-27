@@ -18,7 +18,6 @@ import {
     type ISearchOperationContext,
     type ISearchSenderContext,
 } from '@electron/features/search/main/searchWorkerService';
-import { SEARCH_PAGE_COUNT_MAX } from '@electron/features/search/main/searchRequestValidation';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 import {
@@ -35,15 +34,6 @@ const __dirname = dirname(__filename);
 
 function isWorkingCopyPathCandidate(pdfPath: string) {
     return /(?:^|[/\\])pdf-work-[^/\\]+[/\\]/u.test(pdfPath);
-}
-
-function assertSearchPageCountPolicy(pageCount: number | undefined) {
-    if (pageCount !== undefined && pageCount > SEARCH_PAGE_COUNT_MAX) {
-        throw new SearchIpcError(buildSearchErrorEnvelope(
-            'SEARCH_INVALID_PAYLOAD',
-            `Invalid pageCount: must be an integer between 1 and ${SEARCH_PAGE_COUNT_MAX}`,
-        ));
-    }
 }
 
 export function resolveSearchWorkerPath(workerBaseDir = __dirname) {
@@ -121,7 +111,6 @@ async function handlePdfSearch(
     request: INormalizedPdfSearchRequest,
 ): Promise<ISearchResponse> {
     const operationContext = normalizeSearchOperationContext(context);
-    assertSearchPageCountPolicy(request.pageCount);
     const {
         pdfPath,
         query,
@@ -177,7 +166,6 @@ async function handlePdfSearchWarmIndex(
     request: INormalizedPdfSearchWarmIndexRequest,
 ) {
     const operationContext = normalizeSearchOperationContext(context);
-    assertSearchPageCountPolicy(request.pageCount);
 
     const resolvedPdfPath = await resolveSearchablePdfPath(request.pdfPath, operationContext.senderId);
     if (!resolvedPdfPath) {

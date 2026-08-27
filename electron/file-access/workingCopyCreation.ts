@@ -8,7 +8,6 @@ import {
     isAbsolute,
     join,
     relative,
-    resolve,
     sep,
 } from 'path';
 import {
@@ -30,9 +29,11 @@ import {
 import {
     captureWorkingCopyAdmissionSnapshot,
     forgetRetiredWorkingCopyOriginal,
+    getWorkingCopyBackingEntry,
     getWorkingCopyOriginalPath,
     getWorkingCopyRole,
     isKnownWorkingCopyOriginalPath,
+    normalizePathForLookup,
     setWorkingCopyOriginalPath,
     type TWorkingCopyRole,
     workingCopyAdmissionSnapshotsMatch,
@@ -206,11 +207,17 @@ export async function createWorkingCopyFromPath(
     sourcePath: TOpenPath,
     originalPath?: string,
     ownerWebContentsId?: number,
+    options: {
+        role?: TWorkingCopyRole;
+        mapToSourceWhenOriginalMissing?: boolean;
+    } = {},
 ) {
-    const mappedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
+    const explicitOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
         ? originalPath.trim()
-        : sourcePath;
-    if (!isAllowedOriginalSavePath(mappedOriginalPath)) {
+        : undefined;
+    const mappedOriginalPath = explicitOriginalPath
+        ?? (options.mapToSourceWhenOriginalMissing === false ? undefined : sourcePath);
+    if (mappedOriginalPath && !isAllowedOriginalSavePath(mappedOriginalPath)) {
         throw new Error('Invalid original path mapping');
     }
 
@@ -225,20 +232,41 @@ export async function createWorkingCopyFromPath(
         await copyFileCopyOnWrite(sourcePath, workingPath);
         await decryptPdfFileIfNeeded(workingPath);
 
-        const role = resolveWorkingCopyRoleForPathClone(sourcePath, ownerWebContentsId);
-        await setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {
-            backingState: 'eager',
-            deferOriginalFileExpectation: true,
-            role,
-        });
+        const role = options.role ?? resolveWorkingCopyRoleForPathClone(sourcePath, ownerWebContentsId);
+        if (mappedOriginalPath) {
+            await setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {
+                backingState: 'eager',
+                deferOriginalFileExpectation: true,
+                role,
+            });
+        }
         const revision = await initializeFreshWorkingCopyRevision(workingPath, ownerWebContentsId);
-        void schedulePageIdentityStoreInitialization(workingPath, revision, sourcePath);
+        const pageIdentitySourcePath = options.mapToSourceWhenOriginalMissing === false
+            ? undefined
+            : sourcePath;
+        void schedulePageIdentityStoreInitialization(workingPath, revision, pageIdentitySourcePath);
 
         return workingPath;
     } catch (error) {
         await safeRemoveDirectory(workDir);
         throw error;
     }
+}
+
+/**
+ * Clones a verified native staging artifact into an uncommitted snapshot.
+ * The artifact is disposable, so it must not become the snapshot's backing
+ * original when no live original path is available.
+ */
+export function createDisposableWorkingCopyFromPath(
+    sourcePath: TOpenPath,
+    originalPath: string | undefined,
+    ownerWebContentsId?: number,
+) {
+    return createWorkingCopyFromPath(sourcePath, originalPath, ownerWebContentsId, {
+        role: 'snapshot',
+        mapToSourceWhenOriginalMissing: false,
+    });
 }
 
 export async function createWorkingCopyFromData(
@@ -311,8 +339,8 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
     }
     const { originalPath } = mapping;
 
-    const tempDir = resolve(getAppTempDir());
-    const parentDir = resolve(dirname(normalizedWorkingPath));
+    const tempDir = normalizePathForLookup(getAppTempDir());
+    const parentDir = normalizePathForLookup(dirname(normalizedWorkingPath));
     const relativePath = relative(tempDir, parentDir);
     const isWithinTemp = (
         relativePath !== '..'
@@ -353,6 +381,13 @@ export async function requireManagedWorkingCopyPath(sourcePath: string, senderWe
     const normalizedSourcePath = typeof sourcePath === 'string' ? sourcePath.trim() : '';
     if (!normalizedSourcePath) {
         throw new Error('Invalid source path');
+    }
+    const backingEntry = getWorkingCopyBackingEntry(normalizedSourcePath, senderWebContentsId);
+    if (
+        backingEntry?.backingState === 'lazy-original'
+        || backingEntry?.backingState === 'materializing'
+    ) {
+        return normalizedSourcePath as TOpenPath;
     }
     const isManagedWorkingCopy = await ensureWorkingCopyDirectory(normalizedSourcePath, senderWebContentsId);
     if (!isManagedWorkingCopy) {

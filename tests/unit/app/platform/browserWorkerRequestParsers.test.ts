@@ -31,6 +31,26 @@ describe('browser worker request parsers', () => {
 
         expect(parseBrowserSearchWorkerRequest({
             id: 3,
+            type: 'streamDocumentText',
+            payload: {pdfPath: '/tmp/stream.pdf'},
+        })).toEqual({
+            id: 3,
+            type: 'streamDocumentText',
+            payload: {pdfPath: '/tmp/stream.pdf'},
+        });
+
+        expect(parseBrowserSearchWorkerRequest({
+            id: 4,
+            type: 'acknowledgePage',
+            payload: {requestId: 3},
+        })).toEqual({
+            id: 4,
+            type: 'acknowledgePage',
+            payload: {requestId: 3},
+        });
+
+        expect(parseBrowserSearchWorkerRequest({
+            id: 5,
             type: 'extractDocumentText',
             payload: {pdfPath: ''},
         })).toBeNull();

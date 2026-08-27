@@ -15,6 +15,7 @@ const NATIVE_NOTE_TEXT_UPDATE_SUBTYPES = new Set([
     'text',
     'popup',
     'note',
+    'freetext',
     'highlight',
     'underline',
     'strikeout',

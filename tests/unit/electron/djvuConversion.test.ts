@@ -59,7 +59,7 @@ const mocks = vi.hoisted(() => {
         args: string[];
         proc: MockProcess;
     }
-    type TSpawnMode = 'success' | 'fail-ranges' | 'fail-merge' | 'hang-ranges' | 'hang-merge' | 'hang-registered';
+    type TSpawnMode = 'success' | 'fail-ranges' | 'fail-merge' | 'hang-ranges' | 'hang-merge' | 'hang-registered' | 'million-page-progress';
 
     const spawnCalls: ISpawnCall[] = [];
     let spawnMode: TSpawnMode = 'success';
@@ -95,6 +95,20 @@ const mocks = vi.hoisted(() => {
                 return;
             }
             if (spawnMode === 'hang-registered' && isRegisteredCombineCall(command)) {
+                return;
+            }
+            if (spawnMode === 'million-page-progress' && command === '/tools/ddjvu' && args.includes('-page=1-1000000')) {
+                const totalPages = 1_000_000;
+                const pagesPerChunk = 4_096;
+                for (let startPage = 1; startPage <= totalPages; startPage += pagesPerChunk) {
+                    const endPage = Math.min(totalPages, startPage + pagesPerChunk - 1);
+                    let chunk = '';
+                    for (let page = startPage; page <= endPage; page += 1) {
+                        chunk += `-------- page ${page}\n`;
+                    }
+                    proc.stderr.emit('data', Buffer.from(chunk));
+                }
+                proc.close(0);
                 return;
             }
             if (spawnMode === 'fail-ranges' && isRangeDdjvuCall(command, args)) {
@@ -226,6 +240,7 @@ const {
     resolveDjvuRangeWorkerCount,
     runRegisteredDjvuProcess,
 } = await import('@electron/features/djvu/main/ddjvuConversion');
+const { PdfCombineCapabilityError } = await import('@electron/image/pdfCombineErrors');
 const { configureMainJobBroker } = await import('@electron/resources/jobBroker');
 
 configureMainJobBroker({
@@ -314,6 +329,34 @@ describe('convertDjvuToPdfFile', () => {
         });
     });
 
+    it('reports million-page single-process progress without page-sized state', async () => {
+        mocks.setSpawnMode('million-page-progress');
+        const totalPages = 1_000_000;
+        let progressCalls = 0;
+        let lastProgress = 0;
+        let progressDecreased = false;
+
+        const result = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-million-page-progress', {
+            pageCount: totalPages,
+            pages: `1-${totalPages}`,
+            onProgress: percent => {
+                progressCalls += 1;
+                progressDecreased ||= percent < lastProgress;
+                lastProgress = percent;
+            },
+        });
+
+        expect(result).toEqual({
+            success: true,
+            outputPath: '/output.pdf',
+            fileSize: 4096,
+        });
+        expect(progressCalls).toBe(totalPages);
+        expect(lastProgress).toBe(90);
+        expect(progressDecreased).toBe(false);
+        expect(mocks.spawnCalls).toHaveLength(1);
+    });
+
     it('fails a small explicit-page conversion when the live output quota is crossed', async () => {
         mocks.setQuotaFailure(new Error('DjVu disk quota exceeded: simulated ENOSPC'));
 
@@ -390,19 +433,42 @@ describe('convertDjvuToPdfFile', () => {
         expect(mocks.loggerWarn).not.toHaveBeenCalledWith(expect.stringContaining('falling back to single process'));
     });
 
-    it('uses total page count to guard the pdf-lib chunk merge fallback', async () => {
+    it.each([
+        {
+            label: 'the former 256-page threshold',
+            pageCount: 256,
+            chunkSize: 4096,
+        },
+        {
+            label: 'the former 256 MiB threshold',
+            pageCount: 24,
+            chunkSize: 257 * 1024 * 1024,
+        },
+    ])('returns a typed native capability error at $label without a byte fallback', async ({
+        chunkSize,
+        pageCount,
+    }) => {
         mocks.setSpawnMode('fail-merge');
+        mocks.stat.mockImplementation(async (...args: unknown[]) => ({size: String(args[0]).includes('/tmp/djvu-pages-test/') ? chunkSize : 4096}));
 
-        const result = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-large-merge', { pageCount: 257 });
+        const error = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-large-merge', { pageCount })
+            .catch((caughtError: unknown) => caughtError);
 
-        expect(result.success).toBe(true);
+        expect(error).toBeInstanceOf(PdfCombineCapabilityError);
+        expect(error).toMatchObject({
+            code: 'native-failure',
+            name: 'PdfCombineCapabilityError',
+            operation: 'djvu-pdf-merge',
+            cause: expect.any(Error),
+        });
+
         expect(mocks.writeFile).not.toHaveBeenCalled();
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.spawnCalls.filter(call => (
             call.command === '/tools/ddjvu'
             && !call.args.some(arg => arg.startsWith('-page='))
-        ))).toHaveLength(1);
-        expect(mocks.loggerWarn.mock.calls.some(call => String(call[0]).includes('pdf-lib merge'))).toBe(false);
+        ))).toHaveLength(0);
+        expect(mocks.spawnCalls.at(-1)).toMatchObject({command: '/tools/qpdf'});
     });
 
     it('does not restart a canceled parallel conversion as a single-process conversion', async () => {
@@ -429,7 +495,7 @@ describe('convertDjvuToPdfFile', () => {
         ))).toHaveLength(0);
     });
 
-    it('does not run the pdf-lib merge fallback after qpdf merge cancellation', async () => {
+    it('does not run a byte merge fallback after qpdf merge cancellation', async () => {
         mocks.setSpawnMode('hang-merge');
 
         const convertPromise = convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-merge-cancel', {pageCount: 24});

@@ -258,4 +258,24 @@ describe('DjVu artifact manifests', () => {
         expect(monitor.signal.aborted).toBe(true);
         await monitor.stop();
     });
+
+    it('uses available space minus the reserve when no fixed artifact ceiling is supplied', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-djvu-available-space-test-'));
+        directories.push(directory);
+        const outputPath = join(directory, 'output.pdf');
+        writeFileSync(outputPath, 'small');
+        let availableBytes = 505;
+        const monitor = await createDjvuDiskQuotaMonitor({
+            paths: [outputPath],
+            fileSystemPath: directory,
+            freeSpaceReserveBytes: 500,
+            intervalMs: 60_000,
+            readAvailableBytesForTests: async () => availableBytes,
+        });
+        availableBytes = 504;
+
+        await expect(monitor.checkNow()).rejects.toThrow('DjVu disk quota exceeded');
+        expect(monitor.signal.aborted).toBe(true);
+        await monitor.stop();
+    });
 });

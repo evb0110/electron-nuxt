@@ -75,10 +75,6 @@ class DjvuDiskQuotaError extends Error {
 }
 
 const STALE_JOB_MS = 7 * 24 * 60 * 60 * 1_000;
-export const DJVU_ARTIFACT_MAX_TOTAL_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_ARTIFACT_MAX_TOTAL_MB ?? '4096', 10);
-    return (Number.isFinite(parsed) && parsed >= 128 ? parsed : 4096) * 1024 * 1024;
-})();
 const DJVU_ARTIFACT_FREE_SPACE_RESERVE_BYTES = 128 * 1024 * 1024;
 // The walk also sizes the in-progress conversion output, so it cannot be replaced by the
 // manifest's verified-artifact totals; poll rarely enough to stay off the conversion's I/O path.
@@ -132,7 +128,8 @@ function withoutNestedPaths(paths: readonly string[]) {
 export async function createDjvuDiskQuotaMonitor(options: {
     paths: readonly string[];
     fileSystemPath: string;
-    maxTotalBytes: number;
+    /** Optional fixed test/job ceiling. Production callers use free space minus the reserve. */
+    maxTotalBytes?: number;
     signal?: AbortSignal;
     intervalMs?: number;
     freeSpaceReserveBytes?: number;
@@ -163,14 +160,18 @@ export async function createDjvuDiskQuotaMonitor(options: {
             ),
         ]);
         const totalBytes = sizes.reduce((total, size) => total + size, 0);
-        if (totalBytes > options.maxTotalBytes) {
-            throw new DjvuDiskQuotaError(
-                `artifacts use ${totalBytes} bytes, above the ${options.maxTotalBytes}-byte ceiling`,
-            );
-        }
         if (!Number.isFinite(availableBytes) || availableBytes <= reserveBytes) {
             throw new DjvuDiskQuotaError(
                 `temporary storage has ${availableBytes} bytes available; ${reserveBytes} bytes must remain free`,
+            );
+        }
+        const availableCeiling = Number.isFinite(availableBytes)
+            ? Math.max(0, availableBytes - reserveBytes)
+            : Number.POSITIVE_INFINITY;
+        const maxTotalBytes = Math.min(options.maxTotalBytes ?? availableCeiling, availableCeiling);
+        if (totalBytes > maxTotalBytes) {
+            throw new DjvuDiskQuotaError(
+                `artifacts use ${totalBytes} bytes, above the ${maxTotalBytes}-byte ceiling`,
             );
         }
     };
@@ -378,7 +379,6 @@ export async function openDjvuArtifactJob(
             throw new Error('Not enough free temporary disk space for DjVu artifact conversion');
         }
         const maxTotalBytes = Math.min(
-            DJVU_ARTIFACT_MAX_TOTAL_BYTES,
             availableBytes - DJVU_ARTIFACT_FREE_SPACE_RESERVE_BYTES,
             options.maxTotalBytesForTests ?? Number.POSITIVE_INFINITY,
         );

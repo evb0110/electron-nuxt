@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import { effectScope } from 'vue';
 import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
+import { createAllPageSelection } from '@app/utils/pdfPageSelection';
 
 describe('usePdfPageScopeSelection', () => {
     it('reserves undefined for all pages and null for invalid scoped selections', () => {
@@ -111,6 +112,25 @@ describe('usePdfPageScopeSelection', () => {
             expect(selection.scope.value).toBe('current');
             expect(selection.rangeInput.value).toBe('');
             expect(selection.rangeTouched.value).toBe(false);
+        });
+
+        scope.stop();
+    });
+
+    it('uses compact selected state when choosing the default scope', () => {
+        const scope = effectScope();
+
+        scope.run(() => {
+            const selection = usePdfPageScopeSelection({
+                totalPages: () => 1_000_000,
+                currentPage: () => 1,
+                selectedPages: () => [],
+                selectedPageSelection: () => createAllPageSelection(1_000_000),
+            });
+
+            selection.resetScopeForOpen();
+
+            expect(selection.scope.value).toBe('selected');
         });
 
         scope.stop();

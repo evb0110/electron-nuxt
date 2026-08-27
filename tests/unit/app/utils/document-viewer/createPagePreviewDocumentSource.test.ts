@@ -8,6 +8,43 @@ import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/sour
 import type { IPagePreviewRenderedObjectUrl } from '@app/utils/document-viewer/pagePreviewSource';
 
 describe('createPagePreviewDocumentSource', () => {
+    it('resolves page metrics lazily for compact large-document metadata', async () => {
+        const pageCount = Number.MAX_SAFE_INTEGER;
+        const getPageSize = vi.fn((pageNumber: number) => ({
+            width: pageNumber === pageCount ? 400 : 612,
+            height: pageNumber === pageCount ? 500 : 792,
+        }));
+        const source = createPagePreviewDocumentSource({
+            documentRef: '/tmp/document.pdf',
+            pageCount,
+            getPageSize,
+            previewSource: {
+                getPageSizes: vi.fn(async () => ({
+                    pageCount,
+                    defaultPageSize: {
+                        width: 612,
+                        height: 792,
+                    },
+                    overrides: [],
+                })),
+                renderPageObjectUrl: vi.fn(async () => ({
+                    objectUrl: 'blob:page-last',
+                    renderedPx: 306,
+                })),
+                revokeObjectURL: vi.fn(),
+                terminate: vi.fn(),
+            },
+        });
+
+        expect(source.pageCount).toBe(pageCount);
+        await expect(source.getPageMetrics(pageCount)).resolves.toEqual({
+            widthPoints: 400,
+            heightPoints: 500,
+            rotation: 0,
+        });
+        expect(getPageSize).toHaveBeenCalledWith(pageCount);
+    });
+
     it('adapts native preview metrics and leased surfaces to IDocumentPageSource', async () => {
         const revokeObjectURL = vi.fn();
         const source = createPagePreviewDocumentSource({

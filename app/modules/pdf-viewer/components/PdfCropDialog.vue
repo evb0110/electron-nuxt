@@ -94,7 +94,7 @@
                 color="neutral"
                 variant="outline"
                 :label="t('crop.removeCrop')"
-                :disabled="loading || cropPages.length === 0"
+                :disabled="loading || pageSelectionCount(cropSelection) === 0"
                 @click="handleRemoveCrop"
             />
             <div class="flex gap-2">
@@ -132,7 +132,12 @@ import {
     unitToPoints,
 } from '@app/utils/pdfCropCoordinates';
 import { parsePageRangeInput } from '@app/utils/pdfPageLabels';
-import { expandPageRange } from '@app/utils/pdfPageSelection';
+import {
+    createRangePageSelection,
+    materializePageSelection,
+    pageSelectionCount,
+} from '@app/utils/pdfPageSelection';
+import type { TPageSelection } from '@app/utils/pdfPageSelection';
 import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
 
 interface ICropMarginField {
@@ -151,6 +156,7 @@ const {
     mediaBox,
     rotation = undefined,
     selectedPages,
+    selectedPageSelection = undefined,
     totalPages,
 } = defineProps<{
     loading?: boolean | undefined;
@@ -161,6 +167,7 @@ const {
     mediaBox: IPdfBox;
     currentVisibleBox?: IPdfBox | null | undefined;
     rotation?: number | undefined;
+    selectedPageSelection?: TPageSelection | null | undefined;
 }>();
 
 const emit = defineEmits<{
@@ -250,20 +257,32 @@ const unitOptions = computed(() => [
 ]);
 
 function resolveRangePages() {
-    return expandPageRange(parsePageRangeInput(rangeInput.value, totalPages));
+    const range = parsePageRangeInput(rangeInput.value, totalPages);
+    return range
+        ? materializePageSelection(createRangePageSelection(totalPages, range.startPage, range.endPage))
+        : null;
+}
+
+function resolveRangeSelection() {
+    const range = parsePageRangeInput(rangeInput.value, totalPages);
+    return range
+        ? createRangePageSelection(totalPages, range.startPage, range.endPage)
+        : null;
 }
 
 const {
     scope,
     rangeInput,
-    normalizedSelectedPages,
+    normalizedSelectedPageSelection,
     resetScopeForOpen,
-    resolveScopedPageNumbers,
+    resolveScopedPageSelection,
 } = usePdfPageScopeSelection({
     totalPages: () => totalPages,
     currentPage: () => currentPage,
     selectedPages: () => selectedPages,
+    selectedPageSelection: () => selectedPageSelection ?? null,
     resolveRangePages,
+    resolveRangeSelection,
 });
 
 const scopeOptions = computed(() => {
@@ -290,10 +309,11 @@ const scopeOptions = computed(() => {
         },
     ];
 
-    if (normalizedSelectedPages.value.length > 0) {
+    const selectedCount = pageSelectionCount(normalizedSelectedPageSelection.value);
+    if (selectedCount > 0) {
         options.push({
             value: 'selected',
-            label: t('crop.scopeSelected', { count: normalizedSelectedPages.value.length }),
+            label: t('crop.scopeSelected', { count: selectedCount }),
         });
     }
 
@@ -357,11 +377,22 @@ const previewPageStyle = computed(() => {
 const isValid = computed(() => {
     const cropWidth = mediaBox.width - margins.left - margins.right;
     const cropHeight = mediaBox.height - margins.top - margins.bottom;
-    return cropWidth > 0 && cropHeight > 0 && cropPages.value.length > 0;
+    return cropWidth > 0 && cropHeight > 0 && pageSelectionCount(cropSelection.value) > 0;
 });
 
+const cropSelection = computed<TPageSelection>(() => {
+    return resolveScopedPageSelection() ?? {
+        kind: 'none',
+        pageCount: totalPages,
+    };
+});
+
+/** Keep the legacy payload small. Native-aware callers use pageSelection. */
 const cropPages = computed((): number[] => {
-    return resolveScopedPageNumbers({ includeAllPages: true }) ?? [];
+    const selection = cropSelection.value;
+    return pageSelectionCount(selection) <= 100_000
+        ? materializePageSelection(selection)
+        : [];
 });
 
 function syncMarginsFromProps() {
@@ -380,17 +411,21 @@ function handleApply() {
     emit('apply', {
         margins: { ...margins },
         pages: cropPages.value,
+        pageSelection: cropSelection.value,
     });
     open.value = false;
 }
 
 function handleRemoveCrop() {
     const pages = cropPages.value;
-    if (pages.length === 0) {
+    if (pageSelectionCount(cropSelection.value) === 0) {
         return;
     }
 
-    emit('remove', { pages });
+    emit('remove', {
+        pages,
+        pageSelection: cropSelection.value,
+    });
     open.value = false;
 }
 

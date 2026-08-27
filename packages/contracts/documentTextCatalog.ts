@@ -36,10 +36,32 @@ export interface IDocumentTextSnapshot {
     contentDigest: string;
 }
 
+/** A bounded page window used by streaming exports. The range is at most 64 pages. */
+export interface IDocumentTextCatalogWindow {
+    documentRevision: TDocumentRevisionToken;
+    pageCount: number;
+    firstPage: number;
+    lastPage: number;
+    pages: IDocumentTextCatalogPage[];
+    contentDigest: string;
+}
+
+export interface IDocumentOcrPageRange {
+    firstPage: number;
+    lastPage: number;
+}
+
 export interface IDocumentOcrAvailability {
     documentRevision: TDocumentRevisionToken;
     pageCount: number;
-    pageNumbers: number[];
+    /** Number of mapped pages, independent of how many ranges are returned. */
+    mappedPageCount?: number;
+    /** Sorted, disjoint mapped-page ranges. */
+    pageRanges?: IDocumentOcrPageRange[];
+    /** False when the range list was capped and page probing is required. */
+    rangesComplete?: boolean;
+    /** v3 wire compatibility. New producers must return pageRanges instead. */
+    pageNumbers?: number[];
 }
 
 export interface IDocumentOcrPageSnapshot {
@@ -51,6 +73,9 @@ export interface IDocumentOcrPageSnapshot {
 export const MAX_DOCUMENT_TEXT_CATALOG_PAGE_WORDS = 100_000;
 export const MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH = 16 * 1024 * 1024;
 export const MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH = 8 * 1024 * 1024;
+export const MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES = 64;
+export const MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH = 64 * 1024 * 1024;
+export const MAX_DOCUMENT_OCR_AVAILABILITY_RANGES = 4_096;
 
 const DOCUMENT_TEXT_SOURCES = [
     'pdf-native',
@@ -162,6 +187,55 @@ export function decodeDocumentTextSnapshot(value: unknown): IDocumentTextSnapsho
     };
 }
 
+export function decodeDocumentTextCatalogWindow(value: unknown): IDocumentTextCatalogWindow | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const documentRevision = parseDocumentRevisionToken(value.documentRevision);
+    if (
+        documentRevision === null
+        || typeof value.pageCount !== 'number'
+        || !Number.isSafeInteger(value.pageCount)
+        || value.pageCount < 0
+        || typeof value.firstPage !== 'number'
+        || !Number.isSafeInteger(value.firstPage)
+        || value.firstPage < 1
+        || typeof value.lastPage !== 'number'
+        || !Number.isSafeInteger(value.lastPage)
+        || value.lastPage < value.firstPage
+        || value.lastPage > value.pageCount
+        || value.lastPage - value.firstPage + 1 > MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES
+        || !Array.isArray(value.pages)
+        || typeof value.contentDigest !== 'string'
+    ) {
+        return null;
+    }
+
+    const pages: IDocumentTextCatalogPage[] = [];
+    const pageNumbers = new Set<number>();
+    let totalTextLength = 0;
+    for (const candidate of value.pages) {
+        const page = decodeDocumentTextCatalogPage(candidate, value.pageCount, pageNumbers);
+        if (!page || page.pageNumber < value.firstPage || page.pageNumber > value.lastPage) {
+            return null;
+        }
+        totalTextLength += page.text.length;
+        if (totalTextLength > MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH) {
+            return null;
+        }
+        pages.push(page);
+    }
+
+    return {
+        documentRevision,
+        pageCount: value.pageCount,
+        firstPage: value.firstPage,
+        lastPage: value.lastPage,
+        pages,
+        contentDigest: value.contentDigest,
+    };
+}
+
 export function decodeDocumentOcrAvailability(value: unknown): IDocumentOcrAvailability | null {
     if (!isRecord(value)) {
         return null;
@@ -172,28 +246,84 @@ export function decodeDocumentOcrAvailability(value: unknown): IDocumentOcrAvail
         || typeof value.pageCount !== 'number'
         || !Number.isSafeInteger(value.pageCount)
         || value.pageCount < 0
-        || !Array.isArray(value.pageNumbers)
-        || value.pageNumbers.length > value.pageCount
     ) {
         return null;
     }
-    const pageNumbers = new Set<number>();
-    for (const pageNumber of value.pageNumbers) {
+
+    /* Keep the old v3 payload shape intact for older callers. */
+    if (value.pageRanges === undefined && value.mappedPageCount === undefined && value.rangesComplete === undefined) {
+        if (!Array.isArray(value.pageNumbers) || value.pageNumbers.length > value.pageCount) {
+            return null;
+        }
+        const pageNumbers = new Set<number>();
+        for (const pageNumber of value.pageNumbers) {
+            if (
+                typeof pageNumber !== 'number'
+                || !Number.isSafeInteger(pageNumber)
+                || pageNumber < 1
+                || pageNumber > value.pageCount
+                || pageNumbers.has(pageNumber)
+            ) {
+                return null;
+            }
+            pageNumbers.add(pageNumber);
+        }
+        return {
+            documentRevision,
+            pageCount: value.pageCount,
+            pageNumbers: Array.from(pageNumbers),
+        };
+    }
+
+    if (
+        typeof value.mappedPageCount !== 'number'
+        || !Number.isSafeInteger(value.mappedPageCount)
+        || value.mappedPageCount < 0
+        || value.mappedPageCount > value.pageCount
+        || !Array.isArray(value.pageRanges)
+        || value.pageRanges.length > MAX_DOCUMENT_OCR_AVAILABILITY_RANGES
+        || (value.rangesComplete !== undefined && typeof value.rangesComplete !== 'boolean')
+    ) {
+        return null;
+    }
+    const rangesComplete = value.rangesComplete ?? true;
+    const pageRanges: IDocumentOcrPageRange[] = [];
+    let coveredPageCount = 0;
+    let previousLastPage = 0;
+    for (const candidate of value.pageRanges) {
         if (
-            typeof pageNumber !== 'number'
-            || !Number.isSafeInteger(pageNumber)
-            || pageNumber < 1
-            || pageNumber > value.pageCount
-            || pageNumbers.has(pageNumber)
+            !isRecord(candidate)
+            || typeof candidate.firstPage !== 'number'
+            || !Number.isSafeInteger(candidate.firstPage)
+            || candidate.firstPage < 1
+            || candidate.firstPage > value.pageCount
+            || typeof candidate.lastPage !== 'number'
+            || !Number.isSafeInteger(candidate.lastPage)
+            || candidate.lastPage < candidate.firstPage
+            || candidate.lastPage > value.pageCount
+            || candidate.firstPage <= previousLastPage
         ) {
             return null;
         }
-        pageNumbers.add(pageNumber);
+        coveredPageCount += candidate.lastPage - candidate.firstPage + 1;
+        if (coveredPageCount > value.mappedPageCount) {
+            return null;
+        }
+        pageRanges.push({
+            firstPage: candidate.firstPage,
+            lastPage: candidate.lastPage,
+        });
+        previousLastPage = candidate.lastPage;
+    }
+    if (rangesComplete && coveredPageCount !== value.mappedPageCount) {
+        return null;
     }
     return {
         documentRevision,
         pageCount: value.pageCount,
-        pageNumbers: Array.from(pageNumbers),
+        mappedPageCount: value.mappedPageCount,
+        pageRanges,
+        rangesComplete,
     };
 }
 

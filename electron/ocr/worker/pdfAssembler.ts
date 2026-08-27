@@ -33,6 +33,7 @@ import {
 import { assembleSearchablePdfStreaming } from '@electron/ocr/worker/assembleSearchablePdfStreaming';
 
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
+export const MAX_OCR_PAGE_ARTIFACT_BYTES = 16 * 1024 * 1024;
 const TESSERACT_IMAGE_PAINT_RE = /^q\s+[\d.]+\s+0\s+0\s+[\d.]+\s+0\s+0\s+cm\s+\/Im\d+\s+Do\s+Q\r?\n/gm;
 const TESSERACT_IMAGE_XOBJECT_RE = /\n\s*\/XObject\s*<<\s*\n(?:\s*\/Im\d+\s+\d+\s+\d+\s+R\s*\n)+\s*>>/g;
 const XOBJECT_DRAW_LINE_RE = /^[^\r\n]*\/[A-Za-z0-9._-]+\s+Do\b[^\r\n]*(?:\r?\n)?/gm;
@@ -59,6 +60,40 @@ function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
     }
+}
+
+export class OcrGeneratedPageArtifactLimitError extends RangeError {
+    readonly code = 'OCR_GENERATED_PAGE_ARTIFACT_TOO_LARGE' as const;
+    readonly path: string;
+    readonly size: number;
+
+    constructor(path: string, size: number) {
+        super(`Generated OCR page artifact exceeds ${MAX_OCR_PAGE_ARTIFACT_BYTES}-byte limit: ${path}`);
+        this.name = 'OcrGeneratedPageArtifactLimitError';
+        this.path = path;
+        this.size = size;
+    }
+}
+
+/**
+ * Generated one-page PDFs are the only PDF bytes loaded into pdf-lib during
+ * assembly. Keep this trust boundary bounded even when a sidecar was produced
+ * by an external command or changed after its initial validation.
+ */
+export async function loadBoundedGeneratedPagePdf(path: string, label: string) {
+    const fileStat = await stat(path);
+    if (!fileStat.isFile()) {
+        throw new Error(`${label} is not a regular file: ${path}`);
+    }
+    if (fileStat.size > MAX_OCR_PAGE_ARTIFACT_BYTES) {
+        throw new OcrGeneratedPageArtifactLimitError(path, fileStat.size);
+    }
+
+    const bytes = await readFile(path);
+    if (bytes.byteLength > MAX_OCR_PAGE_ARTIFACT_BYTES) {
+        throw new OcrGeneratedPageArtifactLimitError(path, bytes.byteLength);
+    }
+    return PDFDocument.load(bytes, {ignoreEncryption: true});
 }
 
 async function assertNonEmptyFile(path: string, label: string) {
@@ -123,14 +158,6 @@ export async function getPageCount(
         pageCount: fallback,
         warnings: [`qpdf page-count returned no usable page count; using OCR page fallback ${fallback}`],
     };
-}
-
-function buildValidOcrPageEntries(ocrPdfMap: Map<number, string>, pageCount: number) {
-    return sortBy(
-        Array.from(ocrPdfMap.entries())
-            .filter(([pageNumber]) => pageNumber >= 1 && pageNumber <= pageCount),
-        [([pageNumber]) => pageNumber],
-    );
 }
 
 export function stripTesseractImageLayer(qdfSource: string) {
@@ -407,7 +434,7 @@ function appendOcrLayer(
 export async function assembleSearchablePdf(
     qpdfBinary: string,
     originalPdfPath: string,
-    ocrPdfMap: Map<number, string>,
+    ocrPdfEntries: Map<number, string> | AsyncIterable<readonly [number, string]>,
     pageCount: number,
     tempDir: string,
     sessionId: string,
@@ -416,18 +443,28 @@ export async function assembleSearchablePdf(
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
-    log('debug', `Replacing OCR text layer for ${ocrPdfMap.size} page(s) while preserving original PDF pages`);
+    const mapPageEntries = ocrPdfEntries instanceof Map
+        ? sortBy(
+            Array.from(ocrPdfEntries.entries())
+                .filter(([pageNumber]) => pageNumber >= 1 && pageNumber <= pageCount),
+            [([pageNumber]) => pageNumber],
+        )
+        : null;
+    const ocrPageEntries: ReadonlyArray<readonly [number, string]> | AsyncIterable<readonly [number, string]> =
+        mapPageEntries ?? (ocrPdfEntries as AsyncIterable<readonly [number, string]>);
+    const entryCount = mapPageEntries?.length ?? 'streaming';
+    log('debug', `Replacing OCR text layer for ${String(entryCount)} page(s) while preserving original PDF pages`);
     await assertNonEmptyFile(originalPdfPath, 'Original PDF');
-    await Promise.all(Array.from(ocrPdfMap.entries()).map(
-        ([
-            pageNumber,
-            ocrPath,
-        ]) => assertNonEmptyFile(ocrPath, `OCR PDF page ${pageNumber}`),
-    ));
-
-    const ocrPageEntries = buildValidOcrPageEntries(ocrPdfMap, pageCount);
-    if (ocrPageEntries.length === 0) {
-        throw new Error('No valid OCR pages were available to assemble');
+    if (mapPageEntries) {
+        await Promise.all(mapPageEntries.map(
+            ([
+                pageNumber,
+                ocrPath,
+            ]) => assertNonEmptyFile(ocrPath, `OCR PDF page ${pageNumber}`),
+        ));
+        if (mapPageEntries.length === 0) {
+            throw new Error('No valid OCR pages were available to assemble');
+        }
     }
 
     const replacementPdfPath = await assembleSearchablePdfStreaming({
@@ -440,10 +477,10 @@ export async function assembleSearchablePdf(
         trackTempFile,
         ...(signal ? {signal} : {}),
         mutatePage: async (sourcePagePath, ocrPagePath, outputPath) => {
-            const pdf = await PDFDocument.load(await readFile(sourcePagePath), {ignoreEncryption: true});
+            const pdf = await loadBoundedGeneratedPagePdf(sourcePagePath, 'Extracted source PDF page');
             const page = pdf.getPage(0);
             removePreviousOcrLayer(page);
-            const ocrPdf = await PDFDocument.load(await readFile(ocrPagePath), {ignoreEncryption: true});
+            const ocrPdf = await loadBoundedGeneratedPagePdf(ocrPagePath, 'Generated OCR PDF page');
             const ocrPage = ocrPdf.getPage(0);
             sanitizeOcrPageForEmbedding(ocrPage);
             appendOcrLayer(page, await pdf.embedPage(ocrPage));

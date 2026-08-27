@@ -36,7 +36,9 @@
             >
                 <template #header>
                 <PdfPageSelectionBar
-                    :selected-count="selectedThumbnailPages.length"
+                    :selected-count="selectedPageSelectionProp
+                        ? pageSelectionCount(selectedPageSelectionProp)
+                        : selectedThumbnailPages.length"
                     :is-operation-in-progress="isPageOperationInProgress ?? false"
                     :is-djvu-mode="isDjvuMode"
                     @rotate-cw="rotateSelectedPagesClockwise"
@@ -54,6 +56,7 @@
                         :total-pages="totalPages"
                         :page-labels="pageLabels"
                         :selected-pages="selectedThumbnailPages"
+                        :selected-page-selection="selectedPageSelectionProp"
                         :invalidation-request="thumbnailInvalidationRequest"
                         :hidden-annotation-ids="thumbnailHiddenAnnotationIds"
                         :annotation-comments="annotationComments"
@@ -62,8 +65,10 @@
                         :is-resizing="isResizing"
                         @go-to-page="goToPage"
                         @update:selected-pages="handleSelectedPagesUpdate"
+                        @update:selected-page-selection="handleSelectedPageSelectionUpdate"
                         @page-context-menu="openPageContextMenu"
                         @reorder="reorderPages"
+                        @move="movePages"
                         @file-drop="dropPageFiles"
                     />
                 <template #footer>
@@ -109,6 +114,11 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { IResolvedSearchMatchOptions } from '@contracts/search';
 import { PDF_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
 import type {
+    TPageMoveOperation,
+    TPageSelection,
+} from '@contracts/pageNumbers';
+import { pageSelectionCount } from '@contracts/pageNumbers';
+import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
@@ -139,6 +149,8 @@ import {useDocumentSidebarCapabilitySession} from '@app/utils/document-viewer/si
 import { createPdfDocumentSearchSession } from '@app/modules/pdf-viewer/search/createPdfDocumentSearchSession';
 import { SIDEBAR } from '@app/constants/pdfLayout';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+
+type TPageSelectionInput = number[] | TPageSelection;
 
 interface IProps {
     isOpen: boolean;
@@ -181,6 +193,7 @@ interface IProps {
     isPageOperationInProgress?: boolean | undefined;
     isDjvuMode?: boolean | undefined;
     selectedThumbnailPages: number[];
+    selectedPageSelection?: TPageSelection | null | undefined;
     thumbnailInvalidationRequest?: {
         id: number;
         pages: number[];
@@ -223,6 +236,7 @@ const {
     searchOptions,
     searchQuery,
     searchResults,
+    selectedPageSelection: selectedPageSelectionProp = undefined,
     selectedThumbnailPages: selectedThumbnailPagesProp,
     thumbnailHiddenAnnotationIds = undefined,
     submittedSearchQuery = undefined,
@@ -262,13 +276,15 @@ const emit = defineEmits<{
         clientY: number;
         pages: number[]
     }];
-    'page-rotate-cw': [pages: number[]];
-    'page-rotate-ccw': [pages: number[]];
-    'page-extract': [pages: number[]];
-    'page-export': [pages: number[]];
-    'page-delete': [pages: number[]];
+    'page-rotate-cw': [pages: TPageSelectionInput];
+    'page-rotate-ccw': [pages: TPageSelectionInput];
+    'page-extract': [pages: TPageSelectionInput];
+    'page-export': [pages: TPageSelectionInput];
+    'page-delete': [pages: TPageSelectionInput];
     'page-reorder': [newOrder: number[]];
     'update:selectedThumbnailPages': [pages: number[]];
+    'update:selected-page-selection': [selection: TPageSelection];
+    'page-move': [move: TPageMoveOperation];
     'page-file-drop': [payload: {
         afterPage: number;
         filePaths: TDocumentRef[];
@@ -358,8 +374,16 @@ function handleSelectedPagesUpdate(pages: number[]) {
     emit('update:selectedThumbnailPages', pages);
 }
 
+function handleSelectedPageSelectionUpdate(selection: TPageSelection) {
+    emit('update:selected-page-selection', selection);
+}
+
 function clearPageSelection() {
     emit('update:selectedThumbnailPages', []);
+    emit('update:selected-page-selection', {
+        kind: 'none',
+        pageCount: totalPages,
+    });
 }
 
 function updateAnnotationTool(tool: TAnnotationTool) {
@@ -397,24 +421,28 @@ function retryAnnotationEnrichment() {
     emit('annotation-retry-enrichment');
 }
 
+function getSelectedPagePayload(): TPageSelectionInput {
+    return selectedPageSelectionProp ?? selectedThumbnailPages.value;
+}
+
 function rotateSelectedPagesClockwise() {
-    emit('page-rotate-cw', selectedThumbnailPages.value);
+    emit('page-rotate-cw', getSelectedPagePayload());
 }
 
 function rotateSelectedPagesCounterClockwise() {
-    emit('page-rotate-ccw', selectedThumbnailPages.value);
+    emit('page-rotate-ccw', getSelectedPagePayload());
 }
 
 function extractSelectedPages() {
-    emit('page-extract', selectedThumbnailPages.value);
+    emit('page-extract', getSelectedPagePayload());
 }
 
 function exportSelectedPages() {
-    emit('page-export', selectedThumbnailPages.value);
+    emit('page-export', getSelectedPagePayload());
 }
 
 function deleteSelectedPages() {
-    emit('page-delete', selectedThumbnailPages.value);
+    emit('page-delete', getSelectedPagePayload());
 }
 
 function goToPage(page: number, options?: IScrollToPageOptions) {
@@ -431,6 +459,10 @@ function openPageContextMenu(payload: {
 
 function reorderPages(newOrder: number[]) {
     emit('page-reorder', newOrder);
+}
+
+function movePages(move: TPageMoveOperation) {
+    emit('page-move', move);
 }
 
 function dropPageFiles(payload: {

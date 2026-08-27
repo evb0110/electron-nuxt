@@ -13,6 +13,7 @@ import {
     loadScanCleanupDocumentMargins,
     loadScanCleanupDocumentOutputMode,
     loadScanCleanupDocumentOverrides,
+    loadScanCleanupDocumentPageOverrideDefaults,
     loadScanCleanupPreferences,
     resetScanCleanupDocumentOverrides,
     saveScanCleanupDocumentPreferences,
@@ -198,6 +199,26 @@ describe('scan cleanup preferences', () => {
         const restored = loadScanCleanupDocumentOverrides('document-a', storage);
         expect(restored['1']).toEqual(expect.objectContaining({outputModeOverride: 'mixed'}));
         expect(restored['2']).not.toHaveProperty('outputModeOverride');
+    });
+
+    it('round-trips a document-wide page override without allocating page entries', () => {
+        const storage = memoryStorage();
+        const defaults = createScanCleanupPageOverride({
+            excluded: true,
+            rotationDegrees: 90,
+        });
+
+        saveScanCleanupDocumentPreferences('million-page-document', {
+            pageOverrideDefaults: defaults,
+            overrides: {},
+        }, storage);
+
+        expect(loadScanCleanupDocumentPageOverrideDefaults('million-page-document', storage))
+            .toEqual(defaults);
+        expect(loadScanCleanupDocumentOverrides('million-page-document', storage)).toEqual({});
+
+        resetScanCleanupDocumentOverrides('million-page-document', storage);
+        expect(loadScanCleanupDocumentPageOverrideDefaults('million-page-document', storage)).toBeNull();
     });
 
     it('persists first-run guidance dismissal with the existing preferences', () => {

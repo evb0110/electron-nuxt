@@ -16,10 +16,10 @@ import {
     getPdfjsLib,
 } from '@app/platform/browser-api/browserPdfjsDocumentInit';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
+import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 const pdfBinaryDecoder = new TextDecoder('latin1');
 const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
-const BROWSER_FULL_CONFORMANCE_ANALYSIS_BYTES = 64 * 1024 * 1024;
 
 function decodePdfBinary(bytes: Uint8Array) {
     return pdfBinaryDecoder.decode(bytes);
@@ -70,7 +70,7 @@ export async function analyzeBrowserPdfConformance(path: string): Promise<IPdfCo
         tail,
     } = await readPdfMarkerRegions(path);
 
-    if (size > BROWSER_FULL_CONFORMANCE_ANALYSIS_BYTES) {
+    if (size > BROWSER_MAX_FULL_READ_BYTES) {
         const markers = mergePdfMarkerRegions(head, tail);
         const isEncrypted = containsPdfEncryptMarker(markers);
         const pdfaLevel = detectBrowserPdfaLevel(markers);

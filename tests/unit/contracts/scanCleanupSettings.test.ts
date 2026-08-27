@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {SCAN_CLEANUP_INPUT_MAX_PAGES} from '@contracts/scan-cleanup/inputLimits';
+import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {
     createDefaultScanCleanupSettingsFile,
     decodeScanCleanupGlobalPreferences,
@@ -103,7 +103,7 @@ describe('scan-cleanup settings file decoder', () => {
 
     it('gives every legal document entry its own page budget', () => {
         const pagesPerDocument = Math.floor(
-            SCAN_CLEANUP_INPUT_MAX_PAGES / SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES,
+            SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES / SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES,
         ) + 1;
         const overrides = pageOverrides(pagesPerDocument);
         const documentOverrides = Object.fromEntries(Array.from(

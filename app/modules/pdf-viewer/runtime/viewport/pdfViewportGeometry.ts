@@ -8,6 +8,7 @@ import {
     getLayoutPageWidth,
     getLayoutRowHeight,
 } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import {createLazyIndexedCollection} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 
 export interface IPdfSemanticAnchor {
     page: number;
@@ -41,7 +42,7 @@ export function createPdfViewportGeometryFromLayout(
     },
     revision: number,
 ): IPdfViewportGeometry {
-    const pageRects = metrics.base.pageWidths.map((_width, index) => {
+    const getPageRect = (index: number): IPdfViewportRect => {
         const rowIndex = metrics.base.pageRowIndices[index] ?? 0;
         const rowStartPage = metrics.base.rowStartPages[rowIndex] ?? index + 1;
         const rowEndPage = metrics.base.rowEndPages[rowIndex] ?? index + 1;
@@ -60,8 +61,15 @@ export function createPdfViewportGeometryFromLayout(
             width: getLayoutPageWidth(metrics, index),
             height: getLayoutPageHeight(metrics, index),
         };
-    });
-    const rows = metrics.base.rowStartPages.map((startPage, rowIndex) => {
+    };
+    const pageRects = metrics.base.isSparse
+        ? createLazyIndexedCollection<IPdfViewportRect>({
+            length: metrics.base.totalPages,
+            getValue: getPageRect,
+        })
+        : metrics.base.pageWidths.map((_width, index) => getPageRect(index));
+    const getRow = (rowIndex: number) => {
+        const startPage = metrics.base.rowStartPages[rowIndex] ?? rowIndex + 1;
         const endPage = metrics.base.rowEndPages[rowIndex] ?? startPage;
         const first = pageRects[startPage - 1] ?? {
             left: 0,
@@ -80,13 +88,30 @@ export function createPdfViewportGeometryFromLayout(
                 height: getLayoutRowHeight(metrics, rowIndex) || first.height,
             },
         };
-    });
+    };
+    const rows = metrics.base.isSparse
+        ? createLazyIndexedCollection<IPdfViewportGeometry['rows'][number]>({
+            length: metrics.base.rowStartPages.length,
+            getValue: getRow,
+        })
+        : metrics.base.rowStartPages.map((_startPage, rowIndex) => getRow(rowIndex));
+    const maxPageWidth = Number.isFinite(metrics.base.maxPageWidth)
+        ? Math.max(0, metrics.base.maxPageWidth)
+        : 0;
+    const contentWidth = metrics.base.isSparse
+        ? Math.max(
+            viewport.width,
+            maxPageWidth * metrics.scale
+                * (metrics.base.rowStartPages.length < metrics.base.totalPages ? 2 : 1)
+                + (metrics.base.rowStartPages.length < metrics.base.totalPages ? metrics.gap : 0),
+        )
+        : Math.max(viewport.width, ...pageRects.map(rect => rect.left + rect.width));
     return {
         revision,
         insetTop: metrics.paddingTop,
         viewportWidth: viewport.width,
         viewportHeight: viewport.height,
-        contentWidth: Math.max(viewport.width, ...pageRects.map(rect => rect.left + rect.width)),
+        contentWidth,
         contentHeight: Math.max(viewport.height, getLayoutContentHeight(metrics)),
         pageRects,
         rows,
@@ -106,6 +131,43 @@ export interface IPdfViewportGeometry {
         endPage: number;
         rect: IPdfViewportRect
     }>;
+}
+
+/**
+ * Resolves a row without iterating the row collection. Sparse layouts expose
+ * a virtual row array, so callers that need one page's mounted row must use
+ * this indexed lookup rather than Array.prototype.find or a spread.
+ */
+export function getViewportGeometryRowForPage(
+    geometry: IPdfViewportGeometry,
+    pageNumber: number,
+) {
+    const rowCount = geometry.rows.length;
+    if (rowCount === 0) {
+        return null;
+    }
+
+    const page = Number.isFinite(pageNumber)
+        ? clamp(Math.trunc(pageNumber), 1, Math.max(1, geometry.pageRects.length))
+        : 1;
+    let low = 0;
+    let high = rowCount - 1;
+    while (low <= high) {
+        const middle = low + Math.floor((high - low) / 2);
+        const row = geometry.rows[middle];
+        if (!row) {
+            break;
+        }
+        if (page < row.startPage) {
+            high = middle - 1;
+        } else if (page > row.endPage) {
+            low = middle + 1;
+        } else {
+            return row;
+        }
+    }
+
+    return geometry.rows[clamp(low, 0, rowCount - 1)] ?? null;
 }
 
 export interface IComputePdfViewportGeometryOptions {
@@ -222,33 +284,108 @@ export function resolveAnchorFromScroll(
 ): IPdfSemanticAnchor {
     const x = scroll.left + geometry.viewportWidth * viewportFraction.x;
     const y = scroll.top + geometry.viewportHeight * viewportFraction.y;
-    const verticallyIntersecting = geometry.pageRects
-        .map((rect, index) => ({
-            rect,
-            index,
-        }))
-        .filter(({rect}) => y >= rect.top && y <= rect.top + rect.height);
-    const containingPoint = verticallyIntersecting.find(({rect}) => (
-        x >= rect.left && x <= rect.left + rect.width
-    ));
-    let pageIndex = containingPoint?.index ?? verticallyIntersecting.reduce((best, candidate) => {
-        if (best === null) {
-            return candidate;
-        }
-        const candidateDistance = Math.abs(candidate.rect.left + candidate.rect.width / 2 - x);
-        const bestDistance = Math.abs(best.rect.left + best.rect.width / 2 - x);
-        return candidateDistance < bestDistance ? candidate : best;
-    }, null as {
-        rect: IPdfViewportRect;
-        index: number
-    } | null)?.index ?? -1;
-    if (pageIndex < 0) {
-        pageIndex = geometry.pageRects.reduce((best, rect, index) => (
-            Math.abs(rect.top + rect.height / 2 - y)
-                < Math.abs(geometry.pageRects[best]!.top + geometry.pageRects[best]!.height / 2 - y)
-                ? index : best
-        ), 0);
+    const rowCount = geometry.rows.length;
+    if (rowCount === 0 || geometry.pageRects.length === 0) {
+        return {
+            page: 1,
+            pageXFraction: clamp(x, 0, 1),
+            pageYFraction: clamp(y, 0, 1),
+            viewportXFraction: clamp(viewportFraction.x, 0, 1),
+            viewportYFraction: clamp(viewportFraction.y, 0, 1),
+            affinity: 'center',
+        };
     }
+    let low = 0;
+    let high = rowCount - 1;
+    let containingRowIndex = -1;
+    while (low <= high) {
+        const middle = low + Math.floor((high - low) / 2);
+        const row = geometry.rows[middle];
+        if (!row) {
+            break;
+        }
+        if (y < row.rect.top) {
+            high = middle - 1;
+        } else if (y > row.rect.top + row.rect.height) {
+            low = middle + 1;
+        } else {
+            containingRowIndex = middle;
+            break;
+        }
+    }
+
+    const candidateRowIndexes: number[] = [];
+    if (containingRowIndex >= 0) {
+        const previousRowIndex = containingRowIndex - 1;
+        const previousRow = geometry.rows[previousRowIndex];
+        if (previousRow && y >= previousRow.rect.top && y <= previousRow.rect.top + previousRow.rect.height) {
+            candidateRowIndexes.push(previousRowIndex);
+        }
+        candidateRowIndexes.push(containingRowIndex);
+        const nextRowIndex = containingRowIndex + 1;
+        const nextRow = geometry.rows[nextRowIndex];
+        if (nextRow && y >= nextRow.rect.top && y <= nextRow.rect.top + nextRow.rect.height) {
+            candidateRowIndexes.push(nextRowIndex);
+        }
+    } else {
+        candidateRowIndexes.push(
+            clamp(high, 0, Math.max(0, rowCount - 1)),
+            clamp(low, 0, Math.max(0, rowCount - 1)),
+        );
+    }
+    let containingPageIndex = -1;
+    let horizontalCandidate: {
+        index: number;
+        distance: number;
+    } | null = null;
+    let nearestPageIndex = -1;
+    let nearestPageDistance = Number.POSITIVE_INFINITY;
+    const seenRows = new Set<number>();
+    for (const rowIndex of candidateRowIndexes) {
+        if (seenRows.has(rowIndex)) {
+            continue;
+        }
+        seenRows.add(rowIndex);
+        const row = geometry.rows[rowIndex];
+        if (!row) {
+            continue;
+        }
+        for (let page = row.startPage; page <= row.endPage; page += 1) {
+            const pageIndex = page - 1;
+            const rect = geometry.pageRects[pageIndex];
+            if (!rect) {
+                continue;
+            }
+            const verticallyContains = y >= rect.top && y <= rect.top + rect.height;
+            const verticalDistance = verticallyContains
+                ? 0
+                : Math.abs(rect.top + rect.height / 2 - y);
+            if (verticalDistance < nearestPageDistance) {
+                nearestPageDistance = verticalDistance;
+                nearestPageIndex = pageIndex;
+            }
+            if (!verticallyContains) {
+                continue;
+            }
+            if (x >= rect.left && x <= rect.left + rect.width) {
+                containingPageIndex = pageIndex;
+                break;
+            }
+            const horizontalDistance = Math.abs(rect.left + rect.width / 2 - x);
+            if (!horizontalCandidate || horizontalDistance < horizontalCandidate.distance) {
+                horizontalCandidate = {
+                    index: pageIndex,
+                    distance: horizontalDistance,
+                };
+            }
+        }
+        if (containingPageIndex >= 0) {
+            break;
+        }
+    }
+    const pageIndex = containingPageIndex >= 0
+        ? containingPageIndex
+        : horizontalCandidate?.index ?? nearestPageIndex;
     const rect = geometry.pageRects[pageIndex] ?? {
         left: 0,
         top: 0,

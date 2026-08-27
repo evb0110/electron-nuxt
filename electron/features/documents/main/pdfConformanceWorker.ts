@@ -6,8 +6,12 @@ import { analyzePdfConformanceFileDirect } from '@electron/features/documents/ma
 import type { IWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { getErrorMessage } from '@electron/utils/error';
+import { isRecord } from '@contracts/runtimeGuards';
 
-interface IPdfConformanceWorkerData { filePath?: unknown; }
+interface IPdfConformanceWorkerData {
+    filePath?: unknown;
+    cancelGroup?: unknown;
+}
 
 type TPdfConformanceWorkerResult =
     | {
@@ -36,9 +40,25 @@ async function runPdfConformanceWorker() {
         throw new Error('PDF conformance worker started without a parentPort');
     }
 
+    const abortController = new AbortController();
+    const handleMessage = (message: unknown) => {
+        if (isRecord(message) && message.type === 'cancel') {
+            abortController.abort();
+        }
+    };
+    parentPort.on('message', handleMessage);
+
     try {
+        const currentWorkerData = workerData as IPdfConformanceWorkerData | undefined;
         const filePath = resolveWorkerFilePath();
-        const data = await analyzePdfConformanceFileDirect(filePath);
+        const cancelGroup = typeof currentWorkerData?.cancelGroup === 'string'
+            && currentWorkerData.cancelGroup.trim().length > 0
+            ? currentWorkerData.cancelGroup.trim()
+            : undefined;
+        const data = await analyzePdfConformanceFileDirect(filePath, {
+            signal: abortController.signal,
+            ...(cancelGroup === undefined ? {} : {cancelGroup}),
+        });
         const payload: TPdfConformanceWorkerResult = {
             type: 'result',
             ok: true,
@@ -54,6 +74,7 @@ async function runPdfConformanceWorker() {
         };
         parentPort.postMessage(payload);
     } finally {
+        parentPort.off('message', handleMessage);
         parentPort.close();
     }
 }

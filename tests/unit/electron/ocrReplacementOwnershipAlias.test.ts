@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     createReadStream: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn<(path: string, senderId?: number) => Promise<boolean>>(),
     getWorkingCopyOriginalPath: vi.fn(),
+    lstat: vi.fn(),
     lstatSync: vi.fn<(path: string) => { isSymbolicLink: () => boolean; }>(),
     open: vi.fn(),
     originalPathSaveBaseMatches: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock('fs', () => ({
 vi.mock('fs/promises', () => ({
     copyFile: mocks.copyFile,
     cp: mocks.cp,
+    lstat: mocks.lstat,
     open: mocks.open,
     readFile: mocks.readFile,
     rename: mocks.rename,
@@ -117,6 +119,7 @@ describe('OCR replacement ownership path aliases', () => {
         })());
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.lstat.mockRejectedValue(Object.assign(new Error('missing'), {code: 'ENOENT'}));
         mocks.lstatSync.mockReturnValue({isSymbolicLink: () => false});
         mocks.open.mockResolvedValue({
             close: vi.fn(async () => undefined),

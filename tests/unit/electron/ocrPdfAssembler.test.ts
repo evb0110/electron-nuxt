@@ -33,6 +33,9 @@ import {
 } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
     assembleSearchablePdf,
+    loadBoundedGeneratedPagePdf,
+    MAX_OCR_PAGE_ARTIFACT_BYTES,
+    OcrGeneratedPageArtifactLimitError,
     sanitizeOcrContentStreamForEmbedding,
     stripTesseractImageLayer,
 } from '@electron/ocr/worker/pdfAssembler';
@@ -294,6 +297,20 @@ describe('assembleSearchablePdf', () => {
                 force: true,
             });
             tempDir = null;
+        }
+    });
+
+    it('rejects an oversized generated page artifact before loading it with pdf-lib', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const artifactPath = join(tempDir, 'oversized-generated-page.pdf');
+        await writeFile(artifactPath, Buffer.alloc(MAX_OCR_PAGE_ARTIFACT_BYTES + 1));
+
+        const error = await loadBoundedGeneratedPagePdf(artifactPath, 'Generated OCR PDF page')
+            .catch((caught: unknown) => caught);
+        expect(error).toBeInstanceOf(OcrGeneratedPageArtifactLimitError);
+        if (error instanceof OcrGeneratedPageArtifactLimitError) {
+            expect(error.code).toBe('OCR_GENERATED_PAGE_ARTIFACT_TOO_LARGE');
+            expect(error.size).toBe(MAX_OCR_PAGE_ARTIFACT_BYTES + 1);
         }
     });
 

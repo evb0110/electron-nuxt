@@ -4,7 +4,10 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
-import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
+import {
+    mapPageNumberThroughPageIdentityDelta,
+    type IPageIdentityDelta,
+} from '@contracts/electronApiPageOps';
 import type {
     AnnotationEntity,
     AnnotationId,
@@ -625,12 +628,9 @@ export class AnnotationStore {
 
     /** Projects a committed page-tree delta without creating a second undo entry. */
     remapPages(delta: IPageIdentityDelta) {
-        const newPageByOldPage = new Map<number, number>();
-        delta.pages.forEach((page, nextPageIndex) => {
-            if ('fromPageNumber' in page) newPageByOldPage.set(page.fromPageNumber - 1, nextPageIndex);
-        });
         this.#entities.forEach((entity, id) => {
-            const nextPageIndex = newPageByOldPage.get(entity.pageIndex);
+            const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(delta, entity.pageIndex + 1);
+            const nextPageIndex = mappedPageNumber === null ? undefined : mappedPageNumber - 1;
             const saved = this.#savedSemanticSnapshot.get(id);
             if (saved !== undefined) {
                 this.#savedSemanticSnapshot.set(id, {

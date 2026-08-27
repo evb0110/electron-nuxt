@@ -282,6 +282,8 @@ export async function assembleWithCompactSourcePages(
         'split-pages',
         '--input',
         preparedPdfPath,
+        '--qpdf',
+        paths.qpdfBinary,
         '--output',
         preservedPdfPath,
         '--instructions-file',

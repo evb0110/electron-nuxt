@@ -8,7 +8,7 @@ import {
     decodeNativeScanCleanupPreviewPageMetadataJson,
     InvalidScanCleanupNativeArtifactError,
 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
-import {SCAN_CLEANUP_INPUT_MAX_PAGES} from '@contracts/scan-cleanup/inputLimits';
+import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {
     MAX_SCAN_CLEANUP_WARNING_EVENTS,
     SCAN_CLEANUP_WARNING_EVENT_CODES,
@@ -346,7 +346,7 @@ describe('scan-cleanup native artifact codecs', () => {
                 pages: [
                     3,
                     1,
-                    SCAN_CLEANUP_INPUT_MAX_PAGES,
+                    SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
                 ],
             },
             {
@@ -570,7 +570,7 @@ describe('scan-cleanup native artifact codecs', () => {
                 label: 'a capped page past the page limit',
                 warningEvents: [{
                     code: 'matched-canvas-page-dpi-capped',
-                    pageNumber: SCAN_CLEANUP_INPUT_MAX_PAGES + 1,
+                    pageNumber: Number.MAX_SAFE_INTEGER + 1,
                     appliedDpiThousandths: 200_000,
                     requestedDpiThousandths: 300_000,
                 }],
@@ -579,7 +579,7 @@ describe('scan-cleanup native artifact codecs', () => {
                 label: 'a page list naming a page past the page limit',
                 warningEvents: [{
                     code: 'matched-canvas-pages-resampled',
-                    pages: [SCAN_CLEANUP_INPUT_MAX_PAGES + 1],
+                    pages: [Number.MAX_SAFE_INTEGER + 1],
                 }],
             },
             // A repeated page means the producer lost count of its own set;
@@ -756,7 +756,7 @@ describe('scan-cleanup native artifact codecs', () => {
                 label: 'an old-shape payload past the page limit',
                 warningEvents: [{
                     code: 'matched-canvas-page-dpi-capped',
-                    pageNumber: SCAN_CLEANUP_INPUT_MAX_PAGES + 1,
+                    pageNumber: Number.MAX_SAFE_INTEGER + 1,
                     appliedDpi: 200,
                     requestedDpi: 300,
                 }],

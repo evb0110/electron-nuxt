@@ -1176,6 +1176,11 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
         await waitForLatestFreeTextContent(text, 8_000);
     }
 
+    // PDF.js keeps a newly typed FreeText editor out of annotation storage
+    // until focus leaves the editor and commit() runs. Returning sooner leaves
+    // a visible annotation with a clean document frontier.
+    await page.keyboard.press('Tab');
+
     return getFreeTextEditorCount(page);
 }
 

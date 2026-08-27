@@ -1,4 +1,5 @@
 use super::*;
+use evb_native_support::output::AtomicOutput;
 
 const SEED_COMPARE_CHUNK_BYTES: usize = 64 * 1024;
 const MAX_CLASSIC_XREF_OFFSET: u64 = 9_999_999_999;
@@ -91,7 +92,22 @@ fn assert_append_target_unchanged(
     Ok(())
 }
 
-pub(crate) fn append_paths_refer_to_same_file(input_path: &PathBuf, output_path: &PathBuf) -> bool {
+pub(crate) fn assert_append_path_unchanged(
+    path: &Path,
+    previous_len: u64,
+    previous_last_byte: Option<u8>,
+    previous_xref_start: usize,
+) -> Result<()> {
+    let mut output = OpenOptions::new().read(true).open(path)?;
+    assert_append_target_unchanged(
+        &mut output,
+        previous_len,
+        previous_last_byte,
+        previous_xref_start,
+    )
+}
+
+pub(crate) fn append_paths_refer_to_same_file(input_path: &Path, output_path: &Path) -> bool {
     if input_path == output_path {
         return true;
     }
@@ -103,8 +119,8 @@ pub(crate) fn append_paths_refer_to_same_file(input_path: &PathBuf, output_path:
 }
 
 pub(crate) fn assert_append_output_seeded(
-    input_path: &PathBuf,
-    output_path: &PathBuf,
+    input_path: &Path,
+    output_path: &Path,
     previous_len: u64,
 ) -> Result<()> {
     if append_paths_refer_to_same_file(input_path, output_path) {
@@ -135,6 +151,48 @@ pub(crate) fn assert_append_output_seeded(
         compared += u64::try_from(remaining)?;
     }
     Ok(())
+}
+
+pub(crate) fn assert_append_output_length(output_path: &Path, previous_len: u64) -> Result<()> {
+    if fs::metadata(output_path)?.len() != previous_len {
+        return Err(
+            "Append output must already contain an exact byte-for-byte copy of the input".into(),
+        );
+    }
+    Ok(())
+}
+
+/// Run an incremental path operation against an unpublished sibling copy of
+/// the input, then replace the requested output only after every revision has
+/// been validated. This includes same-file operations, so a working-copy save
+/// has the same crash boundary as a save to a distinct output path.
+pub(crate) fn with_staged_incremental_output(
+    input_path: &Path,
+    output_path: &Path,
+    write_revisions: impl FnOnce(&Path) -> Result<()>,
+) -> Result<()> {
+    let mut staged = AtomicOutput::create(output_path)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    let mut input = File::open(input_path)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    std::io::copy(
+        &mut input,
+        staged
+            .file_mut()
+            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?,
+    )
+    .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    staged
+        .file_mut()
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
+        .flush()
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    drop(input);
+    let staged_path = staged.temporary_path().to_path_buf();
+    write_revisions(&staged_path)?;
+    staged
+        .publish_if_unchanged()
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))
 }
 
 pub(crate) fn apply_native_mutations(
@@ -238,8 +296,8 @@ pub(crate) fn apply_native_mutations_incremental(
 
 #[cfg(test)]
 pub(crate) fn append_native_mutations(
-    input_path: &PathBuf,
-    output_path: &PathBuf,
+    input_path: &Path,
+    output_path: &Path,
     mutations: &NativeMutationsFile,
     modified_at: &str,
 ) -> Result<()> {
@@ -247,8 +305,8 @@ pub(crate) fn append_native_mutations(
 }
 
 pub(crate) fn append_native_mutations_with_qpdf(
-    input_path: &PathBuf,
-    output_path: &PathBuf,
+    input_path: &Path,
+    output_path: &Path,
     mutations: &NativeMutationsFile,
     modified_at: &str,
     qpdf_path: Option<&Path>,
@@ -262,22 +320,164 @@ pub(crate) fn append_native_mutations_with_qpdf(
         ));
     }
 
+    let previous_len = incremental.previous_len();
+    let previous_last_byte = incremental.previous_last_byte();
+    let previous_xref_start = incremental.get_prev_documents().xref_start;
+    if !append_paths_refer_to_same_file(input_path, output_path) {
+        assert_append_output_seeded(input_path, output_path, previous_len)?;
+    }
+    assert_append_path_unchanged(
+        input_path,
+        previous_len,
+        previous_last_byte,
+        previous_xref_start,
+    )?;
+    assert_append_path_unchanged(
+        output_path,
+        previous_len,
+        previous_last_byte,
+        previous_xref_start,
+    )?;
+
+    with_staged_incremental_output(input_path, output_path, |staged_output_path| {
+        write_native_mutations_revision(
+            &mut incremental,
+            input_path,
+            staged_output_path,
+            mutations,
+            modified_at,
+            true,
+            Some(output_path),
+        )
+    })
+}
+
+fn write_native_mutations_revision(
+    incremental: &mut IncrementalDocument,
+    input_path: &Path,
+    output_path: &Path,
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+    seeded_output: bool,
+    destination_fence: Option<&Path>,
+) -> Result<()> {
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
-    apply_native_mutations_incremental(&mut incremental, mutations, modified_at)?;
+    apply_native_mutations_incremental(incremental, mutations, modified_at)?;
 
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
-    assert_append_output_seeded(input_path, output_path, previous_len)?;
     let previous_xref_start = incremental.get_prev_documents().xref_start;
-    let revision_bytes = build_incremental_revision(&mut incremental)?;
-    let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+    if seeded_output {
+        assert_append_output_length(output_path, previous_len)?;
+    } else {
+        assert_append_output_seeded(input_path, output_path, previous_len)?;
+    }
+    if let Some(destination_path) = destination_fence {
+        assert_append_path_unchanged(
+            destination_path,
+            previous_len,
+            previous_last_byte,
+            previous_xref_start,
+        )?;
+    }
+    let revision_bytes = build_incremental_revision(incremental)?;
+    let expected_object_ids = collect_incremental_append_object_ids(incremental);
 
     validate_appended_revision_postconditions(
-        &AppendedRevision::new(&incremental),
+        &AppendedRevision::new(incremental),
         mutations,
         modified_at,
     )?;
 
+    let result = write_incremental_revision(
+        output_path,
+        incremental,
+        &revision_bytes,
+        &expected_object_ids,
+    );
+    if result.is_ok() {
+        if let Some(destination_path) = destination_fence {
+            assert_append_path_unchanged(
+                destination_path,
+                previous_len,
+                previous_last_byte,
+                previous_xref_start,
+            )?;
+        }
+    }
+    result
+}
+
+/// The non-append CLI form still has path-backed semantics. Seed its requested
+/// output and use the same incremental writer as the explicit append form so a
+/// legacy caller cannot force a whole-document read for a large PDF.
+pub(crate) fn write_native_mutations_path(
+    input_path: &Path,
+    output_path: &Path,
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    // Keep the old whole-document writer for compatibility-sized inputs. Its
+    // object-graph behavior is part of the byte-input contract; only the
+    // large path needs the qpdf-backed incremental route below.
+    let encoded_len = fs::metadata(input_path)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
+        .len();
+    if encoded_len <= MAX_ENCODED_PDF_BYTES as u64 {
+        let mut document = load_pdf_path(input_path)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+        if document.is_encrypted() {
+            return Err(domain_error(
+                NativeErrorCode::Encrypted,
+                "Encrypted PDFs are not supported by native page ops",
+            ));
+        }
+        apply_native_mutations(&mut document, mutations, modified_at)?;
+        let mut staged = AtomicOutput::create(output_path)
+            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+        document
+            .save_to(
+                staged
+                    .file_mut()
+                    .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?,
+            )
+            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+        return staged
+            .publish_if_unchanged()
+            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()));
+    }
+
+    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    if incremental.get_prev_documents().is_encrypted() {
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Encrypted PDFs are not supported by native page ops",
+        ));
+    }
+    with_staged_incremental_output(input_path, output_path, |staged_output_path| {
+        write_native_mutations_revision(
+            &mut incremental,
+            input_path,
+            staged_output_path,
+            mutations,
+            modified_at,
+            true,
+            None,
+        )
+    })
+}
+
+pub(crate) fn write_incremental_revision(
+    output_path: &Path,
+    incremental: &IncrementalDocument,
+    revision_bytes: &[u8],
+    expected_object_ids: &[ObjectId],
+) -> Result<()> {
+    let previous_len = incremental.previous_len();
+    let previous_last_byte = incremental.previous_last_byte();
+    let previous_xref_start = incremental.get_prev_documents().xref_start;
     let mut output = OpenOptions::new()
         .read(true)
         .write(true)
@@ -290,7 +490,7 @@ pub(crate) fn append_native_mutations_with_qpdf(
     )?;
     output.seek(SeekFrom::Start(previous_len))?;
     write_incremental_revision_transactionally(&mut output, previous_len, |writer| {
-        writer.write_all(&revision_bytes)?;
+        writer.write_all(revision_bytes)?;
         Ok(())
     })?;
 
@@ -298,7 +498,7 @@ pub(crate) fn append_native_mutations_with_qpdf(
         output_path,
         previous_len,
         previous_xref_start,
-        &expected_object_ids,
+        expected_object_ids,
     )
     .map_err(|error| reclassify_domain_error(error, NativeErrorCode::CorruptXref));
     if let Err(error) = validation_result {
@@ -314,7 +514,7 @@ struct SerializedIncrementalObjects {
     entries: Vec<(ObjectId, u64)>,
 }
 
-fn build_incremental_revision(incremental: &mut IncrementalDocument) -> Result<Vec<u8>> {
+pub(crate) fn build_incremental_revision(incremental: &mut IncrementalDocument) -> Result<Vec<u8>> {
     let use_xref_stream = matches!(
         incremental
             .get_prev_documents()
@@ -632,6 +832,7 @@ pub(crate) fn should_write_incremental_object(object: &Object) -> bool {
 #[cfg(test)]
 mod writer_boundary_tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn incremental_at(previous_len: u64) -> (IncrementalDocument, ObjectId) {
         let mut previous = Document::with_version("1.4");
@@ -695,10 +896,167 @@ mod writer_boundary_tests {
         let error = build_incremental_revision(&mut incremental).unwrap_err();
         assert!(error.to_string().contains("offset overflow"));
     }
+
+    #[test]
+    fn staged_output_preserves_existing_destination_when_revision_fails() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let input = std::env::temp_dir().join(format!("evb-incremental-stage-input-{nonce}"));
+        let output = std::env::temp_dir().join(format!("evb-incremental-stage-output-{nonce}"));
+        fs::write(&input, b"source-pdf").unwrap();
+        fs::write(&output, b"existing-output").unwrap();
+
+        let error = with_staged_incremental_output(&input, &output, |staged_path| {
+            fs::write(staged_path, b"partial-new-output").unwrap();
+            Err("intentional incremental failure".into())
+        })
+        .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("intentional incremental failure"));
+        assert_eq!(fs::read(&output).unwrap(), b"existing-output");
+        let prefix = format!(
+            ".{}.evb-tmp-",
+            output.file_name().unwrap().to_string_lossy()
+        );
+        assert!(!fs::read_dir(output.parent().unwrap())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .any(|entry| { entry.file_name().to_string_lossy().starts_with(&prefix) }));
+
+        let _ = fs::remove_file(input);
+        let _ = fs::remove_file(output);
+    }
+
+    #[test]
+    fn staged_output_preserves_same_file_when_revision_fails() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("evb-incremental-same-stage-{nonce}"));
+        fs::write(&path, b"existing-output").unwrap();
+
+        let error = with_staged_incremental_output(&path, &path, |staged_path| {
+            fs::write(staged_path, b"partial-new-output").unwrap();
+            Err("intentional same-file failure".into())
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("intentional same-file failure"));
+        assert_eq!(fs::read(&path).unwrap(), b"existing-output");
+        let prefix = format!(".{}.evb-tmp-", path.file_name().unwrap().to_string_lossy());
+        assert!(!fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .any(|entry| entry.file_name().to_string_lossy().starts_with(&prefix)));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn staged_output_publishes_a_complete_same_file_revision() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("evb-incremental-same-stage-ok-{nonce}"));
+        fs::write(&path, b"existing-output").unwrap();
+
+        with_staged_incremental_output(&path, &path, |staged_path| {
+            let mut staged = OpenOptions::new().append(true).open(staged_path)?;
+            staged.write_all(b"-complete-revision")?;
+            staged.flush()?;
+            Ok(())
+        })
+        .unwrap();
+
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            b"existing-output-complete-revision"
+        );
+        let prefix = format!(".{}.evb-tmp-", path.file_name().unwrap().to_string_lossy());
+        assert!(!fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .any(|entry| entry.file_name().to_string_lossy().starts_with(&prefix)));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn staged_output_seed_failure_preserves_existing_destination() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let input = std::env::temp_dir().join(format!("evb-incremental-missing-stage-{nonce}"));
+        let output = std::env::temp_dir().join(format!("evb-incremental-seed-stage-{nonce}"));
+        fs::write(&output, b"existing-output").unwrap();
+        let closure_called = std::cell::Cell::new(false);
+
+        let error = with_staged_incremental_output(&input, &output, |_staged_path| {
+            closure_called.set(true);
+            Ok(())
+        })
+        .unwrap_err();
+
+        assert!(!closure_called.get());
+        assert_eq!(
+            error.downcast_ref::<NativeError>().map(|error| error.code),
+            Some(NativeErrorCode::Io)
+        );
+        assert_eq!(fs::read(&output).unwrap(), b"existing-output");
+        let prefix = format!(
+            ".{}.evb-tmp-",
+            output.file_name().unwrap().to_string_lossy()
+        );
+        assert!(!fs::read_dir(output.parent().unwrap())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .any(|entry| entry.file_name().to_string_lossy().starts_with(&prefix)));
+        fs::remove_file(output).unwrap();
+    }
+
+    #[test]
+    fn staged_output_validation_failure_preserves_existing_destination() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let input = std::env::temp_dir().join(format!("evb-incremental-validation-input-{nonce}"));
+        let output =
+            std::env::temp_dir().join(format!("evb-incremental-validation-output-{nonce}"));
+        fs::write(&input, b"source-pdf").unwrap();
+        fs::write(&output, b"existing-output").unwrap();
+        let previous_len = fs::metadata(&input).unwrap().len();
+
+        let error = with_staged_incremental_output(&input, &output, |staged_path| {
+            let mut staged = OpenOptions::new().append(true).open(staged_path)?;
+            staged.write_all(b"partial-revision")?;
+            staged.flush()?;
+            validate_incremental_append_output(staged_path, previous_len, 0, &[])
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("missing an EOF marker"));
+        assert_eq!(fs::read(&output).unwrap(), b"existing-output");
+        let prefix = format!(
+            ".{}.evb-tmp-",
+            output.file_name().unwrap().to_string_lossy()
+        );
+        assert!(!fs::read_dir(output.parent().unwrap())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .any(|entry| entry.file_name().to_string_lossy().starts_with(&prefix)));
+        fs::remove_file(input).unwrap();
+        fs::remove_file(output).unwrap();
+    }
 }
 
 pub(crate) fn validate_incremental_append_output(
-    output_path: &PathBuf,
+    output_path: &Path,
     previous_len: u64,
     previous_xref_start: usize,
     expected_object_ids: &[ObjectId],

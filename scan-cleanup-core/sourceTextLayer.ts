@@ -4,6 +4,7 @@ import {
     assertCanonicalPdfPageSizes,
     type IPdfPageSize,
 } from '@scan-cleanup-core/types';
+import type {IPdfPageSizeStore} from '@scan-cleanup-core/pdfPageSizes';
 import {resolveScanCleanupMatchedCanvasPlacement} from '@scan-cleanup-core/policy/documentCanvas';
 
 export interface IScanCleanupTextLayerPlan {
@@ -246,6 +247,48 @@ export function buildScanCleanupTextLayerPlan(
             pages.push(instruction);
         }
     });
+    return {
+        pages,
+        skippedNonAffine: [...skippedNonAffine].sort((left, right) => left - right),
+        alreadyPreserved: [...alreadyPreserved].sort((left, right) => left - right),
+    };
+}
+
+/**
+ * Build text-layer instructions from the bounded geometry store used by an
+ * xlarge conversion child. The store is not closed here. The conversion owns
+ * its sidecar for the whole parent run, and this helper asks only for the
+ * output pages in the current native batch.
+ */
+export async function buildScanCleanupTextLayerPlanFromPageSizeStore(
+    outputs: readonly IRenderedCleanupOutputPage[],
+    pageSizeStore: IPdfPageSizeStore,
+    signal?: AbortSignal,
+): Promise<IScanCleanupTextLayerPlan> {
+    const pages: IScanCleanupTextLayerInstruction[] = [];
+    const skippedNonAffine = new Set<number>();
+    const alreadyPreserved = new Set<number>();
+    for (const [
+        outputPageIndex,
+        output,
+    ] of outputs.entries()) {
+        signal?.throwIfAborted();
+        if (output.preservedSource !== undefined) {
+            alreadyPreserved.add(output.sourcePageNumber);
+            continue;
+        }
+        const pageSize = await pageSizeStore.getPage(output.sourcePageNumber);
+        const instruction = resolveScanCleanupTextLayerInstruction(
+            output,
+            outputPageIndex,
+            pageSize,
+        );
+        if (instruction === null) {
+            skippedNonAffine.add(output.sourcePageNumber);
+        } else {
+            pages.push(instruction);
+        }
+    }
     return {
         pages,
         skippedNonAffine: [...skippedNonAffine].sort((left, right) => left - right),

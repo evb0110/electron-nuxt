@@ -7,6 +7,7 @@ import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import {
     type IPdfPageRasterScheduler,
+    hasActivePdfjsAnnotationEditorDraft,
     useOcrTextContent,
     usePageContextMenu,
     usePdfHistory,
@@ -137,7 +138,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
         loadPdfFromData,
-        readWorkingCopyBytes,
         saveFile,
         repairWorkingCopy,
         optimizeWorkingCopy,
@@ -188,6 +188,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleDropdownOpenChange,
         openDropdown,
         selectedThumbnailPages,
+        selectedPageSelection,
+        setSelectedPageSelection,
         setSelectedThumbnailPages,
         requestThumbnailInvalidation,
         zoom,
@@ -400,9 +402,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         void annotationComments.value;
         return hasAnnotationChanges();
     });
+    const hasActivePdfJsEditorDraft = computed(() => (
+        hasActivePdfjsAnnotationEditorDraft(annotationEditorState.value)
+    ));
     const hasPendingUnsavedChanges = computed(() => (
         annotationDirty.value
         || isDirty.value
+        || hasActivePdfJsEditorDraft.value
         || hasReactiveAnnotationChanges.value
         || hasSavedPdfJsAnnotationBaselineChanges()
         || pendingEmbeddedAnnotationDeleteCount.value > 0
@@ -412,6 +418,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     ));
     const hasPendingPrintSerializationChanges = computed(() => (
         annotationDirty.value
+        || hasActivePdfJsEditorDraft.value
         || hasReactiveAnnotationChanges.value
         || pendingEmbeddedAnnotationDeleteCount.value > 0
         || preservedAnnotationSourceDirty.value
@@ -488,6 +495,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         getSourcePdfData,
         serializePdfForSave,
         saveForExternalRead,
+        getNativeSaveTransactionOptions,
     } = pageSaveOrchestration;
     useShutdownSaveFlushReporting({
         workingCopyPath,
@@ -625,6 +633,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         currentPage,
         waitForPdfReload,
         loadPdfFromData,
+        loadPdfFromPath,
+        getNativeSaveTransactionOptions,
     });
     const annotationActions = usePageAnnotationActions({
         pdfViewerRef,
@@ -648,6 +658,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isSameAnnotationComment,
         annotationNoteWindows,
         loadPdfFromData,
+        loadPdfFromPath,
+        materializeAnnotationsForPageMutation,
         waitForPdfReload,
         invalidateThumbnailPages: requestThumbnailInvalidation,
         markPreservedAnnotationSourceDirty,
@@ -707,6 +719,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         totalPages,
         selectedThumbnailPages,
         setSelectedThumbnailPages,
+        selectedPageSelection,
+        setSelectedPageSelection,
         requestThumbnailInvalidation,
         pdfViewerRef,
         canMutatePages,
@@ -745,7 +759,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasPendingUnsavedChanges,
         pdfData,
         pdfViewerRef,
-        readWorkingCopyBytes,
         source: {
             getSourcePdfData,
             serializePdfForSave,
@@ -842,6 +855,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         getCurrentPrintPage: () => documentViewerRef.value?.getCurrentPage?.() ?? currentPage.value,
         getQuickPrintPageMetrics,
         ensurePrintReady,
+        ensureWorkingCopyFreshForRead,
         getPrintableSourceData,
         renderLoadedPdfPagesForBrowserPrint,
         printDjvuSource: printDriverSource,
@@ -899,6 +913,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openFileWithViewerLifecycle,
         waitForPdfReload,
         loadPdfFromPath,
+        documentRevisionToken,
+        getNativeSaveTransactionOptions,
         preserveInitialStateForFirstSource: deps.preserveInitialStateForFirstSource,
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });

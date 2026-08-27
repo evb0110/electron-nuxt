@@ -281,7 +281,6 @@ export interface IPdfSearchRequestOptions extends ISearchMatchOptions {
 
 export const SEARCH_REQUEST_ID_MAX_LENGTH = 128;
 export const SEARCH_PDF_PATH_MAX_LENGTH = 4_096;
-export const SEARCH_PAGE_COUNT_DEFAULT_MAX = 20_000;
 export const SEARCH_QUERY_MAX_LENGTH = 2_048;
 export const SEARCH_REGEX_QUERY_MAX_LENGTH = 512;
 export const SEARCH_DOCUMENT_REVISION_TOKEN_MAX_LENGTH = 8_192;
@@ -687,10 +686,11 @@ export function normalizeOptionalSearchRequestId(raw: unknown) {
     return requestId;
 }
 
-export function normalizeOptionalSearchPageCount(
-    raw: unknown,
-    maxPageCount = SEARCH_PAGE_COUNT_DEFAULT_MAX,
-) {
+/**
+ * Validate a declared document page count without imposing a product cap.
+ * Consumers must keep work and messages bounded independently of this scalar.
+ */
+export function normalizeOptionalSearchPageCount(raw: unknown) {
     if (raw === undefined) {
         return undefined;
     }
@@ -699,9 +699,8 @@ export function normalizeOptionalSearchPageCount(
         typeof raw !== 'number'
         || !Number.isSafeInteger(raw)
         || raw < 1
-        || raw > maxPageCount
     ) {
-        throw new Error(`Invalid pageCount: must be an integer between 1 and ${maxPageCount}`);
+        throw new Error('Invalid pageCount: must be a positive safe integer');
     }
 
     return raw;
@@ -748,7 +747,6 @@ export interface INormalizedPdfSearchWarmIndexRequest extends IPdfSearchRequestO
 
 export function normalizePdfSearchRequestPayload(
     raw: unknown,
-    options: {pageCountMax?: number;} = {},
 ): INormalizedPdfSearchRequest {
     if (!isRecord(raw)) {
         throw new Error('Invalid search request payload');
@@ -757,7 +755,7 @@ export function normalizePdfSearchRequestPayload(
         throw new Error('Invalid search query');
     }
 
-    const pageCount = normalizeOptionalSearchPageCount(raw.pageCount, options.pageCountMax);
+    const pageCount = normalizeOptionalSearchPageCount(raw.pageCount);
     const requestId = normalizeOptionalSearchRequestId(raw.requestId);
     const documentRevision = normalizeOptionalSearchDocumentRevision(raw.documentRevision);
     const matchCase = normalizeSearchBooleanOption(raw.matchCase);
@@ -783,13 +781,12 @@ export function normalizePdfSearchRequestPayload(
 
 export function normalizePdfSearchWarmIndexPayload(
     raw: unknown,
-    options: {pageCountMax?: number;} = {},
 ): INormalizedPdfSearchWarmIndexRequest {
     if (!isRecord(raw)) {
         throw new Error('Invalid warm-index payload');
     }
 
-    const pageCount = normalizeOptionalSearchPageCount(raw.pageCount, options.pageCountMax);
+    const pageCount = normalizeOptionalSearchPageCount(raw.pageCount);
     const requestId = normalizeOptionalSearchRequestId(raw.requestId);
     const documentRevision = normalizeOptionalSearchDocumentRevision(raw.documentRevision);
 

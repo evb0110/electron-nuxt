@@ -5,9 +5,9 @@ import type {
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 /**
- * Ceilings on one background inventory pass, exported so the tests that cover
- * the truncation behaviour bind to the same numbers the scan enforces instead
- * of restating them.
+ * Scheduling budgets for one background inventory pass. They are exported so
+ * the renderer and tests use the same yield boundaries. A budget boundary does
+ * not omit pages or records from the eventual inventory.
  */
 export const MAX_BACKGROUND_PDF_ANNOTATION_PAGES = 5_000;
 export const MAX_BACKGROUND_PDF_ANNOTATION_RECORDS = 25_000;
@@ -16,8 +16,7 @@ const COMPLETE_INVENTORY_OMISSIONS: readonly TAnnotationInventoryOmission[] = Ob
 
 /**
  * Page read failures are transient, so a snapshot that hit one is worth one
- * more scan. Both caps are deterministic for a given revision: rescanning
- * truncates at exactly the same place, so retrying only burns the UI thread.
+ * more scan. Scheduling budgets are not omissions and do not trigger a retry.
  */
 function isRetryableInventoryCompleteness(completeness: IAnnotationInventoryCompleteness) {
     return completeness.failedPageCount > 0;

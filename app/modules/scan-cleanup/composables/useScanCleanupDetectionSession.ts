@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Sparse detection state and lifecycle ownership live together. */
 import type {
     IScanCleanupDetectionResult,
     IScanCleanupSourcePageMetadata,
@@ -9,6 +10,7 @@ import type {
     TScanCleanupDetectionJobState,
 } from '@contracts/electronApiScanCleanup';
 import {
+    attachScanCleanupPageOverrideDefaults,
     estimateScanCleanupOutputPages,
     getScanCleanupPageOverride,
     resolveScanCleanupPageLayout,
@@ -39,6 +41,11 @@ type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata'
 
 const DETECTION_CANCELLATION_TIMEOUT_MS = 10_000;
 const DETECTION_SUBSCRIPTION_RECONCILIATION_ATTEMPTS = 3;
+// Native emits full result arrays only below this document-size boundary.
+// Larger jobs stream one bounded batch at a time, so the renderer keeps only
+// the recent pages needed for an active preview and explicit edits.
+const DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT = 20_000;
+const DETECTION_PAGE_CACHE_LIMIT = 256;
 
 interface IUseScanCleanupDetectionSessionOptions {
     active: () => boolean;
@@ -92,12 +99,17 @@ function yieldToDetectionReconciliation() {
 }
 
 export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetectionSessionOptions) => {
+    attachScanCleanupPageOverrideDefaults(
+        options.settings.pageOverrides,
+        options.settings.pageOverrideDefaults,
+        options.settings.marginsMm,
+    );
     const {t} = useTypedI18n();
     const starting = ref(false);
     const autoPending = ref(false);
     const jobState = shallowRef<TScanCleanupDetectionJobState | null>(null);
     const documentCanvasSignature = shallowRef('');
-    const detectionResultsByPage = new Map<number, IScanCleanupDetectionResult>();
+    const detectionResultsByPage = reactive(new Map<number, IScanCleanupDetectionResult>());
     const error = ref('');
     const errorCode = ref<TScanCleanupErrorCode | null>(null);
     const signatures = new Map<number, string>();
@@ -120,16 +132,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         new Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputModeReason']>>(),
     );
     const softAlphaForegroundRecommendationByPage = reactive(new Map<number, boolean>());
-    const sourcePageMetadataByPage = computed<ReadonlyMap<number, IScanCleanupSourcePageMetadata>>(
-        () => new Map(
-            (jobState.value?.results ?? []).flatMap(result => result.sourcePageMetadata === undefined
-                ? []
-                : [[
-                    result.pageNumber,
-                    result.sourcePageMetadata,
-                ] as const]),
-        ),
-    );
+    const sourcePageMetadataByPage = reactive(new Map<number, IScanCleanupSourcePageMetadata>());
+    const retainedDetectionPages = new Set<number>();
+    const detectionResultCount = ref(0);
+    const detectionEvidenceComplete = ref(false);
+    const detectionResultStoreId = shallowRef<string | null>(null);
     let jobId: string | null = null;
     let jobDocumentKey: string | null = null;
     let jobDocumentRevision: string | null = null;
@@ -215,7 +222,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
 
     const manualLayoutOverrideByPage = computed<ReadonlyMap<number, TScanCleanupLayoutClassification>>(() => {
         const layouts = new Map<number, TScanCleanupLayoutClassification>();
-        for (let pageNumber = 1; pageNumber <= options.totalPages.value; pageNumber += 1) {
+        for (const pageKey of Object.keys(options.settings.pageOverrides)) {
+            const pageNumber = Number(pageKey);
+            if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > options.totalPages.value) {
+                continue;
+            }
             const classification = resolveManualLayoutClassification(
                 options.settings,
                 getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber),
@@ -280,7 +291,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // implementation detail. Count only actual page verdicts so the one
     // user-facing pre-analysis counter never changes meaning or moves backward.
     const preAnalysisProgress = computed(() => ({
-        completedUnits: jobState.value?.results.length ?? 0,
+        completedUnits: Math.min(options.totalPages.value, detectionResultCount.value),
         totalUnits: Math.max(1, options.totalPages.value),
     }));
     const preAnalysisParts = computed(() => formatScanCleanupPreAnalysisProgress(preAnalysisProgress.value, t));
@@ -357,57 +368,102 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             normalizeIllumination: !lossless && (options.settings.normalizeIllumination ?? true),
             autoDewarp: !lossless && (options.settings.autoDewarp ?? false),
             autoDewarpDepth: options.settings.autoDewarpDepth,
+            pageOverrideDefaults: options.settings.pageOverrideDefaults,
         });
     });
-    const pageOverrideSignatures = new Map<number, ComputedRef<string>>();
-
     function pageOverrideSignature(pageNumber: number) {
-        let signature = pageOverrideSignatures.get(pageNumber);
-        if (!signature) {
-            signature = computed(() => {
-                const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
-                return JSON.stringify({
-                    layoutOverride: pageOverride.layoutOverride,
-                    rotationDegrees: pageOverride.rotationDegrees,
-                    manualSplit: pageOverride.manualSplit,
-                    manualSkewDegrees: pageOverride.manualSkewDegrees,
-                    manualZones: pageOverride.manualZones ?? {
-                        picture: [],
-                        fill: [],
-                    },
-                });
-            });
-            pageOverrideSignatures.set(pageNumber, signature);
-        }
-        return signature.value;
+        const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
+        return JSON.stringify({
+            layoutOverride: pageOverride.layoutOverride,
+            rotationDegrees: pageOverride.rotationDegrees,
+            manualSplit: pageOverride.manualSplit,
+            manualSkewDegrees: pageOverride.manualSkewDegrees,
+            manualZones: pageOverride.manualZones ?? {
+                picture: [],
+                fill: [],
+            },
+        });
     }
 
-    // Settings changes are the only thing that invalidates an evidence
-    // signature, so the document portion is serialized once per change and a
-    // page's override portion is recomputed only when that page's reactive
-    // override entry changes.
-    const signatureByPage = computed(() => new Map(Array.from(
-        {length: options.totalPages.value},
-        (_, index) => [
-            index + 1,
-            `${documentSignature.value}:${pageOverrideSignature(index + 1)}`,
-        ] as const,
-    )));
+    // The default page portion is the same for every untouched page. Keep that
+    // one value scalar, then store only explicitly edited pages for a running
+    // detection request.
+    const defaultPageOverrideSignature = computed(() => pageOverrideSignature(0));
+    const pageOverrideSignatureToken = computed(() => Object.keys(options.settings.pageOverrides)
+        .map(pageKey => {
+            const pageSignature = pageOverrideSignature(Number(pageKey));
+            return pageSignature === defaultPageOverrideSignature.value
+                ? ''
+                : `${pageKey}:${pageSignature}`;
+        })
+        .filter(Boolean)
+        .sort()
+        .join(','));
+    let detectionDocumentSignature = documentSignature.value;
+    let detectionPageOverrideSignatureToken = pageOverrideSignatureToken.value;
+    const detectionPageOverrideSignatures = new Map<number, string>();
+
+    function captureDetectionSignatures() {
+        detectionDocumentSignature = documentSignature.value;
+        detectionPageOverrideSignatureToken = pageOverrideSignatureToken.value;
+        detectionPageOverrideSignatures.clear();
+        for (const pageKey of Object.keys(options.settings.pageOverrides)) {
+            const pageNumber = Number(pageKey);
+            if (
+                Number.isSafeInteger(pageNumber)
+                && pageNumber >= 1
+                && pageNumber <= options.totalPages.value
+            ) {
+                const pageSignature = pageOverrideSignature(pageNumber);
+                if (pageSignature !== defaultPageOverrideSignature.value) {
+                    detectionPageOverrideSignatures.set(pageNumber, pageSignature);
+                }
+            }
+        }
+    }
+
+    function readPageOverrideSignatures() {
+        const current = new Map<number, string>();
+        for (const pageKey of Object.keys(options.settings.pageOverrides)) {
+            const pageNumber = Number(pageKey);
+            if (
+                Number.isSafeInteger(pageNumber)
+                && pageNumber >= 1
+                && pageNumber <= options.totalPages.value
+            ) {
+                const pageSignature = pageOverrideSignature(pageNumber);
+                if (pageSignature !== defaultPageOverrideSignature.value) {
+                    current.set(pageNumber, pageSignature);
+                }
+            }
+        }
+        return current;
+    }
+
+    let observedDocumentSignature = documentSignature.value;
+    let observedPageOverrideSignatures = readPageOverrideSignatures();
+    let observedTotalPages = options.totalPages.value;
+
+    function detectionRequestSignature(pageNumber: number) {
+        return `${detectionDocumentSignature}:${detectionPageOverrideSignatures.get(pageNumber)
+            ?? defaultPageOverrideSignature.value}`;
+    }
 
     function signature(pageNumber: number) {
-        return signatureByPage.value.get(pageNumber) ?? `${documentSignature.value}:${pageOverrideSignature(pageNumber)}`;
+        return `${documentSignature.value}:${pageOverrideSignature(pageNumber)}`;
     }
 
     function evidenceIsCurrent(evidenceSignatures: ReadonlyMap<number, string> = signatures) {
-        if (evidenceSignatures.size !== options.totalPages.value) {
-            return false;
-        }
-        for (let pageNumber = 1; pageNumber <= options.totalPages.value; pageNumber += 1) {
-            if (evidenceSignatures.get(pageNumber) !== signature(pageNumber)) {
-                return false;
-            }
-        }
-        return true;
+        // A terminal detection state records one signature per result page.
+        // Page edits remove just that entry, while document-wide edits clear the
+        // map. Size therefore proves coverage and the scalar document token
+        // avoids walking a million-page document to compare identical values.
+        return (
+            evidenceSignatures.size === options.totalPages.value
+            || (detectionEvidenceComplete.value && detectionResultCount.value === options.totalPages.value)
+        )
+            && detectionDocumentSignature === documentSignature.value
+            && detectionPageOverrideSignatureToken === pageOverrideSignatureToken.value;
     }
 
     async function reconcileDetectionJobState(
@@ -430,6 +486,71 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
         }
         return null;
+    }
+
+    function clearDetectionEvidence() {
+        signatures.clear();
+        detectionResultsByPage.clear();
+        retainedDetectionPages.clear();
+        detectionResultCount.value = 0;
+        detectionEvidenceComplete.value = false;
+        detectionResultStoreId.value = null;
+        detectedLayoutByPage.clear();
+        confidenceByPage.clear();
+        documentPriorByPage.clear();
+        settledPages.clear();
+        textAxisByPage.clear();
+        pagePlanEvidenceByPage.clear();
+        sourcePageMetadataByPage.clear();
+        clearOutputModeRecommendations();
+    }
+
+    function clearDetectionEvidenceForPage(pageNumber: number) {
+        retainedDetectionPages.delete(pageNumber);
+        signatures.delete(pageNumber);
+        detectionResultsByPage.delete(pageNumber);
+        detectedLayoutByPage.delete(pageNumber);
+        confidenceByPage.delete(pageNumber);
+        documentPriorByPage.delete(pageNumber);
+        settledPages.delete(pageNumber);
+        textAxisByPage.delete(pageNumber);
+        pagePlanEvidenceByPage.delete(pageNumber);
+        sourcePageMetadataByPage.delete(pageNumber);
+        recommendedOutputModeByPage.delete(pageNumber);
+        recommendedOutputModeConfidenceByPage.delete(pageNumber);
+        recommendedOutputModeReasonByPage.delete(pageNumber);
+        softAlphaForegroundRecommendationByPage.delete(pageNumber);
+    }
+
+    function retainDetectionPage(pageNumber: number) {
+        retainedDetectionPages.delete(pageNumber);
+        retainedDetectionPages.add(pageNumber);
+        if (options.totalPages.value <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT) {
+            return;
+        }
+        while (retainedDetectionPages.size > DETECTION_PAGE_CACHE_LIMIT) {
+            const oldest = retainedDetectionPages.values().next().value;
+            if (oldest === undefined) {
+                return;
+            }
+            clearDetectionEvidenceForPage(oldest);
+        }
+    }
+
+    function retainSettledPage(pageNumber: number) {
+        if (options.totalPages.value <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT) {
+            settledPages.add(pageNumber);
+            return;
+        }
+        settledPages.delete(pageNumber);
+        settledPages.add(pageNumber);
+        while (settledPages.size > DETECTION_PAGE_CACHE_LIMIT) {
+            const oldest = settledPages.values().next().value;
+            if (oldest === undefined) {
+                return;
+            }
+            settledPages.delete(oldest);
+        }
     }
 
     function applyState(state: TScanCleanupDetectionJobState) {
@@ -455,22 +576,45 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 return;
             }
         }
-        for (const result of state.results) detectionResultsByPage.set(result.pageNumber, result);
+        const reportedResultCount = state.resultCount
+            ?? (state.progress.stage === 'detecting'
+                ? state.progress.completedUnits
+                : detectionResultCount.value);
+        detectionResultCount.value = Math.max(detectionResultCount.value, reportedResultCount);
+        if (state.status === 'completed') {
+            detectionEvidenceComplete.value = detectionResultCount.value >= options.totalPages.value;
+        }
         for (const result of state.results) {
+            detectionResultsByPage.set(result.pageNumber, result);
+            retainDetectionPage(result.pageNumber);
+            const requestSignature = detectionRequestSignature(result.pageNumber);
+            if (requestSignature === signature(result.pageNumber)) {
+                signatures.set(result.pageNumber, requestSignature);
+            } else {
+                signatures.delete(result.pageNumber);
+            }
+            if (result.sourcePageMetadata !== undefined) {
+                sourcePageMetadataByPage.set(result.pageNumber, result.sourcePageMetadata);
+            } else {
+                sourcePageMetadataByPage.delete(result.pageNumber);
+            }
             if (result.pagePlanEvidence !== undefined) {
                 pagePlanEvidenceByPage.set(result.pageNumber, result.pagePlanEvidence);
+            } else {
+                pagePlanEvidenceByPage.delete(result.pageNumber);
             }
         }
-        const accumulatedState = {
-            ...state,
-            results: [...detectionResultsByPage.values()]
-                .sort((left, right) => left.pageNumber - right.pageNumber),
-        };
-        jobState.value = accumulatedState;
-        documentCanvasSignature.value = accumulatedState.documentCanvasSignature ?? '';
-        for (const pageNumber of state.progress.completedPageNumbers ?? []) settledPages.add(pageNumber);
+        jobState.value = state;
+        documentCanvasSignature.value = state.documentCanvasSignature ?? '';
+        if (state.detectionResultStoreId !== undefined) {
+            detectionResultStoreId.value = state.detectionResultStoreId;
+        }
+        for (const pageNumber of state.progress.completedPageNumbers ?? []) retainSettledPage(pageNumber);
         const completedWithCurrentEvidence = state.status === 'completed' && evidenceIsCurrent();
         applyScanCleanupDetectionResults(
+            // `detectionResultsByPage` is a reactive Map, so Vue may wrap its
+            // values in proxies. The state payload already contains the latest
+            // bounded window and is the authoritative batch to derive from.
             state.results,
             detectedLayoutByPage,
             confidenceByPage,
@@ -482,30 +626,37 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             recommendedOutputModeReasonByPage,
             softAlphaForegroundRecommendationByPage,
         );
-        if (accumulatedState.status === 'failed') {
+        if (state.status === 'failed') {
             // A scratch refusal is the one detection failure the user can act
             // on, so it is stated in full instead of a generic headline with
             // the English exception appended to it.
-            error.value = accumulatedState.errorCode === 'insufficient-scratch'
-                ? formatScanCleanupScratchMessage(t, accumulatedState.scratchShortfall)
+            error.value = state.errorCode === 'insufficient-scratch'
+                ? formatScanCleanupScratchMessage(t, state.scratchShortfall)
                 : formatScanCleanupErrorMessage(
                     t('scanCleanup.detectAll.failed'),
-                    accumulatedState.error,
+                    state.error,
                 );
-            errorCode.value = accumulatedState.errorCode;
-        } else if (accumulatedState.status === 'completed') {
+            errorCode.value = state.errorCode;
+        } else if (state.status === 'completed') {
             error.value = '';
             errorCode.value = null;
-        } else if (accumulatedState.status === 'canceled') {
+        } else if (state.status === 'canceled') {
             error.value = '';
             errorCode.value = null;
         }
-        if (!disposed && jobDocumentKey && completedWithCurrentEvidence) {
+        if (
+            !disposed
+            && jobDocumentKey
+            && completedWithCurrentEvidence
+            && options.totalPages.value <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
+        ) {
             detectionSessionCache.set(jobDocumentKey, {
                 ownerId: options.ownerId,
-                results: accumulatedState.results.map(result => ({...result})),
+                results: state.results.map(result => ({...result})),
                 signatures: new Map(signatures),
-                state: structuredClone(accumulatedState),
+                documentSignature: detectionDocumentSignature,
+                signatureToken: detectionPageOverrideSignatureToken,
+                state: structuredClone(state),
                 totalPages: state.progress.totalUnits,
             });
         }
@@ -529,10 +680,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         if (!automatic && options.lifecycleDocumentKey.value) {
             autoDetectionCanceledDocuments.delete(options.lifecycleDocumentKey.value);
         }
+        captureDetectionSignatures();
         signatures.clear();
-        for (let pageNumber = 1; pageNumber <= options.totalPages.value; pageNumber += 1) {
-            signatures.set(pageNumber, signature(pageNumber));
-        }
         const requestSourcePath = options.sourcePath.value;
         const requestDocumentRevision = options.documentRevision.value;
         const generation = ++requestGeneration;
@@ -545,6 +694,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         jobId = null;
         jobState.value = null;
         documentCanvasSignature.value = '';
+        detectionResultStoreId.value = null;
         starting.value = true;
         let result;
         try {
@@ -585,14 +735,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             errorCode.value = result.errorCode;
             return;
         }
-        detectedLayoutByPage.clear();
-        confidenceByPage.clear();
-        documentPriorByPage.clear();
-        detectionResultsByPage.clear();
-        settledPages.clear();
-        textAxisByPage.clear();
-        pagePlanEvidenceByPage.clear();
-        clearOutputModeRecommendations();
+        clearDetectionEvidence();
         jobId = result.jobId;
         jobState.value = {
             jobId: result.jobId,
@@ -858,7 +1001,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         if (
             (!authoritativeIdentity && entry.ownerId !== options.ownerId)
             || entry.totalPages !== options.totalPages.value
+            || options.totalPages.value > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
             || entry.signatures.size !== options.totalPages.value
+            || entry.documentSignature !== documentSignature.value
+            || entry.signatureToken !== pageOverrideSignatureToken.value
         ) {
             return false;
         }
@@ -872,6 +1018,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         if (key === null) {
             return false;
         }
+        captureDetectionSignatures();
         const cached = detectionSessionCache.get(key);
         if (!cached || !cacheIsFresh(cached, key)) {
             return false;
@@ -880,15 +1027,27 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         jobDocumentRevision = options.documentRevision.value;
         jobState.value = structuredClone(cached.state);
         documentCanvasSignature.value = cached.state.documentCanvasSignature ?? '';
+        detectionResultCount.value = cached.state.resultCount ?? cached.results.length;
+        detectionEvidenceComplete.value = detectionResultCount.value >= options.totalPages.value;
         detectionResultsByPage.clear();
-        for (const result of cached.results) detectionResultsByPage.set(result.pageNumber, result);
+        retainedDetectionPages.clear();
+        for (const result of cached.results) {
+            detectionResultsByPage.set(result.pageNumber, result);
+            retainDetectionPage(result.pageNumber);
+        }
+        sourcePageMetadataByPage.clear();
+        for (const result of cached.results) {
+            if (result.sourcePageMetadata !== undefined) {
+                sourcePageMetadataByPage.set(result.pageNumber, result.sourcePageMetadata);
+            }
+        }
         signatures.clear();
         for (const [
             pageNumber,
             value,
         ] of cached.signatures) signatures.set(pageNumber, value);
         settledPages.clear();
-        for (const result of cached.results) settledPages.add(result.pageNumber);
+        for (const result of cached.results) retainSettledPage(result.pageNumber);
         applyScanCleanupDetectionResults(
             cached.results,
             detectedLayoutByPage,
@@ -1020,15 +1179,13 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         documentCanvasSignature.value = '';
         error.value = '';
         errorCode.value = null;
-        signatures.clear();
-        detectionResultsByPage.clear();
-        detectedLayoutByPage.clear();
-        confidenceByPage.clear();
-        documentPriorByPage.clear();
-        settledPages.clear();
-        textAxisByPage.clear();
-        pagePlanEvidenceByPage.clear();
-        clearOutputModeRecommendations();
+        clearDetectionEvidence();
+        detectionDocumentSignature = documentSignature.value;
+        detectionPageOverrideSignatureToken = pageOverrideSignatureToken.value;
+        detectionPageOverrideSignatures.clear();
+        observedDocumentSignature = documentSignature.value;
+        observedPageOverrideSignatures = readPageOverrideSignatures();
+        observedTotalPages = options.totalPages.value;
         autoPending.value = Boolean(options.active() && options.sourcePath.value);
         // The mounted hook owns the initial auto-detect; scheduling it here too
         // would race a just-started or just-completed job on the same document.
@@ -1045,6 +1202,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         // observe a null transition of its own.
         discardScanCleanupDetectionStateForAliases([...documentAliases]);
         documentAliases.clear();
+        clearDetectionEvidence();
     });
     watch(options.active, active => {
         if (active) scheduleAutoDetect();
@@ -1065,36 +1223,41 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         },
     );
     watch(
-        () => Array.from(
-            {length: options.totalPages.value},
-            (_, index) => signature(index + 1),
-        ),
-        (currentSignatures, previousSignatures) => {
-            if (
-                currentSignatures.length === previousSignatures.length
-                && currentSignatures.every((value, index) => value === previousSignatures[index])
-            ) {
+        [
+            documentSignature,
+            pageOverrideSignatureToken,
+            options.totalPages,
+        ],
+        ([
+            currentDocumentSignature,
+            ,
+            currentTotalPages,
+        ]) => {
+            const currentPageSignatures = readPageOverrideSignatures();
+            const documentChanged = currentDocumentSignature !== observedDocumentSignature;
+            const pageCountChanged = currentTotalPages !== observedTotalPages;
+            const changedPages = new Set<number>();
+            if (documentChanged || pageCountChanged) {
+                clearDetectionEvidence();
+            } else {
+                for (const pageNumber of new Set([
+                    ...observedPageOverrideSignatures.keys(),
+                    ...currentPageSignatures.keys(),
+                ])) {
+                    if (observedPageOverrideSignatures.get(pageNumber) !== currentPageSignatures.get(pageNumber)) {
+                        changedPages.add(pageNumber);
+                    }
+                }
+                for (const pageNumber of changedPages) clearDetectionEvidenceForPage(pageNumber);
+            }
+            observedDocumentSignature = currentDocumentSignature;
+            observedPageOverrideSignatures = currentPageSignatures;
+            observedTotalPages = currentTotalPages;
+            if (!documentChanged && !pageCountChanged && changedPages.size === 0) {
                 return;
             }
             const key = options.lifecycleDocumentKey.value;
             if (key !== null) detectionSessionCache.delete(key);
-            for (let index = 0; index < currentSignatures.length; index += 1) {
-                if (currentSignatures[index] === previousSignatures[index]) {
-                    continue;
-                }
-                const pageNumber = index + 1;
-                detectedLayoutByPage.delete(pageNumber);
-                settledPages.delete(pageNumber);
-                confidenceByPage.delete(pageNumber);
-                documentPriorByPage.delete(pageNumber);
-                detectionResultsByPage.delete(pageNumber);
-                textAxisByPage.delete(pageNumber);
-                pagePlanEvidenceByPage.delete(pageNumber);
-                recommendedOutputModeByPage.delete(pageNumber);
-                recommendedOutputModeConfidenceByPage.delete(pageNumber);
-                recommendedOutputModeReasonByPage.delete(pageNumber);
-                softAlphaForegroundRecommendationByPage.delete(pageNumber);
-            }
             if (!isDetecting.value) {
                 jobState.value = null;
                 documentCanvasSignature.value = '';
@@ -1128,6 +1291,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         detectAllPages,
         documentCanvasSignature,
         documentPriorByPage,
+        detectionEvidenceComplete: computed(() => detectionEvidenceComplete.value),
+        detectionResultStoreId: computed(() => detectionResultStoreId.value),
         error,
         errorCode,
         isDetecting,
@@ -1150,7 +1315,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         recommendedOutputModeReasonByPage,
         softAlphaForegroundRecommendationByPage,
         settledPages,
-        sourcePageMetadataByPage,
+        sourcePageMetadataByPage: computed(() => sourcePageMetadataByPage),
         textAxisByPage,
         terminalStatus,
         waitForTerminal,

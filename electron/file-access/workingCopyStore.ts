@@ -37,6 +37,7 @@ export interface IWorkingCopyOriginalEntry {
     admissionSnapshot?: IWorkingCopyAdmissionSnapshot;
     backingState: TWorkingCopyBackingState;
     originalPath: string;
+    logicalPath: string;
     ownerWebContentsId?: number;
     originalFileExpectationAbortController?: AbortController;
     originalFileExpectation?: IWorkingCopyOriginalFileExpectation;
@@ -62,9 +63,7 @@ interface IRememberRetiredWorkingCopyOriginalOptions {
     sourceBackingErrorCode?: TWorkingCopyBackingErrorCode;
 }
 
-export const workingCopyMap = new Map<string, IWorkingCopyOriginalEntry>();
-
-const retiredWorkingCopyOriginalMap = new Map<string, {
+interface IRetiredWorkingCopyOriginalEntry {
     admissionSnapshot?: IWorkingCopyAdmissionSnapshot;
     backingState: TWorkingCopyBackingState;
     expiresAtMs: number;
@@ -74,7 +73,7 @@ const retiredWorkingCopyOriginalMap = new Map<string, {
     registrationId: number;
     role: TWorkingCopyRole;
     sourceBackingErrorCode?: TWorkingCopyBackingErrorCode;
-}>();
+}
 let retiredWorkingCopyPruneTimer: ReturnType<typeof setTimeout> | null = null;
 const currentWorkingCopyByOriginalPath = new Map<string, {
     ownerWebContentsId?: number;
@@ -83,7 +82,6 @@ const currentWorkingCopyByOriginalPath = new Map<string, {
     workingPath: string;
 }>();
 let nextWorkingCopyRegistrationId = 0;
-const workingCopyRegistrationTransitions = new Map<string, Promise<void>>();
 const RETIRED_WORKING_COPY_TTL_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_RETIRED_WORKING_COPY_TTL_MS ?? `${10 * 60 * 1000}`, 10);
     if (!Number.isFinite(parsed) || parsed < 1_000) {
@@ -139,12 +137,42 @@ export function normalizePathForLookup(filePath: string) {
         return win32.resolve(stripWindowsExtendedLengthPrefix(trimmedPath)).toLowerCase();
     }
 
+    const resolvedPath = resolve(trimmedPath);
+    const stableResolvedPath = process.platform === 'darwin' && (
+        resolvedPath === '/var'
+        || resolvedPath.startsWith('/var/')
+    )
+        ? `/private${resolvedPath}`
+        : resolvedPath;
+
     try {
-        return realpathSync.native(trimmedPath);
+        return realpathSync.native(stableResolvedPath);
     } catch {
-        return resolve(trimmedPath);
+        return stableResolvedPath;
     }
 }
+
+class TCanonicalWorkingCopyMap<TValue> extends Map<string, TValue> {
+    override delete(key: string) {
+        return super.delete(normalizePathForLookup(key));
+    }
+
+    override get(key: string) {
+        return super.get(normalizePathForLookup(key));
+    }
+
+    override has(key: string) {
+        return super.has(normalizePathForLookup(key));
+    }
+
+    override set(key: string, value: TValue) {
+        return super.set(normalizePathForLookup(key), value);
+    }
+}
+
+export const workingCopyMap = new TCanonicalWorkingCopyMap<IWorkingCopyOriginalEntry>();
+const retiredWorkingCopyOriginalMap = new TCanonicalWorkingCopyMap<IRetiredWorkingCopyOriginalEntry>();
+const workingCopyRegistrationTransitions = new TCanonicalWorkingCopyMap<Promise<void>>();
 
 async function createOriginalFileExpectation(
     originalPath: string,
@@ -253,10 +281,7 @@ function refreshCurrentWorkingCopyForOriginal(originalPath: string, ownerWebCont
         entry: IWorkingCopyOriginalEntry;
         workingPath: string;
     } | null = null;
-    for (const [
-        workingPath,
-        entry,
-    ] of workingCopyMap.entries()) {
+    for (const entry of workingCopyMap.values()) {
         if (
             entry.role === 'current'
             && isSameOwner(entry.ownerWebContentsId, ownerWebContentsId)
@@ -265,7 +290,7 @@ function refreshCurrentWorkingCopyForOriginal(originalPath: string, ownerWebCont
         ) {
             latestMatch = {
                 entry,
-                workingPath,
+                workingPath: entry.logicalPath,
             };
         }
     }
@@ -409,6 +434,7 @@ export async function setWorkingCopyOriginalPath(
             ...(admissionSnapshot ? {admissionSnapshot} : {}),
             backingState: options.backingState ?? 'eager',
             originalPath,
+            logicalPath: workingPath,
             ...(typeof ownerWebContentsId === 'number' ? {ownerWebContentsId} : {}),
             ...(originalFileExpectation ? {originalFileExpectation} : {}),
             registeredAtMs: Date.now(),

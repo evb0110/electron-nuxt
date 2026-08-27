@@ -160,7 +160,7 @@ describe('native note text and delete builders', () => {
         expect(updates.skipEvents).toEqual([]);
     });
 
-    it('skips PDF-backed FreeText text updates so full serialization preserves rect and AP invariants', () => {
+    it('builds native text updates for PDF-backed FreeText notes', () => {
         const pendingTexts = new Map([[
             'ann:0:12R0',
             'Updated note',
@@ -171,19 +171,12 @@ describe('native note text and delete builders', () => {
             canonicalComments: [createComment({subtype: 'FreeText'})],
         }));
 
-        expect(updates.value).toBeNull();
-        expect(updates.skipEvents).toEqual([{
-            event: 'Skipped native note-text save fast path',
-            reason: 'pending-text-not-native-eligible',
-            details: expect.objectContaining({
-                stableKey: 'ann:0:12R0',
-                subtype: 'FreeText',
-                targetRef: {
-                    objectNumber: 12,
-                    generationNumber: 0,
-                },
-            }),
+        expect(updates.value).toEqual([{
+            objectNumber: 12,
+            generationNumber: 0,
+            text: 'Updated note',
         }]);
+        expect(updates.skipEvents).toEqual([]);
     });
 
     it('builds native deletes for PDF refs and editor-only FreeText stable keys', () => {

@@ -16,10 +16,9 @@ import type {
     IPdfNativeNoteChanges,
     IPdfNativeSaveResult,
     IPdfNativeNoteTextSaveResult,
-    IPdfNativeWorkingCopyExpectation,
     IPdfNativePagePreview,
     IPdfNativePagePreviewOptions,
-    IPdfNativePageSize,
+    TPdfNativePageSizes,
     IPdfOpeningGeometry,
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
@@ -27,6 +26,14 @@ import type {
     IPdfPathValidationOptions,
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
+    IPdfAnnotationIndexChunk,
+    IPdfAnnotationIndexChunkOptions,
+    IPdfAnnotationIndexOptions,
+    IPdfAnnotationIndexSession,
+    IPdfEmbeddedShapeIndexChunk,
+    IPdfEmbeddedShapeIndexChunkOptions,
+    IPdfEmbeddedShapeIndexOptions,
+    IPdfEmbeddedShapeIndexSession,
     IWorkingCopyBackingStatus,
     TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
@@ -127,7 +134,7 @@ export interface IDocumentsService {
     getPdfNativePageSizes: (
         context: IDocumentsSenderIdContext,
         filePath: string,
-    ) => Promise<IPdfNativePageSize[]>;
+    ) => Promise<TPdfNativePageSizes>;
     cancelPdfNativePagePreview: (
         context: IDocumentsSenderIdContext,
         requestId: string,
@@ -138,6 +145,44 @@ export interface IDocumentsService {
         pageNumber: number,
         options?: IPdfNativePagePreviewOptions,
     ) => Promise<IPdfNativePagePreview>;
+    beginPdfAnnotationIndex: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+        options: IPdfAnnotationIndexOptions,
+    ) => Promise<IPdfAnnotationIndexSession>;
+    readPdfAnnotationIndexChunk: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+        offset: number,
+        options?: IPdfAnnotationIndexChunkOptions,
+    ) => Promise<IPdfAnnotationIndexChunk>;
+    releasePdfAnnotationIndex: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+    ) => Promise<boolean>;
+    cancelPdfAnnotationIndex: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+    ) => Promise<{canceled: boolean}>;
+    beginPdfEmbeddedShapeIndex: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+        options: IPdfEmbeddedShapeIndexOptions,
+    ) => Promise<IPdfEmbeddedShapeIndexSession>;
+    readPdfEmbeddedShapeIndexChunk: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+        offset: number,
+        options?: IPdfEmbeddedShapeIndexChunkOptions,
+    ) => Promise<IPdfEmbeddedShapeIndexChunk>;
+    releasePdfEmbeddedShapeIndex: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+    ) => Promise<boolean>;
+    cancelPdfEmbeddedShapeIndex: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+    ) => Promise<{canceled: boolean}>;
     readTextFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<string>;
     fileExists: (context: IDocumentsSenderIdContext, filePath: string) => boolean;
     getDocumentRevision: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IDocumentRevisionInfo>;
@@ -241,8 +286,7 @@ export interface IDocumentsService {
         workingPath: string,
         mutations: IPdfNativeMutationSet,
         modifiedAt: string,
-        expectedBase: IPdfNativeWorkingCopyExpectation,
-        options?: IPdfSerializedSaveOptions,
+        options: IPdfSerializedSaveOptions,
     ) => Promise<IPdfNativeSaveResult>;
     commitStagedPdfNativeMutations: (
         context: IDocumentsSenderIdContext,
@@ -250,6 +294,17 @@ export interface IDocumentsService {
         stagedOutput: ITypedStagedArtifact,
         options?: IPdfNativeStagedCommitOptions,
     ) => Promise<IPdfNativeSaveResult>;
+    cloneStagedPdfNativeMutationToWorkingCopy: (
+        context: IDocumentsSenderIdContext,
+        stagedOutput: ITypedStagedArtifact,
+        originalPath?: string,
+    ) => Promise<string>;
+    replaceWorkingCopyFromStagedPdfNativeMutation: (
+        context: IDocumentsSenderIdContext,
+        workingPath: string,
+        stagedOutput: ITypedStagedArtifact,
+        options: IDocumentMutationRevisionOptions,
+    ) => Promise<boolean>;
     beginSavePdfData: (
         context: IDocumentsWebContentsContext,
         workingPath: string,

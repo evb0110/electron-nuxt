@@ -10,16 +10,23 @@ import type {
     IScanCleanupDetectionResult,
     IScanCleanupOptions,
 } from '@contracts/electronApiScanCleanup';
+import {createFileBackedScanCleanupDetectionResultStore} from '@scan-cleanup-core/fileBackedResultStore';
+import {readDetectionResultsForPageNumbers} from '@scan-cleanup-core/runScanCleanupConversion';
+import {buildScanCleanupCliDetectionRequestFields} from '@scripts/scan-cleanup-convert';
 import {
     createScanCleanupDetectionCacheKey,
+    openScanCleanupDetectionCacheStore,
     readScanCleanupDetectionCache,
+    writeScanCleanupDetectionCacheStore,
     writeScanCleanupDetectionCache,
 } from '@scripts/scanCleanupDetectionCache';
+import type {IScanCleanupDetectionResultStore} from '@scan-cleanup-core/types';
 import {
     afterEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 
 const temporaryDirectories: string[] = [];
@@ -139,5 +146,132 @@ describe('scan-cleanup detection cache', () => {
         cacheFile.key = 'wrong-key';
         await writeFile(cacheEntryPath, JSON.stringify(cacheFile), 'utf8');
         expect(await readScanCleanupDetectionCache(cachePath, key)).toBeNull();
+    });
+
+    it('hands a million-page CLI detection store through and reads only bounded ranges', async () => {
+        const pageCount = 1_000_000;
+        const readRange = vi.fn(async (firstPageNumber: number, _lastPageNumberExclusive: number) => [{
+            ...result,
+            pageNumber: firstPageNumber,
+        }]);
+        const store: IScanCleanupDetectionResultStore = {
+            append: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
+            forEachChunk: vi.fn(async () => undefined),
+            getPage: vi.fn(async () => undefined),
+            pageCount,
+            readRange,
+            replace: vi.fn(async () => undefined),
+            resultCount: pageCount,
+        };
+        const fromEntries = vi.spyOn(Object, 'fromEntries');
+        try {
+            const fields = buildScanCleanupCliDetectionRequestFields({
+                resultStore: store,
+                results: [],
+            });
+            expect(fields).toEqual({detectionResultStore: store});
+            expect(fromEntries).not.toHaveBeenCalled();
+
+            const pageNumbers = Array.from({length: 2_049}, (_, index) => index + 1);
+            await readDetectionResultsForPageNumbers(store, pageNumbers, new AbortController().signal);
+            const calls = readRange.mock.calls.map(call => ({
+                firstPageNumber: call[0],
+                pageCount: call[1] - call[0],
+            }));
+            expect(calls).toEqual([
+                {
+                    firstPageNumber: 1,
+                    pageCount: 1_024,
+                },
+                {
+                    firstPageNumber: 1_025,
+                    pageCount: 1_024,
+                },
+                {
+                    firstPageNumber: 2_049,
+                    pageCount: 1,
+                },
+            ]);
+            expect(Math.max(...calls.map(call => call.pageCount))).toBeLessThanOrEqual(1_024);
+        } finally {
+            fromEntries.mockRestore();
+        }
+    });
+
+    it.each([
+        [
+            1_024,
+            false,
+        ],
+        [
+            1_025,
+            true,
+        ],
+        [
+            2_646,
+            true,
+        ],
+    ])('uses the bounded result-store seam above the %s-page compatibility boundary', (pageCount, expectsStore) => {
+        const store: IScanCleanupDetectionResultStore = {
+            append: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
+            forEachChunk: vi.fn(async () => undefined),
+            getPage: vi.fn(async () => undefined),
+            pageCount,
+            readRange: vi.fn(async () => []),
+            replace: vi.fn(async () => undefined),
+            resultCount: pageCount,
+        };
+        const fields = buildScanCleanupCliDetectionRequestFields({
+            resultStore: store,
+            // A real small run has a compatibility snapshot. The xlarge
+            // result store remains authoritative even if a caller supplies a
+            // partial snapshot while migrating an older detector.
+            results: [result],
+        });
+        expect('detectionResultStore' in fields).toBe(expectsStore);
+        if (expectsStore) {
+            expect(fields).toEqual({detectionResultStore: store});
+        }
+    });
+
+    it('round-trips an xlarge detection cache through its JSONL sidecar', {timeout: 30_000}, async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-detection-cache-stream-'));
+        temporaryDirectories.push(directory);
+        const cachePath = join(directory, 'cache');
+        const key = {
+            key: 'streaming-key',
+            sourceSha256: 'streaming-source',
+        };
+        const pageCount = 20_001;
+        const store = await createFileBackedScanCleanupDetectionResultStore({
+            pageCount,
+            rootDir: directory,
+        });
+        for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+            await store.append({
+                ...result,
+                pageNumber,
+            });
+        }
+        await writeScanCleanupDetectionCacheStore(cachePath, key, store);
+        await store.close();
+
+        const reopened = await openScanCleanupDetectionCacheStore(cachePath, key);
+        expect(reopened).not.toBeNull();
+        expect(reopened?.pageCount).toBe(pageCount);
+        expect(reopened?.resultCount).toBe(pageCount);
+        expect(await reopened?.readRange(20_000, 20_002)).toEqual([
+            {
+                ...result,
+                pageNumber: 20_000,
+            },
+            {
+                ...result,
+                pageNumber: 20_001,
+            },
+        ]);
+        await reopened?.close();
     });
 });

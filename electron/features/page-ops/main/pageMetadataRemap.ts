@@ -10,6 +10,7 @@ import type {
     IPageOpsMetadataSnapshot,
     IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
+import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import {
     isNativePageOpsDisabled,
@@ -20,35 +21,25 @@ import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 
 const PAGE_METADATA_REMAP_TIMEOUT_MS = 2 * 60 * 1000;
 
-function createOldToNewPageIndex(delta: IPageIdentityDelta) {
-    const oldToNew = new Map<number, number>();
-    delta.pages.forEach((page, newPageIndex) => {
-        if ('fromPageNumber' in page) {
-            oldToNew.set(page.fromPageNumber - 1, newPageIndex);
-        }
-    });
-    return oldToNew;
-}
-
 function remapBookmarkItems(
     items: readonly IPdfBookmarkEntry[],
-    oldToNew: ReadonlyMap<number, number>,
+    delta: IPageIdentityDelta,
 ): IPdfBookmarkEntry[] {
     return items.flatMap(item => {
-        const children = remapBookmarkItems(item.items, oldToNew);
+        const children = remapBookmarkItems(item.items, delta);
         if (item.pageIndex === null) {
             return [{
                 ...item,
                 items: children,
             }];
         }
-        const pageIndex = oldToNew.get(item.pageIndex);
-        if (pageIndex === undefined) {
+        const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(delta, item.pageIndex + 1);
+        if (mappedPageNumber === null) {
             return children;
         }
         return [{
             ...item,
-            pageIndex,
+            pageIndex: mappedPageNumber - 1,
             namedDest: null,
             items: children,
         }];
@@ -59,17 +50,30 @@ export function remapPageMetadata(
     metadata: IPageOpsMetadataSnapshot,
     delta: IPageIdentityDelta,
 ) {
-    const oldToNew = createOldToNewPageIndex(delta);
-    const labels = metadata.pageLabels?.length === delta.previousPageCount
-        ? delta.pages.map((page, index) => (
-            'fromPageNumber' in page
-                ? metadata.pageLabels![page.fromPageNumber - 1] ?? String(index + 1)
-                : String(index + 1)
-        ))
+    const nextPageCount = delta.nextPageCount ?? delta.pages?.length;
+    const labels = metadata.pageLabels?.length === delta.previousPageCount && nextPageCount !== undefined
+        ? (() => {
+            const remapped = Array<string | undefined>(nextPageCount);
+            if (delta.pages !== undefined) {
+                delta.pages.forEach((page, index) => {
+                    remapped[index] = 'fromPageNumber' in page
+                        ? metadata.pageLabels![page.fromPageNumber - 1]
+                        : undefined;
+                });
+            } else {
+                for (const range of delta.ranges ?? []) {
+                    if (range.kind !== 'retain' && range.kind !== 'move') continue;
+                    for (let offset = 0; offset < range.count; offset += 1) {
+                        remapped[range.toPageNumber - 1 + offset] = metadata.pageLabels[range.fromPageNumber - 1 + offset];
+                    }
+                }
+            }
+            return remapped.map((label, index) => label ?? String(index + 1));
+        })()
         : null;
     return {
         pageLabels: {
-            totalPages: delta.pages.length,
+            totalPages: nextPageCount ?? 0,
             ranges: labels?.map((label, index) => ({
                 startPage: index + 1,
                 style: null,
@@ -78,9 +82,9 @@ export function remapPageMetadata(
             })) ?? [],
         },
         bookmarks: {
-            totalPages: delta.pages.length,
+            totalPages: nextPageCount ?? 0,
             untitledLabel: metadata.untitledBookmarkLabel,
-            items: remapBookmarkItems(metadata.bookmarks, oldToNew),
+            items: remapBookmarkItems(metadata.bookmarks, delta),
         },
     };
 }

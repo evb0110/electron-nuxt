@@ -84,6 +84,8 @@ import {
 } from '@electron/utils/createLogger';
 import {
     closeCachedRangeReadHandles,
+    sweepStalePdfAnnotationIndexArtifacts,
+    sweepStalePdfEmbeddedShapeIndexArtifacts,
     sweepStaleDefaultAppTempPdfs,
     sweepStaleOcrTempArtifacts,
     shutdownSerializedPdfPersistence,
@@ -607,6 +609,8 @@ void runInitSequence({
     shouldResetRendererReadyOnNavigation,
     shutdownCoordinator,
     sweepStaleDefaultAppTempPdfs,
+    sweepStalePdfAnnotationIndexArtifacts,
+    sweepStalePdfEmbeddedShapeIndexArtifacts,
     sweepStaleManagedScratchTempDirs,
     sweepStaleOcrTempArtifacts,
     pruneStaleDjvuArtifactJobs,

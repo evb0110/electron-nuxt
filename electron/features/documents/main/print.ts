@@ -156,7 +156,6 @@ async function resolveReadablePdfPathForSender(filePath: string, senderId?: numb
         reason: 'print-external',
         ...(senderId === undefined ? {} : {ownerWebContentsId: senderId}),
     });
-    await assertPdfPathWithinSizeLimit(materialized.physicalWorkingCopyPath);
     return materialized.physicalWorkingCopyPath;
 }
 
@@ -230,6 +229,7 @@ export async function handleOpenPdfInDefaultAppPath(
     _fileName?: string,
 ): Promise<IOpenPdfInDefaultAppResult> {
     const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId);
+    await assertPdfPathWithinSizeLimit(resolvedPath);
     return openPdfInDefaultApp(resolvedPath);
 }
 
@@ -241,6 +241,7 @@ export async function handlePrintPdfPath(
 ): Promise<IPrintPdfResult> {
     const ownerWindow = context.window ?? undefined;
     const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId);
+    await assertPdfPathWithinSizeLimit(resolvedPath);
     const normalizedPageNumbers = normalizePrintPageNumbers(pageNumbers);
     if (!normalizedPageNumbers) {
         return openNativePrintDialogForPath(ownerWindow, resolvedPath, {}, _fileName);

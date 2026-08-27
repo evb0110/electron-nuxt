@@ -4,6 +4,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import type { ICropMargins } from '@app/types/crop';
 import type { TPdfViewMode } from '@contracts/shared';
+import type { TPageSelection } from '@contracts/pageNumbers';
 
 interface IUseDocumentWorkspaceToolbarOptions {
     tabId: string;
@@ -22,8 +23,8 @@ interface IUseDocumentWorkspaceToolbarOptions {
     handleFitMode: (mode: 'width' | 'height') => void;
     handleAnnotationToolChange: (tool: 'none') => void;
     enableDragMode: () => void;
-    handleRemoveCrop: (pages: number[]) => unknown;
-    handleCropPages: (pages: number[], margins: ICropMargins) => unknown;
+    handleRemoveCrop: (pages: number[] | TPageSelection) => unknown;
+    handleCropPages: (pages: number[] | TPageSelection, margins: ICropMargins) => unknown;
     workingCopyPath: Ref<TDocumentRef | null | undefined>;
     isAnySaving: Ref<boolean>;
     isHistoryBusy: Ref<boolean>;
@@ -100,11 +101,15 @@ export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolba
         handleCropApply(payload: {
             margins: ICropMargins;
             pages: number[];
+            pageSelection?: TPageSelection;
         }) {
-            void options.handleCropPages(payload.pages, payload.margins);
+            void options.handleCropPages(payload.pageSelection ?? payload.pages, payload.margins);
         },
-        handleCropRemove(payload: { pages: number[]; }) {
-            void options.handleRemoveCrop(payload.pages);
+        handleCropRemove(payload: {
+            pages: number[];
+            pageSelection?: TPageSelection;
+        }) {
+            void options.handleRemoveCrop(payload.pageSelection ?? payload.pages);
         },
         handleOverflowOpenSettings() {
             runToolbarAction(() => {

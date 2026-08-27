@@ -21,8 +21,16 @@ import {
     COMPACT_SEARCH_INDEX_SCHEMA_VERSION,
     COMPACT_SEARCH_INDEX_SOURCE_KIND_GENERIC,
     COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
+    COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE,
+    COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE,
+    COMPACT_SEARCH_INDEX_STREAMING_FLAG_TRUNCATED_COVERAGE,
+    COMPACT_SEARCH_INDEX_STREAMING_FOOTER_MAGIC,
+    COMPACT_SEARCH_INDEX_STREAMING_MAGIC,
+    COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION,
     getCompactSearchIndexPath,
     loadCompactSearchIndex,
+    openCompactSearchIndexWriter,
+    persistCompactSearchIndexStreaming,
     persistCompactSearchIndex,
 } from '@electron/search/searchIndexSidecar';
 import { OCR_TEXT_LAYER_INDEX_VERSION } from '@contracts/ocrText';
@@ -241,6 +249,292 @@ describe('compact search index sidecar', () => {
         header.writeBigUInt64LE(BigInt(COMPACT_SEARCH_INDEX_HEADER_SIZE + DOCUMENT_REVISION.length), 40);
         header.writeBigUInt64LE(BigInt(COMPACT_SEARCH_INDEX_HEADER_SIZE + DOCUMENT_REVISION.length), 48);
         await writeFile(getCompactSearchIndexPath(pdfPath), header);
+
+        await expect(loadCompactSearchIndex(pdfPath, {documentRevision: DOCUMENT_REVISION})).resolves.toBeNull();
+    });
+
+    it('streams sparse first and last records for a million-page document', async () => {
+        const pdfPath = join(tempDir, 'million-pages.pdf');
+        const pageCount = 1_000_001;
+        const result = await persistCompactSearchIndexStreaming(
+            pdfPath,
+            {
+                documentRevision: DOCUMENT_REVISION,
+                pageCount,
+            },
+            [
+                {
+                    pageNumber: 1,
+                    text: 'first',
+                },
+                {
+                    pageNumber: pageCount,
+                    text: 'last',
+                },
+            ],
+        );
+
+        expect(result).toMatchObject({
+            pageCount,
+            pagesScanned: pageCount,
+            pagesWritten: 2,
+            complete: true,
+            partialCoverage: false,
+            truncatedCoverage: false,
+        });
+        const sidecar = await readFile(getCompactSearchIndexPath(pdfPath));
+        expect(sidecar.toString('ascii', 0, 8)).toBe(COMPACT_SEARCH_INDEX_STREAMING_MAGIC);
+        expect(sidecar.readUInt32LE(8)).toBe(COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION);
+        expect(sidecar.readUInt32LE(16)).toBe(pageCount);
+        expect(sidecar.readUInt32LE(20)).toBe(2);
+        const footerOffset = Number(sidecar.readBigUInt64LE(56));
+        expect(footerOffset).toBeGreaterThan(pageCount * 24);
+        expect(sidecar.toString('ascii', footerOffset, footerOffset + 8)).toBe(
+            COMPACT_SEARCH_INDEX_STREAMING_FOOTER_MAGIC,
+        );
+        expect(sidecar.readUInt32LE(footerOffset + 16)).toBe(COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE);
+        expect(sidecar.readBigUInt64LE(footerOffset + 56)).toBe(BigInt(pageCount));
+
+        await expect(loadCompactSearchIndex(pdfPath, {
+            documentRevision: DOCUMENT_REVISION,
+            expectedPageCount: pageCount,
+        })).resolves.toMatchObject({
+            pageCount,
+            pages: [
+                {
+                    pageNumber: 1,
+                    text: 'first',
+                },
+                {
+                    pageNumber: pageCount,
+                    text: 'last',
+                },
+            ],
+            coverage: {
+                pagesScanned: pageCount,
+                pagesWritten: 2,
+                partialCoverage: false,
+                truncatedCoverage: false,
+            },
+        });
+    });
+
+    it('allows a sparse v3 directory beyond the legacy 320 MiB file budget', async () => {
+        const pdfPath = join(tempDir, 'directory-over-legacy-budget.pdf');
+        const pageCount = 13_981_009;
+        await persistCompactSearchIndexStreaming(
+            pdfPath,
+            {
+                documentRevision: DOCUMENT_REVISION,
+                pageCount,
+                pagesScanned: 0,
+                truncatedCoverage: true,
+            },
+            [],
+        );
+
+        const sidecarStat = await stat(getCompactSearchIndexPath(pdfPath));
+        expect(sidecarStat.size).toBeGreaterThan(320 * 1024 * 1024);
+        await expect(loadCompactSearchIndex(pdfPath, {
+            documentRevision: DOCUMENT_REVISION,
+            metadataOnly: true,
+        })).resolves.toMatchObject({
+            pageCount,
+            pages: [],
+            coverage: {
+                pagesScanned: 0,
+                pagesWritten: 0,
+                truncatedCoverage: true,
+            },
+        });
+    });
+
+    it('streams and loads a v3 page larger than the legacy per-page budget', async () => {
+        const pdfPath = join(tempDir, 'page-over-legacy-budget.pdf');
+        const text = 'x'.repeat(32 * 1024 * 1024 + 1);
+        const result = await persistCompactSearchIndexStreaming(
+            pdfPath,
+            {
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 1,
+            },
+            [{
+                pageNumber: 1,
+                text,
+            }],
+        );
+
+        expect(result).toMatchObject({
+            pageCount: 1,
+            pagesScanned: 1,
+            pagesWritten: 1,
+            bytesWritten: text.length,
+        });
+        await expect(loadCompactSearchIndex(pdfPath, {
+            documentRevision: DOCUMENT_REVISION,
+            expectedPageCount: 1,
+        })).resolves.toMatchObject({
+            pageCount: 1,
+            pages: [{
+                pageNumber: 1,
+                text,
+            }],
+            coverage: {
+                pagesScanned: 1,
+                pagesWritten: 1,
+            },
+        });
+    });
+
+    it('counts only nonempty records while preserving complete blank-page coverage', async () => {
+        const pdfPath = join(tempDir, 'blank-pages.pdf');
+        const result = await persistCompactSearchIndexStreaming(
+            pdfPath,
+            {
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 3,
+                pagesScanned: 3,
+            },
+            [
+                {
+                    pageNumber: 1,
+                    text: '',
+                },
+                {
+                    pageNumber: 2,
+                    text: 'text',
+                },
+                {
+                    pageNumber: 3,
+                    text: '',
+                },
+            ],
+        );
+
+        expect(result.pagesWritten).toBe(1);
+        await expect(loadCompactSearchIndex(pdfPath, {
+            documentRevision: DOCUMENT_REVISION,
+            expectedPageCount: 3,
+        })).resolves.toMatchObject({
+            pageCount: 3,
+            pages: [{
+                pageNumber: 2,
+                text: 'text',
+            }],
+            coverage: {
+                pagesScanned: 3,
+                pagesWritten: 1,
+                partialCoverage: false,
+                truncatedCoverage: false,
+            },
+        });
+    });
+
+    it('rejects duplicate page writes, including duplicate blank pages', async () => {
+        const pdfPath = join(tempDir, 'duplicate-pages.pdf');
+        const writer = await openCompactSearchIndexWriter(pdfPath, {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 2,
+        });
+
+        await writer.writePage({
+            pageNumber: 1,
+            text: '',
+        });
+        await expect(writer.writePage({
+            pageNumber: 1,
+            text: '',
+        })).rejects.toThrow(
+            'Duplicate pageNumber',
+        );
+        await expect(stat(writer.temporaryPath)).rejects.toThrow();
+    });
+
+    it('publishes truncated coverage and rejects it for a full-page load', async () => {
+        const pdfPath = join(tempDir, 'truncated-pages.pdf');
+        await persistCompactSearchIndexStreaming(
+            pdfPath,
+            {
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 3,
+                pagesScanned: 2,
+                truncatedCoverage: true,
+            },
+            [{
+                pageNumber: 1,
+                text: 'text',
+            }],
+        );
+
+        await expect(loadCompactSearchIndex(pdfPath, {
+            documentRevision: DOCUMENT_REVISION,
+            expectedPageCount: 3,
+        })).resolves.toBeNull();
+        await expect(loadCompactSearchIndex(pdfPath, {
+            documentRevision: DOCUMENT_REVISION,
+            expectedPageCount: 1,
+        })).resolves.toMatchObject({coverage: {
+            pagesScanned: 2,
+            pagesWritten: 1,
+            flags: COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE
+                    | COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE
+                    | COMPACT_SEARCH_INDEX_STREAMING_FLAG_TRUNCATED_COVERAGE,
+            partialCoverage: true,
+            truncatedCoverage: true,
+        }});
+    });
+
+    it('removes a temp file and preserves the canonical sidecar when beforePublish fails', async () => {
+        const pdfPath = join(tempDir, 'before-publish-failure.pdf');
+        await persistCompactSearchIndexStreaming(
+            pdfPath,
+            {
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 1,
+            },
+            [{
+                pageNumber: 1,
+                text: 'old',
+            }],
+        );
+        const indexPath = getCompactSearchIndexPath(pdfPath);
+        const canonicalBefore = await readFile(indexPath);
+        const writer = await openCompactSearchIndexWriter(pdfPath, {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 1,
+        });
+        await writer.writePage({
+            pageNumber: 1,
+            text: 'new',
+        });
+
+        await expect(writer.finalize({
+            pagesScanned: 1,
+            truncatedCoverage: false,
+            beforePublish: async () => {
+                throw new Error('revision changed');
+            },
+        })).rejects.toThrow('revision changed');
+        await expect(readFile(indexPath)).resolves.toEqual(canonicalBefore);
+        await expect(stat(writer.temporaryPath)).rejects.toThrow();
+    });
+
+    it('rejects a v3 sidecar when the completion footer is incomplete', async () => {
+        const pdfPath = join(tempDir, 'incomplete-footer.pdf');
+        await persistCompactSearchIndexStreaming(
+            pdfPath,
+            {
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 1,
+            },
+            [{
+                pageNumber: 1,
+                text: 'text',
+            }],
+        );
+        const indexPath = getCompactSearchIndexPath(pdfPath);
+        const sidecarStat = await stat(indexPath);
+        await writeFile(indexPath, (await readFile(indexPath)).subarray(0, sidecarStat.size - 1));
 
         await expect(loadCompactSearchIndex(pdfPath, {documentRevision: DOCUMENT_REVISION})).resolves.toBeNull();
     });

@@ -1,10 +1,14 @@
 import {randomUUID} from 'node:crypto';
 import {
     cp,
+    lstat,
     readFile,
+    readdir,
     rm,
     stat,
 } from 'node:fs/promises';
+import type {Dirent} from 'node:fs';
+import {join} from 'node:path';
 import {isRecord} from '@contracts/runtimeGuards';
 import {
     requireDocumentRevisionToken,
@@ -16,11 +20,26 @@ import {
     writeFileAtomic,
 } from '@electron/file-access/documentFileWriteAtomic';
 import {getCompactSearchIndexPath} from '@electron/search/searchIndexSidecar';
+import {
+    OCR_CATALOG_VERSION,
+    parseOcrCatalogRootV4,
+} from '@contracts/ocrIndex';
+
+/**
+ * V3 catalogs are retained only for old documents and old journals. A v4
+ * catalog never crosses this path as a tree: its immutable generations stay
+ * in place and this journal stores the small root manifest instead.
+ */
+export const MAX_LEGACY_OCR_CATALOG_BACKUP_BYTES = 16 * 1024 * 1024;
+export const MAX_LEGACY_OCR_CATALOG_FILES = 100_000;
+const OCR_ROOT_MANIFEST_FILENAME = 'manifest.json';
+const OCR_GENERATION_DIRECTORY_PATTERN = /^gen-\d{8}$/u;
 
 interface ITransitionSidecarBackup {
     targetPath: string;
     backupPath: string | null;
     directory: boolean;
+    kind?: 'ocr-v4-root' | 'ocr-v3-untouched';
 }
 
 interface IWorkingCopyContentTransitionJournal {
@@ -59,6 +78,11 @@ function parseJournal(value: unknown): IWorkingCopyContentTransitionJournal | nu
             || typeof sidecar.targetPath !== 'string'
             || (sidecar.backupPath !== null && typeof sidecar.backupPath !== 'string')
             || typeof sidecar.directory !== 'boolean'
+            || (
+                sidecar.kind !== undefined
+                && sidecar.kind !== 'ocr-v4-root'
+                && sidecar.kind !== 'ocr-v3-untouched'
+            )
         ) {
             return null;
         }
@@ -66,6 +90,9 @@ function parseJournal(value: unknown): IWorkingCopyContentTransitionJournal | nu
             targetPath: sidecar.targetPath,
             backupPath: sidecar.backupPath,
             directory: sidecar.directory,
+            ...(sidecar.kind === 'ocr-v4-root' || sidecar.kind === 'ocr-v3-untouched'
+                ? {kind: sidecar.kind}
+                : {}),
         });
     }
     return {
@@ -75,6 +102,97 @@ function parseJournal(value: unknown): IWorkingCopyContentTransitionJournal | nu
         backupPath: value.backupPath,
         nextRevisionToken: requireDocumentRevisionToken(value.nextRevisionToken),
         sidecars,
+    };
+}
+
+/**
+ * Stop at the compatibility budget. Large legacy roots remain in place
+ * during generic PDF transitions instead of being copied or rejected.
+ */
+async function isLegacyOcrCatalogWithinBudget(targetPath: string) {
+    let totalBytes = 0;
+    let fileCount = 0;
+    const pending: string[] = [targetPath];
+    while (pending.length > 0) {
+        const currentPath = pending.pop()!;
+        const currentStat = await lstat(currentPath);
+        if (currentStat.isSymbolicLink()) {
+            throw new Error(`OCR legacy catalog contains a symbolic link: ${currentPath}`);
+        }
+        if (currentStat.isDirectory()) {
+            const entries = await readdir(currentPath, {withFileTypes: true});
+            if (entries.length > MAX_LEGACY_OCR_CATALOG_FILES) {
+                return false;
+            }
+            for (const entry of entries) {
+                fileCount += 1;
+                if (fileCount > MAX_LEGACY_OCR_CATALOG_FILES) {
+                    return false;
+                }
+                pending.push(join(currentPath, entry.name));
+            }
+            continue;
+        }
+        if (!currentStat.isFile()) {
+            throw new Error(`OCR legacy catalog contains a non-file entry: ${currentPath}`);
+        }
+        totalBytes += currentStat.size;
+        if (totalBytes > MAX_LEGACY_OCR_CATALOG_BACKUP_BYTES) {
+            return false;
+        }
+    }
+    return true;
+}
+
+async function isPreparedV4Root(targetPath: string) {
+    const manifestPath = join(targetPath, OCR_ROOT_MANIFEST_FILENAME);
+    const manifestText = await readFile(manifestPath, 'utf8').catch(() => null);
+    if (manifestText !== null) {
+        let value: unknown;
+        try {
+            value = JSON.parse(manifestText) as unknown;
+        } catch {
+            value = null;
+        }
+        if (isRecord(value) && value.version === OCR_CATALOG_VERSION) {
+            if (parseOcrCatalogRootV4(value) === null) {
+                throw new Error(`Invalid OCR v4 root manifest: ${manifestPath}`);
+            }
+            return true;
+        }
+        // A v4 prepare can append its immutable generation before replacing a
+        // legacy v3 manifest. Treat that mixed root as pointer-backed too.
+    }
+
+    // A worker can leave an unpublished generation under the shared root
+    // before the root manifest is rebound by the apply transition.
+    const entries = await readdir(targetPath, {withFileTypes: true}).catch(() => [] as Dirent[]);
+    return entries.some(entry => entry.isDirectory() && OCR_GENERATION_DIRECTORY_PATTERN.test(entry.name));
+}
+
+async function backupOcrCatalogRoot(
+    targetPath: string,
+    backupPath: string,
+): Promise<ITransitionSidecarBackup> {
+    const manifestPath = join(targetPath, OCR_ROOT_MANIFEST_FILENAME);
+    const manifestStat = await lstat(manifestPath).catch(() => null);
+    if (manifestStat && (!manifestStat.isFile() || manifestStat.isSymbolicLink())) {
+        throw new Error(`OCR v4 root manifest is not a regular file: ${manifestPath}`);
+    }
+    if (manifestStat) {
+        await copyFileAtomic(manifestPath, backupPath);
+        return {
+            targetPath,
+            backupPath,
+            directory: true,
+            kind: 'ocr-v4-root',
+        };
+    }
+    return {
+        targetPath,
+        backupPath: null,
+        directory: true,
+        kind: 'ocr-v4-root',
     };
 }
 
@@ -103,7 +221,22 @@ async function backupSidecars(
             continue;
         }
         const backupPath = `${workingCopyPath}.evb-sidecar-${suffix}-${index}.bak`;
-        if (targetStat.isDirectory()) await cp(targetPath, backupPath, {recursive: true});
+        if (index === 0 && targetStat.isDirectory() && await isPreparedV4Root(targetPath)) {
+            backups.push(await backupOcrCatalogRoot(targetPath, backupPath));
+            continue;
+        }
+        if (index === 0 && targetStat.isDirectory()) {
+            if (!await isLegacyOcrCatalogWithinBudget(targetPath)) {
+                backups.push({
+                    targetPath,
+                    backupPath: null,
+                    directory: true,
+                    kind: 'ocr-v3-untouched',
+                });
+                continue;
+            }
+            await cp(targetPath, backupPath, {recursive: true});
+        } else if (targetStat.isDirectory()) await cp(targetPath, backupPath, {recursive: true});
         else await copyFileAtomic(targetPath, backupPath);
         backups.push({
             targetPath,
@@ -115,6 +248,24 @@ async function backupSidecars(
 
 async function restoreSidecars(sidecars: readonly ITransitionSidecarBackup[]) {
     await Promise.all(sidecars.map(async sidecar => {
+        if (sidecar.kind === 'ocr-v4-root') {
+            if (!sidecar.backupPath) {
+                // Keep immutable generations available for the orphan sweeper.
+                // Only the root pointer is rolled back.
+                await rm(join(sidecar.targetPath, OCR_ROOT_MANIFEST_FILENAME), {force: true});
+                return;
+            }
+            await copyFileAtomic(
+                sidecar.backupPath,
+                join(sidecar.targetPath, OCR_ROOT_MANIFEST_FILENAME),
+            );
+            return;
+        }
+        if (sidecar.kind === 'ocr-v3-untouched') {
+            // Generic PDF transitions do not modify the legacy OCR root.
+            // Leave the large tree where it is and avoid a recursive restore.
+            return;
+        }
         await rm(sidecar.targetPath, {
             recursive: true,
             force: true,

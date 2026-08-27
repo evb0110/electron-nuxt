@@ -2,7 +2,8 @@ use lopdf::{dictionary, Dictionary, Document, Object, Stream};
 use std::{
     env,
     fs::{remove_file, write, File},
-    path::Path,
+    io::{Seek, SeekFrom, Write},
+    path::{Path, PathBuf},
     process::{Command, Output},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -71,16 +72,59 @@ fn save_single_page_pdf(
     (document, catalog_id, page_id)
 }
 
+fn qpdf_path() -> PathBuf {
+    env::var_os("QPDF_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("qpdf"))
+}
+
+fn write_sparse_pdf_above_encoded_limit(path: &Path) -> u64 {
+    const STREAM_BYTES: u64 = 513 * 1024 * 1024;
+    let mut file = File::create(path).unwrap();
+    file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
+    let mut offsets = Vec::new();
+    offsets.push(file.stream_position().unwrap());
+    file.write_all(b"1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n")
+        .unwrap();
+    offsets.push(file.stream_position().unwrap());
+    file.write_all(b"2 0 obj\n<</Type/Pages/Kids[3 0 R]/Count 1>>\nendobj\n")
+        .unwrap();
+    offsets.push(file.stream_position().unwrap());
+    file.write_all(
+        b"3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]/Contents 4 0 R>>\nendobj\n",
+    )
+    .unwrap();
+    offsets.push(file.stream_position().unwrap());
+    file.write_all(format!("4 0 obj\n<</Length {STREAM_BYTES}>>\nstream\n").as_bytes())
+        .unwrap();
+    file.seek(SeekFrom::Current(i64::try_from(STREAM_BYTES).unwrap()))
+        .unwrap();
+    file.write_all(b"\nendstream\nendobj\n").unwrap();
+    let xref_offset = file.stream_position().unwrap();
+    file.write_all(b"xref\n0 5\n0000000000 65535 f \n").unwrap();
+    for offset in offsets {
+        file.write_all(format!("{offset:010} 00000 n \n").as_bytes())
+            .unwrap();
+    }
+    file.write_all(
+        format!("trailer\n<</Size 5/Root 1 0 R>>\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes(),
+    )
+    .unwrap();
+    file.sync_all().unwrap();
+    file.metadata().unwrap().len()
+}
+
 #[test]
-fn split_pages_rejects_pdf_input_above_the_shared_encoded_limit() {
+fn split_pages_accepts_pdf_input_above_the_shared_encoded_limit() {
     let input = path("oversized-input", "pdf");
     let output = path("oversized-output", "pdf");
     let instructions = path("oversized-instructions", "json");
-    File::create(&input)
-        .unwrap()
-        .set_len((512 * 1024 * 1024) + 1)
-        .unwrap();
-    write(&instructions, r#"{"pages":[]}"#).unwrap();
+    let original_len = write_sparse_pdf_above_encoded_limit(&input);
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":100}}]}]}"#,
+    )
+    .unwrap();
 
     let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
         .args(["split-pages", "--input"])
@@ -89,16 +133,17 @@ fn split_pages_rejects_pdf_input_above_the_shared_encoded_limit() {
         .arg(&output)
         .arg("--instructions-file")
         .arg(&instructions)
+        .arg("--qpdf")
+        .arg(qpdf_path())
         .output()
         .unwrap();
 
-    assert!(!result.status.success());
-    let stderr = String::from_utf8_lossy(&result.stderr);
-    assert!(stderr.contains(r#""code":"too-large""#), "{stderr}");
     assert!(
-        stderr.contains("536870912-byte admission ceiling"),
-        "{stderr}"
+        result.status.success(),
+        "split-pages failed: {}",
+        String::from_utf8_lossy(&result.stderr)
     );
+    assert!(output.metadata().unwrap().len() > original_len);
 
     let _ = remove_file(input);
     let _ = remove_file(output);

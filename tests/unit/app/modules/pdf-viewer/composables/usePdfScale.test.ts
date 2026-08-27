@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { ref } from 'vue';
 import { usePdfScale } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale';
@@ -364,5 +365,33 @@ describe('usePdfScale', () => {
         expect(scale.fitWidthScale.value).toBe(ZOOM.FIT_MIN);
         expect(scale.fitWidthScale.value).toBeLessThan(ZOOM.MIN);
         expect(scale.isFitWidthScaleCurrent(container)).toBe(true);
+    });
+
+    it('computes fit scale from sparse million-page metrics without iterating them', () => {
+        const pageMetrics: IPdfPageMetric[] = [];
+        pageMetrics[0] = {
+            width: 300,
+            height: 500,
+        };
+        pageMetrics[999_999] = {
+            width: 320,
+            height: 520,
+        };
+        const iteratorSpy = vi.spyOn(pageMetrics, Symbol.iterator).mockImplementation(() => {
+            throw new Error('fit scale must not iterate sparse metrics');
+        });
+        try {
+            const {scale} = createScaleComposable({
+                width: 300,
+                height: 500,
+                pageMetrics,
+                mode: 'width',
+            });
+
+            expect(scale.computeFitWidthScale(createContainer(1_000, 900))).toBe(true);
+            expect(scale.effectiveScale.value * pageMetrics[0]!.width).toBeCloseTo(960, 6);
+        } finally {
+            iteratorSpy.mockRestore();
+        }
     });
 });

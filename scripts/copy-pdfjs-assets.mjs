@@ -5,6 +5,7 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
+import { transform } from 'esbuild';
 import {
     dirname,
     join,
@@ -28,6 +29,35 @@ const ASSET_DIRECTORIES = [
 ];
 
 const PDFJS_VERSION_STAMP_FILE = '.pdfjs-version';
+export const PDFJS_WORKER_MAX_BYTES = 1_500_000;
+export const PDFJS_WORKER_MAX_LINES = 100;
+
+function readPdfjsWorkerHeader(source) {
+    return source.match(/^(?:\/\*\*(?!\*)[\s\S]*?\*\/\s*)+/u)?.[0] ?? '';
+}
+
+export async function minifyPdfjsWorker(source) {
+    const {code} = await transform(source, {
+        banner: readPdfjsWorkerHeader(source),
+        format: 'esm',
+        keepNames: true,
+        loader: 'js',
+        minify: true,
+        target: 'es2022',
+    });
+    const minifiedSource = `${code.trimEnd()}\n`;
+    const bytes = Buffer.byteLength(minifiedSource, 'utf8');
+    const lines = minifiedSource.split(/\r?\n/u).length;
+
+    if (bytes > PDFJS_WORKER_MAX_BYTES || lines > PDFJS_WORKER_MAX_LINES) {
+        throw new Error(
+            `Minified PDF.js worker exceeds the ${PDFJS_WORKER_MAX_BYTES}-byte `
+            + `or ${PDFJS_WORKER_MAX_LINES}-line limit `
+            + `(got ${bytes} bytes and ${lines} lines)`,
+        );
+    }
+    return minifiedSource;
+}
 
 export async function readPdfjsPackageVersion(root = pdfjsRoot) {
     const packageJsonPath = join(root, 'package.json');
@@ -61,10 +91,13 @@ export async function copyPdfjsAssets({
         await mkdir(join(targetRoot, directory), { recursive: true });
     }
 
-    await cp(
-        join(root, 'build', 'pdf.worker.min.mjs'),
+    // EVB patches the readable worker bundle to keep path-backed PDFs sparse.
+    // Keep the public filename stable for the viewer asset resolver, while
+    // restoring a bounded minified asset for browser delivery.
+    const workerSource = await readFile(join(root, 'build', 'pdf.worker.mjs'), 'utf8');
+    await writeFile(
         join(targetRoot, 'pdf.worker.min.mjs'),
-        { force: true },
+        await minifyPdfjsWorker(workerSource),
     );
 
     for (const directory of ASSET_DIRECTORIES) {

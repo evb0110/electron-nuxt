@@ -10,11 +10,14 @@ import { isRecord } from '@contracts/runtimeGuards';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
+import { isNativeDocumentRef } from '@app/utils/documentRef';
+import { NativePdfSaveRequiredError } from '@app/modules/workspace-shell/public/nativePdfMutationArtifact';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/public';
 import {
     BrowserWorkerClient,
     canUseBrowserWorker,
 } from '@app/platform/browser-api/public';
+import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 const SERIALIZATION_WORKER_IDLE_TTL_MS = 15_000;
 
@@ -27,7 +30,7 @@ const SERIALIZATION_WORKER_MAX_REQUEST_TIMEOUT_MS = 10 * 60_000;
 const SERIALIZATION_WORKER_TIMEOUT_BYTES_PER_STEP = 8 * 1024 * 1024;
 const SERIALIZATION_WORKER_TIMEOUT_STEP_MS = 5_000;
 const SERIALIZATION_WORKER_COPY_CHUNK_BYTES = 8 * 1024 * 1024;
-const SERIALIZATION_WORKER_MAX_INPUT_BYTES = 512 * 1024 * 1024;
+const SERIALIZATION_WORKER_MAX_INPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;
 const SERIALIZATION_WORKER_MAX_QUEUED_REQUESTS = 4;
 let serializationRequestTail = Promise.resolve();
 let serializationRequestCount = 0;
@@ -65,6 +68,12 @@ function isPdfSerializationWorkerOperationError(error: unknown) {
 
 function isPdfSerializationWorkerTimeoutError(error: unknown) {
     return error instanceof PdfSerializationWorkerTimeoutError;
+}
+
+function assertSerializationWorkerInputWithinLimit(data: Uint8Array) {
+    if (data.byteLength > SERIALIZATION_WORKER_MAX_INPUT_BYTES) {
+        throw new RangeError('PDF serialization input exceeds the 16 MiB worker limit');
+    }
 }
 
 function settleSerializationWorkerResult(
@@ -149,9 +158,7 @@ async function toTransferableUint8Array(data: Uint8Array): Promise<Uint8Array<Ar
     // Never transfer the caller's live buffer into the worker. The save path
     // can pass reactive PDF state here, and transferring that buffer would
     // detach it on the main thread before the save completes.
-    if (data.byteLength > SERIALIZATION_WORKER_MAX_INPUT_BYTES) {
-        throw new RangeError('PDF serialization input exceeds the 512 MiB worker limit');
-    }
+    assertSerializationWorkerInputWithinLimit(data);
     const copy = new Uint8Array(data.byteLength);
     for (let offset = 0; offset < data.byteLength; offset += SERIALIZATION_WORKER_COPY_CHUNK_BYTES) {
         copy.set(
@@ -178,9 +185,7 @@ async function resolveTransferableData(
     input: ISerializationWorkerBinaryInput | undefined,
 ) {
     if (input?.bytes === data && canTransferOwnedInput(input)) {
-        if (data.byteLength > SERIALIZATION_WORKER_MAX_INPUT_BYTES) {
-            throw new RangeError('PDF serialization input exceeds the 512 MiB worker limit');
-        }
+        assertSerializationWorkerInputWithinLimit(data);
         return data as Uint8Array<ArrayBuffer>;
     }
     return toTransferableUint8Array(data);
@@ -260,6 +265,14 @@ async function reloadDisposableInput(input: ISerializationWorkerBinaryInput) {
     const revision = input.revision;
     if (path === undefined || revision === undefined) {
         throw new Error('Detached serialization input cannot be reloaded without an exact working-copy revision');
+    }
+    if (isNativeDocumentRef(path)) {
+        throw new NativePdfSaveRequiredError({
+            code: 'native-save-required',
+            phase: 'pre-write',
+            reason: 'missing-native-capability',
+            detail: 'Detached serialization input cannot reload a native path-backed working copy',
+        });
     }
     const documentFiles = getDocumentFilesCapability();
     const before = await documentFiles.getDocumentRevision(path);
@@ -384,6 +397,7 @@ async function runSerializationWorkerRequestInternal<K extends TSerializationWor
         payload,
     };
     const typedRequest = request as TSerializationWorkerRequest;
+    assertSerializationWorkerInputWithinLimit(typedRequest.payload.data);
 
     if (!canUseBrowserWorker()) {
         return runDirectWithYield(typedRequest) as Promise<ISerializationWorkerResultMap[K]>;

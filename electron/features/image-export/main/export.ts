@@ -1,6 +1,7 @@
 import {existsSync} from 'fs';
 import {
     copyFile,
+    mkdtemp,
     mkdir,
     readFile,
     readdir,
@@ -72,7 +73,6 @@ import {
     validateRenderedImagePageFiles,
 } from '@electron/features/image-export/main/imageExportResourceLimits';
 import {
-    buildImageExportOutputPaths,
     buildMultiPageTiffOutputPaths,
     resolveOutputPathConflicts,
 } from '@electron/features/image-export/main/imageExportPathPlanning';
@@ -111,7 +111,6 @@ const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 const PDF_EXPORT_DPI_PROBE_SAMPLE_PAGES = 8;
 const PDF_EXPORT_PPM_CONVERT_CONCURRENCY = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_CONVERT_CONCURRENCY', 4, 1, 16);
-const PDF_EXPORT_MAX_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_MAX_PAGES', 500, 1, 10_000);
 const PDF_EXPORT_RENDER_CHUNK_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_RENDER_CHUNK_PAGES', 25, 1, 100);
 const PDF_EXPORT_PNG_RENDER_CHUNK_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_PNG_RENDER_CHUNK_PAGES', 5, 1, 25);
 const TIFF_COMBINE_WORKER_TIMEOUT_MS = 10 * 60 * 1000;
@@ -557,7 +556,9 @@ function selectDpiProbePages(pageCount: number) {
         return [1];
     }
 
-    return uniq(range(0, sampleCount).map(index => 1 + Math.round((index * (pageCount - 1)) / (sampleCount - 1))));
+    return uniq(range(0, sampleCount).map(index => 1 + Math.round(
+        (index / (sampleCount - 1)) * (pageCount - 1),
+    )));
 }
 
 async function detectExportRenderDpi(
@@ -605,18 +606,15 @@ export async function getPdfPageCount(
         ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
     });
     const pageCount = Number.parseInt(result.stdout.trim(), 10);
-    if (!Number.isInteger(pageCount) || pageCount < 1) {
+    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
         throw new Error('Failed to read PDF page count');
     }
     return pageCount;
 }
 
-function assertExportPageCountWithinLimit(pageCount: number) {
-    if (!Number.isInteger(pageCount) || pageCount < 1) {
+function assertExportPageCount(pageCount: number) {
+    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
         throw new Error('PDF export source has no pages');
-    }
-    if (pageCount > PDF_EXPORT_MAX_PAGES) {
-        throw new Error(`PDF image export is capped at ${PDF_EXPORT_MAX_PAGES} pages`);
     }
 }
 
@@ -715,9 +713,10 @@ function normalizePageNumbers(pageNumbers: number[] | undefined): number[] | nul
         return null;
     }
 
-    const unique = uniq(pageNumbers)
-        .filter(page => Number.isInteger(page) && page > 0)
-        .sort((left, right) => left - right);
+    if (pageNumbers.some(page => !Number.isSafeInteger(page) || page < 1)) {
+        throw new Error('pageNumbers must contain positive safe integers');
+    }
+    const unique = uniq(pageNumbers).sort((left, right) => left - right);
 
     if (unique.length === 0) {
         throw new Error('At least one page number must be provided for scoped export');
@@ -802,7 +801,7 @@ async function planExportRender(preparedSourcePdf: string, options: IExportPdfOp
         ...(options.signal ? { signal: options.signal } : {}),
         ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
     });
-    assertExportPageCountWithinLimit(pageCount);
+    assertExportPageCount(pageCount);
 
     return {
         pageCount,
@@ -816,12 +815,26 @@ async function planExportRender(preparedSourcePdf: string, options: IExportPdfOp
     };
 }
 
-function createPageRanges(pageCount: number, chunkPages = PDF_EXPORT_RENDER_CHUNK_PAGES) {
-    return range(1, pageCount + 1, chunkPages)
-        .map(firstPage => ({
+export function* createPageRanges(
+    pageCount: number,
+    chunkPages = PDF_EXPORT_RENDER_CHUNK_PAGES,
+): Generator<IExportPageRange> {
+    if (!Number.isSafeInteger(pageCount) || pageCount < 1) throw new Error('pageCount must be a positive safe integer');
+    if (!Number.isSafeInteger(chunkPages) || chunkPages < 1) throw new Error('chunkPages must be a positive safe integer');
+
+    let firstPage = 1;
+    while (firstPage <= pageCount) {
+        const pageSpan = Math.min(chunkPages, pageCount - firstPage + 1);
+        const lastPage = firstPage + pageSpan - 1;
+        yield {
             firstPage,
-            lastPage: Math.min(pageCount, firstPage + chunkPages - 1),
-        }));
+            lastPage,
+        };
+        if (lastPage === pageCount) {
+            return;
+        }
+        firstPage = lastPage + 1;
+    }
 }
 
 export async function exportPdfPagesAsImages(
@@ -845,12 +858,7 @@ export async function exportPdfPagesAsImages(
             pageCount,
             renderDpi,
         } = await planExportRender(preparedSourcePdf, options);
-        const exportedPaths = resolveOutputPathConflicts(buildImageExportOutputPaths(
-            normalizedPath,
-            pageCount,
-            outputStem,
-            outputExtension,
-        ));
+        const exportedPaths: string[] = [];
 
         const stagedFiles: Array<{
             stagedPath: string;
@@ -858,7 +866,6 @@ export async function exportPdfPagesAsImages(
             targetExisted: boolean;
         }> = [];
         let processedPages = 0;
-        let stagedBytes = 0;
         emitExportProgress(options, {
             phase: 'rendering',
             processed: 0,
@@ -872,6 +879,7 @@ export async function exportPdfPagesAsImages(
             )) {
                 throwIfAborted(options.signal);
                 await usingExportScratch(options, 'pdfExport-', async tempDir => {
+                    let stagedBytes = 0;
                     const pageFiles = await renderPdfToTempPages(
                         preparedSourcePdf,
                         format,
@@ -882,19 +890,24 @@ export async function exportPdfPagesAsImages(
                         options.cancelGroup,
                     );
                     for (const source of pageFiles) {
-                        const targetPath = exportedPaths[processedPages];
+                        const outputIndex = processedPages;
+                        const plannedPath = pageCount === 1
+                            ? normalizedPath
+                            : join(outputDirectory, `${outputStem}-${String(outputIndex + 1).padStart(3, '0')}${outputExtension}`);
+                        const targetPath = resolveOutputPathConflicts(
+                            [plannedPath],
+                            pageCount === 1,
+                        )[0];
                         if (!targetPath) {
                             throw new Error('Image export target path is missing');
                         }
+                        exportedPaths.push(targetPath);
                         const stagedPath = makeSiblingTempPath(targetPath);
 
                         throwIfAborted(options.signal);
                         await moveFile(source.path, stagedPath);
-                        stagedBytes = await addStagedImageFileBytes(
-                            stagedBytes,
-                            stagedPath,
-                            'Image export exceeds the 2 GiB staged-output limit',
-                        );
+                        stagedBytes = await addStagedImageFileBytes(stagedBytes, stagedPath,
+                            'Image export exceeds the 2 GiB staged-output limit for one render window');
                         stagedFiles.push({
                             stagedPath,
                             targetPath,
@@ -1087,7 +1100,6 @@ export async function exportPdfAsMultiPageTiff(
                 renderDpi,
             } = await planExportRender(preparedSourcePdf, options);
             const pageFiles: IRenderedPageFile[] = [];
-            let stagedPageBytes = 0;
             let renderedPageCount = 0;
             emitExportProgress(options, {
                 phase: 'rendering',
@@ -1095,24 +1107,22 @@ export async function exportPdfAsMultiPageTiff(
                 total: pageCount,
                 percent: 0,
             });
-
             for (const pageRange of createPageRanges(pageCount)) {
                 throwIfAborted(options.signal);
+                const renderDir = await mkdtemp(join(tempDir, 'render-pages-'));
                 const renderedPageFiles = await renderPdfToTempPages(
                     preparedSourcePdf,
                     'tiff',
                     pageRange,
-                    tempDir,
+                    renderDir,
                     renderDpi,
                     options.signal,
                     options.cancelGroup,
                 );
+                let stagedPageBytes = 0;
                 for (const renderedPageFile of renderedPageFiles) {
-                    stagedPageBytes = await addStagedImageFileBytes(
-                        stagedPageBytes,
-                        renderedPageFile.path,
-                        'Multi-page TIFF export exceeds the 2 GiB scratch limit',
-                    );
+                    stagedPageBytes = await addStagedImageFileBytes(stagedPageBytes, renderedPageFile.path,
+                        'Multi-page TIFF export exceeds the 2 GiB scratch limit for one render window');
                 }
                 pageFiles.push(...renderedPageFiles);
                 renderedPageCount += renderedPageFiles.length;
@@ -1123,7 +1133,6 @@ export async function exportPdfAsMultiPageTiff(
                     percent: (renderedPageCount / pageCount) * 90,
                 });
             }
-
             const orderedPagePaths = pageFiles
                 .sort((left, right) => left.page - right.page)
                 .map(pageFile => pageFile.path);

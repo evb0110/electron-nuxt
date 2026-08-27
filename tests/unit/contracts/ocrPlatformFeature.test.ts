@@ -17,6 +17,7 @@ describe('OCR platform feature', () => {
             cancel: 'ocr:cancel',
             getLanguages: 'ocr:getLanguages',
             resolveDocumentTextCatalog: 'ocr:resolveDocumentTextCatalog',
+            resolveDocumentTextCatalogWindow: 'ocr:resolveDocumentTextCatalogWindow',
             resolveDocumentOcrAvailability: 'ocr:resolveDocumentOcrAvailability',
             resolveDocumentOcrPage: 'ocr:resolveDocumentOcrPage',
             acknowledgeResultFile: 'ocr:ackResultFile',

@@ -271,7 +271,12 @@ import {
 } from '@contracts/scanCleanupPageOverrides';
 import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumbnailList.vue';
 import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
-import type {TScanCleanupSelectionIntent} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
+import type {
+    IScanCleanupPageOrder,
+    TScanCleanupOrderedPages,
+    TScanCleanupSelectionIntent,
+} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
+import {createScanCleanupSparsePageOrder} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
 
 type TScanCleanupRailSort = 'natural' | 'classification' | 'confidence';
 const LOW_CONFIDENCE_THRESHOLD = 0.6;
@@ -299,7 +304,7 @@ const props = defineProps<{
     settledPages?: ReadonlySet<number>;
 }>();
 const emit = defineEmits<{
-    'select-page': [page: number, intent: TScanCleanupSelectionIntent, orderedPages: readonly number[]];
+    'select-page': [page: number, intent: TScanCleanupSelectionIntent, orderedPages: TScanCleanupOrderedPages];
     'update:override': [page: number, value: IScanCleanupPageOverride];
 }>();
 const {t} = useTypedI18n();
@@ -391,26 +396,38 @@ const classificationRank: Record<IScanCleanupPreviewMetadata['layoutClassificati
     'page-with-offcut': 1,
     'two-page-spread': 2,
 };
-const orderedPages = computed(() => {
-    const pages = Array.from({length: props.source?.pageCount ?? props.totalPages}, (_, index) => index + 1);
+const orderedPages = computed<IScanCleanupPageOrder>(() => {
+    const pageCount = props.source?.pageCount ?? props.totalPages;
     if (sortMode.value === 'classification') {
-        return pages.sort((left, right) => {
-            const leftValue = props.classifications.get(left);
-            const rightValue = props.classifications.get(right);
-            return (leftValue === undefined ? Number.POSITIVE_INFINITY : classificationRank[leftValue])
-                - (rightValue === undefined ? Number.POSITIVE_INFINITY : classificationRank[rightValue])
-                || left - right;
-        });
+        return createScanCleanupSparsePageOrder(
+            pageCount,
+            props.classifications.keys(),
+            (left, right) => {
+                const leftValue = props.classifications.get(left);
+                const rightValue = props.classifications.get(right);
+                return (leftValue === undefined ? Number.POSITIVE_INFINITY : classificationRank[leftValue])
+                    - (rightValue === undefined ? Number.POSITIVE_INFINITY : classificationRank[rightValue])
+                    || left - right;
+            },
+        );
     }
     if (sortMode.value === 'confidence') {
-        return pages.sort((left, right) => {
-            const leftValue = props.confidences.get(left);
-            const rightValue = props.confidences.get(right);
-            return (leftValue ?? Number.POSITIVE_INFINITY) - (rightValue ?? Number.POSITIVE_INFINITY)
-                || left - right;
-        });
+        return createScanCleanupSparsePageOrder(
+            pageCount,
+            props.confidences.keys(),
+            (left, right) => {
+                const leftValue = props.confidences.get(left);
+                const rightValue = props.confidences.get(right);
+                return (leftValue ?? Number.POSITIVE_INFINITY) - (rightValue ?? Number.POSITIVE_INFINITY)
+                    || left - right;
+            },
+        );
     }
-    return pages;
+    return {
+        length: pageCount,
+        pageAt: position => position >= 1 && position <= pageCount ? position : undefined,
+        positionOf: page => page >= 1 && page <= pageCount ? page : -1,
+    };
 });
 const orderedSource = computed<IDocumentPageSource | null>(() => {
     const source = props.source;
@@ -421,7 +438,7 @@ const orderedSource = computed<IDocumentPageSource | null>(() => {
     function mapRequest(request: Parameters<IDocumentPageSource['renderPage']>[0]) {
         return {
             ...request,
-            pageNumber: order[request.pageNumber - 1] ?? request.pageNumber,
+            pageNumber: order.pageAt(request.pageNumber) ?? request.pageNumber,
         };
     }
     return {
@@ -429,7 +446,7 @@ const orderedSource = computed<IDocumentPageSource | null>(() => {
         documentRef: source.documentRef,
         pageCount: order.length,
         getPageMetrics(position, signal) {
-            return source.getPageMetrics(order[position - 1] ?? position, signal);
+            return source.getPageMetrics(order.pageAt(position) ?? position, signal);
         },
         renderPage(request) {
             return source.renderPage(mapRequest(request));
@@ -440,13 +457,18 @@ const orderedSource = computed<IDocumentPageSource | null>(() => {
         dispose() {},
     };
 });
-const leaderPosition = computed(() => Math.max(1, orderedPages.value.indexOf(props.selectionLeader) + 1));
-const selectedPositions = computed(() => new Set(orderedPages.value.flatMap((page, index) => (
-    props.selectedPages.has(page) ? [index + 1] : []
-))));
+const leaderPosition = computed(() => Math.max(1, orderedPages.value.positionOf(props.selectionLeader)));
+const selectedPositions = computed(() => {
+    const positions = new Set<number>();
+    for (const page of props.selectedPages) {
+        const position = orderedPages.value.positionOf(page);
+        if (position >= 1) positions.add(position);
+    }
+    return positions;
+});
 
 function naturalPage(position: number) {
-    return orderedPages.value[position - 1] ?? position;
+    return orderedPages.value.pageAt(position) ?? position;
 }
 
 function pageOverride(page: number) {
@@ -984,20 +1006,24 @@ function handleKeydown(event: KeyboardEvent) {
     ) {
         return;
     }
-    const currentIndex = Math.max(0, orderedPages.value.indexOf(props.selectionLeader));
+    const currentPosition = Math.max(1, orderedPages.value.positionOf(props.selectionLeader));
     let nextIndex: number | null = null;
-    if (event.key === 'ArrowUp') nextIndex = currentIndex - 1;
-    else if (event.key === 'ArrowDown') nextIndex = currentIndex + 1;
-    else if (event.key === 'Home') nextIndex = 0;
-    else if (event.key === 'End') nextIndex = orderedPages.value.length - 1;
-    else if (event.key === 'PageUp') nextIndex = currentIndex - PAGE_KEYBOARD_STEP;
-    else if (event.key === 'PageDown') nextIndex = currentIndex + PAGE_KEYBOARD_STEP;
+    if (event.key === 'ArrowUp') nextIndex = currentPosition - 1;
+    else if (event.key === 'ArrowDown') nextIndex = currentPosition + 1;
+    else if (event.key === 'Home') nextIndex = 1;
+    else if (event.key === 'End') nextIndex = orderedPages.value.length;
+    else if (event.key === 'PageUp') nextIndex = currentPosition - PAGE_KEYBOARD_STEP;
+    else if (event.key === 'PageDown') nextIndex = currentPosition + PAGE_KEYBOARD_STEP;
     if (nextIndex === null || orderedPages.value.length === 0) {
         return;
     }
     event.preventDefault();
-    const boundedIndex = Math.min(orderedPages.value.length - 1, Math.max(0, nextIndex));
-    emit('select-page', orderedPages.value[boundedIndex]!, 'single', orderedPages.value);
+    const boundedPosition = Math.min(orderedPages.value.length, Math.max(1, nextIndex));
+    const page = orderedPages.value.pageAt(boundedPosition);
+    if (page === undefined) {
+        return;
+    }
+    emit('select-page', page, 'single', orderedPages.value);
 }
 
 watch(() => props.disabled, disabled => {

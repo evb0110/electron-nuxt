@@ -2,6 +2,7 @@ import type {TDocumentRef} from '@contracts/documentRef';
 import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain';
 import type {
     IScanCleanupOptions,
+    IScanCleanupPagePlanEvidence,
     IScanCleanupSourcePageMetadata,
     TScanCleanupOutputHalf,
 } from '@contracts/electronApiScanCleanup';
@@ -10,6 +11,7 @@ import type {
     TScanCleanupPlacementAnchorsByPage,
 } from '@contracts/scanCleanupPageOverrides';
 import {
+    attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     resolveScanCleanupPlacementAnchors,
     SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
@@ -33,6 +35,8 @@ const POINTS_PER_MM = 72 / 25.4;
 function usesScanCleanupInkAlignment(options: IScanCleanupOptions) {
     return options.matchPageSize
         && (options.pageAlignment === 'ink'
+            || Object.values(options.pageOverrideDefaults?.placementOverrides ?? {})
+                .some(alignment => alignment === 'ink')
             || Object.values(options.pageOverrides).some(override => Object
                 .values(override?.placementOverrides ?? {})
                 .some(alignment => alignment === 'ink')));
@@ -113,6 +117,28 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         sourceSha256,
         legacyDocumentKey,
     });
+    watch(
+        [
+            () => settings.values.pageOverrides,
+            () => settings.values.pageOverrideDefaults,
+        ],
+        (
+            [
+                pageOverrides,
+                pageOverrideDefaults,
+            ],
+        ) => {
+            attachScanCleanupPageOverrideDefaults(
+                pageOverrides,
+                pageOverrideDefaults,
+                settings.values.marginsMm,
+            );
+        },
+        {
+            deep: true,
+            immediate: true,
+        },
+    );
     const resolvedOptions = computed(() => toPlainScanCleanupOptions(settings.values));
     let previewResult = null as ReturnType<typeof useScanCleanupPreviewSession> | null;
     const selection = useScanCleanupSelection({
@@ -232,18 +258,16 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         }
         selection.reconcilePageCount(normalizedPageCount, options.currentPage());
     });
-    function resolvePagePlanEvidence(pageNumbers: readonly number[]) {
-        return new Map(
-            pageNumbers.flatMap(pageNumber => {
-                const detected = detection.pagePlanEvidenceByPage.get(pageNumber);
-                return detected === undefined
-                    ? []
-                    : [[
-                        pageNumber,
-                        detected,
-                    ] as const];
-            }),
-        );
+    function resolvePagePlanEvidence(pageNumbers: readonly number[] | null) {
+        if (pageNumbers === null) {
+            return new Map<number, IScanCleanupPagePlanEvidence>(detection.pagePlanEvidenceByPage);
+        }
+        const evidence = new Map<number, IScanCleanupPagePlanEvidence>();
+        for (const pageNumber of pageNumbers) {
+            const detected = detection.pagePlanEvidenceByPage.get(pageNumber);
+            if (detected !== undefined) evidence.set(pageNumber, detected);
+        }
+        return evidence;
     }
     const run = useScanCleanupRunSession({
         active: options.active,
@@ -254,6 +278,8 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         },
         detectionError: detection.error,
         detectionErrorCode: detection.errorCode,
+        detectionEvidenceComplete: detection.detectionEvidenceComplete,
+        detectionResultStoreId: detection.detectionResultStoreId,
         detectionPending: detection.pending,
         detectionStatus: detection.terminalStatus,
         documentPriorByPage: detection.documentPriorByPage,

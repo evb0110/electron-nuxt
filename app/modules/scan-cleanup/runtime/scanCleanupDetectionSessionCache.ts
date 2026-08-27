@@ -8,6 +8,9 @@ export interface IScanCleanupDetectionSessionCacheEntry {
     ownerId: string;
     results: IScanCleanupDetectionResult[];
     signatures: Map<number, string>;
+    /** Scalar document/settings tokens avoid rechecking every page on restore. */
+    documentSignature?: string;
+    signatureToken?: string;
     state: TScanCleanupDetectionJobState;
     totalPages: number;
 }
@@ -40,6 +43,8 @@ function estimateEntryBytes(entry: IScanCleanupDetectionSessionCacheEntry) {
             ownerId: entry.ownerId,
             results: entry.results,
             signatures: [...entry.signatures],
+            documentSignature: entry.documentSignature,
+            signatureToken: entry.signatureToken,
             state: entry.state,
             totalPages: entry.totalPages,
         })).byteLength;

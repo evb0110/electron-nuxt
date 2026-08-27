@@ -5906,6 +5906,7 @@ describe('scan cleanup pipeline', () => {
         // names a different page instead of failing.
         async function runLosslessAnalysis(runSidecar: IRunScanCleanupPipelineDependencies['runSidecar']) {
             const fixture = await setup();
+            const pipelineDependencies = dependencies(runSidecar);
             const classifying: Array<{
                 completedUnits: number;
                 pageNumbers: number[];
@@ -5958,11 +5959,12 @@ describe('scan cleanup pipeline', () => {
                 emitProgress,
                 vi.fn(),
                 highTierPolicy,
-                dependencies(runSidecar),
+                pipelineDependencies,
             );
             return {
                 run,
                 classifying,
+                pipelineDependencies,
             };
         }
 
@@ -6029,6 +6031,7 @@ describe('scan cleanup pipeline', () => {
             const {
                 run,
                 classifying,
+                pipelineDependencies,
             } = await runLosslessAnalysis(vi.fn(async (
                 _binary,
                 manifestPath,
@@ -6082,6 +6085,15 @@ describe('scan cleanup pipeline', () => {
                     ],
                 },
             ]);
+            expect(pipelineDependencies.runCommand).toHaveBeenCalledWith(
+                '/page-ops',
+                expect.arrayContaining([
+                    'split-pages',
+                    '--qpdf',
+                    '/qpdf',
+                ]),
+                expect.objectContaining({commandLabel: 'evb-pdf-page-ops(split-pages:scan-cleanup)'}),
+            );
         });
     });
 

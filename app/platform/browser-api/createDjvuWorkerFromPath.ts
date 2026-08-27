@@ -35,7 +35,7 @@ import { createNativeDjvuTextSearchBridge } from '@app/platform/browser-api/crea
 import { resolveDjvuPreviewResolutionPlan } from '@app/utils/djvuPreviewResolution';
 import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
 import {
-    DJVU_INTERACTIVE_MAX_PAGES,
+    BROWSER_DJVU_INTERACTIVE_MAX_PAGES,
     DJVU_OUTLINE_MAX_DEPTH,
     DJVU_OUTLINE_MAX_NODES,
     DJVU_OUTLINE_MAX_TITLE_CHARS,
@@ -291,8 +291,8 @@ export async function searchDjvuWorkerText(
 ): Promise<IPdfSearchResponse> {
     validateSearchQuery(options.query, options.matchOptions);
     const pageSizes = await worker.doc.getPagesSizes().run();
-    if (pageSizes.length > DJVU_INTERACTIVE_MAX_PAGES) {
-        throw new Error(`DjVu viewing is capped at ${DJVU_INTERACTIVE_MAX_PAGES} pages`);
+    if (pageSizes.length > BROWSER_DJVU_INTERACTIVE_MAX_PAGES) {
+        throw new Error(`DjVu viewing is capped at ${BROWSER_DJVU_INTERACTIVE_MAX_PAGES} pages`);
     }
     const pageCount = Math.min(options.pageCount, pageSizes.length);
     const results: IPdfSearchResponse['results'] = [];
@@ -748,8 +748,8 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
     };
 
     const pageSizesPromise = worker.doc.getPagesSizes().run().then((sizes) => {
-        if (sizes.length > DJVU_INTERACTIVE_MAX_PAGES) {
-            throw new Error(`DjVu viewing is capped at ${DJVU_INTERACTIVE_MAX_PAGES} pages`);
+        if (sizes.length > BROWSER_DJVU_INTERACTIVE_MAX_PAGES) {
+            throw new Error(`DjVu viewing is capped at ${BROWSER_DJVU_INTERACTIVE_MAX_PAGES} pages`);
         }
         return sizes;
     });

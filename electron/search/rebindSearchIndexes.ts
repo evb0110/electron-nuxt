@@ -16,12 +16,21 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import {
+    classifySearchIndexOperation,
+    invalidateSearchIndexSidecars,
+} from '@electron/search/searchIndexOperationPolicy';
 
 export async function rebindSearchIndexes(
     pdfPath: string,
     previousRevision: TDocumentRevisionToken,
     nextRevision: TDocumentRevisionToken,
 ) {
+    const classification = await classifySearchIndexOperation(pdfPath);
+    if (classification.isXlarge) {
+        return invalidateSearchIndexSidecars(pdfPath);
+    }
+
     const [
         legacy,
         compact,

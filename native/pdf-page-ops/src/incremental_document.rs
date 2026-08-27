@@ -22,7 +22,7 @@ const QPDF_TEMP_PREFIX: &str = "evb-qpdf-structure-";
 pub(crate) struct IncrementalDocument {
     previous_len: u64,
     previous_last_byte: Option<u8>,
-    previous_document: Document,
+    pub(crate) previous_document: Document,
     unavailable_base_streams: HashSet<ObjectId>,
     pub(crate) new_document: Document,
 }
@@ -689,6 +689,44 @@ mod tests {
             error.downcast_ref::<NativeError>().unwrap().code,
             NativeErrorCode::TooLarge
         );
+    }
+
+    #[test]
+    fn accepts_structural_sidecar_larger_than_the_old_eight_megabyte_cap() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("evb-qpdf-structural-output-test-{nonce}.json"));
+        let mut file = File::create(&path).unwrap();
+        file.write_all(
+            br#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.7","maxobjectid":1},{"trailer":{"value":{"/Root":"1 0 R","/Producer":"u:"#,
+        )
+        .unwrap();
+        let filler = vec![b'a'; 1024 * 1024];
+        for _ in 0..9 {
+            file.write_all(&filler).unwrap();
+        }
+        file.write_all(br#""}},"obj:1 0 R":{"value":{"/Type":"/Catalog"}}}]}"#)
+            .unwrap();
+        file.sync_all().unwrap();
+
+        let metadata = file.metadata().unwrap();
+        assert!(metadata.len() > 8 * 1024 * 1024);
+        drop(file);
+        let parsed = parse_qpdf_structure(&path).unwrap();
+        assert_eq!(
+            parsed
+                .0
+                .trailer
+                .get(b"Root")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+            (1, 0)
+        );
+        fs::remove_file(path).unwrap();
     }
 
     #[test]

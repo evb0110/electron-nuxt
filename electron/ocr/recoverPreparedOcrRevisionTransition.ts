@@ -1,13 +1,92 @@
 import {
     cp,
+    lstat,
     readFile,
+    readdir,
+    rename,
     rm,
     unlink,
     writeFile,
 } from 'node:fs/promises';
+import {join} from 'node:path';
 import {copyFileAtomic} from '@electron/features/documents/public/index';
 import {isRecord} from '@contracts/runtimeGuards';
 import {readWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
+import {
+    MAX_LEGACY_OCR_CATALOG_BACKUP_BYTES,
+    MAX_LEGACY_OCR_CATALOG_FILES,
+} from '@electron/file-access/workingCopyContentTransitionJournal';
+import {
+    getOcrCatalogV4PreparedDescriptorPath,
+    rollbackPreparedOcrCatalogV4,
+} from '@electron/ocr/worker/indexWriterV4';
+
+const OCR_ROOT_MANIFEST_FILENAME = 'manifest.json';
+
+async function isLegacyCatalogWithinBudget(path: string) {
+    let totalBytes = 0;
+    let fileCount = 0;
+    const pending = [path];
+    while (pending.length > 0) {
+        const currentPath = pending.pop()!;
+        const currentStat = await lstat(currentPath);
+        if (currentStat.isSymbolicLink()) {
+            throw new Error(`OCR legacy catalog contains a symbolic link: ${currentPath}`);
+        }
+        if (currentStat.isDirectory()) {
+            const entries = await readdir(currentPath);
+            if (entries.length > MAX_LEGACY_OCR_CATALOG_FILES) {
+                return false;
+            }
+            for (const entry of entries) {
+                fileCount += 1;
+                if (fileCount > MAX_LEGACY_OCR_CATALOG_FILES) {
+                    return false;
+                }
+                pending.push(join(currentPath, entry));
+            }
+            continue;
+        }
+        if (!currentStat.isFile()) {
+            throw new Error(`OCR legacy catalog contains a non-file entry: ${currentPath}`);
+        }
+        totalBytes += currentStat.size;
+        if (totalBytes > MAX_LEGACY_OCR_CATALOG_BACKUP_BYTES) {
+            return false;
+        }
+    }
+    return true;
+}
+
+type TLegacyCatalogTransferMode = 'copy' | 'rename' | 'missing';
+
+async function legacyCatalogPathExists(path: string) {
+    return lstat(path)
+        .then(() => true)
+        .catch(error => {
+            if (isRecord(error) && error.code === 'ENOENT') {
+                return false;
+            }
+            throw error;
+        });
+}
+
+async function rollbackPreparedCatalog(descriptorPath: string, catalogRoot: string) {
+    await rollbackPreparedOcrCatalogV4(descriptorPath, {catalogRoot});
+}
+
+async function restorePreparedRootManifest(
+    workingCopyPath: string,
+    backupPath: string | undefined,
+    backupExisted: boolean,
+) {
+    const manifestPath = join(`${workingCopyPath}.ocr`, OCR_ROOT_MANIFEST_FILENAME);
+    if (!backupExisted || !backupPath) {
+        await rm(manifestPath, {force: true});
+        return;
+    }
+    await copyFileAtomic(backupPath, manifestPath);
+}
 
 function parseJson(raw: string): unknown {
     const parsed: unknown = JSON.parse(raw);
@@ -28,11 +107,39 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
         || journal.workingCopyPath !== workingCopyPath
         || typeof journal.transitionId !== 'string'
         || typeof journal.pdfBackupPath !== 'string'
-        || typeof journal.catalogBackupPath !== 'string'
+        || (journal.catalogBackupPath !== undefined && typeof journal.catalogBackupPath !== 'string')
+        || (
+            journal.catalogBackupMode !== undefined
+            && journal.catalogBackupMode !== 'copy'
+            && journal.catalogBackupMode !== 'rename'
+            && journal.catalogBackupMode !== 'missing'
+        )
+        || (
+            journal.catalogApplyMode !== undefined
+            && journal.catalogApplyMode !== 'copy'
+            && journal.catalogApplyMode !== 'rename'
+        )
     ) {
         throw new Error('Invalid OCR revision transition recovery journal');
     }
     const catalogBackupExisted = journal.catalogBackupExisted !== false;
+    const isV4Prepared = journal.catalogKind === 'v4-root'
+        || typeof journal.descriptorPath === 'string';
+    if (isV4Prepared && typeof journal.descriptorPath !== 'string') {
+        throw new Error('Invalid OCR v4 revision transition recovery journal');
+    }
+    if (
+        isV4Prepared
+        && (
+            typeof journal.resultPath !== 'string'
+            || getOcrCatalogV4PreparedDescriptorPath(journal.resultPath) !== journal.descriptorPath
+        )
+    ) {
+        throw new Error('Invalid OCR v4 revision transition recovery journal');
+    }
+    if (!isV4Prepared && typeof journal.catalogBackupPath !== 'string') {
+        throw new Error('Invalid OCR revision transition recovery journal');
+    }
 
     const currentRevision = await readWorkingCopyRevisionSidecar(workingCopyPath);
     if (
@@ -46,27 +153,75 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
             workingCopyPath,
             targetDocumentRevisionToken: journal.targetDocumentRevisionToken,
             undoPdfPath: journal.pdfBackupPath,
-            undoCatalogPath: journal.catalogBackupPath,
+            ...(typeof journal.catalogBackupPath === 'string'
+                ? {undoCatalogPath: journal.catalogBackupPath}
+                : {}),
             undoCatalogExisted: catalogBackupExisted,
+            ...(journal.catalogBackupMode === 'copy' || journal.catalogBackupMode === 'rename'
+                ? {catalogBackupMode: journal.catalogBackupMode}
+                : {}),
+            ...(journal.catalogApplyMode === 'copy' || journal.catalogApplyMode === 'rename'
+                ? {catalogApplyMode: journal.catalogApplyMode}
+                : {}),
+            ...(isV4Prepared ? {catalogKind: 'v4-root'} : {}),
             committedAt: Date.now(),
         }), 'utf8');
         return true;
     }
 
     await copyFileAtomic(journal.pdfBackupPath, workingCopyPath);
-    await rm(`${workingCopyPath}.ocr`, {
-        recursive: true,
-        force: true,
-    });
-    if (catalogBackupExisted) {
-        await cp(journal.catalogBackupPath, `${workingCopyPath}.ocr`, {recursive: true});
+    if (isV4Prepared) {
+        await restorePreparedRootManifest(
+            workingCopyPath,
+            typeof journal.catalogBackupPath === 'string' ? journal.catalogBackupPath : undefined,
+            catalogBackupExisted,
+        );
+        await rollbackPreparedCatalog(
+            journal.descriptorPath as string,
+            `${workingCopyPath}.ocr`,
+        ).catch(() => undefined);
+    } else {
+        if (!catalogBackupExisted) {
+            await rm(`${workingCopyPath}.ocr`, {
+                recursive: true,
+                force: true,
+            });
+        } else {
+            const legacyBackupPath = journal.catalogBackupPath as string;
+            const backupMode: TLegacyCatalogTransferMode = journal.catalogBackupMode === 'rename'
+                ? 'rename'
+                : journal.catalogBackupMode === 'copy'
+                    ? 'copy'
+                    : await isLegacyCatalogWithinBudget(legacyBackupPath)
+                        ? 'copy'
+                        : 'rename';
+            if (backupMode === 'rename') {
+                // A large v3 backup sits beside the working root. Promote it
+                // by rename so rollback stays O(1) in catalog bytes.
+                if (await legacyCatalogPathExists(legacyBackupPath)) {
+                    await rm(`${workingCopyPath}.ocr`, {
+                        recursive: true,
+                        force: true,
+                    });
+                    await rename(legacyBackupPath, `${workingCopyPath}.ocr`);
+                }
+            } else {
+                await rm(`${workingCopyPath}.ocr`, {
+                    recursive: true,
+                    force: true,
+                });
+                await cp(legacyBackupPath, `${workingCopyPath}.ocr`, {recursive: true});
+            }
+        }
     }
     await Promise.all([
         unlink(journal.pdfBackupPath).catch(() => undefined),
-        rm(journal.catalogBackupPath, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined),
+        ...(typeof journal.catalogBackupPath === 'string'
+            ? [rm(journal.catalogBackupPath, {
+                recursive: true,
+                force: true,
+            }).catch(() => undefined)]
+            : []),
         unlink(journalPath).catch(() => undefined),
     ]);
     return true;

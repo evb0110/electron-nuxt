@@ -67,6 +67,7 @@ vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({convertDjvuPageT
 const {
     clearDjvuPageSizeCacheForTests,
     getDjvuPageSizeForViewing,
+    getDjvuPageSizeWindowsForViewing,
     getDjvuPageSizesForViewing,
     parseDjvuPageSizeOutput,
     renderDjvuPagePreview,
@@ -210,6 +211,62 @@ describe('DjVu native page preview helpers', () => {
                 targetWidthPx: 400,
             }),
         );
+    });
+
+    it('probes page sizes through bounded windows', async () => {
+        mocks.runNativeCommand.mockImplementation(async (...rawArgs: unknown[]) => {
+            const args = rawArgs[1] as string[];
+            const pageNumbers = [...String(args[2]).matchAll(/select (\d+); size/gu)]
+                .map(match => Number.parseInt(match[1] ?? '', 10));
+            return {
+                stdout: pageNumbers.map(page => `${100 + page} ${200 + page}`).join('\n'),
+                stderr: '',
+                exitCode: 0,
+            };
+        });
+
+        const windows = [];
+        for await (const window of getDjvuPageSizeWindowsForViewing('/tmp/large.djvu', 513)) {
+            windows.push(window);
+        }
+
+        expect(windows.map(window => [
+            window.firstPage,
+            window.sizes.length,
+        ])).toEqual([
+            [
+                1,
+                256,
+            ],
+            [
+                257,
+                256,
+            ],
+            [
+                513,
+                1,
+            ],
+        ]);
+        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(3);
+        const calls = mocks.runNativeCommand.mock.calls as unknown[][];
+        expect((calls[0]?.[1] as string[] | undefined)?.[2]).toContain('select 256; size');
+        expect((calls[1]?.[1] as string[] | undefined)?.[2]).toContain('select 257; size');
+    });
+
+    it('stops a million-page size scan immediately after cancellation', async () => {
+        const controller = new AbortController();
+        mocks.runNativeCommand.mockImplementation(async () => {
+            controller.abort();
+            return {
+                stdout: '100 200',
+                stderr: '',
+                exitCode: 0,
+            };
+        });
+
+        const iterator = getDjvuPageSizeWindowsForViewing('/tmp/million-page.djvu', 1_000_001, {signal: controller.signal});
+        await expect(iterator.next()).rejects.toThrow('aborted');
+        expect(mocks.runNativeCommand).toHaveBeenCalledOnce();
     });
 
     it('invalidates cached page metrics when the file revision changes at the same path', async () => {

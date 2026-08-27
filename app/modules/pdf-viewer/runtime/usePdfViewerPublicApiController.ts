@@ -10,6 +10,7 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { toSelectedTextMarkupComment } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
+import { cloneSparsePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 
 const POINT_NOTE_CANCELLED_REASON = 'The document changed before the point note was created.';
 
@@ -140,7 +141,7 @@ export const usePdfViewerPublicApiController = (
         },
         applyFitWidthToCurrentPage: options.applyFitWidthToCurrentPage,
         ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
-        getPageMetricsSnapshot: () => documentSession.pageMetrics.value.map(metric => ({ ...metric })),
+        getPageMetricsSnapshot: () => cloneSparsePageMetrics(documentSession.pageMetrics.value),
         waitForViewerLoadSettled: options.waitForViewerLoadSettled,
         preserveNextSourceReloadVisibleContent: options.preserveNextSourceReloadVisibleContent,
         adoptPersistedManagedShapesOnNextImport: annotationRuntime.adoptPersistedManagedShapesOnNextImport,
@@ -148,6 +149,7 @@ export const usePdfViewerPublicApiController = (
         ensureManagedShapeBaselineReady: annotationRuntime.ensureManagedShapeBaselineReady,
         preparePersistedManagedShapesForSave: annotationRuntime.preparePersistedManagedShapesForSave,
         restorePreparedManagedShapesAfterFailedSave: annotationRuntime.restorePreparedManagedShapesAfterFailedSave,
+        commitPdfEditorsForSave: annotationSession.commitPdfEditorsForSave,
         runSaveTransaction: annotationSession.runSaveTransaction,
         saveDocument: annotationSession.saveViewerDocument,
         materializePdfJsDocumentForInternalUse: annotationSession.materializePdfJsDocumentForInternalUse,

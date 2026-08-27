@@ -20,6 +20,7 @@ import {
     cancelOpenBatchArgs,
     cancelPagePreviewArgs,
     cancelPagePreviewResult,
+    cloneStagedNativeMutationArgs,
     commitNativeMutationsArgs,
     createWorkingCopyFromDataArgs,
     createWorkingCopyFromPathArgs,
@@ -70,6 +71,7 @@ import {
     releaseManagedHandleArgs,
     repairPdfArgs,
     replaceWorkingCopyArgs,
+    replaceWorkingCopyFromStagedNativeMutationArgs,
     revisionResult,
     saveFileStructuredArgs,
     savePdfAsArgs,
@@ -82,6 +84,24 @@ import {
     type TDocumentMethodArgs,
     type TDocumentMethodResult,
 } from '@contracts/documentsPlatformFeatureSchemas';
+import {
+    beginPdfAnnotationIndexArgs,
+    cancelPdfAnnotationIndexArgs,
+    pdfAnnotationIndexCancelResult,
+    pdfAnnotationIndexChunkResult,
+    pdfAnnotationIndexSessionResult,
+    readPdfAnnotationIndexChunkArgs,
+    releasePdfAnnotationIndexArgs,
+} from '@contracts/pdfAnnotationIndexSchemas';
+import {
+    beginPdfEmbeddedShapeIndexArgs,
+    cancelPdfEmbeddedShapeIndexArgs,
+    pdfEmbeddedShapeIndexCancelResult,
+    pdfEmbeddedShapeIndexChunkResult,
+    pdfEmbeddedShapeIndexSessionResult,
+    readPdfEmbeddedShapeIndexChunkArgs,
+    releasePdfEmbeddedShapeIndexArgs,
+} from '@contracts/pdfEmbeddedShapeIndexSchemas';
 import {pdfValidationPathArgs} from '@contracts/pdfValidationPathArgs';
 export {decodeOpenFileResult} from '@contracts/documentsPlatformFeatureSchemas';
 
@@ -434,6 +454,72 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             },
             ...electronImplementedOptional,
         },
+        beginPdfAnnotationIndex: {
+            ...defineIpcMethod(
+                'beginPdfAnnotationIndex', 'pdf:annotationIndex:begin', beginPdfAnnotationIndexArgs,
+                pdfAnnotationIndexSessionResult, 'beginPdfAnnotationIndex', 'sender',
+            ),
+            ipc: {
+                args: beginPdfAnnotationIndexArgs,
+                result: pdfAnnotationIndexSessionResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        readPdfAnnotationIndexChunk: {
+            ...defineIpcMethod(
+                'readPdfAnnotationIndexChunk', 'pdf:annotationIndex:readChunk', readPdfAnnotationIndexChunkArgs,
+                pdfAnnotationIndexChunkResult, 'readPdfAnnotationIndexChunk', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        releasePdfAnnotationIndex: {
+            ...defineIpcMethod(
+                'releasePdfAnnotationIndex', 'pdf:annotationIndex:release', releasePdfAnnotationIndexArgs,
+                booleanResult, 'releasePdfAnnotationIndex', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        cancelPdfAnnotationIndex: {
+            ...defineIpcMethod(
+                'cancelPdfAnnotationIndex', 'pdf:annotationIndex:cancel', cancelPdfAnnotationIndexArgs,
+                pdfAnnotationIndexCancelResult, 'cancelPdfAnnotationIndex', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        beginPdfEmbeddedShapeIndex: {
+            ...defineIpcMethod(
+                'beginPdfEmbeddedShapeIndex', 'pdf:embeddedShapeIndex:begin', beginPdfEmbeddedShapeIndexArgs,
+                pdfEmbeddedShapeIndexSessionResult, 'beginPdfEmbeddedShapeIndex', 'sender',
+            ),
+            ipc: {
+                args: beginPdfEmbeddedShapeIndexArgs,
+                result: pdfEmbeddedShapeIndexSessionResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        readPdfEmbeddedShapeIndexChunk: {
+            ...defineIpcMethod(
+                'readPdfEmbeddedShapeIndexChunk', 'pdf:embeddedShapeIndex:readChunk', readPdfEmbeddedShapeIndexChunkArgs,
+                pdfEmbeddedShapeIndexChunkResult, 'readPdfEmbeddedShapeIndexChunk', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        releasePdfEmbeddedShapeIndex: {
+            ...defineIpcMethod(
+                'releasePdfEmbeddedShapeIndex', 'pdf:embeddedShapeIndex:release', releasePdfEmbeddedShapeIndexArgs,
+                booleanResult, 'releasePdfEmbeddedShapeIndex', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        cancelPdfEmbeddedShapeIndex: {
+            ...defineIpcMethod(
+                'cancelPdfEmbeddedShapeIndex', 'pdf:embeddedShapeIndex:cancel', cancelPdfEmbeddedShapeIndexArgs,
+                pdfEmbeddedShapeIndexCancelResult, 'cancelPdfEmbeddedShapeIndex', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
         readFileChunks: defineLocalMethod(
             'readFileChunks', 'async', readFileChunksArgs, readFileChunksResult,
         ),
@@ -602,6 +688,38 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 'commitStagedPdfNativeMutations', 'file:commitStagedPdfNativeMutations',
                 commitNativeMutationsArgs, nativeSaveResult, 'commitStagedPdfNativeMutations', 'sender',
             ),
+            ...electronImplementedOptional,
+        },
+        cloneStagedPdfNativeMutationToWorkingCopy: {
+            ...defineIpcMethod(
+                'cloneStagedPdfNativeMutationToWorkingCopy',
+                'file:cloneStagedPdfNativeMutationToWorkingCopy',
+                cloneStagedNativeMutationArgs,
+                stringResult,
+                'cloneStagedPdfNativeMutationToWorkingCopy',
+                'sender',
+            ),
+            ipc: {
+                args: cloneStagedNativeMutationArgs,
+                result: stringResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        replaceWorkingCopyFromStagedPdfNativeMutation: {
+            ...defineIpcMethod(
+                'replaceWorkingCopyFromStagedPdfNativeMutation',
+                'file:replaceWorkingCopyFromStagedPdfNativeMutation',
+                replaceWorkingCopyFromStagedNativeMutationArgs,
+                booleanResult,
+                'replaceWorkingCopyFromStagedPdfNativeMutation',
+                'sender',
+            ),
+            ipc: {
+                args: replaceWorkingCopyFromStagedNativeMutationArgs,
+                result: booleanResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
             ...electronImplementedOptional,
         },
     },

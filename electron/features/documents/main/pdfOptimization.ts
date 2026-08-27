@@ -55,12 +55,6 @@ const PDF_OPTIMIZE_MERGE_TIMEOUT_MS = parseIntegerEnv(
     30 * 60 * 1000,
     10_000,
 );
-const PDF_OPTIMIZE_MAX_RASTER_PAGES = parseIntegerEnv(
-    'EVB_PDF_OPTIMIZE_MAX_RASTER_PAGES',
-    2_000,
-    1,
-    10_000,
-);
 
 interface IPdfRasterOptimizePreset {
     dpi: number;
@@ -68,7 +62,7 @@ interface IPdfRasterOptimizePreset {
     grayscale: boolean;
 }
 
-interface IPdfOptimizePageRange {
+export interface IPdfOptimizePageRange {
     firstPage: number;
     lastPage: number;
 }
@@ -110,15 +104,30 @@ export function normalizePdfOptimizeOptions(value: unknown): IPdfOptimizeOptions
     return { preset: value.preset };
 }
 
-function createPageRanges(pageCount: number, chunkPages = PDF_OPTIMIZE_RENDER_CHUNK_PAGES) {
-    const ranges: IPdfOptimizePageRange[] = [];
-    for (let firstPage = 1; firstPage <= pageCount; firstPage += chunkPages) {
-        ranges.push({
-            firstPage,
-            lastPage: Math.min(pageCount, firstPage + chunkPages - 1),
-        });
+export function* createPageRanges(
+    pageCount: number,
+    chunkPages = PDF_OPTIMIZE_RENDER_CHUNK_PAGES,
+): Generator<IPdfOptimizePageRange> {
+    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
+        throw new Error('pageCount must be a positive safe integer');
     }
-    return ranges;
+    if (!Number.isSafeInteger(chunkPages) || chunkPages < 1) {
+        throw new Error('chunkPages must be a positive safe integer');
+    }
+
+    let firstPage = 1;
+    while (firstPage <= pageCount) {
+        const pageSpan = Math.min(chunkPages, pageCount - firstPage + 1);
+        const lastPage = firstPage + pageSpan - 1;
+        yield {
+            firstPage,
+            lastPage,
+        };
+        if (lastPage === pageCount) {
+            return;
+        }
+        firstPage = lastPage + 1;
+    }
 }
 
 function clampProgress(processed: number, total: number) {
@@ -359,9 +368,6 @@ export async function optimizePdfToFile(
     const pageCount = normalizedOptions.preset === 'lossless'
         ? null
         : await getPdfPageCount(inputPath);
-    if (pageCount !== null && pageCount > PDF_OPTIMIZE_MAX_RASTER_PAGES) {
-        throw new RangeError(`Raster PDF optimization is capped at ${PDF_OPTIMIZE_MAX_RASTER_PAGES} pages`);
-    }
     const tempOutputPath = makeSiblingTempPath(outputPath);
     let replaced = false;
 

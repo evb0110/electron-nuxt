@@ -132,7 +132,6 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
     } = documentOpenFlow;
     const {
         persistPdfDataSilently,
-        readWorkingCopyBytes,
         saveFile,
         repairWorkingCopy,
         optimizeWorkingCopy,
@@ -224,7 +223,6 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         reloadWorkingCopyIntoHistory,
         loadPdfFromData,
         persistPdfDataSilently,
-        readWorkingCopyBytes,
         saveFile,
         ...(typeof documentFiles.repairPdf === 'function' ? { repairWorkingCopy } : {}),
         ...(typeof documentFiles.optimizePdfForInteraction === 'function' ? { optimizeWorkingCopy } : {}),

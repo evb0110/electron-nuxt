@@ -63,6 +63,7 @@ export interface IPdfjsEditor {
     _onResized?: () => void;
     _onResizing?: () => void;
     isInEditMode?: () => boolean;
+    enableEditMode?: () => boolean;
     updateParams?: (type: number, value: unknown) => void;
     onUpdatedColor?: () => void;
     setDims?: () => void;
@@ -88,6 +89,7 @@ export interface IPdfjsEditor {
     };
     toggleComment?: (isSelected: boolean, visibility?: boolean) => void;
     addToAnnotationStorage?: () => void;
+    commitOrRemove?: () => void;
     focusCommentButton?: () => void;
     remove?: () => void;
     delete?: () => void;

@@ -42,6 +42,7 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
+import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 import {
     readBrowserRasterImageMetadata,
     readBrowserTiffFrameDpi,
@@ -72,11 +73,11 @@ function throwIfCombineAborted(signal: AbortSignal | undefined) {
     }
 }
 
-const BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES = 64 * 1024 * 1024;
-const BROWSER_COMBINED_PDF_REWRITE_MAX_BYTES = 32 * 1024 * 1024;
+const BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
+const BROWSER_COMBINED_PDF_REWRITE_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
 const BROWSER_COMBINED_PDF_MAX_IMAGE_PIXELS = 80_000_000;
 const BROWSER_COMBINED_PDF_MAX_PAGES = 500;
-const BROWSER_COMBINED_PDF_MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
+const BROWSER_COMBINED_PDF_MAX_OUTPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;
 const BROWSER_COMBINED_PDF_MAX_DECODED_WORKING_BYTES = 256 * 1024 * 1024;
 
 interface IBrowserDecodedWorkingSetBudget {
@@ -130,7 +131,7 @@ function buildBrowserLargeJobError(label: string, maxBytes: number) {
     );
 }
 
-function emitBatchOpenProgress(
+export function emitBatchOpenProgress(
     options: IBrowserBatchOpenProgressOptions | undefined,
     processed: number,
     total: number,

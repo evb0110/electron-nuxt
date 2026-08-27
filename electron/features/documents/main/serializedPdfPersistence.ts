@@ -97,36 +97,12 @@ const SERIALIZED_PDF_MAX_CHUNK_BYTES = PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES;
 const SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS = PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS;
 const SERIALIZED_PDF_ACK_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS;
 const SERIALIZED_PDF_RESULT_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS;
-const DEFAULT_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES = 16 * 1024 * 1024 * 1024;
-const MIN_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES = 1024 * 1024;
-const MAX_SERIALIZED_PDF_PERSISTENCE_BYTES = (() => {
-    const parsed = Number.parseInt(
-        process.env.EVB_MAX_SERIALIZED_PDF_PERSISTENCE_BYTES
-            ?? `${DEFAULT_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES}`,
-        10,
-    );
-    if (!Number.isSafeInteger(parsed) || parsed < MIN_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES) {
-        return DEFAULT_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES;
-    }
-    return parsed;
-})();
 const MAX_SERIALIZED_PDF_SESSIONS_PER_SENDER = (() => {
     const parsed = Number.parseInt(process.env.EVB_MAX_SERIALIZED_PDF_SESSIONS_PER_SENDER ?? '4', 10);
     if (!Number.isSafeInteger(parsed) || parsed < 1) {
         return 4;
     }
     return Math.min(parsed, 64);
-})();
-const MAX_SERIALIZED_PDF_RESERVED_BYTES_PER_SENDER = (() => {
-    const parsed = Number.parseInt(
-        process.env.EVB_MAX_SERIALIZED_PDF_RESERVED_BYTES_PER_SENDER
-            ?? `${MAX_SERIALIZED_PDF_PERSISTENCE_BYTES}`,
-        10,
-    );
-    if (!Number.isSafeInteger(parsed) || parsed < MIN_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES) {
-        return MAX_SERIALIZED_PDF_PERSISTENCE_BYTES;
-    }
-    return Math.max(parsed, MIN_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES);
 })();
 const PDF_EOF_TAIL_BYTES = 64 * 1024;
 
@@ -176,10 +152,7 @@ interface ISerializedPdfPersistenceStageResult {
 }
 
 const sessions = new Map<string, ISerializedPdfPersistenceSession>();
-const senderReservations = new Map<number, {
-    sessionCount: number;
-    reservedBytes: number;
-}>();
+const senderReservations = new Map<number, number>();
 
 function createEmptyPdfValidationResult(message: string): IPdfValidationResult {
     return {
@@ -214,7 +187,9 @@ function getSerializedPdfPersistenceLimits(): ISerializedPdfPersistenceLimits {
         protocolVersion: SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
         maxChunkBytes: SERIALIZED_PDF_MAX_CHUNK_BYTES,
         maxInFlightChunks: SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS,
-        maxTotalBytes: MAX_SERIALIZED_PDF_PERSISTENCE_BYTES,
+        // The stream stays bounded by maxChunkBytes and maxInFlightChunks.
+        // This field describes the protocol's integer range, not a product cap.
+        maxTotalBytes: Number.MAX_SAFE_INTEGER,
         ackTimeoutMs: SERIALIZED_PDF_ACK_TIMEOUT_MS,
         resultTimeoutMs: SERIALIZED_PDF_RESULT_TIMEOUT_MS,
     };
@@ -250,11 +225,6 @@ function normalizeTotalBytes(totalBytes: unknown) {
         throw new Error('Invalid total byte count');
     }
 
-    if (totalBytes > MAX_SERIALIZED_PDF_PERSISTENCE_BYTES) {
-        throw new Error(
-            `Invalid PDF persistence stream: exceeds maximum size (${MAX_SERIALIZED_PDF_PERSISTENCE_BYTES} bytes)`,
-        );
-    }
     return totalBytes;
 }
 
@@ -274,25 +244,12 @@ function clearSessionTimeout(session: ISerializedPdfPersistenceSession) {
     clearTimeout(session.timeout);
 }
 
-function reserveSenderPersistenceCapacity(senderId: number, totalBytes: number) {
-    const existingReservation = senderReservations.get(senderId) ?? {
-        sessionCount: 0,
-        reservedBytes: 0,
-    };
-    if (existingReservation.sessionCount >= MAX_SERIALIZED_PDF_SESSIONS_PER_SENDER) {
+function reserveSenderPersistenceCapacity(senderId: number) {
+    const existingSessionCount = senderReservations.get(senderId) ?? 0;
+    if (existingSessionCount >= MAX_SERIALIZED_PDF_SESSIONS_PER_SENDER) {
         throw new Error(`Too many active PDF persistence streams (${MAX_SERIALIZED_PDF_SESSIONS_PER_SENDER})`);
     }
-    if (existingReservation.reservedBytes + totalBytes > MAX_SERIALIZED_PDF_RESERVED_BYTES_PER_SENDER) {
-        throw new Error(
-            `Active PDF persistence streams exceed reserved byte budget (${MAX_SERIALIZED_PDF_RESERVED_BYTES_PER_SENDER})`,
-        );
-    }
-
-    const nextReservation = {
-        sessionCount: existingReservation.sessionCount + 1,
-        reservedBytes: existingReservation.reservedBytes + totalBytes,
-    };
-    senderReservations.set(senderId, nextReservation);
+    senderReservations.set(senderId, existingSessionCount + 1);
 
     let released = false;
     return () => {
@@ -305,16 +262,12 @@ function reserveSenderPersistenceCapacity(senderId: number, totalBytes: number) 
         if (!currentReservation) {
             return;
         }
-        const sessionCount = Math.max(0, currentReservation.sessionCount - 1);
-        const reservedBytes = Math.max(0, currentReservation.reservedBytes - totalBytes);
-        if (sessionCount === 0 || reservedBytes === 0) {
+        const sessionCount = Math.max(0, currentReservation - 1);
+        if (sessionCount === 0) {
             senderReservations.delete(senderId);
             return;
         }
-        senderReservations.set(senderId, {
-            sessionCount,
-            reservedBytes,
-        });
+        senderReservations.set(senderId, sessionCount);
     };
 }
 
@@ -411,7 +364,7 @@ async function createSession(options: {
         options.workingPath,
         options.serializedSaveOptions,
     );
-    const releaseSenderReservation = reserveSenderPersistenceCapacity(options.sender.id, options.totalBytes);
+    const releaseSenderReservation = reserveSenderPersistenceCapacity(options.sender.id);
     const tempPath = `${makeSiblingTempPath(options.targetPath)}.pdf`;
     let handle: FileHandle;
     try {

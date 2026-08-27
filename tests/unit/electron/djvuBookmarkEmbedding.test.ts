@@ -56,7 +56,7 @@ describe('embedBookmarksIntoPdfFile', () => {
         vi.restoreAllMocks();
     });
 
-    it('rethrows native aborts instead of falling back to pdf-lib', async () => {
+    it('rethrows native aborts without attempting a byte fallback', async () => {
         const abortError = new Error('Native bookmark embedding canceled');
         abortError.name = 'AbortError';
         mocks.runNativeToolCommand
@@ -86,7 +86,7 @@ describe('embedBookmarksIntoPdfFile', () => {
         expect(mocks.readFile).not.toHaveBeenCalled();
     });
 
-    it('honors an aborted fallback signal before reading the PDF into memory', async () => {
+    it('honors an aborted signal before starting the native path', async () => {
         mocks.resolveNativePageOpsPath.mockReturnValue(null);
         const abortController = new AbortController();
         abortController.abort(new DOMException('Operation aborted', 'AbortError'));

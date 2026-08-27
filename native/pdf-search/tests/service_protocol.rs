@@ -1,12 +1,15 @@
 use serde_json::Value;
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const HEADER_SIZE: usize = 64;
 const PAGE_RECORD_SIZE: usize = 24;
+const STREAMING_HEADER_SIZE: usize = 64;
+const STREAMING_FOOTER_SIZE: usize = 64;
+const STREAMING_DIRECTORY_ENTRY_SIZE: usize = 24;
 const REVISION: &str = "service-test-revision";
 const MAX_SERVICE_FRAME_BYTES: usize = 4 * 1024 * 1024;
 
@@ -63,6 +66,104 @@ fn write_sparse_multi_page_index(path: &Path, page_count: u32, page_bytes: usize
     }
     file.set_len((text_offset + page_count as usize * page_bytes) as u64)
         .expect("size sparse search service index");
+}
+
+fn write_sparse_index(path: &Path, page_count: u32, pages: &[(u32, &str)]) {
+    let revision = REVISION.as_bytes();
+    let page_table_offset = HEADER_SIZE + revision.len();
+    let text_data_offset = page_table_offset + pages.len() * PAGE_RECORD_SIZE;
+    let mut file = File::create(path).expect("create sparse search service index");
+    file.write_all(b"EVBSIDX2").unwrap();
+    file.write_all(&2u32.to_le_bytes()).unwrap();
+    file.write_all(&(HEADER_SIZE as u32).to_le_bytes()).unwrap();
+    file.write_all(&page_count.to_le_bytes()).unwrap();
+    file.write_all(&(pages.len() as u32).to_le_bytes()).unwrap();
+    file.write_all(&0u32.to_le_bytes()).unwrap();
+    file.write_all(&(revision.len() as u32).to_le_bytes())
+        .unwrap();
+    file.write_all(&(HEADER_SIZE as u64).to_le_bytes()).unwrap();
+    file.write_all(&(page_table_offset as u64).to_le_bytes())
+        .unwrap();
+    file.write_all(&(text_data_offset as u64).to_le_bytes())
+        .unwrap();
+    file.write_all(&0u64.to_le_bytes()).unwrap();
+    file.write_all(revision).unwrap();
+
+    let mut text_offset = text_data_offset as u64;
+    for (page_number, text) in pages {
+        file.write_all(&page_number.to_le_bytes()).unwrap();
+        file.write_all(&0u32.to_le_bytes()).unwrap();
+        file.write_all(&text_offset.to_le_bytes()).unwrap();
+        file.write_all(&(text.len() as u64).to_le_bytes()).unwrap();
+        text_offset += text.len() as u64;
+    }
+    for (_, text) in pages {
+        file.write_all(text.as_bytes()).unwrap();
+    }
+}
+
+fn write_streaming_sparse_index(path: &Path, page_count: u32, pages: &[(u32, &str)]) {
+    let revision = REVISION.as_bytes();
+    let directory_offset = STREAMING_HEADER_SIZE + revision.len();
+    let directory_length = page_count as usize * STREAMING_DIRECTORY_ENTRY_SIZE;
+    let text_data_offset = directory_offset + directory_length;
+    let text_bytes = pages.iter().map(|(_, text)| text.len()).sum::<usize>();
+    let footer_offset = text_data_offset + text_bytes;
+    let mut file = File::create(path).expect("create streaming search service index");
+    file.set_len((footer_offset + STREAMING_FOOTER_SIZE) as u64)
+        .expect("size streaming search service index");
+
+    file.write_all(b"EVBSIDX3").unwrap();
+    file.write_all(&3u32.to_le_bytes()).unwrap();
+    file.write_all(&(STREAMING_HEADER_SIZE as u32).to_le_bytes())
+        .unwrap();
+    file.write_all(&page_count.to_le_bytes()).unwrap();
+    file.write_all(&(pages.len() as u32).to_le_bytes()).unwrap();
+    file.write_all(&1u32.to_le_bytes()).unwrap();
+    file.write_all(&(revision.len() as u32).to_le_bytes())
+        .unwrap();
+    file.write_all(&(STREAMING_HEADER_SIZE as u64).to_le_bytes())
+        .unwrap();
+    file.write_all(&(directory_offset as u64).to_le_bytes())
+        .unwrap();
+    file.write_all(&(text_data_offset as u64).to_le_bytes())
+        .unwrap();
+    file.write_all(&(footer_offset as u64).to_le_bytes())
+        .unwrap();
+    file.write_all(revision).unwrap();
+
+    let mut next_text_offset = text_data_offset;
+    for (page_number, text) in pages {
+        let record_offset =
+            directory_offset + (*page_number as usize - 1) * STREAMING_DIRECTORY_ENTRY_SIZE;
+        file.seek(SeekFrom::Start(record_offset as u64)).unwrap();
+        file.write_all(&(next_text_offset as u64).to_le_bytes())
+            .unwrap();
+        file.write_all(&(text.len() as u64).to_le_bytes()).unwrap();
+        file.write_all(&(text.encode_utf16().count() as u32).to_le_bytes())
+            .unwrap();
+        file.write_all(&1u32.to_le_bytes()).unwrap();
+        next_text_offset += text.len();
+    }
+    file.seek(SeekFrom::Start(text_data_offset as u64)).unwrap();
+    for (_, text) in pages {
+        file.write_all(text.as_bytes()).unwrap();
+    }
+    file.seek(SeekFrom::Start(footer_offset as u64)).unwrap();
+    file.write_all(b"EVBSFTR3").unwrap();
+    file.write_all(&3u32.to_le_bytes()).unwrap();
+    file.write_all(&(STREAMING_FOOTER_SIZE as u32).to_le_bytes())
+        .unwrap();
+    file.write_all(&1u32.to_le_bytes()).unwrap();
+    file.write_all(&0u32.to_le_bytes()).unwrap();
+    file.write_all(&(pages.len() as u32).to_le_bytes()).unwrap();
+    file.write_all(&0u32.to_le_bytes()).unwrap();
+    file.write_all(&(text_bytes as u64).to_le_bytes()).unwrap();
+    file.write_all(&((footer_offset + STREAMING_FOOTER_SIZE) as u64).to_le_bytes())
+        .unwrap();
+    file.write_all(&(directory_length as u64).to_le_bytes())
+        .unwrap();
+    file.write_all(&(page_count as u64).to_le_bytes()).unwrap();
 }
 
 struct FixtureDirectory(PathBuf);
@@ -257,6 +358,61 @@ fn persistent_service_searches_over_framed_stdio() {
 #[test]
 fn persistent_service_accepts_an_explicit_idle_shutdown() {
     SearchService::spawn().shutdown();
+}
+
+#[test]
+fn persistent_service_accepts_a_sparse_index_above_one_million_declared_pages() {
+    let directory = fixture_directory("sparse-large-page-count");
+    let index_path = directory.join("sparse-large-page-count.search-index.bin");
+    let declared_page_count = 1_000_001;
+    write_sparse_index(&index_path, declared_page_count, &[(1, "needle")]);
+    let index_size = fs::metadata(&index_path).unwrap().len();
+    assert!(
+        index_size < 1_024,
+        "sparse fixture must retain one record, not allocate a dense page table: {index_size} bytes"
+    );
+
+    let mut request = search_request("sparse-large-page-count", &index_path, "needle");
+    request["pageCount"] = Value::from(declared_page_count);
+    let mut service = SearchService::spawn();
+    let response = service.request(&request);
+
+    assert_eq!(response["type"], "result", "{response}");
+    assert_eq!(response["result"]["pageCount"], declared_page_count);
+    assert_eq!(response["result"]["results"][0]["pageNumber"], 1);
+    drop(service);
+}
+
+#[test]
+fn persistent_service_searches_a_v3_sparse_index_above_one_million_pages() {
+    let directory = fixture_directory("v3-sparse-large-page-count");
+    let index_path = directory.join("v3-sparse-large-page-count.search-index.bin");
+    let declared_page_count = 1_000_001;
+    write_streaming_sparse_index(
+        &index_path,
+        declared_page_count,
+        &[(1, "first needle"), (declared_page_count, "last needle")],
+    );
+    let index_size = fs::metadata(&index_path).unwrap().len();
+    assert!(
+        index_size < 32 * 1024 * 1024,
+        "v3 fixture should retain a fixed directory, not a Rust record vector: {index_size} bytes"
+    );
+
+    let mut request = search_request("v3-sparse-large-page-count", &index_path, "needle");
+    request["pageCount"] = Value::from(declared_page_count);
+    let mut service = SearchService::spawn();
+    let response = service.request(&request);
+
+    assert_eq!(response["type"], "result", "{response}");
+    assert_eq!(response["result"]["pageCount"], declared_page_count);
+    assert_eq!(response["result"]["results"].as_array().unwrap().len(), 2);
+    assert_eq!(response["result"]["results"][0]["pageNumber"], 1);
+    assert_eq!(
+        response["result"]["results"][1]["pageNumber"],
+        declared_page_count
+    );
+    drop(service);
 }
 
 #[test]
@@ -490,12 +646,6 @@ fn service_rejects_empty_and_oversized_search_fields_before_dispatch() {
             value: Value::from(0),
             code: "invalid-request",
             message: "Search page count must be at least 1",
-        },
-        Case {
-            field: "pageCount",
-            value: Value::from(1_000_001),
-            code: "too-large",
-            message: "Search page count exceeds the 1000000-page admission ceiling",
         },
     ];
     let mut service = SearchService::spawn();

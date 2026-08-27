@@ -87,7 +87,6 @@ export {
     normalizePdfSearchWarmIndexPayload,
     PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT,
     SEARCH_DOCUMENT_REVISION_TOKEN_MAX_LENGTH,
-    SEARCH_PAGE_COUNT_DEFAULT_MAX,
     SEARCH_PDF_PATH_MAX_LENGTH,
     SEARCH_REQUEST_ID_MAX_LENGTH,
     validateSearchQuery,
@@ -96,12 +95,10 @@ export {
     PDF_NATIVE_DATE_PATTERN,
     PDF_NATIVE_MUTATION_ENUM_VALUES,
     PDF_NATIVE_MUTATION_LIMITS,
-    PDF_NATIVE_SHA256_HEX_PATTERN,
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
-    normalizePdfNativeWorkingCopyExpectation,
 } from '@contracts/nativePdfMutations';
 export type {
     IPdfNativePlacedImageNativeToolPayload,

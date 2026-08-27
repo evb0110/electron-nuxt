@@ -111,6 +111,8 @@ export interface IRunInitSequenceOptions {
     }): boolean;
     shutdownCoordinator: IShutdownCoordinator | null;
     sweepStaleDefaultAppTempPdfs(): Promise<unknown>;
+    sweepStalePdfAnnotationIndexArtifacts?: () => Promise<unknown>;
+    sweepStalePdfEmbeddedShapeIndexArtifacts?: () => Promise<unknown>;
     sweepStaleManagedScratchTempDirs?: () => Promise<unknown>;
     sweepStaleOcrTempArtifacts?: () => Promise<unknown>;
     pruneStaleDjvuArtifactJobs?: () => Promise<unknown>;
@@ -345,6 +347,8 @@ function createPostRendererReadyMaintenanceRunner(
         cleanupStaleWorkingCopyDirectories,
         logger,
         sweepStaleDefaultAppTempPdfs,
+        sweepStalePdfAnnotationIndexArtifacts,
+        sweepStalePdfEmbeddedShapeIndexArtifacts,
         sweepStaleManagedScratchTempDirs,
         sweepStaleOcrTempArtifacts,
         pruneStaleDjvuArtifactJobs,
@@ -372,6 +376,18 @@ function createPostRendererReadyMaintenanceRunner(
             ? [{
                 label: 'OCR temp artifacts',
                 run: sweepStaleOcrTempArtifacts,
+            }]
+            : []),
+        ...(sweepStalePdfAnnotationIndexArtifacts
+            ? [{
+                label: 'PDF annotation index sidecars',
+                run: sweepStalePdfAnnotationIndexArtifacts,
+            }]
+            : []),
+        ...(sweepStalePdfEmbeddedShapeIndexArtifacts
+            ? [{
+                label: 'PDF embedded shape index sidecars',
+                run: sweepStalePdfEmbeddedShapeIndexArtifacts,
             }]
             : []),
         ...(sweepStaleManagedScratchTempDirs

@@ -29,8 +29,11 @@ import {decodeNativeScanCleanupPageMetadata} from '@contracts/scan-cleanup/nativ
 import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {compactScanCleanupDetectionVerdicts} from '@scripts/scanCleanupCliAdapters';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
+import {SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES} from '@scan-cleanup-core/pageBatches';
+import type {IPdfPageSizeStore} from '@scan-cleanup-core/pdfPageSizes';
 
 const dirs: string[] = [];
+const resultStores: Array<{close: () => Promise<void>}> = [];
 const MIB = 1024 * 1024;
 
 function splitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
@@ -158,6 +161,83 @@ const PNG_1X1 = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     'base64',
 );
+
+function createLazyPageSizeStore(pageCount: number, chunkPages = 1_024) {
+    let closed = false;
+    let largestReadRange = 0;
+    let largestChunk = 0;
+    const makePage = (pageNumber: number) => ({
+        pageNumber,
+        xPoints: 0,
+        yPoints: 0,
+        widthPoints: 72,
+        heightPoints: 72,
+        rotation: 0,
+    });
+    const assertOpen = () => {
+        if (closed) throw new Error('lazy page-size store is closed');
+    };
+    const assertPage = (pageNumber: number) => {
+        if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > pageCount) {
+            throw new RangeError(`invalid synthetic page ${String(pageNumber)}`);
+        }
+    };
+    const store: IPdfPageSizeStore = {
+        pageCount,
+        getPage: vi.fn(async pageNumber => {
+            assertOpen();
+            assertPage(pageNumber);
+            return makePage(pageNumber);
+        }),
+        readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) => {
+            assertOpen();
+            assertPage(firstPageNumber);
+            if (
+                !Number.isSafeInteger(lastPageNumberExclusive)
+                || lastPageNumberExclusive < firstPageNumber
+                || lastPageNumberExclusive > pageCount + 1
+            ) {
+                throw new RangeError('invalid synthetic page range');
+            }
+            const length = lastPageNumberExclusive - firstPageNumber;
+            largestReadRange = Math.max(largestReadRange, length);
+            const pages = [] as Array<ReturnType<typeof makePage>>;
+            for (let pageNumber = firstPageNumber; pageNumber < lastPageNumberExclusive; pageNumber += 1) {
+                pages.push(makePage(pageNumber));
+            }
+            return pages;
+        }),
+        forEachChunk: vi.fn(async onChunk => {
+            assertOpen();
+            let chunkIndex = 0;
+            for (let firstPageNumber = 1; firstPageNumber <= pageCount; firstPageNumber += chunkPages) {
+                const lastPageNumberExclusive = Math.min(pageCount + 1, firstPageNumber + chunkPages);
+                const pages = [] as Array<ReturnType<typeof makePage>>;
+                for (let pageNumber = firstPageNumber; pageNumber < lastPageNumberExclusive; pageNumber += 1) {
+                    pages.push(makePage(pageNumber));
+                }
+                largestChunk = Math.max(largestChunk, pages.length);
+                await onChunk({
+                    pageCount,
+                    chunkIndex,
+                    firstPageNumber,
+                    offset: 0,
+                    byteLength: 0,
+                    pages,
+                });
+                chunkIndex += 1;
+            }
+        }),
+        close: vi.fn(async () => {
+            closed = true;
+        }),
+    };
+    return {
+        store,
+        largestChunk: () => largestChunk,
+        largestReadRange: () => largestReadRange,
+    };
+}
 
 interface IStagedManifestPages {pages: Array<Pick<INativeScanCleanupPageV3, 'inputPath' | 'sourcePageIndex' | 'pageMetadataPath'>>;}
 
@@ -324,6 +404,7 @@ function createRequest(): IScanCleanupDetectionRequest {
 }
 
 afterEach(async () => {
+    await Promise.all(resultStores.splice(0).map(store => store.close()));
     await Promise.all(dirs.splice(0).map(dir => rm(dir, {
         force: true,
         recursive: true,
@@ -333,6 +414,197 @@ afterEach(async () => {
 describe('runScanCleanupDetection non-stream raster admission', () => {
     /* Legacy FIFO Analyze transport coverage was removed when Analyze became
      * retained-PNG-only; Render conversion keeps its independent stream path. */
+
+    it('replays a 20,001-page detection in bounded manifests before cancellation', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-long-test-'));
+        dirs.push(tempDir);
+        const pageCount = SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1;
+        const controller = new AbortController();
+        const manifests: number[] = [];
+        const pageSizeSource = createLazyPageSizeStore(pageCount);
+        const renderPage = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
+            await writeFile(outputPath, PNG_1X1);
+        });
+        const retention: IScanCleanupDetectionRetention<{id: string}> = {
+            openDocument: vi.fn(async () => ({id: 'document'})),
+            pageCount: vi.fn(async () => pageCount),
+            pageSizeStore: vi.fn(async () => pageSizeSource.store),
+            rasterPages: vi.fn(async () => ({
+                detected: false,
+                getPageRaster: () => undefined,
+            })),
+            retainedPaths: vi.fn(async () => new Map()),
+            rasterScratchPath: vi.fn(async (_document, pageNumber) => join(tempDir, `scratch-${String(pageNumber)}.png`)),
+            stagedRasterPath: vi.fn(async (_document, pageNumber) => join(tempDir, `staged-${String(pageNumber)}.png`)),
+            retain: vi.fn(async input => {
+                const path = join(tempDir, `staged-${String(input.pageNumber)}.png`);
+                await rename(input.scratchPath, path);
+                return {
+                    dpi: input.dpi,
+                    height: input.height,
+                    pageNumber: input.pageNumber,
+                    path,
+                    sizeBytes: input.sizeBytes,
+                    width: input.width,
+                };
+            }),
+            releaseRaster: vi.fn(async (_document, pageNumber) => {
+                await rm(join(tempDir, `staged-${String(pageNumber)}.png`), {force: true});
+            }),
+            release: vi.fn(async () => undefined),
+        };
+        const result = runScanCleanupDetection(
+            {
+                ...createRequest(),
+                options: {
+                    ...createRequest().options,
+                    matchPageSize: false,
+                },
+            },
+            controller.signal,
+            retention,
+            {
+                getAvailableScratchBytes: vi.fn(async () => null),
+                getTempDir: () => tempDir,
+                getPdftoppmBinary: () => 'pdftoppm',
+                resolveBinary: () => 'evb-scan-cleanup',
+                renderPage,
+                renderPagePpm: vi.fn(),
+                runSidecar: vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+                    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
+                    manifests.push(manifest.pages.length);
+                    if (manifests.length === 1) {
+                        await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
+                            layoutClassification: 'single-uncut-page',
+                            cutterXPx: null,
+                            rotationDegrees: 0,
+                            canvasScope: 'page',
+                            excluded: false,
+                            blankOutputsSkipped: 0,
+                            outputCount: 0,
+                        }));
+                        onProgress({
+                            stage: 'page-complete',
+                            completedPages: 1,
+                            totalPages: manifest.pages.length,
+                            pageNumber: 1,
+                            classification: 'single-uncut-page',
+                            confidence: 0.9,
+                        });
+                        return;
+                    }
+                    controller.abort(new DOMException('Canceled', 'AbortError'));
+                }),
+            },
+            {rasterConcurrency: 2},
+            vi.fn(),
+        );
+
+        await expect(result).rejects.toThrow('Canceled');
+        expect(manifests).toEqual([
+            SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES,
+            1,
+        ]);
+        expect(renderPage).toHaveBeenCalledTimes(5);
+        expect(pageSizeSource.largestChunk()).toBeLessThanOrEqual(1_024);
+        expect(pageSizeSource.largestReadRange()).toBeLessThanOrEqual(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES);
+        expect(pageSizeSource.store.close).toHaveBeenCalledOnce();
+    }, 15_000);
+
+    it('starts a million-page detection from bounded ranges and cancels between invocations', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-million-test-'));
+        dirs.push(tempDir);
+        const pageCount = 1_000_000;
+        const controller = new AbortController();
+        const manifests: number[] = [];
+        const pageSizeSource = createLazyPageSizeStore(pageCount);
+        const renderPage = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
+            await writeFile(outputPath, PNG_1X1);
+        });
+        const retention: IScanCleanupDetectionRetention<{id: string}> = {
+            openDocument: vi.fn(async () => ({id: 'document'})),
+            pageCount: vi.fn(async () => pageCount),
+            pageSizeStore: vi.fn(async () => pageSizeSource.store),
+            rasterPages: vi.fn(async () => ({
+                detected: false,
+                getPageRaster: () => undefined,
+            })),
+            retainedPaths: vi.fn(async () => new Map()),
+            rasterScratchPath: vi.fn(async (_document, pageNumber) => join(tempDir, `scratch-${String(pageNumber)}.png`)),
+            stagedRasterPath: vi.fn(async (_document, pageNumber) => join(tempDir, `staged-${String(pageNumber)}.png`)),
+            retain: vi.fn(async input => {
+                const path = join(tempDir, `staged-${String(input.pageNumber)}.png`);
+                await rename(input.scratchPath, path);
+                return {
+                    dpi: input.dpi,
+                    height: input.height,
+                    pageNumber: input.pageNumber,
+                    path,
+                    sizeBytes: input.sizeBytes,
+                    width: input.width,
+                };
+            }),
+            releaseRaster: vi.fn(async (_document, pageNumber) => {
+                await rm(join(tempDir, `staged-${String(pageNumber)}.png`), {force: true});
+            }),
+            release: vi.fn(async () => undefined),
+        };
+        const result = runScanCleanupDetection(
+            {
+                ...createRequest(),
+                options: {
+                    ...createRequest().options,
+                    matchPageSize: false,
+                },
+            },
+            controller.signal,
+            retention,
+            {
+                getAvailableScratchBytes: vi.fn(async () => null),
+                getTempDir: () => tempDir,
+                getPdftoppmBinary: () => 'pdftoppm',
+                resolveBinary: () => 'evb-scan-cleanup',
+                renderPage,
+                renderPagePpm: vi.fn(),
+                runSidecar: vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+                    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
+                    manifests.push(manifest.pages.length);
+                    if (manifests.length === 1) {
+                        await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
+                            layoutClassification: 'single-uncut-page',
+                            cutterXPx: null,
+                            rotationDegrees: 0,
+                            canvasScope: 'page',
+                            excluded: false,
+                            blankOutputsSkipped: 0,
+                            outputCount: 0,
+                        }));
+                        onProgress({
+                            stage: 'page-complete',
+                            completedPages: 1,
+                            totalPages: manifest.pages.length,
+                            pageNumber: 1,
+                            classification: 'single-uncut-page',
+                            confidence: 0.9,
+                        });
+                        return;
+                    }
+                    controller.abort(new DOMException('Canceled', 'AbortError'));
+                }),
+            },
+            {rasterConcurrency: 2},
+            vi.fn(),
+        );
+
+        await expect(result).rejects.toThrow('Canceled');
+        expect(manifests).toEqual([
+            SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES,
+            SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES,
+        ]);
+        expect(pageSizeSource.largestChunk()).toBeLessThanOrEqual(1_024);
+        expect(pageSizeSource.largestReadRange()).toBeLessThanOrEqual(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES);
+        expect(pageSizeSource.store.close).toHaveBeenCalledOnce();
+    }, 30_000);
 
     it.each([
         [
@@ -454,6 +726,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             publish,
         );
 
+        resultStores.push(result.resultStore);
         expect(result.results).toHaveLength(pageCount);
         expect(manifests).toHaveLength(1);
         expect(manifests[0]!.pages.every(page => page.inputPath.endsWith('.png'))).toBe(true);
@@ -781,6 +1054,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             {rasterConcurrency: 1},
             () => undefined,
         );
+        resultStores.push(detection.resultStore);
         expect(detection.results[0]!.splitDiagnostics).toEqual(diagnostics);
 
         const state = {
@@ -957,6 +1231,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             () => undefined,
         );
 
+        resultStores.push(detection.resultStore);
         expect(detection.results.map(result => result.pageNumber)).toEqual([
             1,
             2,
@@ -1173,6 +1448,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             () => undefined,
         );
 
+        resultStores.push(detection.resultStore);
         expect(sidecarCalls).toBe(2);
         expect(renderBoxes).toEqual([
             'cropbox',

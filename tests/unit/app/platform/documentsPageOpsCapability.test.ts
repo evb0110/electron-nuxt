@@ -9,7 +9,12 @@ import {
     PDFDocument,
     degrees,
 } from 'pdf-lib';
-import { createBrowserPageOpsCapability } from '@app/platform/browser-api/createBrowserPageOpsCapability';
+import {
+    BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES,
+    BROWSER_PAGE_OP_MOVE_MAX_PAGES,
+    createBrowserPageOpsCapability,
+} from '@app/platform/browser-api/createBrowserPageOpsCapability';
+import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 const browserDocumentStoreMock = vi.hoisted(() => ({
@@ -98,13 +103,33 @@ describe('createBrowserPageOpsCapability', () => {
         expect(yieldToBrowserMock.mock.calls.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('rejects large browser page-ops jobs before reading the full PDF', async () => {
-        browserDocumentStoreMock.stat.mockResolvedValue({ size: (64 * 1024 * 1024) + 1 });
+    it('accepts a browser page-ops PDF at the exact full-read budget', async () => {
+        const input = new Uint8Array([1]);
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: BROWSER_MAX_FULL_READ_BYTES });
+        browserDocumentStoreMock.read.mockResolvedValue(input);
+        browserPageOpsWorkerMock.canUse.mockReturnValue(true);
+        browserPageOpsWorkerMock.run.mockResolvedValue({
+            data: new Uint8Array([2]),
+            pageCount: 1,
+        });
+
+        const pageOps = createPageOps({});
+        await expect(pageOps.delete('/tmp/work.pdf', [1], 1)).resolves.toEqual({
+            success: true,
+            pageCount: 1,
+        });
+
+        expect(browserPageOpsWorkerMock.run).toHaveBeenCalledTimes(1);
+        expect(browserDocumentStoreMock.write).toHaveBeenCalledWith('/tmp/work.pdf', new Uint8Array([2]));
+    });
+
+    it('rejects browser page-ops jobs above the full-read budget before reading the PDF', async () => {
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: BROWSER_MAX_FULL_READ_BYTES + 1 });
 
         const pageOps = createPageOps({});
 
         await expect(pageOps.delete('/tmp/work.pdf', [1], 1)).rejects.toThrow(
-            'Deleting pages is unavailable in the browser for PDFs larger than 64MB',
+            'Deleting pages is unavailable in the browser for PDFs larger than 16MB',
         );
         expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
@@ -160,6 +185,41 @@ describe('createBrowserPageOpsCapability', () => {
             3,
             1,
         ])).rejects.toThrow('reorderPages: missing page 2 in reorder payload');
+        expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
+    });
+
+    it('keeps the browser move fallback explicitly bounded while desktop handles large ranges natively', async () => {
+        const pageOps = createPageOps({});
+
+        await expect(pageOps.move(
+            '/tmp/work.pdf',
+            900_000,
+            900_000,
+            0,
+            BROWSER_PAGE_OP_MOVE_MAX_PAGES + 1,
+        )).rejects.toThrow(
+            `Moving pages in the browser is limited to ${BROWSER_PAGE_OP_MOVE_MAX_PAGES} pages`,
+        );
+        expect(browserDocumentStoreMock.stat).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
+    });
+
+    it('keeps browser delete-range materialization explicitly bounded', async () => {
+        const pageOps = createPageOps({});
+
+        await expect(pageOps.deleteRanges(
+            '/tmp/work.pdf',
+            [{
+                startPage: 2,
+                endPage: BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES + 2,
+            }],
+            BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES + 2,
+        )).rejects.toThrow(
+            `Deleting page ranges in the browser is limited to ${BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES} pages`,
+        );
+        expect(browserDocumentStoreMock.stat).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
     });
 
@@ -411,7 +471,7 @@ describe('createBrowserPageOpsCapability', () => {
         const pageOps = createPageOps({});
 
         await expect(pageOps.getPageGeometry('/tmp/work.pdf', 1)).rejects.toThrow(
-            'Inspecting page geometry is unavailable in the browser for PDFs larger than 64MB',
+            'Inspecting page geometry is unavailable in the browser for PDFs larger than 16MB',
         );
         expect(browserPageOpsWorkerMock.run).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
@@ -654,7 +714,7 @@ describe('createBrowserPageOpsCapability', () => {
 
         browserDocumentStoreMock.stat.mockImplementation(async (path: string) => {
             if (path === '/tmp/work.pdf') {
-                return { size: 120 * 1024 * 1024 };
+                return { size: BROWSER_MAX_FULL_READ_BYTES + 1 };
             }
 
             return { size: insertionBytes.byteLength };
@@ -670,20 +730,20 @@ describe('createBrowserPageOpsCapability', () => {
             1,
             ['browser://documents/picked/image.png'],
         )).rejects.toThrow(
-            'Inserting pages is unavailable in the browser for PDFs larger than 64MB',
+            'Inserting pages is unavailable in the browser for PDFs larger than 16MB',
         );
         expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
         expect(createCombinedPdfFromPaths).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
     });
 
-    it('rejects browser insert jobs whose working set would exceed the safety budget', async () => {
+    it('rejects browser insert destinations above the full-read budget before planning the working set', async () => {
         browserDocumentStoreMock.stat.mockImplementation(async (path: string) => {
             if (path === '/tmp/work.pdf') {
-                return { size: 64 * 1024 * 1024 };
+                return { size: BROWSER_MAX_FULL_READ_BYTES + 1 };
             }
 
-            return { size: 40 * 1024 * 1024 };
+            return { size: 1 };
         });
 
         const createCombinedPdfFromPaths = vi.fn(async () => new Uint8Array([1]));
@@ -695,7 +755,7 @@ describe('createBrowserPageOpsCapability', () => {
             1,
             ['browser://documents/picked/insert.pdf'],
         )).rejects.toThrow(
-            'Inserting pages is unavailable in the browser for jobs larger than 96MB',
+            'Inserting pages is unavailable in the browser for PDFs larger than 16MB',
         );
 
         expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();

@@ -26,7 +26,6 @@ export {
     normalizePdfSearchRequestPayload,
     normalizePdfSearchWarmIndexPayload,
     SEARCH_DOCUMENT_REVISION_TOKEN_MAX_LENGTH,
-    SEARCH_PAGE_COUNT_DEFAULT_MAX,
     SEARCH_PDF_PATH_MAX_LENGTH,
     SEARCH_REQUEST_ID_MAX_LENGTH,
     validateSearchQuery,

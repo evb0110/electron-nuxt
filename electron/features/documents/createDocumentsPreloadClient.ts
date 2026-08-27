@@ -6,6 +6,7 @@ import type {
     IDocumentsRecentFilesCapability,
     IDocumentsWindowCapability,
 } from '@contracts/electronApiDocuments';
+import type { IDocxExportFileCapability } from '@contracts/docxExport';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
 
 type TDocumentsMigratedMethod =
@@ -21,6 +22,7 @@ type TDocumentsOptionalDirectMethod =
 export function createDocumentsPreloadClient(
     ipcRenderer: IpcRenderer,
 ): Omit<IDocumentsFileCapability, TDocumentsMigratedMethod>
-    & Partial<Pick<IDocumentsFileCapability, TDocumentsOptionalDirectMethod>> {
+    & Partial<Pick<IDocumentsFileCapability, TDocumentsOptionalDirectMethod>>
+    & IDocxExportFileCapability {
     return createDocumentsPreloadFileClient(ipcRenderer);
 }

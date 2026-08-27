@@ -5,9 +5,7 @@ import {
     isPdfOptimizePreset,
     type IApplicationMenuDocumentState,
     type IDocumentsFileCapability,
-    type IPdfNativePagePreview,
     type IPdfNativePagePreviewOptions,
-    type IPdfNativePageSize,
     type IPdfNativeSaveResult,
     type IPdfNativeStagedCommitOptions,
     type IPdfOptimizeOptions,
@@ -33,6 +31,14 @@ import {
     decodePdfValidation,
     decodeRequiredDocumentObject as decodeRequiredObject,
 } from '@contracts/documentsPersistenceSchemas';
+import {
+    decodeOpeningGeometry,
+    decodePagePreviewResult,
+    decodePageSizesResult,
+    decodeSafeIntegerValue,
+    decodeUint8ArrayValue,
+    fail,
+} from '@contracts/documentsPlatformFeatureNativePageSchemas';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -50,53 +56,11 @@ import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import {
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
-    normalizePdfNativeWorkingCopyExpectation,
 } from '@contracts/nativePdfMutations';
 const fixtureNativeMutation = {pageLabels: {
     totalPages: 1,
     ranges: [],
 }};
-function fail(message: string): never {
-    throw new Error(message);
-}
-function decodeOpeningGeometry(value: unknown) {
-    if (
-        !isRecord(value)
-        || value.pageNumber !== 1
-        || typeof value.pageCount !== 'number'
-        || !Number.isSafeInteger(value.pageCount)
-        || value.pageCount < 1
-        || !isFiniteNumber(value.width)
-        || value.width <= 0
-        || !isFiniteNumber(value.height)
-        || value.height <= 0
-        || typeof value.rotation !== 'number'
-        || !([
-            0,
-            90,
-            180,
-            270,
-        ] as const).includes(value.rotation as 0 | 90 | 180 | 270)
-        || typeof value.size !== 'number'
-        || !Number.isSafeInteger(value.size)
-        || value.size < 0
-        || typeof value.modifiedAt !== 'number'
-        || !Number.isSafeInteger(value.modifiedAt)
-        || value.modifiedAt < 0 || value.linearized !== undefined && typeof value.linearized !== 'boolean'
-    ) {
-        fail('invalid PDF opening geometry result');
-    }
-    return {
-        pageNumber: 1 as const,
-        pageCount: value.pageCount,
-        width: value.width,
-        height: value.height,
-        rotation: value.rotation as 0 | 90 | 180 | 270,
-        size: value.size,
-        modifiedAt: value.modifiedAt,
-        ...(value.linearized === undefined ? {} : {linearized: value.linearized}),
-    };
-}
 function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
     if (value === null) {
         return null;
@@ -277,13 +241,6 @@ function decodeStringArrayValue(value: unknown, fieldName: string) {
     return value as string[];
 }
 
-function decodeSafeIntegerValue(value: unknown, fieldName: string, min = 0) {
-    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {
-        fail(`${fieldName} must be a safe integer >= ${min}`);
-    }
-    return value;
-}
-
 function decodePositiveIntegerArrayValue(value: unknown, fieldName: string) {
     if (
         !Array.isArray(value)
@@ -292,13 +249,6 @@ function decodePositiveIntegerArrayValue(value: unknown, fieldName: string) {
         fail(`${fieldName} must contain positive safe integers`);
     }
     return value as number[];
-}
-
-function decodeUint8ArrayValue(value: unknown, fieldName: string) {
-    if (!(value instanceof Uint8Array)) {
-        fail(`${fieldName} must be a Uint8Array`);
-    }
-    return value;
 }
 
 function decodeOptimizeOptions(value: unknown): IPdfOptimizeOptions {
@@ -490,36 +440,6 @@ function decodeConformanceResult(value: unknown): IPdfConformanceProfile {
         hasXfa: value.hasXfa,
         canIncrementalSave: value.canIncrementalSave,
         saveRestrictions: value.saveRestrictions.map(String),
-    };
-}
-
-function decodePageSizesResult(value: unknown): IPdfNativePageSize[] {
-    if (!Array.isArray(value)) {
-        fail('invalid native page sizes result');
-    }
-    return value.map((item) => {
-        if (!isRecord(item) || !isFiniteNumber(item.width) || !isFiniteNumber(item.height)) {
-            fail('invalid native page size');
-        }
-        return {
-            width: item.width,
-            height: item.height,
-        };
-    });
-}
-
-function decodePagePreviewResult(value: unknown): IPdfNativePagePreview {
-    if (!isRecord(value) || !isFiniteNumber(value.width) || !isFiniteNumber(value.height)) {
-        fail('invalid native page preview result');
-    }
-    const rasterWidthCeilingPx = value.rasterWidthCeilingPx === undefined
-        ? undefined
-        : decodeSafeIntegerValue(value.rasterWidthCeilingPx, 'rasterWidthCeilingPx', 1);
-    return {
-        bytes: decodeUint8ArrayValue(value.bytes, 'bytes'),
-        width: value.width,
-        height: value.height,
-        ...(rasterWidthCeilingPx === undefined ? {} : {rasterWidthCeilingPx}),
     };
 }
 
@@ -896,22 +816,22 @@ const nativeMutationsArgs = documentArgs<'savePdfNativeMutations'>(
 );
 const applyNativeMutationsArgs = documentArgs<'applyPdfNativeMutationsToWorkingCopy'>(
     (value) => {
-        const args = decodeArgumentArray(value, 4, 5);
-        return appendOptional([
+        const args = decodeArgumentArray(value, 4);
+        const revisionOptions = decodeRevisionOptions(args[3]);
+        if (!revisionOptions) {
+            fail('applyPdfNativeMutationsToWorkingCopy requires revisionOptions');
+        }
+        return [
             decodeStringValue(args[0], 'path'),
             normalizePdfNativeMutationSet(args[1], 'mutations'),
             normalizePdfNativeModifiedAt(args[2], 'modifiedAt'),
-            normalizePdfNativeWorkingCopyExpectation(args[3], 'expectedBase'),
-        ], decodeRevisionOptions(args[4])) as TDocumentMethodArgs<'applyPdfNativeMutationsToWorkingCopy'>;
+            revisionOptions,
+        ] as TDocumentMethodArgs<'applyPdfNativeMutationsToWorkingCopy'>;
     },
     () => [
         '/tmp/working.pdf',
         fixtureNativeMutation,
         'D:20260101000000Z',
-        {
-            byteLength: 1,
-            sha256: '0'.repeat(64),
-        },
         fixtureRevisionOptions,
     ],
 );
@@ -952,6 +872,42 @@ const commitNativeMutationsArgs = documentArgs<'commitStagedPdfNativeMutations'>
         },
         fixtureRevisionOptions,
     ],
+);
+const cloneStagedNativeMutationArgs = documentArgs<'cloneStagedPdfNativeMutationToWorkingCopy'>(
+    (value) => {
+        const args = decodeArgumentArray(value, 1, 2);
+        const stagedOutput = decodeTypedStagedArtifact(args[0]);
+        if (!stagedOutput) {
+            fail('stagedOutput must be a typed staged artifact');
+        }
+        return appendOptional(
+            [stagedOutput],
+            decodeOptionalStringValue(args[1], 'originalPath'),
+        ) as TDocumentMethodArgs<'cloneStagedPdfNativeMutationToWorkingCopy'>;
+    },
+    () => [
+        commitNativeMutationsArgs.example()[1],
+        '/tmp/original.pdf',
+    ] as TDocumentMethodArgs<'cloneStagedPdfNativeMutationToWorkingCopy'>,
+);
+const replaceWorkingCopyFromStagedNativeMutationArgs = documentArgs<'replaceWorkingCopyFromStagedPdfNativeMutation'>(
+    (value) => {
+        const args = decodeArgumentArray(value, 3, 3);
+        const stagedOutput = decodeTypedStagedArtifact(args[1]);
+        if (!stagedOutput) {
+            fail('stagedOutput must be a typed staged artifact');
+        }
+        return [
+            decodeStringValue(args[0], 'workingCopyPath'),
+            stagedOutput,
+            decodeRevisionOptions(args[2]),
+        ] as TDocumentMethodArgs<'replaceWorkingCopyFromStagedPdfNativeMutation'>;
+    },
+    () => [
+        '/tmp/working.pdf',
+        commitNativeMutationsArgs.example()[1],
+        fixtureRevisionOptions,
+    ] as TDocumentMethodArgs<'replaceWorkingCopyFromStagedPdfNativeMutation'>,
 );
 const pdfDataArgs = documentArgs<'validatePdfData'>(
     (value) => {
@@ -1130,6 +1086,7 @@ export {
     cancelPagePreviewArgs,
     cancelPagePreviewResult,
     commitNativeMutationsArgs,
+    cloneStagedNativeMutationArgs,
     createWorkingCopyFromDataArgs,
     createWorkingCopyFromPathArgs,
     decodeConformanceResult,
@@ -1184,6 +1141,7 @@ export {
     releaseManagedHandleArgs,
     repairPdfArgs,
     replaceWorkingCopyArgs,
+    replaceWorkingCopyFromStagedNativeMutationArgs,
     revisionResult,
     saveFileStructuredArgs,
     savePdfAsArgs,
@@ -1193,6 +1151,10 @@ export {
     validationResult,
     writeDocxArgs,
     writeFileArgs,
+    decodeArgumentArray,
+    decodeSafeIntegerValue,
+    documentArgs,
+    documentResult,
 };
 export type {
     TDocumentMethodArgs,

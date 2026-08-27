@@ -22,6 +22,18 @@ import {
     isShapeSavePreparation,
     type IShapeSavePreparation,
 } from '@app/modules/pdf-viewer/annotations/isShapeSavePreparation';
+import type {TEmbeddedShapeImportCapabilityReason} from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient';
+
+function isEmbeddedShapeImportCapabilityError(
+    error: unknown,
+): error is Error & {reason: TEmbeddedShapeImportCapabilityReason} {
+    if (!error || typeof error !== 'object' || !(error instanceof Error)) {
+        return false;
+    }
+    const reason = (error as {reason?: unknown}).reason;
+    return error.name === 'EmbeddedShapeImportCapabilityError'
+        && (reason === 'native-index-capability-unavailable' || reason === 'native-index-failed');
+}
 
 interface IManagedEmbeddedPdfShapesPageRange {
     start: number;
@@ -342,6 +354,10 @@ export const useManagedEmbeddedPdfShapes = ({
     ): Promise<
         | { status: 'empty' }
         | { status: 'failed' }
+        | {
+            status: 'incomplete';
+            reason: TEmbeddedShapeImportCapabilityReason
+        }
         | { status: 'stale' }
         | { status: 'unscannable' }
         | {
@@ -370,22 +386,27 @@ export const useManagedEmbeddedPdfShapes = ({
                     revision,
                 ])
                 : null;
+            const importClient = await import(
+                '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient'
+            );
+            const nativePathSource = importClient.isNativeEmbeddedShapeImportSource(path);
+            const importData = nativePathSource ? null : data;
             const key = createEmbeddedShapeImportCacheKey({
-                data,
+                data: importData,
                 path,
                 documentRevisionToken: revision,
                 stableSourceIdentity,
             });
             const shapes = await acquireEmbeddedShapeImport(key, async (sharedSignal) => {
-                const {
-                    importEmbeddedShapeAnnotationsFromPathInWorker,
-                    importEmbeddedShapeAnnotationsUsingWorker,
-                } = await import(
-                    '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient'
-                );
+                if (nativePathSource) {
+                    return importClient.importEmbeddedShapeAnnotationsFromNativePath(path!, {
+                        signal: sharedSignal,
+                        expectedDocumentRevisionToken: revision,
+                    });
+                }
                 return data && data.length > 0
-                    ? importEmbeddedShapeAnnotationsUsingWorker(data, {signal: sharedSignal})
-                    : importEmbeddedShapeAnnotationsFromPathInWorker(path!, {signal: sharedSignal});
+                    ? importClient.importEmbeddedShapeAnnotationsUsingWorker(data, {signal: sharedSignal})
+                    : importClient.importEmbeddedShapeAnnotationsFromPathInWorker(path!, {signal: sharedSignal});
             }, signal);
             if (isStaleEmbeddedShapeImport(token, path, revision)) {
                 logStaleEmbeddedShapeImport(token, path, revision);
@@ -398,6 +419,12 @@ export const useManagedEmbeddedPdfShapes = ({
         } catch (error) {
             if (signal.aborted || isStaleEmbeddedShapeImport(token, path, revision)) {
                 return { status: 'stale' };
+            }
+            if (isEmbeddedShapeImportCapabilityError(error)) {
+                return {
+                    status: 'incomplete',
+                    reason: error.reason,
+                };
             }
             // A size refusal is a resource policy, not a defective document: the
             // shape layer stays unscanned and the session keeps saving, with the
@@ -555,6 +582,14 @@ export const useManagedEmbeddedPdfShapes = ({
                 // No baseline is established, so the document stays openable and
                 // savable while every shape write stays additive.
                 shapeComposable.clearPendingShapeImportAdoption();
+                return;
+            }
+            if (result.status === 'incomplete') {
+                // A trusted desktop path without the native shape index is a
+                // capability gap, not proof that the PDF has no shapes. Keep
+                // the baseline incomplete and never retry through bytes.
+                shapeComposable.clearPendingShapeImportAdoption();
+                logger.warn('pdf-shapes', 'Native embedded shape index is unavailable; leaving the shape baseline incomplete', result.reason);
                 return;
             }
             if (result.status === 'stale') {
@@ -745,7 +780,7 @@ export const useManagedEmbeddedPdfShapes = ({
     }
 
     async function preparePersistedManagedShapesForSave(
-        data: Uint8Array,
+        data?: Uint8Array,
     ): Promise<IShapeSavePreparation | null> {
         const path = workingCopyPath.value;
         const documentKey = originalPath?.value ?? null;
@@ -774,20 +809,33 @@ export const useManagedEmbeddedPdfShapes = ({
             if (disposed) {
                 return abandon('Skipped managed shape save priming after disposal');
             }
-            // The saved bytes may use compressed object streams. Always parse
-            // them before adopting the persisted shape baseline; raw-name
-            // absence is not evidence that the document is shape-free. The
-            // worker client owns that parse: it keeps the whole-document scan
-            // off the renderer thread and applies the same size guard as an
-            // open-time import. Ownership stays here because these bytes are
-            // still on their way to disk, so the worker gets a copy.
-            const { importEmbeddedShapeAnnotationsUsingWorker } = await import(
+            // Desktop path sources are already persisted by the native save
+            // route. Reconcile their managed-shape baseline through the
+            // bounded native index, never by rereading the whole working copy.
+            // Browser and in-memory saves still parse the bytes that are about
+            // to be written, with the worker client owning its size guard.
+            const importClient = await import(
                 '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient'
             );
-            const importedShapes = await importEmbeddedShapeAnnotationsUsingWorker(data, {
-                transferOwnership: false,
-                signal: registration.controller.signal,
-            });
+            const nativePathSource = importClient.isNativeEmbeddedShapeImportSource(path);
+            if (!nativePathSource && !data) {
+                return abandon('Skipped managed shape save priming because serialized bytes were unavailable');
+            }
+            let importedShapes;
+            if (nativePathSource) {
+                importedShapes = await importClient.importEmbeddedShapeAnnotationsFromNativePath(path!, {
+                    signal: registration.controller.signal,
+                    expectedDocumentRevisionToken: documentRevisionToken.value,
+                });
+            } else {
+                if (!data) {
+                    return abandon('Skipped managed shape save priming because serialized bytes were unavailable');
+                }
+                importedShapes = await importClient.importEmbeddedShapeAnnotationsUsingWorker(data, {
+                    transferOwnership: false,
+                    signal: registration.controller.signal,
+                });
+            }
             if (isStaleShapeSavePriming(path, documentKey)) {
                 return abandon('Skipped managed shape save priming for a replaced document', {
                     currentPath: workingCopyPath.value,
@@ -803,9 +851,12 @@ export const useManagedEmbeddedPdfShapes = ({
             await waitForNextTick();
             syncHiddenEmbeddedAnnotationDom();
 
-            logger.debug('pdf-shapes', 'Prepared managed shapes from saved PDF bytes before persistence', () => ({
+            logger.debug('pdf-shapes', nativePathSource
+                ? 'Prepared managed shapes from the native saved-shape index before persistence'
+                : 'Prepared managed shapes from saved PDF bytes before persistence', () => ({
                 importedShapeCount: importedShapes.length,
                 currentShapeCount: shapeComposable.getAllShapes().length,
+                nativePathSource,
             }));
 
             return preparation;

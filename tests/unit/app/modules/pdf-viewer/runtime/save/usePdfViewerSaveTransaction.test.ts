@@ -33,6 +33,54 @@ describe('usePdfViewerSaveTransaction', () => {
         vi.restoreAllMocks();
     });
 
+    it('returns a typed native-required failure before reading bytes for a path-backed classifier rejection', async () => {
+        const saveDocument = vi.fn(async () => new Uint8Array([1]));
+        const getSourcePdfData = vi.fn(async () => new Uint8Array([2]));
+        const serializePdfForSave = vi.fn(async (data: Uint8Array) => data);
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({materializePdfJsDocumentForInternalUse: saveDocument});
+
+        const result = await runSaveTransaction({
+            mode: 'persist',
+            workingPath: '/tmp/work.pdf',
+            source: {
+                getSourcePdfData,
+                serializePdfForSave,
+            },
+            nativeCapabilities: {
+                hasNativePdfMutationCapability: false,
+                canPersistNativeMetadataMutations: false,
+            },
+            dirtyState: {
+                annotationDirty: true,
+                hasAnnotationChanges: true,
+                hasLivePdfJsAnnotationChanges: false,
+                savedPdfjsAnnotationBaselineDirty: false,
+                shapeStateDirty: false,
+            },
+            documentStructure: {
+                pageLabelsDirty: false,
+                pageLabelRanges: [],
+                bookmarksDirty: false,
+                bookmarkItems: [],
+                untitledBookmarkLabel: 'Untitled',
+                totalPages: 1,
+            },
+            serializeResult: true,
+        });
+
+        expect(result.source).toBe('native-required-failure');
+        expect(result.nativeRequiredFailure).toEqual({
+            code: 'native-save-required',
+            phase: 'pre-write',
+            reason: 'missing-native-capability',
+            nativeRejection: 'native-save-capability-unavailable',
+        });
+        expect(result.executeFallback).toBeUndefined();
+        expect(saveDocument).not.toHaveBeenCalled();
+        expect(getSourcePdfData).not.toHaveBeenCalled();
+        expect(serializePdfForSave).not.toHaveBeenCalled();
+    });
+
     it('serializes the synchronous canonical frontier and CAS-preserves a newer mutation', async () => {
         const application = new AnnotationApplication('save-transaction-document');
         const created = application.store.createStickyNote({

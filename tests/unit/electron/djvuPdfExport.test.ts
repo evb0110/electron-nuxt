@@ -301,7 +301,7 @@ describe('handleDjvuConvertToPdf', () => {
         await clearDjvuJobsForTests();
     });
 
-    it('falls back to in-process bookmark embedding only for small PDFs when worker startup fails', async () => {
+    it('uses the path-backed native bookmark helper when worker startup fails', async () => {
         mocks.bookmarkTaskState.mode = 'startup-error';
 
         const result = await handleDjvuConvertToPdf(
@@ -332,7 +332,7 @@ describe('handleDjvuConvertToPdf', () => {
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
     });
 
-    it('rejects large bookmark fallback when the worker is unavailable', async () => {
+    it('keeps the path-backed bookmark helper above the former 64 MiB fallback cap', async () => {
         mocks.bookmarkTaskState.mode = 'startup-error';
         mocks.stat.mockResolvedValue({size: 256 * 1024 * 1024});
 
@@ -344,11 +344,19 @@ describe('handleDjvuConvertToPdf', () => {
         );
 
         expect(result).toMatchObject({
-            success: false,
+            success: true,
             jobId: 'djvu-convert-convert-123',
-            error: 'DjVu bookmark embedding requires the PDF worker for files larger than 64MB',
         });
-        expect(mocks.embedBookmarksIntoPdfFile).not.toHaveBeenCalled();
+        expect(mocks.embedBookmarksIntoPdfFile).toHaveBeenCalledWith(
+            '/tmp/djvu-export-test/convert-123.convert.pdf',
+            '/tmp/djvu-export-test/convert-123.bookmarks.pdf',
+            [{
+                title: 'Chapter 1',
+                pageIndex: 0,
+                items: [],
+            }],
+            expect.any(AbortSignal),
+        );
     });
 
     it('rejects unsafe full-resolution direct PDF conversion before spawning ddjvu', async () => {
@@ -674,12 +682,22 @@ describe('handleDjvuConvertToPdf', () => {
         }));
     });
 
-    it('does not enter the bookmark fallback path after canceling a worker-startup failure', async () => {
+    it('aborts the path-backed bookmark helper after canceling a worker-startup failure', async () => {
         mocks.bookmarkTaskState.mode = 'startup-error';
-        mocks.stat.mockImplementation(async () => {
-            await delay(25);
-            return {size: 1024};
-        });
+        mocks.embedBookmarksIntoPdfFile.mockImplementationOnce(async (
+            _inputPdfPath: string,
+            _outputPdfPath: string,
+            _bookmarks: unknown[],
+            signal?: AbortSignal,
+        ) => new Promise((_resolve, reject) => {
+            if (signal?.aborted) {
+                reject(new Error('DjVu conversion canceled'));
+                return;
+            }
+            signal?.addEventListener('abort', () => {
+                reject(new Error('DjVu conversion canceled'));
+            }, {once: true});
+        }));
 
         const convertPromise = handleDjvuConvertToPdf(
             createOperationContext(7) as never,
@@ -705,7 +723,7 @@ describe('handleDjvuConvertToPdf', () => {
             jobId: 'djvu-convert-convert-123',
             error: 'DjVu conversion canceled',
         });
-        expect(mocks.embedBookmarksIntoPdfFile).not.toHaveBeenCalled();
+        expect(mocks.embedBookmarksIntoPdfFile).toHaveBeenCalledTimes(1);
     });
 
     it('emits initial progress immediately after registering the active job', async () => {

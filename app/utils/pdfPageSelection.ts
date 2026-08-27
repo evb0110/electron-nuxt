@@ -1,6 +1,53 @@
 import { uniq } from 'es-toolkit/array';
 import { range as createRange } from 'es-toolkit/math';
 import type { IPdfPageRange } from '@app/types/pdfUi';
+export type {
+    IAllPageSelection,
+    IComplementPageSelection,
+    IEmptyPageSelection,
+    IExceptionPageSelection,
+    IExplicitPageSelection,
+    IPredicatePageSelection,
+    IRangePageSelection,
+    IPageMoveRange,
+    IPageMoveRangeSegment,
+    IPageMoveRanges,
+    IMappedPageSelection,
+    TPageSelection,
+    TPageMoveOperation,
+    TPageSelectionPredicate,
+} from '@contracts/pageNumbers';
+export {
+    buildPageMoveOrder,
+    buildPageMoveRangesOrder,
+    createAllPageSelection,
+    createComplementOfPageSelection,
+    createComplementPageSelection,
+    createEmptyPageSelection,
+    createExplicitPageSelection,
+    createMappedPageSelection,
+    createPageMoveRange,
+    createPageMoveRanges,
+    createPredicatePageSelection,
+    createRangePageSelection,
+    invertPageSelection,
+    isPageSelected,
+    isPageMoveNoOp,
+    isPageMoveOperationNoOp,
+    isPageMoveRangesNoOp,
+    iteratePageSelection,
+    iteratePageSelectionBatches,
+    iteratePageSelectionRanges,
+    mapPageNumberAfterPageMove,
+    mapPageNumberBeforePageMove,
+    materializePageSelection,
+    pageMoveRangeLength,
+    pageMoveRangesRestInsertIndex,
+    pageMoveRangesSelectedPageCount,
+    pageMoveRestInsertIndex,
+    pageSelectionCount,
+    togglePageSelection,
+} from '@contracts/pageNumbers';
 
 export interface IPageThumbnailClickModifiers {
     shiftKey?: boolean;

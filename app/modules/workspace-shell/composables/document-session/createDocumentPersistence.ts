@@ -25,7 +25,6 @@ import { createDocumentPersistResults } from '@app/modules/workspace-shell/compo
 import { savePdfBytesAs } from '@app/services/pdf-file/savePdfBytesAs';
 import { savePdfBytesToWorkingCopy } from '@app/services/pdf-file/savePdfBytesToWorkingCopy';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { readDocumentBytes } from '@app/utils/documentBytes';
 import { getErrorMessage } from '@app/utils/error';
 import { runDetached } from '@app/utils/asyncGuard';
 import { publishStagedPdfNativeMutationForAutomation } from '@app/modules/workspace-shell/automation/automationReadinessEvents';
@@ -34,6 +33,11 @@ import {
     getDocumentWorkingCopyCapability,
     shouldRefreshWorkingCopyAfterSaveAs,
 } from '@app/utils/platformDocuments';
+import {
+    adoptStablePathBackedPersistedState,
+    hasNativePathBackedSource,
+} from '@app/modules/workspace-shell/composables/document-session/adoptPathBackedPersistedState';
+import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 interface IPdfPersistPhaseTiming {
     phase: string;
@@ -74,7 +78,7 @@ interface IWorkingCopyPersistOptions {
     expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
 }
 
-const MAX_IN_MEMORY_PDF_BYTES = 64 * 1024 * 1024;
+const MAX_IN_MEMORY_PDF_BYTES = BROWSER_MAX_FULL_READ_BYTES;
 
 function createDocumentMutationRevisionOptions(
     expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
@@ -143,25 +147,6 @@ function createNativeStagedCommitOptions(
 }
 
 class NativeMutationPreExposeError extends Error {}
-
-async function createNativeWorkingCopyExpectation(path: TDocumentRef) {
-    const documentFiles = getDocumentFilesCapability();
-    if (
-        typeof documentFiles.createManagedTempFileHandle !== 'function'
-        || typeof documentFiles.releaseManagedTempFileHandle !== 'function'
-    ) {
-        throw new Error('Native mutation requires bounded main-process working-copy fingerprinting');
-    }
-    const handle = await documentFiles.createManagedTempFileHandle(path);
-    try {
-        return {
-            byteLength: handle.size,
-            sha256: handle.sha256,
-        };
-    } finally {
-        await documentFiles.releaseManagedTempFileHandle(handle.leaseId);
-    }
-}
 
 export function createDocumentPersistence(
     state: IDocumentSessionState,
@@ -235,7 +220,20 @@ export function createDocumentPersistence(
             ...deps.getHistoryDebugState(),
         }));
 
-        if (opts?.preserveLoadedSource) {
+        // The native path is the source of truth for desktop path documents.
+        // A save may still hand us a renderer byte hint, but that hint must not
+        // become a history/recovery snapshot. Keep the path and revision token
+        // instead, so a 2+ GiB working copy never crosses into renderer memory.
+        if (hasNativePathBackedSource(state, path)) {
+            if (!await adoptStablePathBackedPersistedState({
+                state,
+                path,
+                resolveStableBaseline: () => resolveStableLazyHistoryBaseline(path),
+                markCurrentHistoryEntryClean: deps.markCurrentHistoryEntryClean,
+            })) {
+                return false;
+            }
+        } else if (opts?.preserveLoadedSource) {
             if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
                 const snapshot = snapshotHint.slice();
                 if (!state.isActiveWorkingCopy(path)) {
@@ -420,24 +418,6 @@ export function createDocumentPersistence(
             deps.deferPdfConformanceProfile(expectedWorkingPath);
         }
         return true;
-    }
-
-    async function readWorkingCopyBytes() {
-        const path = state.workingCopyPath.value;
-        if (!path) {
-            return null;
-        }
-
-        try {
-            const bytes = await readDocumentBytes(path);
-            return state.isActiveWorkingCopy(path) ? bytes : null;
-        } catch (readError) {
-            if (!state.isActiveWorkingCopy(path)) {
-                return null;
-            }
-            state.error.value = readError instanceof Error ? readError.message : deps.t('errors.file.save');
-            return null;
-        }
     }
 
     async function saveWorkingCopyToOriginal(
@@ -928,13 +908,17 @@ export function createDocumentPersistence(
                 'native-ipc',
                 async () => {
                     if (canUseGenericNativeMutations) {
-                        const expectedBase = await createNativeWorkingCopyExpectation(workingPath);
+                        const revisionOptions = createDocumentMutationRevisionOptions(expectedDocumentRevisionToken);
+                        if (!revisionOptions) {
+                            throw new NativeMutationPreExposeError(
+                                'Native staged PDF mutation requires the document revision',
+                            );
+                        }
                         const applied = await documentFiles.applyPdfNativeMutationsToWorkingCopy!(
                             workingPath,
                             mutations,
                             opts.modifiedAt,
-                            expectedBase,
-                            createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
+                            revisionOptions,
                         );
                         if (!applied.applied || !applied.validation?.isValid) {
                             return applied;
@@ -983,12 +967,12 @@ export function createDocumentPersistence(
                 },
             );
             if (!result.applied || !result.validation?.isValid) {
-                BrowserLogger.diagnostic('workspace', 'Native PDF mutation persistence returned no result', () => ({
+                BrowserLogger.warn('workspace', 'Native PDF mutation was not applied', {
                     reason: 'native-mutation-not-applied',
                     applied: result.applied,
                     error: result.error,
                     validation: result.validation,
-                }));
+                });
                 logRendererTimings('not-applied', {validation: result.validation});
                 return null;
             }
@@ -1044,7 +1028,7 @@ export function createDocumentPersistence(
             if (isStaleRevisionError(saveError)) {
                 throw saveError;
             }
-            BrowserLogger.diagnostic('workspace', 'Native PDF mutation save unavailable; falling back to serialized PDF save', {
+            BrowserLogger.warn('workspace', 'Native PDF mutation save failed', {
                 error: getErrorMessage(saveError),
                 updateCount: updates.length,
                 freeTextNoteCount: freeTextNotes.length,
@@ -1167,7 +1151,6 @@ export function createDocumentPersistence(
 
     return {
         persistPdfDataSilently,
-        readWorkingCopyBytes,
         saveFile,
         repairWorkingCopy,
         optimizeWorkingCopy,

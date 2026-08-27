@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     readFile: vi.fn<(path: string, encoding: string) => Promise<string>>(),
     realpath: vi.fn<(path: string) => Promise<string>>(),
     rename: vi.fn<(source: string, target: string) => Promise<void>>(),
+    rm: vi.fn<(path: string, options: {force: boolean}) => Promise<void>>(),
     stat: vi.fn<(path: string) => Promise<{ mtimeMs: number }>>(),
     unlink: vi.fn<(path: string) => Promise<void>>(),
     writeFile: vi.fn<(path: string, data: string, encoding: string) => Promise<void>>(),
@@ -25,10 +26,51 @@ function createStat(isSymlink: boolean) {
 }
 
 vi.mock('fs/promises', () => ({
+    open: async (path: string) => {
+        const raw = await mocks.readFile(path, 'utf8');
+        const bytes = Buffer.from(raw, 'utf8');
+        return {
+            read: async (buffer: Buffer, offset: number, length: number, position: number) => {
+                const available = Math.max(0, Math.min(length, bytes.byteLength - position));
+                if (available > 0) {
+                    bytes.copy(buffer, offset, position, position + available);
+                }
+                return {bytesRead: available};
+            },
+            close: async () => {},
+        };
+    },
     lstat: (path: string) => mocks.lstat(path),
     readFile: (path: string, encoding: string) => mocks.readFile(path, encoding),
     realpath: (path: string) => mocks.realpath(path),
     rename: (source: string, target: string) => mocks.rename(source, target),
+    rm: (path: string, options: {force: boolean}) => mocks.rm(path, options),
+    stat: (path: string) => mocks.stat(path),
+    unlink: (path: string) => mocks.unlink(path),
+    mkdir: vi.fn(),
+    writeFile: (path: string, data: string, encoding: string) => mocks.writeFile(path, data, encoding),
+}));
+
+vi.mock('node:fs/promises', () => ({
+    open: async (path: string) => {
+        const raw = await mocks.readFile(path, 'utf8');
+        const bytes = Buffer.from(raw, 'utf8');
+        return {
+            read: async (buffer: Buffer, offset: number, length: number, position: number) => {
+                const available = Math.max(0, Math.min(length, bytes.byteLength - position));
+                if (available > 0) {
+                    bytes.copy(buffer, offset, position, position + available);
+                }
+                return {bytesRead: available};
+            },
+            close: async () => {},
+        };
+    },
+    lstat: (path: string) => mocks.lstat(path),
+    readFile: (path: string, encoding: string) => mocks.readFile(path, encoding),
+    realpath: (path: string) => mocks.realpath(path),
+    rename: (source: string, target: string) => mocks.rename(source, target),
+    rm: (path: string, options: {force: boolean}) => mocks.rm(path, options),
     stat: (path: string) => mocks.stat(path),
     unlink: (path: string) => mocks.unlink(path),
     mkdir: vi.fn(),
@@ -37,6 +79,7 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('@electron/search/searchIndexSidecar', () => ({
     COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER: 1,
+    getCompactSearchIndexPath: (path: string) => `${path}.index.evb-search-v2.bin`,
     loadCompactSearchIndex: mocks.loadCompactSearchIndex,
     persistCompactSearchIndex: mocks.persistCompactSearchIndex,
 }));
@@ -136,6 +179,7 @@ describe('writeOcrIndexV3', () => {
         vi.clearAllMocks();
         mocks.readFile.mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
         mocks.rename.mockResolvedValue();
+        mocks.rm.mockResolvedValue();
         mocks.stat.mockResolvedValue({mtimeMs: 1});
         mocks.unlink.mockResolvedValue();
         mocks.writeFile.mockResolvedValue();
@@ -410,6 +454,29 @@ describe('writeOcrIndexV3', () => {
             imageHeight: 200,
             words: [],
         }], 1, ['eng'], 300, vi.fn())).rejects.toThrow('compact write failed');
+    });
+
+    it('skips eager compact search loading and persistence for high-page-count direct OCR writes', async () => {
+        const log = vi.fn();
+
+        await writeOcrIndexV3ForTest('/tmp/work.pdf', [{
+            pageNumber: 1,
+            text: 'page one',
+            imageWidth: 100,
+            imageHeight: 200,
+            words: [],
+        }], 201, ['eng'], 300, log);
+
+        expect(mocks.loadCompactSearchIndex).not.toHaveBeenCalled();
+        expect(mocks.persistCompactSearchIndex).not.toHaveBeenCalled();
+        expect(mocks.rm).toHaveBeenCalledWith(
+            '/tmp/work.pdf.index.evb-search-v2.bin',
+            {force: true},
+        );
+        expect(log).toHaveBeenCalledWith(
+            'debug',
+            expect.stringContaining('Skipped eager compact OCR search sidecar for xlarge document'),
+        );
     });
 
     it('rolls back page and manifest writes when the revision turns stale before compact sidecar publish', async () => {

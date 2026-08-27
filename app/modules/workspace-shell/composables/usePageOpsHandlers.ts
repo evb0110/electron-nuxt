@@ -5,10 +5,34 @@ import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
-import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
+import {
+    getPageIdentityDeltaNextPageCount,
+    mapPageNumberThroughPageIdentityDelta,
+    type IPageIdentityDelta,
+} from '@contracts/electronApiPageOps';
+import type {
+    IPageMoveRangeSegment,
+    TPageMoveOperation,
+    TPageSelection,
+} from '@contracts/pageNumbers';
+import {
+    createAllPageSelection,
+    createExplicitPageSelection,
+    createMappedPageSelection,
+    invertPageSelection,
+    iteratePageSelectionBatches,
+    iteratePageSelectionRanges,
+    materializePageSelection,
+    mapPageNumberAfterPageMove,
+    pageSelectionCount,
+} from '@contracts/pageNumbers';
 import { usePageOperations } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runDetached } from '@app/utils/asyncGuard';
+
+type TPageSelectionInput = number[] | TPageSelection;
+const PAGE_OPERATION_BATCH_SIZE = 10_000;
+const PAGE_OPERATION_RANGE_LIMIT = 100_000;
 
 interface IPdfViewerForPageOps {
     invalidatePages: (pages: number[]) => void;
@@ -24,6 +48,8 @@ export interface IPageOpsHandlersDeps {
     totalPages: Ref<number>;
     selectedThumbnailPages: Ref<number[]>;
     setSelectedThumbnailPages: (pages: number[]) => void;
+    selectedPageSelection?: Ref<TPageSelection | null>;
+    setSelectedPageSelection?: (selection: TPageSelection) => void;
     invalidateThumbnailPages: (pages: number[]) => void;
     pdfViewerRef: Ref<IPdfViewerForPageOps | null>;
     pageContextMenu: Ref<{
@@ -31,7 +57,7 @@ export interface IPageOpsHandlersDeps {
         pages: number[]
     }>;
     closePageContextMenu: () => void;
-    onExportPages: (pages: number[]) => void;
+    onExportPages: (pages: TPageSelectionInput) => void;
     canMutatePages?: Ref<boolean>;
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
@@ -63,6 +89,8 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         totalPages,
         selectedThumbnailPages,
         setSelectedThumbnailPages,
+        selectedPageSelection,
+        setSelectedPageSelection,
         pageContextMenu,
         closePageContextMenu,
         onExportPages,
@@ -91,11 +119,13 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         batchProgress: pageOpBatchProgress,
         lastOutcome: lastPageOperationOutcome,
         deletePages: pageOpsDelete,
+        deletePageRanges: pageOpsDeleteRanges,
         extractPages: pageOpsExtract,
         rotatePages: pageOpsRotate,
         insertPages: pageOpsInsert,
         insertFile: pageOpsInsertFile,
         reorderPages: pageOpsReorder,
+        movePages: pageOpsMove,
         cropPages: pageOpsCrop,
         removeCrop: pageOpsRemoveCrop,
     } = usePageOperations({
@@ -112,6 +142,82 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         ...(onExtractedDocument !== undefined ? { onExtractedDocument } : {}),
         ...(runWithDocumentOperationLease !== undefined ? { runWithDocumentOperationLease } : {}),
     });
+
+    const hasPageSelectionModel = selectedPageSelection !== undefined
+        && setSelectedPageSelection !== undefined;
+
+    function getCurrentPageSelection(): TPageSelection {
+        const selection = selectedPageSelection?.value;
+        if (selection && selection.pageCount === totalPages.value) {
+            return selection;
+        }
+        return createExplicitPageSelection(totalPages.value, selectedThumbnailPages.value);
+    }
+
+    function normalizePageSelectionInput(
+        pages: TPageSelectionInput,
+        expectedTotalPages = totalPages.value,
+    ): TPageSelection {
+        if (Array.isArray(pages)) {
+            return createExplicitPageSelection(expectedTotalPages, pages);
+        }
+        return pages.pageCount === expectedTotalPages
+            ? pages
+            : createExplicitPageSelection(expectedTotalPages, []);
+    }
+
+    function iteratePageOperationBatches(
+        pages: TPageSelectionInput,
+        expectedTotalPages = totalPages.value,
+    ) {
+        return iteratePageSelectionBatches(
+            normalizePageSelectionInput(pages, expectedTotalPages),
+            {batchSize: PAGE_OPERATION_BATCH_SIZE},
+        );
+    }
+
+    function publishPageSelection(selection: TPageSelection) {
+        if (hasPageSelectionModel) {
+            setSelectedPageSelection(selection);
+        }
+        // Existing consumers still use the array for menus and small-document
+        // operations. Keep that compatibility without expanding a large lazy
+        // selection into a document-sized renderer collection.
+        setSelectedThumbnailPages(pageSelectionCount(selection) <= 100_000
+            ? materializePageSelection(selection)
+            : []);
+    }
+
+    function collectCompactPageSelectionRanges(selection: TPageSelection): IPageMoveRangeSegment[] | null {
+        const ranges: IPageMoveRangeSegment[] = [];
+        for (const range of iteratePageSelectionRanges(selection)) {
+            ranges.push(range);
+            if (ranges.length > PAGE_OPERATION_RANGE_LIMIT) {
+                return null;
+            }
+        }
+        return ranges;
+    }
+
+    function getDeleteRangesForSelection(
+        selection: TPageSelection,
+        expectedTotalPages: number,
+    ): IPageMoveRangeSegment[] | null {
+        const selectedCount = pageSelectionCount(selection);
+        if (selectedCount === 0) {
+            return [];
+        }
+        if (selectedCount >= expectedTotalPages) {
+            // Keep the first page so qpdf never has to create an empty PDF.
+            return expectedTotalPages > 1
+                ? [{
+                    startPage: 2,
+                    endPage: expectedTotalPages,
+                }]
+                : [];
+        }
+        return collectCompactPageSelectionRanges(selection);
+    }
 
     function isPdfPageOperationBlocked() {
         return canMutatePages?.value === false;
@@ -131,12 +237,10 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                 ? outcome.result.pageIdentityDelta
                 : undefined;
             if (delta) {
-                const currentIdentity = delta.pages.findIndex(page => (
-                    'fromPageNumber' in page && page.fromPageNumber === currentPage.value
-                ));
-                currentPage.value = currentIdentity >= 0
-                    ? currentIdentity + 1
-                    : Math.min(currentPage.value, delta.pages.length);
+                const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(delta, currentPage.value);
+                const nextPageCount = getPageIdentityDeltaNextPageCount(delta);
+                currentPage.value = mappedPageNumber
+                    ?? Math.min(currentPage.value, nextPageCount ?? currentPage.value);
                 deps.pdfViewerRef.value?.remapPageIdentityDelta?.(delta);
             }
             setSelectedThumbnailPages(remapSelection(selectedThumbnailPages.value));
@@ -144,7 +248,60 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         return didSucceed;
     }
 
-    async function pageOpsDeleteAndClearSelection(pages: number[], expectedTotalPages: number) {
+    async function pageOpsDeleteAndClearSelection(
+        pages: TPageSelectionInput,
+        expectedTotalPages: number,
+    ) {
+        if (!Array.isArray(pages)) {
+            const selection = normalizePageSelectionInput(pages, expectedTotalPages);
+            const selectedCount = pageSelectionCount(selection);
+            if (selectedCount === 0) {
+                return false;
+            }
+
+            const compactDeleteRanges = getDeleteRangesForSelection(selection, expectedTotalPages);
+            if (compactDeleteRanges !== null) {
+                if (compactDeleteRanges.length === 0) {
+                    return false;
+                }
+                const deletedCount = compactDeleteRanges.reduce(
+                    (count, range) => count + range.endPage - range.startPage + 1,
+                    0,
+                );
+                const didDelete = await runStructuralPageMutation(
+                    () => pageOpsDeleteRanges(compactDeleteRanges, expectedTotalPages),
+                );
+                if (!didDelete) {
+                    return false;
+                }
+                publishPageSelection({
+                    kind: 'none',
+                    pageCount: Math.max(0, expectedTotalPages - deletedCount),
+                });
+                return true;
+            }
+
+            let deletedCount = 0;
+            for (const batch of iteratePageOperationBatches(selection, expectedTotalPages)) {
+                const pagesAfterPriorDeletes = batch.map(page => page - deletedCount);
+                const didDelete = await runStructuralPageMutation(
+                    () => pageOpsDelete(
+                        pagesAfterPriorDeletes,
+                        expectedTotalPages - deletedCount,
+                    ),
+                );
+                if (!didDelete) {
+                    return false;
+                }
+                deletedCount += batch.length;
+            }
+
+            publishPageSelection({
+                kind: 'none',
+                pageCount: Math.max(0, expectedTotalPages - deletedCount),
+            });
+            return true;
+        }
         const deleted = new Set(pages);
         return runStructuralPageMutation(
             () => pageOpsDelete(pages, expectedTotalPages),
@@ -180,11 +337,37 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         );
     }
 
-    async function pageOpsExtractWithDjvuGuard(pages: number[]) {
+    async function pageOpsMoveAndClearSelection(move: TPageMoveOperation) {
+        const selectionBeforeMove = selectedPageSelection?.value;
+        const didMove = await runStructuralPageMutation(
+            () => pageOpsMove(move),
+            selection => selection
+                .map(page => mapPageNumberAfterPageMove(page, move))
+                .sort((left, right) => left - right),
+        );
+        if (didMove && hasPageSelectionModel && selectionBeforeMove?.pageCount === move.pageCount) {
+            publishPageSelection(createMappedPageSelection(selectionBeforeMove, move));
+        }
+        return didMove;
+    }
+
+    async function pageOpsExtractWithDjvuGuard(pages: TPageSelectionInput) {
         if (isPdfPageOperationBlocked()) {
             return false;
         }
-        return pageOpsExtract(pages);
+        if (Array.isArray(pages)) {
+            return pageOpsExtract(pages);
+        }
+        const selection = normalizePageSelectionInput(pages);
+        if (pageSelectionCount(selection) === 0) {
+            return false;
+        }
+        for (const batch of iteratePageOperationBatches(selection)) {
+            if (!await pageOpsExtract(batch)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     function handlePageContextMenuDelete() {
@@ -208,12 +391,27 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         onExportPages([...pages]);
     }
 
-    async function handlePageRotate(pages: number[], angle: 90 | 180 | 270) {
+    async function handlePageRotate(pages: TPageSelectionInput, angle: 90 | 180 | 270) {
         if (isPdfPageOperationBlocked()) {
             return false;
         }
         const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
-        const didRotate = await pageOpsRotate(pages, totalPages.value, angle);
+        let didRotate = true;
+        if (Array.isArray(pages)) {
+            didRotate = await pageOpsRotate(pages, totalPages.value, angle);
+        } else {
+            const selection = normalizePageSelectionInput(pages);
+            if (pageSelectionCount(selection) === 0) {
+                reloadWaiter.cancel();
+                return false;
+            }
+            for (const batch of iteratePageOperationBatches(selection)) {
+                if (!await pageOpsRotate(batch, totalPages.value, angle)) {
+                    didRotate = false;
+                    break;
+                }
+            }
+        }
         if (!didRotate) {
             reloadWaiter.cancel();
             return false;
@@ -276,6 +474,10 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (totalPages.value <= 0) {
             return;
         }
+        if (hasPageSelectionModel) {
+            publishPageSelection(createAllPageSelection(totalPages.value));
+            return;
+        }
         const allPages = range(1, totalPages.value + 1);
         setSelectedThumbnailPages(allPages);
     }
@@ -285,13 +487,17 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (totalPages.value <= 0) {
             return;
         }
+        if (hasPageSelectionModel) {
+            publishPageSelection(invertPageSelection(getCurrentPageSelection()));
+            return;
+        }
         setSelectedThumbnailPages(difference(
             range(1, totalPages.value + 1),
             selectedThumbnailPages.value,
         ));
     }
 
-    async function handleCropPages(pages: number[], margins: ICropMargins) {
+    async function handleCropPages(pages: number[] | TPageSelection, margins: ICropMargins) {
         if (isPdfPageOperationBlocked()) {
             return false;
         }
@@ -307,7 +513,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         return true;
     }
 
-    async function handleRemoveCrop(pages: number[]) {
+    async function handleRemoveCrop(pages: number[] | TPageSelection) {
         if (isPdfPageOperationBlocked()) {
             return false;
         }
@@ -330,6 +536,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         pageOpsExtract: pageOpsExtractWithDjvuGuard,
         pageOpsInsert: pageOpsInsertAndClearSelection,
         pageOpsReorder: pageOpsReorderAndClearSelection,
+        pageOpsMove: pageOpsMoveAndClearSelection,
         handlePageContextMenuDelete,
         handlePageContextMenuExtract,
         handlePageContextMenuExport,

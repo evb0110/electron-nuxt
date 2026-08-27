@@ -26,6 +26,7 @@ import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
 import { createBrowserDocumentRef } from '@app/platform/browser/browserDocumentRefs';
 import { resolveAnnotationSnapshotDocumentIdentity } from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
+import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import { MAX_EAGER_ANNOTATION_ENRICHMENT_PAGE_COUNT } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 
 function resolvePdfAnnotationNameReadLimits(tier: 'low' | 'medium') {
@@ -38,6 +39,7 @@ function resolvePdfAnnotationNameReadLimits(tier: 'low' | 'medium') {
 
 const {
     collectPdfAnnotationNamesByPage,
+    createPdfAnnotationIndexAdapter,
     leasePdfDocumentPage,
     loadPdfPageAnnotations,
 } = vi.hoisted(() => {
@@ -51,6 +53,7 @@ const {
     >();
     return {
         collectPdfAnnotationNamesByPage: vi.fn(async () => new Map<number, Map<string, string>>()),
+        createPdfAnnotationIndexAdapter: vi.fn<(path: string | null | undefined) => unknown>(() => null),
         leasePdfDocumentPage: vi.fn(async () => ({
             page: {},
             release: vi.fn(),
@@ -79,6 +82,13 @@ vi.mock('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource', 
 vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage', () => (
     {collectPdfAnnotationNamesByPage}
 ));
+vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/createPdfAnnotationIndexAdapter', async (importOriginal) => {
+    const actual = await importOriginal<object>();
+    return {
+        ...actual,
+        createPdfAnnotationIndexAdapter,
+    };
+});
 
 vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations', async (importOriginal) => {
     const actual = await importOriginal<object>();
@@ -90,6 +100,8 @@ vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/load
 
 beforeEach(() => {
     vi.resetModules();
+    createPdfAnnotationIndexAdapter.mockReset();
+    createPdfAnnotationIndexAdapter.mockReturnValue(null);
     loadPdfPageAnnotations.mockReset();
 });
 
@@ -142,6 +154,27 @@ function createLinkPageBundle(pageNumber: number, count: number): IPdfPageAnnota
     };
 }
 
+interface IUseAnnotationSyncTestApi {
+    annotationEnrichmentState: Readonly<Ref<IAnnotationEnrichmentState>>;
+    trackedCreatedEditors: WeakSet<object>;
+    syncAnnotationComments: () => Promise<void>;
+    ensurePdfAnnotationNameReconciliation: (
+        reason: 'annotations-ui-open' | 'existing-annotation-mutation',
+    ) => Promise<
+        | 'reconciled'
+        | 'already-reconciled'
+        | 'skipped-over-limit'
+        | 'stale'
+        | 'failed'
+    >;
+    clearSyncState: () => void;
+    discardInFlightSync: () => void;
+    flushEditorCommentsForSave: () => void;
+    scheduleAnnotationCommentsSync: (immediate?: boolean) => void;
+}
+
+type TUseAnnotationSync = (options: never) => IUseAnnotationSyncTestApi;
+
 async function withAnnotationSyncScope<T>(run: () => Promise<T>) {
     const scope = effectScope();
     try {
@@ -187,6 +220,7 @@ async function createSyncHarness(options: {
     documentIdentity?: ReturnType<typeof ref<string>>;
     documentRevisionToken?: ReturnType<typeof ref<string>>;
     getPdfSourceByteSize?: () => number | null;
+    getPdfSourcePath?: () => string | null;
     isPdfSourceBlob?: () => boolean;
     limits?: ReturnType<typeof resolvePdfAnnotationNameReadLimits>;
     pdfDocument?: object;
@@ -195,6 +229,7 @@ async function createSyncHarness(options: {
     setLinkAnnotations?: ReturnType<typeof vi.fn>;
     numPages?: ReturnType<typeof ref<number>>;
     currentPage?: ReturnType<typeof ref<number>>;
+    useAnnotationSyncImplementation?: TUseAnnotationSync;
 } = {}) {
     const annotationCommentsCache = options.annotationCommentsCache ?? ref<IAnnotationCommentSummary[]>([]);
     const identity = useAnnotationIdentity(annotationCommentsCache);
@@ -206,7 +241,8 @@ async function createSyncHarness(options: {
     const setLinkAnnotations = options.setLinkAnnotations ?? vi.fn((_links: ILinkAnnotation[]) => {});
     const setInventoryCompleteness = options.setInventoryCompleteness
         ?? vi.fn((_completeness: IAnnotationInventoryCompleteness | null) => {});
-    const { useAnnotationSync } = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync');
+    const useAnnotationSync: TUseAnnotationSync = options.useAnnotationSyncImplementation
+        ?? (await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync')).useAnnotationSync;
     const textMarkupPresentation = {notify: vi.fn()};
     const sync = useAnnotationSync({
         pdfDocument: shallowRef(options.pdfDocument ?? {}),
@@ -229,6 +265,7 @@ async function createSyncHarness(options: {
         getAnnotationNameReadLimits: () => options.limits ?? resolvePdfAnnotationNameReadLimits('medium'),
         getPdfSourceByteSize: options.getPdfSourceByteSize ?? (() => null),
         isPdfSourceBlob: options.isPdfSourceBlob ?? (() => false),
+        getPdfSourcePath: options.getPdfSourcePath,
     } as never);
     return {
         annotationCommentsCache,
@@ -934,6 +971,247 @@ describe('useAnnotationSync', () => {
                 });
             });
         });
+
+        it('routes a large desktop path through native indexing without reading PDF.js data', async () => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            const readPageNames = vi.fn(async (pageIndex: number) => pageIndex === 0
+                ? new Map([[
+                    '12R',
+                    'native-annotation-name',
+                ]])
+                : new Map<string, string>());
+            const cancel = vi.fn(async () => {});
+            const release = vi.fn(async () => {});
+            const begin = vi.fn(async () => ({
+                readPageNames,
+                cancel,
+                release,
+            }));
+            createPdfAnnotationIndexAdapter.mockReturnValue({begin});
+            const getAnnotations = vi.fn(async () => []);
+            const getPage = vi.fn(async () => ({
+                cleanup: vi.fn(),
+                getAnnotations,
+                rotate: 0,
+                view: [
+                    0,
+                    0,
+                    100,
+                    100,
+                ],
+            }));
+            loadPdfPageAnnotations.mockImplementation(async (doc: unknown, pageNumber: number) => {
+                await (doc as {getPage: (page: number) => Promise<{getAnnotations: () => Promise<unknown[]>}>}).getPage(pageNumber)
+                    .then(page => page.getAnnotations());
+                return createEmptyPageBundle();
+            });
+            const getData = vi.fn(async () => Uint8Array.of(1, 2, 3));
+
+            await withAnnotationSyncScope(async () => {
+                const limits = resolvePdfAnnotationNameReadLimits('low');
+                const {
+                    sync,
+                    setInventoryCompleteness,
+                } = await createSyncHarness({
+                    documentIdentity: ref('large-native-document'),
+                    documentRevisionToken: ref('drt1:native-document'),
+                    pdfDocument: {
+                        getData,
+                        getPage,
+                    },
+                    numPages: ref(6_000),
+                    currentPage: ref(4_500),
+                    getPdfSourcePath: () => '/tmp/large-native-document.pdf',
+                    getPdfSourceByteSize: () => limits.interactiveMaxBytes + 1,
+                });
+
+                await sync.syncAnnotationComments();
+
+                expect(createPdfAnnotationIndexAdapter).toHaveBeenCalledWith('/tmp/large-native-document.pdf');
+                expect(begin).toHaveBeenCalledWith('drt1:native-document');
+                expect(readPageNames).toHaveBeenCalledTimes(6_000);
+                expect(getPage).toHaveBeenNthCalledWith(1, 4_500);
+                expect(getAnnotations).toHaveBeenCalledTimes(6_000);
+                expect(getData).not.toHaveBeenCalled();
+                expect(collectPdfAnnotationNamesByPage).not.toHaveBeenCalled();
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'enriched',
+                    reason: null,
+                    canRetry: false,
+                });
+                expect(setInventoryCompleteness).toHaveBeenLastCalledWith({
+                    complete: true,
+                    omissions: [],
+                    scannedPageCount: 6_000,
+                    totalPageCount: 6_000,
+                    failedPageCount: 0,
+                });
+                expect(release).toHaveBeenCalled();
+            });
+        });
+
+        it('publishes the visible native page before the background inventory finishes', async () => {
+            let releaseSecondPage!: () => void;
+            const secondPage = new Promise<void>((resolve) => {
+                releaseSecondPage = resolve;
+            });
+            const readPageNames = vi.fn(async () => new Map<string, string>());
+            const cancel = vi.fn(async () => {});
+            const release = vi.fn(async () => {});
+            createPdfAnnotationIndexAdapter.mockReturnValue({begin: vi.fn(async () => ({
+                readPageNames,
+                cancel,
+                release,
+            }))});
+            loadPdfPageAnnotations.mockImplementation(async (_doc: unknown, pageNumber: number) => {
+                if (pageNumber !== 10) {
+                    await secondPage;
+                    return createEmptyPageBundle();
+                }
+                return {
+                    annotations: [{
+                        id: '10R',
+                        subtype: 'Text',
+                        contentsObj: {str: 'Visible native note'},
+                        rect: [
+                            10,
+                            10,
+                            20,
+                            20,
+                        ],
+                    }],
+                    pageRotation: 0,
+                    pageView: [
+                        0,
+                        0,
+                        100,
+                        100,
+                    ],
+                };
+            });
+
+            await withAnnotationSyncScope(async () => {
+                const {
+                    setAnnotations,
+                    setInventoryCompleteness,
+                    sync,
+                } = await createSyncHarness({
+                    documentIdentity: ref('incremental-native-document'),
+                    numPages: ref(20),
+                    currentPage: ref(10),
+                    getPdfSourcePath: () => '/tmp/incremental-native-document.pdf',
+                });
+
+                const pending = sync.syncAnnotationComments();
+                await vi.waitFor(() => {
+                    expect(setAnnotations).toHaveBeenCalled();
+                });
+                expect(setAnnotations.mock.calls[0]?.[0]).toEqual([expect.objectContaining({
+                    annotationId: '10R',
+                    text: 'Visible native note',
+                })]);
+                expect(setInventoryCompleteness).toHaveBeenCalledWith({
+                    complete: false,
+                    omissions: [],
+                    scannedPageCount: 1,
+                    totalPageCount: 20,
+                    failedPageCount: 0,
+                });
+
+                releaseSecondPage();
+                await pending;
+                expect(setInventoryCompleteness).toHaveBeenLastCalledWith({
+                    complete: true,
+                    omissions: [],
+                    scannedPageCount: 20,
+                    totalPageCount: 20,
+                    failedPageCount: 0,
+                });
+            });
+        });
+
+        it('cancels and releases native index chunks when the annotation scope unmounts', async () => {
+            let markReadStarted: (() => void) | null = null;
+            const releaseRead = vi.fn<(names: ReadonlyMap<string, string>) => void>();
+            const readStarted = new Promise<void>((resolve) => {
+                markReadStarted = resolve;
+            });
+            const readPageNames = vi.fn(() => {
+                markReadStarted?.();
+                return new Promise<ReadonlyMap<string, string>>((resolve) => {
+                    releaseRead.mockImplementationOnce(names => resolve(names));
+                });
+            });
+            const cancel = vi.fn(async () => {});
+            const release = vi.fn(async () => {});
+            createPdfAnnotationIndexAdapter.mockReturnValue({begin: vi.fn(async () => ({
+                readPageNames,
+                cancel,
+                release,
+            }))});
+            loadPdfPageAnnotations.mockResolvedValue(createEmptyPageBundle());
+            const {useAnnotationSync} = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync');
+            const scope = effectScope();
+            try {
+                const harnessPromise = scope.run(() => createSyncHarness({
+                    useAnnotationSyncImplementation: useAnnotationSync,
+                    documentIdentity: ref('unmounted-native-document'),
+                    getPdfSourcePath: () => '/tmp/unmounted-native-document.pdf',
+                    numPages: ref(1),
+                }));
+                if (!harnessPromise) {
+                    throw new Error('Annotation sync harness did not start');
+                }
+                const {sync} = await harnessPromise;
+                const pending = sync.syncAnnotationComments();
+                await readStarted;
+
+                scope.stop();
+
+                await vi.waitFor(() => {
+                    expect(cancel).toHaveBeenCalled();
+                    expect(release).toHaveBeenCalled();
+                });
+                releaseRead(new Map());
+                await pending;
+            } finally {
+                releaseRead(new Map());
+                scope.stop();
+            }
+        });
+
+        it('keeps the browser fallback explicitly partial beyond its routing thresholds', async () => {
+            collectPdfAnnotationNamesByPage.mockClear();
+            loadPdfPageAnnotations.mockResolvedValue(createEmptyPageBundle());
+
+            await withAnnotationSyncScope(async () => {
+                const {
+                    sync,
+                    setInventoryCompleteness,
+                } = await createSyncHarness({
+                    documentIdentity: ref('large-browser-document'),
+                    numPages: ref(6_000),
+                    getPdfSourceByteSize: () => 1024,
+                    isPdfSourceBlob: () => true,
+                });
+
+                await sync.syncAnnotationComments();
+
+                expect(collectPdfAnnotationNamesByPage).not.toHaveBeenCalled();
+                expect(sync.annotationEnrichmentState.value).toEqual({
+                    status: 'skipped',
+                    reason: 'over-page-count',
+                    canRetry: false,
+                });
+                expect(setInventoryCompleteness).toHaveBeenLastCalledWith({
+                    complete: true,
+                    omissions: [],
+                    scannedPageCount: 6_000,
+                    totalPageCount: 6_000,
+                    failedPageCount: 0,
+                });
+            });
+        });
     });
 
     describe('snapshot reuse fencing', () => {
@@ -1187,6 +1465,47 @@ describe('useAnnotationSync', () => {
 
             expect(setAnnotations).toHaveBeenLastCalledWith(
                 [expect.objectContaining({id: 'editor:0:post-open-user-editor'})],
+                {
+                    adoptAsSavedBaseline: false,
+                    reconcileMissingTransient: true,
+                },
+            );
+        });
+    });
+
+    it('does not adopt an editor created while the first document inventory is in flight', async () => {
+        let releasePageRead: (() => void) | null = null;
+        loadPdfPageAnnotations.mockImplementation(async () => {
+            await new Promise<void>((resolve) => {
+                releasePageRead = resolve;
+            });
+            return createEmptyPageBundle();
+        });
+
+        await withAnnotationSyncScope(async () => {
+            const editors = new Set<object>();
+            const annotationUiManager = shallowRef({getEditors: () => editors});
+            const {
+                setAnnotations,
+                sync,
+            } = await createSyncHarness({annotationUiManager});
+
+            const pendingSync = sync.syncAnnotationComments();
+            await vi.waitFor(() => {
+                expect(releasePageRead).not.toBeNull();
+            });
+
+            const userEditor = {
+                id: 'created-during-inventory',
+                parentPageIndex: 0,
+            };
+            editors.add(userEditor);
+            sync.trackedCreatedEditors.add(userEditor);
+            releasePageRead!();
+            await pendingSync;
+
+            expect(setAnnotations).toHaveBeenLastCalledWith(
+                [expect.objectContaining({id: 'editor:0:created-during-inventory'})],
                 {
                     adoptAsSavedBaseline: false,
                     reconcileMissingTransient: true,
@@ -1603,13 +1922,13 @@ describe('useAnnotationSync inventory completeness', () => {
         });
     });
 
-    it('flags and warns when the page cap truncates the scan', async () => {
+    it('continues after the page scheduling budget and completes the scan', async () => {
         loadPdfPageAnnotations.mockResolvedValue(createEmptyPageBundle());
 
         await withAnnotationSyncScope(async () => {
             const { pageCap } = await readInventoryCaps();
-            // One page past the cap: the scan has to stop on the boundary and
-            // report the page it never reached.
+            // One page past the scheduling budget proves the budget does not
+            // turn into an omission.
             const totalPages = pageCap + 1;
             const warn = await spyOnAnnotationWarnings();
             const {
@@ -1622,23 +1941,48 @@ describe('useAnnotationSync inventory completeness', () => {
 
             await sync.syncAnnotationComments();
 
-            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(pageCap);
-            expect(setInventoryCompleteness).toHaveBeenLastCalledWith(expect.objectContaining({
-                complete: false,
-                omissions: ['page-cap'],
-                scannedPageCount: pageCap,
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(totalPages);
+            expect(setInventoryCompleteness).toHaveBeenLastCalledWith({
+                complete: true,
+                omissions: [],
+                scannedPageCount: totalPages,
                 totalPageCount: totalPages,
                 failedPageCount: 0,
-            }));
-            expect(warn).toHaveBeenCalledWith(
+            });
+            expect(warn).not.toHaveBeenCalledWith(
                 'annotations',
                 'Background annotation inventory is incomplete',
-                expect.objectContaining({ omissions: ['page-cap'] }),
+                expect.anything(),
             );
         });
     });
 
-    it('flags and warns when the record cap truncates the scan', async () => {
+    it('eventually scans all 6000 pages', async () => {
+        loadPdfPageAnnotations.mockResolvedValue(createEmptyPageBundle());
+
+        await withAnnotationSyncScope(async () => {
+            const {
+                sync,
+                setInventoryCompleteness,
+            } = await createSyncHarness({
+                documentIdentity: ref('six-thousand-page-document'),
+                numPages: ref(6_000),
+            });
+
+            await sync.syncAnnotationComments();
+
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(6_000);
+            expect(setInventoryCompleteness).toHaveBeenLastCalledWith({
+                complete: true,
+                omissions: [],
+                scannedPageCount: 6_000,
+                totalPageCount: 6_000,
+                failedPageCount: 0,
+            });
+        });
+    });
+
+    it('continues after the record scheduling budget and completes the scan', async () => {
         const { recordCap } = await readInventoryCaps();
         // Size the fixture so the cap trips on the third page: two pages stay
         // under it, and the third crosses it with pages still unread.
@@ -1664,27 +2008,23 @@ describe('useAnnotationSync inventory completeness', () => {
 
             await sync.syncAnnotationComments();
 
-            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(cappedOnPage);
-            expect(setInventoryCompleteness).toHaveBeenLastCalledWith(expect.objectContaining({
-                complete: false,
-                omissions: ['record-cap'],
-                scannedPageCount: cappedOnPage,
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(totalPages);
+            expect(setInventoryCompleteness).toHaveBeenLastCalledWith({
+                complete: true,
+                omissions: [],
+                scannedPageCount: totalPages,
                 totalPageCount: totalPages,
                 failedPageCount: 0,
-            }));
-            expect(warn).toHaveBeenCalledWith(
+            });
+            expect(warn).not.toHaveBeenCalledWith(
                 'annotations',
                 'Background annotation inventory is incomplete',
-                expect.objectContaining({ omissions: ['record-cap'] }),
+                expect.anything(),
             );
         });
     });
 
-    it('stops at exactly the record cap rather than reading one page past it', async () => {
-        // The very first page fills the budget to the record exactly. `>=` has
-        // to stop here: pages remain, so scanning one more would push the
-        // inventory past the cap it exists to enforce, and reporting the scan
-        // complete would hide the pages it never reached.
+    it('reads every page when one page fills the record scheduling budget', async () => {
         const { recordCap } = await readInventoryCaps();
         loadPdfPageAnnotations.mockImplementation(async (
             _doc: unknown,
@@ -1702,11 +2042,11 @@ describe('useAnnotationSync inventory completeness', () => {
 
             await sync.syncAnnotationComments();
 
-            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(1);
+            expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(2);
             expect(setInventoryCompleteness).toHaveBeenLastCalledWith(expect.objectContaining({
-                complete: false,
-                omissions: ['record-cap'],
-                scannedPageCount: 1,
+                complete: true,
+                omissions: [],
+                scannedPageCount: 2,
                 totalPageCount: 2,
             }));
         });
@@ -1745,10 +2085,9 @@ describe('useAnnotationSync inventory completeness', () => {
         });
     });
 
-    it('keeps a cap-truncated snapshot incomplete across the revision-keyed cache', async () => {
-        const { recordCap } = await readInventoryCaps();
+    it('keeps a complete snapshot reusable across the revision-keyed cache', async () => {
         const totalPages = 5;
-        const linksPerPage = Math.ceil(recordCap / 3);
+        const linksPerPage = 1;
         loadPdfPageAnnotations.mockImplementation(async (
             _doc: unknown,
             pageNumber: number,
@@ -1772,12 +2111,12 @@ describe('useAnnotationSync inventory completeness', () => {
             });
             await second.sync.syncAnnotationComments();
 
-            // A cache hit must not launder a truncated scan into a
-            // complete-looking one, and a deterministic cap is not rescanned.
+            // A complete snapshot is reusable, and the scheduling budget does
+            // not change that cache fence.
             expect(loadPdfPageAnnotations).toHaveBeenCalledTimes(scanCalls);
             expect(second.setInventoryCompleteness).toHaveBeenLastCalledWith(expect.objectContaining({
-                complete: false,
-                omissions: ['record-cap'],
+                complete: true,
+                omissions: [],
             }));
         });
     });

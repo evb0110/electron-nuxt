@@ -1,6 +1,9 @@
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { existsSync } from 'fs';
+import {
+    existsSync,
+    readdirSync,
+} from 'fs';
 import {
     mkdtemp,
     readFile,
@@ -112,6 +115,7 @@ vi.mock('@electron/utils/managedScratchTemp', () => ({
 }));
 
 const {
+    createPageRanges,
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
     normalizeImageExportPath,
@@ -505,6 +509,42 @@ describe('image export', () => {
                 return total + (lastPage - firstPage + 1);
             }, 0);
         expect(probedPageCount).toBeLessThanOrEqual(8);
+    });
+
+    it('plans past former page-count limits in bounded lazy ranges', () => {
+        for (const pageCount of [
+            501,
+            100_001,
+        ]) {
+            let batchCount = 0;
+            let coveredPages = 0;
+            let previousLastPage = 0;
+            for (const pageRange of createPageRanges(pageCount, 25)) {
+                expect(pageRange.firstPage).toBe(previousLastPage + 1);
+                expect(pageRange.lastPage - pageRange.firstPage + 1).toBeLessThanOrEqual(25);
+                coveredPages += pageRange.lastPage - pageRange.firstPage + 1;
+                previousLastPage = pageRange.lastPage;
+                batchCount += 1;
+            }
+
+            expect(coveredPages).toBe(pageCount);
+            expect(previousLastPage).toBe(pageCount);
+            expect(batchCount).toBe(Math.ceil(pageCount / 25));
+        }
+        expect(mocks.runCommand).not.toHaveBeenCalled();
+    });
+
+    it('allows staged image output to exceed the former document-wide byte cap', async () => {
+        mocks.renderPageCount = 60;
+        mocks.pdfPageCount = 60;
+        mocks.stat.mockImplementation(async () => ({
+            isFile: () => true,
+            size: 40 * 1024 * 1024,
+        }));
+
+        const outputPath = join(tempDir, 'large-document.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toHaveLength(60);
     });
 
     it('keeps an oversized page inside the PPM read limit instead of scaling it up past the limit', async () => {
@@ -1016,7 +1056,12 @@ describe('image export', () => {
         const recordRenderedPageTemp = (progress: IImageExportProgressForTest) => {
             if (progress.phase === 'rendering' && progress.processed === 2) {
                 const renderDir = mocks.managedScratchDirs.find(dir => dir.prefix === 'pdfExport-')?.path;
-                firstRenderedPagePath = renderDir ? join(renderDir, 'page-1.tif') : '';
+                const nestedRenderDir = renderDir
+                    ? readdirSync(renderDir).find(entry => entry.startsWith('render-pages-'))
+                    : undefined;
+                firstRenderedPagePath = renderDir && nestedRenderDir
+                    ? join(renderDir, nestedRenderDir, 'page-1.tif')
+                    : '';
             }
         };
 

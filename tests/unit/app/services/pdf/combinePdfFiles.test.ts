@@ -52,10 +52,10 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentWorkingCopyCapability: () => mocks.documentWorkingCopy,
 }));
 
-function createFile(name: string) {
+function createFile(name: string, size = 1) {
     return {
         name,
-        size: 1,
+        size,
     } as File;
 }
 
@@ -150,6 +150,51 @@ describe('combinePdfFiles', () => {
             elapsedMs: 25,
             estimatedRemainingMs: null,
         });
+    });
+
+    it('allows former desktop byte limits because native combine receives file paths', async () => {
+        const firstFile = createFile('first.pdf', 600 * 1024 * 1024);
+        const secondFile = createFile('second.pdf', 600 * 1024 * 1024);
+        mocks.documentPicker.getPathsForFiles.mockReturnValue([
+            '/tmp/first.pdf',
+            '/tmp/second.pdf',
+        ]);
+
+        await expect(combinePdfFiles({
+            files: [
+                {file: firstFile},
+                {file: secondFile},
+            ],
+            outputName: 'combined.pdf',
+            openErrorMessage: 'Could not open combined PDF',
+        })).resolves.toMatchObject({kind: 'pdf'});
+
+        expect(mocks.documentOpen.openDocumentDirectBatch).toHaveBeenCalledWith(
+            [
+                '/tmp/first.pdf',
+                '/tmp/second.pdf',
+            ],
+            'combine-request-1',
+            {forceCombine: true},
+        );
+    });
+
+    it('does not apply the former desktop input-count ceiling', async () => {
+        const files = Array.from({length: 513}, (_, index) => createFile(`page-${index}.pdf`));
+        const paths = files.map((_file, index) => `/tmp/page-${index}.pdf`);
+        mocks.documentPicker.getPathsForFiles.mockReturnValue(paths);
+
+        await expect(combinePdfFiles({
+            files: files.map(file => ({file})),
+            outputName: 'combined.pdf',
+            openErrorMessage: 'Could not open combined PDF',
+        })).resolves.toMatchObject({kind: 'pdf'});
+
+        expect(mocks.documentOpen.openDocumentDirectBatch).toHaveBeenCalledWith(
+            paths,
+            'combine-request-1',
+            {forceCombine: true},
+        );
     });
 
     it('creates browser generated output through the split working-copy capability', async () => {

@@ -60,15 +60,31 @@ function pageProgress(stage: TScanCleanupProgress['stage'], completedUnits: numb
 
 // The worker entrypoint runs as a module body, so booting it is the only way
 // to execute it: each case reloads the module against a fresh parent port.
-async function bootWorker(runtimePolicy: unknown = VALID_RUNTIME_POLICY) {
+async function bootWorker(
+    runtimePolicy: unknown = VALID_RUNTIME_POLICY,
+    includeRequestOptions = true,
+) {
+    const request: Record<string, unknown> = {
+        sourcePdfPath: '/tmp/scan-cleanup/source.pdf',
+        sourcePageNumbers: [
+            1,
+            2,
+        ],
+    };
+    if (includeRequestOptions) {
+        request.options = {
+            pageOverrides: {},
+            pageOverrideDefaults: undefined,
+            marginsMm: {
+                leftMm: 0,
+                topMm: 0,
+                rightMm: 0,
+                bottomMm: 0,
+            },
+        };
+    }
     mocks.workerData = {
-        request: {
-            sourcePdfPath: '/tmp/scan-cleanup/source.pdf',
-            sourcePageNumbers: [
-                1,
-                2,
-            ],
-        },
+        request,
         paths: {workDir: '/tmp/scan-cleanup/work'},
         runtimePolicy,
     };
@@ -129,7 +145,7 @@ describe('scan cleanup worker entrypoint', () => {
     });
 
     it('fails the run when the runtime policy cannot be decoded', async () => {
-        await bootWorker({rasterConcurrency: 0});
+        await bootWorker({rasterConcurrency: 0}, false);
 
         expect(mocks.runScanCleanupPipeline).not.toHaveBeenCalled();
         expect(lastResultMessage()).toMatchObject({

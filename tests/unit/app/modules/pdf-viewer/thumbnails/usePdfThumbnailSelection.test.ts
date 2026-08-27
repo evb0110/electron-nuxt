@@ -11,12 +11,14 @@ import {
     nextTick,
     ref,
 } from 'vue';
+import type { TPageSelection } from '@contracts/pageNumbers';
 import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection';
 
 function createSelectionHarness(options: {
     currentPage?: number;
     renderedPages?: number[];
     totalPages?: number;
+    pageSelection?: TPageSelection | null;
 } = {}) {
     const totalPages = ref(options.totalPages ?? 5);
     const currentPage = ref(options.currentPage ?? 2);
@@ -31,8 +33,12 @@ function createSelectionHarness(options: {
         2,
         4,
     ]);
+    const selectedPageSelection = ref<TPageSelection | null>(options.pageSelection ?? null);
     const onSelectedPagesChange = vi.fn((pages: number[]) => {
         selectedPages.value = pages;
+    });
+    const onPageSelectionChange = vi.fn((selection: TPageSelection) => {
+        selectedPageSelection.value = selection;
     });
     const focusPageElement = vi.fn();
     const onGoToPage = vi.fn();
@@ -47,6 +53,12 @@ function createSelectionHarness(options: {
         onContextMenu: vi.fn(),
         onGoToPage,
         onSelectedPagesChange,
+        ...(options.pageSelection === undefined
+            ? {}
+            : {
+                onPageSelectionChange,
+                selectedPageSelection: computed(() => selectedPageSelection.value),
+            }),
         renderedPages: computed(() => renderedPages.value),
         scrollPageIntoKeyboardView,
         selectedPages: computed(() => selectedPages.value),
@@ -56,11 +68,13 @@ function createSelectionHarness(options: {
         currentPage,
         focusPageElement,
         onGoToPage,
+        onPageSelectionChange,
         onSelectedPagesChange,
         renderedPages,
         scrollPageIntoKeyboardView,
         selection,
         selectedPages,
+        selectedPageSelection,
         totalPages,
     };
 }
@@ -302,5 +316,44 @@ describe('usePdfThumbnailSelection', () => {
 
         expect(focusPageElement).not.toHaveBeenCalled();
         expect(selection.rovingFocusPage.value).toBe(2);
+    });
+
+    it('keeps a million-page shift selection in the model instead of a legacy array', () => {
+        const {
+            onPageSelectionChange,
+            onSelectedPagesChange,
+            selectedPageSelection,
+            selectedPages,
+            selection,
+        } = createSelectionHarness({
+            currentPage: 2,
+            pageSelection: {
+                kind: 'none',
+                pageCount: 1_000_000,
+            },
+            totalPages: 1_000_000,
+        });
+        onPageSelectionChange.mockClear();
+        onSelectedPagesChange.mockClear();
+
+        selection.handleThumbnailClick(
+            new MouseEvent('click', {shiftKey: true}),
+            1_000_000,
+        );
+
+        expect(onPageSelectionChange).toHaveBeenCalledOnce();
+        expect(onPageSelectionChange.mock.calls[0]?.[0]).toEqual({
+            kind: 'range',
+            pageCount: 1_000_000,
+            startPage: 2,
+            endPage: 1_000_000,
+        });
+        expect(selectedPageSelection.value).toEqual(onPageSelectionChange.mock.calls[0]?.[0]);
+        expect(onSelectedPagesChange).not.toHaveBeenCalled();
+        expect(selectedPages.value).toEqual([
+            2,
+            4,
+        ]);
+        expect(selection.isSelected(1_000_000)).toBe(true);
     });
 });

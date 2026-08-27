@@ -13,7 +13,7 @@ import {
 import {
     createScanCleanupInputBudget,
     SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
-    SCAN_CLEANUP_INPUT_MAX_PAGES,
+    SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
     SCAN_CLEANUP_INPUT_MAX_PATH_BYTES,
     SCAN_CLEANUP_INPUT_MAX_VERTICES,
     SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON,
@@ -155,6 +155,25 @@ describe('scan-cleanup IPC request codecs', () => {
         );
     });
 
+    it('carries one scalar page override default beside sparse page entries', () => {
+        const pageOverrideDefaults = {
+            rotationDegrees: 90,
+            layoutOverride: 'auto',
+            excluded: true,
+            manualSplit: null,
+        } as const;
+        const decoded = decodeStartArgs([{
+            ...request,
+            options: {
+                ...request.options,
+                pageOverrideDefaults,
+            },
+        }])[0];
+
+        expect(decoded.options.pageOverrideDefaults).toEqual(pageOverrideDefaults);
+        expect(decoded.options.pageOverrides).toEqual({});
+    });
+
     it('decodes resolved ink placement anchors on preview and start requests', () => {
         const placementAnchors = {
             left: {yNormalized: 0.08},
@@ -266,10 +285,30 @@ describe('scan-cleanup IPC request codecs', () => {
         }])).toThrow('text tone');
     });
 
-    it('enforces canonical bounded page keys across page-indexed payloads', () => {
+    it('allows high page numbers while keeping page-key validation canonical', () => {
+        const highPageKey = String(SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1);
+        expect(decodeStartArgs([requestWithOverrides({[highPageKey]: pageOverride()})])[0]
+            .options.pageOverrides).toHaveProperty(highPageKey);
+        expect(decodeStartArgs([{
+            ...request,
+            layoutByPage: {[highPageKey]: 'single-uncut-page'},
+            sourcePageNumbers: [SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1],
+        }])[0].sourcePageNumbers).toEqual([SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1]);
+        expect(decodeStartArgs([{
+            ...request,
+            sourcePageRange: {
+                startPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
+                endPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
+            },
+        }])[0].sourcePageRange).toEqual({
+            startPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
+            endPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
+        });
+    });
+
+    it('rejects malformed page keys across page-indexed payloads', () => {
         for (const key of [
             '01',
-            String(SCAN_CLEANUP_INPUT_MAX_PAGES + 1),
             String(Number.MAX_SAFE_INTEGER + 1),
         ]) {
             expect(() => decodeStartArgs([requestWithOverrides({[key]: pageOverride()})]))
@@ -505,7 +544,7 @@ describe('scan-cleanup IPC request codecs', () => {
 
     it('enforces aggregate page, zone, and vertex budgets across decoded overrides', () => {
         const pageBudget = createScanCleanupInputBudget();
-        pageBudget.pages = SCAN_CLEANUP_INPUT_MAX_PAGES;
+        pageBudget.pages = SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES;
         expect(() => decodeScanCleanupPageOverrides({'1': pageOverride()}, pageBudget))
             .toThrow('too many scan-cleanup page overrides');
 

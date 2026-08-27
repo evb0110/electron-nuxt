@@ -15,7 +15,6 @@ import {
     consumeScanCleanupZones,
     createScanCleanupInputBudget,
     type IScanCleanupInputBudget,
-    SCAN_CLEANUP_INPUT_MAX_PAGES,
     SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON,
     SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE,
 } from '@contracts/scan-cleanup/inputLimits';
@@ -401,9 +400,6 @@ export function assertScanCleanupProvenanceStamp(value: unknown): asserts value 
         fail('effectiveOptions.perSourcePage must be non-empty');
     }
     const effectiveRecords = value.effectiveOptions.perSourcePage;
-    if (effectiveRecords.length > SCAN_CLEANUP_INPUT_MAX_PAGES) {
-        fail('effectiveOptions.perSourcePage exceeds the page limit');
-    }
     const inputBudget = createScanCleanupInputBudget();
     const optionsBySource = new Map<number, IScanCleanupStampEffectiveOptions>();
     const sourcePages = effectiveRecords.map((record, index) => {
@@ -421,7 +417,6 @@ export function assertScanCleanupProvenanceStamp(value: unknown): asserts value 
     if (
         !Array.isArray(value.outputMappings)
         || value.outputMappings.length === 0
-        || value.outputMappings.length > SCAN_CLEANUP_INPUT_MAX_PAGES * 2
     ) fail('outputMappings must be a bounded non-empty array');
     const outputMappings = value.outputMappings.map((mapping, index) => {
         assertOutputMapping(mapping, `outputMappings[${String(index)}]`);
@@ -432,7 +427,6 @@ export function assertScanCleanupProvenanceStamp(value: unknown): asserts value 
     });
     if (
         !isUnknownArray(value.pagePlanDigests)
-        || value.pagePlanDigests.length > SCAN_CLEANUP_INPUT_MAX_PAGES
     ) fail('pagePlanDigests must be a bounded array');
     const digestRecords = value.pagePlanDigests;
     const digestPages = digestRecords.map((digest, index) => {

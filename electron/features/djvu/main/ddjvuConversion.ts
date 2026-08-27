@@ -1,11 +1,8 @@
 import { existsSync } from 'fs';
 import {
-    readFile,
     stat,
     unlink,
-    writeFile,
 } from 'fs/promises';
-import { PDFDocument } from 'pdf-lib';
 import { limitAsync } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import { dirname } from 'node:path';
@@ -22,12 +19,12 @@ import type { IRunCommandOptions } from '@electron/native-tools/runNativeCommand
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import {
     createDjvuDiskQuotaMonitor,
-    DJVU_ARTIFACT_MAX_TOTAL_BYTES,
     openDjvuArtifactJob,
 } from '@electron/features/djvu/main/djvuArtifactManifest';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
+import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 
 interface IDjvuConversionOptions {
     subsample?: number;
@@ -84,21 +81,6 @@ const DJVU_MAX_STDERR_BYTES = (() => {
     }
     return parsed;
 })();
-const DJVU_PDFLIB_FALLBACK_MAX_PAGES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_PDFLIB_FALLBACK_MAX_PAGES ?? '256', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 256;
-    }
-    return Math.min(parsed, 2_000);
-})();
-const DJVU_PDFLIB_FALLBACK_MAX_TOTAL_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_PDFLIB_FALLBACK_MAX_TOTAL_MB ?? '256', 10);
-    if (!Number.isFinite(parsed) || parsed < 16) {
-        return 256 * 1024 * 1024;
-    }
-    return parsed * 1024 * 1024;
-})();
-
 const activeProcessIds = new Set<string>();
 const canceledProcessIds = new Set<string>();
 const logger = createLogger('djvu-convert');
@@ -298,13 +280,18 @@ async function _convertDjvuToPdfWithRanges(
         }
 
         throwIfAborted(conversionSignal);
-        const mergeResult = await mergePdfChunks(
-            chunkPaths,
-            outputPath,
-            `${jobId}-merge`,
-            totalPages,
-            conversionSignal,
-        );
+        let mergeResult: Awaited<ReturnType<typeof mergePdfChunks>>;
+        try {
+            mergeResult = await mergePdfChunks(
+                chunkPaths,
+                outputPath,
+                `${jobId}-merge`,
+                conversionSignal,
+            );
+        } catch (error) {
+            await cleanupPartialOutput(outputPath);
+            throw error;
+        }
         if (!mergeResult.success) {
             await cleanupPartialOutput(outputPath);
             return {
@@ -357,7 +344,6 @@ async function _convertDjvuToPdfSingleProcess(
     const quotaMonitor = await createDjvuDiskQuotaMonitor({
         paths: [outputPath],
         fileSystemPath: dirname(outputPath),
-        maxTotalBytes: DJVU_ARTIFACT_MAX_TOTAL_BYTES,
         ...(options.signal ? {signal: options.signal} : {}),
     }).catch((error: unknown) => error instanceof Error ? error : new Error(String(error)));
     if (quotaMonitor instanceof Error) {
@@ -383,7 +369,12 @@ async function _convertDjvuToPdfSingleProcess(
             signal: quotaMonitor.signal,
         });
         const args = buildPdfArgs(inputPath, outputPath, options.subsample, options.pages);
-        const pageProgressSeen = new Set<number>();
+        // A single ddjvu process reports completed pages in ascending order. Keep
+        // only the last marker and a scalar count, so progress cannot grow a
+        // page-sized Set for very large documents. Repeated markers remain
+        // idempotent, which preserves the old progress behavior on noisy stderr.
+        let lastProgressPage = 0;
+        let completedPageCount = 0;
         const result = await runProcess(
             jobId,
             getDjvuNativeToolPaths().ddjvu,
@@ -401,13 +392,14 @@ async function _convertDjvuToPdfSingleProcess(
                         if (!Number.isInteger(pageNum) || pageNum < 1 || pageNum > totalPages) {
                             continue;
                         }
-                        if (pageProgressSeen.has(pageNum)) {
+                        if (pageNum <= lastProgressPage) {
                             continue;
                         }
-                        pageProgressSeen.add(pageNum);
+                        lastProgressPage = pageNum;
+                        completedPageCount += 1;
                         const percent = Math.min(
                             PROGRESS_CAP,
-                            Math.round((pageProgressSeen.size / totalPages) * PROGRESS_CAP),
+                            Math.round((completedPageCount / totalPages) * PROGRESS_CAP),
                         );
                         options.onProgress(percent);
                     }
@@ -521,10 +513,19 @@ async function mergePdfChunks(
     chunkPaths: string[],
     outputPath: string,
     mergeJobId: string,
-    totalPages: number,
     signal?: AbortSignal,
 ) {
-    const { qpdf } = getPdfNativeToolPaths();
+    let qpdf: string;
+    try {
+        qpdf = getPdfNativeToolPaths().qpdf;
+    } catch (error) {
+        throw createDjvuNativeCapabilityError(
+            'native-unavailable',
+            `DjVu PDF chunk merge cannot find qpdf: ${getErrorMessage(error)}`,
+            error,
+        );
+    }
+
     const qpdfResult = await runProcess(
         mergeJobId,
         qpdf,
@@ -538,58 +539,29 @@ async function mergePdfChunks(
         signal ? { signal } : {},
     );
     if (qpdfResult.success) {
-        return { success: true };
+        return { success: true as const };
     }
 
     if (isDjvuConversionCancellationError(qpdfResult.error)) {
         return qpdfResult;
     }
 
-    const fallbackPageCount = totalPages > 0 ? totalPages : chunkPaths.length;
-    if (fallbackPageCount > DJVU_PDFLIB_FALLBACK_MAX_PAGES) {
-        return {
-            success: false,
-            error: `qpdf merge failed and fallback is disabled for large files (> ${DJVU_PDFLIB_FALLBACK_MAX_PAGES} pages)`,
-        };
-    }
+    throw createDjvuNativeCapabilityError(
+        'native-failure',
+        `DjVu PDF chunk merge failed: ${qpdfResult.error ?? 'qpdf failed without a diagnostic'}`,
+        qpdfResult.cause,
+    );
+}
 
-    logger.warn(`[${mergeJobId}] qpdf merge failed, falling back to pdf-lib merge: ${qpdfResult.error}`);
-    try {
-        let totalChunkBytes = 0;
-        for (const chunkPath of chunkPaths) {
-            const chunkStat = await stat(chunkPath);
-            totalChunkBytes += chunkStat.size;
-            if (totalChunkBytes > DJVU_PDFLIB_FALLBACK_MAX_TOTAL_BYTES) {
-                return {
-                    success: false,
-                    error: `qpdf merge failed and fallback exceeds size cap (${Math.floor(DJVU_PDFLIB_FALLBACK_MAX_TOTAL_BYTES / (1024 * 1024))}MB)`,
-                };
-            }
-        }
-
-        const mergedDoc = await PDFDocument.create();
-
-        for (const chunkPath of chunkPaths) {
-            const chunkData = await readFile(chunkPath);
-            const chunkDoc = await PDFDocument.load(chunkData, { updateMetadata: false });
-            const chunkIndices = chunkDoc.getPageIndices();
-            if (chunkIndices.length === 0) {
-                continue;
-            }
-            const pages = await mergedDoc.copyPages(chunkDoc, chunkIndices);
-            for (const page of pages) {
-                mergedDoc.addPage(page);
-            }
-        }
-
-        await writeFile(outputPath, new Uint8Array(await mergedDoc.save()));
-        return { success: true };
-    } catch (error) {
-        return {
-            success: false,
-            error: getErrorMessage(error),
-        };
-    }
+function createDjvuNativeCapabilityError(
+    code: 'native-unavailable' | 'native-failure',
+    message: string,
+    cause?: unknown,
+) {
+    return new PdfCombineCapabilityError(code, message, {
+        ...(cause === undefined ? {} : {cause}),
+        operation: 'djvu-pdf-merge',
+    });
 }
 
 function buildPdfArgs(
@@ -745,7 +717,8 @@ async function runProcess(
     options: IRunProcessOptions = {},
 ): Promise<{ success: true } | {
     success: false;
-    error: string
+    error: string;
+    cause?: unknown;
 }> {
     activeProcessIds.add(processId);
     try {
@@ -780,6 +753,7 @@ async function runProcess(
         return {
             success: false,
             error: getErrorMessage(error),
+            cause: error,
         };
     } finally {
         activeProcessIds.delete(processId);

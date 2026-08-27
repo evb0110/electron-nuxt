@@ -149,6 +149,25 @@ describe('useOcrTextContent', () => {
         expect(ocrCapability.resolveDocumentTextCatalog).not.toHaveBeenCalled();
     });
 
+    it('probes a page when the bounded availability ranges are incomplete', async () => {
+        ocrCapability.resolveDocumentOcrAvailability.mockResolvedValue({
+            documentRevision: TEST_DOCUMENT_REVISION,
+            pageCount: 1_000_001,
+            mappedPageCount: 1,
+            pageRanges: [],
+            rangesComplete: false,
+        });
+        const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
+        const reader = useOcrTextContent();
+
+        await expect(reader.hasPageOcrData('/tmp/large.pdf', TEST_DOCUMENT_REVISION, 900_000)).resolves.toBe(true);
+        expect(ocrCapability.resolveDocumentOcrPage).toHaveBeenCalledWith(
+            '/tmp/large.pdf',
+            TEST_DOCUMENT_REVISION,
+            900_000,
+        );
+    });
+
     it('uses the visual line box when OCR words in the same line have different heights', async () => {
         ocrCapability.resolveDocumentOcrPage.mockResolvedValue(createPageSnapshot([
             {

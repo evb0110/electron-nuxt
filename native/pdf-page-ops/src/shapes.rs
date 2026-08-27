@@ -16,6 +16,18 @@ pub(crate) fn read_managed_shape_stable_key(dict: &Dictionary) -> Option<String>
         .and_then(|value| normalize_managed_shape_stable_key(Some(&value)))
 }
 
+/// Reads the key used to correlate an embedded shape across imports. EVB's
+/// private key wins, while `/NM` remains a compatible fallback for files that
+/// have no private key but carry the same managed-shape value there.
+pub(crate) fn read_shape_stable_key(dict: &Dictionary) -> Option<String> {
+    read_managed_shape_stable_key(dict).or_else(|| {
+        dict.get(b"NM")
+            .ok()
+            .and_then(pdf_string_to_text)
+            .and_then(|value| normalize_managed_shape_stable_key(Some(&value)))
+    })
+}
+
 pub(crate) fn write_managed_shape_stable_key(
     dict: &mut Dictionary,
     stable_key: Option<&str>,
@@ -639,14 +651,20 @@ pub(crate) fn collect_shape_annotation_refs_to_delete(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct ShapePageContext {
+    page_id: ObjectId,
+    page_view: PdfRect,
+    page_rotation: i64,
+}
+
 pub(crate) fn apply_shape_annotation_decision(
     document: &mut Document,
     state: &mut ShapeConsumptionState,
     deleted_refs: &DeletedShapeRefs,
     refs_to_delete: &mut HashSet<ObjectId>,
     rewrite_shape_state: bool,
-    page_view: PdfRect,
-    page_rotation: i64,
+    page: ShapePageContext,
     object_id: ObjectId,
     modified_at: &str,
 ) -> Result<bool> {
@@ -656,7 +674,7 @@ pub(crate) fn apply_shape_annotation_decision(
             Err(_) => return Ok(false),
         };
         (
-            read_managed_shape_stable_key(dict),
+            read_shape_stable_key(dict),
             format_pdfjs_annotation_ref(object_id),
             annotation_subtype(dict),
         )
@@ -677,7 +695,7 @@ pub(crate) fn apply_shape_annotation_decision(
             let shape = state.shapes[index].clone();
             let appearance_ref = if subtype == "ink" {
                 let appearance =
-                    build_ink_shape_appearance_stream(&shape, page_view, page_rotation)?;
+                    build_ink_shape_appearance_stream(&shape, page.page_view, page.page_rotation)?;
                 Some(document.add_object(appearance))
             } else {
                 None
@@ -690,11 +708,12 @@ pub(crate) fn apply_shape_annotation_decision(
             let modified = update_shape_annotation_dict(
                 dict,
                 &shape,
-                page_view,
-                page_rotation,
+                page.page_view,
+                page.page_rotation,
                 modified_at,
                 existing_rect,
             )?;
+            dict.set("P", Object::Reference(page.page_id));
             if let Some(appearance_ref) = appearance_ref {
                 attach_ink_shape_appearance(dict, appearance_ref);
             }
@@ -710,7 +729,8 @@ pub(crate) fn apply_shape_annotation_decision(
     if let Some(index) = state.find_by_annotation_id(&annotation_id) {
         let shape = state.shapes[index].clone();
         let appearance_ref = if subtype == "ink" {
-            let appearance = build_ink_shape_appearance_stream(&shape, page_view, page_rotation)?;
+            let appearance =
+                build_ink_shape_appearance_stream(&shape, page.page_view, page.page_rotation)?;
             Some(document.add_object(appearance))
         } else {
             None
@@ -723,11 +743,12 @@ pub(crate) fn apply_shape_annotation_decision(
         let modified = update_shape_annotation_dict(
             dict,
             &shape,
-            page_view,
-            page_rotation,
+            page.page_view,
+            page.page_rotation,
             modified_at,
             existing_rect,
         )?;
+        dict.set("P", Object::Reference(page.page_id));
         if let Some(appearance_ref) = appearance_ref {
             attach_ink_shape_appearance(dict, appearance_ref);
         }
@@ -743,8 +764,7 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
     deleted_refs: &DeletedShapeRefs,
     refs_to_delete: &mut HashSet<ObjectId>,
     rewrite_shape_state: bool,
-    page_view: PdfRect,
-    page_rotation: i64,
+    page: ShapePageContext,
     object_id: ObjectId,
     modified_at: &str,
 ) -> Result<bool> {
@@ -754,7 +774,7 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
             Err(_) => return Ok(false),
         };
         (
-            read_managed_shape_stable_key(dict),
+            read_shape_stable_key(dict),
             format_pdfjs_annotation_ref(object_id),
             annotation_subtype(dict),
         )
@@ -782,7 +802,8 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
         let shape = state.shapes[index].clone();
         incremental.opt_clone_object_to_new_document(object_id)?;
         let appearance_ref = if subtype == "ink" {
-            let appearance = build_ink_shape_appearance_stream(&shape, page_view, page_rotation)?;
+            let appearance =
+                build_ink_shape_appearance_stream(&shape, page.page_view, page.page_rotation)?;
             Some(incremental.new_document.add_object(appearance))
         } else {
             None
@@ -800,11 +821,12 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
         let modified = update_shape_annotation_dict(
             dict,
             &shape,
-            page_view,
-            page_rotation,
+            page.page_view,
+            page.page_rotation,
             modified_at,
             existing_rect,
         )?;
+        dict.set("P", Object::Reference(page.page_id));
         if let Some(appearance_ref) = appearance_ref {
             attach_ink_shape_appearance(dict, appearance_ref);
         }
@@ -822,22 +844,110 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
     Ok(false)
 }
 
+struct ShapeDeleteTargets {
+    refs_to_delete: HashSet<ObjectId>,
+    page_ids: HashSet<ObjectId>,
+}
+
+fn collect_known_shape_delete_targets(
+    document: &Document,
+    deleted_refs: &DeletedShapeRefs,
+) -> Result<ShapeDeleteTargets> {
+    let mut refs_to_delete = HashSet::new();
+    let mut page_ids = HashSet::new();
+    for annotation_id in &deleted_refs.annotation_ids {
+        let Some(object_id) = parse_pdfjs_annotation_object_id(annotation_id) else {
+            continue;
+        };
+        if document.dictionary(object_id).is_err() {
+            continue;
+        }
+        for related_id in collect_annotation_refs_to_delete(document, object_id)? {
+            refs_to_delete.insert(related_id);
+        }
+    }
+    let stable_lookup = lookup_embedded_shape_delete_targets(document, &deleted_refs.stable_keys);
+    page_ids.extend(stable_lookup.page_ids);
+    for object_id in stable_lookup.object_ids {
+        for related_id in collect_annotation_refs_to_delete(document, object_id)? {
+            refs_to_delete.insert(related_id);
+        }
+    }
+    extend_shape_page_ids_from_refs(document, &refs_to_delete, &mut page_ids);
+    Ok(ShapeDeleteTargets {
+        refs_to_delete,
+        page_ids,
+    })
+}
+
+pub(crate) fn shape_annotation_page_id(
+    document: &impl PdfObjectSource,
+    annotation_id: ObjectId,
+) -> Option<ObjectId> {
+    let annotation = document.dictionary(annotation_id).ok()?;
+    let page_id = annotation.get(b"P").ok()?.as_reference().ok()?;
+    document.dictionary(page_id).ok()?;
+    Some(page_id)
+}
+
+fn extend_shape_page_ids_from_refs(
+    document: &impl PdfObjectSource,
+    refs_to_delete: &HashSet<ObjectId>,
+    page_ids: &mut HashSet<ObjectId>,
+) {
+    for object_id in refs_to_delete {
+        if let Some(page_id) = shape_annotation_page_id(document, *object_id) {
+            page_ids.insert(page_id);
+        }
+    }
+}
+
+fn resolve_shape_page_ids(
+    document: &impl PdfObjectSource,
+    page_resolver: &PageTreeResolver,
+    shapes: &ShapesMutation,
+    refs_to_delete: &HashSet<ObjectId>,
+) -> Result<HashSet<ObjectId>> {
+    let mut page_ids = HashSet::new();
+    for shape in &shapes.shapes {
+        let page_number = shape
+            .page_index
+            .checked_add(1)
+            .ok_or("Invalid shape page index")?;
+        page_ids.insert(page_resolver.page_id(document, page_number)?);
+    }
+    for shape in &shapes.shapes {
+        let Some(annotation_id) = shape
+            .annotation_id
+            .as_deref()
+            .and_then(parse_pdfjs_annotation_object_id)
+        else {
+            continue;
+        };
+        if let Some(page_id) = shape_annotation_page_id(document, annotation_id) {
+            page_ids.insert(page_id);
+        }
+    }
+    extend_shape_page_ids_from_refs(document, refs_to_delete, &mut page_ids);
+    Ok(page_ids)
+}
+
 pub(crate) fn remove_shape_refs_from_pages(
     document: &mut Document,
+    page_ids: &HashSet<ObjectId>,
     refs_to_delete: &HashSet<ObjectId>,
 ) -> Result<bool> {
     if refs_to_delete.is_empty() {
         return Ok(false);
     }
-    let page_map = document.get_pages();
     let mut removed_any = false;
-    for page_id in page_map.values().copied() {
-        let annots = get_page_annots(document, page_id)?;
+    for page_id in page_ids {
+        let annots = get_page_annots(document, *page_id)?;
         let (filtered_annots, removed) = filter_annots_without_refs(annots, refs_to_delete);
         if !removed {
             continue;
         }
-        let page = document.get_dictionary_mut(page_id)?;
+        let page = document.get_dictionary_mut(*page_id)?;
         page.set("Annots", Object::Array(filtered_annots));
         removed_any = true;
     }
@@ -846,22 +956,22 @@ pub(crate) fn remove_shape_refs_from_pages(
 
 pub(crate) fn remove_shape_refs_from_pages_incremental(
     incremental: &mut IncrementalDocument,
+    page_ids: &HashSet<ObjectId>,
     refs_to_delete: &HashSet<ObjectId>,
 ) -> Result<bool> {
     if refs_to_delete.is_empty() {
         return Ok(false);
     }
-    let page_map = incremental.get_prev_documents().get_pages();
     let mut removed_any = false;
-    for page_id in page_map.values().copied() {
-        let annots = get_page_annots(&incremental.new_document, page_id)
-            .or_else(|_| get_page_annots(incremental.get_prev_documents(), page_id))?;
+    for page_id in page_ids {
+        let annots = get_page_annots(&incremental.new_document, *page_id)
+            .or_else(|_| get_page_annots(incremental.get_prev_documents(), *page_id))?;
         let (filtered_annots, removed) = filter_annots_without_refs(annots, refs_to_delete);
         if !removed {
             continue;
         }
-        incremental.opt_clone_object_to_new_document(page_id)?;
-        let page = incremental.new_document.get_dictionary_mut(page_id)?;
+        incremental.opt_clone_object_to_new_document(*page_id)?;
+        let page = incremental.new_document.get_dictionary_mut(*page_id)?;
         page.set("Annots", Object::Array(filtered_annots));
         removed_any = true;
     }
@@ -870,20 +980,21 @@ pub(crate) fn remove_shape_refs_from_pages_incremental(
 
 pub(crate) fn append_remaining_shape_annotations(
     document: &mut Document,
+    page_resolver: &PageTreeResolver,
     shapes: Vec<ShapeAnnotation>,
     modified_at: &str,
 ) -> Result<bool> {
-    let page_map = document.get_pages();
     let mut modified = false;
     for shape in shapes {
         let page_number = shape
             .page_index
             .checked_add(1)
             .ok_or("Invalid shape page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = page_resolver.page_id(document, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let mut dict = create_shape_annotation_dict(&shape, page_view, page_rotation, modified_at)?;
+        dict.set("P", Object::Reference(page_id));
         if shape_annotation_subtype_for_create(&shape) == Some("Ink") {
             let appearance = build_ink_shape_appearance_stream(&shape, page_view, page_rotation)?;
             let appearance_ref = document.add_object(appearance);
@@ -898,20 +1009,21 @@ pub(crate) fn append_remaining_shape_annotations(
 
 pub(crate) fn append_remaining_shape_annotations_incremental(
     incremental: &mut IncrementalDocument,
+    page_resolver: &PageTreeResolver,
     shapes: Vec<ShapeAnnotation>,
     modified_at: &str,
 ) -> Result<bool> {
-    let page_map = incremental.get_prev_documents().get_pages();
     let mut modified = false;
     for shape in shapes {
         let page_number = shape
             .page_index
             .checked_add(1)
             .ok_or("Invalid shape page index")?;
-        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_id = page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
         let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let mut dict = create_shape_annotation_dict(&shape, page_view, page_rotation, modified_at)?;
+        dict.set("P", Object::Reference(page_id));
         if shape_annotation_subtype_for_create(&shape) == Some("Ink") {
             let appearance = build_ink_shape_appearance_stream(&shape, page_view, page_rotation)?;
             let appearance_ref = incremental.new_document.add_object(appearance);
@@ -932,12 +1044,15 @@ pub(crate) fn apply_shape_annotations(
     modified_at: &str,
 ) -> Result<()> {
     assert_mutation_page_count(document, shapes.total_pages, "Shape mutation")?;
-    let page_map = document.get_pages();
+    let page_resolver = PageTreeResolver::new(document)?;
     let mut state = ShapeConsumptionState::new(&shapes.shapes);
     let deleted_refs = collect_deleted_shape_refs(shapes);
-    let mut refs_to_delete = HashSet::new();
+    let delete_targets = collect_known_shape_delete_targets(document, &deleted_refs)?;
+    let mut refs_to_delete = delete_targets.refs_to_delete;
+    let mut page_ids = resolve_shape_page_ids(document, &page_resolver, shapes, &refs_to_delete)?;
+    page_ids.extend(delete_targets.page_ids);
     let mut modified = false;
-    for page_id in page_map.values().copied() {
+    for page_id in page_ids.iter().copied() {
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let annots = get_page_annots(document, page_id)?;
@@ -951,16 +1066,22 @@ pub(crate) fn apply_shape_annotations(
                 &deleted_refs,
                 &mut refs_to_delete,
                 shapes.rewrite_shape_state,
-                page_view,
-                page_rotation,
+                ShapePageContext {
+                    page_id,
+                    page_view,
+                    page_rotation,
+                },
                 object_id,
                 modified_at,
             )? || modified;
         }
     }
-    modified = remove_shape_refs_from_pages(document, &refs_to_delete)? || modified;
+    extend_shape_page_ids_from_refs(document, &refs_to_delete, &mut page_ids);
+    modified = remove_shape_refs_from_pages(document, &page_ids, &refs_to_delete)? || modified;
     let remaining = state.remaining().cloned().collect::<Vec<_>>();
-    modified = append_remaining_shape_annotations(document, remaining, modified_at)? || modified;
+    modified =
+        append_remaining_shape_annotations(document, &page_resolver, remaining, modified_at)?
+            || modified;
     if !modified
         && (shapes.rewrite_shape_state
             || !shapes.shapes.is_empty()
@@ -982,12 +1103,21 @@ pub(crate) fn apply_shape_annotations_incremental(
         shapes.total_pages,
         "Shape mutation",
     )?;
-    let page_map = incremental.get_prev_documents().get_pages();
+    let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
     let mut state = ShapeConsumptionState::new(&shapes.shapes);
     let deleted_refs = collect_deleted_shape_refs(shapes);
-    let mut refs_to_delete = HashSet::new();
+    let delete_targets =
+        collect_known_shape_delete_targets(incremental.get_prev_documents(), &deleted_refs)?;
+    let mut refs_to_delete = delete_targets.refs_to_delete;
+    let mut page_ids = resolve_shape_page_ids(
+        incremental.get_prev_documents(),
+        &page_resolver,
+        shapes,
+        &refs_to_delete,
+    )?;
+    page_ids.extend(delete_targets.page_ids);
     let mut modified = false;
-    for page_id in page_map.values().copied() {
+    for page_id in page_ids.iter().copied() {
         let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let annots = get_page_annots(incremental.get_prev_documents(), page_id)?;
@@ -1001,17 +1131,30 @@ pub(crate) fn apply_shape_annotations_incremental(
                 &deleted_refs,
                 &mut refs_to_delete,
                 shapes.rewrite_shape_state,
-                page_view,
-                page_rotation,
+                ShapePageContext {
+                    page_id,
+                    page_view,
+                    page_rotation,
+                },
                 object_id,
                 modified_at,
             )? || modified;
         }
     }
-    modified = remove_shape_refs_from_pages_incremental(incremental, &refs_to_delete)? || modified;
-    let remaining = state.remaining().cloned().collect::<Vec<_>>();
-    modified = append_remaining_shape_annotations_incremental(incremental, remaining, modified_at)?
+    extend_shape_page_ids_from_refs(
+        incremental.get_prev_documents(),
+        &refs_to_delete,
+        &mut page_ids,
+    );
+    modified = remove_shape_refs_from_pages_incremental(incremental, &page_ids, &refs_to_delete)?
         || modified;
+    let remaining = state.remaining().cloned().collect::<Vec<_>>();
+    modified = append_remaining_shape_annotations_incremental(
+        incremental,
+        &page_resolver,
+        remaining,
+        modified_at,
+    )? || modified;
     if !modified
         && (shapes.rewrite_shape_state
             || !shapes.shapes.is_empty()

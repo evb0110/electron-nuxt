@@ -28,13 +28,16 @@ import {
     extractPdfMrcLayers,
     extractPdfMrcLayersBatch,
 } from '@scan-cleanup-adapters/extractPdfMrcLayers';
-import {readPdfPageSizes} from '@scan-cleanup-core/pdfPageSizes';
+import {
+    createPdfPageSizeStore,
+    readPdfPageSizes,
+} from '@scan-cleanup-core/pdfPageSizes';
 import {readAvailableScratchBytes} from '@scan-cleanup-core/resolveRasterHandoff';
 import {detectSourceDpiDetails} from '@scan-cleanup-core/sourceDpiDetection';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@scan-cleanup-core/pageBatches';
 import {
     runScanCleanupDetection,
     type IScanCleanupDetectionDependencies,
-    type IScanCleanupDocumentRasterPages,
 } from '@scan-cleanup-core/detection';
 import {
     runScanCleanupConversion,
@@ -48,7 +51,10 @@ import {
     type IScanCleanupRepresentationReport,
 } from '@scan-cleanup-core/index';
 import type {
+    IDetectedPageRaster,
     IScanCleanupProcessResult,
+    IScanCleanupDetectionResultStore,
+    IScanCleanupPageRasterSource,
     IRunScanCleanupPipelineDependencies,
     IReadPdfPageSizesOptions,
     TScanCleanupGetPageCount,
@@ -77,10 +83,12 @@ import {
     createScanCleanupDetectionCacheKey,
     DEFAULT_SCAN_CLEANUP_DETECTION_CACHE_PATH,
     runScanCleanupDetectionWithCache,
+    type IScanCleanupDetectionRunResult,
 } from '@scripts/scanCleanupDetectionCache';
 
 const PAGE_OPS_FALLBACK = '__scan_cleanup_cli_page_ops_fallback__';
 const IMAGE_COMBINE_FALLBACK = '__scan_cleanup_cli_image_combine_fallback__';
+const CLI_PAGE_RASTER_CACHE_LIMIT = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 
 interface IScanCleanupCliArguments {
     sourcePdfPath: string;
@@ -684,6 +692,62 @@ function getProgressKey(progress: TScanCleanupProgress) {
     return `${progress.stage}:${String(progress.completedUnits)}:${String(progress.totalUnits)}`;
 }
 
+type TScanCleanupCliDetectionRequestFields = Pick<IRunScanCleanupPipelineRequest,
+    | 'detectionResultStore'
+    | 'documentPriorByPage'
+    | 'layoutByPage'
+    | 'outputModeRecommendations'
+    | 'pagePlanEvidenceByPage'
+    | 'softAlphaForegroundRecommendations'
+    | 'sourcePageMetadataByPage'
+>;
+
+/**
+ * Keep the CLI's legacy object fields as a small-document adapter. A large
+ * detection result is handed to conversion as its open sidecar store, so
+ * this helper never creates one object entry per source page.
+ */
+export function buildScanCleanupCliDetectionRequestFields(
+    detection: IScanCleanupDetectionRunResult,
+): TScanCleanupCliDetectionRequestFields {
+    if (
+        detection.resultStore !== undefined
+        && (detection.results.length === 0
+            || detection.resultStore.pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES)
+    ) {
+        return {detectionResultStore: detection.resultStore};
+    }
+    const layoutByPage: NonNullable<IRunScanCleanupPipelineRequest['layoutByPage']> = {};
+    const pagePlanEvidenceByPage: NonNullable<IRunScanCleanupPipelineRequest['pagePlanEvidenceByPage']> = {};
+    const outputModeRecommendations: NonNullable<IRunScanCleanupPipelineRequest['outputModeRecommendations']> = {};
+    const softAlphaForegroundRecommendations: NonNullable<IRunScanCleanupPipelineRequest['softAlphaForegroundRecommendations']> = {};
+    const sourcePageMetadataByPage: NonNullable<IRunScanCleanupPipelineRequest['sourcePageMetadataByPage']> = {};
+    const documentPriorByPage: NonNullable<IRunScanCleanupPipelineRequest['documentPriorByPage']> = {};
+    for (const result of detection.results) {
+        const key = String(result.pageNumber);
+        layoutByPage[key] = result.classification;
+        if (result.pagePlanEvidence !== undefined) pagePlanEvidenceByPage[key] = result.pagePlanEvidence;
+        if (result.recommendedOutputMode !== undefined) {
+            outputModeRecommendations[key] = result.recommendedOutputMode;
+        }
+        if (result.softAlphaForegroundRecommendation !== undefined) {
+            softAlphaForegroundRecommendations[key] = result.softAlphaForegroundRecommendation;
+        }
+        if (result.sourcePageMetadata !== undefined) {
+            sourcePageMetadataByPage[key] = result.sourcePageMetadata;
+        }
+        if (result.documentPrior !== null) documentPriorByPage[key] = result.documentPrior;
+    }
+    return {
+        documentPriorByPage,
+        layoutByPage,
+        outputModeRecommendations,
+        pagePlanEvidenceByPage,
+        softAlphaForegroundRecommendations,
+        sourcePageMetadataByPage,
+    };
+}
+
 export async function main() {
     const argumentsValue = parseArguments(process.argv.slice(2));
     const sourceStats = await stat(argumentsValue.sourcePdfPath);
@@ -788,60 +852,59 @@ export async function main() {
         onProgress,
         runCommand,
     );
-    const detectRasterPages = async (
+    const detectRasterPages = (
         pdfPath: string,
         signal: AbortSignal,
-        pages: readonly number[],
-    ): Promise<IScanCleanupDocumentRasterPages> => {
-        const result = await detectSourceDpi(
-            pdfPath,
-            pdfimagesBinary,
-            log,
-            undefined,
-            signal,
-            pages,
-        );
-        return {
-            detected: true,
-            pages: new Set(result.pageRasterByNumber.keys()),
-            sourceDpiByPage: new Map(
-                [...result.pageRasterByNumber].map(([
-                    pageNumber,
-                    raster,
-                ]) => [
-                    pageNumber,
-                    raster.dpi,
-                ] as const),
-            ),
-            bilevelLayerPages: new Set(
-                [...result.pageRasterByNumber]
-                    .filter(([
-                        , raster,
-                    ]) => raster.hasBilevelLayer)
-                    .map(([pageNumber]) => pageNumber),
-            ),
-            dominantBilevelLayerPages: new Set(
-                [...result.pageRasterByNumber]
-                    .filter(([
-                        , raster,
-                    ]) => raster.hasDominantBilevelLayer)
-                    .map(([pageNumber]) => pageNumber),
-            ),
-            backgroundDpiByPage: new Map(
-                [...result.pageRasterByNumber].flatMap(([
-                    pageNumber,
-                    raster,
-                ]) =>
-                    raster.backgroundDpi === undefined
-                        ? []
-                        : [[
-                            pageNumber,
-                            raster.backgroundDpi,
-                        ] as const],
-                ),
-            ),
+    ): Promise<IScanCleanupPageRasterSource> => {
+        const cache = new Map<number, Promise<IDetectedPageRaster | undefined>>();
+        let documentDpi: number | null = null;
+        const getPageRaster = (pageNumber: number) => {
+            const cached = cache.get(pageNumber);
+            if (cached !== undefined) {
+                return cached;
+            }
+            const pending = (async () => {
+                signal.throwIfAborted();
+                const result = await detectSourceDpi(
+                    pdfPath,
+                    pdfimagesBinary,
+                    log,
+                    undefined,
+                    signal,
+                    [pageNumber],
+                );
+                documentDpi = Math.max(documentDpi ?? 0, result.documentDpi ?? 0) || null;
+                return result.pageRasterByNumber.get(pageNumber);
+            })();
+            cache.set(pageNumber, pending);
+            if (cache.size > CLI_PAGE_RASTER_CACHE_LIMIT) {
+                const oldest = cache.keys().next().value;
+                if (oldest !== undefined && oldest !== pageNumber) cache.delete(oldest);
+            }
+            return pending;
         };
+        return Promise.resolve({
+            get detected() {
+                return pdfimagesBinary !== undefined;
+            },
+            get documentDpi() {
+                return documentDpi;
+            },
+            getPageRaster,
+        });
     };
+    const getPageSizeStoreForDetection = (pdfPath: string, signal: AbortSignal) => Promise.resolve(
+        createPdfPageSizeStore(pdfPath, {
+            ...(pageOpsBinary === PAGE_OPS_FALLBACK ? {} : {pdfPageOpsBinary: pageOpsBinary}),
+            pdfinfoBinary,
+            qpdfBinary,
+            log,
+            runCommand,
+            signal,
+            tempDir: temporaryRoot,
+            resolveSuspiciousCropBoxFallback: false,
+        }),
+    );
     const getPageSizesForDetection = (pdfPath: string, signal: AbortSignal) =>
         getPageSizes(pdfPath, {
             pdfinfoBinary,
@@ -857,6 +920,7 @@ export async function main() {
         (pdfPath, signal) => getPageCount(pdfPath, {signal}),
         getPageSizesForDetection,
         detectRasterPages,
+        getPageSizeStoreForDetection,
     );
     const policy: IScanCleanupRuntimePolicy = {
         logicalCpus: availableParallelism(),
@@ -878,6 +942,7 @@ export async function main() {
         };
     };
     const startedAt = performance.now();
+    let detectionResultStore: IScanCleanupDetectionResultStore | undefined;
     try {
         const detectionCacheKey = argumentsValue.detectionCachePath === undefined
             ? undefined
@@ -890,7 +955,12 @@ export async function main() {
                 },
             );
         const documentPageCount = await getPageCount(argumentsValue.sourcePdfPath);
-        const sourcePageNumbers = resolveScanCleanupPageScope(argumentsValue.pages, documentPageCount);
+        // An omitted CLI page list means the complete source. Keep that scope
+        // lazy so a million-page conversion does not allocate one number per
+        // page before detection or conversion starts.
+        const sourcePageNumbers = argumentsValue.pages === undefined
+            ? undefined
+            : resolveScanCleanupPageScope(argumentsValue.pages, documentPageCount);
         process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = detectionEvidenceDirectory;
         const detectionStartedAt = performance.now();
         const detectionDependencies: IScanCleanupDetectionDependencies = {
@@ -929,50 +999,10 @@ export async function main() {
             ),
         });
         const detectionDurationMs = performance.now() - detectionStartedAt;
-        const layoutByPage = Object.fromEntries(detection.results.map(result => [
-            String(result.pageNumber),
-            result.classification,
-        ]));
-        const pagePlanEvidenceByPage = Object.fromEntries(detection.results.flatMap(result =>
-            result.pagePlanEvidence === undefined
-                ? []
-                : [[
-                    String(result.pageNumber),
-                    result.pagePlanEvidence,
-                ] as const],
-        ));
-        const outputModeRecommendations = Object.fromEntries(detection.results.flatMap(result =>
-            result.recommendedOutputMode === undefined
-                ? []
-                : [[
-                    String(result.pageNumber),
-                    result.recommendedOutputMode,
-                ] as const],
-        ));
-        const softAlphaForegroundRecommendations = Object.fromEntries(detection.results.flatMap(result =>
-            result.softAlphaForegroundRecommendation === undefined
-                ? []
-                : [[
-                    String(result.pageNumber),
-                    result.softAlphaForegroundRecommendation,
-                ] as const],
-        ));
-        const sourcePageMetadataByPage = Object.fromEntries(detection.results.flatMap(result =>
-            result.sourcePageMetadata === undefined
-                ? []
-                : [[
-                    String(result.pageNumber),
-                    result.sourcePageMetadata,
-                ] as const],
-        ));
-        const documentPriorByPage = Object.fromEntries(detection.results.flatMap(result =>
-            result.documentPrior === null
-                ? []
-                : [[
-                    String(result.pageNumber),
-                    result.documentPrior,
-                ] as const],
-        ));
+        detectionResultStore = detection.resultStore;
+        if (detection.results.length === 0 && detectionResultStore === undefined) {
+            throw new Error('Scan cleanup detection returned no bounded result store');
+        }
         if (argumentsValue.diagnosticEvidenceDirectory !== undefined) {
             const evidenceDirectory = argumentsValue.diagnosticEvidenceDirectory;
             await Promise.all(detection.results.map(result => writeFile(
@@ -999,6 +1029,10 @@ export async function main() {
         const conversionStartedAt = performance.now();
         const conversionDependencies: IRunScanCleanupPipelineDependencies = {
             getPageCount,
+            getPageSizeStore: (pdfPath, options) => createPdfPageSizeStore(pdfPath, {
+                ...options,
+                runCommand,
+            }),
             getPageSizes,
             detectSourceDpi,
             createRasterPipes: async (paths: readonly string[], signal: AbortSignal, pipeLog: TScanCleanupLog) => {
@@ -1038,13 +1072,11 @@ export async function main() {
             sourcePdfPath: argumentsValue.sourcePdfPath,
             outputPdfPath: argumentsValue.outputPdfPath,
             options: argumentsValue.options,
-            ...(argumentsValue.pages === undefined ? {} : {sourcePageNumbers}),
-            layoutByPage,
-            pagePlanEvidenceByPage,
-            outputModeRecommendations,
-            softAlphaForegroundRecommendations,
-            sourcePageMetadataByPage,
-            documentPriorByPage,
+            ...(sourcePageNumbers === undefined ? {} : {sourcePageNumbers}),
+            ...buildScanCleanupCliDetectionRequestFields({
+                results: detection.results,
+                ...(detectionResultStore === undefined ? {} : {resultStore: detectionResultStore}),
+            }),
         };
         const summary = await runScanCleanupConversion(
             request,
@@ -1088,8 +1120,10 @@ export async function main() {
                 totalMs: performance.now() - startedAt,
             },
             detection: {
-                pages: detection.results.length,
-                results: compactScanCleanupDetectionVerdicts(detection.results),
+                pages: detectionResultStore?.pageCount ?? detection.results.length,
+                results: detection.results.length === 0
+                    ? []
+                    : compactScanCleanupDetectionVerdicts(detection.results),
             },
             conversionSummary: summary,
             sourcePageToOutputPages: buildSourcePageToOutputPages(report),
@@ -1118,10 +1152,14 @@ export async function main() {
         process.stderr.write(`[scan-cleanup] wrote ${summaryPath}\n`);
     } finally {
         delete process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR;
-        await rm(temporaryRoot, {
-            force: true,
-            recursive: true,
-        });
+        try {
+            await detectionResultStore?.close();
+        } finally {
+            await rm(temporaryRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
     }
 }
 

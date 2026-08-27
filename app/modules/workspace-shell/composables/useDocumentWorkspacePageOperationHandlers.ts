@@ -1,18 +1,26 @@
 import type { Ref } from 'vue';
+import type {
+    TPageMoveOperation,
+    TPageSelection,
+} from '@contracts/pageNumbers';
+
+type TPageSelectionInput = number[] | TPageSelection;
 
 interface IDocumentWorkspacePageOperationControls {
-    handlePageRotate: (pages: number[], degrees: 90 | 180 | 270) => unknown;
-    pageOpsDelete: (pages: number[], totalPages: number) => unknown;
-    pageOpsExtract: (pages: number[]) => unknown;
+    handlePageRotate: (pages: TPageSelectionInput, degrees: 90 | 180 | 270) => unknown;
+    pageOpsDelete: (pages: TPageSelectionInput, totalPages: number) => unknown;
+    pageOpsExtract: (pages: TPageSelectionInput) => unknown;
     pageOpsInsert: (totalPages: number, afterPage: number) => unknown;
     pageOpsReorder: (order: number[]) => unknown;
+    pageOpsMove: (move: TPageMoveOperation) => unknown;
 }
 
 interface IUseDocumentWorkspacePageOperationHandlersOptions {
     documentControls: IDocumentWorkspacePageOperationControls;
-    handleExportImages: (pages?: number[]) => unknown;
+    handleExportImages: (pages?: TPageSelectionInput) => unknown;
     ensurePdfProjectionForEdit?: () => Promise<boolean>;
     selectedThumbnailPages: Ref<number[]>;
+    selectedPageSelection?: Ref<TPageSelection | null>;
     totalPages: Ref<number>;
 }
 
@@ -24,56 +32,68 @@ export const useDocumentWorkspacePageOperationHandlers = (options: IUseDocumentW
         await action();
     }
 
+    function getSelectedPagePayload(): TPageSelectionInput {
+        const selection = options.selectedPageSelection?.value;
+        if (selection && selection.pageCount === options.totalPages.value) {
+            return selection;
+        }
+        return options.selectedThumbnailPages.value;
+    }
+
     function handleDeletePages() {
-        const pages = options.selectedThumbnailPages.value;
-        if (pages.length > 0) {
+        const pages = getSelectedPagePayload();
+        if (Array.isArray(pages) ? pages.length > 0 : pages.kind !== 'none') {
             void runEditAction(() => options.documentControls.pageOpsDelete(pages, options.totalPages.value));
         }
     }
 
     function handleExtractPages() {
-        const pages = options.selectedThumbnailPages.value;
-        if (pages.length > 0) {
+        const pages = getSelectedPagePayload();
+        if (Array.isArray(pages) ? pages.length > 0 : pages.kind !== 'none') {
             void runEditAction(() => options.documentControls.pageOpsExtract(pages));
         }
     }
 
     function handleRotateCw() {
-        const pages = options.selectedThumbnailPages.value;
-        if (pages.length > 0) {
+        const pages = getSelectedPagePayload();
+        if (Array.isArray(pages) ? pages.length > 0 : pages.kind !== 'none') {
             void runEditAction(() => options.documentControls.handlePageRotate(pages, 90));
         }
     }
 
     function handleRotateCcw() {
-        const pages = options.selectedThumbnailPages.value;
-        if (pages.length > 0) {
+        const pages = getSelectedPagePayload();
+        if (Array.isArray(pages) ? pages.length > 0 : pages.kind !== 'none') {
             void runEditAction(() => options.documentControls.handlePageRotate(pages, 270));
         }
     }
 
-    function handlePageRotateCw(pages: number[]) {
+    function handlePageRotateCw(pages: TPageSelectionInput) {
         void runEditAction(() => options.documentControls.handlePageRotate(pages, 90));
     }
 
-    function handlePageRotateCcw(pages: number[]) {
+    function handlePageRotateCcw(pages: TPageSelectionInput) {
         void runEditAction(() => options.documentControls.handlePageRotate(pages, 270));
     }
 
-    function handlePageExtract(pages: number[]) {
+    function handlePageExtract(pages: TPageSelectionInput) {
         void runEditAction(() => options.documentControls.pageOpsExtract(pages));
     }
 
-    function handlePageExport(pages: number[]) {
+    function handlePageExport(pages: TPageSelectionInput) {
         void options.handleExportImages(pages);
     }
 
-    function handlePageDelete(pages: number[]) {
+    function handlePageDelete(pages: TPageSelectionInput) {
         void runEditAction(() => options.documentControls.pageOpsDelete(pages, options.totalPages.value));
     }
 
     function handlePageReorder(order: number[]) {
         void runEditAction(() => options.documentControls.pageOpsReorder(order));
+    }
+
+    function handlePageMove(move: TPageMoveOperation) {
+        void runEditAction(() => options.documentControls.pageOpsMove(move));
     }
 
     function handleInsertPages() {
@@ -88,6 +108,7 @@ export const useDocumentWorkspacePageOperationHandlers = (options: IUseDocumentW
         handlePageExport,
         handlePageExtract,
         handlePageReorder,
+        handlePageMove,
         handlePageRotateCcw,
         handlePageRotateCw,
         handleRotateCcw,

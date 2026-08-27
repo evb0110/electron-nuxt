@@ -314,6 +314,40 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
         expect(result.hasUnknownChanges).toBe(false);
     });
 
+    it('removes PDF.js invisible placeholders from a native FreeText mutation', () => {
+        const document = {annotationStorage: {
+            serializable: {map: new Map([[
+                'pdfjs_internal_editor_2',
+                {
+                    annotationType: 3,
+                    pageIndex: 0,
+                    rect: [
+                        20,
+                        30,
+                        180,
+                        60,
+                    ],
+                    rotation: 0,
+                    color: [
+                        17,
+                        24,
+                        39,
+                    ],
+                    fontSize: 22,
+                    value: '\u200Bsecond editor\uFEFF',
+                    id: null,
+                },
+            ]])},
+            modifiedIds: {ids: new Set([null])},
+        }} as never;
+
+        const result = collectLivePdfJsAnnotationChangeIds(document);
+
+        expect(result.nativeFreeTextEditors.get('pdfjs_internal_editor_2')).toEqual(expect.objectContaining({text: 'second editor'}));
+        expect(result.ids).toEqual(new Set(['pdfjs_internal_editor_2']));
+        expect(result.hasUnknownChanges).toBe(false);
+    });
+
     it('assigns a new app-owned FreeText identity after document reopen', () => {
         const editor = {
             annotationType: 3,

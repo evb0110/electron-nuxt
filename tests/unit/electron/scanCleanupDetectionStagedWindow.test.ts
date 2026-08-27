@@ -35,8 +35,10 @@ const PNG_1X1 = Buffer.from(
 );
 
 const dirs: string[] = [];
+const resultStores: Array<{close: () => Promise<void>}> = [];
 
 afterEach(async () => {
+    await Promise.all(resultStores.splice(0).map(store => store.close()));
     await Promise.all(dirs.splice(0).map(dir => rm(dir, {
         force: true,
         recursive: true,
@@ -440,6 +442,7 @@ describe('runScanCleanupDetection staged raster window', () => {
             () => undefined,
             log,
         );
+        resultStores.push(detection.resultStore);
 
         expect(detection.results.map(result => result.pageNumber))
             .toEqual(Array.from({length: pageCount}, (_, index) => index + 1));
@@ -480,6 +483,7 @@ describe('runScanCleanupDetection staged raster window', () => {
             () => undefined,
             log,
         );
+        resultStores.push(detection.resultStore);
 
         expect(detection.results).toHaveLength(148);
         expect(detection.results.map(result => result.pageNumber))
@@ -555,6 +559,7 @@ describe('runScanCleanupDetection staged raster window', () => {
                 () => undefined,
                 log,
             );
+            resultStores.push(detection.resultStore);
             return {
                 diagnostics: admissionDiagnostics(log),
                 peakResident: harness.peakResident(),
@@ -608,7 +613,7 @@ describe('runScanCleanupDetection staged raster window', () => {
         });
         const sidecar = createLeaseSidecar();
 
-        await runScanCleanupDetection(
+        const detection = await runScanCleanupDetection(
             createRequest(),
             new AbortController().signal,
             harness.retention,
@@ -616,6 +621,7 @@ describe('runScanCleanupDetection staged raster window', () => {
             {rasterConcurrency: 2},
             () => undefined,
         );
+        resultStores.push(detection.resultStore);
 
         // A published run leaves what the window still holds behind, exactly as
         // an ordinary page render does; nothing else survives it.

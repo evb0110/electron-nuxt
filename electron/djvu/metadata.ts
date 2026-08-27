@@ -34,14 +34,6 @@ const DJVU_METADATA_MAX_STDERR_BYTES = (() => {
     }
     return parsed;
 })();
-const DJVU_MAX_PAGES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_MAX_PAGES ?? '10000', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 10_000;
-    }
-    return Math.min(parsed, 100_000);
-})();
-
 interface IDjvuMetadataOptions {signal?: AbortSignal;}
 
 async function runDjvused(args: string[], options: IDjvuMetadataOptions = {}): Promise<IRunResult> {
@@ -73,12 +65,9 @@ export async function getDjvuPageCount(filePath: string, options: IDjvuMetadataO
         '-e',
         'n',
     ], options);
-    const count = parseInt(result.stdout.trim(), 10);
-    if (!Number.isFinite(count) || count <= 0) {
+    const count = Number.parseInt(result.stdout.trim(), 10);
+    if (!Number.isSafeInteger(count) || count <= 0) {
         throw new Error(`Invalid page count from djvused: ${result.stdout.trim()}`);
-    }
-    if (count > DJVU_MAX_PAGES) {
-        throw new Error(`DjVu page count ${count} exceeds supported limit (${DJVU_MAX_PAGES})`);
     }
     return count;
 }

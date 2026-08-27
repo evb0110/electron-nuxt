@@ -1230,6 +1230,28 @@ describe('useAnnotationSync helpers / loadPdfPageAnnotations', () => {
         expect(cleanup).toHaveBeenCalledTimes(1);
     });
 
+    it('yields but keeps every annotation when a page exceeds the old cap', async () => {
+        const cleanup = vi.fn();
+        const annotations = Array.from({length: 10_001}, (_unused, index) => ({id: `annotation-${index}`}));
+        const page = {
+            getAnnotations: vi.fn(async () => annotations),
+            view: [
+                0,
+                0,
+                100,
+                200,
+            ],
+            rotate: 0,
+            cleanup,
+        };
+        const doc = {getPage: vi.fn(async () => page)};
+
+        const result = await __test__.loadPdfPageAnnotations(doc as never, 1);
+
+        expect(result?.annotations).toHaveLength(10_001);
+        expect(cleanup).toHaveBeenCalledOnce();
+    });
+
     it('cleans the PDF page when annotation reading fails', async () => {
         const cleanup = vi.fn();
         const page = {

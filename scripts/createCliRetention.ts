@@ -7,10 +7,13 @@ import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import type {
     IScanCleanupDetectionRetention,
-    IScanCleanupDocumentRasterPages,
     IScanCleanupRetainedRaster,
 } from '@scan-cleanup-core/detection';
-import type {readPdfPageSizes} from '@scan-cleanup-core/pdfPageSizes';
+import type {IScanCleanupPageRasterSource} from '@scan-cleanup-core/types';
+import type {
+    IPdfPageSizeStore,
+    readPdfPageSizes,
+} from '@scan-cleanup-core/pdfPageSizes';
 
 /** One CLI run's document: a directory of staged rasters and its source. */
 export interface IScanCleanupCliDocument {
@@ -31,13 +34,20 @@ export function createCliRetention(
     sourcePdfPath: string,
     getPageCount: (path: string, signal: AbortSignal) => Promise<number>,
     getPageSizes: (path: string, signal: AbortSignal) => Promise<Awaited<ReturnType<typeof readPdfPageSizes>>>,
-    detectRasterPages: (
-        path: string,
-        signal: AbortSignal,
-        pages: readonly number[],
-    ) => Promise<IScanCleanupDocumentRasterPages>,
+    detectRasterPages: (path: string, signal: AbortSignal) => Promise<IScanCleanupPageRasterSource>,
+    getPageSizeStore?: (path: string, signal: AbortSignal) => Promise<IPdfPageSizeStore>,
 ): IScanCleanupDetectionRetention<IScanCleanupCliDocument> {
-    return {
+    const pageSizeRetention: Pick<
+        IScanCleanupDetectionRetention<IScanCleanupCliDocument>,
+        'pageSizes' | 'pageSizeStore'
+    > = {};
+    if (getPageSizeStore === undefined) {
+        pageSizeRetention.pageSizes = (_document, signal) => getPageSizes(sourcePdfPath, signal);
+    } else {
+        const openPageSizeStore = getPageSizeStore;
+        pageSizeRetention.pageSizeStore = (_document, signal) => openPageSizeStore(sourcePdfPath, signal);
+    }
+    const retention: IScanCleanupDetectionRetention<IScanCleanupCliDocument> = {
         async openDocument() {
             return {
                 // Analyze manifests are confined to the run's temporary root.
@@ -50,16 +60,9 @@ export function createCliRetention(
         async pageCount(_document, signal) {
             return getPageCount(sourcePdfPath, signal);
         },
-        async pageSizes(_document, signal) {
-            return getPageSizes(sourcePdfPath, signal);
-        },
+        ...pageSizeRetention,
         async rasterPages(_document, signal) {
-            const totalPages = await getPageCount(sourcePdfPath, signal);
-            return detectRasterPages(
-                sourcePdfPath,
-                signal,
-                Array.from({length: totalPages}, (_, index) => index + 1),
-            );
+            return detectRasterPages(sourcePdfPath, signal);
         },
         retainedPaths() {
             return Promise.resolve(new Map<number, IScanCleanupRetainedRaster>());
@@ -98,4 +101,5 @@ export function createCliRetention(
             });
         },
     };
+    return retention;
 }

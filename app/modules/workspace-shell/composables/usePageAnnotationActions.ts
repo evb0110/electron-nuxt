@@ -19,16 +19,20 @@ import type {
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import {
     getShapeRect,
+    isPdfPlacedImageNativePathResult,
     resolveAnnotationCommentTextMarkupColor,
     annotationIdForSummary,
     resolvePdfViewerSaveTransactionFinalBytes,
 } from '@app/modules/pdf-viewer/public';
+import type { TPdfPlacedImageEmbeddingResult } from '@app/modules/pdf-viewer/public';
+import { isNativeDocumentRef } from '@app/utils/documentRef';
 import { getAnnotationPageNumber } from '@app/modules/workspace-shell/annotations/getAnnotationPageNumber';
 import { withOpenedAnnotationNoteCreationTimestamp } from '@app/modules/workspace-shell/annotations/withOpenedAnnotationNoteCreationTimestamp';
 import { pickPageAnnotationImageFile } from '@app/modules/workspace-shell/annotations/pickPageAnnotationImageFile';
 import { readPageAnnotationImageFileFromClipboard } from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
 import { resolveShapeAnnotationDefaultSettings } from '@app/modules/workspace-shell/annotations/resolveShapeAnnotationDefaultSettings';
 import { createPageAnnotationDeleteActions } from '@app/modules/workspace-shell/composables/createPageAnnotationDeleteActions';
+import { NativePdfSaveRequiredError } from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 
 interface IShapePopoverBounds {
@@ -106,6 +110,8 @@ interface IPageAnnotationActionsDeps {
         pushHistory?: boolean;
         persistWorkingCopy?: boolean;
     }) => Promise<void>;
+    loadPdfFromPath?: (path: TDocumentRef, opts?: { markDirty?: boolean }) => Promise<void>;
+    materializeAnnotationsForPageMutation?: () => Promise<boolean>;
     waitForPdfReload: (page: number) => Promise<void>;
     invalidateThumbnailPages?: (pages: number[]) => void;
     markPreservedAnnotationSourceDirty?: () => void;
@@ -114,9 +120,9 @@ interface IPageAnnotationActionsDeps {
     getAnnotationCommentsStatusSnapshot?: () => TAnnotationCommentsStatus;
     getEmbeddedMutationBaseData: () => Promise<Uint8Array | null>;
     embedPlacedImageToPage: (
-        data: Uint8Array,
+        data: Uint8Array | null,
         placement: IPdfPlacedImageFinalizePayload,
-    ) => Promise<Uint8Array>;
+    ) => Promise<TPdfPlacedImageEmbeddingResult>;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
@@ -149,6 +155,8 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         setAnnotationNoteWindowError,
         annotationNoteWindows,
         loadPdfFromData,
+        loadPdfFromPath,
+        materializeAnnotationsForPageMutation,
         waitForPdfReload,
         invalidateThumbnailPages,
         isSameAnnotationComment,
@@ -866,8 +874,25 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         try {
             return await runWithDocumentOperationLease('page-operation', async () => {
                 const capturedWorkingCopy = captureActiveWorkingCopy();
-                const rawData = await getEmbeddedMutationBaseData();
-                if (!rawData) {
+                const isNativePathBacked = isNativeDocumentRef(capturedWorkingCopy);
+                if (isNativePathBacked) {
+                    if (!materializeAnnotationsForPageMutation) {
+                        throw new NativePdfSaveRequiredError({
+                            code: 'native-save-required',
+                            phase: 'pre-write',
+                            reason: 'missing-native-capability',
+                            detail: 'Native placed-image persistence requires page-mutation materialization',
+                        });
+                    }
+                    if (!await materializeAnnotationsForPageMutation()) {
+                        pdfViewerRef.value?.restorePendingImagePlacement?.();
+                        return false;
+                    }
+                }
+                const rawData = isNativePathBacked
+                    ? null
+                    : await getEmbeddedMutationBaseData();
+                if (!rawData && !isNativePathBacked) {
                     pdfViewerRef.value?.restorePendingImagePlacement?.();
                     return false;
                 }
@@ -876,17 +901,29 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                     return false;
                 }
 
-                const embeddedData = await embedPlacedImageToPage(rawData, placement);
+                const embeddedResult = await embedPlacedImageToPage(rawData, placement);
                 if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
                     pdfViewerRef.value?.clearPendingImagePlacement?.();
                     return false;
                 }
                 const pageToRestore = placement.pageNumber || currentPage.value;
                 const restorePromise = waitForPdfReload(pageToRestore);
-                await loadPdfFromData(embeddedData, {
-                    pushHistory: true,
-                    persistWorkingCopy: !!capturedWorkingCopy,
-                });
+                if (isPdfPlacedImageNativePathResult(embeddedResult)) {
+                    if (!loadPdfFromPath) {
+                        throw new NativePdfSaveRequiredError({
+                            code: 'native-save-required',
+                            phase: 'pre-write',
+                            reason: 'missing-native-capability',
+                            detail: 'Native placed-image persistence reload is unavailable',
+                        });
+                    }
+                    await loadPdfFromPath(embeddedResult.path, {markDirty: true});
+                } else {
+                    await loadPdfFromData(embeddedResult, {
+                        pushHistory: true,
+                        persistWorkingCopy: !!capturedWorkingCopy,
+                    });
+                }
                 if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
                     void restorePromise.catch(() => {});
                     pdfViewerRef.value?.clearPendingImagePlacement?.();

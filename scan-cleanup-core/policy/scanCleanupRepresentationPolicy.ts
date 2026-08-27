@@ -54,6 +54,7 @@ export function resolveScanCleanupCompactSourceBudget(input: {
         || input.options.outputMode !== 'auto'
         || !Number.isFinite(input.sourceBytes)
         || input.sourceBytes <= 0
+        || input.options.pageOverrideDefaults?.outputModeOverride !== undefined
         || Object.values(input.options.pageOverrides).some(
             pageOverride => pageOverride.outputModeOverride !== undefined,
         )

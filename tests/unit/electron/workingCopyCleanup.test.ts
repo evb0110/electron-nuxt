@@ -1,6 +1,7 @@
 import {
     existsSync,
     mkdirSync,
+    realpathSync,
     writeFileSync,
 } from 'node:fs';
 import {
@@ -11,6 +12,7 @@ import { tmpdir } from 'node:os';
 import {
     dirname,
     join,
+    resolve,
 } from 'node:path';
 import {
     afterAll,
@@ -113,6 +115,14 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     forgetRetiredWorkingCopyOriginal: vi.fn(),
     forgetWorkingCopyOriginalPath: (path: string) => state.workingCopyMap.delete(path),
     getWorkingCopyOwnerWebContentsId: (path: string) => state.workingCopyMap.get(path)?.ownerWebContentsId,
+    normalizePathForLookup: (path: string) => {
+        const resolvedPath = resolve(path.trim());
+        try {
+            return realpathSync.native(resolvedPath);
+        } catch {
+            return resolvedPath;
+        }
+    },
     rememberRetiredWorkingCopyOriginal: vi.fn(),
     runWithWorkingCopyRegistrationFence: async (
         path: string,

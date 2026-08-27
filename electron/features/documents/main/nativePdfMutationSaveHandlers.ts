@@ -12,7 +12,6 @@ import type {
     IPdfNativeMutationSet,
     IPdfNativeStagedCommitOptions,
     IPdfNativeNoteTextSaveResult,
-    IPdfNativeWorkingCopyExpectation,
 } from '@contracts/electronApiDocuments';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
@@ -21,7 +20,6 @@ import {
     normalizePdfNativeMutationSet,
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
-    normalizePdfNativeWorkingCopyExpectation,
     type TPdfNativeMutationSetNativeToolPayload,
 } from '@pdf-core';
 import { isErrnoException } from '@contracts/runtimeGuards';
@@ -67,7 +65,6 @@ import {
     resolveManagedTempFileHandle,
     resolveTypedStagedArtifact,
 } from '@electron/features/documents/main/managedTempFileHandles';
-import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 import {withLargePdfMutationAdmission} from '@electron/features/documents/main/withLargePdfMutationAdmission';
 
 const PDF_NATIVE_MUTATION_TIMEOUT_MS = 2 * 60 * 1000;
@@ -160,25 +157,8 @@ function normalizeModifiedAt(modifiedAt: unknown): ReturnType<typeof normalizePd
     }
 }
 
-function normalizeWorkingCopyExpectation(rawExpectedBase: unknown): IPdfNativeWorkingCopyExpectation {
-    try {
-        return normalizePdfNativeWorkingCopyExpectation(rawExpectedBase, 'native working-copy expectation', {errorKind: 'error'});
-    } catch {
-        throw new Error('Invalid native working-copy expectation');
-    }
-}
-
 function normalizeNativeMutationSet(rawMutations: unknown): IPdfNativeMutationSet {
     return normalizePdfNativeMutationSet(rawMutations, 'native PDF mutations', {errorKind: 'error'});
-}
-
-async function workingCopyMatchesExpectation(
-    workingPath: string,
-    expectedBase: IPdfNativeWorkingCopyExpectation,
-) {
-    const fingerprint = await fingerprintFileWithUtilityProcess(workingPath);
-    return fingerprint.bytes === expectedBase.byteLength
-        && fingerprint.sha256 === expectedBase.sha256;
 }
 
 function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number): string {
@@ -405,14 +385,12 @@ async function runNativeWorkingCopyCommand(
     context: IDocumentsSenderIdContext,
     workingPath: unknown,
     rawModifiedAt: unknown,
-    rawExpectedBase: unknown,
-    revisionOptions: IDocumentMutationRevisionOptions | undefined,
+    revisionOptions: IDocumentMutationRevisionOptions,
     options: INativeNoteCommandOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const senderId = requireSenderId(context);
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const modifiedAt = normalizeModifiedAt(rawModifiedAt);
-    const expectedBase = normalizeWorkingCopyExpectation(rawExpectedBase);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
 
     if (isNativePageOpsDisabled()) {
@@ -435,13 +413,6 @@ async function runNativeWorkingCopyCommand(
             ownerWebContentsId: senderId,
             reason: 'native-mutation',
         });
-        if (!await workingCopyMatchesExpectation(normalizedWorkingPath, expectedBase)) {
-            log.warn(`Native working-copy mutation skipped because base expectation no longer matches: ${JSON.stringify({
-                command: options.command,
-                totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
-            })}`);
-            return createNotAppliedResult();
-        }
 
         // Managed binary handles validate the artifact type from its extension.
         // Keep this staging path recognizable as a PDF even though it is also a
@@ -642,11 +613,10 @@ export async function handleNativePdfMutationsApplyToWorkingCopy(
     workingPath: unknown,
     rawMutations: unknown,
     rawModifiedAt: unknown,
-    rawExpectedBase: unknown,
-    revisionOptions?: IDocumentMutationRevisionOptions,
+    revisionOptions: IDocumentMutationRevisionOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const mutations = normalizeNativeMutationSet(rawMutations);
-    return runNativeWorkingCopyCommand(context, workingPath, rawModifiedAt, rawExpectedBase, revisionOptions, {
+    return runNativeWorkingCopyCommand(context, workingPath, rawModifiedAt, revisionOptions, {
         command: 'save-mutations',
         payloadFileName: 'mutations.json',
         payloadFlag: '--mutations-file',

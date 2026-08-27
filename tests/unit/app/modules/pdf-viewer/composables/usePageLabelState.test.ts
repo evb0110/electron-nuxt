@@ -288,4 +288,58 @@ describe('usePageLabelState', () => {
         expect(onPageLabelsSynchronized).toHaveBeenCalled();
         expect(onPageLabelsSaved).toHaveBeenCalledOnce();
     });
+
+    it('keeps xlarge document labels lazy after PDF.js returns the full array', async () => {
+        const totalPages = 1_000_000;
+        const labels = Array.from({length: totalPages}, (_, index) => String(index + 1));
+        const pdfDocument = createPdfDocumentRef(totalPages, async () => labels);
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(totalPages),
+            markDirty: vi.fn(),
+        });
+
+        await state.syncPageLabelsFromDocument(pdfDocument.value);
+
+        expect(state.pageLabels.value).toBeNull();
+        expect(state.pageLabelRanges.value).toEqual([{
+            startPage: 1,
+            style: 'D',
+            prefix: '',
+            startNumber: 1,
+        }]);
+        expect(state.labelAt(1)).toBe('1');
+        expect(state.labelAt(totalPages)).toBe(String(totalPages));
+        expect(state.readPageLabelWindow(totalPages - 1)).toEqual([
+            String(totalPages - 1),
+            String(totalPages),
+        ]);
+    });
+
+    it('updates an xlarge model by ranges without creating a labels array', () => {
+        const totalPages = 1_000_000;
+        const state = usePageLabelState({
+            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
+            totalPages: ref(totalPages),
+            markDirty: vi.fn(),
+        });
+
+        state.handlePageLabelRangesUpdate([{
+            startPage: 400_000,
+            style: 'D',
+            prefix: 'Section ',
+            startNumber: 1,
+        }]);
+
+        expect(state.pageLabels.value).toBeNull();
+        expect(state.labelAt(399_999)).toBe('399999');
+        expect(state.labelAt(400_000)).toBe('Section 1');
+        expect(state.labelAt(totalPages)).toBe('Section 600001');
+        expect(state.readPageLabelWindow(399_999, 400_002)).toEqual([
+            '399999',
+            'Section 1',
+            'Section 2',
+            'Section 3',
+        ]);
+    });
 });

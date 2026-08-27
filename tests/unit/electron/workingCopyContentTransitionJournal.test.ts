@@ -2,6 +2,7 @@ import {
     mkdir,
     mkdtemp,
     readFile,
+    readdir,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -19,6 +20,14 @@ import {
     recoverWorkingCopyContentTransition,
     rollbackWorkingCopyContentTransition,
 } from '@electron/file-access/workingCopyContentTransitionJournal';
+
+interface ITransitionSidecarFixture {
+    targetPath: string;
+    kind?: string;
+    backupPath: string | null;
+}
+
+interface ITransitionJournalFixture {sidecars: ITransitionSidecarFixture[];}
 
 describe('workingCopyContentTransitionJournal', () => {
     let root = '';
@@ -84,5 +93,31 @@ describe('workingCopyContentTransitionJournal', () => {
         await expect(readFile(pageIdentityPath, 'utf8')).resolves.toBe('old-page-identities');
         await expect(readFile(legacyIndexPath, 'utf8')).resolves.toBe('old-index');
         await expect(readFile(compactIndexPath, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('snapshots only the root pointer when a prepared v4 generation sits beside a legacy manifest', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-content-transition-'));
+        const path = join(root, 'working.pdf');
+        const ocrPath = `${path}.ocr`;
+        await writeFile(path, 'revision-n');
+        await mkdir(ocrPath);
+        await Promise.all([
+            writeFile(join(ocrPath, 'manifest.json'), 'legacy-v3-manifest'),
+            mkdir(join(ocrPath, 'gen-00000001')),
+        ]);
+
+        await prepareWorkingCopyContentTransition(path, requireDocumentRevisionToken('revision-n-plus-one'));
+        const journal = JSON.parse(await readFile(`${path}.evb-content-transition.json`, 'utf8')) as ITransitionJournalFixture;
+        expect(journal.sidecars.find(sidecar => sidecar.targetPath === ocrPath)).toMatchObject({
+            kind: 'ocr-v4-root',
+            backupPath: expect.any(String),
+        });
+
+        await writeFile(path, 'revision-n-plus-one');
+        await rm(join(ocrPath, 'manifest.json'));
+        await writeFile(join(ocrPath, 'manifest.json'), 'prepared-v4-root');
+        await expect(recoverWorkingCopyContentTransition(path)).resolves.toBe(true);
+        await expect(readFile(join(ocrPath, 'manifest.json'), 'utf8')).resolves.toBe('legacy-v3-manifest');
+        await expect(readdir(ocrPath)).resolves.toContain('gen-00000001');
     });
 });

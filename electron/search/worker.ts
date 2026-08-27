@@ -34,6 +34,12 @@ import {
     ensureSearchIndex,
     getIndexCacheKey,
 } from '@electron/search/worker/ensureSearchIndex';
+import {
+    classifyXlargeSearchPath,
+    ensureXlargeSearchIndex,
+    resetXlargeSearchIndexBuilds,
+} from '@electron/search/xlargeSearchRouting';
+import type {IXlargeSearchIndexBuildProgress} from '@electron/search/xlargeIndexBuilder';
 import { collectSearchMatchWords } from '@pdf-core';
 import { decodeSearchWorkerData } from '@contracts/resourcePolicies';
 
@@ -43,6 +49,8 @@ interface ISearchRequestContext extends IResolvedSearchMatchOptions {
     documentRevision: TDocumentRevisionToken;
     normalizedQuery: string;
     pageCount?: number;
+    pathSizeBytes?: number;
+    isXlarge: boolean;
     shouldWarmup: boolean;
     signal: AbortSignal;
 }
@@ -114,12 +122,11 @@ function postMessage(message: TSearchWorkerOutboundMessage) {
     parentPort?.postMessage(message);
 }
 
-async function fileExists(filePath: string) {
+async function getPdfFileStat(filePath: string) {
     try {
-        await stat(filePath);
-        return true;
+        return await stat(filePath);
     } catch {
-        return false;
+        return null;
     }
 }
 
@@ -235,13 +242,32 @@ function postSearchComplete(
     });
 }
 
+function completeWithNativeSearch(
+    context: ISearchRequestContext,
+    nativeResult: {
+        response: ISearchExecutionResult;
+        totalPages: number;
+    },
+) {
+    indexCache.delete(getIndexCacheKey(context.pdfPath, context.documentRevision));
+    sendProgress(context.requestId, 0, nativeResult.totalPages, true);
+    sendProgress(
+        context.requestId,
+        nativeResult.totalPages,
+        nativeResult.totalPages,
+        true,
+        nativeResult.response,
+    );
+    postSearchComplete(context.requestId, nativeResult.response);
+}
+
 function isNativeSearchAttemptDisabledForRuntime() {
     return process.env.EVB_PDF_SEARCH_DISABLE === '1'
         || (process.env.VITEST === 'true' && process.env.EVB_PDF_SEARCH_ENABLE !== '1');
 }
 
 async function tryCompleteWithNativeSearch(context: ISearchRequestContext) {
-    if (context.shouldWarmup || isNativeSearchAttemptDisabledForRuntime()) {
+    if (context.isXlarge || context.shouldWarmup || isNativeSearchAttemptDisabledForRuntime()) {
         return false;
     }
 
@@ -263,10 +289,7 @@ async function tryCompleteWithNativeSearch(context: ISearchRequestContext) {
             return false;
         }
 
-        indexCache.delete(getIndexCacheKey(context.pdfPath, context.documentRevision));
-        sendProgress(context.requestId, 0, nativeResult.totalPages, true);
-        sendProgress(context.requestId, nativeResult.totalPages, nativeResult.totalPages, true, nativeResult.response);
-        postSearchComplete(context.requestId, nativeResult.response);
+        completeWithNativeSearch(context, nativeResult);
         return true;
     } catch (error) {
         if (isAbortError(error) || isCancelled(context.requestId)) {
@@ -274,6 +297,139 @@ async function tryCompleteWithNativeSearch(context: ISearchRequestContext) {
         }
         log.debug(`Native search unavailable, falling back to JS search: ${getErrorMessage(error)}`);
         return false;
+    }
+}
+
+function getXlargePageCount(context: ISearchRequestContext) {
+    if (typeof context.pageCount === 'number' && context.pageCount > 0) {
+        return context.pageCount;
+    }
+    throw new Error(
+        'Xlarge search requires the document page count. The legacy whole-document index is unavailable.',
+    );
+}
+
+function createXlargeSearchIndexBuildOptions(context: ISearchRequestContext) {
+    const pageCount = getXlargePageCount(context);
+    return {
+        pdfPath: context.pdfPath,
+        documentRevision: context.documentRevision,
+        pageCount,
+        signal: context.signal,
+        onProgress: (progress: IXlargeSearchIndexBuildProgress) => {
+            throwIfCancelled(context.requestId, context.signal);
+            const processed = progress.complete
+                ? progress.pageCount
+                : Math.min(progress.pagesScanned, Math.max(0, progress.pageCount - 1));
+            sendProgress(
+                context.requestId,
+                processed,
+                progress.pageCount,
+                progress.complete,
+            );
+        },
+    };
+}
+
+async function buildXlargeSearchIndex(context: ISearchRequestContext) {
+    const result = await ensureXlargeSearchIndex(createXlargeSearchIndexBuildOptions(context));
+    throwIfCancelled(context.requestId, context.signal);
+    return result;
+}
+
+async function tryCompleteWithXlargeSearch(context: ISearchRequestContext) {
+    if (!context.isXlarge) {
+        return false;
+    }
+
+    if (context.shouldWarmup) {
+        await buildXlargeSearchIndex(context);
+        throwIfCancelled(context.requestId, context.signal);
+        postEmptySearchComplete(context.requestId);
+        return true;
+    }
+
+    const {
+        tryRunNativeSearch,
+        XlargeNativeSearchCapabilityError,
+        isXlargeNativeSearchCapabilityError,
+    } = await import('@electron/search/nativeSearch');
+    const isCapabilityError = (error: unknown) => (
+        (typeof isXlargeNativeSearchCapabilityError === 'function'
+            && isXlargeNativeSearchCapabilityError(error))
+        || (
+            typeof error === 'object'
+            && error !== null
+            && typeof (error as {kind?: unknown}).kind === 'string'
+        )
+    );
+    const createCapabilityError = (
+        kind: 'invalid-response' | 'native-failure',
+        message: string,
+        cause?: unknown,
+    ) => {
+        if (typeof XlargeNativeSearchCapabilityError === 'function') {
+            return new XlargeNativeSearchCapabilityError(
+                kind,
+                message,
+                cause === undefined ? {} : {cause},
+            );
+        }
+        const fallbackError = new Error(message) as Error & {kind: string};
+        fallbackError.name = 'XlargeNativeSearchCapabilityError';
+        fallbackError.kind = kind;
+        return fallbackError;
+    };
+    let rebuilt = false;
+    for (;;) {
+        throwIfCancelled(context.requestId, context.signal);
+        try {
+            const nativeResult = await tryRunNativeSearch({
+                pdfPath: context.pdfPath,
+                documentRevision: context.documentRevision,
+                query: context.normalizedQuery,
+                matchCase: context.matchCase,
+                wholeWord: context.wholeWord,
+                useRegex: context.useRegex,
+                nativeServiceIdleTimeoutMs: workerResourcePolicy.nativeServiceIdleTimeoutMs,
+                signal: context.signal,
+                strictXlarge: true,
+                skipLegacyGeometry: true,
+                ...(context.pageCount === undefined ? {} : {pageCount: context.pageCount}),
+            });
+            throwIfCancelled(context.requestId, context.signal);
+            if (!nativeResult) {
+                throw createCapabilityError('invalid-response', 'Native xlarge search returned no result');
+            }
+
+            completeWithNativeSearch(context, nativeResult);
+            return true;
+        } catch (error) {
+            if (isAbortError(error) || isCancelled(context.requestId)) {
+                throw error;
+            }
+            if (
+                !rebuilt
+                && isCapabilityError(error)
+                && (error as {kind?: unknown}).kind === 'index-missing-or-stale'
+            ) {
+                rebuilt = true;
+                try {
+                    await buildXlargeSearchIndex(context);
+                } catch (buildError) {
+                    if (isAbortError(buildError) || isCancelled(context.requestId)) {
+                        throw buildError;
+                    }
+                    throw createCapabilityError(
+                        'native-failure',
+                        `Failed to build the xlarge search sidecar: ${getErrorMessage(buildError)}`,
+                        buildError,
+                    );
+                }
+                continue;
+            }
+            throw error;
+        }
     }
 }
 
@@ -316,16 +472,26 @@ async function createSearchRequestContext(request: ISearchWorkerRequest): Promis
     progressSentAt.delete(requestId);
     throwIfCancelled(requestId, signal);
 
-    if (!pdfPath || !(await fileExists(pdfPath))) {
+    const fileStat = !pdfPath ? null : await getPdfFileStat(pdfPath);
+    if (!pdfPath || fileStat === null) {
         throw new Error(`PDF not found: ${pdfPath}`);
     }
     throwIfCancelled(requestId, signal);
+
+    const pathSizeBytes = typeof fileStat.size === 'number' && Number.isFinite(fileStat.size)
+        ? fileStat.size
+        : undefined;
+    const classification = classifyXlargeSearchPath({
+        ...(pageCount === undefined ? {} : {pageCount}),
+        ...(pathSizeBytes === undefined ? {} : {pathSizeBytes}),
+    });
 
     const context: ISearchRequestContext = {
         requestId,
         pdfPath,
         documentRevision,
         normalizedQuery: query.trim(),
+        isXlarge: classification.isXlarge,
         shouldWarmup: warmup === true,
         matchCase,
         wholeWord,
@@ -334,6 +500,9 @@ async function createSearchRequestContext(request: ISearchWorkerRequest): Promis
     };
     if (pageCount !== undefined) {
         context.pageCount = pageCount;
+    }
+    if (pathSizeBytes !== undefined) {
+        context.pathSizeBytes = pathSizeBytes;
     }
     return context;
 }
@@ -633,6 +802,10 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
             return;
         }
 
+        if (await tryCompleteWithXlargeSearch(context)) {
+            return;
+        }
+
         if (await tryCompleteWithNativeSearch(context)) {
             return;
         }
@@ -696,11 +869,13 @@ parentPort?.on('message', (rawMessage: unknown) => {
             return;
         case 'reset-cache':
             indexCache.clear();
+            resetXlargeSearchIndexBuilds();
             resetPersistentNativeSearchServiceCaches();
             pruneCancelledRequests();
             return;
         case 'reset-state':
             indexCache.clear();
+            resetXlargeSearchIndexBuilds();
             resetPersistentNativeSearchServiceCaches();
             cancelledRequests.clear();
             progressSentAt.clear();

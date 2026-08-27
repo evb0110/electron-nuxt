@@ -153,6 +153,152 @@ describe('browserSearchWorkerClient', () => {
         });
     });
 
+    it('accepts the legacy array response at the 1,024-page boundary', async () => {
+        const pageTexts = new Array<string>(1_024).fill('alpha');
+        FakeWorker.responder = (worker, request) => {
+            queueMicrotask(() => {
+                worker.dispatchMessage({
+                    id: request.id,
+                    type: request.type,
+                    ok: true,
+                    data: {
+                        pageCount: 1_024,
+                        pageTexts,
+                    },
+                });
+            });
+        };
+        const {runBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+
+        const result = await runBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/1024.pdf'});
+
+        expect(result.pageCount).toBe(1_024);
+        expect(result.pageTexts).toHaveLength(1_024);
+        expect(result.pageTexts[1_023]).toBe('alpha');
+    });
+
+    it('rejects the legacy array response at 1,025 pages before copying it', async () => {
+        FakeWorker.responder = (worker, request) => {
+            queueMicrotask(() => {
+                worker.dispatchMessage({
+                    id: request.id,
+                    type: request.type,
+                    ok: true,
+                    data: {
+                        pageCount: 1_025,
+                        pageTexts: ['alpha'],
+                    },
+                });
+            });
+        };
+        const {runBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+
+        await expect(runBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/1025.pdf'}))
+            .rejects.toThrow('Browser search worker returned an invalid result');
+    });
+
+    it('backpressures streamed worker pages and acknowledges only consumed records', async () => {
+        FakeWorker.responder = () => {};
+        const {createBrowserSearchWorkerPageStreamRequest} =
+            await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const streamRequest = createBrowserSearchWorkerPageStreamRequest({pdfPath: '/tmp/stream.pdf'});
+        const worker = FakeWorker.lastInstance;
+        if (!worker) {
+            throw new Error('Expected a browser search worker');
+        }
+        const iterator = streamRequest.pages[Symbol.asyncIterator]();
+
+        worker.dispatchMessage({
+            id: streamRequest.requestId,
+            type: 'streamDocumentText',
+            ok: true,
+            page: {
+                pageNumber: 1,
+                pageCount: 2,
+                text: 'alpha',
+            },
+        });
+        expect(worker.postMessageCalls).toHaveLength(1);
+
+        await expect(iterator.next()).resolves.toEqual({
+            done: false,
+            value: {
+                pageNumber: 1,
+                pageCount: 2,
+                text: 'alpha',
+            },
+        });
+        expect(worker.postMessageCalls).toHaveLength(2);
+        expect(worker.postMessageCalls[1]).toMatchObject({
+            type: 'acknowledgePage',
+            payload: {requestId: streamRequest.requestId},
+        });
+
+        worker.dispatchMessage({
+            id: streamRequest.requestId,
+            type: 'streamDocumentText',
+            ok: true,
+            page: {
+                pageNumber: 2,
+                pageCount: 2,
+                text: 'beta',
+            },
+        });
+        expect(worker.postMessageCalls).toHaveLength(2);
+
+        await expect(iterator.next()).resolves.toEqual({
+            done: false,
+            value: {
+                pageNumber: 2,
+                pageCount: 2,
+                text: 'beta',
+            },
+        });
+        expect(worker.postMessageCalls).toHaveLength(3);
+        expect(worker.postMessageCalls[2]).toMatchObject({
+            type: 'acknowledgePage',
+            payload: {requestId: streamRequest.requestId},
+        });
+
+        worker.dispatchMessage({
+            id: streamRequest.requestId,
+            type: 'streamDocumentText',
+            ok: true,
+            data: {pageCount: 2},
+        });
+        await expect(streamRequest.promise).resolves.toEqual({pageCount: 2});
+        await expect(iterator.next()).resolves.toEqual({
+            done: true,
+            value: undefined,
+        });
+    });
+
+    it('cancels a pending page stream without buffering later pages', async () => {
+        FakeWorker.responder = () => {};
+        const {
+            cancelBrowserSearchWorkerRequest,
+            createBrowserSearchWorkerPageStreamRequest,
+        } = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const streamRequest = createBrowserSearchWorkerPageStreamRequest({pdfPath: '/tmp/canceled-stream.pdf'});
+        const worker = FakeWorker.lastInstance;
+        if (!worker) {
+            throw new Error('Expected a browser search worker');
+        }
+        const nextPage = streamRequest.pages[Symbol.asyncIterator]().next();
+        const streamFailure = expect(streamRequest.promise)
+            .rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
+
+        cancelBrowserSearchWorkerRequest(streamRequest.requestId);
+
+        await expect(nextPage).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
+        await streamFailure;
+        expect(worker.postMessageCalls).toHaveLength(2);
+        expect(worker.postMessageCalls[1]).toMatchObject({
+            type: 'cancel',
+            payload: {requestId: streamRequest.requestId},
+        });
+    });
+
     it('rejects a matching-id success response with invalid result data', async () => {
         FakeWorker.responder = (worker, request) => {
             queueMicrotask(() => {
@@ -170,6 +316,26 @@ describe('browserSearchWorkerClient', () => {
         const {runBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
 
         await expect(runBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/test.pdf'}))
+            .rejects.toThrow('Browser search worker returned an invalid result');
+    });
+
+    it('rejects a million-page legacy array response before copying it', async () => {
+        FakeWorker.responder = (worker, request) => {
+            queueMicrotask(() => {
+                worker.dispatchMessage({
+                    id: request.id,
+                    type: request.type,
+                    ok: true,
+                    data: {
+                        pageCount: 1_000_000,
+                        pageTexts: [],
+                    },
+                });
+            });
+        };
+        const {runBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+
+        await expect(runBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/million.pdf'}))
             .rejects.toThrow('Browser search worker returned an invalid result');
     });
 

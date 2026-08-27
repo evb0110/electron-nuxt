@@ -158,6 +158,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         vi.stubEnv('VITEST', 'true');
         mocks.getDjvuPageCount.mockResolvedValue(2);
         mocks.cancelConversion.mockResolvedValue(true);
+        mocks.stat.mockImplementation(async () => ({size: 3}));
         mocks.getPdfPageCount.mockImplementation(async (path: string) => path.includes('/tmp/native-assembler/') || path.includes('final.pdf.tmp') ? 3 : 1);
     });
 
@@ -169,6 +170,20 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         const result = await tryCreatePdfFromInputPathsNative(['/tmp/input.pdf']);
 
         expect(result).toBeNull();
+        expect(mocks.mkdtemp).not.toHaveBeenCalled();
+        expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
+    });
+
+    it('reports native unavailability as a typed error in strict mode', async () => {
+        await expect(tryWritePdfFromInputPathsNative(
+            ['/tmp/input.pdf'],
+            '/tmp/final.pdf',
+            {failureMode: 'capability-error'},
+        )).rejects.toMatchObject({
+            code: 'native-unavailable',
+            name: 'PdfCombineCapabilityError',
+        });
+
         expect(mocks.mkdtemp).not.toHaveBeenCalled();
         expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
     });
@@ -221,6 +236,124 @@ describe('tryCreatePdfFromInputPathsNative', () => {
             recursive: true,
             force: true,
         });
+    });
+
+    it('returns a typed capability error instead of falling back for strict native jobs', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        mocks.nativeWrite.mockResolvedValueOnce(false);
+
+        await expect(tryWritePdfFromInputPathsNative(
+            ['/tmp/one.png'],
+            '/tmp/final.pdf',
+            {failureMode: 'capability-error'},
+        )).rejects.toMatchObject({
+            code: 'native-unavailable',
+            name: 'PdfCombineCapabilityError',
+        });
+        expect(mocks.nativeWrite).toHaveBeenCalledOnce();
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(mocks.copyFile).not.toHaveBeenCalled();
+    });
+
+    it('assembles PDF and DjVu paths through qpdf in strict file-backed mode', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        mocks.getPdfPageCount.mockImplementation(async (path: string) => path.includes('final.pdf.tmp') ? 2 : 1);
+
+        await expect(tryWritePdfFromInputPathsNative(
+            [
+                '/tmp/first.pdf',
+                '/tmp/second.pdf',
+            ],
+            '/tmp/final.pdf',
+            {failureMode: 'capability-error'},
+        )).resolves.toBe(true);
+
+        expect(mocks.runQpdfCommand).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                '--empty',
+                '--pages',
+                '/tmp/first.pdf',
+                '/tmp/second.pdf',
+                '--',
+                '/tmp/final.pdf.tmp',
+            ]),
+            expect.any(Object),
+        );
+        expect(mocks.copyFile).not.toHaveBeenCalled();
+        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/final.pdf.tmp', '/tmp/final.pdf');
+    });
+
+    it('returns a typed capability error when qpdf fails in strict mode', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        mocks.runQpdfCommand.mockRejectedValueOnce(new Error('qpdf unavailable'));
+
+        await expect(tryWritePdfFromInputPathsNative(
+            [
+                '/tmp/first.pdf',
+                '/tmp/second.pdf',
+            ],
+            '/tmp/final.pdf',
+            {failureMode: 'capability-error'},
+        )).rejects.toMatchObject({
+            code: 'native-failure',
+            name: 'PdfCombineCapabilityError',
+        });
+
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+    });
+
+    it('accepts a strict file-backed PDF page count above ten thousand', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        mocks.getPdfPageCount.mockResolvedValue(10_001);
+
+        await expect(tryWritePdfFromInputPathsNative(
+            ['/tmp/large.pdf'],
+            '/tmp/final.pdf',
+            {failureMode: 'capability-error'},
+        )).resolves.toBe(true);
+
+        expect(mocks.copyFile).toHaveBeenCalledWith(
+            '/tmp/large.pdf',
+            '/tmp/final.pdf.tmp',
+        );
+        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/final.pdf.tmp', '/tmp/final.pdf');
+    });
+
+    it('does not apply the former output cap to strict file-backed output', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        let statCalls = 0;
+        mocks.stat.mockImplementation(async () => {
+            statCalls += 1;
+            return {size: statCalls === 2 ? 513 * 1024 * 1024 : 3};
+        });
+        mocks.getPdfPageCount.mockImplementation(async () => 3);
+
+        await expect(tryWritePdfFromInputPathsNative(
+            ['/tmp/one.png'],
+            '/tmp/final.pdf',
+            {failureMode: 'capability-error'},
+        )).resolves.toBe(true);
+
+        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/final.pdf.tmp', '/tmp/final.pdf');
+    });
+
+    it('does not apply the former 500-page cap to strict file-backed input batches', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        const inputPaths = Array.from({length: 501}, (_, index) => `/tmp/page-${index}.png`);
+        mocks.getPdfPageCount.mockImplementation(async () => 3);
+
+        await expect(tryWritePdfFromInputPathsNative(
+            inputPaths,
+            '/tmp/final.pdf',
+            {failureMode: 'capability-error'},
+        )).resolves.toBe(true);
+
+        expect(mocks.nativeWrite).toHaveBeenCalledWith(
+            inputPaths,
+            expect.stringMatching(/^\/tmp\/native-assembler\/image-chunk-\d+-.+\.pdf$/u),
+            expect.objectContaining({maxPages: Number.MAX_SAFE_INTEGER}),
+        );
+        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/final.pdf.tmp', '/tmp/final.pdf');
     });
 
     it('keeps pure image jobs on the native image combiner with exact page counting', async () => {

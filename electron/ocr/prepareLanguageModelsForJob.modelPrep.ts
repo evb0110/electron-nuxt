@@ -7,14 +7,18 @@ import {
     ensureTessdataLanguages,
 } from '@electron/ocr/languageModels';
 import { getOcrToolPaths } from '@electron/ocr/paths';
-import type { IOcrPdfPageRequest } from '@electron/ocr/worker/types';
+import type { TOcrPdfPageSelection } from '@electron/ocr/worker/types';
 import { createTimeoutError } from '@electron/ocr/jobManagerProtocol';
 import { createLogger } from '@electron/utils/createLogger';
 
 const log = createLogger('ocr-ipc');
 
-function getOcrJobLanguages(pages: IOcrPdfPageRequest[]) {
-    return uniq(pages.flatMap(page => page.languages));
+function getOcrJobLanguages(pages: TOcrPdfPageSelection) {
+    if (!Array.isArray(pages) && pages.kind !== 'pages') {
+        return uniq(pages.languages);
+    }
+    const pageRequests = Array.isArray(pages) ? pages : pages.pages;
+    return uniq(pageRequests.flatMap(page => page.languages));
 }
 
 function logMissingLanguageModels(languages: string[]) {
@@ -29,7 +33,7 @@ function logMissingLanguageModels(languages: string[]) {
 
 export async function prepareLanguageModelsForJob(
     preparingJob: IOcrPreparingJob,
-    pages: IOcrPdfPageRequest[],
+    pages: TOcrPdfPageSelection,
     timeoutMs: number,
 ) {
     const languages = getOcrJobLanguages(pages);

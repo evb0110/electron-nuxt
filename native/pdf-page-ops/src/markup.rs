@@ -364,6 +364,60 @@ pub(crate) fn build_markup_inputs(markup: &MarkupMutation) -> Result<MarkupInput
     Ok((overrides, hints_by_page))
 }
 
+/// Resolve only the pages that a markup mutation can touch.
+///
+/// Geometry-only hints identify a page by number. Explicit hint and override
+/// references can identify their owner through the annotation's `/P` back
+/// reference, which also lets a stale page hint reach the correct page. The
+/// returned map is keyed by page object so an owner page and a numbered page
+/// are processed at most once.
+fn resolve_markup_page_targets(
+    document: &impl PdfObjectSource,
+    page_resolver: &PageTreeResolver,
+    overrides: &HashMap<String, String>,
+    hints_by_page: HashMap<u32, Vec<MarkupHintState>>,
+) -> Result<BTreeMap<ObjectId, Vec<MarkupHintState>>> {
+    let mut targets: BTreeMap<ObjectId, Vec<MarkupHintState>> = BTreeMap::new();
+
+    for (page_index, hints) in hints_by_page {
+        let mut numbered_page_id = None;
+        for hint in hints {
+            let owner_page_id = hint
+                .annotation_ref
+                .as_deref()
+                .and_then(parse_pdfjs_annotation_object_id)
+                .and_then(|annotation_id| annotation_page_id(document, annotation_id));
+            let page_id = if let Some(owner_page_id) = owner_page_id {
+                owner_page_id
+            } else {
+                match numbered_page_id {
+                    Some(page_id) => page_id,
+                    None => {
+                        let page_number = page_index
+                            .checked_add(1)
+                            .ok_or("Invalid text-markup hint page index")?;
+                        let page_id = page_resolver.page_id(document, page_number)?;
+                        numbered_page_id = Some(page_id);
+                        page_id
+                    }
+                }
+            };
+            targets.entry(page_id).or_default().push(hint);
+        }
+    }
+
+    for annotation_ref in overrides.keys() {
+        let Some(annotation_id) = parse_pdfjs_annotation_object_id(annotation_ref) else {
+            continue;
+        };
+        if let Some(page_id) = annotation_page_id(document, annotation_id) {
+            targets.entry(page_id).or_default();
+        }
+    }
+
+    Ok(targets)
+}
+
 pub(crate) fn rewrite_page_markup_subtypes(
     document: &mut Document,
     candidates: &[MarkupAnnotationCandidate],
@@ -526,11 +580,13 @@ pub(crate) fn apply_markup_mutations(
     document: &mut Document,
     markup: &MarkupMutation,
 ) -> Result<()> {
-    let (overrides, mut hints_by_page) = build_markup_inputs(markup)?;
-    let page_map = document.get_pages();
+    let (overrides, hints_by_page) = build_markup_inputs(markup)?;
+    let page_resolver = PageTreeResolver::new(document)?;
+    let page_targets =
+        resolve_markup_page_targets(document, &page_resolver, &overrides, hints_by_page)?;
     let mut modified = false;
 
-    for (page_index, page_id) in page_map.values().copied().enumerate() {
+    for (page_id, mut page_hints) in page_targets {
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let annots = get_page_annots(document, page_id)?;
@@ -551,9 +607,9 @@ pub(crate) fn apply_markup_mutations(
                 page_markup_index += 1;
             }
         }
-        let page_hints = hints_by_page.entry(page_index as u32).or_default();
-        modified = rewrite_page_markup_subtypes(document, &candidates, &overrides, page_hints)?
-            || modified;
+        modified =
+            rewrite_page_markup_subtypes(document, &candidates, &overrides, &mut page_hints)?
+                || modified;
     }
 
     if !modified {
@@ -566,37 +622,44 @@ pub(crate) fn apply_markup_mutations_incremental(
     incremental: &mut IncrementalDocument,
     markup: &MarkupMutation,
 ) -> Result<()> {
-    let (overrides, mut hints_by_page) = build_markup_inputs(markup)?;
-    let page_map = incremental.get_prev_documents().get_pages();
+    let (overrides, hints_by_page) = build_markup_inputs(markup)?;
+    let page_targets = {
+        let document = incremental.get_prev_documents();
+        let page_resolver = PageTreeResolver::new(document)?;
+        resolve_markup_page_targets(document, &page_resolver, &overrides, hints_by_page)?
+    };
     let mut modified = false;
 
-    for (page_index, page_id) in page_map.values().copied().enumerate() {
-        let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
-        let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
-        let annots = get_page_annots(incremental.get_prev_documents(), page_id)?;
-        let mut candidates = Vec::new();
-        let mut page_markup_index = 0_u32;
-        for object_id in annots
-            .iter()
-            .filter_map(|object| object.as_reference().ok())
-        {
-            if let Some(candidate) = create_markup_candidate(
-                incremental.get_prev_documents(),
-                page_view,
-                page_rotation,
-                object_id,
-                page_markup_index,
-            ) {
-                candidates.push(candidate);
-                page_markup_index += 1;
+    for (page_id, mut page_hints) in page_targets {
+        let candidates = {
+            let document = incremental.get_prev_documents();
+            let page_view = resolve_page_view(document, page_id)?;
+            let page_rotation = resolve_page_rotation(document, page_id)?;
+            let annots = get_page_annots(document, page_id)?;
+            let mut candidates = Vec::new();
+            let mut page_markup_index = 0_u32;
+            for object_id in annots
+                .iter()
+                .filter_map(|object| object.as_reference().ok())
+            {
+                if let Some(candidate) = create_markup_candidate(
+                    document,
+                    page_view,
+                    page_rotation,
+                    object_id,
+                    page_markup_index,
+                ) {
+                    candidates.push(candidate);
+                    page_markup_index += 1;
+                }
             }
-        }
-        let page_hints = hints_by_page.entry(page_index as u32).or_default();
+            candidates
+        };
         modified = rewrite_page_markup_subtypes_incremental(
             incremental,
             &candidates,
             &overrides,
-            page_hints,
+            &mut page_hints,
         )? || modified;
     }
 

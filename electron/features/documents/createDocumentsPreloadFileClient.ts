@@ -10,6 +10,7 @@ import type {
     IDocumentsRecentFilesCapability,
     IDocumentsWindowCapability,
     IDocumentChunkReadOptions,
+    IPdfAnnotationIndexChunkOptions,
     IWorkingCopyBackingStatus,
     IPdfNativePagePreviewOptions,
     IPdfNativeStagedCommitOptions,
@@ -19,15 +20,23 @@ import type {
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
 import {
+    DOCX_EXPORT_STREAM_CHANNELS,
+    DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
+    type IDocxExportFileCapability,
+    type IDocxExportStreamBeginResult,
+    type TDocxExportChunkSource,
+} from '@contracts/docxExport';
+import {
     decodeWorkingCopyBackingStatus,
     isPdfOptimizePreset,
+    PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES,
+    PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES,
 } from '@contracts/electronApiDocuments';
 import {
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
-    normalizePdfNativeWorkingCopyExpectation,
 } from '@pdf-core/nativePdfMutationPolicy';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
@@ -92,6 +101,8 @@ const DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [DOCUMENTS_CHANNELS.pdfOpeningGeometry]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfNativePageSizes]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfNativePagePreview]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.pdfAnnotationIndexBegin]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.pdfEmbeddedShapeIndexBegin]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfAnalyzeConformance]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfValidatePath]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.fileRepairPdf]: LONG_NATIVE_IPC_TIMEOUT_MS,
@@ -101,6 +112,8 @@ const DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [DOCUMENTS_CHANNELS.fileSavePdfNoteChanges]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.fileSavePdfNativeMutations]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.fileCloneStagedPdfNativeMutationToWorkingCopy]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.fileReplaceWorkingCopyFromStagedPdfNativeMutation]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf]: LONG_NATIVE_IPC_TIMEOUT_MS,
 } as const;
 interface ISerializedPdfPersistencePortResult {
@@ -318,11 +331,113 @@ function assertPersistenceData(value: unknown, fieldName: string) {
     return value;
 }
 
+function assertDocxExportChunk(value: unknown) {
+    if (!(value instanceof Uint8Array) || value.byteLength === 0) {
+        throw new Error('writeDocxFileChunks chunks must yield non-empty Uint8Array values');
+    }
+    if (value.byteLength > DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES) {
+        throw new Error(
+            `writeDocxFileChunks chunk exceeds maximum size (${DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES} bytes)`,
+        );
+    }
+    return value;
+}
+
+function createDocxExportFileCapability(
+    ipcRenderer: Pick<IpcRenderer, 'invoke'>,
+): IDocxExportFileCapability {
+    const invoke = async <TResult>(channel: string, ...args: unknown[]) =>
+        await ipcRenderer.invoke(channel, ...args) as TResult;
+
+    const writeDocxFileChunks = async (path: Parameters<IDocxExportFileCapability['writeDocxFileChunks']>[0], chunks: TDocxExportChunkSource) => {
+        const checkedPath = assertAbsolutePath(path, 'writeDocxFileChunks.path');
+        const beginResult = await invoke<IDocxExportStreamBeginResult>(
+            DOCX_EXPORT_STREAM_CHANNELS.begin,
+            checkedPath,
+        );
+        if (
+            !beginResult
+                || typeof beginResult.sessionId !== 'string'
+                || beginResult.sessionId.trim().length === 0
+        ) {
+            throw new Error('Invalid DOCX stream begin response');
+        }
+
+        const sessionId = beginResult.sessionId;
+        let wroteChunk = false;
+        try {
+            for await (const chunk of chunks) {
+                const checkedChunk = assertDocxExportChunk(chunk);
+                await invoke(
+                    DOCX_EXPORT_STREAM_CHANNELS.writeChunk,
+                    sessionId,
+                    checkedChunk,
+                );
+                wroteChunk = true;
+            }
+            if (!wroteChunk) {
+                throw new Error('writeDocxFileChunks requires at least one chunk');
+            }
+            const committed = await invoke<boolean>(
+                DOCX_EXPORT_STREAM_CHANNELS.commit,
+                sessionId,
+            );
+            if (committed !== true) {
+                throw new Error('DOCX stream commit was not accepted');
+            }
+            return true;
+        } catch (error) {
+            await invoke<boolean>(
+                DOCX_EXPORT_STREAM_CHANNELS.cancel,
+                sessionId,
+            ).catch(() => false);
+            throw error;
+        }
+    };
+
+    return {writeDocxFileChunks};
+}
+
 function assertPositiveSafeInteger(value: unknown, fieldName: string) {
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
         throw new Error(`${fieldName} must be a positive safe integer`);
     }
     return value;
+}
+
+function assertSafeInteger(value: unknown, fieldName: string) {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+        throw new Error(`${fieldName} must be a non-negative safe integer`);
+    }
+    return value;
+}
+
+function assertPdfIndexChunkOptions(
+    value: unknown,
+    fieldName: string,
+    maxChunkBytes: number,
+): IPdfAnnotationIndexChunkOptions | undefined {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+    if (!isRecord(value)) {
+        throw new TypeError(`${fieldName} must be an object`);
+    }
+    const rawChunkBytes = value.chunkBytes;
+    if (
+        rawChunkBytes !== undefined
+        && (
+            typeof rawChunkBytes !== 'number'
+            || !Number.isSafeInteger(rawChunkBytes)
+            || rawChunkBytes < 1
+            || rawChunkBytes > maxChunkBytes
+        )
+    ) {
+        throw new TypeError(
+            `${fieldName}.chunkBytes must be between 1 and ${maxChunkBytes}`,
+        );
+    }
+    return rawChunkBytes === undefined ? {} : {chunkBytes: rawChunkBytes};
 }
 
 function getChunkReadSize(options: IDocumentChunkReadOptions | undefined) {
@@ -590,7 +705,7 @@ async function streamPdfBytesToPersistencePort(
 
 export function createDocumentsPreloadFileClient(
     ipcRenderer: TDocumentsFileIpcRenderer,
-): TDocumentsPreloadFileClient {
+): TDocumentsPreloadFileClient & IDocxExportFileCapability {
     const invoke = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS, {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const invokeOpen = createCodecIpcInvoker<IDocumentOpenInvokeMap>(
         ipcRenderer,
@@ -612,6 +727,7 @@ export function createDocumentsPreloadFileClient(
         {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL},
     );
     const eventSubscriber = createTypedIpcEventSubscriber<IDocumentsFileEventMap>(ipcRenderer);
+    const docxExportCapability = createDocxExportFileCapability(ipcRenderer);
     const openDocumentDirect = (path: string) => invokeOpen(
         DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect,
         path,
@@ -653,6 +769,7 @@ export function createDocumentsPreloadFileClient(
     };
 
     return {
+        ...docxExportCapability,
         openDocumentDirect,
         openDocumentDirectBatch,
         cancelOpenDocumentDirectBatch: (requestId: string) =>
@@ -745,6 +862,52 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(path, 'renderPdfNativePagePreview.path'),
                 assertPositiveInteger(pageNumber, 'renderPdfNativePagePreview.pageNumber'),
                 assertPdfNativePagePreviewOptions(options, 'renderPdfNativePagePreview.options'),
+            ),
+        beginPdfAnnotationIndex: (path, options) =>
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.beginPdfAnnotationIndex,
+                assertAbsolutePath(path, 'beginPdfAnnotationIndex.path'),
+                assertPdfSerializedSaveOptions(options, 'beginPdfAnnotationIndex.options'),
+            ),
+        readPdfAnnotationIndexChunk: (sessionId, offset, options) =>
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfAnnotationIndexChunk,
+                assertNonEmptyString(sessionId, 'readPdfAnnotationIndexChunk.sessionId'),
+                assertSafeInteger(offset, 'readPdfAnnotationIndexChunk.offset'),
+                assertPdfIndexChunkOptions(options, 'readPdfAnnotationIndexChunk.options', PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES),
+            ),
+        releasePdfAnnotationIndex: (sessionId) =>
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfAnnotationIndex,
+                assertNonEmptyString(sessionId, 'releasePdfAnnotationIndex.sessionId'),
+            ),
+        cancelPdfAnnotationIndex: (sessionId) =>
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfAnnotationIndex,
+                assertNonEmptyString(sessionId, 'cancelPdfAnnotationIndex.sessionId'),
+            ),
+        beginPdfEmbeddedShapeIndex: (path, options) =>
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.beginPdfEmbeddedShapeIndex,
+                assertAbsolutePath(path, 'beginPdfEmbeddedShapeIndex.path'),
+                assertPdfSerializedSaveOptions(options, 'beginPdfEmbeddedShapeIndex.options'),
+            ),
+        readPdfEmbeddedShapeIndexChunk: (sessionId, offset, options) =>
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfEmbeddedShapeIndexChunk,
+                assertNonEmptyString(sessionId, 'readPdfEmbeddedShapeIndexChunk.sessionId'),
+                assertSafeInteger(offset, 'readPdfEmbeddedShapeIndexChunk.offset'),
+                assertPdfIndexChunkOptions(options, 'readPdfEmbeddedShapeIndexChunk.options', PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES),
+            ),
+        releasePdfEmbeddedShapeIndex: (sessionId) =>
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfEmbeddedShapeIndex,
+                assertNonEmptyString(sessionId, 'releasePdfEmbeddedShapeIndex.sessionId'),
+            ),
+        cancelPdfEmbeddedShapeIndex: (sessionId) =>
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfEmbeddedShapeIndex,
+                assertNonEmptyString(sessionId, 'cancelPdfEmbeddedShapeIndex.sessionId'),
             ),
         readFileChunks: async (path, options, onChunk) => {
             const checkedPath = assertAbsolutePath(path, 'readFileChunks.path');
@@ -995,13 +1158,12 @@ export function createDocumentsPreloadFileClient(
                 normalizePdfNativeModifiedAt(modifiedAt, 'savePdfNativeMutations.modifiedAt'),
                 assertPdfSerializedSaveOptions(options, 'savePdfNativeMutations.options'),
             ),
-        applyPdfNativeMutationsToWorkingCopy: (path, mutations, modifiedAt, expectedBase, options) =>
+        applyPdfNativeMutationsToWorkingCopy: (path, mutations, modifiedAt, options) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy,
                 assertAbsolutePath(path, 'applyPdfNativeMutationsToWorkingCopy.path'),
                 normalizePdfNativeMutationSet(mutations, 'applyPdfNativeMutationsToWorkingCopy.mutations'),
                 normalizePdfNativeModifiedAt(modifiedAt, 'applyPdfNativeMutationsToWorkingCopy.modifiedAt'),
-                normalizePdfNativeWorkingCopyExpectation(expectedBase, 'applyPdfNativeMutationsToWorkingCopy.expectedBase'),
                 assertPdfSerializedSaveOptions(options, 'applyPdfNativeMutationsToWorkingCopy.options'),
             ),
         commitStagedPdfNativeMutations: (path, stagedOutput, options) =>
@@ -1010,6 +1172,19 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(path, 'commitStagedPdfNativeMutations.path'),
                 stagedOutput,
                 assertPdfNativeStagedCommitOptions(options, 'commitStagedPdfNativeMutations.options'),
+            ),
+        cloneStagedPdfNativeMutationToWorkingCopy: (stagedOutput, originalPath) =>
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cloneStagedPdfNativeMutationToWorkingCopy,
+                stagedOutput,
+                assertOptionalAbsolutePath(originalPath, 'cloneStagedPdfNativeMutationToWorkingCopy.originalPath'),
+            ),
+        replaceWorkingCopyFromStagedPdfNativeMutation: (path, stagedOutput, options) =>
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.replaceWorkingCopyFromStagedPdfNativeMutation,
+                assertAbsolutePath(path, 'replaceWorkingCopyFromStagedPdfNativeMutation.path'),
+                stagedOutput,
+                assertPdfSerializedSaveOptions(options, 'replaceWorkingCopyFromStagedPdfNativeMutation.options'),
             ),
         cleanupFile: (path) => invokeWorkingCopy(
             DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.cleanupFile,

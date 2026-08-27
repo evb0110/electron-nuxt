@@ -1,6 +1,7 @@
 import {
     basename,
     extname,
+    join,
     resolve,
 } from 'path';
 import {
@@ -11,12 +12,16 @@ import {createReadStream} from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import {
     cp,
+    lstat,
     readFile,
+    readdir,
+    rename,
     rm,
     unlink,
     writeFile,
 } from 'node:fs/promises';
 import {isErrnoException} from '@contracts/runtimeGuards';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     resolveAllowedReadPath,
     resolveAllowedWritePath,
@@ -51,7 +56,181 @@ import {
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
 import { findPendingOcrResultFileForPath } from '@electron/ocr/createPendingResultFileStore';
 import { rebindDocumentTextCatalogRevision } from '@electron/ocr/documentTextCatalog';
+import {parseOcrCatalogV4PreparedDescriptor} from '@contracts/ocrIndex';
+import {
+    MAX_LEGACY_OCR_CATALOG_BACKUP_BYTES,
+    MAX_LEGACY_OCR_CATALOG_FILES,
+} from '@electron/file-access/workingCopyContentTransitionJournal';
+import {
+    getOcrCatalogV4PreparedDescriptorPath,
+    publishPreparedOcrCatalogV4,
+    rollbackPreparedOcrCatalogV4,
+} from '@electron/ocr/worker/indexWriterV4';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+
+interface IPreparedOcrCatalogDescriptor {
+    catalogRoot: string;
+    resultPath: string;
+    resultIdentity: string;
+}
+
+type TLegacyOcrCatalogTransferMode = 'copy' | 'rename' | 'missing';
+
+async function getLegacyOcrCatalogTransferMode(catalogPath: string): Promise<TLegacyOcrCatalogTransferMode> {
+    let totalBytes = 0;
+    let fileCount = 0;
+    const pending = [catalogPath];
+    while (pending.length > 0) {
+        const currentPath = pending.pop()!;
+        const currentStat = await lstat(currentPath).catch(error => {
+            if (isErrnoException(error) && error.code === 'ENOENT') {
+                return null;
+            }
+            throw error;
+        });
+        if (currentStat === null) {
+            return currentPath === catalogPath ? 'missing' : 'copy';
+        }
+        if (currentStat.isSymbolicLink()) {
+            throw new Error(`OCR legacy catalog contains a symbolic link: ${currentPath}`);
+        }
+        if (typeof currentStat.isDirectory === 'function' && currentStat.isDirectory()) {
+            const entries = await readdir(currentPath);
+            if (entries.length > MAX_LEGACY_OCR_CATALOG_FILES) {
+                return 'rename';
+            }
+            for (const entry of entries) {
+                fileCount += 1;
+                if (fileCount > MAX_LEGACY_OCR_CATALOG_FILES) {
+                    return 'rename';
+                }
+                pending.push(join(currentPath, entry));
+            }
+            continue;
+        }
+        if (typeof currentStat.isFile === 'function' && !currentStat.isFile()) {
+            throw new Error(`OCR legacy catalog contains a non-file entry: ${currentPath}`);
+        }
+        totalBytes += typeof currentStat.size === 'number' ? currentStat.size : 0;
+        if (totalBytes > MAX_LEGACY_OCR_CATALOG_BACKUP_BYTES) {
+            return 'rename';
+        }
+    }
+    return 'copy';
+}
+
+async function readPreparedOcrCatalogDescriptor(
+    descriptorPath: string,
+    resultPath: string,
+    resultIdentity: string,
+    catalogRoot: string,
+): Promise<IPreparedOcrCatalogDescriptor | null> {
+    const descriptorStat = await lstat(descriptorPath).catch(error => {
+        if (isErrnoException(error) && (error.code === 'ENOENT' || error.code === 'EISDIR')) {
+            return null;
+        }
+        throw error;
+    });
+    if (descriptorStat?.isSymbolicLink()) {
+        throw new Error('Invalid staged OCR catalog descriptor path');
+    }
+    if (
+        descriptorStat
+        && typeof descriptorStat.isFile === 'function'
+        && !descriptorStat.isFile()
+    ) {
+        return null;
+    }
+    const raw = await readFile(descriptorPath, 'utf8').catch(() => null);
+    // A directory at this path is the legacy v3 sidecar. The real fs API
+    // returns a string for the descriptor; keeping the type guard also makes
+    // this transition tolerant of old preload/test doubles.
+    if (typeof raw !== 'string') {
+        return null;
+    }
+    let value: unknown;
+    try {
+        value = JSON.parse(raw) as unknown;
+    } catch {
+        throw new Error('Invalid staged OCR catalog descriptor');
+    }
+    const descriptor = parseOcrCatalogV4PreparedDescriptor(value);
+    if (!descriptor) {
+        throw new Error('Invalid staged OCR catalog descriptor');
+    }
+    if (
+        resolve(descriptor.catalogRoot) !== resolve(catalogRoot)
+        || resolve(descriptor.resultPath) !== resolve(resultPath)
+        || descriptor.resultIdentity !== resultIdentity
+    ) {
+        throw new Error('Invalid staged OCR catalog descriptor binding');
+    }
+    return descriptor;
+}
+
+async function readExistingOcrCatalogManifest(catalogPath: string) {
+    const manifestPath = `${catalogPath}/manifest.json`;
+    const manifestStat = await lstat(manifestPath).catch(error => {
+        if (isErrnoException(error) && error.code === 'ENOENT') {
+            return null;
+        }
+        throw error;
+    });
+    if (manifestStat?.isSymbolicLink()) {
+        throw new Error('Invalid OCR catalog root manifest path');
+    }
+    if (
+        manifestStat
+        && typeof manifestStat.isFile === 'function'
+        && !manifestStat.isFile()
+    ) {
+        return null;
+    }
+    const raw = await readFile(manifestPath, 'utf8').catch(() => null);
+    if (raw === null) {
+        return null;
+    }
+    if (typeof raw !== 'string' && !Buffer.isBuffer(raw)) {
+        return null;
+    }
+    return Buffer.isBuffer(raw) ? raw : Buffer.from(raw, 'utf8');
+}
+
+async function publishPreparedOcrCatalog(options: {
+    descriptorPath: string;
+    catalogRoot: string;
+    workingCopyPath: string;
+    nextRevisionToken: TDocumentRevisionToken;
+    resultPath: string;
+    resultIdentity: string;
+}) {
+    return publishPreparedOcrCatalogV4({
+        descriptor: options.descriptorPath,
+        catalogRoot: options.catalogRoot,
+        resultPath: options.resultPath,
+        resultIdentity: options.resultIdentity,
+        sourcePdfPath: options.workingCopyPath,
+        nextRevision: options.nextRevisionToken,
+        descriptorPath: options.descriptorPath,
+    });
+}
+
+async function rollbackPreparedOcrCatalog(descriptorPath: string, catalogRoot: string) {
+    await rollbackPreparedOcrCatalogV4(descriptorPath, {catalogRoot});
+}
+
+async function restorePreparedRootManifest(
+    catalogRoot: string,
+    backupPath: string,
+    backupExisted: boolean,
+) {
+    const manifestPath = `${catalogRoot}/manifest.json`;
+    if (!backupExisted) {
+        await rm(manifestPath, {force: true});
+        return;
+    }
+    await copyFileAtomic(backupPath, manifestPath);
+}
 
 function requireSenderId(context: IDocumentsSenderIdContext) {
     if (typeof context.senderId !== 'number') {
@@ -194,18 +373,54 @@ export async function handleReplaceWorkingCopyFromPath(
         const pdfBackupPath = `${resolvedWorkingCopyPath}.ocr-transition-${transitionSuffix}.bak`;
         const catalogPath = `${resolvedWorkingCopyPath}.ocr`;
         const stagedCatalogPath = `${resolvedSourcePath}.ocr`;
+        const stagedDescriptorPath = getOcrCatalogV4PreparedDescriptorPath(resolvedSourcePath);
         const catalogBackupPath = `${catalogPath}.transition-${transitionSuffix}.bak`;
+        const preparedDescriptor = await readPreparedOcrCatalogDescriptor(
+            stagedDescriptorPath,
+            resolvedSourcePath,
+            pendingResult.resultSha256,
+            catalogPath,
+        );
 
         await copyFileAtomic(resolvedWorkingCopyPath, pdfBackupPath);
-        let catalogBackupExisted = true;
+        let catalogBackupExisted = false;
+        let legacyCatalogBackupMode: TLegacyOcrCatalogTransferMode = 'missing';
+        let legacyCatalogApplyMode: Exclude<TLegacyOcrCatalogTransferMode, 'missing'> = 'copy';
+        let legacyCatalogBackupMoved = false;
         try {
-            await cp(catalogPath, catalogBackupPath, {recursive: true});
-        } catch (error) {
-            if (!isErrnoException(error) || error.code !== 'ENOENT') {
-                await unlink(pdfBackupPath).catch(() => undefined);
-                throw error;
+            if (preparedDescriptor) {
+                const previousManifest = await readExistingOcrCatalogManifest(catalogPath);
+                if (previousManifest !== null) {
+                    await writeFileAtomic(catalogBackupPath, previousManifest);
+                    catalogBackupExisted = true;
+                }
+            } else {
+                legacyCatalogBackupMode = await getLegacyOcrCatalogTransferMode(catalogPath);
+                catalogBackupExisted = legacyCatalogBackupMode !== 'missing';
+                legacyCatalogApplyMode = (await getLegacyOcrCatalogTransferMode(stagedCatalogPath)) === 'rename'
+                    ? 'rename'
+                    : 'copy';
+                if (legacyCatalogBackupMode === 'copy') {
+                    try {
+                        await cp(catalogPath, catalogBackupPath, {recursive: true});
+                    } catch (error) {
+                        if (!isErrnoException(error) || error.code !== 'ENOENT') {
+                            throw error;
+                        }
+                        catalogBackupExisted = false;
+                        legacyCatalogBackupMode = 'missing';
+                    }
+                }
             }
-            catalogBackupExisted = false;
+        } catch (error) {
+            await Promise.all([
+                unlink(pdfBackupPath).catch(() => undefined),
+                Promise.resolve(rm(catalogBackupPath, {
+                    recursive: true,
+                    force: true,
+                })).catch(() => undefined),
+            ]);
+            throw error;
         }
         await writeFile(journalPath, JSON.stringify({
             version: 1,
@@ -217,6 +432,14 @@ export async function handleReplaceWorkingCopyFromPath(
             pdfBackupPath,
             catalogBackupPath,
             catalogBackupExisted,
+            ...(!preparedDescriptor ? {
+                catalogBackupMode: legacyCatalogBackupMode,
+                catalogApplyMode: legacyCatalogApplyMode,
+            } : {}),
+            ...(preparedDescriptor ? {
+                catalogKind: 'v4-root',
+                descriptorPath: stagedDescriptorPath,
+            } : {}),
             createdAt: Date.now(),
         }), 'utf8');
         let transitionPublished = false;
@@ -237,28 +460,70 @@ export async function handleReplaceWorkingCopyFromPath(
                             pdfBackupPath,
                             catalogBackupPath,
                             catalogBackupExisted,
+                            ...(!preparedDescriptor ? {
+                                catalogBackupMode: legacyCatalogBackupMode,
+                                catalogApplyMode: legacyCatalogApplyMode,
+                            } : {}),
+                            ...(preparedDescriptor ? {
+                                catalogKind: 'v4-root',
+                                descriptorPath: stagedDescriptorPath,
+                            } : {}),
                             createdAt: Date.now(),
                         }), 'utf8');
                         await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
-                        await rm(catalogPath, {
-                            recursive: true,
-                            force: true,
-                        });
-                        await cp(stagedCatalogPath, catalogPath, {recursive: true});
-                        await rebindDocumentTextCatalogRevision(
-                            resolvedWorkingCopyPath,
-                            expectedDocumentRevisionToken,
-                            nextRevision.token,
-                        );
+                        if (preparedDescriptor) {
+                            await publishPreparedOcrCatalog({
+                                descriptorPath: stagedDescriptorPath,
+                                catalogRoot: catalogPath,
+                                workingCopyPath: resolvedWorkingCopyPath,
+                                nextRevisionToken: nextRevision.token,
+                                resultPath: resolvedSourcePath,
+                                resultIdentity: pendingResult.resultSha256,
+                            });
+                        } else {
+                            if (legacyCatalogBackupMode === 'rename') {
+                                await rename(catalogPath, catalogBackupPath);
+                                legacyCatalogBackupMoved = true;
+                            }
+                            await rm(catalogPath, {
+                                recursive: true,
+                                force: true,
+                            });
+                            if (legacyCatalogApplyMode === 'rename') {
+                                await rename(stagedCatalogPath, catalogPath);
+                            } else {
+                                await cp(stagedCatalogPath, catalogPath, {recursive: true});
+                            }
+                            await rebindDocumentTextCatalogRevision(
+                                resolvedWorkingCopyPath,
+                                expectedDocumentRevisionToken,
+                                nextRevision.token,
+                            );
+                        }
                         await clearWorkingCopySearchArtifacts(resolvedWorkingCopyPath);
                     } catch (error) {
                         await copyFileAtomic(pdfBackupPath, resolvedWorkingCopyPath).catch(() => undefined);
-                        await rm(catalogPath, {
-                            recursive: true,
-                            force: true,
-                        }).catch(() => undefined);
-                        if (catalogBackupExisted) {
-                            await cp(catalogBackupPath, catalogPath, {recursive: true}).catch(() => undefined);
+                        if (preparedDescriptor) {
+                            await restorePreparedRootManifest(
+                                catalogPath,
+                                catalogBackupPath,
+                                catalogBackupExisted,
+                            ).catch(() => undefined);
+                            await rollbackPreparedOcrCatalog(stagedDescriptorPath, catalogPath).catch(() => undefined);
+                        } else {
+                            if (legacyCatalogBackupMode !== 'rename' || legacyCatalogBackupMoved) {
+                                await rm(catalogPath, {
+                                    recursive: true,
+                                    force: true,
+                                }).catch(() => undefined);
+                            }
+                            if (catalogBackupExisted && (legacyCatalogBackupMode !== 'rename' || legacyCatalogBackupMoved)) {
+                                if (legacyCatalogBackupMode === 'rename') {
+                                    await rename(catalogBackupPath, catalogPath).catch(() => undefined);
+                                } else {
+                                    await cp(catalogBackupPath, catalogPath, {recursive: true}).catch(() => undefined);
+                                }
+                            }
                         }
                         throw error;
                     }
@@ -275,6 +540,14 @@ export async function handleReplaceWorkingCopyFromPath(
                 undoPdfPath: pdfBackupPath,
                 undoCatalogPath: catalogBackupPath,
                 undoCatalogExisted: catalogBackupExisted,
+                ...(!preparedDescriptor ? {
+                    catalogBackupMode: legacyCatalogBackupMode,
+                    catalogApplyMode: legacyCatalogApplyMode,
+                } : {}),
+                ...(preparedDescriptor ? {
+                    catalogKind: 'v4-root',
+                    descriptorPath: stagedDescriptorPath,
+                } : {}),
                 committedAt: Date.now(),
             }), 'utf8');
         } finally {

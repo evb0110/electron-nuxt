@@ -13,6 +13,44 @@ import {
     mixedOcrManifest,
 } from '@tests/fixtures/ocr/mixedDocumentCorpus';
 
+function isMockFile(path: string) {
+    return path.endsWith('manifest.json') || path.endsWith('page-0004.json');
+}
+
+function mockFileHandle(path: string) {
+    const text = path.endsWith('manifest.json')
+        ? JSON.stringify(mixedOcrManifest)
+        : path.endsWith('page-0004.json')
+            ? JSON.stringify(mixedEvbPage)
+            : '';
+    const contents = Buffer.from(text, 'utf8');
+    return {
+        close: vi.fn(async () => undefined),
+        read: vi.fn(async (
+            buffer: Buffer,
+            offset: number,
+            length: number,
+            position: number,
+        ) => {
+            const chunk = contents.subarray(position, position + length);
+            chunk.copy(buffer, offset);
+            return {
+                bytesRead: chunk.byteLength,
+                buffer,
+            };
+        }),
+        stat: vi.fn(async () => ({size: contents.byteLength})),
+    };
+}
+
+const openMock = vi.fn(async (path: string) => mockFileHandle(path));
+const lstatMock = vi.fn(async (path: string) => ({
+    isDirectory: () => path.endsWith('mixed-ocr-corpus.pdf.ocr'),
+    isFile: () => isMockFile(path),
+    isSymbolicLink: () => false,
+}));
+const realpathMock = vi.fn(async (path: string) => path);
+
 vi.mock('node:fs/promises', () => ({
     readFile: vi.fn(async (path: string) => {
         if (path.endsWith('manifest.json')) {
@@ -23,6 +61,9 @@ vi.mock('node:fs/promises', () => ({
         }
         throw new Error('ENOENT');
     }),
+    lstat: lstatMock,
+    open: openMock,
+    realpath: realpathMock,
     rename: vi.fn(),
     stat: vi.fn(async () => ({size: 1})),
     writeFile: vi.fn(),

@@ -59,13 +59,17 @@ describe('extractTextFromPdf cancellation', () => {
             'pdftotext',
             [
                 '-layout',
+                '-f',
+                '1',
+                '-l',
+                '2',
                 '/tmp/file.pdf',
                 '-',
             ],
             {
                 signal: controller.signal,
                 timeoutMs: 120000,
-                maxStdoutBytes: 67108864,
+                maxStdoutBytes: 8 * 1024 * 1024,
                 rejectOnStdoutTruncation: true,
             },
         );
@@ -120,7 +124,7 @@ describe('extractTextFromPdf cancellation', () => {
             ],
             {
                 timeoutMs: 120000,
-                maxStdoutBytes: 67108864,
+                maxStdoutBytes: 8 * 1024 * 1024,
                 rejectOnStdoutTruncation: true,
             },
         );
@@ -138,7 +142,7 @@ describe('extractTextFromPdf cancellation', () => {
             ],
             {
                 timeoutMs: 120000,
-                maxStdoutBytes: 67108864,
+                maxStdoutBytes: 8 * 1024 * 1024,
                 rejectOnStdoutTruncation: true,
             },
         );
@@ -171,12 +175,16 @@ describe('extractTextFromPdf cancellation', () => {
             exitCode: 0,
         });
 
-        await extractTextFromPdf('/tmp/file.pdf');
+        await extractTextFromPdf('/tmp/file.pdf', {pageCount: 1});
 
         expect(mocks.runCommand).toHaveBeenCalledWith(
             'pdftotext',
             [
                 '-layout',
+                '-f',
+                '1',
+                '-l',
+                '1',
                 '/tmp/file.pdf',
                 '-',
             ],
@@ -187,7 +195,7 @@ describe('extractTextFromPdf cancellation', () => {
                     FONTCONFIG_FILE: '/mock/poppler/etc/fonts/fonts.conf',
                 },
                 timeoutMs: 120000,
-                maxStdoutBytes: 67108864,
+                maxStdoutBytes: 8 * 1024 * 1024,
                 rejectOnStdoutTruncation: true,
             },
         );
@@ -199,7 +207,10 @@ describe('extractTextFromPdf cancellation', () => {
         mocks.runCommand.mockRejectedValue(abortError);
 
         await expect(
-            extractTextFromPdf('/tmp/file.pdf', {signal: new AbortController().signal}),
+            extractTextFromPdf('/tmp/file.pdf', {
+                pageCount: 1,
+                signal: new AbortController().signal,
+            }),
         ).rejects.toBe(abortError);
     });
 });

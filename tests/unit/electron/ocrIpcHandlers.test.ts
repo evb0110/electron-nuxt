@@ -15,9 +15,16 @@ const mocks = vi.hoisted(() => ({
     handleOcrCreateSearchablePdfAsync: vi.fn(),
     handleOcrCancel: vi.fn(),
     handleOcrAcknowledgeResultFile: vi.fn(),
+    getWorkingCopyBackingEntry: vi.fn(),
+    resolveDocumentOcrAvailability: vi.fn(),
+    resolveDocumentOcrPage: vi.fn(),
+    resolveDocumentTextCatalogSnapshot: vi.fn(),
+    resolveDocumentTextCatalogWindow: vi.fn(),
     resolveAllowedReadPath: vi.fn<(path: string) => Promise<string | null>>(),
+    runWithWorkingCopyReadBacking: vi.fn(),
     ensureWorkingCopyMaterialized: vi.fn(),
     requireManagedWorkingCopyPath: vi.fn<(path: string) => Promise<string>>(),
+    resolveAllowedWritePath: vi.fn<(path: string) => Promise<string | null>>(),
 }));
 
 vi.mock('electron', () => ({
@@ -32,8 +39,13 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
+vi.mock('@electron/utils/pathValidator', () => ({
+    resolveAllowedReadPath: mocks.resolveAllowedReadPath,
+    resolveAllowedWritePath: mocks.resolveAllowedWritePath,
+}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({requireManagedWorkingCopyPath: (path: string) => mocks.requireManagedWorkingCopyPath(path)}));
+vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyBackingEntry: mocks.getWorkingCopyBackingEntry}));
+vi.mock('@electron/file-access/runWithWorkingCopyReadBacking', () => ({runWithWorkingCopyReadBacking: (...args: unknown[]) => mocks.runWithWorkingCopyReadBacking(...args)}));
 vi.mock('@electron/file-access/workingCopyMaterialization', () => {
     class WorkingCopyMaterializationError extends Error {
         readonly code: string;
@@ -57,6 +69,12 @@ vi.mock('@electron/ocr/jobManager', () => ({
     handleOcrCancel: mocks.handleOcrCancel,
     handleOcrAcknowledgeResultFile: mocks.handleOcrAcknowledgeResultFile,
     subscribeManagedOcrProgress: vi.fn(),
+}));
+vi.mock('@electron/ocr/documentTextCatalog', () => ({
+    resolveDocumentOcrAvailability: (...args: unknown[]) => mocks.resolveDocumentOcrAvailability(...args),
+    resolveDocumentOcrPage: (...args: unknown[]) => mocks.resolveDocumentOcrPage(...args),
+    resolveDocumentTextCatalogSnapshot: (...args: unknown[]) => mocks.resolveDocumentTextCatalogSnapshot(...args),
+    resolveDocumentTextCatalogWindow: (...args: unknown[]) => mocks.resolveDocumentTextCatalogWindow(...args),
 }));
 
 const { ocrMainBindings } = await import('@electron/features/ocr/mainBindings');
@@ -95,6 +113,12 @@ describe('OCR platform feature main bindings', () => {
         mocks.handlers.clear();
         vi.clearAllMocks();
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/working-copy.pdf');
+        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/working-copy.pdf');
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(null);
+        mocks.runWithWorkingCopyReadBacking.mockImplementation(async (
+            _logicalPath: string,
+            operation: (physicalPath: string) => Promise<unknown>,
+        ) => operation('/Users/alice/Documents/source.pdf'));
         mocks.ensureWorkingCopyMaterialized.mockImplementation(async (path: string) => ({
             logicalRef: path,
             physicalWorkingCopyPath: path,
@@ -108,7 +132,73 @@ describe('OCR platform feature main bindings', () => {
         });
         mocks.handleOcrCancel.mockReturnValue({ canceled: true });
         mocks.handleOcrAcknowledgeResultFile.mockResolvedValue({ cleaned: true });
+        mocks.resolveDocumentOcrAvailability.mockResolvedValue({
+            pageCount: 0,
+            pageNumbers: [],
+        });
+        mocks.resolveDocumentOcrPage.mockResolvedValue({
+            pageCount: 0,
+            page: null,
+        });
+        mocks.resolveDocumentTextCatalogSnapshot.mockResolvedValue({pages: []});
+        mocks.resolveDocumentTextCatalogWindow.mockResolvedValue({pages: []});
         registerOcrFeatureHandlers();
+    });
+
+    it('keeps lazy OCR catalog reads on the logical path while using its physical backing', async () => {
+        const logicalPath = '/tmp/evb-working-copy/lazy.pdf';
+        const physicalPath = '/Users/alice/Documents/source.pdf';
+        const revision = 'ocr-revision';
+        mocks.requireManagedWorkingCopyPath.mockResolvedValue(logicalPath);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue({backingState: 'lazy-original'});
+        mocks.runWithWorkingCopyReadBacking.mockImplementation(async (
+            logicalRef: string,
+            operation: (physicalReadPath: string) => Promise<unknown>,
+            options: {ownerWebContentsId?: number},
+        ) => {
+            expect(logicalRef).toBe(logicalPath);
+            expect(options).toEqual({ownerWebContentsId: 31});
+            return operation(physicalPath);
+        });
+
+        const snapshotHandler = getHandler('ocr:resolveDocumentTextCatalog');
+        await snapshotHandler(
+            {sender: createMockSender(31)},
+            logicalPath,
+            revision,
+            1,
+        );
+
+        expect(mocks.resolveAllowedReadPath).not.toHaveBeenCalled();
+        expect(mocks.resolveAllowedWritePath).toHaveBeenCalledWith(logicalPath);
+        expect(mocks.resolveDocumentTextCatalogSnapshot).toHaveBeenCalledWith(
+            logicalPath,
+            revision,
+            1,
+            {sourcePdfPath: physicalPath},
+        );
+
+        const availabilityHandler = getHandler('ocr:resolveDocumentOcrAvailability');
+        await availabilityHandler(
+            {sender: createMockSender(31)},
+            logicalPath,
+            revision,
+        );
+        expect(mocks.resolveDocumentOcrAvailability).toHaveBeenCalledWith(logicalPath, revision);
+    });
+
+    it('rejects unmanaged OCR catalog paths', async () => {
+        mocks.requireManagedWorkingCopyPath.mockRejectedValue(new Error('not managed'));
+
+        const handler = getHandler('ocr:resolveDocumentTextCatalog');
+        await expect(handler(
+            {sender: createMockSender(32)},
+            '/Users/alice/Documents/unmanaged.pdf',
+            'ocr-revision',
+            1,
+        )).rejects.toThrow('sourcePdfPath is not a managed working copy: not managed');
+        expect(mocks.runWithWorkingCopyReadBacking).not.toHaveBeenCalled();
+        expect(mocks.resolveDocumentTextCatalogSnapshot).not.toHaveBeenCalled();
     });
 
     it('returns typed worker-unavailable envelope for missing OCR worker path', async () => {

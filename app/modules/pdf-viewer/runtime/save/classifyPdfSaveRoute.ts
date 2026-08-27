@@ -153,10 +153,21 @@ function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
     };
 }
 
+/**
+ * A persisted import can appear in dirtyAt while the saved semantic baseline
+ * is still being rebuilt around editor work. Revision equality means it is not
+ * authored work. Tombstones remain changes because page remaps can preserve
+ * their revision.
+ */
+function isActuallyChangedEntity(entity: AnnotationEntity) {
+    return entity.deleted || entity.revision !== entity.persistedRevision;
+}
+
 function summarizeCanonicalLiveChanges(plan: ISerializationPlan): IPdfLiveAnnotationChangeSummary {
     const ids = new Set<string>();
     const replayableEditorNoteIds = new Set<string>();
-    plan.expected.forEach((entity) => {
+    const changedEntities = plan.expected.filter(isActuallyChangedEntity);
+    changedEntities.forEach((entity) => {
         [
             entity.identity.id,
             entity.identity.elementId,
@@ -175,7 +186,7 @@ function summarizeCanonicalLiveChanges(plan: ISerializationPlan): IPdfLiveAnnota
         ids,
         replayableEditorNoteIds,
         nativeFreeTextEditors: new Map(),
-        hasChanges: plan.steps.length > 0,
+        hasChanges: changedEntities.length > 0,
         hasUnknownChanges: false,
         fingerprint: `frontier:${plan.frontier.epoch}:${plan.frontier.entityBaselineHash}:${Array.from(ids).sort().join(',')}`,
     };
@@ -286,7 +297,7 @@ function deriveCanonicalSaveInputs(
         .map(entitySummary);
     const pendingTexts = new Map<string, string>();
     const pendingDeletes: IAnnotationCommentSummary[] = [];
-    plan.expected.forEach((entity) => {
+    plan.expected.filter(isActuallyChangedEntity).forEach((entity) => {
         const summary = entitySummary(entity);
         if (entity.deleted) {
             pendingDeletes.push(summary);
@@ -437,7 +448,7 @@ function admitNativeAppendRoute(
  * owns what this save actually changes, so ask it instead.
  */
 function hasNonShapeAnnotationWork(plan: ISerializationPlan) {
-    return plan.expected.some(entity => entity.kind !== 'shape');
+    return plan.expected.some(entity => isActuallyChangedEntity(entity) && entity.kind !== 'shape');
 }
 
 function buildClassifiedNativeMutationProjection(
@@ -448,6 +459,9 @@ function buildClassifiedNativeMutationProjection(
     annotationRoute: IPdfViewerAnnotationSavePlan,
 ): INativePdfMutationProjection | TNativeSaveRouteRejection {
     const replayAllowed = annotationRoute.route === 'source-replay';
+    const changedComments = plan.entities
+        .filter(entity => !entity.deleted && isActuallyChangedEntity(entity))
+        .map(entitySummary);
     const noteTextUpdatesResult = replayAllowed && canonical.pendingTexts.size > 0
         ? buildNativeNoteTextUpdatesForSave({
             pendingTexts: canonical.pendingTexts,
@@ -455,7 +469,7 @@ function buildClassifiedNativeMutationProjection(
         })
         : null;
     const freeTextNotesResult = replayAllowed
-        ? buildNativeFreeTextNotesForSave({canonicalComments: canonical.comments})
+        ? buildNativeFreeTextNotesForSave({canonicalComments: changedComments})
         : null;
     const annotationDeletesResult = replayAllowed
         ? buildNativeAnnotationDeletesForSave({pendingDeletes: canonical.pendingDeletes})

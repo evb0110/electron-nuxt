@@ -461,8 +461,12 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
                     && (patch.overrides === undefined || Object.keys(patch.overrides).length === 0);
                 if (resetToEmptyOverrides) {
                     Reflect.deleteProperty(nextEntry, 'overrides');
+                    Reflect.deleteProperty(nextEntry, 'pageOverrideDefaults');
                 } else if (patch.overrides !== undefined) {
                     nextEntry.overrides = patch.overrides;
+                }
+                if (patch.pageOverrideDefaults !== undefined && !resetToEmptyOverrides) {
+                    nextEntry.pageOverrideDefaults = patch.pageOverrideDefaults;
                 }
                 if (patch.marginsMm !== undefined) {
                     nextEntry.marginsMm = patch.marginsMm;
@@ -471,6 +475,7 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
                     nextEntry.outputMode = patch.outputMode;
                 }
                 const hasDocumentValues = nextEntry.overrides !== undefined
+                    || nextEntry.pageOverrideDefaults !== undefined
                     || nextEntry.marginsMm !== undefined
                     || nextEntry.outputMode !== undefined;
                 if (hasDocumentValues) {

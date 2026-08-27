@@ -17,6 +17,13 @@ const createDocxFromTextMock = vi.hoisted(() => vi.fn(() => new Uint8Array([
     8,
     9,
 ])));
+const createDocxFromTextChunksMock = vi.hoisted(() => vi.fn(() => (async function* () {
+    yield new Uint8Array([
+        7,
+        8,
+        9,
+    ]);
+})()));
 const toastAddMock = vi.hoisted(() => vi.fn());
 const mockOcr = {
     onProgress: vi.fn(),
@@ -29,6 +36,7 @@ const mockOcr = {
 const mockDocuments = {
     saveDocxAs: vi.fn(),
     writeDocxFile: vi.fn(),
+    writeDocxFileChunks: vi.fn(),
     cleanupFile: vi.fn(),
     cleanupOcrTemp: vi.fn(),
     getDocumentRevision: vi.fn(),
@@ -47,6 +55,7 @@ vi.mock('@app/utils/platformDocuments', () => ({
 vi.mock('@app/utils/ocr/loadOcrText', () => ({loadDocumentTextCatalogPages: loadDocumentTextCatalogPagesMock}));
 vi.mock('@app/utils/ocr/extractPdfText', () => ({ extractPdfText: extractPdfTextMock }));
 vi.mock('@app/utils/docx', () => ({createDocxFromText: createDocxFromTextMock}));
+vi.mock('@app/utils/docxStreaming', () => ({createDocxFromTextChunks: createDocxFromTextChunksMock}));
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
 
 vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -495,6 +504,60 @@ describe('useOcr', () => {
         }
     });
 
+    it('dispatches a million-page all selection as a scalar and cancels before expansion', async () => {
+        interface IOcrCompleteTestResult {
+            requestId: string;
+            success: boolean;
+            pdfPath?: string;
+            requiresCleanupAck?: boolean;
+            errors: string[];
+        }
+        let completeHandler: ((result: IOcrCompleteTestResult) => void) | null = null;
+        mockOcr.onComplete.mockImplementation((handler) => {
+            completeHandler = handler;
+            return vi.fn();
+        });
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            ocr.settings.value = {
+                ...ocr.settings.value,
+                pageRange: 'all',
+            };
+            const runPromise = ocr.runOcr(1, 1_000_001, '/tmp/work.pdf');
+            await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
+
+            const call = mockOcr.createSearchablePdf.mock.calls[0] ?? [];
+            const pageSelection = call[1];
+            const requestId = call[2] as string;
+            expect(pageSelection).toEqual({
+                kind: 'all',
+                pageCount: 1_000_001,
+                languages: ['eng'],
+            });
+            expect(Array.isArray(pageSelection)).toBe(false);
+            expect(ocr.progress.value.totalPages).toBe(1_000_001);
+
+            await expect(ocr.cancelOcr()).resolves.toMatchObject({canceled: true});
+            const registeredCompleteHandler = mockOcr.onComplete.mock.calls[0]?.[0] ?? completeHandler;
+            if (!registeredCompleteHandler) {
+                throw new Error('OCR completion handler was not registered');
+            }
+            registeredCompleteHandler({
+                requestId,
+                success: false,
+                errors: ['OCR canceled'],
+            });
+            await runPromise;
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('rejects runs with no selected languages before dispatching to the backend', async () => {
         const scope = effectScope();
         const ocr = scope.run(() => useOcr());
@@ -696,7 +759,7 @@ describe('useOcr', () => {
             callOrder.push('saveDocxAs');
             return '/tmp/export.docx';
         });
-        mockDocuments.writeDocxFile.mockResolvedValueOnce(undefined);
+        mockDocuments.writeDocxFileChunks.mockResolvedValueOnce(undefined);
         mockDocuments.cleanupFile.mockResolvedValueOnce(undefined);
         loadDocumentTextCatalogPagesMock.mockImplementationOnce(async () => {
             callOrder.push('loadOcrText');
@@ -725,16 +788,13 @@ describe('useOcr', () => {
                 'revision-token',
                 undefined,
             );
-            expect(createDocxFromTextMock).toHaveBeenCalledWith('pdf text', false);
+            expect(createDocxFromTextChunksMock).toHaveBeenCalledWith(expect.anything(), false);
             expect(extractPdfTextMock).not.toHaveBeenCalled();
-            expect(mockDocuments.writeDocxFile).toHaveBeenCalledWith(
+            expect(mockDocuments.writeDocxFileChunks).toHaveBeenCalledWith(
                 '/tmp/export.docx',
-                new Uint8Array([
-                    7,
-                    8,
-                    9,
-                ]),
+                expect.anything(),
             );
+            expect(mockDocuments.writeDocxFile).not.toHaveBeenCalled();
             expect(mockDocuments.cleanupFile).not.toHaveBeenCalled();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'success',

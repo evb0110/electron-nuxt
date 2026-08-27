@@ -436,6 +436,57 @@ describe('useAnnotationToolState', () => {
         expect(read.unresolvedPageNumbers).toEqual([1]);
     });
 
+    it('bounds a sparse million-page presentation read to indexed and mounted pages', async () => {
+        const useAnnotationToolState = await loadUseAnnotationToolState();
+        const pageCount = 1_000_000;
+        const firstEditor = {
+            id: 'first-markup',
+            parentPageIndex: 0,
+            div: createMarkupElement(),
+        };
+        const lastEditor = {
+            id: 'last-markup',
+            parentPageIndex: pageCount - 1,
+            div: createMarkupElement(),
+        };
+        firstEditor.div.classList.add('highlightEditor');
+        lastEditor.div.classList.add('highlightEditor');
+        const visitedPages: number[] = [];
+        const uiManager = createUiManager({getEditors: vi.fn((pageIndex: number) => {
+            visitedPages.push(pageIndex);
+            return pageIndex === 0
+                ? [firstEditor]
+                : pageIndex === pageCount - 1
+                    ? [lastEditor]
+                    : [];
+        })});
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
+            currentPage: ref(500_000),
+            numPages: ref(pageCount),
+            getAnnotationPageIndexes: () => [
+                0,
+                pageCount - 1,
+            ],
+            getMountedPageNumbers: () => [
+                1,
+                pageCount,
+            ],
+            getEditorIdentity: (editor: {id?: string}) => editor.id ?? 'missing-id',
+        }));
+
+        const read = manager.readMarkupSubtypeEditorPresentation();
+
+        expect(read.editors.map(entry => entry.editor)).toEqual([
+            firstEditor,
+            lastEditor,
+        ]);
+        expect(visitedPages).toContain(0);
+        expect(visitedPages).toContain(pageCount - 1);
+        expect(visitedPages.length).toBeLessThan(40);
+        expect(visitedPages).not.toContain(1);
+        expect(visitedPages).not.toContain(pageCount - 2);
+    });
+
     it('updates selected highlights with an opaque display color and raw persisted color', async () => {
         const useAnnotationToolState = await loadUseAnnotationToolState();
         const highlightEditor = {

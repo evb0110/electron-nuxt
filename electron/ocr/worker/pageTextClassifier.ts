@@ -1,38 +1,16 @@
-import {
-    readFile,
-    stat,
-} from 'node:fs/promises';
-import {
-    decodePDFRawStream,
-    PDFArray,
-    PDFContentStream,
-    PDFDocument,
-    PDFName,
-    PDFRawStream,
-    PDFRef,
-    PDFStream,
-} from 'pdf-lib';
-import type {PDFPage} from 'pdf-lib';
+import {runOcrCommand} from '@electron/ocr/worker/runOcrCommand';
+import {isAbortError} from '@electron/utils/abort';
+import {getErrorMessage} from '@electron/utils/error';
 import type {
     TOcrPageTextClassification,
     TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
-import {
-    safePdfContextLookupStream,
-    safePdfDictLookupDict,
-    safePdfDictLookupName,
-    safePdfPageInheritableDict,
-} from '@pdf-core';
 
-const CONTENTS_NAME = PDFName.of('Contents');
-const RESOURCES_NAME = PDFName.of('Resources');
-const XOBJECT_NAME = PDFName.of('XObject');
-const SUBTYPE_NAME = PDFName.of('Subtype');
-const FORM_NAME = PDFName.of('Form');
 const TEXT_TOKEN_RE = /\bBT\b|\bET\b|(?:^|\s)([0-7])(?:\.0+)?\s+Tr\b|\b(Tj|TJ)\b|(?:^|\s)(['"])(?=\s|$)/gm;
-const OCR_TEXT_VISIBILITY_MAX_INPUT_BYTES = 64 * 1024 * 1024;
+const OCR_TEXT_VISIBILITY_MAX_PAGE_MAP_BYTES = 16 * 1024 * 1024;
 const OCR_TEXT_VISIBILITY_MAX_STREAM_BYTES = 4 * 1024 * 1024;
 const OCR_TEXT_VISIBILITY_MAX_PAGE_BYTES = 16 * 1024 * 1024;
+const OCR_TEXT_VISIBILITY_TIMEOUT_MS = 2 * 60 * 1000;
 
 export interface IOcrPageTextEvidence {
     classification: TOcrPageTextClassification;
@@ -45,67 +23,6 @@ export interface IOcrPageTextEvidence {
 export interface IOcrPdfTextVisibility {
     hasHiddenTextOperators: boolean;
     hasVisibleTextOperators: boolean;
-}
-
-function decodeStream(stream: PDFStream, maxBytes: number) {
-    const byteLimit = Math.max(0, Math.min(maxBytes, OCR_TEXT_VISIBILITY_MAX_STREAM_BYTES));
-    if (byteLimit === 0) {
-        throw new RangeError('OCR text-visibility decoded page budget reached');
-    }
-    let bytes: Uint8Array | Uint8ClampedArray;
-    if (stream instanceof PDFRawStream) {
-        bytes = decodePDFRawStream(stream).getBytes(byteLimit + 1);
-    } else if (stream instanceof PDFContentStream) {
-        bytes = stream.getUnencodedContents();
-    } else {
-        return '';
-    }
-    if (bytes.byteLength > byteLimit) {
-        throw new RangeError(`OCR text-visibility stream exceeds ${byteLimit} decoded bytes`);
-    }
-    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('latin1');
-}
-
-function resolvePageStreams(page: PDFPage) {
-    const streams: PDFStream[] = [];
-    const seen = new Set<PDFStream>();
-    const add = (stream: PDFStream | null) => {
-        if (stream && !seen.has(stream)) {
-            seen.add(stream);
-            streams.push(stream);
-        }
-    };
-    const contents = page.node.get(CONTENTS_NAME);
-    if (contents instanceof PDFStream) {
-        add(contents);
-    } else if (contents instanceof PDFRef) {
-        add(safePdfContextLookupStream(page.doc.context, contents));
-    } else if (contents instanceof PDFArray) {
-        for (let index = 0; index < contents.size(); index += 1) {
-            const item = contents.get(index);
-            if (item instanceof PDFStream) add(item);
-            if (item instanceof PDFRef) add(safePdfContextLookupStream(page.doc.context, item));
-        }
-    }
-
-    const resources = safePdfPageInheritableDict(page, RESOURCES_NAME);
-    const xObjects = resources ? safePdfDictLookupDict(resources, XOBJECT_NAME) : null;
-    if (xObjects) {
-        for (const key of xObjects.keys()) {
-            const value = xObjects.get(key);
-            const stream = value instanceof PDFStream
-                ? value
-                : value instanceof PDFRef
-                    ? safePdfContextLookupStream(page.doc.context, value)
-                    : null;
-            // Image XObjects cannot contain text operators. Decoding them here
-            // turned a cheap classification pass into full scan-image decode.
-            if (stream && safePdfDictLookupName(stream.dict, SUBTYPE_NAME) === FORM_NAME) {
-                add(stream);
-            }
-        }
-    }
-    return streams;
 }
 
 export function inspectPdfTextVisibility(streamSources: readonly string[]): IOcrPdfTextVisibility {
@@ -136,33 +53,129 @@ export function inspectPdfTextVisibility(streamSources: readonly string[]): IOcr
     };
 }
 
-export async function inspectPdfPageTextVisibility(
+export type TOcrPdfTextVisibilityAnalysis =
+    | {
+        status: 'available';
+        visibility: Map<number, IOcrPdfTextVisibility>;
+    }
+    | {
+        status: 'degraded';
+        reason: 'qpdf-unavailable' | 'qpdf-failed';
+        message: string;
+        visibility: Map<number, IOcrPdfTextVisibility>;
+    };
+
+interface IOcrQpdfPage {contentObjects: string[]}
+
+function abortIfRequested(signal?: AbortSignal) {
+    if (!signal?.aborted) {
+        return;
+    }
+    throw signal.reason instanceof Error ? signal.reason : new Error('OCR job aborted');
+}
+
+function parseQpdfPageMap(output: string, requestedPageNumbers: ReadonlySet<number>) {
+    const pages = new Map<number, IOcrQpdfPage>();
+    let currentPage: IOcrQpdfPage | null = null;
+    let readingContents = false;
+
+    for (const line of output.split(/\r?\n/u)) {
+        const pageMatch = /^page\s+(\d+):\s+(\d+)\s+(\d+)\s+R\s*$/u.exec(line);
+        if (pageMatch) {
+            const pageNumber = Number(pageMatch[1]);
+            currentPage = requestedPageNumbers.has(pageNumber)
+                ? {contentObjects: []}
+                : null;
+            if (currentPage) {
+                pages.set(pageNumber, currentPage);
+            }
+            readingContents = false;
+            continue;
+        }
+        if (currentPage === null) {
+            continue;
+        }
+        if (line.trim() === 'content:') {
+            readingContents = true;
+            continue;
+        }
+        if (!readingContents) {
+            continue;
+        }
+        const contentMatch = /^\s+(\d+)\s+(\d+)\s+R\s*$/u.exec(line);
+        if (contentMatch) {
+            currentPage.contentObjects.push(`${contentMatch[1]},${contentMatch[2]}`);
+            continue;
+        }
+        if (line.trim().length > 0 && !/^\s/u.test(line)) {
+            readingContents = false;
+        }
+    }
+
+    for (const pageNumber of requestedPageNumbers) {
+        if (!pages.has(pageNumber)) {
+            throw new Error(`qpdf did not report requested page ${pageNumber}`);
+        }
+    }
+    return pages;
+}
+
+async function inspectPdfPageTextVisibilityWithQpdf(
     pdfPath: string,
     pageNumbers: readonly number[],
+    qpdfBinary: string,
     signal?: AbortSignal,
 ): Promise<Map<number, IOcrPdfTextVisibility>> {
-    if (signal?.aborted) {
-        throw signal.reason;
+    abortIfRequested(signal);
+    const requestedPageNumbers = new Set(pageNumbers);
+    if (requestedPageNumbers.size === 0) {
+        return new Map();
     }
-    const fileStat = await stat(pdfPath);
-    if (fileStat.size > OCR_TEXT_VISIBILITY_MAX_INPUT_BYTES) {
-        throw new RangeError(
-            `OCR text-visibility inspection is limited to ${OCR_TEXT_VISIBILITY_MAX_INPUT_BYTES} input bytes`,
-        );
-    }
-    const pdf = await PDFDocument.load(await readFile(pdfPath), {ignoreEncryption: true});
-    const evidence = new Map<number, ReturnType<typeof inspectPdfTextVisibility>>();
+    const pageMapResult = await runOcrCommand(qpdfBinary, [
+        '--show-pages',
+        '--',
+        pdfPath,
+    ], {
+        commandLabel: 'qpdf(ocr-text-visibility-pages)',
+        timeoutMs: OCR_TEXT_VISIBILITY_TIMEOUT_MS,
+        maxStdoutBytes: OCR_TEXT_VISIBILITY_MAX_PAGE_MAP_BYTES,
+        rejectOnStdoutTruncation: true,
+        ...(signal ? {signal} : {}),
+    });
+    const pageMap = parseQpdfPageMap(pageMapResult.stdout, requestedPageNumbers);
+    const evidence = new Map<number, IOcrPdfTextVisibility>();
+
     for (const pageNumber of pageNumbers) {
-        if (signal?.aborted) {
-            throw signal.reason;
+        abortIfRequested(signal);
+        if (evidence.has(pageNumber)) {
+            continue;
         }
-        const page = pdf.getPage(pageNumber - 1);
+        const page = pageMap.get(pageNumber);
+        if (!page) {
+            throw new Error(`qpdf did not report requested page ${pageNumber}`);
+        }
         let remainingBytes = OCR_TEXT_VISIBILITY_MAX_PAGE_BYTES;
         const sources: string[] = [];
-        for (const stream of resolvePageStreams(page)) {
-            const source = decodeStream(stream, remainingBytes);
-            remainingBytes -= source.length;
-            sources.push(source);
+        for (const objectReference of page.contentObjects) {
+            abortIfRequested(signal);
+            const byteLimit = Math.min(remainingBytes, OCR_TEXT_VISIBILITY_MAX_STREAM_BYTES);
+            if (byteLimit <= 0) {
+                throw new RangeError(`OCR text-visibility page ${pageNumber} exceeds the ${OCR_TEXT_VISIBILITY_MAX_PAGE_BYTES}-byte decoded budget`);
+            }
+            const streamResult = await runOcrCommand(qpdfBinary, [
+                '--filtered-stream-data',
+                `--show-object=${objectReference}`,
+                '--',
+                pdfPath,
+            ], {
+                commandLabel: 'qpdf(ocr-text-visibility-stream)',
+                timeoutMs: OCR_TEXT_VISIBILITY_TIMEOUT_MS,
+                maxStdoutBytes: byteLimit,
+                rejectOnStdoutTruncation: true,
+                ...(signal ? {signal} : {}),
+            });
+            sources.push(streamResult.stdout);
+            remainingBytes -= Buffer.byteLength(streamResult.stdout, 'utf8');
             const visibility = inspectPdfTextVisibility(sources);
             if (visibility.hasHiddenTextOperators && visibility.hasVisibleTextOperators) {
                 break;
@@ -171,6 +184,43 @@ export async function inspectPdfPageTextVisibility(
         evidence.set(pageNumber, inspectPdfTextVisibility(sources));
     }
     return evidence;
+}
+
+export async function inspectPdfPageTextVisibility(
+    pdfPath: string,
+    pageNumbers: readonly number[],
+    qpdfBinary?: string,
+    signal?: AbortSignal,
+): Promise<TOcrPdfTextVisibilityAnalysis> {
+    if (qpdfBinary === undefined) {
+        return {
+            status: 'degraded',
+            reason: 'qpdf-unavailable',
+            message: 'qpdf is unavailable; hidden OCR layers could not be inspected',
+            visibility: new Map(),
+        };
+    }
+    try {
+        return {
+            status: 'available',
+            visibility: await inspectPdfPageTextVisibilityWithQpdf(
+                pdfPath,
+                pageNumbers,
+                qpdfBinary,
+                signal,
+            ),
+        };
+    } catch (error) {
+        if (isAbortError(error) || signal?.aborted) {
+            throw error;
+        }
+        return {
+            status: 'degraded',
+            reason: 'qpdf-failed',
+            message: `qpdf text-visibility inspection failed; hidden OCR layers could not be inspected: ${getErrorMessage(error)}`,
+            visibility: new Map(),
+        };
+    }
 }
 
 export function classifyOcrPageText(input: {

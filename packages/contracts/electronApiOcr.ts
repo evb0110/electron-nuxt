@@ -59,6 +59,65 @@ export interface IOcrRecognizeRequest {
     imageHeight?: number;
 }
 
+/** A single page request sent to the OCR worker. */
+export interface IOcrSearchablePdfPage {
+    pageNumber: number;
+    languages: string[];
+}
+
+/** A scalar contiguous page span. The span is expanded only in bounded worker batches. */
+export interface IOcrSearchablePdfPageRange {
+    firstPage: number;
+    lastPage: number;
+}
+
+/**
+ * Page selections are deliberately serializable. Do not replace these with a
+ * JavaScript iterator in the IPC contract. An iterator would be eagerly
+ * cloned by Electron and would put the old whole-document allocation back in
+ * the renderer/main-process boundary.
+ */
+export interface IOcrSearchablePdfAllPagesSelection {
+    kind: 'all';
+    pageCount: number;
+    languages: string[];
+}
+
+export interface IOcrSearchablePdfRangeSelection {
+    kind: 'range';
+    firstPage: number;
+    lastPage: number;
+    languages: string[];
+}
+
+export interface IOcrSearchablePdfRangesSelection {
+    kind: 'ranges';
+    ranges: IOcrSearchablePdfPageRange[];
+    languages: string[];
+}
+
+export interface IOcrSearchablePdfPagesSelection {
+    kind: 'pages';
+    pages: IOcrSearchablePdfPage[];
+}
+
+export type TOcrSearchablePdfPageSelection =
+    | IOcrSearchablePdfAllPagesSelection
+    | IOcrSearchablePdfRangeSelection
+    | IOcrSearchablePdfRangesSelection
+    | IOcrSearchablePdfPagesSelection;
+
+/**
+ * The legacy array form remains valid for current/sparse selections. New
+ * all-page and contiguous-range requests use the scalar forms above.
+ */
+export type TOcrSearchablePdfPages = IOcrSearchablePdfPage[] | TOcrSearchablePdfPageSelection;
+
+/** Aliases used by worker-side code and callers that refer to page plans. */
+export type IOcrPageRequest = IOcrSearchablePdfPage;
+export type IOcrPageRange = IOcrSearchablePdfPageRange;
+export type TOcrPageSelection = TOcrSearchablePdfPageSelection;
+
 export type TOcrQualityProfile = 'balanced' | 'accurate' | 'poor-scan';
 export type TOcrPreprocessingMode = 'off' | 'clean';
 export type TOcrTextSupersessionPolicy = 'missing-only' | 'replace-evb' | 'replace-all';

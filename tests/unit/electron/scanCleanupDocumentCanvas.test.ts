@@ -9,6 +9,9 @@ import type {
     TScanCleanupLayoutByPage,
 } from '@contracts/electronApiScanCleanup';
 import {
+    addScanCleanupDocumentCanvasObservedPage,
+    addScanCleanupDocumentCanvasPage,
+    createScanCleanupDocumentCanvasAccumulator,
     fitScanCleanupMarginAxisPx,
     isScanCleanupPaperLargerThanCanvas,
     orientScanCleanupInsetsToPageSpace,
@@ -17,6 +20,7 @@ import {
     resolveScanCleanupCanvasGridAtDpi,
     resolveScanCleanupDocumentCanvasRenderDpi,
     resolveScanCleanupDocumentCanvas,
+    resolveScanCleanupDocumentCanvasFromAccumulator,
     resolveScanCleanupDroppedMatchWarningEvent,
     resolveScanCleanupMatchedCanvasPlacement,
     resolveScanCleanupOutputPaperPixels,
@@ -84,6 +88,46 @@ const spread = page({
 });
 
 describe('scan cleanup document canvas', () => {
+    describe('bounded accumulator', () => {
+        it('keeps an all-unknown or partially observed document on whole sheets', () => {
+            const pages = [
+                page({
+                    pageNumber: 1,
+                    widthPoints: 400,
+                    heightPoints: 200,
+                }),
+                page({
+                    pageNumber: 2,
+                    widthPoints: 200,
+                    heightPoints: 200,
+                }),
+            ];
+            const accumulator = createScanCleanupDocumentCanvasAccumulator();
+            for (const pageSize of pages) {
+                addScanCleanupDocumentCanvasPage(accumulator, pageSize, options);
+            }
+
+            const legacyCanvas = resolveScanCleanupDocumentCanvas(pages, 150, options, {});
+            expect(resolveScanCleanupDocumentCanvasFromAccumulator(
+                accumulator,
+                150,
+                options,
+            )).toEqual(legacyCanvas);
+
+            addScanCleanupDocumentCanvasObservedPage(
+                accumulator,
+                pages[0]!,
+                options,
+                'two-page-spread',
+            );
+            expect(resolveScanCleanupDocumentCanvasFromAccumulator(
+                accumulator,
+                150,
+                options,
+            )).toEqual(legacyCanvas);
+        });
+    });
+
     it.each([
         0,
         -1,

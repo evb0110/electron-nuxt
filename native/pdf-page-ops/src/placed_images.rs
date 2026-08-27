@@ -498,7 +498,7 @@ pub(crate) fn apply_placed_images_incremental(
         let page_id = resolve_page_id(&page_map, page_number)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
         {
-            entry.insert(build_page_annotation_index(incremental.get_prev_documents(), page_id)?.0);
+            entry.insert(build_incremental_page_annotation_index(incremental, page_id)?.0);
         }
         image_pages.push(page_id);
     }

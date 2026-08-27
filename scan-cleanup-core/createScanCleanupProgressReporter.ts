@@ -4,6 +4,7 @@ import type {
     TScanCleanupSummary,
     TScanCleanupSummaryWarningEvent,
 } from '@contracts/electronApiScanCleanup';
+import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 
 import {formatScanCleanupWarningEvent} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 
@@ -15,6 +16,22 @@ export type TEmitScanCleanupProgress = (
     totalUnits: number,
     completedPageNumbers?: Iterable<number>,
 ) => void;
+
+function materializeCompletedPageNumbers(completedPageNumbers: Iterable<number>) {
+    const pageNumbers: number[] = [];
+    let truncated = false;
+    for (const pageNumber of completedPageNumbers) {
+        if (pageNumbers.length >= SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES) {
+            truncated = true;
+            break;
+        }
+        pageNumbers.push(pageNumber);
+    }
+    return {
+        pageNumbers,
+        truncated,
+    };
+}
 
 export function createEmptyScanCleanupSummary(
     inputPages: number,
@@ -283,6 +300,9 @@ export function createScanCleanupProgressReporter(
                 : Math.min(lastEtaSeconds, estimatedSeconds);
             lastEtaSeconds = etaSeconds;
         }
+        const completedPageSnapshot = completedPageNumbers === undefined
+            ? undefined
+            : materializeCompletedPageNumbers(completedPageNumbers);
         callback({
             stage,
             completedUnits,
@@ -293,7 +313,12 @@ export function createScanCleanupProgressReporter(
                 stageCount: profile.weights.length,
             }),
             ...(etaSeconds === undefined ? {} : {etaSeconds}),
-            ...(completedPageNumbers ? {completedPageNumbers: [...completedPageNumbers]} : {}),
+            ...(completedPageSnapshot === undefined
+                ? {}
+                : {
+                    completedPageNumbers: completedPageSnapshot.pageNumbers,
+                    ...(completedPageSnapshot.truncated ? {completedPageNumbersTruncated: true} : {}),
+                }),
         });
     };
 }

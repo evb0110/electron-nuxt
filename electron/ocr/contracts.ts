@@ -4,27 +4,27 @@ import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { isOneOf } from '@contracts/runtimeGuards';
 import type {
     IOcrErrorEnvelope,
+    IOcrSearchablePdfPage,
+    IOcrSearchablePdfPageRange,
     IOcrSearchablePdfOptions,
+    TOcrSearchablePdfPages,
     TOcrPreprocessingMode,
     TOcrErrorCode,
     TOcrQualityProfile,
 } from '@contracts/electronApiOcr';
 
-interface IOcrCreatePdfPageRequest {
-    pageNumber: number;
-    languages: string[];
-}
-
 interface IOcrCreateSearchablePdfPayload {
     sourcePdfPath: string;
-    pages: IOcrCreatePdfPageRequest[];
+    pages: TOcrSearchablePdfPages;
     requestId: string;
     options: IOcrSearchablePdfOptions;
 }
 
-const MAX_PAGE_NUMBER = 1_000_000;
 const MAX_LANGUAGES_PER_PAGE = 16;
 const MAX_BATCH_PAGES = 5_000;
+const OCR_PAGE_REQUEST_BATCH_SIZE = MAX_BATCH_PAGES;
+const MAX_SELECTION_RANGES = 100_000;
+const MAX_EXPLICIT_PAGE_REQUESTS = 100_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ERROR_DETAILS_LENGTH = 512;
 const MAX_TESSERACT_PSM = 13;
@@ -43,6 +43,123 @@ const MAX_UNIQUE_LANGUAGES_PER_JOB = parseIntegerEnv(
     1,
     AVAILABLE_OCR_LANGUAGE_CODES.size,
 );
+
+export interface IOcrPageRange extends IOcrSearchablePdfPageRange {
+    firstPage: number;
+    lastPage: number;
+}
+
+export function getOcrPageSelectionCount(selection: TOcrSearchablePdfPages) {
+    if (Array.isArray(selection)) {
+        return selection.length;
+    }
+    switch (selection.kind) {
+        case 'all':
+            return selection.pageCount;
+        case 'range':
+            return selection.lastPage - selection.firstPage + 1;
+        case 'ranges':
+            return selection.ranges.reduce(
+                (count, pageRange) => count + pageRange.lastPage - pageRange.firstPage + 1,
+                0,
+            );
+        case 'pages':
+            return selection.pages.length;
+    }
+}
+
+/**
+ * Expands a scalar selection into bounded arrays suitable for one worker
+ * iteration. At most MAX_BATCH_PAGES page objects exist at any point.
+ */
+export function* iterateOcrPageRequestBatches(
+    selection: TOcrSearchablePdfPages,
+    chunkPages = OCR_PAGE_REQUEST_BATCH_SIZE,
+): Generator<IOcrSearchablePdfPage[]> {
+    assertPositiveSafeInteger(chunkPages, 'chunkPages');
+    if (chunkPages > MAX_BATCH_PAGES) {
+        throw new OcrPayloadValidationError(`chunkPages exceeds maximum size (${MAX_BATCH_PAGES})`);
+    }
+    if (Array.isArray(selection)) {
+        for (let offset = 0; offset < selection.length; offset += chunkPages) {
+            yield selection.slice(offset, offset + chunkPages);
+        }
+        return;
+    }
+
+    if (selection.kind === 'pages') {
+        for (let offset = 0; offset < selection.pages.length; offset += chunkPages) {
+            yield selection.pages.slice(offset, offset + chunkPages);
+        }
+        return;
+    }
+
+    const ranges = selection.kind === 'all'
+        ? [{
+            firstPage: 1,
+            lastPage: selection.pageCount,
+        }]
+        : selection.kind === 'range'
+            ? [{
+                firstPage: selection.firstPage,
+                lastPage: selection.lastPage,
+            }]
+            : selection.ranges;
+    const languages = [...selection.languages];
+    let batch: IOcrSearchablePdfPage[] = [];
+    for (const pageRange of ranges) {
+        for (let offset = 0; offset <= pageRange.lastPage - pageRange.firstPage; offset += 1) {
+            const pageNumber = pageRange.firstPage + offset;
+            batch.push({
+                pageNumber,
+                languages,
+            });
+            if (batch.length === chunkPages) {
+                yield batch;
+                batch = [];
+            }
+        }
+    }
+    if (batch.length > 0) {
+        yield batch;
+    }
+}
+
+function assertPositiveSafeInteger(value: number, fieldName: string) {
+    if (!Number.isSafeInteger(value) || value < 1) {
+        throw new OcrPayloadValidationError(`${fieldName} must be a positive safe integer`);
+    }
+}
+
+/**
+ * Yields bounded page ranges without materializing a range for every page.
+ * Keep this independent of request-window budgets. It plans a document span,
+ * while individual page numbers only need to remain safely representable.
+ */
+export function* iterateOcrPageRanges(
+    pageCount: number,
+    chunkPages = OCR_PAGE_REQUEST_BATCH_SIZE,
+): Generator<IOcrPageRange> {
+    assertPositiveSafeInteger(pageCount, 'pageCount');
+    assertPositiveSafeInteger(chunkPages, 'chunkPages');
+    if (chunkPages > MAX_BATCH_PAGES) {
+        throw new OcrPayloadValidationError(`chunkPages exceeds maximum size (${MAX_BATCH_PAGES})`);
+    }
+
+    let firstPage = 1;
+    while (firstPage <= pageCount) {
+        const pageSpan = Math.min(chunkPages, pageCount - firstPage + 1);
+        const lastPage = firstPage + pageSpan - 1;
+        yield {
+            firstPage,
+            lastPage,
+        };
+        if (lastPage === pageCount) {
+            return;
+        }
+        firstPage = lastPage + 1;
+    }
+}
 
 export class OcrPayloadValidationError extends Error {
     readonly code: TOcrErrorCode;
@@ -77,11 +194,8 @@ function asString(value: unknown, fieldName: string, maxLength = 1_024) {
 }
 
 function asPositiveInteger(value: unknown, fieldName: string) {
-    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
-        throw new OcrPayloadValidationError(`${fieldName} must be a positive integer`);
-    }
-    if (value > MAX_PAGE_NUMBER) {
-        throw new OcrPayloadValidationError(`${fieldName} exceeds maximum value (${MAX_PAGE_NUMBER})`);
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+        throw new OcrPayloadValidationError(`${fieldName} must be a positive safe integer`);
     }
     return value;
 }
@@ -124,7 +238,7 @@ function asOptionalPageSegmentationMode(value: unknown, fieldName: string) {
     if (value === null || value === undefined) {
         return undefined;
     }
-    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > MAX_TESSERACT_PSM) {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > MAX_TESSERACT_PSM) {
         throw new OcrPayloadValidationError(`${fieldName} must be an integer between 0 and ${MAX_TESSERACT_PSM}`);
     }
     return value;
@@ -214,15 +328,20 @@ function assertUniqueLanguageBudget(
     pages: Array<{ languages: string[] }>,
     fieldName: string,
 ) {
-    const uniqueLanguages = uniq(pages.flatMap(page => page.languages));
-    if (uniqueLanguages.length > MAX_UNIQUE_LANGUAGES_PER_JOB) {
-        throw new OcrPayloadValidationError(
-            `${fieldName} exceed maximum unique language count (${MAX_UNIQUE_LANGUAGES_PER_JOB})`,
-        );
+    const uniqueLanguages = new Set<string>();
+    for (const page of pages) {
+        for (const language of page.languages) {
+            uniqueLanguages.add(language);
+            if (uniqueLanguages.size > MAX_UNIQUE_LANGUAGES_PER_JOB) {
+                throw new OcrPayloadValidationError(
+                    `${fieldName} exceed maximum unique language count (${MAX_UNIQUE_LANGUAGES_PER_JOB})`,
+                );
+            }
+        }
     }
 }
 
-function asCreatePdfPageRequest(payload: unknown, fieldName: string): IOcrCreatePdfPageRequest {
+function asCreatePdfPageRequest(payload: unknown, fieldName: string): IOcrSearchablePdfPage {
     if (!payload || typeof payload !== 'object') {
         throw new OcrPayloadValidationError(`${fieldName} must be an object`);
     }
@@ -238,20 +357,117 @@ function asRequestId(value: unknown, fieldName: string) {
     return asString(value, fieldName, MAX_REQUEST_ID_LENGTH);
 }
 
-function asPagesArray<T extends { languages: string[] }>(
+function asPageRange(payload: unknown, fieldName: string): IOcrSearchablePdfPageRange {
+    if (!isObjectRecord(payload)) {
+        throw new OcrPayloadValidationError(`${fieldName} must be an object`);
+    }
+    const firstPage = asPositiveInteger(payload.firstPage, `${fieldName}.firstPage`);
+    const lastPage = asPositiveInteger(payload.lastPage, `${fieldName}.lastPage`);
+    if (lastPage < firstPage) {
+        throw new OcrPayloadValidationError(`${fieldName}.lastPage must be greater than or equal to firstPage`);
+    }
+    return {
+        firstPage,
+        lastPage,
+    };
+}
+
+function asSelectionKind(payload: Record<string, unknown>, fieldName: string) {
+    const rawKind = payload.kind ?? payload.mode ?? payload.type;
+    if (rawKind !== 'all' && rawKind !== 'range' && rawKind !== 'ranges' && rawKind !== 'pages') {
+        throw new OcrPayloadValidationError(`${fieldName}.kind must be all, range, ranges, or pages`);
+    }
+    return rawKind;
+}
+
+function asSearchablePdfPageSelection(
     pagesPayload: unknown,
     fieldName: string,
-    mapPage: (page: unknown, itemFieldName: string) => T,
-): T[] {
-    if (!Array.isArray(pagesPayload) || pagesPayload.length === 0) {
-        throw new OcrPayloadValidationError(`${fieldName} must be a non-empty array`);
+): TOcrSearchablePdfPages {
+    if (Array.isArray(pagesPayload)) {
+        if (pagesPayload.length === 0) {
+            throw new OcrPayloadValidationError(`${fieldName} must be a non-empty array`);
+        }
+        if (pagesPayload.length > MAX_EXPLICIT_PAGE_REQUESTS) {
+            throw new OcrPayloadValidationError(`${fieldName} exceeds maximum size (${MAX_EXPLICIT_PAGE_REQUESTS})`);
+        }
+        const pages = pagesPayload.map((page, index) =>
+            asCreatePdfPageRequest(page, `${fieldName}[${index}]`));
+        assertUniqueLanguageBudget(pages, fieldName);
+        return pages;
     }
-    if (pagesPayload.length > MAX_BATCH_PAGES) {
-        throw new OcrPayloadValidationError(`${fieldName} exceeds maximum size (${MAX_BATCH_PAGES})`);
+
+    if (!isObjectRecord(pagesPayload)) {
+        throw new OcrPayloadValidationError(`${fieldName} must be a non-empty array or scalar selection object`);
     }
-    const pages = pagesPayload.map((page, index) => mapPage(page, `${fieldName}[${index}]`));
-    assertUniqueLanguageBudget(pages, fieldName);
-    return pages;
+
+    // Accept a request wrapper as well as the direct selection form. This
+    // keeps the IPC boundary forwards-compatible with callers that add
+    // request metadata around the page scope.
+    const wrappedSelection = pagesPayload.selection;
+    if (wrappedSelection !== undefined) {
+        return asSearchablePdfPageSelection(wrappedSelection, `${fieldName}.selection`);
+    }
+    const wrappedPages = pagesPayload.pages;
+    if (wrappedPages !== undefined && pagesPayload.kind === undefined && pagesPayload.mode === undefined && pagesPayload.type === undefined) {
+        return asSearchablePdfPageSelection(wrappedPages, `${fieldName}.pages`);
+    }
+
+    const kind = asSelectionKind(pagesPayload, fieldName);
+    if (kind === 'pages') {
+        return asSearchablePdfPageSelection(pagesPayload.pages, `${fieldName}.pages`);
+    }
+
+    const languages = asLanguages(pagesPayload.languages, `${fieldName}.languages`);
+    if (kind === 'all') {
+        const pageCount = asPositiveInteger(pagesPayload.pageCount, `${fieldName}.pageCount`);
+        return {
+            kind: 'all',
+            pageCount,
+            languages,
+        };
+    }
+    if (kind === 'range') {
+        const pageRange = asPageRange(pagesPayload, fieldName);
+        return {
+            kind: 'range',
+            ...pageRange,
+            languages,
+        };
+    }
+
+    const rawRanges = pagesPayload.ranges;
+    if (!Array.isArray(rawRanges) || rawRanges.length === 0) {
+        throw new OcrPayloadValidationError(`${fieldName}.ranges must be a non-empty array`);
+    }
+    if (rawRanges.length > MAX_SELECTION_RANGES) {
+        throw new OcrPayloadValidationError(`${fieldName}.ranges exceeds maximum size (${MAX_SELECTION_RANGES})`);
+    }
+    const ranges = rawRanges.map((pageRange, index) =>
+        asPageRange(pageRange, `${fieldName}.ranges[${index}]`));
+    ranges.sort((left, right) => left.firstPage - right.firstPage || left.lastPage - right.lastPage);
+    const mergedRanges: IOcrSearchablePdfPageRange[] = [];
+    for (const pageRange of ranges) {
+        const previous = mergedRanges.at(-1);
+        if (previous && pageRange.firstPage <= previous.lastPage + 1) {
+            previous.lastPage = Math.max(previous.lastPage, pageRange.lastPage);
+        } else {
+            mergedRanges.push({...pageRange});
+        }
+    }
+    let pageCount = 0;
+    for (const pageRange of mergedRanges) {
+        const span = pageRange.lastPage - pageRange.firstPage + 1;
+        if (pageCount > Number.MAX_SAFE_INTEGER - span) {
+            throw new OcrPayloadValidationError(`${fieldName}.ranges page count exceeds safe integer range`);
+        }
+        pageCount += span;
+    }
+    return {
+        kind: 'ranges',
+        ranges: mergedRanges,
+        languages,
+    };
 }
 
 export function validateCreateSearchablePdfPayload(
@@ -260,7 +476,7 @@ export function validateCreateSearchablePdfPayload(
     requestIdPayload: unknown,
     renderDpiOrOptionsPayload?: unknown,
 ): IOcrCreateSearchablePdfPayload {
-    const pages = asPagesArray(pagesPayload, 'pages', asCreatePdfPageRequest);
+    const pages = asSearchablePdfPageSelection(pagesPayload, 'pages');
     return {
         sourcePdfPath: asString(sourcePdfPathPayload, 'sourcePdfPath', 4_096),
         pages,

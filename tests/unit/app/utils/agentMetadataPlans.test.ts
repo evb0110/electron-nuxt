@@ -125,6 +125,88 @@ describe('agentMetadataPlans', () => {
         expect(snapshot.issues).toEqual(expect.arrayContaining([expect.objectContaining({code: 'repeated_literal_label_range'})]));
     });
 
+    it('keeps million-page agent plans range-based and reports a bounded diff', () => {
+        const totalPages = 1_000_000;
+        const plan = createAgentPageLabelPlan({
+            input: {segments: [{
+                startPage: 400_000,
+                endPage: 400_010,
+                style: 'roman-lower',
+                prefix: 'Section ',
+                startNumber: 1,
+            }]},
+            totalPages,
+            currentRanges: DEFAULT_RANGES,
+            currentLabels: null,
+            dirty: false,
+            actionId: 'page_labels.preview',
+        });
+
+        expect(plan.proposed.labels).toBeNull();
+        expect(plan.ranges).toHaveLength(3);
+        expect(plan.proposed.summary.firstLabel).toBe('1');
+        expect(plan.proposed.summary.lastLabel).toBe(String(totalPages));
+        expect(plan.diff).toMatchObject({
+            wouldChange: true,
+            changedPageCount: 11,
+            firstChangedPage: 400_000,
+            lastChangedPage: 400_010,
+        });
+        expect(plan.proposed.segments).toEqual(expect.arrayContaining([expect.objectContaining({
+            startPage: 400_000,
+            endPage: 400_010,
+            startLabel: 'Section i',
+            endLabel: 'Section xi',
+        })]));
+    });
+
+    it('keeps the small agent snapshot labels exactly compatible with ranges', () => {
+        const snapshot = createAgentPageLabelSnapshot({
+            totalPages: 8,
+            dirty: false,
+            pageLabelRanges: [
+                {
+                    startPage: 1,
+                    style: 'r',
+                    prefix: 'Front ',
+                    startNumber: 1,
+                },
+                {
+                    startPage: 4,
+                    style: 'D',
+                    prefix: 'Body ',
+                    startNumber: 1,
+                },
+            ],
+            pageLabels: null,
+        });
+
+        expect(snapshot.labels).toEqual([
+            'Front i',
+            'Front ii',
+            'Front iii',
+            'Body 1',
+            'Body 2',
+            'Body 3',
+            'Body 4',
+            'Body 5',
+        ]);
+        expect(snapshot.segments).toEqual([
+            expect.objectContaining({
+                startPage: 1,
+                endPage: 3,
+                startLabel: 'Front i',
+                endLabel: 'Front iii',
+            }),
+            expect.objectContaining({
+                startPage: 4,
+                endPage: 8,
+                startLabel: 'Body 1',
+                endLabel: 'Body 5',
+            }),
+        ]);
+    });
+
     it('previews nested bookmarks from flat outline entries', () => {
         const plan = createAgentBookmarkPlan({
             input: {entries: [

@@ -5,6 +5,8 @@ import type {
 import type {ComputedRef} from 'vue';
 import {tryOnScopeDispose} from '@vueuse/core';
 import {
+    attachScanCleanupPageOverrideDefaults,
+    createScanCleanupPageOverride,
     getScanCleanupPageOverride,
     setScanCleanupPageOverride,
 } from '@contracts/scanCleanupPageOverrides';
@@ -149,6 +151,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             token: captureScanCleanupDocumentPersistenceToken(sourceSha256, legacyDocumentKey),
         };
         if (patch.overrides !== undefined) pendingPersistence.overrides = patch.overrides;
+        if (patch.pageOverrideDefaults !== undefined) pendingPersistence.pageOverrideDefaults = patch.pageOverrideDefaults;
         if (patch.marginsMm !== undefined) pendingPersistence.marginsMm = patch.marginsMm;
         if (patch.outputMode !== undefined) pendingPersistence.outputMode = patch.outputMode;
         if (patch.resetOverrides === true) pendingPersistence.resetOverrides = true;
@@ -192,6 +195,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         autoDewarpDepth: toRef(preferences, 'autoDewarpDepth'),
         skipBlankPages: toRef(preferences, 'skipBlankPages'),
         pageOverrides: {},
+        pageOverrideDefaults: createScanCleanupPageOverride(),
     });
     const layoutItems = computed(() => [
         {
@@ -270,6 +274,18 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             marginsLinked.value ? 'all' : target,
             value,
         ));
+        if (values.pageOverrideDefaults?.marginsMm !== undefined) {
+            const {
+                marginsMm: _marginsMm,
+                ...withoutMargins
+            } = values.pageOverrideDefaults;
+            values.pageOverrideDefaults = createScanCleanupPageOverride(withoutMargins);
+            attachScanCleanupPageOverrideDefaults(
+                values.pageOverrides,
+                values.pageOverrideDefaults,
+                values.marginsMm,
+            );
+        }
         for (const pageNumber of Object.keys(values.pageOverrides).map(Number)) {
             setScanCleanupPageOverride(
                 values.pageOverrides,
@@ -289,8 +305,15 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
 
     function resetPageOverrides() {
         values.pageOverrides = {};
+        values.pageOverrideDefaults = createScanCleanupPageOverride();
+        attachScanCleanupPageOverrideDefaults(
+            values.pageOverrides,
+            values.pageOverrideDefaults,
+            values.marginsMm,
+        );
         scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {
             overrides: values.pageOverrides,
+            pageOverrideDefaults: values.pageOverrideDefaults,
             resetOverrides: true,
         });
     }
@@ -317,6 +340,8 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             return;
         }
         values.pageOverrides = snapshot.overrides;
+        values.pageOverrideDefaults = snapshot.pageOverrideDefaults
+            ?? createScanCleanupPageOverride();
         const persistedOutputMode = snapshot.outputMode;
         values.outputMode = persistedOutputMode === 'mixed'
             ? DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE
@@ -326,6 +351,11 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         }
         Object.assign(values.marginsMm, snapshot.marginsMm
             ?? preferences.marginsMm);
+        attachScanCleanupPageOverrideDefaults(
+            values.pageOverrides,
+            values.pageOverrideDefaults,
+            values.marginsMm,
+        );
         marginsLinked.value = scanCleanupMarginsUniform(values.marginsMm);
         void finishDocumentLoad(generation);
     }
@@ -371,6 +401,24 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         }
         scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {overrides});
     }, {deep: true});
+    watch(() => values.pageOverrideDefaults, pageOverrideDefaults => {
+        attachScanCleanupPageOverrideDefaults(
+            values.pageOverrides,
+            pageOverrideDefaults,
+            values.marginsMm,
+        );
+        if (loadingDocument) {
+            return;
+        }
+        scheduleDocumentPersistence(
+            sourceSha256.value,
+            legacyDocumentKey.value,
+            pageOverrideDefaults === undefined ? {} : {pageOverrideDefaults},
+        );
+    }, {
+        deep: true,
+        immediate: true,
+    });
     watch(() => values.marginsMm, marginsMm => {
         if (loadingDocument) {
             return;

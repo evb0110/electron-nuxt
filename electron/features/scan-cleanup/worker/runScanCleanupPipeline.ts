@@ -20,6 +20,8 @@ import {
     runScanCleanupSidecar,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {readAvailableScratchBytes} from '@scan-cleanup-core/resolveRasterHandoff';
+import {createPdfPageSizeStore} from '@scan-cleanup-core/pdfPageSizes';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
 import {
     runScanCleanupConversion,
     type IRunScanCleanupPipelineDependencies,
@@ -29,6 +31,7 @@ import {
 
 const defaultDependencies: IRunScanCleanupPipelineDependencies = {
     getPageCount: getPdfPageCount,
+    getPageSizeStore: (pdfPath, options) => createPdfPageSizeStore(pdfPath, options),
     detectSourceDpi: detectSourceDpiDetails,
     createRasterPipes: async (paths, signal, log) => {
         await runNativeToolCommand('mkfifo', [...paths], {
@@ -56,6 +59,11 @@ export async function runScanCleanupPipeline(
     log: TWorkerLog = () => undefined,
     dependencies: IRunScanCleanupPipelineDependencies = defaultDependencies,
 ): Promise<TScanCleanupSummary> {
+    attachScanCleanupPageOverrideDefaults(
+        request.options.pageOverrides,
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
+    );
     return runScanCleanupConversion(
         request,
         paths,

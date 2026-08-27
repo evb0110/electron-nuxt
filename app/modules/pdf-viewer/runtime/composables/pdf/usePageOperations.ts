@@ -9,6 +9,17 @@ import type {
     IPageOpsMutationOptions,
     IPageOpsResult,
 } from '@contracts/electronApiPageOps';
+import type {
+    IPageMoveRangeSegment,
+    TPageMoveOperation,
+    TPageSelection,
+} from '@contracts/pageNumbers';
+import {
+    createExplicitPageSelection,
+    iteratePageSelectionBatches,
+    pageMoveRangesSelectedPageCount,
+    pageSelectionCount,
+} from '@contracts/pageNumbers';
 import type { TTranslationKey } from '@i18n-app';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
@@ -174,6 +185,17 @@ export const usePageOperations = (deps: {
             : getPageOpsCapability().delete(path, pages, totalPages);
     }
 
+    function runDeletePageRangesOp(
+        path: TDocumentRef,
+        ranges: IPageMoveRangeSegment[],
+        totalPages: number,
+        mutationOptions?: IPageOpsMutationOptions,
+    ) {
+        return mutationOptions
+            ? getPageOpsCapability().deleteRanges(path, ranges, totalPages, mutationOptions)
+            : getPageOpsCapability().deleteRanges(path, ranges, totalPages);
+    }
+
     function runRotatePageOp(
         path: TDocumentRef,
         pages: number[],
@@ -220,6 +242,45 @@ export const usePageOperations = (deps: {
             : getPageOpsCapability().reorder(path, newOrder);
     }
 
+    function runMovePageOp(
+        path: TDocumentRef,
+        move: TPageMoveOperation,
+        mutationOptions?: IPageOpsMutationOptions,
+    ) {
+        if ('ranges' in move) {
+            return mutationOptions
+                ? getPageOpsCapability().moveRanges(
+                    path,
+                    move.ranges,
+                    move.insertAt,
+                    move.pageCount,
+                    mutationOptions,
+                )
+                : getPageOpsCapability().moveRanges(
+                    path,
+                    move.ranges,
+                    move.insertAt,
+                    move.pageCount,
+                );
+        }
+        return mutationOptions
+            ? getPageOpsCapability().move(
+                path,
+                move.startPage,
+                move.endPage,
+                move.insertAt,
+                move.pageCount,
+                mutationOptions,
+            )
+            : getPageOpsCapability().move(
+                path,
+                move.startPage,
+                move.endPage,
+                move.insertAt,
+                move.pageCount,
+            );
+    }
+
     function runCropPageOp(
         path: TDocumentRef,
         pages: number[],
@@ -232,6 +293,31 @@ export const usePageOperations = (deps: {
             : getPageOpsCapability().crop(path, pages, totalPages, margins);
     }
 
+    async function runCropPageSelectionOp(
+        path: TDocumentRef,
+        selection: TPageSelection,
+        totalPages: number,
+        margins: ICropMargins,
+        mutationOptions?: IPageOpsMutationOptions,
+    ) {
+        let result: IPageOpsResult | undefined;
+        let isFirstBatch = true;
+        for (const pages of iteratePageSelectionBatches(selection)) {
+            result = await runCropPageOp(
+                path,
+                pages,
+                totalPages,
+                margins,
+                isFirstBatch ? mutationOptions : undefined,
+            );
+            isFirstBatch = false;
+        }
+        return result ?? {
+            success: true,
+            pageCount: totalPages,
+        };
+    }
+
     function runRemoveCropPageOp(
         path: TDocumentRef,
         pages: number[],
@@ -241,6 +327,29 @@ export const usePageOperations = (deps: {
         return mutationOptions
             ? getPageOpsCapability().removeCrop(path, pages, totalPages, mutationOptions)
             : getPageOpsCapability().removeCrop(path, pages, totalPages);
+    }
+
+    async function runRemoveCropPageSelectionOp(
+        path: TDocumentRef,
+        selection: TPageSelection,
+        totalPages: number,
+        mutationOptions?: IPageOpsMutationOptions,
+    ) {
+        let result: IPageOpsResult | undefined;
+        let isFirstBatch = true;
+        for (const pages of iteratePageSelectionBatches(selection)) {
+            result = await runRemoveCropPageOp(
+                path,
+                pages,
+                totalPages,
+                isFirstBatch ? mutationOptions : undefined,
+            );
+            isFirstBatch = false;
+        }
+        return result ?? {
+            success: true,
+            pageCount: totalPages,
+        };
     }
 
     async function runOperationDetailed<TResult extends IPageOpsResult>(options: {
@@ -440,6 +549,55 @@ export const usePageOperations = (deps: {
         return didPageOperationSucceed(await deletePagesDetailed(pages, totalPages));
     }
 
+    async function deletePageRangesDetailed(
+        ranges: IPageMoveRangeSegment[],
+        totalPages: number,
+    ) {
+        if (ranges.length === 0) {
+            return recordOutcome({
+                status: 'blocked',
+                reason: 'empty-selection',
+            });
+        }
+        const deletedCount = ranges.reduce(
+            (count, range) => count + range.endPage - range.startPage + 1,
+            0,
+        );
+        if (deletedCount >= totalPages) {
+            error.value = t('errors.pageOps.deleteAll');
+            return recordOutcome({
+                status: 'blocked',
+                reason: 'delete-all',
+            });
+        }
+
+        const startedAt = Date.now();
+        const outcome = await runOperationDetailed({
+            operationName: 'deletePageRanges',
+            errorKey: 'errors.pageOps.delete',
+            shouldReload: true,
+            run: (path) => runDeletePageRangesOp(
+                path,
+                [...ranges],
+                totalPages,
+                capturePageMutationOptions(),
+            ),
+        });
+        if (didPageOperationSucceed(outcome)) {
+            analytics.track('page_operation_completed', {
+                affectedPageCount: deletedCount,
+                durationMs: Math.max(0, Date.now() - startedAt),
+                operation: 'delete',
+                totalPagesBefore: totalPages,
+            });
+        }
+        return outcome;
+    }
+
+    async function deletePageRanges(ranges: IPageMoveRangeSegment[], totalPages: number) {
+        return didPageOperationSucceed(await deletePageRangesDetailed(ranges, totalPages));
+    }
+
     async function extractPagesDetailed(pages: number[]) {
         if (pages.length === 0) {
             return recordOutcome({
@@ -626,8 +784,47 @@ export const usePageOperations = (deps: {
         return didPageOperationSucceed(await reorderPagesDetailed(newOrder));
     }
 
-    async function cropPagesDetailed(pages: number[], totalPages: number, margins: ICropMargins) {
-        if (pages.length === 0) {
+    async function movePagesDetailed(move: TPageMoveOperation) {
+        if (move.pageCount <= 0) {
+            return recordOutcome({
+                status: 'blocked',
+                reason: 'empty-selection',
+            });
+        }
+
+        const startedAt = Date.now();
+        const outcome = await runOperationDetailed({
+            operationName: 'movePages',
+            errorKey: 'errors.pageOps.reorder',
+            shouldReload: true,
+            run: (path) => runMovePageOp(path, move, capturePageMutationOptions()),
+        });
+        if (didPageOperationSucceed(outcome)) {
+            analytics.track('page_operation_completed', {
+                affectedPageCount: 'ranges' in move
+                    ? pageMoveRangesSelectedPageCount(move)
+                    : move.endPage - move.startPage + 1,
+                durationMs: Math.max(0, Date.now() - startedAt),
+                operation: 'move',
+                totalPages: move.pageCount,
+            });
+        }
+        return outcome;
+    }
+
+    async function movePages(move: TPageMoveOperation) {
+        return didPageOperationSucceed(await movePagesDetailed(move));
+    }
+
+    async function cropPagesDetailed(
+        pages: number[] | TPageSelection,
+        totalPages: number,
+        margins: ICropMargins,
+    ) {
+        const selection = Array.isArray(pages)
+            ? createExplicitPageSelection(totalPages, pages)
+            : pages;
+        if (pageSelectionCount(selection) === 0) {
             return recordOutcome({
                 status: 'blocked',
                 reason: 'empty-selection',
@@ -638,11 +835,17 @@ export const usePageOperations = (deps: {
             operationName: 'cropPages',
             errorKey: 'errors.pageOps.crop',
             shouldReload: true,
-            run: (path) => runCropPageOp(path, [...pages], totalPages, margins, capturePageMutationOptions()),
+            run: (path) => runCropPageSelectionOp(
+                path,
+                selection,
+                totalPages,
+                margins,
+                capturePageMutationOptions(),
+            ),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
-                affectedPageCount: pages.length,
+                affectedPageCount: pageSelectionCount(selection),
                 durationMs: Math.max(0, Date.now() - startedAt),
                 operation: 'crop',
             });
@@ -650,12 +853,15 @@ export const usePageOperations = (deps: {
         return outcome;
     }
 
-    async function cropPages(pages: number[], totalPages: number, margins: ICropMargins) {
+    async function cropPages(pages: number[] | TPageSelection, totalPages: number, margins: ICropMargins) {
         return didPageOperationSucceed(await cropPagesDetailed(pages, totalPages, margins));
     }
 
-    async function removeCropDetailed(pages: number[], totalPages: number) {
-        if (pages.length === 0) {
+    async function removeCropDetailed(pages: number[] | TPageSelection, totalPages: number) {
+        const selection = Array.isArray(pages)
+            ? createExplicitPageSelection(totalPages, pages)
+            : pages;
+        if (pageSelectionCount(selection) === 0) {
             return recordOutcome({
                 status: 'blocked',
                 reason: 'empty-selection',
@@ -666,11 +872,16 @@ export const usePageOperations = (deps: {
             operationName: 'removeCrop',
             errorKey: 'errors.pageOps.removeCrop',
             shouldReload: true,
-            run: (path) => runRemoveCropPageOp(path, [...pages], totalPages, capturePageMutationOptions()),
+            run: (path) => runRemoveCropPageSelectionOp(
+                path,
+                selection,
+                totalPages,
+                capturePageMutationOptions(),
+            ),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
-                affectedPageCount: pages.length,
+                affectedPageCount: pageSelectionCount(selection),
                 durationMs: Math.max(0, Date.now() - startedAt),
                 operation: 'remove_crop',
             });
@@ -678,7 +889,7 @@ export const usePageOperations = (deps: {
         return outcome;
     }
 
-    async function removeCrop(pages: number[], totalPages: number) {
+    async function removeCrop(pages: number[] | TPageSelection, totalPages: number) {
         return didPageOperationSucceed(await removeCropDetailed(pages, totalPages));
     }
 
@@ -689,6 +900,8 @@ export const usePageOperations = (deps: {
         lastOutcome,
         deletePagesDetailed,
         deletePages,
+        deletePageRangesDetailed,
+        deletePageRanges,
         extractPagesDetailed,
         extractPages,
         rotatePagesDetailed,
@@ -699,6 +912,8 @@ export const usePageOperations = (deps: {
         insertFile,
         reorderPagesDetailed,
         reorderPages,
+        movePagesDetailed,
+        movePages,
         cropPagesDetailed,
         cropPages,
         removeCropDetailed,

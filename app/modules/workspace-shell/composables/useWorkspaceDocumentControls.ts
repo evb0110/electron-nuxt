@@ -11,6 +11,7 @@ import type { IWorkspacePdfViewerDocumentControlsPort } from '@app/modules/works
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import type { TPageSelection } from '@contracts/pageNumbers';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
@@ -38,7 +39,7 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     requestThumbnailInvalidation: (pages: number[]) => void;
     pdfViewerRef: Ref<IWorkspacePdfViewerDocumentControlsPort | null>;
     canMutatePages: Ref<boolean>;
-    handleExportImages: (pages: number[]) => Promise<void>;
+    handleExportImages: (pages: number[] | TPageSelection) => Promise<void>;
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFileWithViewerLifecycle: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     openFileDirectWithViewerLifecycle: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
@@ -68,6 +69,8 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         totalPages,
         selectedThumbnailPages,
         setSelectedThumbnailPages,
+        selectedPageSelection,
+        setSelectedPageSelection,
         requestThumbnailInvalidation,
         pdfViewerRef,
         canMutatePages,
@@ -126,6 +129,8 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         totalPages,
         selectedThumbnailPages,
         setSelectedThumbnailPages,
+        ...(selectedPageSelection !== undefined ? {selectedPageSelection} : {}),
+        ...(setSelectedPageSelection !== undefined ? {setSelectedPageSelection} : {}),
         invalidateThumbnailPages: requestThumbnailInvalidation,
         pdfViewerRef,
         pageContextMenu,

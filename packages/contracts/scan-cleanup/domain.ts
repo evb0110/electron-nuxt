@@ -153,4 +153,10 @@ export interface IScanCleanupOptions {
     readingOrder: TScanCleanupReadingOrder;
     skipBlankPages: boolean;
     pageOverrides: TScanCleanupPageOverrides;
+    /**
+     * One document-wide page override. Pages in `pageOverrides` remain sparse
+     * exceptions to this value, so applying a control to a very large document
+     * does not allocate one object per page.
+     */
+    pageOverrideDefaults?: IScanCleanupPageOverride;
 }

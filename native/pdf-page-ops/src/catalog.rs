@@ -56,7 +56,16 @@ pub(crate) fn assert_mutation_page_count(
     total_pages: u32,
     label: &str,
 ) -> Result<()> {
-    let actual_pages = u32::try_from(document.page_ids().len())?;
+    let page_resolver = PageTreeResolver::new(document)?;
+    assert_mutation_page_count_with_resolver(&page_resolver, total_pages, label)
+}
+
+fn assert_mutation_page_count_with_resolver(
+    page_resolver: &PageTreeResolver,
+    total_pages: u32,
+    label: &str,
+) -> Result<()> {
+    let actual_pages = page_resolver.page_count();
     if total_pages != actual_pages {
         return Err(format!(
             "{label} page count {total_pages} does not match document page count {actual_pages}"
@@ -211,7 +220,7 @@ pub(crate) struct BookmarkNode<'a> {
 
 pub(crate) fn set_bookmark_destination(
     base_document: &Document,
-    page_map: &std::collections::BTreeMap<u32, ObjectId>,
+    page_resolver: &PageTreeResolver,
     dict: &mut Dictionary,
     item: &BookmarkEntry,
 ) -> Result<()> {
@@ -219,7 +228,7 @@ pub(crate) fn set_bookmark_destination(
         let page_number = page_index
             .checked_add(1)
             .ok_or("Invalid bookmark page index")?;
-        let page_id = resolve_page_id(page_map, page_number)?;
+        let page_id = page_resolver.page_id(base_document, page_number)?;
         let page_view = resolve_page_view(base_document, page_id)?;
         let destination_top = resolve_bookmark_destination_top(&page_view, item.page_y_ratio);
         dict.set(
@@ -263,7 +272,7 @@ pub(crate) fn set_bookmark_style(dict: &mut Dictionary, item: &BookmarkEntry) {
 
 pub(crate) fn build_bookmark_dict(
     base_document: &Document,
-    page_map: &std::collections::BTreeMap<u32, ObjectId>,
+    page_resolver: &PageTreeResolver,
     item: &BookmarkEntry,
 ) -> Result<Dictionary> {
     let mut dict = Dictionary::new();
@@ -274,14 +283,14 @@ pub(crate) fn build_bookmark_dict(
             StringFormat::Hexadecimal,
         ),
     );
-    set_bookmark_destination(base_document, page_map, &mut dict, item)?;
+    set_bookmark_destination(base_document, page_resolver, &mut dict, item)?;
     set_bookmark_style(&mut dict, item);
     Ok(dict)
 }
 
 pub(crate) fn build_outline_level(
     document: &mut Document,
-    page_map: &std::collections::BTreeMap<u32, ObjectId>,
+    page_resolver: &PageTreeResolver,
     items: &[BookmarkEntry],
     parent_ref: ObjectId,
 ) -> Result<OutlineBuildResult> {
@@ -295,7 +304,7 @@ pub(crate) fn build_outline_level(
 
     let mut nodes = Vec::with_capacity(items.len());
     for item in items {
-        let dict = build_bookmark_dict(document, page_map, item)?;
+        let dict = build_bookmark_dict(document, page_resolver, item)?;
         let object_id = document.new_object_id();
         document.set_object(object_id, Object::Dictionary(dict));
         nodes.push(BookmarkNode {
@@ -323,7 +332,7 @@ pub(crate) fn build_outline_level(
 
     for node in &mut nodes {
         let child_result =
-            build_outline_level(document, page_map, &node.item.items, node.object_id)?;
+            build_outline_level(document, page_resolver, &node.item.items, node.object_id)?;
         if let (Some(first), Some(last)) = (child_result.first, child_result.last) {
             let dict = document.get_dictionary_mut(node.object_id)?;
             dict.set("First", Object::Reference(first));
@@ -344,7 +353,7 @@ pub(crate) fn build_outline_level(
 
 pub(crate) fn build_outline_level_incremental(
     incremental: &mut IncrementalDocument,
-    page_map: &std::collections::BTreeMap<u32, ObjectId>,
+    page_resolver: &PageTreeResolver,
     items: &[BookmarkEntry],
     parent_ref: ObjectId,
 ) -> Result<OutlineBuildResult> {
@@ -358,7 +367,7 @@ pub(crate) fn build_outline_level_incremental(
 
     let mut nodes = Vec::with_capacity(items.len());
     for item in items {
-        let dict = build_bookmark_dict(incremental.get_prev_documents(), page_map, item)?;
+        let dict = build_bookmark_dict(incremental.get_prev_documents(), page_resolver, item)?;
         let object_id = incremental.new_document.new_object_id();
         incremental
             .new_document
@@ -391,7 +400,7 @@ pub(crate) fn build_outline_level_incremental(
     for node in &mut nodes {
         let child_result = build_outline_level_incremental(
             incremental,
-            page_map,
+            page_resolver,
             &node.item.items,
             node.object_id,
         )?;
@@ -419,7 +428,12 @@ pub(crate) fn set_bookmarks_on_catalog(
     document: &mut Document,
     bookmarks: &BookmarksMutation,
 ) -> Result<()> {
-    assert_mutation_page_count(document, bookmarks.total_pages, "Bookmark mutation")?;
+    let page_resolver = PageTreeResolver::new(document)?;
+    assert_mutation_page_count_with_resolver(
+        &page_resolver,
+        bookmarks.total_pages,
+        "Bookmark mutation",
+    )?;
     let normalized = normalize_bookmark_entries(
         &bookmarks.items,
         bookmarks.total_pages,
@@ -432,12 +446,11 @@ pub(crate) fn set_bookmarks_on_catalog(
         return Ok(());
     }
 
-    let page_map = document.get_pages();
     let outlines_ref = document.new_object_id();
     let mut outlines_dict = Dictionary::new();
     outlines_dict.set("Type", Object::Name(b"Outlines".to_vec()));
     document.set_object(outlines_ref, Object::Dictionary(outlines_dict));
-    let tree = build_outline_level(document, &page_map, &normalized, outlines_ref)?;
+    let tree = build_outline_level(document, &page_resolver, &normalized, outlines_ref)?;
     let outlines_dict = document.get_dictionary_mut(outlines_ref)?;
     let (Some(first), Some(last)) = (tree.first, tree.last) else {
         let catalog = document.get_dictionary_mut(catalog_id)?;
@@ -460,8 +473,9 @@ pub(crate) fn set_bookmarks_incremental(
     incremental: &mut IncrementalDocument,
     bookmarks: &BookmarksMutation,
 ) -> Result<()> {
-    assert_mutation_page_count(
-        incremental.get_prev_documents(),
+    let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
+    assert_mutation_page_count_with_resolver(
+        &page_resolver,
         bookmarks.total_pages,
         "Bookmark mutation",
     )?;
@@ -478,14 +492,14 @@ pub(crate) fn set_bookmarks_incremental(
         return Ok(());
     }
 
-    let page_map = incremental.get_prev_documents().get_pages();
     let outlines_ref = incremental.new_document.new_object_id();
     let mut outlines_dict = Dictionary::new();
     outlines_dict.set("Type", Object::Name(b"Outlines".to_vec()));
     incremental
         .new_document
         .set_object(outlines_ref, Object::Dictionary(outlines_dict));
-    let tree = build_outline_level_incremental(incremental, &page_map, &normalized, outlines_ref)?;
+    let tree =
+        build_outline_level_incremental(incremental, &page_resolver, &normalized, outlines_ref)?;
     let outlines_dict = incremental.new_document.get_dictionary_mut(outlines_ref)?;
     let (Some(first), Some(last)) = (tree.first, tree.last) else {
         let catalog = incremental.new_document.get_dictionary_mut(catalog_id)?;

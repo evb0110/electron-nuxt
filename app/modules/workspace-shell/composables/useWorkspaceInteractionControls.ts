@@ -13,6 +13,7 @@ import type {
 } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { ISettingsData } from '@contracts/shared';
@@ -28,6 +29,7 @@ import type {
 } from '@app/types/pdfContracts';
 import type { TPdfSource } from '@app/types/pdfUi';
 import { runDetached } from '@app/utils/asyncGuard';
+import type { INativePdfSaveTransactionOptions } from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
 
 interface IWorkspaceInteractionControlsOptions {
     isActive: Ref<boolean>;
@@ -86,6 +88,8 @@ interface IWorkspaceInteractionControlsOptions {
     openFileWithViewerLifecycle: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
+    documentRevisionToken: Ref<TDocumentRevisionToken | null>;
+    getNativeSaveTransactionOptions?: () => INativePdfSaveTransactionOptions;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
@@ -134,6 +138,8 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         openFileWithViewerLifecycle,
         waitForPdfReload,
         loadPdfFromPath,
+        documentRevisionToken,
+        getNativeSaveTransactionOptions,
         runWithDocumentOperationLease,
     } = options;
 
@@ -282,6 +288,8 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         openFileWithViewerLifecycle,
         waitForPdfReload,
         loadPdfFromPath,
+        documentRevisionToken,
+        ...(getNativeSaveTransactionOptions !== undefined ? {getNativeSaveTransactionOptions} : {}),
         ...(runWithDocumentOperationLease !== undefined ? { runWithDocumentOperationLease } : {}),
     });
 

@@ -177,6 +177,20 @@ describe('usePageSaveOrchestration', () => {
         expect(orchestration.canSave.value).toBe(true);
     });
 
+    it('exposes the viewer editor commit before workspace save planning', async () => {
+        const commitPdfEditorsForSave = vi.fn(async () => undefined);
+        usePageSaveOrchestration(createDeps({pdfViewerRef: ref({
+            commitPdfEditorsForSave,
+            getAllShapes: vi.fn(() => []),
+            runSaveTransaction: vi.fn(),
+        })}));
+        const dependencies = cast<IWorkspaceSaveDependencies>(saveMocks.capturedDeps);
+
+        await dependencies.pdf.commitEditorsForSave?.();
+
+        expect(commitPdfEditorsForSave).toHaveBeenCalledOnce();
+    });
+
     it('saves dirty changes before optimizing the PDF for interaction', async () => {
         saveMocks.handleSave.mockResolvedValueOnce(true);
         saveMocks.handleOptimizePdfForInteraction.mockResolvedValueOnce(true);
@@ -216,6 +230,7 @@ describe('usePageSaveOrchestration', () => {
         const orchestration = usePageSaveOrchestration(createDeps({
             annotationDirty: ref(true),
             hasPendingUnsavedChanges: computed(() => true),
+            workingCopyPath: ref('browser://documents/recovery.pdf'),
             pdfViewerRef: ref({
                 runSaveTransaction,
                 getAllShapes: vi.fn(() => []),

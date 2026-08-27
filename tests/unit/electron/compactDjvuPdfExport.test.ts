@@ -164,8 +164,8 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         });
 
         expect(result.success).toBe(true);
-        const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
-        const lines = manifest.trim().split('\n');
+        const manifest = await readCompactManifest(tempDir);
+        const lines = manifest.split('\n');
         expect(lines[0]).toMatch(/^mask\t288\.0000\t384\.0000\t/u);
         expect(lines[0]).toContain('-mask.pbm');
         expect(lines[1]).toMatch(/^mask\t288\.0000\t384\.0000\t/u);
@@ -183,6 +183,55 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             'djvu-compact-page',
             'djvu-compact-combine',
         ]);
+    });
+
+    it('processes an all-page export in bounded batches and streams the dump manifest', async () => {
+        const pageCount = 65;
+        setDjvuDump(Array.from({length: pageCount}, (_value, index) => ({
+            pageNumber: index + 1,
+            pageBytes: 32_705,
+            maskBytes: 512,
+            background: true,
+        })));
+
+        const result = await buildCompactDjvuAwarePdfFromDjvu({
+            jobId: 'job-all-pages',
+            djvuPath: join(tempDir, 'input.djvu'),
+            outputPath: join(tempDir, 'all-pages.pdf'),
+            tempDir,
+            pageCount,
+            sourceDpi: 300,
+            pageSizes: pageSizes(pageCount),
+        });
+
+        expect(result.success).toBe(true);
+        const manifestLines = (await readFile(join(tempDir, 'compact-manifest.jsonl'), 'utf8'))
+            .trim()
+            .split('\n');
+        expect(JSON.parse(manifestLines[0]!)).toMatchObject({
+            format: 'evb-pdf-image-combine-jsonl',
+            schemaVersion: 1,
+            pageCount,
+        });
+        expect(manifestLines).toHaveLength(pageCount + 1);
+        expect(result.pageSpecs).toHaveLength(pageCount);
+        expect(mocks.runNativeCommand).toHaveBeenCalledWith(
+            '/tools/djvudump',
+            [join(tempDir, 'input.djvu')],
+            expect.objectContaining({
+                maxStdoutBytes: 64 * 1024,
+                rejectOnStdoutTruncation: false,
+            }),
+        );
+        expect(mocks.runRegisteredDjvuProcess).toHaveBeenLastCalledWith(
+            'job-all-pages-compact-combine',
+            '/native/evb-pdf-image-combine',
+            expect.arrayContaining([
+                '--compact-manifest',
+                join(tempDir, 'compact-manifest.jsonl'),
+            ]),
+            expect.objectContaining({env: expect.objectContaining({EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(Number.MAX_SAFE_INTEGER)})}),
+        );
     });
 
     it('keeps progress moving during native PDF assembly', async () => {
@@ -244,7 +293,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             pages: [44],
         });
 
-        const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
+        const manifest = await readCompactManifest(tempDir);
         expect(manifest).toMatch(/^layered-jpeg\t288\.0000\t384\.0000\t80\t/u);
         expect(manifest).toContain('-background.ppm\t');
         expect(manifest).toContain('-mask.pbm');
@@ -280,7 +329,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             pages: [3],
         });
 
-        const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
+        const manifest = await readCompactManifest(tempDir);
         expect(manifest).toMatch(/^photo-jpeg\t288\.0000\t384\.0000\t85\t300\t/u);
         expect(manifest).toContain('-photo.ppm');
         expect(manifest).not.toContain('-foreground.ppm');
@@ -317,7 +366,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             pages: [44],
         });
 
-        const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
+        const manifest = await readCompactManifest(tempDir);
         expect(manifest).toMatch(/^photo-jpeg\t288\.0000\t384\.0000\t85\t300\t/u);
         expect(result.pageSpecs?.[0]?.kind).toBe('photo');
         expect(result.pageSpecs?.[0]?.reason).toBe('DjVu page has continuous-tone background with tiny foreground mask (6 bytes); rendering capped photo page');
@@ -342,7 +391,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             pages: [2],
         });
 
-        const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
+        const manifest = await readCompactManifest(tempDir);
         expect(manifest).toMatch(/^photo-jpeg\t288\.0000\t384\.0000\t85\t300\t/u);
         expect(result.pageSpecs?.[0]?.reason).toBe('DjVu layer structure unavailable; rendering capped photo page');
         expect(renderModesForPage(2)).toEqual(['full']);
@@ -380,7 +429,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             qualityPreset: 'small',
         });
 
-        const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
+        const manifest = await readCompactManifest(tempDir);
         expect(manifest).toMatch(/^photo-jpeg\t288\.0000\t384\.0000\t75\t180\t/u);
         await expect(readFile(join(tempDir, 'compact-fidelity.json'), 'utf8').then(JSON.parse)).resolves.toMatchObject({
             preset: 'small',
@@ -407,7 +456,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             pages: [44],
         });
 
-        const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
+        const manifest = await readCompactManifest(tempDir);
         expect(manifest).toMatch(/^layered-jpeg\t288\.0000\t384\.0000\t80\t/u);
         expect(result.pageSpecs?.[0]?.kind).toBe('layered');
         expect(renderModesForPage(44)).toEqual([
@@ -471,11 +520,27 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
 });
 
 function setDjvuDump(pages: ITestDumpPage[]) {
-    mocks.runNativeCommand.mockResolvedValue({
-        stdout: djvuDump(pages),
-        stderr: '',
-        exitCode: 0,
+    mocks.runNativeCommand.mockImplementation(async (
+        _command: string,
+        _args: string[],
+        options?: {onStdout?: (chunk: string) => void},
+    ) => {
+        const dump = djvuDump(pages);
+        options?.onStdout?.(dump.slice(0, Math.max(1, Math.floor(dump.length / 2))));
+        options?.onStdout?.(dump.slice(Math.max(1, Math.floor(dump.length / 2))));
+        return {
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        };
     });
+}
+
+async function readCompactManifest(tempDir: string) {
+    const lines = (await readFile(join(tempDir, 'compact-manifest.jsonl'), 'utf8'))
+        .trim()
+        .split('\n');
+    return lines.slice(1).join('\n');
 }
 
 function djvuDump(pages: ITestDumpPage[]) {

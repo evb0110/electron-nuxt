@@ -39,6 +39,17 @@ describe('OCR worker inbound message parsing', () => {
         });
     });
 
+    it('accepts page numbers above the former million-page product cap', () => {
+        expect(parseOcrWorkerStartPayload({
+            sourcePdfPath: '/tmp/very-large-document.pdf',
+            documentRevision,
+            pages: [{
+                pageNumber: 1_000_001,
+                languages: ['eng'],
+            }],
+        })).toMatchObject({pages: [{pageNumber: 1_000_001}]});
+    });
+
     it('parses searchable PDF options while keeping render DPI compatibility', () => {
         expect(parseOcrWorkerStartPayload({
             sourcePdfPath: '/tmp/source.pdf',

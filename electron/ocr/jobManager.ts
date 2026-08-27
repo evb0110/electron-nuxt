@@ -35,7 +35,7 @@ import type {
     IOcrRegistryProgress,
 } from '@electron/ocr/jobManager.types';
 import type {
-    IOcrPdfPageRequest,
+    TOcrPdfPageSelection,
     TOcrWorkerInboundMessage,
 } from '@electron/ocr/worker/types';
 import {
@@ -77,6 +77,7 @@ import {
 } from '@electron/operation-lifecycle/createMainJobRegistry';
 import {
     buildOcrErrorEnvelope,
+    getOcrPageSelectionCount,
     mapStartFailureCode,
 } from '@electron/ocr/contracts';
 const log = createLogger('ocr-ipc');
@@ -581,7 +582,7 @@ function finishPreparationFailure(job: IOcrPreparingJob, failure: IOcrQueueStart
 
 async function prepareLanguageModelsForQueueJob(
     preparingJob: IOcrPreparingJob,
-    pages: IOcrPdfPageRequest[],
+    pages: TOcrPdfPageSelection,
 ) {
     try {
         await prepareLanguageModelsForJob(preparingJob, pages, OCR_MODEL_PREP_TIMEOUT_MS);
@@ -675,11 +676,11 @@ async function admitPreparedOcrJob(
 export async function handleOcrCreateSearchablePdfAsync(
     context: IOcrManagerContext,
     sourcePdfPath: string,
-    pages: IOcrPdfPageRequest[],
+    pages: TOcrPdfPageSelection,
     requestId: string,
     options: IOcrSearchablePdfOptions = {},
 ): Promise<IOcrQueueStartResult> {
-    log.debug(`handleOcrCreateSearchablePdfAsync called: sourcePdfPath=${sourcePdfPath}, pages=${pages.length}, reqId=${requestId}, dpi=${options.renderDpi}, profile=${options.qualityProfile ?? 'balanced'}, preprocessing=${options.preprocessingMode ?? 'off'}`);
+    log.debug(`handleOcrCreateSearchablePdfAsync called: sourcePdfPath=${sourcePdfPath}, pages=${getOcrPageSelectionCount(pages)}, reqId=${requestId}, dpi=${options.renderDpi}, profile=${options.qualityProfile ?? 'balanced'}, preprocessing=${options.preprocessingMode ?? 'off'}`);
     const scopedJobId = toScopedOcrJobId(context.senderId, requestId);
     let reservedDocumentJobKey: string | null = null;
 
@@ -724,9 +725,17 @@ export async function handleOcrCreateSearchablePdfAsync(
             },
             initialProgress: {
                 requestId,
-                currentPage: pages[0]?.pageNumber ?? 0,
+                currentPage: Array.isArray(pages)
+                    ? pages[0]?.pageNumber ?? 0
+                    : pages.kind === 'all'
+                        ? 1
+                        : pages.kind === 'range'
+                            ? pages.firstPage
+                            : pages.kind === 'ranges'
+                                ? pages.ranges[0]?.firstPage ?? 0
+                                : pages.pages[0]?.pageNumber ?? 0,
                 processedCount: 0,
-                totalPages: pages.length,
+                totalPages: getOcrPageSelectionCount(pages),
                 phase: 'model-prep',
                 projection: {
                     supersessionPolicy: options.supersessionPolicy ?? 'missing-only',

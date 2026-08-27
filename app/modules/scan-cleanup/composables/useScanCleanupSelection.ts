@@ -14,13 +14,16 @@ import type {
     TScanCleanupPageRotation,
 } from '@contracts/electronApiScanCleanup';
 import {
+    attachScanCleanupPageOverrideDefaults,
     DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
+    createScanCleanupPageOverride,
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
     resolveScanCleanupOutputPlacement,
 } from '@contracts/scanCleanupPageOverrides';
 import {
     resolveScanCleanupSelection,
+    type TScanCleanupOrderedPages,
     type TScanCleanupSelectionIntent,
 } from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
 import {
@@ -60,6 +63,11 @@ export type TScanCleanupOverrideControl =
     | 'placement';
 
 export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions) => {
+    attachScanCleanupPageOverrideDefaults(
+        options.settings.pageOverrides,
+        options.settings.pageOverrideDefaults,
+        options.settings.marginsMm,
+    );
     const leader = ref(options.initialPage);
     const anchor = ref(options.initialPage);
     const selectedPages = shallowRef<ReadonlySet<number>>(new Set([options.initialPage]));
@@ -341,6 +349,19 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     }
 
     function applyLeaderOverrides(scope: TScanCleanupApplyScope) {
+        if (scope === 'all') {
+            // The all-pages action is a document-wide value, not a million
+            // individual writes. Existing page entries are true sparse
+            // exceptions, so replacing the map is both exact and O(1).
+            options.settings.pageOverrideDefaults = createScanCleanupPageOverride(currentPageOverride.value);
+            options.settings.pageOverrides = {};
+            attachScanCleanupPageOverrideDefaults(
+                options.settings.pageOverrides,
+                options.settings.pageOverrideDefaults,
+                options.settings.marginsMm,
+            );
+            return;
+        }
         const pages = resolveScanCleanupApplyScope({
             leader: leader.value,
             pageCount: options.previewTotalPages(),
@@ -388,6 +409,23 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
 
     function updateCurrentPlacementAll(value: TScanCleanupPageAlignment) {
         options.settings.pageAlignment = value;
+        if (options.settings.pageOverrideDefaults !== undefined) {
+            const placementOverrides = Object.fromEntries(Object.entries(
+                options.settings.pageOverrideDefaults.placementOverrides ?? {},
+            ).filter(([
+                ,
+                alignment,
+            ]) => alignment !== value));
+            options.settings.pageOverrideDefaults = {
+                ...options.settings.pageOverrideDefaults,
+                placementOverrides,
+            };
+            attachScanCleanupPageOverrideDefaults(
+                options.settings.pageOverrides,
+                options.settings.pageOverrideDefaults,
+                options.settings.marginsMm,
+            );
+        }
         updateOverrides(Object.keys(options.settings.pageOverrides).map(Number), current => {
             const placementOverrides = Object.fromEntries(Object.entries(current.placementOverrides ?? {})
                 .filter(([
@@ -429,7 +467,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         }, 250);
     }
 
-    function selectPage(page: number, intent: TScanCleanupSelectionIntent, orderedPages: readonly number[]) {
+    function selectPage(page: number, intent: TScanCleanupSelectionIntent, orderedPages: TScanCleanupOrderedPages) {
         const previousCount = selectedPages.value.size;
         const selection = resolveScanCleanupSelection({
             anchor: anchor.value,

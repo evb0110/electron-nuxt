@@ -1,4 +1,5 @@
 import {
+    appendFile,
     mkdir,
     readdir,
     rm,
@@ -14,11 +15,15 @@ import {
 
 const QPDF_TIMEOUT_MS = 10 * 60 * 1000;
 const SPLIT_PAGE_FILE_RE = /^page-(\d+)\.pdf$/u;
+const OCR_ASSEMBLY_BATCH_PAGES = 5_000;
+
+type TOcrPageEntry = readonly [number, string];
+type TOcrPageEntrySource = readonly TOcrPageEntry[] | AsyncIterable<TOcrPageEntry>;
 
 interface IStreamingPdfAssemblerOptions {
     qpdfBinary: string;
     originalPdfPath: string;
-    ocrPageEntries: ReadonlyArray<readonly [number, string]>;
+    ocrPageEntries: TOcrPageEntrySource;
     pageCount: number;
     tempDir: string;
     sessionId: string;
@@ -46,7 +51,16 @@ async function runQpdf(binary: string, args: string[], signal?: AbortSignal) {
 }
 
 async function writeQpdfArgsFile(path: string, args: readonly string[]) {
-    await writeFile(path, args.map(arg => arg.replace(/\r?\n/gu, ' ')).join('\n'));
+    await writeFile(path, args.length === 0
+        ? ''
+        : `${args.map(arg => arg.replace(/\r?\n/gu, ' ')).join('\n')}\n`);
+}
+
+async function appendQpdfArgsFile(path: string, args: readonly string[]) {
+    if (args.length === 0) {
+        return;
+    }
+    await appendFile(path, `${args.map(arg => arg.replace(/\r?\n/gu, ' ')).join('\n')}\n`);
 }
 
 async function extractSourcePages(
@@ -95,40 +109,69 @@ async function extractSourcePages(
     };
 }
 
-function buildPageSelectionArgs(
-    originalPdfPath: string,
-    replacementByPage: ReadonlyMap<number, string>,
-    pageCount: number,
-) {
-    const args: string[] = [];
-    let page = 1;
-    while (page <= pageCount) {
-        const replacement = replacementByPage.get(page);
-        if (replacement) {
-            args.push(replacement, '1');
-            page += 1;
-            continue;
-        }
-        const start = page;
-        while (page <= pageCount && !replacementByPage.has(page)) {
-            page += 1;
-        }
-        const end = page - 1;
-        args.push(originalPdfPath, start === end ? String(start) : `${start}-${end}`);
+function toAsyncPageEntries(source: TOcrPageEntrySource): AsyncIterable<TOcrPageEntry> {
+    if (Symbol.asyncIterator in Object(source)) {
+        return source as AsyncIterable<TOcrPageEntry>;
     }
-    return args;
+    return (async function* () {
+        await Promise.resolve();
+        const entries = [...source as readonly TOcrPageEntry[]]
+            .sort(([left], [right]) => left - right);
+        for (const entry of entries) {
+            yield entry;
+        }
+    })();
 }
 
-export async function assembleSearchablePdfStreaming(options: IStreamingPdfAssemblerOptions) {
+function appendPageSelectionArgs(
+    originalPdfPath: string,
+    replacements: ReadonlyMap<number, string>,
+    pageCount: number,
+    firstUnappendedPage: number,
+) {
+    const args: string[] = [];
+    let page = firstUnappendedPage;
+    for (const [
+        pageNumber,
+        replacementPath,
+    ] of [...replacements.entries()].sort(([left], [right]) => left - right)) {
+        if (pageNumber < page || pageNumber > pageCount) {
+            continue;
+        }
+        const untouchedEnd = pageNumber - 1;
+        if (page <= untouchedEnd) {
+            args.push(originalPdfPath, page === untouchedEnd ? String(page) : `${page}-${untouchedEnd}`);
+        }
+        args.push(replacementPath, '1');
+        page = pageNumber + 1;
+    }
+    const lastReplacementPage = [...replacements.keys()].reduce(
+        (lastPage, pageNumber) => Math.max(lastPage, pageNumber),
+        firstUnappendedPage - 1,
+    );
+    return {
+        args,
+        nextPage: Math.min(pageCount + 1, lastReplacementPage + 1),
+    };
+}
+
+async function processEntryBatch(
+    options: IStreamingPdfAssemblerOptions,
+    entries: readonly TOcrPageEntry[],
+    argsPath: string,
+    firstUnappendedPage: number,
+) {
     throwIfAborted(options.signal);
-    const entries = [...options.ocrPageEntries];
     const pageNumbers = Array.from(new Set(entries.map(([pageNumber]) => pageNumber)))
         .sort((left, right) => left - right);
-    const extracted = await extractSourcePages(options, pageNumbers);
+    if (pageNumbers.length === 0) {
+        return firstUnappendedPage;
+    }
 
+    const extracted = await extractSourcePages(options, pageNumbers);
     const replacements = new Map<number, string>();
     try {
-        await forEachConcurrent(entries, getOcrConcurrency(entries.length), async ([
+        await forEachConcurrent([...entries], getOcrConcurrency(entries.length), async ([
             pageNumber,
             ocrPagePath,
         ]) => {
@@ -151,15 +194,72 @@ export async function assembleSearchablePdfStreaming(options: IStreamingPdfAssem
         }).catch(() => undefined);
     }
 
-    const outputPath = options.trackTempFile(join(options.tempDir, `${options.sessionId}-merged.pdf`));
+    const selection = appendPageSelectionArgs(
+        options.originalPdfPath,
+        replacements,
+        options.pageCount,
+        firstUnappendedPage,
+    );
+    await appendQpdfArgsFile(argsPath, selection.args);
+    return selection.nextPage;
+}
+
+export async function assembleSearchablePdfStreaming(options: IStreamingPdfAssemblerOptions) {
+    throwIfAborted(options.signal);
     const argsPath = options.trackTempFile(join(options.tempDir, `${options.sessionId}-qpdf-args.txt`));
     await writeQpdfArgsFile(argsPath, [
         options.originalPdfPath,
         '--pages',
-        ...buildPageSelectionArgs(options.originalPdfPath, replacements, options.pageCount),
-        '--',
-        outputPath,
     ]);
+    let entriesInBatch: TOcrPageEntry[] = [];
+    let firstUnappendedPage = 1;
+    let lastSeenPage = 0;
+    let entryCount = 0;
+    for await (const entry of toAsyncPageEntries(options.ocrPageEntries)) {
+        const pageNumber = entry[0];
+        if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > options.pageCount) {
+            throw new Error(`Invalid OCR assembly page number ${String(pageNumber)}`);
+        }
+        if (pageNumber <= lastSeenPage) {
+            throw new Error(`OCR assembly page entries are not strictly ordered at page ${String(pageNumber)}`);
+        }
+        lastSeenPage = pageNumber;
+        entriesInBatch.push(entry);
+        entryCount += 1;
+        if (entriesInBatch.length >= OCR_ASSEMBLY_BATCH_PAGES) {
+            firstUnappendedPage = await processEntryBatch(
+                options,
+                entriesInBatch,
+                argsPath,
+                firstUnappendedPage,
+            );
+            entriesInBatch = [];
+        }
+    }
+    if (entriesInBatch.length > 0) {
+        firstUnappendedPage = await processEntryBatch(
+            options,
+            entriesInBatch,
+            argsPath,
+            firstUnappendedPage,
+        );
+    }
+    if (entryCount === 0) {
+        throw new Error('No valid OCR pages were available to assemble');
+    }
+    if (firstUnappendedPage <= options.pageCount) {
+        await appendQpdfArgsFile(argsPath, [
+            options.originalPdfPath,
+            firstUnappendedPage === options.pageCount
+                ? String(firstUnappendedPage)
+                : `${firstUnappendedPage}-${options.pageCount}`,
+        ]);
+    }
+    await appendQpdfArgsFile(argsPath, [
+        '--',
+        options.trackTempFile(join(options.tempDir, `${options.sessionId}-merged.pdf`)),
+    ]);
+    const outputPath = join(options.tempDir, `${options.sessionId}-merged.pdf`);
     throwIfAborted(options.signal);
     await runQpdf(options.qpdfBinary, [`@${argsPath}`], options.signal);
     if ((await stat(outputPath)).size <= 0) {

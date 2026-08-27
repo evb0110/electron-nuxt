@@ -45,6 +45,44 @@ fn cli_streaming_path_matches_the_core_without_vec_staging() {
 }
 
 #[test]
+fn cli_streams_jsonl_compact_manifest_without_staging_all_pages() {
+    let first_path = temp_path("jsonl-first").with_extension("ppm");
+    let second_path = temp_path("jsonl-second").with_extension("ppm");
+    let manifest_path = temp_path("jsonl-manifest").with_extension("jsonl");
+    let output_path = temp_path("jsonl-output").with_extension("pdf");
+    fs::write(&first_path, b"P6\n1 1\n255\n\xff\0\0").unwrap();
+    fs::write(&second_path, b"P6\n1 1\n255\n\0\xff\0").unwrap();
+    fs::write(
+        &manifest_path,
+        format!(
+            "{{\"format\":\"evb-pdf-image-combine-jsonl\",\"schemaVersion\":1,\"pageCount\":2}}\nimage\t72\t72\t{}\nimage\t72\t72\t{}\n",
+            first_path.display(),
+            second_path.display(),
+        ),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-image-combine"))
+        .env("EVB_PDF_COMBINE_MAX_PAGES", "2")
+        .args([
+            "--output",
+            output_path.to_str().unwrap(),
+            "--compact-manifest",
+        ])
+        .arg(&manifest_path)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(fs::read(&output_path).unwrap().starts_with(b"%PDF-"));
+    remove_files([&first_path, &second_path, &manifest_path, &output_path]);
+}
+
+#[test]
 fn cli_preserves_existing_output_and_removes_temporary_on_late_failure() {
     let valid_path = temp_path("late-valid").with_extension("ppm");
     let invalid_path = temp_path("late-invalid").with_extension("ppm");
@@ -339,8 +377,8 @@ fn cli_rejects_truncated_mismatched_and_unsupported_image_inputs() {
 }
 
 #[test]
-fn cli_rejects_sparse_manifest_above_the_byte_limit_before_parsing() {
-    let manifest_path = temp_path("oversized-manifest-bytes").with_extension("tsv");
+fn cli_rejects_a_single_compact_manifest_record_above_the_byte_limit() {
+    let manifest_path = temp_path("oversized-manifest-record").with_extension("tsv");
     let output_path = temp_path("oversized-manifest-bytes-output").with_extension("pdf");
     File::create(&manifest_path)
         .unwrap()
@@ -362,7 +400,7 @@ fn cli_rejects_sparse_manifest_above_the_byte_limit_before_parsing() {
     assert!(envelope["message"]
         .as_str()
         .unwrap()
-        .contains("67108864-byte admission ceiling"));
+        .contains("65536-byte admission ceiling"));
     assert!(!output_path.exists());
 
     remove_files([&manifest_path, &output_path]);

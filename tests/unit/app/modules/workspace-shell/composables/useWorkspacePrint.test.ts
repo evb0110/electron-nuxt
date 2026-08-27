@@ -12,6 +12,7 @@ import {
 import { uniq } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 
 type TShouldPrintPageMetricsDirectly = (
@@ -207,7 +208,7 @@ async function flushMicrotasks(iterations = 6) {
 }
 
 function createState(options?: {
-    sourcePdf?: Blob | null;
+    sourcePdf?: TPdfSource | null;
     workingCopyPath?: string | null;
     fileName?: string | null;
     hasPendingUnsavedChanges?: boolean;
@@ -218,6 +219,7 @@ function createState(options?: {
     }> | null>;
     getPrintableSourceData?: (options?: { signal?: AbortSignal }) => Promise<Uint8Array | null>;
     ensurePrintReady?: () => Promise<boolean>;
+    ensureWorkingCopyFreshForRead?: () => Promise<boolean | string | null>;
     canPrintDjvuSource?: boolean;
     getCurrentPrintPage?: () => number | null | undefined;
     printDjvuSource?: (
@@ -263,6 +265,9 @@ function createState(options?: {
             : {}),
         getQuickPrintPageMetrics,
         ...(options?.ensurePrintReady ? {ensurePrintReady: options.ensurePrintReady} : {}),
+        ...(options?.ensureWorkingCopyFreshForRead
+            ? {ensureWorkingCopyFreshForRead: options.ensureWorkingCopyFreshForRead}
+            : {}),
         getPrintableSourceData,
         ...(options?.printDjvuSource
             ? { printDjvuSource: options.printDjvuSource }
@@ -497,6 +502,257 @@ describe('useWorkspacePrint', () => {
                 title: 'print.requestSent',
             });
             expect(state.isPreparingPrint.value).toBe(false);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('dispatches a multi-gigabyte path source directly without resolving PDF bytes', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({success: true});
+        const {
+            getQuickPrintPageMetrics,
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            sourcePdf: {
+                kind: 'path',
+                path: '/tmp/multi-gigabyte.pdf',
+                size: 3 * 1024 * 1024 * 1024,
+            },
+            workingCopyPath: '/tmp/multi-gigabyte.pdf',
+            fileName: 'multi-gigabyte.pdf',
+        });
+
+        try {
+            await state.handleQuickPrint();
+
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
+                '/tmp/multi-gigabyte.pdf',
+                'multi-gigabyte.pdf',
+            );
+            expect(getQuickPrintPageMetrics).not.toHaveBeenCalled();
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
+            expect(renderPdfPagesForBrowserPrintMock).not.toHaveBeenCalled();
+            expect(state.printError.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('dispatches directly representable selected pages to native path printing', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({success: true});
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            sourcePdf: {
+                kind: 'path',
+                path: '/tmp/selected-pages.pdf',
+                size: 3 * 1024 * 1024 * 1024,
+            },
+            fileName: 'selected-pages.pdf',
+        });
+
+        try {
+            await state.handlePrintDialogSubmit({
+                pageNumbers: [
+                    8,
+                    3,
+                    3,
+                ],
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
+                '/tmp/selected-pages.pdf',
+                'selected-pages.pdf',
+                [
+                    3,
+                    8,
+                ],
+            );
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
+            expect(renderPdfPagesForBrowserPrintMock).not.toHaveBeenCalled();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('refreshes a dirty path source through the strict save path before native printing', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({success: true});
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => '/tmp/refreshed.pdf');
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            sourcePdf: {
+                kind: 'path',
+                path: '/tmp/stale.pdf',
+                size: 3 * 1024 * 1024 * 1024,
+            },
+            workingCopyPath: '/tmp/stale.pdf',
+            hasPendingUnsavedChanges: true,
+            ensureWorkingCopyFreshForRead,
+        });
+
+        try {
+            await state.handlePrintDialogSubmit({
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+
+            expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
+                '/tmp/refreshed.pdf',
+                'document.pdf',
+            );
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('reports a typed native-required failure when a dirty path has no native print capability', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({
+            success: false,
+            error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+            unsupportedReason: 'requires-native-backend',
+        });
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => true);
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            sourcePdf: {
+                kind: 'path',
+                path: '/tmp/native-required.pdf',
+                size: 3 * 1024 * 1024 * 1024,
+            },
+            hasPendingUnsavedChanges: true,
+            ensureWorkingCopyFreshForRead,
+        });
+
+        try {
+            await state.handlePrintDialogSubmit({
+                viewMode: 'single',
+                orientation: 'auto',
+            }, {reopenDialogOnError: false});
+
+            expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: expect.stringContaining('native desktop dialog is unavailable'),
+            }));
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('fails closed for an unrepresentable clean path request instead of resolving PDF bytes', async () => {
+        const sourcePdf: TPdfSource = {
+            kind: 'path',
+            path: '/tmp/clean-unrepresentable.pdf',
+            size: 3 * 1024 * 1024 * 1024,
+        };
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({sourcePdf});
+
+        try {
+            await state.handlePrintDialogSubmit({
+                pageNumbers: [2],
+                viewMode: 'facing',
+                orientation: 'portrait',
+            }, {reopenDialogOnError: false});
+
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: expect.stringContaining('native path handoff'),
+            }));
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('fails closed when native path printing is unavailable for a clean path source', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({
+            success: false,
+            error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+            unsupportedReason: 'requires-native-backend',
+        });
+        const sourcePdf: TPdfSource = {
+            kind: 'path',
+            path: '/tmp/clean-native-required.pdf',
+            size: 3 * 1024 * 1024 * 1024,
+        };
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({sourcePdf});
+
+        try {
+            await state.handlePrintDialogSubmit({
+                viewMode: 'single',
+                orientation: 'auto',
+            }, {reopenDialogOnError: false});
+
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
+                '/tmp/clean-native-required.pdf',
+                'document.pdf',
+            );
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: expect.stringContaining('native desktop dialog is unavailable'),
+            }));
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('fails closed for an unrepresentable dirty path request instead of materializing bytes', async () => {
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => true);
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            sourcePdf: {
+                kind: 'path',
+                path: '/tmp/unrepresentable.pdf',
+                size: 3 * 1024 * 1024 * 1024,
+            },
+            hasPendingUnsavedChanges: true,
+            ensureWorkingCopyFreshForRead,
+        });
+
+        try {
+            await state.handlePrintDialogSubmit({
+                pageNumbers: [2],
+                viewMode: 'facing',
+                orientation: 'portrait',
+            }, {reopenDialogOnError: false});
+
+            expect(ensureWorkingCopyFreshForRead).not.toHaveBeenCalled();
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: expect.stringContaining('detached staging'),
+            }));
         } finally {
             scope.stop();
         }

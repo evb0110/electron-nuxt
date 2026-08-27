@@ -1,5 +1,8 @@
 export interface IPdfPageLayoutBase {
     totalPages: number;
+    /** True when the base uses lazy indexed collections instead of dense arrays. */
+    isSparse: boolean;
+    maxPageWidth: number;
     maxPageHeight: number;
     pageWidths: readonly number[];
     pageHeights: readonly number[];

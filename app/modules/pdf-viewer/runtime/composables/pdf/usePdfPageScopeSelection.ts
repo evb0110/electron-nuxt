@@ -1,15 +1,24 @@
 import {
-    createAllPageNumbers,
+    createAllPageSelection,
+    createExplicitPageSelection,
+    createPredicatePageSelection,
+    createRangePageSelection,
+    iteratePageSelectionBatches,
+    materializePageSelection,
     normalizeSelectedPageNumbers,
+    pageSelectionCount,
 } from '@app/utils/pdfPageSelection';
+import type { TPageSelection } from '@app/utils/pdfPageSelection';
 
 type TPdfPageScope = 'all' | 'current' | 'selected' | 'range' | 'even' | 'odd';
 
 interface IPdfPageScopeSelectionOptions {
     totalPages: () => number;
     currentPage: () => number;
-    selectedPages: () => number[];
-    resolveRangePages: () => number[] | null;
+    selectedPages?: () => number[];
+    selectedPageSelection?: () => TPageSelection | null;
+    resolveRangePages?: () => number[] | null;
+    resolveRangeSelection?: () => TPageSelection | null;
 }
 
 interface IResolveScopedPageNumbersOptions { includeAllPages?: boolean; }
@@ -19,11 +28,24 @@ export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions)
     const rangeInput = ref('');
     const rangeTouched = ref(false);
 
-    const normalizedSelectedPages = computed(() =>
-        normalizeSelectedPageNumbers(options.selectedPages(), options.totalPages()));
+    const normalizedSelectedPages = computed(() => normalizeSelectedPageNumbers(
+        options.selectedPages?.() ?? [],
+        options.totalPages(),
+    ));
+
+    const normalizedSelectedPageSelection = computed<TPageSelection>(() => {
+        const pageCount = options.totalPages();
+        const provided = options.selectedPageSelection?.();
+        if (provided && provided.pageCount === pageCount) {
+            return provided;
+        }
+        return createExplicitPageSelection(pageCount, normalizedSelectedPages.value);
+    });
 
     function resetScopeForOpen(defaultScope?: TPdfPageScope) {
-        scope.value = defaultScope ?? (normalizedSelectedPages.value.length > 0 ? 'selected' : 'all');
+        scope.value = defaultScope ?? (
+            pageSelectionCount(normalizedSelectedPageSelection.value) > 0 ? 'selected' : 'all'
+        );
         rangeInput.value = '';
         rangeTouched.value = false;
     }
@@ -32,29 +54,84 @@ export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions)
         resolveOptions: IResolveScopedPageNumbersOptions = {},
     ): number[] | undefined | null {
         if (scope.value === 'all') {
-            return resolveOptions.includeAllPages ? createAllPageNumbers(options.totalPages()) : undefined;
+            return resolveOptions.includeAllPages
+                ? materializePageSelection(createAllPageSelection(options.totalPages()))
+                : undefined;
         }
         if (scope.value === 'current') {
             const page = options.currentPage();
             return page >= 1 && page <= options.totalPages() ? [page] : null;
         }
         if (scope.value === 'even') {
-            return createAllPageNumbers(options.totalPages()).filter(page => page % 2 === 0);
+            return materializePageSelection(createPredicatePageSelection(options.totalPages(), 'even'));
         }
         if (scope.value === 'odd') {
-            return createAllPageNumbers(options.totalPages()).filter(page => page % 2 !== 0);
+            return materializePageSelection(createPredicatePageSelection(options.totalPages(), 'odd'));
         }
         if (scope.value === 'selected') {
             return normalizedSelectedPages.value.length > 0 ? normalizedSelectedPages.value : null;
         }
         if (scope.value === 'range') {
-            return options.resolveRangePages();
+            const selection = resolveRangeSelection();
+            return selection ? materializePageSelection(selection) : null;
         }
         return undefined;
     }
 
-    watch(normalizedSelectedPages, (pages) => {
-        if (scope.value === 'selected' && pages.length === 0) {
+    function resolveRangeSelection(): TPageSelection | null {
+        const provided = options.resolveRangeSelection?.();
+        if (provided) {
+            return provided;
+        }
+        const pages = options.resolveRangePages?.();
+        if (!pages || pages.length === 0) {
+            return null;
+        }
+        const normalized = normalizeSelectedPageNumbers(pages, options.totalPages());
+        if (normalized.length === 0) {
+            return null;
+        }
+        const first = normalized[0]!;
+        const last = normalized.at(-1)!;
+        const isContiguous = normalized.every((page, index) => page === first + index);
+        return isContiguous
+            ? createRangePageSelection(options.totalPages(), first, last)
+            : createExplicitPageSelection(options.totalPages(), normalized);
+    }
+
+    function resolveScopedPageSelection(): TPageSelection | null | undefined {
+        const pageCount = options.totalPages();
+        switch (scope.value) {
+            case 'all':
+                return createAllPageSelection(pageCount);
+            case 'current': {
+                const page = options.currentPage();
+                return page >= 1 && page <= pageCount
+                    ? createExplicitPageSelection(pageCount, [page])
+                    : null;
+            }
+            case 'even':
+                return createPredicatePageSelection(pageCount, 'even');
+            case 'odd':
+                return createPredicatePageSelection(pageCount, 'odd');
+            case 'selected':
+                return pageSelectionCount(normalizedSelectedPageSelection.value) > 0
+                    ? normalizedSelectedPageSelection.value
+                    : null;
+            case 'range':
+                return resolveRangeSelection();
+            default:
+                return undefined;
+        }
+    }
+
+    function resolveScopedPageBatches(batchSize = 1_024): Generator<number[]> | null {
+        const selection = resolveScopedPageSelection();
+        return selection ? iteratePageSelectionBatches(selection, {batchSize}) : null;
+    }
+
+    watch(normalizedSelectedPageSelection, (selection) => {
+        if (scope.value === 'selected' && pageSelectionCount(selection) === 0) {
             scope.value = 'all';
         }
     });
@@ -68,7 +145,10 @@ export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions)
         rangeInput,
         rangeTouched,
         normalizedSelectedPages,
+        normalizedSelectedPageSelection,
         resetScopeForOpen,
         resolveScopedPageNumbers,
+        resolveScopedPageSelection,
+        resolveScopedPageBatches,
     };
 };

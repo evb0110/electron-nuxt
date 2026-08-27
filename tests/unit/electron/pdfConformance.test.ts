@@ -11,18 +11,73 @@ const mocks = vi.hoisted(() => {
     const workerCtor = vi.fn();
     const loggerWarn = vi.fn();
     const runNativeToolCommand = vi.fn();
-    const readFile = vi.fn(async () => new Uint8Array([
-        1,
-        2,
-        3,
-    ]));
+    let rangeBytes: Buffer<ArrayBufferLike> = Buffer.from('%PDF-1.7\n', 'latin1');
+    let factsBytes: Buffer<ArrayBufferLike> = Buffer.from(JSON.stringify({
+        isEncrypted: false,
+        isTagged: false,
+        hasAcroForm: false,
+        hasXfa: false,
+    }), 'utf8');
+    const setRangeBytes = (bytes: Buffer<ArrayBufferLike>) => {
+        rangeBytes = bytes;
+    };
+    const setFactsBytes = (bytes: Buffer<ArrayBufferLike>) => {
+        factsBytes = bytes;
+    };
+    const readBytes = async (
+        source: Buffer,
+        buffer: Buffer,
+        bufferOffset: number,
+        length: number,
+        position: number | bigint | null,
+        sparse = false,
+    ) => {
+        const sourceOffset = Number(position ?? 0);
+        const bytesRead = sparse && sourceOffset >= source.length
+            ? length
+            : Math.min(length, Math.max(0, source.length - sourceOffset));
+        if (bytesRead > 0) {
+            buffer.fill(0, bufferOffset, bufferOffset + bytesRead);
+            const copyStart = Math.min(sourceOffset, source.length);
+            const copyEnd = Math.min(
+                source.length,
+                sourceOffset + bytesRead,
+            );
+            if (copyEnd > copyStart) {
+                source.copy(
+                    buffer,
+                    bufferOffset + copyStart - sourceOffset,
+                    copyStart,
+                    copyEnd,
+                );
+            }
+        }
+        return {bytesRead};
+    };
+    const rangeRead = vi.fn(async (
+        buffer: Buffer,
+        bufferOffset: number,
+        length: number,
+        position: number | bigint | null,
+    ) => readBytes(rangeBytes, buffer, bufferOffset, length, position, true));
+    const factsRead = vi.fn(async (
+        buffer: Buffer,
+        bufferOffset: number,
+        length: number,
+        position: number | bigint | null,
+    ) => readBytes(factsBytes, buffer, bufferOffset, length, position));
+    const close = vi.fn(async () => undefined);
+    const open = vi.fn(async (filePath: string) => ({
+        read: filePath.endsWith('/facts.json') ? factsRead : rangeRead,
+        close,
+    }));
+    const mkdtemp = vi.fn(async () => '/tmp/pdf-page-ops-facts');
+    const writeFile = vi.fn(async () => undefined);
+    const rm = vi.fn(async () => undefined);
+    const load = vi.fn();
     const stat = vi.fn(async () => ({
         isFile: () => true,
-        size: 1024, 
-    }));
-    const load = vi.fn(async () => ({
-        catalog: { lookupMaybe: vi.fn(() => undefined) },
-        isEncrypted: false, 
+        size: rangeBytes.length,
     }));
 
     return {
@@ -30,7 +85,16 @@ const mocks = vi.hoisted(() => {
         workerCtor,
         loggerWarn,
         runNativeToolCommand,
-        readFile,
+        rangeBytes,
+        setRangeBytes,
+        setFactsBytes,
+        rangeRead,
+        factsRead,
+        close,
+        open,
+        mkdtemp,
+        writeFile,
+        rm,
         stat,
         load,
     };
@@ -143,8 +207,11 @@ vi.mock('worker_threads', () => ({Worker: class {
 }}));
 
 vi.mock('fs/promises', () => ({
-    readFile: mocks.readFile,
+    open: mocks.open,
+    mkdtemp: mocks.mkdtemp,
+    rm: mocks.rm,
     stat: mocks.stat,
+    writeFile: mocks.writeFile,
 }));
 
 vi.mock('pdf-lib', () => {
@@ -164,6 +231,7 @@ vi.mock('electron', () => ({ app: { getPath: vi.fn(() => '/tmp') } }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({qpdf: '/mock/qpdf'})}));
+vi.mock('@electron/features/page-ops/main/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/page-ops'}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: mocks.loggerWarn,
     error: vi.fn(),
@@ -178,6 +246,20 @@ const {
 } = await import('@electron/features/documents/main/pdfConformance');
 const { analyzePdfConformanceFileDirect } = await import('@electron/features/documents/main/analyzePdfConformanceFileDirect');
 
+function createNativeStructuralFacts(options: {
+    encrypted?: boolean;
+    tagged?: boolean;
+    acroForm?: boolean;
+    xfa?: boolean;
+} = {}) {
+    return Buffer.from(JSON.stringify({
+        isEncrypted: options.encrypted ?? false,
+        isTagged: options.tagged ?? false,
+        hasAcroForm: options.acroForm ?? false,
+        hasXfa: options.xfa ?? false,
+    }), 'utf8');
+}
+
 describe('analyzePdfConformanceFile', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -189,12 +271,9 @@ describe('analyzePdfConformanceFile', () => {
         });
         mocks.stat.mockResolvedValue({
             isFile: () => true,
-            size: 1024, 
+            size: mocks.rangeBytes.length,
         });
-        mocks.load.mockResolvedValue({
-            catalog: { lookupMaybe: vi.fn(() => undefined) },
-            isEncrypted: false, 
-        });
+        mocks.setFactsBytes(createNativeStructuralFacts());
     });
 
     it('returns the worker result when the worker starts successfully', async () => {
@@ -213,7 +292,8 @@ describe('analyzePdfConformanceFile', () => {
             saveRestrictions: [],
         });
         expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
-        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.workerCtor.mock.calls[0]?.[1]).not.toHaveProperty('resourceLimits');
+        expect(mocks.open).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
     });
 
@@ -223,7 +303,7 @@ describe('analyzePdfConformanceFile', () => {
             .toThrow('PDF conformance worker failed before becoming ready: PDF worker missing');
 
         expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
-        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.open).not.toHaveBeenCalled();
         expect(mocks.stat).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
     });
@@ -236,7 +316,7 @@ describe('analyzePdfConformanceFile', () => {
             .toThrow('worker crashed after startup');
 
         expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
-        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.open).not.toHaveBeenCalled();
         expect(mocks.stat).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
     });
@@ -249,7 +329,7 @@ describe('analyzePdfConformanceFile', () => {
             .toThrow('PDF conformance worker returned an invalid payload');
 
         expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
-        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.open).not.toHaveBeenCalled();
         expect(mocks.stat).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
     });
@@ -258,43 +338,51 @@ describe('analyzePdfConformanceFile', () => {
 describe('analyzePdfConformanceFileDirect', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.readFile.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-        ]));
-        mocks.load.mockResolvedValue({
-            catalog: { lookupMaybe: vi.fn(() => undefined) },
-            isEncrypted: false,
+        mocks.runNativeToolCommand.mockResolvedValue({
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        });
+        mocks.setFactsBytes(createNativeStructuralFacts());
+        mocks.setRangeBytes(Buffer.from('%PDF-1.7\n', 'latin1'));
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            size: 9,
         });
     });
 
-    it('returns conservative save restrictions when structural parsing fails', async () => {
-        mocks.readFile.mockResolvedValueOnce(Buffer.from(`
+    it('uses native qpdf structure and bounded marker reads without a whole-file read', async () => {
+        mocks.setRangeBytes(Buffer.from(`
+            %PDF-1.7
             <pdfaid:part>2</pdfaid:part>
             <pdfaid:conformance>b</pdfaid:conformance>
             /ByteRange [0 10 20 30]
             /Encrypt 42 0 R
         `, 'latin1'));
-        mocks.load.mockRejectedValueOnce(new Error('parse failed'));
+        mocks.stat.mockResolvedValueOnce({
+            isFile: () => true,
+            size: 160,
+        });
+        mocks.setFactsBytes(createNativeStructuralFacts({encrypted: true}));
 
         const result = await analyzePdfConformanceFileDirect('/tmp/partial.pdf');
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
             isSigned: true,
             isEncrypted: true,
-            isTagged: false,
             pdfaLevel: 'PDF/A-2B',
-            hasAcroForm: false,
-            hasXfa: false,
             canIncrementalSave: false,
-            saveRestrictions: [
-                'signed_original_requires_save_as',
-                'encrypted_document_requires_preservation',
-                'pdfa_preservation_required:PDF/A-2B',
-                'incremental_save_not_supported',
-            ],
         });
+        expect(mocks.open).toHaveBeenCalledWith('/tmp/partial.pdf', 'r');
+        expect(mocks.open).toHaveBeenCalledWith('/tmp/pdf-page-ops-facts/facts.json', 'r');
+        expect(mocks.rangeRead).toHaveBeenCalledWith(
+            expect.any(Buffer),
+            0,
+            160,
+            0n,
+        );
+        expect(mocks.rangeRead.mock.calls[0]?.[2]).toBeLessThanOrEqual(4 * 1024 * 1024);
+        expect(mocks.close).toHaveBeenCalledTimes(2);
     });
 
     it('scans conformance markers across bounded windows without decoding the whole PDF', async () => {
@@ -307,8 +395,12 @@ describe('analyzePdfConformanceFileDirect', () => {
             scanBoundary + 64,
             'latin1',
         );
-        mocks.readFile.mockResolvedValueOnce(data);
-        mocks.load.mockRejectedValueOnce(new Error('parse failed'));
+        mocks.setRangeBytes(data);
+        mocks.stat.mockResolvedValueOnce({
+            isFile: () => true,
+            size: data.length,
+        });
+        mocks.setFactsBytes(createNativeStructuralFacts({encrypted: true}));
 
         const result = await analyzePdfConformanceFileDirect('/tmp/large-partial.pdf');
 
@@ -318,6 +410,79 @@ describe('analyzePdfConformanceFileDirect', () => {
             pdfaLevel: 'PDF/A-3U',
             canIncrementalSave: false,
         });
+        expect(mocks.rangeRead.mock.calls.every(call =>
+            call[2] <= 4 * 1024 * 1024,
+        )).toBe(true);
+    });
+
+    it('retains tagged, AcroForm, XFA, and save restriction semantics', async () => {
+        mocks.setFactsBytes(createNativeStructuralFacts({
+            tagged: true,
+            acroForm: true,
+            xfa: true,
+        }));
+
+        const result = await analyzePdfConformanceFileDirect('/tmp/forms.pdf');
+
+        expect(result).toEqual({
+            isSigned: false,
+            isEncrypted: false,
+            isTagged: true,
+            pdfaLevel: null,
+            hasAcroForm: true,
+            hasXfa: true,
+            canIncrementalSave: false,
+            saveRestrictions: [
+                'xfa_forms_are_not_supported_for_rewrite',
+                'tagged_pdf_requires_structure_preservation',
+                'incremental_save_not_supported',
+            ],
+        });
+    });
+
+    it('analyzes a sparse multi-gigabyte path without an encoded-size refusal', async () => {
+        mocks.stat.mockResolvedValueOnce({
+            isFile: () => true,
+            size: 2 * 1024 * 1024 * 1024 + 1,
+        });
+        mocks.setFactsBytes(createNativeStructuralFacts());
+
+        const result = await analyzePdfConformanceFileDirect('/tmp/sparse-2gib.pdf');
+
+        expect(result.canIncrementalSave).toBe(true);
+        expect(mocks.open).toHaveBeenCalledTimes(2);
+        expect(mocks.rangeRead.mock.calls.length).toBeGreaterThan(500);
+        expect(mocks.rangeRead.mock.calls.every(call =>
+            call[2] <= 4 * 1024 * 1024,
+        )).toBe(true);
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/mock/page-ops',
+            [
+                'pdf-conformance',
+                '--input',
+                '/tmp/sparse-2gib.pdf',
+                '--output',
+                '/tmp/pdf-page-ops-facts/facts.json',
+                '--qpdf',
+                '/mock/qpdf',
+            ],
+            expect.objectContaining({
+                maxStdoutBytes: 64 * 1024,
+                rejectOnStdoutTruncation: true,
+            }),
+        );
+    });
+
+    it('fails with a typed capability error when qpdf structure is unavailable', async () => {
+        mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('qpdf unavailable'));
+
+        await expect(analyzePdfConformanceFileDirect('/tmp/unavailable.pdf'))
+            .rejects
+            .toMatchObject({
+                name: 'PdfConformanceCapabilityError',
+                code: 'native-failure',
+            });
+        expect(mocks.open).not.toHaveBeenCalled();
     });
 });
 
@@ -329,14 +494,10 @@ describe('validatePdfFile', () => {
             stderr: '',
             exitCode: 0,
         });
-        mocks.readFile.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-        ]));
-        mocks.load.mockResolvedValue({
-            catalog: { lookupMaybe: vi.fn(() => undefined) },
-            isEncrypted: false,
+        mocks.setFactsBytes(createNativeStructuralFacts());
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            size: 9,
         });
     });
 
@@ -366,7 +527,7 @@ describe('validatePdfFile', () => {
             ],
             commandLabel: 'qpdf(validate-pdf)',
         });
-        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.open).not.toHaveBeenCalled();
     });
 
     it('scales qpdf validation time for a legitimate large PDF', async () => {
@@ -385,6 +546,7 @@ describe('validatePdfFile', () => {
 
     it('accepts a qpdf timeout when structural fallback can load the PDF', async () => {
         mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('qpdf(validate-pdf) timed out after 30000ms'));
+        mocks.setFactsBytes(createNativeStructuralFacts());
 
         const result = await validatePdfFile('/tmp/slow.pdf');
 
@@ -394,42 +556,60 @@ describe('validatePdfFile', () => {
             errors: [],
             warnings: ['qpdf validation timed out after 30000ms; fallback PDF structure validation succeeded.'],
         });
-        expect(mocks.readFile).toHaveBeenCalledWith('/tmp/slow.pdf');
-        expect(mocks.load).toHaveBeenCalledOnce();
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledTimes(2);
+        expect(mocks.runNativeToolCommand).toHaveBeenLastCalledWith(
+            '/mock/page-ops',
+            [
+                'pdf-conformance',
+                '--input',
+                '/tmp/slow.pdf',
+                '--output',
+                '/tmp/pdf-page-ops-facts/facts.json',
+                '--qpdf',
+                '/mock/qpdf',
+            ],
+            expect.objectContaining({
+                maxStdoutBytes: 64 * 1024,
+                timeoutMs: 10 * 60 * 1000,
+            }),
+        );
         expect(mocks.loggerWarn).toHaveBeenCalledOnce();
     });
 
     it('keeps a qpdf timeout invalid when structural fallback cannot load the PDF', async () => {
         mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('qpdf(validate-pdf) timed out after 30000ms'));
-        mocks.load.mockRejectedValueOnce(new Error('bad xref'));
+        mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('bad xref'));
 
         const result = await validatePdfFile('/tmp/broken.pdf');
 
         expect(result).toEqual({
             isValid: false,
             tool: 'qpdf',
-            errors: ['qpdf(validate-pdf) timed out after 30000ms; fallback PDF structure validation failed: bad xref'],
+            errors: ['qpdf(validate-pdf) timed out after 30000ms; fallback PDF structure validation failed: '
+                + 'Native PDF conformance structure was unavailable for "/tmp/broken.pdf": bad xref'],
             warnings: [],
         });
     });
 
-    it('skips structural timeout fallback when the PDF exceeds the safe read limit', async () => {
+    it('keeps structural timeout fallback available for a large path', async () => {
         mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('qpdf(validate-pdf) timed out after 30000ms'));
         mocks.stat.mockResolvedValueOnce({
             isFile: () => true,
-            size: 65 * 1024 * 1024,
+            size: 2 * 1024 * 1024 * 1024 + 1,
         });
+        mocks.setFactsBytes(createNativeStructuralFacts());
 
         const result = await validatePdfFile('/tmp/oversized.pdf');
 
         expect(result).toEqual({
-            isValid: false,
+            isValid: true,
             tool: 'qpdf',
-            errors: ['qpdf(validate-pdf) timed out after 30000ms; fallback PDF structure validation skipped because "/tmp/oversized.pdf" exceeds the safe read limit (64MB)'],
-            warnings: [],
+            errors: [],
+            warnings: ['qpdf validation timed out after 155000ms; fallback PDF structure validation succeeded.'],
         });
-        expect(mocks.readFile).not.toHaveBeenCalled();
-        expect(mocks.load).not.toHaveBeenCalled();
+        expect(mocks.open).toHaveBeenCalledWith('/tmp/pdf-page-ops-facts/facts.json', 'r');
+        expect(mocks.rangeRead).not.toHaveBeenCalled();
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledTimes(2);
     });
 });
 

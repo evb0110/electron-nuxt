@@ -15,6 +15,9 @@ export interface IPdfPageLabelRange {
     startNumber: number;
 }
 
+/** Inclusive segment derived from one range and the next range boundary. */
+export interface IPdfPageLabelSegment extends IPdfPageLabelRange {endPage: number;}
+
 export interface IPdfPageLabelsMutation {
     totalPages: number;
     ranges: IPdfPageLabelRange[];

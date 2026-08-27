@@ -16,7 +16,10 @@ import type {
 import type { createPendingResultFileStore } from '@electron/ocr/createPendingResultFileStore';
 import { ocrResourceGovernor } from '@electron/ocr/ocrResourceGovernor';
 import { OCR_COMPLETE_EVENT_CHANNEL } from '@contracts/electronApiOcr';
-import { buildOcrErrorEnvelope } from '@electron/ocr/contracts';
+import {
+    buildOcrErrorEnvelope,
+    getOcrPageSelectionCount,
+} from '@electron/ocr/contracts';
 import type { ILogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { runDetached } from '@electron/utils/runDetached';
@@ -323,8 +326,8 @@ export function createOcrJobWorkerLifecycleController(
             publishProgress(job, {
                 requestId: job.requestId,
                 currentPage: 0,
-                processedCount: job.pages.length,
-                totalPages: job.pages.length,
+                processedCount: getOcrPageSelectionCount(job.pages),
+                totalPages: getOcrPageSelectionCount(job.pages),
                 phase: 'indexing',
                 phaseProgress: 99,
             });

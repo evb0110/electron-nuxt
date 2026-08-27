@@ -50,6 +50,7 @@ export async function validateRenderedImagePageFiles(pageFiles: Array<{
     }
 }
 
+/** Add one rendered window's staged bytes. Callers reset the accumulator per window. */
 export async function addStagedImageFileBytes(
     currentBytes: number,
     path: string,

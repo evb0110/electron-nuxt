@@ -68,9 +68,18 @@ import {
     ScanCleanupInsufficientScratchError,
     ScanCleanupNativeToolUnavailableError,
 } from '@scan-cleanup-core/errors';
+import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+import {claimScanCleanupDetectionResultStore} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
+import {
+    persistScanCleanupDetectionResultStore,
+    removeScanCleanupDetectionResultStoreDescriptor,
+    type IScanCleanupDetectionResultStoreDescriptor,
+} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
 
 interface IScanCleanupJobResult {
     completedPageNumbers: number[];
+    completedPageNumbersTruncated?: boolean;
     outputPdfPath: string;
     partial: boolean;
     summary: TScanCleanupSummary;
@@ -213,10 +222,44 @@ function omitStageMetadata(progress: TScanCleanupProgress): TScanCleanupProgress
     return rest;
 }
 
+function omitCompletedPageMetadata(progress: TScanCleanupProgress): TScanCleanupProgress {
+    const {
+        completedPageNumbers: _completedPageNumbers,
+        completedPageNumbersTruncated: _completedPageNumbersTruncated,
+        ...rest
+    } = progress;
+    return rest;
+}
+
+function resolveCompletedPageMetadata(
+    request: IScanCleanupStartRequest,
+    inputPages: number,
+) {
+    if (request.sourcePageNumbers !== undefined) {
+        return {completedPageNumbers: [...request.sourcePageNumbers]};
+    }
+    const firstPageNumber = request.sourcePageRange?.startPageNumber ?? 1;
+    const completedPageNumbers = [] as number[];
+    const retainedCount = Math.min(inputPages, SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES);
+    for (let index = 0; index < retainedCount; index += 1) {
+        completedPageNumbers.push(firstPageNumber + index);
+    }
+    return {
+        completedPageNumbers,
+        ...(inputPages > retainedCount ? {completedPageNumbersTruncated: true} : {}),
+    };
+}
+
 function completedProgress(
     latest: TScanCleanupJobState,
     result: IScanCleanupJobResult,
 ): TScanCleanupJobState {
+    const completedPageMetadata = result.completedPageNumbersTruncated === true
+        ? {
+            completedPageNumbers: result.completedPageNumbers,
+            completedPageNumbersTruncated: true as const,
+        }
+        : {completedPageNumbers: result.completedPageNumbers};
     return {
         jobId: latest.jobId,
         status: 'completed',
@@ -224,7 +267,7 @@ function completedProgress(
         summary: result.summary,
         partial: result.partial,
         progress: {
-            ...omitStageMetadata(latest.progress),
+            ...omitCompletedPageMetadata(omitStageMetadata(latest.progress)),
             stage: 'handoff',
             completedUnits: result.summary.inputPages,
             totalUnits: result.summary.inputPages,
@@ -233,7 +276,7 @@ function completedProgress(
                 stageIndex: latest.progress.stageCount,
                 stageCount: latest.progress.stageCount,
             }),
-            completedPageNumbers: result.completedPageNumbers,
+            ...completedPageMetadata,
         },
         updatedAtMs: Date.now(),
     };
@@ -460,6 +503,8 @@ export function createScanCleanupService(
                     startReservationsByBrokerOwner.delete(brokerOwnerId);
                 }
             };
+            let startedHandle: ReturnType<TScanCleanupJobRegistry['start']> | null = null;
+            let detectionResultStoreLease: ReturnType<typeof claimScanCleanupDetectionResultStore> = null;
             try {
                 const previous = activeJobsByBrokerOwner.get(brokerOwnerId);
                 if (previous) {
@@ -486,10 +531,38 @@ export function createScanCleanupService(
                         );
                     }
                 }
-                const partial = request.sourcePageNumbers !== undefined;
+                const partial = request.sourcePageNumbers !== undefined
+                                || request.sourcePageRange !== undefined;
+                attachScanCleanupPageOverrideDefaults(
+                    request.options.pageOverrides,
+                    request.options.pageOverrideDefaults,
+                    request.options.marginsMm,
+                );
+                detectionResultStoreLease = request.detectionResultStoreId === undefined
+                    ? null
+                    : claimScanCleanupDetectionResultStore(
+                        request.detectionResultStoreId,
+                        {
+                            documentRevision: request.documentRevision,
+                            ownerId: request.ownerId,
+                            sourcePdfPath: request.sourcePdfPath,
+                        },
+                    );
+                if (request.detectionResultStoreId !== undefined && detectionResultStoreLease === null) {
+                    return {
+                        started: false,
+                        jobId,
+                        error: 'Detection results are no longer available for this document',
+                        errorCode: 'invalid-request',
+                    };
+                }
                 const outputPdfPath = await createScanCleanupGeneratedOutputPath(request.sourcePdfPath, partial);
+                const {
+                    detectionResultStoreId: _detectionResultStoreId,
+                    ...requestWithoutDetectionStoreId
+                } = request;
                 const workerRequest = {
-                    ...request,
+                    ...requestWithoutDetectionStoreId,
                     outputPdfPath,
                 };
                 const runtimePolicy = resolveScanCleanupRuntimePolicy(
@@ -538,6 +611,7 @@ export function createScanCleanupService(
                     },
                     run: async job => {
                         let lease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
+                        let detectionResultStoreDescriptor: IScanCleanupDetectionResultStoreDescriptor | null = null;
                         try {
                             lease = await mainJobBroker.acquire({
                                 ownerId: brokerOwnerId,
@@ -583,9 +657,18 @@ export function createScanCleanupService(
                                     missingTools[0] ?? 'unknown scan-cleanup native tool',
                                 );
                             }
+                            if (detectionResultStoreLease !== null) {
+                                detectionResultStoreDescriptor = await persistScanCleanupDetectionResultStore(
+                                    detectionResultStoreLease.resultStore,
+                                    getAppTempDir(),
+                                );
+                            }
                             const summary = await runScanCleanupWorkerTask(
                                 {
                                     ...workerRequest,
+                                    ...(detectionResultStoreDescriptor === null
+                                        ? {}
+                                        : {detectionResultStoreDescriptor}),
                                     sourcePdfPath: await materializeScanCleanupSourcePath(
                                         request.sourcePdfPath,
                                         sender.id,
@@ -620,13 +703,12 @@ export function createScanCleanupService(
                             // requests are rejected as soon as commit begins.
                             job.signal.throwIfAborted();
                             job.markCommitStarted();
-                            const completedPageNumbers = request.sourcePageNumbers
-                                ?? Array.from({length: summary.inputPages}, (_, index) => index + 1);
+                            const completedPageMetadata = resolveCompletedPageMetadata(request, summary.inputPages);
                             return {
                                 outputPdfPath,
                                 summary,
                                 partial,
-                                completedPageNumbers,
+                                ...completedPageMetadata,
                             };
                         } catch (error) {
                             // The run stopped, but its native tree may not have.
@@ -646,9 +728,16 @@ export function createScanCleanupService(
                             throw error;
                         } finally {
                             lease?.release();
+                            await detectionResultStoreLease?.resultStore.close().catch(() => undefined);
+                            if (detectionResultStoreDescriptor !== null) {
+                                await removeScanCleanupDetectionResultStoreDescriptor(
+                                    detectionResultStoreDescriptor,
+                                ).catch(() => undefined);
+                            }
                         }
                     },
                 });
+                startedHandle = handle;
                 const activeEntry = {
                     jobId,
                     outputPdfPath,
@@ -666,6 +755,11 @@ export function createScanCleanupService(
                     jobId,
                     outputPdfPath,
                 };
+            } catch (error) {
+                if (startedHandle === null) {
+                    await detectionResultStoreLease?.resultStore.close().catch(() => undefined);
+                }
+                throw error;
             } finally {
                 releaseReservation();
             }

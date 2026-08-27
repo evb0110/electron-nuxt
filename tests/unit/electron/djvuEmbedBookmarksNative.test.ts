@@ -199,7 +199,7 @@ describe('embedBookmarksIntoPdfFile native path', () => {
         expect(pageOpsOptions?.cancelGroup).toBe(qpdfOptions?.cancelGroup);
     });
 
-    it('falls back to pdf-lib when the native command fails', async () => {
+    it('returns a typed native capability error when the native command fails', async () => {
         mocks.runNativeToolCommand
             .mockImplementationOnce(async () => ({
                 stdout: '3\n',
@@ -209,26 +209,33 @@ describe('embedBookmarksIntoPdfFile native path', () => {
             }))
             .mockRejectedValueOnce(new Error('native failed'));
 
-        const size = await embedBookmarksIntoPdfFile('/tmp/input.pdf', '/tmp/output.pdf', bookmarks);
+        const error = await embedBookmarksIntoPdfFile('/tmp/input.pdf', '/tmp/output.pdf', bookmarks)
+            .catch((caughtError: unknown) => caughtError);
 
-        expect(size).toBe(321);
-        expect(mocks.debug).toHaveBeenCalledWith(expect.stringContaining('native failed'));
-        expect(mocks.readFile).toHaveBeenCalledWith('/tmp/input.pdf');
-        expect(mocks.load).toHaveBeenCalledWith(expect.any(Uint8Array), {updateMetadata: false});
-        expect(mocks.writePdfBookmarkOutlines).toHaveBeenCalledWith(
-            await mocks.load.mock.results[0]?.value,
-            bookmarks,
-        );
-        expect(mocks.writeFile).toHaveBeenLastCalledWith('/tmp/output.pdf', new Uint8Array([9]));
+        expect(error).toMatchObject({
+            code: 'native-failure',
+            name: 'PdfCombineCapabilityError',
+            operation: 'djvu-bookmarks',
+            cause: expect.objectContaining({message: 'native failed'}),
+        });
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.load).not.toHaveBeenCalled();
+        expect(mocks.writeFile).not.toHaveBeenCalledWith('/tmp/output.pdf', expect.anything());
     });
 
-    it('keeps the existing pdf-lib behavior when native page ops are disabled', async () => {
+    it('returns a typed capability error when native page ops are disabled', async () => {
         mocks.isNativePageOpsDisabled.mockReturnValue(true);
 
-        await embedBookmarksIntoPdfFile('/tmp/input.pdf', '/tmp/output.pdf', bookmarks);
+        await expect(embedBookmarksIntoPdfFile('/tmp/input.pdf', '/tmp/output.pdf', bookmarks))
+            .rejects
+            .toMatchObject({
+                code: 'native-unavailable',
+                name: 'PdfCombineCapabilityError',
+                operation: 'djvu-bookmarks',
+            });
 
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
-        expect(mocks.readFile).toHaveBeenCalledWith('/tmp/input.pdf');
-        expect(mocks.load).toHaveBeenCalled();
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.load).not.toHaveBeenCalled();
     });
 });

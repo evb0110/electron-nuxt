@@ -15,6 +15,8 @@ interface IMockDjvuConvertSuccess {
     fileSize: number;
 }
 
+const SMALL_INPUT_LIMIT_BYTES = 16 * 1024 * 1024;
+
 const mocks = vi.hoisted(() => {
     const workerState: { mode: 'hang' | 'runtime-error' | 'startup-error' | 'success' } = { mode: 'startup-error' };
     const workerCtor = vi.fn();
@@ -256,6 +258,7 @@ vi.mock('@electron/image/tryCreatePdfFromInputPathsNative', () => ({
 const {
     createPdfFileFromInputPaths,
     createPdfFromInputPaths,
+    PdfCombineCapabilityError,
 } =
     await import('@electron/image/pdfConversion');
 
@@ -324,12 +327,39 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(mocks.nativeFileAssembler).toHaveBeenCalledWith(
             ['/tmp/huge.tiff'],
             '/tmp/output.pdf',
-            {onProgress: progress},
+            {
+                onProgress: progress,
+                failureMode: 'capability-error',
+            },
         );
         expect(mocks.nativeAssembler).not.toHaveBeenCalled();
         expect(mocks.workerCtor).not.toHaveBeenCalled();
         expect(mocks.create).not.toHaveBeenCalled();
         expect(mocks.writeFile).not.toHaveBeenCalled();
+    });
+
+    it('does not refuse a file-backed batch when the former total-input cap is exceeded', async () => {
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            size: 600 * 1024 * 1024,
+        });
+        mocks.nativeFileAssembler.mockResolvedValueOnce(true);
+
+        await expect(createPdfFileFromInputPaths([
+            '/tmp/first.pdf',
+            '/tmp/second.pdf',
+        ], '/tmp/output.pdf')).resolves.toBe('/tmp/output.pdf');
+
+        expect(mocks.nativeFileAssembler).toHaveBeenCalledWith(
+            [
+                '/tmp/first.pdf',
+                '/tmp/second.pdf',
+            ],
+            '/tmp/output.pdf',
+            {failureMode: 'capability-error'},
+        );
+        expect(mocks.workerCtor).not.toHaveBeenCalled();
+        expect(mocks.create).not.toHaveBeenCalled();
     });
 
     it('does not fall back to memory combine when oversized file-backed native combine fails', async () => {
@@ -341,7 +371,7 @@ describe('createPdfFromInputPaths worker fallback', () => {
 
         await expect(createPdfFileFromInputPaths(['/tmp/huge.tiff'], '/tmp/output.pdf'))
             .rejects
-            .toThrow('Input file is too large to combine safely: /tmp/huge.tiff');
+            .toBeInstanceOf(PdfCombineCapabilityError);
 
         expect(mocks.nativeAssembler).not.toHaveBeenCalled();
         expect(mocks.workerCtor).not.toHaveBeenCalled();
@@ -349,8 +379,29 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(mocks.writeFile).not.toHaveBeenCalled();
     });
 
-    it('uses the memory combine fallback only for small file-backed jobs', async () => {
-        mocks.workerState.mode = 'startup-error';
+    it('routes file-backed inputs just above the small-input classifier to native combine', async () => {
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            size: SMALL_INPUT_LIMIT_BYTES + 1,
+        });
+        mocks.nativeFileAssembler.mockResolvedValueOnce(true);
+
+        await expect(createPdfFileFromInputPaths(['/tmp/just-over-limit.pdf'], '/tmp/output.pdf'))
+            .resolves.toBe('/tmp/output.pdf');
+
+        expect(mocks.nativeFileAssembler).toHaveBeenCalledWith(
+            ['/tmp/just-over-limit.pdf'],
+            '/tmp/output.pdf',
+            {failureMode: 'capability-error'},
+        );
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.load).not.toHaveBeenCalled();
+        expect(mocks.workerCtor).not.toHaveBeenCalled();
+        expect(mocks.create).not.toHaveBeenCalled();
+    });
+
+    it('keeps tiny file-backed jobs native-only', async () => {
+        mocks.nativeFileAssembler.mockResolvedValueOnce(true);
 
         const result = await createPdfFileFromInputPaths(['/tmp/input.pdf'], '/tmp/output.pdf');
 
@@ -358,16 +409,14 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(mocks.nativeFileAssembler).toHaveBeenCalledWith(
             ['/tmp/input.pdf'],
             '/tmp/output.pdf',
-            undefined,
+            {failureMode: 'capability-error'},
         );
-        expect(mocks.stat).toHaveBeenCalledTimes(2);
-        expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
-        expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/.staged-output.tmp', new Uint8Array([
-            9,
-            9,
-            9,
-        ]));
-        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/.staged-output.tmp', '/tmp/output.pdf');
+        expect(mocks.nativeAssembler).not.toHaveBeenCalled();
+        expect(mocks.workerCtor).not.toHaveBeenCalled();
+        expect(mocks.create).not.toHaveBeenCalled();
+        expect(mocks.load).not.toHaveBeenCalled();
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.writeFile).not.toHaveBeenCalled();
     });
 
     it('falls back to in-process conversion when worker startup fails', async () => {
@@ -445,19 +494,25 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(mocks.workerTerminate).toHaveBeenCalledOnce();
     });
 
-    it('rejects large inputs instead of falling back to in-process conversion after worker startup failures', async () => {
+    it('returns a typed capability error just above the classifier without a byte-returning fallback', async () => {
         mocks.stat.mockResolvedValue({
             isFile: () => true,
-            size: 32 * 1024 * 1024,
+            size: SMALL_INPUT_LIMIT_BYTES + 1,
         });
 
         await expect(createPdfFromInputPaths(['/tmp/input.pdf']))
             .rejects
-            .toThrow('Image combine worker startup failed and main-process fallback is disabled for inputs larger than 16MB');
+            .toMatchObject({
+                code: 'native-failure',
+                name: 'PdfCombineCapabilityError',
+            });
 
-        expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
+        expect(mocks.nativeAssembler).not.toHaveBeenCalled();
+        expect(mocks.workerCtor).not.toHaveBeenCalled();
         expect(mocks.create).not.toHaveBeenCalled();
-        expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
+        expect(mocks.load).not.toHaveBeenCalled();
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.writeFile).not.toHaveBeenCalled();
     });
 
     it('keeps worker combine path for worker-safe image inputs', async () => {
@@ -534,7 +589,7 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(mocks.readFile).not.toHaveBeenCalled();
     });
 
-    it('rejects oversized converted DjVu temp PDFs before reading them into pdf-lib', async () => {
+    it('rejects generated DjVu PDFs above the small-input classifier before reading them into pdf-lib', async () => {
         mocks.stat
             .mockResolvedValueOnce({
                 isFile: () => true,
@@ -542,12 +597,15 @@ describe('createPdfFromInputPaths worker fallback', () => {
             })
             .mockResolvedValueOnce({
                 isFile: () => true,
-                size: 513 * 1024 * 1024,
+                size: SMALL_INPUT_LIMIT_BYTES + 1,
             });
 
         await expect(createPdfFromInputPaths(['/tmp/scan.djvu']))
             .rejects
-            .toThrow(/Converted DjVu PDF is too large to combine safely: \/tmp\/pdf-combine-djvu-test\/.+\.pdf/u);
+            .toMatchObject({
+                code: 'native-failure',
+                name: 'PdfCombineCapabilityError',
+            });
 
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.load).not.toHaveBeenCalled();

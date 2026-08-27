@@ -7,8 +7,18 @@ import { join } from 'path';
 import type { ICropMargins } from '@contracts/shared';
 import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import { hasNativeErrorCode } from '@contracts/nativeErrors';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
+import {
+    abortErrorFromSignal,
+    isAbortError,
+} from '@electron/utils/abort';
+import {
+    PdfPageOpsCapabilityError,
+    type TPdfPageOpsCapabilityErrorCode,
+} from '@electron/features/page-ops/main/pageOpsErrors';
 import {
     cleanupTempOutput,
     makeTempPdfOutputPath,
@@ -20,11 +30,75 @@ import {
     NATIVE_PAGE_OPS_TEST_ENABLE_ENV,
     resolveNativePageOpsPath,
 } from '@electron/features/page-ops/main/nativePageOpsPath';
+import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 
 type TCropOperation = 'crop' | 'remove-crop';
 
 const log = createLogger('native-page-ops-crop');
 const NATIVE_PAGE_OPS_TIMEOUT_MS = 2 * 60 * 1000;
+const PAGE_OPS_LOCAL_FALLBACK_MAX_BYTES = 16 * 1024 * 1024;
+
+function capabilityError(
+    code: TPdfPageOpsCapabilityErrorCode,
+    message: string,
+    operation: string,
+    cause?: unknown,
+) {
+    return new PdfPageOpsCapabilityError(code, message, {
+        operation,
+        ...(cause === undefined ? {} : {cause}),
+    });
+}
+
+function nativeFailureCode(error: unknown): TPdfPageOpsCapabilityErrorCode {
+    return hasNativeErrorCode(error) && error.code === 'too-large'
+        ? 'too-large'
+        : 'native-failure';
+}
+
+export async function assertPageOpsLocalFallbackAllowed(
+    workingCopyPath: string,
+    operation: string,
+    signal?: AbortSignal,
+    failureCode: TPdfPageOpsCapabilityErrorCode = 'too-large',
+    cause?: unknown,
+) {
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+
+    let inputStat: Awaited<ReturnType<typeof stat>>;
+    try {
+        inputStat = await stat(workingCopyPath);
+    } catch (error) {
+        if (isAbortError(error)) {
+            throw error;
+        }
+        throw capabilityError(
+            'native-unavailable',
+            `Unable to inspect the page-operation input "${workingCopyPath}": ${getErrorMessage(error)}`,
+            operation,
+            error,
+        );
+    }
+    if (!inputStat.isFile()) {
+        throw capabilityError(
+            'native-failure',
+            `Page-operation input is not a regular file: ${workingCopyPath}`,
+            operation,
+            cause,
+        );
+    }
+    if (inputStat.size > PAGE_OPS_LOCAL_FALLBACK_MAX_BYTES) {
+        const maxMb = Math.floor(PAGE_OPS_LOCAL_FALLBACK_MAX_BYTES / (1024 * 1024));
+        throw capabilityError(
+            failureCode,
+            `Native page operation ${operation} failed and the JavaScript compatibility path is limited to ${maxMb} MiB PDFs`,
+            operation,
+            cause,
+        );
+    }
+}
 
 function createPageFileContents(pages: number[]) {
     return `${pages.map(page => String(page)).join('\n')}\n`;
@@ -35,6 +109,7 @@ function createNativeCropArgs(
     workingCopyPath: string,
     outputPath: string,
     pagesFilePath: string,
+    qpdfPath: string,
     margins?: ICropMargins,
 ) {
     const args = [
@@ -45,6 +120,8 @@ function createNativeCropArgs(
         outputPath,
         '--pages-file',
         pagesFilePath,
+        '--qpdf',
+        qpdfPath,
     ];
 
     if (operation === 'crop' && margins) {
@@ -78,6 +155,12 @@ async function tryRunNativeCropOperation(
     signal?: AbortSignal,
 ) {
     if (isNativePageOpsDisabled()) {
+        await assertPageOpsLocalFallbackAllowed(
+            workingCopyPath,
+            operation,
+            signal,
+            'native-unavailable',
+        );
         return false;
     }
 
@@ -89,8 +172,20 @@ async function tryRunNativeCropOperation(
             `no binary path resolved for ${operation}`,
         );
         if (testFailure) {
+            await assertPageOpsLocalFallbackAllowed(
+                workingCopyPath,
+                operation,
+                signal,
+                'native-unavailable',
+            );
             throw testFailure;
         }
+        await assertPageOpsLocalFallbackAllowed(
+            workingCopyPath,
+            operation,
+            signal,
+            'native-unavailable',
+        );
         return false;
     }
 
@@ -100,11 +195,13 @@ async function tryRunNativeCropOperation(
 
     try {
         await writeFile(pagesFilePath, createPageFileContents(pages));
+        await copyFileCopyOnWrite(workingCopyPath, tempPath);
         await runNativeToolCommand(binaryPath, createNativeCropArgs(
             operation,
-            workingCopyPath,
+            tempPath,
             tempPath,
             pagesFilePath,
+            getPdfNativeToolPaths().qpdf,
             margins,
         ), {
             timeoutMs: NATIVE_PAGE_OPS_TIMEOUT_MS,
@@ -116,6 +213,9 @@ async function tryRunNativeCropOperation(
         return true;
     } catch (error) {
         await cleanupTempOutput(tempPath, log, 'native page crop temp file');
+        if (isAbortError(error) || signal?.aborted) {
+            throw error;
+        }
         const testFailure = createNativeFallbackTestError(
             NATIVE_PAGE_OPS_TEST_ENABLE_ENV,
             'Native page ops',
@@ -123,8 +223,22 @@ async function tryRunNativeCropOperation(
             error,
         );
         if (testFailure) {
+            await assertPageOpsLocalFallbackAllowed(
+                workingCopyPath,
+                operation,
+                signal,
+                nativeFailureCode(error),
+                error,
+            );
             throw testFailure;
         }
+        await assertPageOpsLocalFallbackAllowed(
+            workingCopyPath,
+            operation,
+            signal,
+            nativeFailureCode(error),
+            error,
+        );
         log.debug(`Native page crop failed, falling back to pdf-lib: ${getErrorMessage(error)}`);
         return false;
     } finally {

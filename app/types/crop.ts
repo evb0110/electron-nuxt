@@ -1,5 +1,6 @@
 import type { ILocalRect } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
 import type { ICropMargins } from '@contracts/shared';
+import type { TPageSelection } from '@contracts/pageNumbers';
 
 export type {
     ICropMargins,
@@ -19,8 +20,12 @@ export interface ICropSelectionResult {
 export interface ICropApplyPayload {
     margins: ICropMargins;
     pages: number[];
+    pageSelection?: TPageSelection;
 }
 
-export interface ICropRemovePayload { pages: number[]; }
+export interface ICropRemovePayload {
+    pages: number[];
+    pageSelection?: TPageSelection;
+}
 
 export type TCropUnit = 'pt' | 'mm' | 'in';

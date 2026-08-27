@@ -11,7 +11,11 @@ import { getInterSegmentSpacerHeight } from '@app/modules/pdf-viewer/engine/pdf-
 import { getPageRowBounds } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBounds';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
-import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+import {
+    getIndexedValue,
+    getPageMetricMaximum,
+    normalizePageMetrics,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import {
     buildPdfPageScaleStyle,
     createPdfPageScale,
@@ -131,13 +135,10 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         }),
     );
 
-    const maxBasePageHeight = computed(() => {
-        let maxHeight = 0;
-        for (const metric of normalizedPageMetrics.value) {
-            maxHeight = Math.max(maxHeight, metric.height);
-        }
-        return maxHeight;
-    });
+    const maxBasePageHeight = computed(() => getPageMetricMaximum(
+        normalizedPageMetrics.value,
+        'height',
+    ));
     const pageHeightEstimate = computed(() => maxBasePageHeight.value * effectiveScale.value);
 
     const pageLayout = computed(() => {
@@ -158,7 +159,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
     });
 
     function getPageScale(pageNumber: number) {
-        const metric = normalizedPageMetrics.value[pageNumber - 1];
+        const metric = getIndexedValue(normalizedPageMetrics.value, pageNumber - 1);
         if (!metric) {
             return null;
         }
@@ -167,7 +168,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
     }
 
     function getPagePlaceholderStyle(pageNumber: number): Record<string, string> | null {
-        const metric = normalizedPageMetrics.value[pageNumber - 1];
+        const metric = getIndexedValue(normalizedPageMetrics.value, pageNumber - 1);
         const pageScale = getPageScale(pageNumber);
         if (!metric || !pageScale) {
             return null;

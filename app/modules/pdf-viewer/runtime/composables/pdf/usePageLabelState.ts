@@ -4,11 +4,14 @@ import { isEqual } from 'es-toolkit/predicate';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IPdfPageLabelRange } from '@app/types/pdfContracts';
 import {
-    buildPageLabelsFromRanges,
+    createPageLabelModel,
     derivePageLabelRangesFromLabels,
-    isImplicitDefaultPageLabels,
+    getPageLabelWindow,
+    materializePageLabelsForCompatibility,
     normalizePageLabelRanges,
-} from '@app/utils/pdfPageLabels';
+    PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
+    type IDocumentPageLabelModel,
+} from '@app/utils/document-viewer/pageLabels';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 
@@ -33,26 +36,31 @@ export const usePageLabelState = (deps: {
     // serialization worker: deep reactivity would hand out a Proxy that
     // structured clone refuses.
     const pageLabelRanges = shallowRef<IPdfPageLabelRange[]>([]);
+    const pageLabelModel = shallowRef<IDocumentPageLabelModel>(createPageLabelModel(
+        Math.max(0, totalPages.value),
+        [],
+    ));
     const pageLabelsDirty = ref(false);
     const pageLabelsResolved = ref(true);
     let pageLabelSyncGeneration = 0;
     let pageLabelRevision = 0;
     let disposed = false;
 
-    function materializePageLabels(
+    function updatePageLabelModel(
         totalPagesValue: number,
-        ranges: IPdfPageLabelRange[],
-        labels: string[] | null = null,
+        ranges: readonly IPdfPageLabelRange[],
+        labels: readonly string[] | null = null,
     ) {
-        if (totalPagesValue <= 0 || isImplicitDefaultPageLabels(ranges, totalPagesValue)) {
-            return null;
-        }
-
-        if (labels && labels.length === totalPagesValue) {
-            return labels;
-        }
-
-        return buildPageLabelsFromRanges(totalPagesValue, ranges);
+        const normalizedRanges = normalizePageLabelRanges(ranges, totalPagesValue);
+        pageLabelRanges.value = normalizedRanges;
+        pageLabelModel.value = createPageLabelModel(totalPagesValue, normalizedRanges);
+        pageLabels.value = totalPagesValue <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
+            ? materializePageLabelsForCompatibility(
+                totalPagesValue,
+                normalizedRanges,
+                labels,
+            )
+            : null;
     }
 
     async function syncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {
@@ -71,6 +79,12 @@ export const usePageLabelState = (deps: {
             if (totalPages.value <= 0) {
                 pageLabels.value = null;
                 pageLabelRanges.value = [];
+                pageLabelModel.value = createPageLabelModel(0, []);
+            } else {
+                pageLabelModel.value = createPageLabelModel(
+                    totalPages.value,
+                    pageLabelRanges.value,
+                );
             }
             pageLabelsDirty.value = false;
             pageLabelsResolved.value = true;
@@ -101,8 +115,7 @@ export const usePageLabelState = (deps: {
                 labels,
                 doc.numPages,
             );
-            pageLabelRanges.value = nextRanges;
-            pageLabels.value = materializePageLabels(doc.numPages, nextRanges, labels);
+            updatePageLabelModel(doc.numPages, nextRanges, labels);
             pageLabelsDirty.value = false;
             pageLabelRevision += 1;
         } finally {
@@ -132,8 +145,7 @@ export const usePageLabelState = (deps: {
         if (unchanged) {
             return;
         }
-        pageLabelRanges.value = normalized;
-        pageLabels.value = materializePageLabels(totalPages.value, normalized);
+        updatePageLabelModel(totalPages.value, normalized);
         pageLabelsDirty.value = true;
         pageLabelRevision += 1;
         onPageLabelsDirty?.();
@@ -141,6 +153,23 @@ export const usePageLabelState = (deps: {
 
     function getPageLabelsRevision() {
         return pageLabelRevision;
+    }
+
+    function labelAt(page: number) {
+        return pageLabelModel.value.labelAt(page);
+    }
+
+    function readPageLabelWindow(startPage: number, endPageOrCount?: number) {
+        return pageLabelModel.value.readWindow(startPage, endPageOrCount);
+    }
+
+    function getPageLabelWindowForState(startPage: number, endPageOrCount?: number) {
+        return getPageLabelWindow(
+            pageLabelModel.value.totalPages,
+            pageLabelModel.value.ranges,
+            startPage,
+            endPageOrCount,
+        );
     }
 
     function scheduleSyncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {
@@ -162,6 +191,20 @@ export const usePageLabelState = (deps: {
         { immediate: true },
     );
 
+    watch(totalPages, (nextTotalPages) => {
+        if (pdfDocument.value) {
+            return;
+        }
+        if (nextTotalPages <= 0) {
+            pageLabels.value = null;
+            pageLabelRanges.value = [];
+        }
+        pageLabelModel.value = createPageLabelModel(
+            Math.max(0, nextTotalPages),
+            pageLabelRanges.value,
+        );
+    });
+
     tryOnScopeDispose(() => {
         disposed = true;
         pageLabelSyncGeneration += 1;
@@ -169,9 +212,14 @@ export const usePageLabelState = (deps: {
 
     return {
         pageLabels,
+        pageLabelModel,
         pageLabelRanges,
+        pageLabelSegments: computed(() => pageLabelModel.value.segments),
         pageLabelsDirty,
         pageLabelsResolved,
+        labelAt,
+        readPageLabelWindow,
+        getPageLabelWindow: getPageLabelWindowForState,
         syncPageLabelsFromDocument,
         markPageLabelsSaved,
         getPageLabelsRevision,

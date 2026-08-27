@@ -170,3 +170,555 @@
 
         let _ = remove_file(pdf_path);
     }
+
+    struct NoDensePageIds<'a>(&'a Document);
+
+    impl PdfObjectSource for NoDensePageIds<'_> {
+        fn stored_object(&self, object_id: ObjectId) -> Option<&Object> {
+            self.0.objects.get(&object_id)
+        }
+
+        fn page_ids(&self) -> BTreeMap<u32, ObjectId> {
+            panic!("the bounded page resolver must not request a dense page map")
+        }
+
+        fn root_id(&self) -> Result<ObjectId> {
+            Ok(self.0.trailer.get(b"Root")?.as_reference()?)
+        }
+    }
+
+    struct CountingPageTreeNodes<'a> {
+        document: &'a Document,
+        page_tree_node_reads: &'a std::sync::atomic::AtomicUsize,
+    }
+
+    impl PdfObjectSource for CountingPageTreeNodes<'_> {
+        fn stored_object(&self, object_id: ObjectId) -> Option<&Object> {
+            let object = self.document.objects.get(&object_id)?;
+            let is_page_tree_node = object
+                .as_dict()
+                .ok()
+                .and_then(|dictionary| dictionary.get(b"Type").ok())
+                .and_then(|object| object.as_name().ok())
+                .is_some_and(|name| name == b"Page" || name == b"Pages");
+            if is_page_tree_node {
+                self.page_tree_node_reads
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            Some(object)
+        }
+
+        fn page_ids(&self) -> BTreeMap<u32, ObjectId> {
+            panic!("the bounded page resolver must not request a dense page map")
+        }
+
+        fn root_id(&self) -> Result<ObjectId> {
+            Ok(self.document.trailer.get(b"Root")?.as_reference()?)
+        }
+    }
+
+    fn flatten_million_page_tree(document: &mut Document, first_page_id: ObjectId) {
+        const PAGE_COUNT: usize = 1_000_000;
+        let catalog_id = document.root_id().unwrap();
+        let root_pages_id = document
+            .get_dictionary(catalog_id)
+            .unwrap()
+            .get(b"Pages")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let first_group_id = document
+            .get_dictionary(root_pages_id)
+            .unwrap()
+            .get(b"Kids")
+            .unwrap()
+            .as_array()
+            .unwrap()[0]
+            .as_reference()
+            .unwrap();
+
+        document
+            .get_dictionary_mut(root_pages_id)
+            .unwrap()
+            .set("Kids", vec![Object::Reference(first_group_id)]);
+        document
+            .get_dictionary_mut(first_group_id)
+            .unwrap()
+            .set("Count", Object::Integer(PAGE_COUNT as i64));
+        document
+            .get_dictionary_mut(first_group_id)
+            .unwrap()
+            .set(
+                "Kids",
+                Object::Array(vec![Object::Reference(first_page_id); PAGE_COUNT]),
+            );
+    }
+
+    fn create_sparse_million_page_document() -> (Document, ObjectId, ObjectId) {
+        // Keep only the two leaves that the test resolves. The large /Count
+        // values model the untouched branches retained by a structural path
+        // loader, where constructing a dense page map would defeat the load.
+        const PAGE_COUNT: i64 = 1_000_000;
+        let mut document = Document::with_version("1.7");
+        let root_pages_id = document.new_object_id();
+        let first_group_id = document.new_object_id();
+        let last_group_id = document.new_object_id();
+        let first_page_id = document.new_object_id();
+        let last_page_id = document.new_object_id();
+
+        for (page_id, parent_id) in [
+            (first_page_id, first_group_id),
+            (last_page_id, last_group_id),
+        ] {
+            document.set_object(
+                page_id,
+                dictionary! {
+                    "Type" => "Page",
+                    "Parent" => parent_id,
+                    "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+                },
+            );
+        }
+        document.set_object(
+            first_group_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Parent" => root_pages_id,
+                "Kids" => vec![Object::Reference(first_page_id)],
+                "Count" => PAGE_COUNT - 1,
+            },
+        );
+        document.set_object(
+            last_group_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Parent" => root_pages_id,
+                "Kids" => vec![Object::Reference(last_page_id)],
+                "Count" => 1,
+            },
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => root_pages_id,
+        });
+        document.set_object(
+            root_pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![
+                    Object::Reference(first_group_id),
+                    Object::Reference(last_group_id),
+                ],
+                "Count" => PAGE_COUNT,
+            },
+        );
+        document.trailer.set("Root", catalog_id);
+        (document, first_page_id, last_page_id)
+    }
+
+    fn create_overlay_source_document() -> Document {
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let font_id = document.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "Helvetica",
+        });
+        let page_ids = (0..2)
+            .map(|_| {
+                let content_id = document.add_object(Stream::new(
+                    Dictionary::new(),
+                    b"BT /F1 12 Tf 10 20 Td (OCR) Tj ET".to_vec(),
+                ));
+                document.add_object(dictionary! {
+                    "Type" => "Page",
+                    "Parent" => pages_id,
+                    "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+                    "Resources" => dictionary! {
+                        "Font" => dictionary! { "F1" => font_id },
+                    },
+                    "Contents" => content_id,
+                })
+            })
+            .collect::<Vec<_>>();
+        document.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => page_ids.into_iter().map(Object::Reference).collect::<Vec<_>>(),
+                "Count" => 2,
+            },
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+        document
+    }
+
+    fn create_aliasing_overlay_target() -> (Document, ObjectId) {
+        let (mut document, page_id) = create_test_document();
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Resources", Dictionary::new());
+        let pages_id = document
+            .get_dictionary(page_id)
+            .unwrap()
+            .get(b"Parent")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let pages = document.get_dictionary_mut(pages_id).unwrap();
+        pages.set(
+            "Kids",
+            vec![Object::Reference(page_id), Object::Reference(page_id)],
+        );
+        pages.set("Count", 2);
+        (document, page_id)
+    }
+
+    fn create_flat_million_page_overlay_target() -> Document {
+        let (mut document, first_page_id, _) = create_sparse_million_page_document();
+        document
+            .get_dictionary_mut(first_page_id)
+            .unwrap()
+            .set("Resources", Dictionary::new());
+        flatten_million_page_tree(&mut document, first_page_id);
+        document
+    }
+
+    #[test]
+    fn resolves_million_page_tree_counts_without_collecting_page_ids() {
+        let (document, first_page_id, last_page_id) = create_sparse_million_page_document();
+        let source = NoDensePageIds(&document);
+        let resolver = PageTreeResolver::new(&source).unwrap();
+
+        assert_eq!(resolver.page_count(), 1_000_000);
+        assert_eq!(resolver.page_id(&source, 1).unwrap(), first_page_id);
+        assert_eq!(resolver.page_id(&source, 1_000_000).unwrap(), last_page_id);
+        assert!(resolver.page_id(&source, 1_000_001).is_err());
+    }
+
+    #[test]
+    fn visits_pages_without_retaining_a_dense_page_map() {
+        let (document, page_id) = create_test_document();
+        let source = NoDensePageIds(&document);
+        let resolver = PageTreeResolver::new(&source).unwrap();
+        let mut visited = Vec::new();
+
+        resolver
+            .for_each_page_id(&source, |visited_page_id| {
+                visited.push(visited_page_id);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(visited, vec![page_id]);
+    }
+
+    #[test]
+    fn applies_labels_and_bookmarks_to_sparse_million_page_tree() {
+        let (mut document, first_page_id, last_page_id) = create_sparse_million_page_document();
+        let page_labels = PageLabelsMutation {
+            total_pages: 1_000_000,
+            ranges: vec![
+                PageLabelRange {
+                    start_page: 1,
+                    style: Some("D".to_string()),
+                    prefix: "front-".to_string(),
+                    start_number: 1,
+                },
+                PageLabelRange {
+                    start_page: 1_000_000,
+                    style: Some("r".to_string()),
+                    prefix: "back-".to_string(),
+                    start_number: 7,
+                },
+            ],
+        };
+        set_page_labels(&mut document, &page_labels).unwrap();
+
+        let bookmarks = BookmarksMutation {
+            total_pages: 1_000_000,
+            untitled_label: "Untitled".to_string(),
+            items: vec![
+                BookmarkEntry {
+                    title: "First".to_string(),
+                    page_index: Some(0),
+                    page_y_ratio: Some(0.25),
+                    named_dest: None,
+                    bold: false,
+                    italic: false,
+                    color: None,
+                    items: Vec::new(),
+                },
+                BookmarkEntry {
+                    title: "Last".to_string(),
+                    page_index: Some(999_999),
+                    page_y_ratio: Some(0.75),
+                    named_dest: None,
+                    bold: true,
+                    italic: true,
+                    color: Some("#336699".to_string()),
+                    items: Vec::new(),
+                },
+            ],
+        };
+        set_bookmarks(&mut document, &bookmarks).unwrap();
+
+        validate_page_labels_document_postconditions(&document, &page_labels).unwrap();
+        validate_bookmarks_document_postconditions(&document, &bookmarks).unwrap();
+
+        let outlines_id = catalog(&document)
+            .get(b"Outlines")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let first = document
+            .get_dictionary(
+                document
+                    .get_dictionary(outlines_id)
+                    .unwrap()
+                    .get(b"First")
+                    .unwrap()
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap();
+        let last = document
+            .get_dictionary(first.get(b"Next").unwrap().as_reference().unwrap())
+            .unwrap();
+        assert_eq!(
+            first.get(b"Dest").unwrap().as_array().unwrap()[0],
+            Object::Reference(first_page_id)
+        );
+        assert_eq!(
+            last.get(b"Dest").unwrap().as_array().unwrap()[0],
+            Object::Reference(last_page_id)
+        );
+    }
+
+    #[test]
+    fn validates_sparse_shape_and_annotation_postconditions_without_a_full_page_walk() {
+        let (mut document, first_page_id, _) = create_sparse_million_page_document();
+        let shape = rectangle_shape("evb-shape:bounded", "#336699");
+        let shape_mutation = ShapesMutation {
+            total_pages: 1_000_000,
+            rewrite_shape_state: true,
+            shapes: vec![shape],
+            deleted_annotation_ids: Vec::new(),
+            deleted_stable_keys: Vec::new(),
+        };
+        apply_shape_annotations(&mut document, &shape_mutation, "D:20260609123456Z").unwrap();
+
+        let note_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "Rect" => vec![10.into(), 10.into(), 30.into(), 30.into()],
+        });
+        let mut annots = get_page_annots(&document, first_page_id).unwrap();
+        annots.push(Object::Reference(note_id));
+        document
+            .get_dictionary_mut(first_page_id)
+            .unwrap()
+            .set("Annots", Object::Array(annots));
+
+        flatten_million_page_tree(&mut document, first_page_id);
+
+        reset_page_tree_node_read_count();
+        apply_shape_annotations(&mut document, &shape_mutation, "D:20260609123456Z").unwrap();
+        assert!(
+            page_tree_node_read_count() < 100,
+            "shape mutation walked too many page-tree nodes: {}",
+            page_tree_node_read_count()
+        );
+
+        let delete = AnnotationDelete {
+            page_index: 0,
+            object_number: Some(note_id.0),
+            generation_number: Some(note_id.1),
+            stable_key: None,
+            created_at: None,
+        };
+        reset_page_tree_node_read_count();
+        delete_annotations(&mut document, std::slice::from_ref(&delete)).unwrap();
+        assert!(
+            page_tree_node_read_count() < 100,
+            "annotation mutation walked too many page-tree nodes: {}",
+            page_tree_node_read_count()
+        );
+
+        let page_tree_node_reads = std::sync::atomic::AtomicUsize::new(0);
+        let source = CountingPageTreeNodes {
+            document: &document,
+            page_tree_node_reads: &page_tree_node_reads,
+        };
+        validate_shapes_document_postconditions(&source, &shape_mutation).unwrap();
+        validate_annotation_delete_document_postconditions(&source, &[delete]).unwrap();
+
+        assert!(
+            page_tree_node_reads.load(std::sync::atomic::Ordering::Relaxed) < 100,
+            "bounded postconditions walked too many page-tree nodes: {}",
+            page_tree_node_reads.load(std::sync::atomic::Ordering::Relaxed)
+        );
+    }
+
+    #[test]
+    fn applies_sparse_shape_and_annotation_mutations_incrementally_without_a_full_page_walk() {
+        let (mut document, first_page_id, _) = create_sparse_million_page_document();
+        let note_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "Rect" => vec![10.into(), 10.into(), 30.into(), 30.into()],
+        });
+        document
+            .get_dictionary_mut(first_page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(note_id)]);
+        flatten_million_page_tree(&mut document, first_page_id);
+
+        let mut incremental = IncrementalDocument::from_document(document, 0, None);
+        let shape = rectangle_shape("evb-shape:incremental-bounded", "#336699");
+        let shape_mutation = ShapesMutation {
+            total_pages: 1_000_000,
+            rewrite_shape_state: true,
+            shapes: vec![shape],
+            deleted_annotation_ids: Vec::new(),
+            deleted_stable_keys: Vec::new(),
+        };
+
+        reset_page_tree_node_read_count();
+        apply_shape_annotations_incremental(
+            &mut incremental,
+            &shape_mutation,
+            "D:20260609123456Z",
+        )
+        .unwrap();
+        assert!(
+            page_tree_node_read_count() < 100,
+            "incremental shape mutation walked too many page-tree nodes: {}",
+            page_tree_node_read_count()
+        );
+
+        let delete = AnnotationDelete {
+            page_index: 0,
+            object_number: Some(note_id.0),
+            generation_number: Some(note_id.1),
+            stable_key: None,
+            created_at: None,
+        };
+        reset_page_tree_node_read_count();
+        delete_annotations_incremental(&mut incremental, std::slice::from_ref(&delete)).unwrap();
+        assert!(
+            page_tree_node_read_count() < 100,
+            "incremental annotation mutation walked too many page-tree nodes: {}",
+            page_tree_node_read_count()
+        );
+
+        let revision = AppendedRevision::new(&incremental);
+        let annots = get_page_annots(&revision, first_page_id).unwrap();
+        assert_eq!(annots.len(), 1);
+        let shape_id = annots[0].as_reference().unwrap();
+        assert_eq!(
+            read_managed_shape_stable_key(revision.dictionary(shape_id).unwrap()).as_deref(),
+            Some("evb-shape:incremental-bounded")
+        );
+    }
+
+    #[test]
+    fn overlays_high_index_pages_in_million_page_batches_without_a_full_page_walk() {
+        let source = create_overlay_source_document();
+        for (source_page_index, output_page_index) in [(0, 999_998), (1, 999_999)] {
+            let target = create_flat_million_page_overlay_target();
+            let mut incremental = IncrementalDocument::from_document(target, 0, None);
+            let instructions = TextLayerFile {
+                pages: vec![TextLayerInstruction {
+                    source_page_index,
+                    output_page_index,
+                    matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                    filter_to_output_page: false,
+                }],
+            };
+
+            reset_page_tree_node_read_count();
+            overlay_text_layers_incremental(&mut incremental, &source, &instructions).unwrap();
+            assert!(
+                page_tree_node_read_count() < 100,
+                "overlay-text batch resolved too many page-tree nodes: {}",
+                page_tree_node_read_count()
+            );
+
+            let target_page_id = PageTreeResolver::new(&incremental.previous_document)
+                .unwrap()
+                .page_id(
+                    &incremental.previous_document,
+                    u32::try_from(output_page_index.checked_add(1).unwrap()).unwrap(),
+                )
+                .unwrap();
+            assert!(!incremental
+                .new_document
+                .get_page_contents(target_page_id)
+                .is_empty());
+        }
+    }
+
+    #[test]
+    fn overlays_multiple_instructions_for_one_target_page_without_resetting_contents() {
+        let source = create_overlay_source_document();
+        let (target, target_page_id) = create_aliasing_overlay_target();
+        let mut incremental = IncrementalDocument::from_document(target, 0, None);
+        let instructions = TextLayerFile {
+            pages: vec![
+                TextLayerInstruction {
+                    source_page_index: 0,
+                    output_page_index: 0,
+                    matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                    filter_to_output_page: false,
+                },
+                TextLayerInstruction {
+                    source_page_index: 1,
+                    output_page_index: 1,
+                    matrix: [1.0, 0.0, 0.0, 1.0, 20.0, 0.0],
+                    filter_to_output_page: false,
+                },
+            ],
+        };
+
+        overlay_text_layers_incremental(&mut incremental, &source, &instructions).unwrap();
+
+        assert_eq!(
+            incremental
+                .new_document
+                .get_page_contents(target_page_id)
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn overlays_source_batches_for_one_target_page_without_resetting_prior_batch() {
+        let source = create_overlay_source_document();
+        let (target, target_page_id) = create_aliasing_overlay_target();
+        let mut incremental = IncrementalDocument::from_document(target, 0, None);
+        let instruction = |source_page_index, output_page_index| TextLayerFile {
+            pages: vec![TextLayerInstruction {
+                source_page_index,
+                output_page_index,
+                matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                filter_to_output_page: false,
+            }],
+        };
+
+        overlay_text_layers_incremental(&mut incremental, &source, &instruction(0, 0)).unwrap();
+        overlay_text_layers_incremental(&mut incremental, &source, &instruction(1, 1)).unwrap();
+
+        assert_eq!(
+            incremental
+                .new_document
+                .get_page_contents(target_page_id)
+                .len(),
+            2
+        );
+    }

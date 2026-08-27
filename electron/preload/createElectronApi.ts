@@ -13,6 +13,7 @@ import type {
     IDocumentsWindowCapability,
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
+import type { IDocxExportFileCapability } from '@contracts/docxExport';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
@@ -408,6 +409,12 @@ export function createElectronApi(
         ...(baseDocuments.commitStagedPdfNativeMutations
             ? {commitStagedPdfNativeMutations: baseDocuments.commitStagedPdfNativeMutations}
             : {}),
+        ...(baseDocuments.cloneStagedPdfNativeMutationToWorkingCopy
+            ? {cloneStagedPdfNativeMutationToWorkingCopy: baseDocuments.cloneStagedPdfNativeMutationToWorkingCopy}
+            : {}),
+        ...(baseDocuments.replaceWorkingCopyFromStagedPdfNativeMutation
+            ? {replaceWorkingCopyFromStagedPdfNativeMutation: baseDocuments.replaceWorkingCopyFromStagedPdfNativeMutation}
+            : {}),
         ...(baseDocuments.getPdfNativePageSizes
             ? {getPdfNativePageSizes: baseDocuments.getPdfNativePageSizes}
             : {}),
@@ -419,6 +426,30 @@ export function createElectronApi(
             : {}),
         ...(baseDocuments.renderPdfNativePagePreview
             ? {renderPdfNativePagePreview: baseDocuments.renderPdfNativePagePreview}
+            : {}),
+        ...(baseDocuments.beginPdfAnnotationIndex
+            ? {beginPdfAnnotationIndex: baseDocuments.beginPdfAnnotationIndex}
+            : {}),
+        ...(baseDocuments.readPdfAnnotationIndexChunk
+            ? {readPdfAnnotationIndexChunk: baseDocuments.readPdfAnnotationIndexChunk}
+            : {}),
+        ...(baseDocuments.releasePdfAnnotationIndex
+            ? {releasePdfAnnotationIndex: baseDocuments.releasePdfAnnotationIndex}
+            : {}),
+        ...(baseDocuments.cancelPdfAnnotationIndex
+            ? {cancelPdfAnnotationIndex: baseDocuments.cancelPdfAnnotationIndex}
+            : {}),
+        ...(baseDocuments.beginPdfEmbeddedShapeIndex
+            ? {beginPdfEmbeddedShapeIndex: baseDocuments.beginPdfEmbeddedShapeIndex}
+            : {}),
+        ...(baseDocuments.readPdfEmbeddedShapeIndexChunk
+            ? {readPdfEmbeddedShapeIndexChunk: baseDocuments.readPdfEmbeddedShapeIndexChunk}
+            : {}),
+        ...(baseDocuments.releasePdfEmbeddedShapeIndex
+            ? {releasePdfEmbeddedShapeIndex: baseDocuments.releasePdfEmbeddedShapeIndex}
+            : {}),
+        ...(baseDocuments.cancelPdfEmbeddedShapeIndex
+            ? {cancelPdfEmbeddedShapeIndex: baseDocuments.cancelPdfEmbeddedShapeIndex}
             : {}),
         ...(baseDocuments.getWorkingCopyBackingStatus
             ? {getWorkingCopyBackingStatus: baseDocuments.getWorkingCopyBackingStatus}
@@ -448,7 +479,8 @@ export function createElectronApi(
         savePdfData: baseDocuments.savePdfData,
         savePdfDataChunks: baseDocuments.savePdfDataChunks,
         ...optionalDocumentFileMethods,
-    } satisfies IDocumentsFileIoCapability;
+        writeDocxFileChunks: baseDocuments.writeDocxFileChunks,
+    } satisfies IDocumentsFileIoCapability & IDocxExportFileCapability;
     const documentPdf = {
         analyzePdfConformance: baseDocuments.analyzePdfConformance,
         validatePdfData: baseDocuments.validatePdfData,

@@ -5,7 +5,7 @@ const THUMBNAIL_NUMBER_LINE_HEIGHT = 16;
 const THUMBNAIL_CANVAS_BORDER_WIDTH = 2;
 export const VIRTUAL_OVERSCAN = 8;
 
-export function isValidThumbnailAspectRatio(value: number | null | undefined): value is number {
+function isValidThumbnailAspectRatio(value: number | null | undefined): value is number {
     return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }
 

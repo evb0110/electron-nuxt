@@ -47,6 +47,40 @@ describe('document text catalog page-scoped decoders', () => {
         });
     });
 
+    it('decodes bounded OCR availability ranges with a scalar mapped count', () => {
+        expect(decodeDocumentOcrAvailability({
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 1_000_001,
+            mappedPageCount: 2,
+            pageRanges: [
+                {
+                    firstPage: 1,
+                    lastPage: 1,
+                },
+                {
+                    firstPage: 900_000,
+                    lastPage: 900_000,
+                },
+            ],
+            rangesComplete: true,
+        })).toEqual({
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 1_000_001,
+            mappedPageCount: 2,
+            pageRanges: [
+                {
+                    firstPage: 1,
+                    lastPage: 1,
+                },
+                {
+                    firstPage: 900_000,
+                    lastPage: 900_000,
+                },
+            ],
+            rangesComplete: true,
+        });
+    });
+
     it('rejects duplicate or out-of-range availability page numbers', () => {
         expect(decodeDocumentOcrAvailability({
             documentRevision: DOCUMENT_REVISION,

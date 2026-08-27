@@ -38,10 +38,12 @@ import {
     SerializableError,
 } from '@contracts/serializableError';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
+import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 const MAX_COMBINE_PAGES = 500;
 const MAX_IMAGE_PIXELS = 80_000_000;
-const MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
+const MAX_INPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;
+const MAX_OUTPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;
 const MAX_DECODED_WORKING_BYTES = 256 * 1024 * 1024;
 
 interface IDecodedWorkingSetBudget {usedBytes: number;}
@@ -243,6 +245,17 @@ async function handleCombinePdfsRequest(
     }
     if (request.payload.inputs.length > MAX_COMBINE_PAGES) {
         throw new Error('ERR_BROWSER_PDF_COMBINE_TOO_MANY_PAGES');
+    }
+    const totalInputBytes = request.payload.inputs.reduce(
+        (total, input) => total + input.data.byteLength,
+        0,
+    );
+    if (
+        !Number.isSafeInteger(totalInputBytes)
+        || totalInputBytes > MAX_INPUT_BYTES
+        || request.payload.inputs.some(input => input.data.byteLength > MAX_INPUT_BYTES)
+    ) {
+        throw new Error('ERR_BROWSER_PDF_COMBINE_INPUT_TOO_LARGE');
     }
     const wasmResult = request.payload.inputs.length <= 1 || request.payload.wasmImagePreprocessing
         ? await tryCombineImageInputsWithWasm(

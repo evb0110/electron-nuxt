@@ -20,6 +20,7 @@ import {
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS,
     SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
 } from '@contracts/scanCleanupSettings';
+import type {IScanCleanupPageOverride} from '@contracts/electronApiScanCleanup';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
 
 const temporaryDirectories: string[] = [];
@@ -222,6 +223,41 @@ describe('file-backed scan-cleanup settings store', () => {
             outputMode: 'color',
             lastUsedAtMs: 2,
         });
+    });
+
+    it('stores a scalar page override default without materializing page entries', async () => {
+        const filePath = await createStoreFile();
+        const sourceSha256 = 's'.repeat(64);
+        const pageOverrideDefaults: IScanCleanupPageOverride = {
+            rotationDegrees: 90,
+            layoutOverride: 'auto',
+            excluded: true,
+            manualSplit: null,
+        };
+        const store = createScanCleanupSettingsStore({
+            filePath,
+            now: () => 3,
+        });
+
+        const updated = await store.update({document: {
+            sourceSha256,
+            patch: {
+                overrides: {},
+                pageOverrideDefaults,
+            },
+        }});
+
+        expect(updated.documentOverrides[sourceSha256]).toMatchObject({
+            pageOverrideDefaults,
+            lastUsedAtMs: 3,
+        });
+        expect(updated.documentOverrides[sourceSha256]?.overrides).toEqual({});
+
+        const reset = await store.update({document: {
+            sourceSha256,
+            patch: {resetOverrides: true},
+        }});
+        expect(reset.documentOverrides[sourceSha256]).toBeUndefined();
     });
 
     it('skips one malformed legacy document while preserving valid siblings and globals', async () => {

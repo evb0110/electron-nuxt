@@ -20,6 +20,7 @@ import {
 } from 'pdf-lib';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import type { IDocumentsFileIoCapability } from '@contracts/electronApiDocuments';
+import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
@@ -56,6 +57,75 @@ function createSerializationHarness(options: {workingCopyPath?: string | null;} 
         getMarkupSubtypeOverrides: () => undefined,
         getAllShapes: () => [],
     });
+}
+
+describe('usePdfSerialization source data guards', () => {
+    it('fails closed before reading a large native working-copy path', async () => {
+        const getDocumentRevision = vi.fn();
+        platformMocks.documentFilesCapability = {getDocumentRevision};
+        const serializer = createSerializationHarness({workingCopyPath: '/tmp/large-native.pdf'});
+
+        await expect(serializer.getSourcePdfData()).rejects.toMatchObject({
+            code: 'native-save-required',
+            failure: {
+                code: 'native-save-required',
+                phase: 'pre-write',
+                reason: 'missing-native-capability',
+            },
+        });
+
+        expect(readDocumentBytes).not.toHaveBeenCalled();
+        expect(getDocumentRevision).not.toHaveBeenCalled();
+    });
+
+    it('retains byte compatibility for a small browser document ref', async () => {
+        const browserPath = 'browser://documents/small.pdf';
+        const getDocumentRevision = vi.fn(async () => ({
+            version: 1 as const,
+            documentRef: browserPath,
+            token: TEST_DOCUMENT_REVISION_TOKEN,
+            contentRevision: 1,
+            authority: 'browser-document' as const,
+            mintedAt: 1,
+        }));
+        const sourceBytes = new Uint8Array([
+            1,
+            2,
+            3,
+        ]);
+        platformMocks.documentFilesCapability = {getDocumentRevision};
+        vi.mocked(readDocumentBytes).mockResolvedValue(sourceBytes);
+        const serializer = createSerializationHarness({workingCopyPath: browserPath});
+
+        await expect(serializer.getSourcePdfData()).resolves.toBe(sourceBytes);
+
+        expect(readDocumentBytes).toHaveBeenCalledWith(browserPath);
+        expect(getDocumentRevision).toHaveBeenCalledTimes(2);
+    });
+});
+
+function createStagedNativeArtifact(): ITypedStagedArtifact {
+    return {
+        receiptVersion: 1,
+        artifactKind: 'pdf',
+        path: '/tmp/staged-placed-image.pdf',
+        size: 2 * 1024 * 1024 * 1024,
+        sha256: 'c'.repeat(64),
+        fileIdentity: {
+            platform: 'posix',
+            deviceId: '1',
+            inode: '2',
+        },
+        validations: {
+            qpdfCheck: false,
+            tailCheck: true,
+            semanticCheck: true,
+            fsynced: true,
+            semanticScopeSha256: 'd'.repeat(64),
+        },
+        leaseId: 'staged-placed-image-lease',
+        revision: TEST_DOCUMENT_REVISION_TOKEN,
+    };
 }
 
 function getPageAnnotRefs(doc: PDFDocument, pageIndex = 0) {
@@ -209,23 +279,34 @@ async function createPdfDataWithSinglePage() {
 }
 
 describe('usePdfSerialization embedPlacedImageToPage', () => {
-    it('uses the native working-copy path for JPEG placed images when available', async () => {
+    it('uses the native path for a 2 GiB JPEG document without hashing or reading it', async () => {
         const baseBytes = new Uint8Array([1]);
-        const nativeBytes = new Uint8Array([
-            37,
-            80,
-            68,
-            70,
-        ]);
         const nativeApply = deferred<Awaited<ReturnType<NonNullable<IDocumentsFileIoCapability['applyPdfNativeMutationsToWorkingCopy']>>>>();
         const applyPdfNativeMutationsToWorkingCopy = vi.fn<NonNullable<IDocumentsFileIoCapability['applyPdfNativeMutationsToWorkingCopy']>>(async () => nativeApply.promise);
+        const replaceWorkingCopyFromStagedPdfNativeMutation = vi.fn(async () => true);
+        const createManagedTempFileHandle = vi.fn(async () => ({
+            path: '/tmp/work.pdf',
+            size: 2 * 1024 * 1024 * 1024,
+            sha256: 'b'.repeat(64),
+            leaseId: 'working-copy-expectation-lease',
+            revision: TEST_DOCUMENT_REVISION_TOKEN,
+        }));
+        const getDocumentRevision = vi.fn(async () => ({
+            version: 1 as const,
+            token: TEST_DOCUMENT_REVISION_TOKEN,
+            documentRef: '/tmp/work.pdf',
+            authority: 'electron-working-copy' as const,
+            contentRevision: 2,
+            mintedAt: 2,
+        }));
         const releaseManagedTempFileHandle = vi.fn(async () => true);
         platformMocks.documentFilesCapability = {
             applyPdfNativeMutationsToWorkingCopy,
+            createManagedTempFileHandle,
+            getDocumentRevision,
+            replaceWorkingCopyFromStagedPdfNativeMutation,
             releaseManagedTempFileHandle,
         };
-        vi.mocked(readDocumentBytes)
-            .mockResolvedValueOnce(nativeBytes);
         const serializer = createSerializationHarness({workingCopyPath: '/tmp/work.pdf'});
         const imageBytes = new Uint8Array([
             0xFF,
@@ -269,9 +350,14 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
                 errors: [],
                 warnings: [],
             },
+            stagedOutput: createStagedNativeArtifact(),
         });
         const result = await resultPromise;
-        expect(result).toEqual(nativeBytes);
+        expect(result).toEqual({
+            kind: 'native-path',
+            path: '/tmp/work.pdf',
+            revisionToken: TEST_DOCUMENT_REVISION_TOKEN,
+        });
         expect(applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             {placedImages: [expect.objectContaining({
@@ -285,36 +371,63 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
                 source: expect.objectContaining({leaseId: 'photo-lease'}),
             })]},
             expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
-            {
-                byteLength: baseBytes.byteLength,
-                sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
-            },
             {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(applyPdfNativeMutationsToWorkingCopy.mock.calls[0]?.[1].placedImages?.[0]).not.toHaveProperty('bytes');
+        expect(replaceWorkingCopyFromStagedPdfNativeMutation).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            expect.objectContaining({leaseId: 'staged-placed-image-lease'}),
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
+        );
+        expect(createManagedTempFileHandle).not.toHaveBeenCalled();
+        expect(getDocumentRevision).toHaveBeenCalledWith('/tmp/work.pdf');
         expect(releaseManagedTempFileHandle).toHaveBeenCalledWith('photo-lease');
-        expect(readDocumentBytes).toHaveBeenNthCalledWith(1, '/tmp/work.pdf');
-        expect(readDocumentBytes).toHaveBeenCalledTimes(1);
+        expect(readDocumentBytes).not.toHaveBeenCalled();
     });
 
-    it('falls back when the main-process working-copy expectation declines the native mutation', async () => {
+    it.each([
+        {
+            label: 'declines',
+            apply: async () => ({
+                applied: false,
+                validation: null,
+            }),
+            reason: 'native-decline' as const,
+        },
+        {
+            label: 'throws',
+            apply: async () => {
+                throw new Error('native placed-image failure');
+            },
+            reason: 'native-error' as const,
+        },
+    ])('fails with a typed native-required error when native placed-image persistence $label', async ({
+        apply,
+        reason,
+    }) => {
         const sourceDoc = await PDFDocument.create();
         sourceDoc.addPage([
             600,
             800,
         ]);
         const baseBytes = await sourceDoc.save();
-        const applyPdfNativeMutationsToWorkingCopy = vi.fn<NonNullable<IDocumentsFileIoCapability['applyPdfNativeMutationsToWorkingCopy']>>(async () => ({
-            applied: false,
-            validation: null,
+        const applyPdfNativeMutationsToWorkingCopy = vi.fn<NonNullable<IDocumentsFileIoCapability['applyPdfNativeMutationsToWorkingCopy']>>(apply);
+        const createManagedTempFileHandle = vi.fn(async () => ({
+            path: '/tmp/work.pdf',
+            size: 2 * 1024 * 1024 * 1024,
+            sha256: 'b'.repeat(64),
+            leaseId: 'working-copy-expectation-lease',
+            revision: TEST_DOCUMENT_REVISION_TOKEN,
         }));
         platformMocks.documentFilesCapability = {
             applyPdfNativeMutationsToWorkingCopy,
+            createManagedTempFileHandle,
+            replaceWorkingCopyFromStagedPdfNativeMutation: vi.fn(async () => true),
             releaseManagedTempFileHandle: vi.fn(async () => true),
         };
         const serializer = createSerializationHarness({workingCopyPath: '/tmp/work.pdf'});
 
-        await expect(serializer.embedPlacedImageToPage(
+        const error = await serializer.embedPlacedImageToPage(
             baseBytes,
             {
                 pageNumber: 1,
@@ -340,17 +453,22 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
                 targetPixelWidth: 100,
                 targetPixelHeight: 80,
             },
-        )).rejects.toThrow();
+        ).catch((value: unknown) => value);
+        expect(error).toMatchObject({
+            code: 'native-save-required',
+            failure: expect.objectContaining({
+                code: 'native-save-required',
+                phase: 'pre-write',
+                reason,
+            }),
+        });
         expect(applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             expect.objectContaining({placedImages: expect.any(Array)}),
             expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
-            {
-                byteLength: baseBytes.byteLength,
-                sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
-            },
             {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
+        expect(createManagedTempFileHandle).not.toHaveBeenCalled();
         expect(readDocumentBytes).not.toHaveBeenCalled();
     });
 
@@ -379,6 +497,9 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
             },
         );
 
+        if (!(result instanceof Uint8Array)) {
+            throw new Error('Expected browser placed-image serialization bytes');
+        }
         const doc = await PDFDocument.load(result, { updateMetadata: false });
         const annotRefs = getPageAnnotRefs(doc);
         expect(annotRefs).toHaveLength(1);
@@ -418,6 +539,9 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
             },
         );
 
+        if (!(result instanceof Uint8Array)) {
+            throw new Error('Expected browser placed-image serialization bytes');
+        }
         const doc = await PDFDocument.load(result, { updateMetadata: false });
         const annotRefs = getPageAnnotRefs(doc);
         expect(annotRefs).toHaveLength(2);

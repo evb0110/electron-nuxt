@@ -31,7 +31,7 @@ interface IPdfThumbnailRenderRuntimeLayout {
     clearThumbnailAspectRatios: () => void;
     shouldPreferVisibleAnchorOverCurrentPage: () => boolean;
     resolveViewportAnchorPage: () => number | null;
-    thumbnailAspectRatios: Ref<Array<number | null>>;
+    thumbnailAspectRatios: Ref<Map<number, number>>;
     thumbnailLayoutWidth: Ref<number>;
     thumbnailRenderWidth: Ref<number>;
     viewportPages: ComputedRef<number[]>;

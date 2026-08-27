@@ -11,6 +11,7 @@ import type {
     IDocumentsOpenCapability,
 } from '@contracts/electronApiDocuments';
 import type { BrowserDocumentStore } from '@app/platform/browserDocumentStore';
+import {BROWSER_MAX_FULL_READ_BYTES as BROWSER_FULL_READ_LIMIT} from '@app/platform/browser/browserDocumentConstants';
 import {
     FakeIndexedDbFactory,
     MemoryStorage,
@@ -327,7 +328,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(fallbackResult?.kind).toBe('pdf');
     });
 
-    it('rejects oversized browser combine rewrites before reading the input PDFs', async () => {
+    it('rejects oversized browser combine inputs before reading the input PDFs', async () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
         const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
         const firstRef = await browserDocumentStore.createStoredDocument(
@@ -341,7 +342,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             {...PDF_SOURCE_OPTIONS},
         );
         const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
-            size: 20 * 1024 * 1024,
+            size: (BROWSER_FULL_READ_LIMIT / 2) + 1,
             modifiedAt: 0,
         });
         const readSpy = vi.spyOn(browserDocumentStore, 'read');
@@ -350,7 +351,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             firstRef,
             secondRef,
         ])).rejects.toThrow(
-            'Combining documents is unavailable in the browser for inputs larger than 32MB',
+            'Combining documents is unavailable in the browser for inputs larger than 16MB',
         );
 
         expect(readSpy).not.toHaveBeenCalled();
@@ -1258,7 +1259,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
     it('streams oversized browser save-as to a picked file handle', async () => {
         const writes: Uint8Array[] = [];
-        const savedBytes = new Uint8Array((64 * 1024 * 1024) + 1);
+        const savedBytes = new Uint8Array(BROWSER_FULL_READ_LIMIT + 1);
         const handle = cast<FileSystemFileHandle>({
             kind: 'file',
             name: 'exported-large.pdf',
@@ -1278,6 +1279,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             capability,
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability({ windowOverrides: { showSaveFilePicker: vi.fn(async () => handle) } });
+        expect(BROWSER_MAX_FULL_READ_BYTES).toBe(BROWSER_FULL_READ_LIMIT);
         const workingRef = await browserDocumentStore.createStoredDocument(
             'oversized.pdf',
             new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1),
@@ -1453,7 +1455,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             undefined,
             await getRevisionOptions(browserDocumentStore, workingRef),
         )).rejects.toThrow(
-            'Saving documents is unavailable in the browser for inputs larger than 64MB',
+            `Saving documents is unavailable in the browser for inputs larger than ${BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024)}MB`,
         );
     });
 
@@ -1480,7 +1482,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             undefined,
             await getRevisionOptions(browserDocumentStore, workingRef),
         )).rejects.toThrow(
-            'Saving documents is unavailable in the browser for inputs larger than 64MB Use a browser with local file system access enabled to save large documents.',
+            `Saving documents is unavailable in the browser for inputs larger than ${BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024)}MB Use a browser with local file system access enabled to save large documents.`,
         );
     });
 });

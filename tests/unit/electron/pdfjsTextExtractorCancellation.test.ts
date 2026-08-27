@@ -194,6 +194,47 @@ describe('extractTextWithPdfjs cancellation', () => {
         ]);
     });
 
+    it('does not materialize every page number before cancellation in a huge document', async () => {
+        const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
+        const pageCount = 1_000_001;
+        const controller = new AbortController();
+        const page = {
+            getTextContent: vi.fn(),
+            cleanup: vi.fn(),
+        };
+        const doc = {
+            numPages: pageCount,
+            getPage: vi.fn(() => {
+                controller.abort();
+                return Promise.resolve(page);
+            }),
+            destroy: mocks.docDestroy,
+        };
+        mocks.getDocument.mockReturnValue({
+            promise: Promise.resolve(doc),
+            destroy: mocks.loadingDestroy,
+        });
+
+        const arrayFromSpy = vi.spyOn(Array, 'from');
+        let rejection: unknown;
+        try {
+            await extractTextWithPdfjs('/tmp/file.pdf', {signal: controller.signal});
+        } catch (error) {
+            rejection = error;
+        }
+        const arrayFromCalls = arrayFromSpy.mock.calls.slice();
+        arrayFromSpy.mockRestore();
+
+        expect(rejection).toMatchObject({name: 'AbortError'});
+        expect(doc.getPage).toHaveBeenCalledOnce();
+        expect(arrayFromCalls.some(([source]) => (
+            typeof source === 'object'
+            && source !== null
+            && 'length' in source
+            && Reflect.get(source, 'length') === pageCount
+        ))).toBe(false);
+    });
+
     it('collapses exact repeated hidden text streams before emitting page text', async () => {
         const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
         const repeatedText = 'СЛОВАРЬ\nАРАБСКОЙ ХРЕСТОМАТИИ И КОРАНУ. СОСТАВИЛЪ ПРОФ. В. ГИРГАСЪ.\n';

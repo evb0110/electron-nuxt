@@ -6,6 +6,7 @@ import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/engine/pdf-outl
 import type {IPdfPageSlotRegistry} from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import {
     createPdfViewportGeometryFromLayout,
+    getViewportGeometryRowForPage,
     resolveAnchorFromScroll,
     resolveRetainedAnchorFromScroll,
     resolveScrollForAnchor,
@@ -249,7 +250,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         awaitSlots: async (intent, signal) => {
             const page = resolvedTargets.get(intent.id)?.page
                 ?? getRequestPage(intent.navigation, intent.anchor?.page ?? options.currentPage.value);
-            const row = geometry?.rows.find(candidate => page >= candidate.startPage && page <= candidate.endPage);
+            const row = geometry ? getViewportGeometryRowForPage(geometry, page) : null;
             const start = row?.startPage ?? page;
             const end = row?.endPage ?? page;
             await nextTick();
@@ -304,7 +305,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         awaitVisual: async (intent) => {
             const page = resolvedTargets.get(intent.id)?.page
                 ?? getRequestPage(intent.navigation, intent.anchor?.page ?? options.currentPage.value);
-            const row = geometry?.rows.find(candidate => page >= candidate.startPage && page <= candidate.endPage);
+            const row = geometry ? getViewportGeometryRowForPage(geometry, page) : null;
             const container = options.viewerContainer.value;
             const readiness = intent.navigation?.readiness ?? 'page-canvas';
             const range = {

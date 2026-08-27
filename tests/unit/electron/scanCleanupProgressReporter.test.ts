@@ -13,8 +13,36 @@ import {
     createScanCleanupProgressReporter,
     reportScanCleanupSummaryWarningEvent,
 } from '@scan-cleanup-core/createScanCleanupProgressReporter';
+import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
+import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
 
 describe('scan cleanup progress reporter', () => {
+    it('keeps completed-page progress bounded for a long document', () => {
+        const reports: TScanCleanupProgress[] = [];
+        const emit = createScanCleanupProgressReporter(
+            progress => reports.push(progress),
+            () => false,
+            {now: () => 0},
+        );
+        function* completedPages() {
+            for (let pageNumber = 1; pageNumber <= SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1; pageNumber += 1) {
+                yield pageNumber;
+            }
+        }
+
+        emit(
+            'rendering',
+            SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
+            SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
+            completedPages(),
+        );
+
+        expect(reports[0]!.completedPageNumbers).toHaveLength(SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES);
+        expect(reports[0]!.completedPageNumbers?.[0]).toBe(1);
+        expect(reports[0]!.completedPageNumbersTruncated).toBe(true);
+        expect(SCAN_CLEANUP_PROGRESS_SCHEMA.decode(reports[0])).toEqual(reports[0]);
+    });
+
     it('uses one monotonic rendering band for a streaming raster pipeline', () => {
         const reports: TScanCleanupProgress[] = [];
         const emit = createScanCleanupProgressReporter(

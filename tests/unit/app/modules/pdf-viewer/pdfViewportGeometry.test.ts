@@ -1,6 +1,7 @@
 import {
     createPdfViewportGeometryFromLayout,
     computePdfViewportGeometry,
+    getViewportGeometryRowForPage,
     resolveAnchorFromScroll,
     resolveRetainedAnchorFromScroll,
     resolveScrollForAnchor,
@@ -9,9 +10,12 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import { getLayoutContentHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 
 describe('pdfViewportGeometry', () => {
     const pages = [
@@ -220,6 +224,80 @@ describe('pdfViewportGeometry', () => {
         expect(geometry.rows[0]?.rect.width).toBe(
             (leftPage?.width ?? 0) + margin + (rightPage?.width ?? 0),
         );
+    });
+
+    it('keeps million-page viewport geometry indexed and avoids whole-document iteration', () => {
+        const totalPages = 1_000_000;
+        const sparseMetrics: IPdfPageMetric[] = [];
+        sparseMetrics[0] = {
+            width: 300,
+            height: 500,
+        };
+        sparseMetrics[totalPages - 1] = {
+            width: 320,
+            height: 520,
+        };
+        const iteratorSpy = vi.spyOn(sparseMetrics, Symbol.iterator).mockImplementation(() => {
+            throw new Error('million-page metrics must not be iterated');
+        });
+        const normalized = normalizePageMetrics({
+            pageMetrics: sparseMetrics,
+            totalPages,
+            fallbackWidth: 300,
+            fallbackHeight: 500,
+        });
+        const normalizedIteratorSpy = vi.spyOn(normalized, Symbol.iterator).mockImplementation(() => {
+            throw new Error('sparse normalized metrics must not be iterated');
+        });
+        const arrayFromSpy = vi.spyOn(Array, 'from').mockImplementation(() => {
+            throw new Error('million-page geometry must not call Array.from');
+        });
+
+        try {
+            const layout = buildPageLayoutMetrics({
+                pageMetrics: normalized,
+                pageMetricsVersion: 1,
+                totalPages,
+                viewMode: 'facing',
+                scale: 1,
+                gap: 12,
+                paddingTop: 8,
+                paddingBottom: 8,
+            });
+            if (!layout) {
+                throw new Error('Expected million-page layout');
+            }
+
+            const geometry = createPdfViewportGeometryFromLayout(layout, {
+                width: 900,
+                height: 700,
+            }, 1);
+            expect(geometry.pageRects.length).toBe(totalPages);
+            expect(geometry.rows.length).toBe(500_000);
+            expect(Object.keys(geometry.pageRects).filter(key => /^\d+$/.test(key))).toHaveLength(0);
+            expect(Object.keys(geometry.rows).filter(key => /^\d+$/.test(key))).toHaveLength(0);
+
+            const firstPage = geometry.pageRects[0]!;
+            const lastPage = geometry.pageRects[totalPages - 1]!;
+            expect(firstPage.width).toBe(300);
+            expect(firstPage.height).toBe(500);
+            expect(lastPage.width).toBe(320);
+            expect(lastPage.height).toBe(520);
+            expect(getViewportGeometryRowForPage(geometry, totalPages)).toMatchObject({
+                startPage: totalPages - 1,
+                endPage: totalPages,
+            });
+
+            const lastPageAnchor = resolveAnchorFromScroll(geometry, {
+                left: lastPage.left + lastPage.width / 2 - 450,
+                top: lastPage.top + 100,
+            });
+            expect(lastPageAnchor.page).toBe(totalPages);
+        } finally {
+            arrayFromSpy.mockRestore();
+            normalizedIteratorSpy.mockRestore();
+            iteratorSpy.mockRestore();
+        }
     });
 
     it('keeps a page-top anchor above the declared content inset', () => {

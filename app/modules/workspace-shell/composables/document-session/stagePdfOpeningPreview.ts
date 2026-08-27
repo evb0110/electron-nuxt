@@ -1,4 +1,9 @@
-import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
+import type {
+    IPdfNativePageSize,
+    IPdfNativePageSizes,
+    IPdfOpeningGeometry,
+} from '@contracts/electronApiDocuments';
+import {PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT} from '@contracts/electronApiDocuments';
 import type { IPdfPathSource } from '@app/types/pdfUi';
 import type {
     IDocumentOpenSurfaceSession,
@@ -42,6 +47,39 @@ function resolveTargetWidth(
         ? 1
         : Math.max(1, window.devicePixelRatio || 1);
     return Math.min(4_096, Math.max(64, Math.ceil(cssWidth * pixelRatio)));
+}
+
+function isValidPageSize(value: unknown): value is IPdfNativePageSize {
+    return typeof value === 'object'
+        && value !== null
+        && Number.isFinite((value as IPdfNativePageSize).width)
+        && (value as IPdfNativePageSize).width > 0
+        && Number.isFinite((value as IPdfNativePageSize).height)
+        && (value as IPdfNativePageSize).height > 0;
+}
+
+function isCompactPageSizes(value: unknown): value is IPdfNativePageSizes {
+    if (
+        typeof value !== 'object'
+        || value === null
+        || Array.isArray(value)
+        || !Number.isSafeInteger((value as IPdfNativePageSizes).pageCount)
+        || (value as IPdfNativePageSizes).pageCount < 1
+        || !isValidPageSize((value as IPdfNativePageSizes).defaultPageSize)
+        || !Array.isArray((value as IPdfNativePageSizes).overrides)
+        || (value as IPdfNativePageSizes).overrides.length > PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT
+    ) {
+        return false;
+    }
+    const pageCount = (value as IPdfNativePageSizes).pageCount;
+    return (value as IPdfNativePageSizes).overrides.every((override) => (
+        typeof override === 'object'
+        && override !== null
+        && Number.isSafeInteger(override.pageNumber)
+        && override.pageNumber >= 1
+        && override.pageNumber <= pageCount
+        && isValidPageSize(override)
+    ));
 }
 
 export function stagePdfOpeningPreview(options: {
@@ -254,25 +292,42 @@ export function stagePdfOpeningPreview(options: {
             width: openingGeometry.width,
             height: openingGeometry.height,
         };
-        const pageSizes = Array.isArray(loadedPageSizes)
-            && loadedPageSizes.length === openingGeometry.pageCount
-            && loadedPageSizes.every(size => (
-                Number.isFinite(size.width)
-                && size.width > 0
-                && Number.isFinite(size.height)
-                && size.height > 0
-            ))
-            ? loadedPageSizes
-            : Array.from(
-                {length: openingGeometry.pageCount},
-                () => fallbackPageSize,
+        const pageCount = openingGeometry.pageCount;
+        let pageSizes: readonly IPdfNativePageSize[] | null = null;
+        let getPageSize = (_pageNumber: number): IPdfNativePageSize => fallbackPageSize;
+        if (
+            Array.isArray(loadedPageSizes)
+            && loadedPageSizes.length === pageCount
+            && loadedPageSizes.every(isValidPageSize)
+        ) {
+            pageSizes = loadedPageSizes;
+            getPageSize = pageNumber => pageSizes?.[pageNumber - 1] ?? fallbackPageSize;
+        } else if (
+            isCompactPageSizes(loadedPageSizes)
+            && loadedPageSizes.pageCount === pageCount
+        ) {
+            const overrides = new Map(
+                loadedPageSizes.overrides.map(override => [
+                    override.pageNumber,
+                    override,
+                ] as const),
             );
-        pageSource = createPagePreviewDocumentSource({
-            documentRef: sourceRevision.documentId,
-            previewSource,
-            pageSizes,
-            ownsPreviewSource: false,
-        });
+            getPageSize = pageNumber => overrides.get(pageNumber) ?? loadedPageSizes.defaultPageSize;
+        }
+        pageSource = pageSizes === null
+            ? createPagePreviewDocumentSource({
+                documentRef: sourceRevision.documentId,
+                previewSource,
+                pageCount,
+                getPageSize,
+                ownsPreviewSource: false,
+            })
+            : createPagePreviewDocumentSource({
+                documentRef: sourceRevision.documentId,
+                previewSource,
+                pageSizes,
+                ownsPreviewSource: false,
+            });
         if (!options.openSurface.publishOpeningPageSource(
             activeGeneration,
             pageSource,
@@ -295,7 +350,7 @@ export function stagePdfOpeningPreview(options: {
             }
             const boundedPage = Math.min(
                 Math.max(1, Math.trunc(pageNumber)),
-                pageSizes.length,
+                pageCount,
             );
             const currentGeometry = options.openSurface.snapshot.value.openingPageGeometry
                 ?? openingGeometry;
@@ -382,12 +437,12 @@ export function stagePdfOpeningPreview(options: {
                 previewSource.revokeObjectURL(rendered.objectUrl);
                 return false;
             }
-            const pageSize = pageSizes[boundedPage - 1] ?? fallbackPageSize;
+            const pageSize = getPageSize(boundedPage);
             const nextGeometry = {
                 ...openingGeometry,
                 documentId: sourceRevision.documentId,
                 pageNumber: boundedPage,
-                pageCount: pageSizes.length,
+                pageCount,
                 width: pageSize.width,
                 height: pageSize.height,
                 rotation: boundedPage === openingGeometry.pageNumber

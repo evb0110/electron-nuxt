@@ -21,6 +21,7 @@ import {
 import {
     tryCropPagesWithNativePageOps,
     tryRemoveCropWithNativePageOps,
+    assertPageOpsLocalFallbackAllowed,
 } from '@electron/features/page-ops/main/nativeCrop';
 
 const log = createLogger('page-ops-crop');
@@ -105,6 +106,8 @@ export async function cropPagesLocal(
         return;
     }
 
+    await assertPageOpsLocalFallbackAllowed(workingCopyPath, 'crop', signal);
+
     await mutatePdfPages(workingCopyPath, (allPages) => {
         const cropBoxes = resolveCropBoxes(allPages, pages, normalizedMargins);
         for (const cropBox of cropBoxes) {
@@ -122,6 +125,8 @@ export async function removeCropFromPagesLocal(
         return;
     }
 
+    await assertPageOpsLocalFallbackAllowed(workingCopyPath, 'remove-crop', signal);
+
     await mutatePdfPages(workingCopyPath, (allPages) => {
         assertValidRequestedPages(pages, allPages.length);
         for (const pageNum of pages) {
@@ -136,8 +141,13 @@ export async function removeCropFromPagesLocal(
 export async function getPageGeometryLocal(
     workingCopyPath: string,
     pageNumber: number,
+    signal?: AbortSignal,
 ): Promise<IPageGeometry> {
+    await assertPageOpsLocalFallbackAllowed(workingCopyPath, 'get-page-geometry', signal);
     const pdfBytes = await readFile(workingCopyPath);
+    if (signal?.aborted) {
+        throw signal.reason instanceof Error ? signal.reason : new DOMException('Operation aborted', 'AbortError');
+    }
     const pdfDoc = await PDFDocument.load(pdfBytes);
     const allPages = pdfDoc.getPages();
     const page = allPages[pageNumber - 1];

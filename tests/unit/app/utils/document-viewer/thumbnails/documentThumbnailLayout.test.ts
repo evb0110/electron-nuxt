@@ -177,4 +177,76 @@ describe('DocumentThumbnailLayout', () => {
             totalHeight: 646,
         });
     });
+
+    it('constructs million-page documents without page-sized allocations', () => {
+        const layout = new DocumentThumbnailLayout({
+            pageCount: 1_000_000,
+            renderWidth: 160,
+        });
+
+        expect(layout.getLoadedBlockCount()).toBe(0);
+        expect(layout.getPageHeight(1_000_000)).toBe(257);
+        expect(layout.getPageTop(1_000_000)).toBe(264_999_735);
+        expect(layout.snapshot().heights).toHaveLength(256);
+        expect(layout.snapshot({
+            endPage: 1_000_000,
+            startPage: 999_900,
+        }).heights).toHaveLength(101);
+
+        expect(layout.updatePageAspect(999_999, 2)).toBe(true);
+        expect(layout.getLoadedBlockCount()).toBe(1);
+        expect(layout.getPageAspect(999_999)).toBe(2);
+    });
+
+    it('keeps sparse block geometry equivalent to exact small-document rows', () => {
+        const layout = new DocumentThumbnailLayout({
+            estimatedAspectRatio: 1,
+            itemChromeHeight: 20,
+            itemGap: 6,
+            pageCount: 6,
+            renderWidth: 100,
+        });
+
+        layout.updatePageAspect(2, 1.5);
+        layout.updatePageChromeHeight(5, 44);
+
+        expect(layout.snapshot()).toEqual({
+            heights: [
+                120,
+                170,
+                120,
+                120,
+                144,
+                120,
+            ],
+            tops: [
+                0,
+                126,
+                302,
+                428,
+                554,
+                704,
+            ],
+            totalHeight: 824,
+        });
+        expect(layout.resolvePageAtOffset(302)).toBe(3);
+        expect(layout.resolvePageAtOffset(301)).toBe(2);
+        expect(layout.resolveInsertionIndex(301)).toBe(2);
+    });
+
+    it('limits an unbounded snapshot while preserving absolute tops for a range', () => {
+        const layout = new DocumentThumbnailLayout({
+            pageCount: 100_000,
+            renderWidth: 100,
+        });
+
+        const snapshot = layout.snapshot({
+            endPage: 4_203,
+            startPage: 4_200,
+        });
+        expect(snapshot.heights).toHaveLength(4);
+        expect(snapshot.tops[0]).toBe(layout.getPageTop(4_200));
+        expect(snapshot.tops[3]).toBe(layout.getPageTop(4_203));
+        expect(layout.snapshot().heights).toHaveLength(256);
+    });
 });

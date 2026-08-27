@@ -368,6 +368,35 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('refuses a 20,001-page run when the bounded detection-store handoff is missing', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`missing-detection-store-${Date.now()}`, {totalPages: () => 20_001});
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+
+        harness.emitDetection({
+            jobId: 'detect-1',
+            status: 'completed',
+            progress: {
+                stage: 'detecting',
+                completedUnits: 20_001,
+                totalUnits: 20_001,
+                percent: 100,
+                completedPageNumbers: [],
+            },
+            resultCount: 20_001,
+            results: [],
+            updatedAtMs: Date.now() + 1_000,
+        });
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        expect(mounted.session.detection.pagePlanEvidenceByPage.size).toBe(0);
+        await mounted.session.run.run();
+
+        expect(harness.value.start).not.toHaveBeenCalled();
+        expect(mounted.session.run.error.value).toBe('scanCleanup.detectAll.evidenceMissing');
+        mounted.unmount();
+    });
+
     it('settles every page a coalesced snapshot reports, not one page per event', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

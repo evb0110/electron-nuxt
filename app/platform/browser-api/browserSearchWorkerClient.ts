@@ -4,6 +4,10 @@ import type {
     IBrowserSearchWorkerResultMap,
     TBrowserSearchWorkerRequestType,
 } from '@app/platform/browser-api/browserSearchWorker.types';
+import {
+    BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT,
+    type IBrowserSearchWorkerPageRecord,
+} from '@app/platform/browser-api/browserSearchLegacyArrayPageLimit';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     BrowserWorkerClient,
@@ -17,6 +21,7 @@ interface IPendingWorkerRequest {
     reject: (error: Error) => void;
     timeoutTimer?: ReturnType<typeof setTimeout> | null;
     onProgress?: TBrowserSearchWorkerProgressHandler;
+    onPage?: (page: IBrowserSearchWorkerPageRecord) => void;
 }
 
 type TBrowserSearchWorkerProgressHandler = (progress: {
@@ -84,8 +89,11 @@ function decodeExtractDocumentTextResult(data: unknown): IBrowserSearchWorkerRes
 
     const pageTexts = data.pageTexts;
     if (
-        !Number.isInteger(data.pageCount)
+        !Number.isSafeInteger(data.pageCount)
         || data.pageCount < 0
+        || data.pageCount > BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT
+        || pageTexts.length > BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT
+        || pageTexts.length > data.pageCount
         || !pageTexts.every((pageText): pageText is string => typeof pageText === 'string')
     ) {
         return null;
@@ -105,12 +113,63 @@ function decodeCancelResult(data: unknown): IBrowserSearchWorkerResultMap['cance
     return {canceled: data.canceled};
 }
 
+function decodeStreamDocumentTextResult(data: unknown): IBrowserSearchWorkerResultMap['streamDocumentText'] | null {
+    if (
+        !isRecord(data)
+        || typeof data.pageCount !== 'number'
+        || !Number.isSafeInteger(data.pageCount)
+        || data.pageCount < 0
+    ) {
+        return null;
+    }
+
+    return {pageCount: data.pageCount};
+}
+
+function parseSearchWorkerPage(
+    response: unknown,
+    expectedType: TBrowserSearchWorkerRequestType,
+): IBrowserSearchWorkerPageRecord | null {
+    if (
+        !isRecord(response)
+        || response.ok !== true
+        || response.type !== expectedType
+        || !isRecord(response.page)
+        || typeof response.page.pageNumber !== 'number'
+        || !Number.isSafeInteger(response.page.pageNumber)
+        || response.page.pageNumber < 1
+        || typeof response.page.pageCount !== 'number'
+        || !Number.isSafeInteger(response.page.pageCount)
+        || response.page.pageCount < response.page.pageNumber
+        || typeof response.page.text !== 'string'
+    ) {
+        return null;
+    }
+
+    return {
+        pageNumber: response.page.pageNumber,
+        pageCount: response.page.pageCount,
+        text: response.page.text,
+    };
+}
+
 function decodeSearchWorkerResult<K extends TBrowserSearchWorkerRequestType>(
     type: K,
     data: unknown,
 ): IBrowserSearchWorkerResultMap[K] | null {
     if (type === 'extractDocumentText') {
         return decodeExtractDocumentTextResult(data) as IBrowserSearchWorkerResultMap[K] | null;
+    }
+
+    if (type === 'streamDocumentText') {
+        return decodeStreamDocumentTextResult(data) as IBrowserSearchWorkerResultMap[K] | null;
+    }
+
+    if (type === 'acknowledgePage') {
+        if (!isRecord(data) || data.acknowledged !== true) {
+            return null;
+        }
+        return {acknowledged: true} as IBrowserSearchWorkerResultMap[K];
     }
 
     return decodeCancelResult(data) as IBrowserSearchWorkerResultMap[K] | null;
@@ -134,6 +193,12 @@ function settleSearchWorkerResponse(
     const progress = parseSearchWorkerProgress(response, pending.requestType);
     if (progress) {
         pending.onProgress?.(progress);
+        return;
+    }
+
+    const page = parseSearchWorkerPage(response, pending.requestType);
+    if (page) {
+        pending.onPage?.(page);
         return;
     }
 
@@ -237,6 +302,185 @@ function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestTyp
 
     return {
         requestId: request.id,
+        promise,
+    };
+}
+
+export interface IBrowserSearchWorkerPageStream {
+    requestId: number;
+    pages: AsyncIterable<IBrowserSearchWorkerPageRecord>;
+    promise: Promise<IBrowserSearchWorkerResultMap['streamDocumentText']>;
+}
+
+function createPageStreamQueue(
+    onPageConsumed: () => void,
+    onStreamClosed: () => void,
+) {
+    const pendingPages: IBrowserSearchWorkerPageRecord[] = [];
+    const pendingReads: Array<{
+        resolve: (result: IteratorResult<IBrowserSearchWorkerPageRecord>) => void;
+        reject: (error: Error) => void;
+    }> = [];
+    let completed = false;
+    let failure: Error | null = null;
+
+    const fail = (error: Error) => {
+        if (completed || failure) {
+            return;
+        }
+        failure = error;
+        pendingPages.length = 0;
+        pendingReads.splice(0).forEach(read => read.reject(error));
+    };
+
+    const finish = () => {
+        if (completed) {
+            return;
+        }
+        completed = true;
+        if (pendingPages.length === 0 && !failure) {
+            pendingReads.splice(0).forEach(read => read.resolve({
+                done: true,
+                value: undefined,
+            }));
+        }
+    };
+
+    const acknowledgeConsumedPage = () => {
+        try {
+            onPageConsumed();
+        } catch (error) {
+            fail(error instanceof Error ? error : new Error(String(error)));
+            onStreamClosed();
+        }
+    };
+
+    const push = (page: IBrowserSearchWorkerPageRecord) => {
+        if (completed || failure) {
+            return;
+        }
+        const read = pendingReads.shift();
+        if (read) {
+            acknowledgeConsumedPage();
+            read.resolve({
+                done: false,
+                value: page,
+            });
+            return;
+        }
+        if (pendingPages.length > 0) {
+            fail(new Error('Browser search worker exceeded the page stream buffer'));
+            return;
+        }
+        pendingPages.push(page);
+    };
+
+    const next = (): Promise<IteratorResult<IBrowserSearchWorkerPageRecord>> => {
+        const page = pendingPages.shift();
+        if (page) {
+            acknowledgeConsumedPage();
+            return Promise.resolve({
+                done: false,
+                value: page,
+            });
+        }
+        if (failure) {
+            return Promise.reject(failure);
+        }
+        if (completed) {
+            return Promise.resolve({
+                done: true,
+                value: undefined,
+            });
+        }
+        if (pendingReads.length > 0) {
+            return Promise.reject(new Error('Browser search worker page reads must be consumed serially'));
+        }
+        return new Promise((resolve, reject) => pendingReads.push({
+            resolve,
+            reject,
+        }));
+    };
+
+    const iterator: AsyncIterableIterator<IBrowserSearchWorkerPageRecord> = {
+        next,
+        return: () => {
+            if (!completed && !failure) {
+                onStreamClosed();
+            }
+            finish();
+            return Promise.resolve({
+                done: true,
+                value: undefined,
+            });
+        },
+        [Symbol.asyncIterator]() {
+            return this;
+        },
+    };
+
+    return {
+        iterator,
+        push,
+        fail,
+        finish,
+    };
+}
+
+export function createBrowserSearchWorkerPageStreamRequest(
+    payload: IBrowserSearchWorkerRequestMap['streamDocumentText'],
+): IBrowserSearchWorkerPageStream {
+    const request: IBrowserSearchWorkerRequest<'streamDocumentText'> = {
+        id: browserSearchWorkerClient.createRequestId(),
+        type: 'streamDocumentText',
+        payload,
+    };
+    const worker = browserSearchWorkerClient.getWorker();
+    const pageQueue = createPageStreamQueue(
+        () => {
+            const acknowledgeRequest: IBrowserSearchWorkerRequest<'acknowledgePage'> = {
+                id: browserSearchWorkerClient.createRequestId(),
+                type: 'acknowledgePage',
+                payload: {requestId: request.id},
+            };
+            worker.postMessage(acknowledgeRequest);
+        },
+        () => cancelBrowserSearchWorkerRequest(request.id),
+    );
+    const promise = new Promise<IBrowserSearchWorkerResultMap['streamDocumentText']>((resolve, reject) => {
+        browserSearchWorkerClient.registerPendingRequest(request.id, {
+            requestType: request.type,
+            resolveData: (value) => {
+                const decoded = decodeSearchWorkerResult(request.type, value);
+                if (!decoded) {
+                    return false;
+                }
+                pageQueue.finish();
+                resolve(decoded);
+                return true;
+            },
+            reject: (error) => {
+                pageQueue.fail(error);
+                reject(error);
+            },
+            onPage: pageQueue.push,
+        }, () => new BrowserSearchWorkerRequestError(
+            `Browser search worker request timed out after ${BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS}ms`,
+        ));
+
+        try {
+            worker.postMessage(request);
+        } catch (error) {
+            browserSearchWorkerClient.cancelPendingRequest(
+                request.id,
+                new BrowserSearchWorkerRequestError(getErrorMessage(error)),
+            );
+        }
+    });
+
+    return {
+        requestId: request.id,
+        pages: pageQueue.iterator,
         promise,
     };
 }

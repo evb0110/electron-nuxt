@@ -28,7 +28,10 @@ import type {
     IScanCleanupPreviewAffine,
     IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
-import {SCAN_CLEANUP_INPUT_MAX_PAGES} from '@contracts/scan-cleanup/inputLimits';
+import {
+    SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
+    SCAN_CLEANUP_INPUT_MAX_PAGE_NUMBER,
+} from '@contracts/scan-cleanup/inputLimits';
 
 export const SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION = 3 as const;
 
@@ -133,7 +136,6 @@ export interface INativeScanCleanupDewarpModelV3 {
     depth: number;
 }
 
-/** Metadata written beside each protocol-v3 rendered output. */
 export interface INativeScanCleanupOutputMetadataV3 {
     sourcePageIndex?: number;
     half?: TScanCleanupOutputHalf;
@@ -437,7 +439,6 @@ export interface INativeScanCleanupSplitDiagnosticsV3 {
     foldBand: TNativeScanCleanupFoldBandV3;
 }
 
-/** Metadata written once for every page in a protocol-v3 batch. */
 export interface INativeScanCleanupPageMetadataV3 {
     layoutClassification: TScanCleanupLayoutClassification;
     layoutConfidence?: number;
@@ -991,7 +992,7 @@ const warningEventScalePercentTenths = s.number({
 const warningEventPageNumber = s.number({
     integer: true,
     min: 1,
-    max: SCAN_CLEANUP_INPUT_MAX_PAGES,
+    max: SCAN_CLEANUP_INPUT_MAX_PAGE_NUMBER,
     message: warningEventMessage,
 });
 /**
@@ -1002,7 +1003,7 @@ const warningEventPageNumber = s.number({
 const warningEventPages = s.refine(
     s.array(warningEventPageNumber),
     value => value.length > 0
-        && value.length <= SCAN_CLEANUP_INPUT_MAX_PAGES
+        && value.length <= SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
         && new Set(value).size === value.length,
     warningEventMessage,
 );
@@ -1108,7 +1109,6 @@ const pageDpiCapped = s.fromParser(value => {
         requestedDpiThousandths: legacyDpiThousandths(legacy.requestedDpi),
     });
 }, canonicalPageDpiCapped.example);
-/** One decoded condition, for the boundaries that carry conditions singly. */
 export const SCAN_CLEANUP_WARNING_EVENT_SCHEMA = s.union([
     contentFitted,
     s.object({

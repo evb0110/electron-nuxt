@@ -18,6 +18,7 @@ import type {
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
 import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+import type {TDocumentRef} from '@contracts/documentRef';
 
 export type TPdfViewerSaveTransactionMode =
     | 'persist'
@@ -31,7 +32,8 @@ export type TPdfViewerSaveTransactionSource =
     | 'source-replay'
     | 'pdfjs-materialize'
     | 'serialized-rewrite'
-    | 'native-mutation-projection';
+    | 'native-mutation-projection'
+    | 'native-required-failure';
 
 export type TPdfViewerAnnotationSaveRoute =
     | 'source-clean'
@@ -81,6 +83,21 @@ export type TNativeSaveRouteRejection =
     | 'native-structured-save-capability-unavailable'
     | 'native-write-failed'
     | 'no-native-mutations-projected';
+
+export type TNativeRequiredSaveFailureReason =
+    | 'missing-native-projection'
+    | 'missing-native-capability'
+    | 'classifier-rejection'
+    | 'native-decline'
+    | 'native-error';
+
+export interface IPdfViewerNativeRequiredFailure {
+    readonly code: 'native-save-required';
+    readonly phase: 'pre-write';
+    readonly reason: TNativeRequiredSaveFailureReason;
+    readonly nativeRejection?: TNativeSaveRouteRejection;
+    readonly detail?: string;
+}
 
 export interface IPdfSaveByteRouteDecision {
     readonly route: TPdfViewerAnnotationSaveRoute;
@@ -153,6 +170,8 @@ export interface IPdfViewerSaveTransactionRequest {
     rewriteShapeState?: boolean;
     planOnly?: boolean;
     serializeResult?: boolean;
+    /** An absolute working path makes renderer byte fallback unsafe. */
+    workingPath?: TDocumentRef | null;
     markupSubtypeOverrides?: Map<string, TMarkupSubtype> | undefined;
     markupSubtypeHints?: IMarkupSubtypeHint[] | undefined;
     nativeCapabilities?: IPdfViewerSaveTransactionNativeCapabilities;
@@ -174,6 +193,7 @@ export interface IPdfViewerSaveTransactionResult {
     serializedBytes: Uint8Array | null;
     serializedResult: IPdfViewerSaveTransactionSerializedResult | null;
     nativeMutationProjection: INativePdfMutationProjection | null;
+    nativeRequiredFailure?: IPdfViewerNativeRequiredFailure;
     /** Exact classifier-owned alternate; consumers must not independently plan another route. */
     fallbackDecision: IPdfSaveByteRouteDecision;
     annotationSavePlan: IPdfViewerAnnotationSavePlan;

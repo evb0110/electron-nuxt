@@ -17,18 +17,34 @@ const previewPriorityByClass: Record<TDocumentRenderPriority, number> = {
     prefetch: 10,
 };
 
-interface ICreatePagePreviewDocumentSourceOptions {
+interface ICreatePagePreviewDocumentSourceBaseOptions {
     documentRef: TDocumentRef;
     previewSource: IPagePreviewSource;
-    pageSizes: readonly IPreviewPageSize[];
     ownsPreviewSource?: boolean;
 }
 
+type TCreatePagePreviewDocumentSourceOptions = ICreatePagePreviewDocumentSourceBaseOptions & (
+    {
+        pageSizes: readonly IPreviewPageSize[];
+        pageCount?: never;
+        getPageSize?: never;
+    } | {
+        pageSizes?: never;
+        pageCount: number;
+        getPageSize: (pageNumber: number) => IPreviewPageSize;
+    }
+);
+
 /** Adapts the native preview renderer to the source-neutral chassis contract. */
 export function createPagePreviewDocumentSource(
-    options: ICreatePagePreviewDocumentSourceOptions,
+    options: TCreatePagePreviewDocumentSourceOptions,
 ): IDocumentPageSource {
-    const pageCount = options.pageSizes.length;
+    const pageCount = options.pageSizes !== undefined
+        ? options.pageSizes.length
+        : options.pageCount;
+    const getPageSize = options.pageSizes === undefined
+        ? options.getPageSize
+        : (pageNumber: number) => options.pageSizes[pageNumber - 1]!;
     let nextRenderRequestId = 0;
     async function renderPage(request: Parameters<IDocumentPageSource['renderPage']>[0]) {
         assertDocumentPageNumber(request.pageNumber, pageCount);
@@ -82,7 +98,7 @@ export function createPagePreviewDocumentSource(
             }
             request.signal.throwIfAborted();
         }
-        const size = options.pageSizes[request.pageNumber - 1]!;
+        const size = getPageSize(request.pageNumber);
         const widthPx = Math.max(1, rendered.renderedPx);
         const heightPx = Math.max(1, Math.round(widthPx * size.height / Math.max(1, size.width)));
         let released = false;
@@ -132,7 +148,7 @@ export function createPagePreviewDocumentSource(
         getPageMetrics(pageNumber, signal) {
             assertDocumentPageNumber(pageNumber, pageCount);
             signal?.throwIfAborted();
-            const size = options.pageSizes[pageNumber - 1]!;
+            const size = getPageSize(pageNumber);
             return Promise.resolve({
                 widthPoints: size.width,
                 heightPoints: size.height,

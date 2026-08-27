@@ -23,6 +23,7 @@ import {
     inspectPdfPageTextVisibility,
     shouldOcrClassifiedPage,
 } from '@electron/ocr/worker/pageTextClassifier';
+import { resolveTestQpdfBinary } from '@tests/helpers/resolveTestQpdfBinary';
 
 describe('OCR page text classification and supersession', () => {
     it('distinguishes native, foreign hidden OCR, current EVB generation, and missing text', () => {
@@ -96,11 +97,16 @@ describe('OCR page text classification and supersession', () => {
             foreignPage.drawText('Foreign hidden OCR', {font});
             await writeFile(pdfPath, await pdf.save());
 
-            const visibility = await inspectPdfPageTextVisibility(pdfPath, [
+            const visibilityAnalysis = await inspectPdfPageTextVisibility(pdfPath, [
                 1,
                 2,
                 3,
-            ]);
+            ], resolveTestQpdfBinary());
+            expect(visibilityAnalysis.status).toBe('available');
+            if (visibilityAnalysis.status !== 'available') {
+                throw new Error(visibilityAnalysis.message);
+            }
+            const visibility = visibilityAnalysis.visibility;
             expect(classifyOcrPageText({
                 extractedText: 'Native visible text',
                 visibility: visibility.get(1)!,

@@ -31,11 +31,15 @@ function trimHistoryByLimits(
     const entryTrimmedHistory = entries.slice(-limits.maxEntries);
     const totalBytes = getHistoryBytes(entryTrimmedHistory);
     const byteTrimmedHistory = [...entryTrimmedHistory];
-    const maxPathBytes = limits.maxPathBytes ?? limits.maxBytes;
-
     while (
         byteTrimmedHistory.length > 1
-        && (totalBytes.memory > limits.maxBytes || totalBytes.disk > maxPathBytes)
+        && (
+            totalBytes.memory > limits.maxBytes
+            || (
+                limits.maxPathBytes !== undefined
+                && totalBytes.disk > limits.maxPathBytes
+            )
+        )
     ) {
         const [firstEntry] = byteTrimmedHistory;
         if (firstEntry?.kind === 'bytes') {

@@ -19,6 +19,7 @@ import {
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scanCleanupPageOverrides';
 import {
+    attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     scanCleanupMatchedCanvasOverridesSignature,
     toScanCleanupLayoutByPage,
@@ -36,7 +37,11 @@ import {
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
-import type {TScanCleanupSelectionIntent} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
+import {
+    createScanCleanupNaturalPageOrder,
+    type TScanCleanupOrderedPages,
+    type TScanCleanupSelectionIntent,
+} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
 
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
 
@@ -51,6 +56,7 @@ const SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS = 600;
 // prefetch drop behind it; beyond that something is wrong that retrying will
 // not fix.
 const PREVIEW_CANCELLATION_RETRY_LIMIT = 2;
+const PREVIEW_METADATA_PAGE_CACHE_LIMIT = 256;
 
 interface IUseScanCleanupPreviewSessionOptions {
     active: () => boolean;
@@ -69,7 +75,7 @@ interface IUseScanCleanupPreviewSessionOptions {
     recommendedOutputModeByPage: ReadonlyMap<number, TScanCleanupOutputMode>;
     sourceSha256?: ComputedRef<string | null>;
     softAlphaForegroundRecommendationByPage: ReadonlyMap<number, boolean>;
-    selectPage: (page: number, intent: TScanCleanupSelectionIntent, orderedPages: readonly number[]) => void;
+    selectPage: (page: number, intent: TScanCleanupSelectionIntent, orderedPages: TScanCleanupOrderedPages) => void;
     settings: IScanCleanupOptions;
     sourcePath: ComputedRef<TDocumentRef | null>;
     totalPages: ComputedRef<number>;
@@ -137,6 +143,7 @@ export function createScanCleanupPreviewCacheKey(
             autoDewarpDepth: previewOptions.autoDewarpDepth,
             readingOrder: previewOptions.readingOrder,
             skipBlankPages: previewOptions.skipBlankPages,
+            pageOverrideDefaults: previewOptions.pageOverrideDefaults,
         },
         pageOverride: {
             rotationDegrees: pageOverride.rotationDegrees,
@@ -180,6 +187,11 @@ function carriesRaster(value: TScanCleanupPreviewWireResult): value is IScanClea
 }
 
 export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSessionOptions) => {
+    attachScanCleanupPageOverrideDefaults(
+        options.settings.pageOverrides,
+        options.settings.pageOverrideDefaults,
+        options.settings.marginsMm,
+    );
     const {t} = useTypedI18n();
     const result = shallowRef<IScanCleanupPreviewResult | null>(null);
     const rawResult = shallowRef<IScanCleanupRawPreviewResult | null>(null);
@@ -197,6 +209,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         maxBytes: 48 * 1024 * 1024,
     });
     const metadataByPage = reactive(new Map<number, IScanCleanupPreviewResult['pageMetadata']>());
+    const metadataPageOrder = new Set<number>();
     let sequence = 0;
     let detailSequence = 0;
     let displayedDetailSourceKey: string | null = null;
@@ -213,7 +226,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     const lifecycleGeneration = ref(0);
     let userPresentationGeneration = 0;
     let activeVisibleRequestId: string | null = null;
-    const inFlightPreviewPages: number[] = [];
+    // Keep the bounded in-flight window keyed by request. A page can have two
+    // attempts during a cancellation retry, so an array of page numbers would
+    // remove the wrong entry when the older attempt settles last.
+    const inFlightPreviewPages = new Map<string, number>();
     const inFlightPreviewRequestIds = new Set<string>();
     // A base preview pushes its page's raster the moment it exists and leaves
     // it out of the result it resolves with, so the bytes cross once. They wait
@@ -239,6 +255,24 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             ));
             if (evictable === undefined) break;
             streamedRawByRequest.delete(evictable);
+        }
+    }
+
+    function retainPageMetadata(
+        pageNumber: number,
+        metadata: IScanCleanupPreviewResult['pageMetadata'],
+    ) {
+        metadataByPage.delete(pageNumber);
+        metadataByPage.set(pageNumber, metadata);
+        metadataPageOrder.delete(pageNumber);
+        metadataPageOrder.add(pageNumber);
+        while (metadataPageOrder.size > PREVIEW_METADATA_PAGE_CACHE_LIMIT) {
+            const oldest = metadataPageOrder.values().next().value;
+            if (oldest === undefined) {
+                break;
+            }
+            metadataPageOrder.delete(oldest);
+            metadataByPage.delete(oldest);
         }
     }
 
@@ -387,7 +421,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     // once per settings change for the same reason — a burst reads it, it does
     // not recompute it.
     const matchedCanvasOverridesSignature = computed(
-        () => scanCleanupMatchedCanvasOverridesSignature(options.settings.pageOverrides),
+        () => scanCleanupMatchedCanvasOverridesSignature(
+            options.settings.pageOverrides,
+            options.settings.pageOverrideDefaults,
+        ),
     );
 
     function resolveOutputModeRecommendation(pageNumber: number) {
@@ -460,6 +497,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         // clear it explicitly in their watcher below.
         // Every request a streamed raster could still belong to is superseded.
         streamedRawByRequest.clear();
+        inFlightPreviewPages.clear();
         inFlightPreviewRequestIds.clear();
         activeVisibleRequestId = null;
         loading.value = false;
@@ -628,7 +666,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             // navigation names no window and cancels the document, as before.
             ...(navigated
                 ? {retainPages: [...new Set([
-                    ...inFlightPreviewPages.slice(-1),
+                    ...[...inFlightPreviewPages.values()].slice(-1),
                     requestPage - 1,
                     requestPage,
                     requestPage + 1,
@@ -712,7 +750,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 if (requestSequence !== sequence) {
                     return;
                 }
-                metadataByPage.set(previewResult.pageNumber, previewResult.pageMetadata);
+                retainPageMetadata(previewResult.pageNumber, previewResult.pageMetadata);
                 resultKey.value = key;
                 resultPresentationKey.value = presentationKey(key);
                 result.value = previewResult;
@@ -742,14 +780,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             : initialRequest
                 ? 0
                 : navigated
-                    ? (inFlightPreviewPages.length === 0 ? 0 : SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS)
+                    ? (inFlightPreviewPages.size === 0 ? 0 : SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS)
                     : 250;
         timer = setTimeout(() => {
-            inFlightPreviewPages.push(requestPage);
+            inFlightPreviewPages.set(requestId, requestPage);
             inFlightPreviewRequestIds.add(requestId);
             void runPreview().finally(() => {
-                const index = inFlightPreviewPages.indexOf(requestPage);
-                if (index >= 0) inFlightPreviewPages.splice(index, 1);
+                inFlightPreviewPages.delete(requestId);
                 inFlightPreviewRequestIds.delete(requestId);
                 trimStreamedRaw();
             });
@@ -912,7 +949,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
 
     function navigate(delta: number) {
         const page = Math.min(totalPages.value, Math.max(1, options.previewPage.value + delta));
-        options.selectPage(page, 'single', Array.from({length: totalPages.value}, (_, index) => index + 1));
+        options.selectPage(page, 'single', createScanCleanupNaturalPageOrder(totalPages.value));
     }
 
     const stopRawStream = getScanCleanupCapability()?.onPreviewRaw(acceptStreamedRaw) ?? null;
@@ -950,7 +987,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         cache.clear();
         detailSourceCache.clear();
         metadataByPage.clear();
+        metadataPageOrder.clear();
         streamedRawByRequest.clear();
+        inFlightPreviewPages.clear();
         inFlightPreviewRequestIds.clear();
         activeVisibleRequestId = null;
         result.value = null;

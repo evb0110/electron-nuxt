@@ -1,6 +1,21 @@
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type {
+    IPageMoveRangeSegment,
+    TPageSelection,
+    TPageMoveOperation,
+} from '@contracts/pageNumbers';
+import {
+    buildPageMoveOrder,
+    buildPageMoveRangesOrder,
+    createPageMoveRange,
+    createPageMoveRanges,
+    isPageMoveRangesNoOp,
+    isPageSelected,
+    mapPageNumberAfterPageMove,
+    pageMoveRangesRestInsertIndex,
+} from '@contracts/pageNumbers';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     useEventListener,
@@ -13,8 +28,10 @@ import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallbac
 interface IPageDragDropDeps {
     containerRef: Ref<HTMLElement | null>;
     totalPages: Ref<number>;
-    selectedPages: Ref<number[]>;
+    selectedPages?: Readonly<Ref<number[]>>;
+    selectedPageSelection?: Readonly<Ref<TPageSelection | null>>;
     onReorder: (newOrder: number[]) => void;
+    onMove?: ((move: TPageMoveOperation) => void) | undefined;
     resolveDropIndex?: (clientY: number, container: HTMLElement) => number | null;
     onExternalFileDrop?: (afterPage: number, filePaths: TDocumentRef[]) => void;
 }
@@ -26,14 +43,21 @@ interface IDragReorderContext {
     nonDraggedPrefixBySlot: number[];
     originalRestInsertIndex: number;
     canBeNoOp: boolean;
+    compactMove?: {ranges: IPageMoveRangeSegment[];};
 }
+
+// The legacy browser reorder path sends a full permutation to pdf-lib. Keep
+// that fallback bounded while desktop callers use the compact native move.
+const LEGACY_REORDER_MAX_PAGES = 10_000;
 
 export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     const {
         containerRef,
         totalPages,
-        selectedPages,
+        selectedPages = ref([]),
+        selectedPageSelection,
         onReorder,
+        onMove,
         resolveDropIndex,
         onExternalFileDrop,
     } = deps;
@@ -59,6 +83,48 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     const SCROLL_SPEED = 6;
     const AUTO_SCROLL_INTERVAL_MS = 16;
 
+    function pageNumbersToRanges(pages: readonly number[]): IPageMoveRangeSegment[] {
+        const ranges: IPageMoveRangeSegment[] = [];
+        for (const page of pages) {
+            const previous = ranges.at(-1);
+            if (previous && page === previous.endPage + 1) {
+                previous.endPage = page;
+            } else {
+                ranges.push({
+                    startPage: page,
+                    endPage: page,
+                });
+            }
+        }
+        return ranges;
+    }
+
+    function getCompactMoveSegments(page: number): IPageMoveRangeSegment[] | null {
+        const selection = selectedPageSelection?.value;
+        if (!selection || !isPageSelected(selection, page)) {
+            return null;
+        }
+        if (selection.kind === 'range') {
+            return [{
+                startPage: selection.startPage,
+                endPage: selection.endPage,
+            }];
+        }
+        if (selection.kind === 'explicit') {
+            return pageNumbersToRanges(selection.pages);
+        }
+        if (selection.kind === 'mapped' && selection.source.kind === 'explicit') {
+            const mappedPages = selection.source.pages
+                .map(sourcePage => selection.moves.reduce(
+                    (currentPage, move) => mapPageNumberAfterPageMove(currentPage, move),
+                    sourcePage,
+                ))
+                .sort((left, right) => left - right);
+            return pageNumbersToRanges(mappedPages);
+        }
+        return null;
+    }
+
     const {
         isActive: isAutoScrollActive,
         pause: pauseAutoScroll,
@@ -72,6 +138,22 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     }, AUTO_SCROLL_INTERVAL_MS, { immediate: false });
 
     function getDragPages(page: number) {
+        const selection = selectedPageSelection?.value;
+        if (selection && isPageSelected(selection, page)) {
+            if (selection.kind === 'range') {
+                if (!onMove && selection.endPage - selection.startPage + 1 > LEGACY_REORDER_MAX_PAGES) {
+                    return [page];
+                }
+                return Array.from({length: selection.endPage - selection.startPage + 1}, (_value, index) => selection.startPage + index);
+            }
+            if (selection.kind === 'explicit' && selection.pages.length <= 100_000) {
+                return [...selection.pages].sort((a, b) => a - b);
+            }
+            // A predicate/complement can describe a very large, sparse set.
+            // A thumbnail drag still moves the page under the pointer unless
+            // the caller supplies a compact contiguous selection.
+            return [page];
+        }
         if (selectedPages.value.includes(page)) {
             return [...selectedPages.value].sort((a, b) => a - b);
         }
@@ -115,13 +197,35 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         return thumbs.length;
     }
 
-    function prepareDragReorderContext(pages: number[]): IDragReorderContext | null {
+    function prepareDragReorderContext(
+        pages: number[],
+        compactMoveRanges?: IPageMoveRangeSegment[],
+    ): IDragReorderContext | null {
         const total = totalPages.value;
         if (pages.length === 0 || total === 0) {
             return null;
         }
+        if (!onMove && total > LEGACY_REORDER_MAX_PAGES) {
+            return null;
+        }
 
         const sortedPages = [...pages].sort((a, b) => a - b);
+        if (onMove && (compactMoveRanges || sortedPages.length === 1)) {
+            const ranges = compactMoveRanges ?? [{
+                startPage: sortedPages[0]!,
+                endPage: sortedPages[0]!,
+            }];
+            const page = ranges[0]!.startPage;
+            return {
+                total,
+                sortedPages,
+                restPages: [],
+                nonDraggedPrefixBySlot: [],
+                originalRestInsertIndex: page - 1,
+                canBeNoOp: true,
+                compactMove: {ranges},
+            };
+        }
         const dragSet = new Set(sortedPages);
         const restPages: number[] = [];
         const nonDraggedPrefixBySlot = new Array<number>(total + 1);
@@ -157,8 +261,23 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         insertAt: number,
         context: IDragReorderContext,
     ) {
+        if (context.compactMove) {
+            return pageMoveRangesRestInsertIndexForContext(insertAt, context);
+        }
         const clamped = clamp(Math.floor(insertAt), 0, context.total);
         return context.nonDraggedPrefixBySlot[clamped] ?? 0;
+    }
+
+    function pageMoveRangesRestInsertIndexForContext(
+        insertAt: number,
+        context: IDragReorderContext,
+    ) {
+        const move = createPageMoveRanges(
+            context.total,
+            context.compactMove!.ranges,
+            clamp(Math.floor(insertAt), 0, context.total),
+        );
+        return pageMoveRangesRestInsertIndex(move);
     }
 
     function canApplyReorder(
@@ -167,6 +286,14 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     ) {
         if (!context) {
             return false;
+        }
+
+        if (context.compactMove) {
+            return !isPageMoveRangesNoOp(createPageMoveRanges(
+                context.total,
+                context.compactMove.ranges,
+                clamp(Math.floor(insertAt), 0, context.total),
+            ));
         }
 
         const restInsertIndex = resolveRestInsertIndex(insertAt, context);
@@ -183,6 +310,15 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     ) {
         if (!context) {
             return null;
+        }
+
+        if (context.compactMove) {
+            const move = createPageMoveRanges(
+                context.total,
+                context.compactMove.ranges,
+                clamp(Math.floor(insertAt), 0, context.total),
+            );
+            return isPageMoveRangesNoOp(move) ? null : buildPageMoveRangesOrder(move);
         }
 
         const restInsertIndex = resolveRestInsertIndex(insertAt, context);
@@ -276,9 +412,15 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             }
 
             isDragging.value = true;
-            const pages = getDragPages(startPage);
+            const compactMoveRanges = onMove ? getCompactMoveSegments(startPage) : null;
+            // A compact range is already the complete drag payload. Keep the
+            // visual marker bounded as well. The native move receives the
+            // ranges below and never needs a page-sized selected-page array.
+            const pages = compactMoveRanges
+                ? compactMoveRanges.map(range => range.startPage)
+                : getDragPages(startPage);
             draggedPages.value = pages;
-            dragReorderContext = prepareDragReorderContext(pages);
+            dragReorderContext = prepareDragReorderContext(pages, compactMoveRanges ?? undefined);
             document.body.style.cursor = 'grabbing';
             document.body.style.userSelect = 'none';
         }
@@ -309,6 +451,30 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         clickSkip = true;
 
         if (insertAt !== null) {
+            if (reorderContext?.compactMove) {
+                const move = createPageMoveRanges(
+                    reorderContext.total,
+                    reorderContext.compactMove.ranges,
+                    insertAt,
+                );
+                if (!isPageMoveRangesNoOp(move)) {
+                    const operation: TPageMoveOperation = move.ranges.length === 1
+                        ? createPageMoveRange(
+                            move.pageCount,
+                            move.ranges[0]!.startPage,
+                            move.ranges[0]!.endPage,
+                            move.insertAt,
+                        )
+                        : move;
+                    if (onMove) onMove(operation);
+                    else onReorder(
+                        'ranges' in operation
+                            ? buildPageMoveRangesOrder(operation)
+                            : buildPageMoveOrder(operation),
+                    );
+                }
+                return;
+            }
             const order = buildNewOrder(insertAt, reorderContext);
             if (order) onReorder(order);
         }

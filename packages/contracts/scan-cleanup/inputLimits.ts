@@ -1,7 +1,12 @@
 // IPC payloads are renderer-controlled. These ceilings are intentionally far
 // above legitimate document/UI sizes while keeping validation work and native
 // allocations bounded before any scan-cleanup operation starts.
-export const SCAN_CLEANUP_INPUT_MAX_PAGES = 20_000;
+export const SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES = 20_000;
+export const SCAN_CLEANUP_INPUT_MAX_PAGE_NUMBER = Number.MAX_SAFE_INTEGER;
+/** Maximum page records in one native manifest. This is not a document cap. */
+export const SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES = 20_000;
+/** Maximum pages retained by one production conversion or compatibility window. */
+export const SCAN_CLEANUP_STREAMING_BATCH_PAGES = 1_024;
 export const SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE = 256;
 export const SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON = 64;
 export const SCAN_CLEANUP_INPUT_MAX_ZONES = 20_000;
@@ -50,7 +55,7 @@ export function decodeScanCleanupPageNumber(value: unknown, label: string) {
     if (
         !Number.isSafeInteger(value)
         || Number(value) < 1
-        || Number(value) > SCAN_CLEANUP_INPUT_MAX_PAGES
+        || Number(value) > SCAN_CLEANUP_INPUT_MAX_PAGE_NUMBER
     ) {
         throw new Error(`invalid scan-cleanup ${label}`);
     }
@@ -74,7 +79,7 @@ export function consumeScanCleanupPages(
     label: string,
 ) {
     budget.pages += count;
-    if (!Number.isSafeInteger(budget.pages) || budget.pages > SCAN_CLEANUP_INPUT_MAX_PAGES) {
+    if (!Number.isSafeInteger(budget.pages) || budget.pages > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES) {
         throw new Error(`too many scan-cleanup ${label}`);
     }
 }

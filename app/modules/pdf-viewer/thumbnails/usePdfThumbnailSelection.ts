@@ -2,14 +2,20 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import { range } from 'es-toolkit/math';
 import { useMultiSelection } from '@app/composables/useMultiSelection';
 import {
     arePageNumberListsEqual,
+    createExplicitPageSelection,
+    createRangePageSelection,
+    isPageSelected,
+    materializePageSelection,
+    pageSelectionCount,
     normalizeSelectedPageNumbers,
     resolveThumbnailContextMenuPages,
     shouldSelectPageFromThumbnailClick,
+    togglePageSelection,
 } from '@app/utils/pdfPageSelection';
+import type { TPageSelection } from '@app/utils/pdfPageSelection';
 
 /** Rows PageUp/PageDown skip, matching the scan-cleanup rail. */
 const PAGE_KEYBOARD_STEP = 5;
@@ -45,10 +51,12 @@ interface IUsePdfThumbnailSelectionOptions {
         pages: number[];
     }) => void;
     onGoToPage: (page: number) => void;
-    onSelectedPagesChange: (pages: number[]) => void;
+    onSelectedPagesChange?: (pages: number[]) => void;
+    onPageSelectionChange?: ((selection: TPageSelection) => void) | undefined;
     renderedPages: ComputedRef<number[]>;
     scrollPageIntoKeyboardView: (page: number) => void;
-    selectedPages: ComputedRef<number[]>;
+    selectedPages?: ComputedRef<number[]>;
+    selectedPageSelection?: ComputedRef<TPageSelection | null> | undefined;
     totalPages: ComputedRef<number>;
 }
 
@@ -62,24 +70,53 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         markUserInteraction,
         onContextMenu,
         onGoToPage,
-        onSelectedPagesChange,
+        onSelectedPagesChange = () => {},
+        onPageSelectionChange,
         renderedPages,
         scrollPageIntoKeyboardView,
-        selectedPages,
+        selectedPages = computed(() => []),
+        selectedPageSelection,
         totalPages,
     } = options;
 
     const multiSelection = useMultiSelection<number>();
     const selectionFocusPage = ref<number | null>(null);
     const keyboardFocusPage = ref<number | null>(null);
-    const selectedPagesSet = computed(() => new Set(selectedPages.value));
+    const usesPageSelectionModel = onPageSelectionChange !== undefined;
+    const selectedPagesSet = computed(() => usesPageSelectionModel
+        ? null
+        : new Set(selectedPages.value));
+
+    function getPageSelection(): TPageSelection {
+        if (usesPageSelectionModel) {
+            const selection = selectedPageSelection?.value;
+            if (selection && selection.pageCount === totalPages.value) {
+                return selection;
+            }
+        }
+        return createExplicitPageSelection(totalPages.value, selectedPages.value);
+    }
+
+    function notifyPageSelection(selection: TPageSelection) {
+        if (onPageSelectionChange) {
+            onPageSelectionChange(selection);
+        }
+        // Keep the old array contract for the existing UI and tests.  A
+        // large lazy selection has no safe legacy representation, so the
+        // model callback is the source of truth in that case.
+        if (!usesPageSelectionModel || pageSelectionCount(selection) <= 100_000) {
+            onSelectedPagesChange(materializePageSelection(selection));
+        }
+    }
 
     function clampPage(page: number) {
         return Math.min(Math.max(1, page), Math.max(1, totalPages.value));
     }
 
     function isSelected(page: number) {
-        return selectedPagesSet.value.has(page);
+        return usesPageSelectionModel
+            ? isPageSelected(getPageSelection(), page)
+            : selectedPagesSet.value?.has(page) === true;
     }
 
     /**
@@ -131,7 +168,30 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
             return;
         }
 
-        const allPages = range(1, totalPages.value + 1);
+        if (usesPageSelectionModel) {
+            let nextSelection: TPageSelection;
+            if (event.shiftKey) {
+                const anchor = multiSelection.anchor.value
+                    ?? getThumbnailSelectionFallbackAnchor()
+                    ?? page;
+                nextSelection = createRangePageSelection(
+                    totalPages.value,
+                    Math.min(anchor, page),
+                    Math.max(anchor, page),
+                );
+                multiSelection.anchor.value = anchor;
+            } else if (event.metaKey || event.ctrlKey) {
+                nextSelection = togglePageSelection(getPageSelection(), page);
+            } else {
+                nextSelection = createExplicitPageSelection(totalPages.value, [page]);
+            }
+            selectionFocusPage.value = page;
+            notifyPageSelection(nextSelection);
+            return;
+        }
+
+        // The legacy path retains its Set semantics for ordinary documents.
+        const allPages = Array.from({length: totalPages.value}, (_value, index) => index + 1);
         multiSelection.toggle(page, allPages, {
             shift: event.shiftKey,
             meta: event.metaKey || event.ctrlKey,
@@ -146,6 +206,13 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
     }
 
     function toggleSinglePageSelection(page: number) {
+        if (usesPageSelectionModel) {
+            const nextSelection = togglePageSelection(getPageSelection(), page);
+            multiSelection.anchor.value = page;
+            selectionFocusPage.value = page;
+            notifyPageSelection(nextSelection);
+            return;
+        }
         const nextSelection = new Set(selectedPages.value);
         if (nextSelection.has(page)) {
             nextSelection.delete(page);
@@ -217,7 +284,21 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         const basePage = getKeyboardSelectionBasePage();
         const nextFocusPage = clampPage(basePage + direction);
         const anchorPage = getKeyboardSelectionAnchorPage(basePage);
-        const allPages = range(1, totalPages.value + 1);
+        if (usesPageSelectionModel) {
+            const nextSelection = createRangePageSelection(
+                totalPages.value,
+                Math.min(anchorPage, nextFocusPage),
+                Math.max(anchorPage, nextFocusPage),
+            );
+            multiSelection.anchor.value = anchorPage;
+            selectionFocusPage.value = nextFocusPage;
+            notifyPageSelection(nextSelection);
+            onGoToPage(nextFocusPage);
+            focusThumbnailPage(nextFocusPage);
+            return;
+        }
+
+        const allPages = Array.from({length: totalPages.value}, (_value, index) => index + 1);
 
         multiSelection.anchor.value = anchorPage;
         multiSelection.toggle(nextFocusPage, allPages, {shift: true});
@@ -299,6 +380,13 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
     }
 
     function syncInternalSelection(normalized: number[]) {
+        if (usesPageSelectionModel) {
+            if (normalized.length === 0) {
+                multiSelection.anchor.value = null;
+                selectionFocusPage.value = null;
+            }
+            return;
+        }
         multiSelection.selected.value = new Set(normalized);
 
         if (normalized.length === 0) {
@@ -324,9 +412,24 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
     watch(
         [
             () => selectedPages.value.join(','),
+            () => selectedPageSelection?.value,
             totalPages,
         ],
         () => {
+            if (usesPageSelectionModel) {
+                const selection = selectedPageSelection?.value;
+                if (!selection || selection.pageCount !== totalPages.value) {
+                    return;
+                }
+                if (pageSelectionCount(selection) === 0) {
+                    multiSelection.anchor.value = null;
+                    selectionFocusPage.value = null;
+                }
+                if (keyboardFocusPage.value !== null) {
+                    keyboardFocusPage.value = totalPages.value <= 0 ? null : clampPage(keyboardFocusPage.value);
+                }
+                return;
+            }
             const pages = selectedPages.value;
             const normalized = normalizeSelectedPageNumbers(pages, totalPages.value);
             if (!arePageNumberListsEqual(normalized, pages)) {
@@ -348,6 +451,7 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         handleThumbnailContextMenu,
         isSelected,
         rovingFocusPage,
+        selectedPagesSet,
         toggleSinglePageSelection,
     };
 };

@@ -36,6 +36,12 @@ import type {
 } from '@electron/features/documents/documentsService';
 import { attachSerializedPdfPersistencePort } from '@electron/features/documents/public';
 import {
+    beginDocxExportStream,
+    cancelDocxExportStream,
+    commitDocxExportStream,
+    writeDocxExportStreamChunk,
+} from '@electron/features/documents/main/docxExportStream';
+import {
     allowOpenPath,
     requireOpenPath,
     type TOpenPath,
@@ -393,6 +399,22 @@ export function registerDocumentsIpcAdapter(
             service.cancelPdfNativePagePreview(context, requestId),
         renderPdfNativePagePreview: (context, filePath, pageNumber, previewOptions) =>
             service.renderPdfNativePagePreview(context, filePath, pageNumber, previewOptions),
+        beginPdfAnnotationIndex: (context, filePath, options) =>
+            service.beginPdfAnnotationIndex(context, filePath, options),
+        readPdfAnnotationIndexChunk: (context, sessionId, offset, options) =>
+            service.readPdfAnnotationIndexChunk(context, sessionId, offset, options),
+        releasePdfAnnotationIndex: (context, sessionId) =>
+            service.releasePdfAnnotationIndex(context, sessionId),
+        cancelPdfAnnotationIndex: (context, sessionId) =>
+            service.cancelPdfAnnotationIndex(context, sessionId),
+        beginPdfEmbeddedShapeIndex: (context, filePath, options) =>
+            service.beginPdfEmbeddedShapeIndex(context, filePath, options),
+        readPdfEmbeddedShapeIndexChunk: (context, sessionId, offset, options) =>
+            service.readPdfEmbeddedShapeIndexChunk(context, sessionId, offset, options),
+        releasePdfEmbeddedShapeIndex: (context, sessionId) =>
+            service.releasePdfEmbeddedShapeIndex(context, sessionId),
+        cancelPdfEmbeddedShapeIndex: (context, sessionId) =>
+            service.cancelPdfEmbeddedShapeIndex(context, sessionId),
         readTextFile: (context, filePath) =>
             service.readTextFile(context, filePath),
         fileExists: (context, filePath) =>
@@ -446,18 +468,25 @@ export function registerDocumentsIpcAdapter(
             workingPath,
             mutations,
             modifiedAt,
-            expectedBase,
             revisionOptions,
         ) => service.applyPdfNativeMutationsToWorkingCopy(
             context,
             workingPath,
             mutations,
             modifiedAt,
-            expectedBase,
             revisionOptions,
         ),
         commitStagedPdfNativeMutations: (context, workingPath, stagedOutput, revisionOptions) =>
             service.commitStagedPdfNativeMutations(context, workingPath, stagedOutput, revisionOptions),
+        cloneStagedPdfNativeMutationToWorkingCopy: (context, stagedOutput, originalPath) =>
+            service.cloneStagedPdfNativeMutationToWorkingCopy(context, stagedOutput, originalPath),
+        replaceWorkingCopyFromStagedPdfNativeMutation: (context, workingPath, stagedOutput, revisionOptions) =>
+            service.replaceWorkingCopyFromStagedPdfNativeMutation(
+                context,
+                workingPath,
+                stagedOutput,
+                revisionOptions,
+            ),
         analyzePdfConformance: (context, filePath) =>
             service.analyzePdfConformance(context, filePath),
         validatePdfData: (data, fileName) =>
@@ -529,6 +558,33 @@ export function registerDocumentsIpcAdapter(
     registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_RECENT_FILES_PLATFORM_FEATURE, featureBindings);
     registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_WINDOW_PLATFORM_FEATURE, featureBindings);
     registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_MENU_PLATFORM_FEATURE, featureBindings);
+
+    featureRegistrar.handle(
+        DOCUMENTS_CHANNELS.fileWriteDocxStreamBegin,
+        (event, filePath) => beginDocxExportStream(createSenderIdContext(event), filePath),
+    );
+    featureRegistrar.handle(
+        DOCUMENTS_CHANNELS.fileWriteDocxStreamChunk,
+        (event, sessionId, chunk) => writeDocxExportStreamChunk(
+            createSenderIdContext(event),
+            sessionId,
+            chunk,
+        ),
+    );
+    featureRegistrar.handle(
+        DOCUMENTS_CHANNELS.fileWriteDocxStreamCommit,
+        (event, sessionId) => commitDocxExportStream(
+            createSenderIdContext(event),
+            sessionId,
+        ),
+    );
+    featureRegistrar.handle(
+        DOCUMENTS_CHANNELS.fileWriteDocxStreamCancel,
+        (event, sessionId) => cancelDocxExportStream(
+            createSenderIdContext(event),
+            sessionId,
+        ),
+    );
 
     register(DOCUMENTS_CHANNELS.savePdfDataAs, (
         event: IpcMainInvokeEvent,

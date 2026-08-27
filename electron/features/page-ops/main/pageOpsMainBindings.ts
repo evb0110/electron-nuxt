@@ -25,6 +25,8 @@ import type {
 } from '@contracts/electronApiPageOps';
 import type { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
+import type { IPageMoveRangeSegment } from '@contracts/pageNumbers';
+import { createPageMoveRanges } from '@contracts/pageNumbers';
 import { te } from '@electron/te';
 import { PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS } from '@electron/image/pdfCombineShared';
 import {
@@ -33,9 +35,12 @@ import {
     removeCropFromPages,
 } from '@electron/features/page-ops/main/crop';
 import {
+    deletePageRanges,
     deletePages,
     extractPages,
     getPdfPageCount,
+    movePageRanges,
+    movePages,
     reorderPages,
     rotatePages,
     verifyPdfStructureStrict,
@@ -51,6 +56,9 @@ import {
 } from '@electron/file-access/openPathCapabilities';
 import {
     formatPageRange,
+    validatePageDeleteRanges,
+    validatePageMoveRanges,
+    validatePageMoveRange,
     validatePageNumbers,
     validateReorderPermutation,
 } from '@electron/features/page-ops/domain/pageNumbers';
@@ -62,10 +70,15 @@ import { transitionWorkingCopyContentRevision } from '@electron/file-access/docu
 import {
     awaitPageIdentityStoreInitialization,
     commitPageIdentityDelta,
+    createCropIdentityDelta,
     createDeleteIdentityDelta,
-    createIdentityDelta,
+    createDeleteRangesIdentityDelta,
     createInsertIdentityDelta,
+    createMoveIdentityDelta,
+    createPageMoveRangesIdentityDelta,
+    createRemoveCropIdentityDelta,
     createReorderIdentityDelta,
+    createRotateIdentityDelta,
 } from '@electron/file-access/pageIdentityStore';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
@@ -158,8 +171,9 @@ async function transitionPageMutation<T>(input: {
                 input.workingCopyPath,
                 createNativeOperationOptions(input.operation),
             );
-            if (mutation.delta.pages.length !== actualPageCount) {
-                throw new Error(`Page operation reopen verification failed: predicted ${mutation.delta.pages.length}, received ${actualPageCount}`);
+            const predictedPageCount = mutation.delta.nextPageCount ?? mutation.delta.pages?.length;
+            if (predictedPageCount === undefined || predictedPageCount !== actualPageCount) {
+                throw new Error(`Page operation reopen verification failed: predicted ${predictedPageCount ?? 'unknown'}, received ${actualPageCount}`);
             }
             await verifyPdfStructureStrict(
                 input.workingCopyPath,
@@ -296,6 +310,53 @@ async function handlePageOpsDelete(
     };
 }
 
+async function handlePageOpsDeleteRanges(
+    context: IPageOpsOperationContext,
+    workingCopyPath: string,
+    ranges: IPageMoveRangeSegment[],
+    totalPages: number,
+    options?: IPageOpsMutationOptions,
+) {
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
+    const expectedTotalPages = validateExpectedTotalPages(totalPages);
+    validatePageDeleteRanges(ranges, expectedTotalPages);
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
+
+    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+        const {
+            nativeOptions,
+            pageCount: mainTotalPages,
+            queuedWorkingCopyPath,
+        } = await beginQueuedPageMutation(operation, normalizedWorkingCopyPath, context.senderId, expectedDocumentRevisionToken);
+        if (mainTotalPages !== expectedTotalPages) {
+            throw new Error('Renderer page count is stale');
+        }
+        validatePageDeleteRanges(ranges, mainTotalPages);
+        return transitionPageMutation({
+            workingCopyPath: queuedWorkingCopyPath,
+            senderId: context.senderId,
+            operation,
+            options,
+            mutate: async () => ({
+                value: await deletePageRanges(
+                    queuedWorkingCopyPath,
+                    ranges,
+                    expectedTotalPages,
+                    context.senderId,
+                    nativeOptions,
+                ),
+                delta: createDeleteRangesIdentityDelta(expectedTotalPages, ranges),
+            }),
+        });
+    });
+    return {
+        success: true,
+        pageCount: result.value.pageCount,
+        documentRevision: result.documentRevision,
+        pageIdentityDelta: result.pageIdentityDelta,
+    };
+}
+
 async function handlePageOpsExtract(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
@@ -374,6 +435,125 @@ async function handlePageOpsReorder(
             mutate: async () => ({
                 value: await reorderPages(queuedWorkingCopyPath, newOrder, context.senderId, nativeOptions),
                 delta: createReorderIdentityDelta(actualPageCount, newOrder),
+            }),
+        });
+    });
+    return {
+        success: true,
+        pageCount: result.value.pageCount,
+        documentRevision: result.documentRevision,
+        pageIdentityDelta: result.pageIdentityDelta,
+    };
+}
+
+async function handlePageOpsMove(
+    context: IPageOpsOperationContext,
+    workingCopyPath: string,
+    startPage: number,
+    endPage: number,
+    insertAt: number,
+    totalPages: number,
+    options?: IPageOpsMutationOptions,
+) {
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
+    validatePageMoveRange(startPage, endPage, insertAt, totalPages);
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
+
+    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+        const {
+            nativeOptions,
+            pageCount: actualPageCount,
+            queuedWorkingCopyPath,
+        } = await beginQueuedPageMutation(
+            operation,
+            normalizedWorkingCopyPath,
+            context.senderId,
+            expectedDocumentRevisionToken,
+        );
+        if (actualPageCount !== totalPages) {
+            throw new Error('Renderer page count is stale');
+        }
+        validatePageMoveRange(startPage, endPage, insertAt, actualPageCount);
+
+        const movedCount = endPage - startPage + 1;
+        const destinationStart = insertAt < startPage - 1
+            ? insertAt + 1
+            : insertAt > endPage
+                ? insertAt - movedCount + 1
+                : startPage;
+        return transitionPageMutation({
+            workingCopyPath: queuedWorkingCopyPath,
+            senderId: context.senderId,
+            operation,
+            options,
+            mutate: async () => ({
+                value: await movePages(
+                    queuedWorkingCopyPath,
+                    startPage,
+                    endPage,
+                    insertAt,
+                    actualPageCount,
+                    context.senderId,
+                    nativeOptions,
+                ),
+                delta: createMoveIdentityDelta(
+                    actualPageCount,
+                    startPage,
+                    destinationStart,
+                    movedCount,
+                ),
+            }),
+        });
+    });
+    return {
+        success: true,
+        pageCount: result.value.pageCount,
+        documentRevision: result.documentRevision,
+        pageIdentityDelta: result.pageIdentityDelta,
+    };
+}
+
+async function handlePageOpsMoveRanges(
+    context: IPageOpsOperationContext,
+    workingCopyPath: string,
+    ranges: IPageMoveRangeSegment[],
+    insertAt: number,
+    totalPages: number,
+    options?: IPageOpsMutationOptions,
+) {
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
+    validatePageMoveRanges(ranges, insertAt, totalPages);
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
+
+    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+        const {
+            nativeOptions,
+            pageCount: actualPageCount,
+            queuedWorkingCopyPath,
+        } = await beginQueuedPageMutation(
+            operation,
+            normalizedWorkingCopyPath,
+            context.senderId,
+            expectedDocumentRevisionToken,
+        );
+        if (actualPageCount !== totalPages) {
+            throw new Error('Renderer page count is stale');
+        }
+        const move = createPageMoveRanges(actualPageCount, ranges, insertAt);
+        return transitionPageMutation({
+            workingCopyPath: queuedWorkingCopyPath,
+            senderId: context.senderId,
+            operation,
+            options,
+            mutate: async () => ({
+                value: await movePageRanges(
+                    queuedWorkingCopyPath,
+                    move,
+                    actualPageCount,
+                    context.senderId,
+                    nativeOptions,
+                ),
+                delta: createPageMoveRangesIdentityDelta(move),
             }),
         });
     });
@@ -497,7 +677,7 @@ async function handlePageOpsRotate(
                 await rotatePages(queuedWorkingCopyPath, pages, angle, context.senderId, nativeOptions);
                 return {
                     value: undefined,
-                    delta: createIdentityDelta(mainTotalPages),
+                    delta: createRotateIdentityDelta(mainTotalPages, pages),
                 };
             },
         });
@@ -594,7 +774,7 @@ async function handlePageOpsCrop(
                 await cropPages(queuedWorkingCopyPath, pages, normalizedMargins, context.senderId, operation.signal);
                 return {
                     value: undefined,
-                    delta: createIdentityDelta(mainTotalPages),
+                    delta: createCropIdentityDelta(mainTotalPages, pages),
                 };
             },
         });
@@ -639,7 +819,7 @@ async function handlePageOpsRemoveCrop(
                 await removeCropFromPages(queuedWorkingCopyPath, pages, context.senderId, operation.signal);
                 return {
                     value: undefined,
-                    delta: createIdentityDelta(mainTotalPages),
+                    delta: createRemoveCropIdentityDelta(mainTotalPages, pages),
                 };
             },
         });
@@ -676,8 +856,11 @@ function createPageOpsOperationContext(context: {
 
 export const pageOpsMainBindings = {
     delete: (context, ...args) => handlePageOpsDelete(createPageOpsOperationContext(context), ...args),
+    deleteRanges: (context, ...args) => handlePageOpsDeleteRanges(createPageOpsOperationContext(context), ...args),
     extract: (context, ...args) => handlePageOpsExtract(createPageOpsOperationContext(context), ...args),
     reorder: (context, ...args) => handlePageOpsReorder(createPageOpsOperationContext(context), ...args),
+    move: (context, ...args) => handlePageOpsMove(createPageOpsOperationContext(context), ...args),
+    moveRanges: (context, ...args) => handlePageOpsMoveRanges(createPageOpsOperationContext(context), ...args),
     insert: (context, ...args) => handlePageOpsInsert(createPageOpsOperationContext(context), ...args),
     insertFile: (context, ...args) => handlePageOpsInsertFile(createPageOpsOperationContext(context), ...args),
     rotate: (context, ...args) => handlePageOpsRotate(createPageOpsOperationContext(context), ...args),

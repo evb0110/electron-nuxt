@@ -139,6 +139,7 @@
                     :is-page-operation-in-progress="isPageOperationInProgress"
                     :is-djvu-mode="isDjvuMode"
                     :selected-thumbnail-pages="selectedThumbnailPages"
+                    :selected-page-selection="selectedPageSelection"
                     :thumbnail-invalidation-request="thumbnailInvalidationRequest"
                     :thumbnail-hidden-annotation-ids="thumbnailHiddenAnnotationIds"
                     @update:available-tabs="setAvailableSidebarTabs"
@@ -154,6 +155,7 @@
                     @update:annotation-keep-active="annotationKeepActive = $event"
                     @annotation-setting="handleAnnotationSettingChange"
                     @update:selected-thumbnail-pages="handleSelectedThumbnailPagesUpdate"
+                    @update:selected-page-selection="setSelectedPageSelection"
                     @annotation-focus-comment="annotationSession.handleAnnotationFocusComment"
                     @annotation-open-note="annotationSession.handleOpenAnnotationNote"
                     @annotation-delete-comment="annotationSession.handleDeleteAnnotationComment"
@@ -168,6 +170,7 @@
                     @page-export="handlePageExport"
                     @page-delete="handlePageDelete"
                     @page-reorder="handlePageReorder"
+                    @page-move="handlePageMove"
                     @page-file-drop="documentControls.handlePageFileDrop"
                 />
                 <DocumentSourceSidebar
@@ -348,6 +351,7 @@
             :crop-dialog-current-box="cropDialogCurrentBox"
             :crop-dialog-rotation="cropDialogRotation"
             :selected-thumbnail-pages="selectedThumbnailPages"
+            :selected-page-selection="selectedPageSelection"
             :total-pages="totalPages"
             :current-page="currentPage"
             :view-mode="viewMode"
@@ -655,7 +659,9 @@ const {
     overflowMenuOpen,
     appMenuOpen,
     selectedThumbnailPages,
+    selectedPageSelection,
     thumbnailInvalidationRequest,
+    setSelectedPageSelection,
     handleSelectedThumbnailPagesUpdate,
     closeAllDropdowns,
     zoom,
@@ -1206,6 +1212,7 @@ const {
     handlePageDelete,
     handlePageExport,
     handlePageExtract,
+    handlePageMove,
     handlePageReorder,
     handlePageRotateCcw,
     handlePageRotateCw,
@@ -1216,6 +1223,7 @@ const {
     handleExportImages,
     ensurePdfProjectionForEdit: ensureEditProjection,
     selectedThumbnailPages,
+    selectedPageSelection,
     totalPages,
 });
 watch(pdfSrc, (src) => {

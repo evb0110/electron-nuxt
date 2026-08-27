@@ -83,6 +83,8 @@ export interface IUseAnnotationCrudOptions {
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
     numPages: Ref<number>;
     currentPage: Ref<number>;
+    getMountedPageNumbers?: () => readonly number[];
+    getAnnotationPageIndexes?: () => Iterable<number>;
     annotationTool: Ref<TAnnotationTool>;
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
     getIdentity: () => ICrudIdentity;

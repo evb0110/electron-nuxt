@@ -12,6 +12,14 @@ import type {
     IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+import type { TPageSelection } from '@contracts/pageNumbers';
+import {
+    createExplicitPageSelection,
+    materializePageSelection,
+    pageSelectionCount,
+} from '@contracts/pageNumbers';
+
+const LEGACY_SELECTION_MATERIALIZATION_LIMIT = 100_000;
 
 export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState | null) => {
     const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
@@ -27,6 +35,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
     const appMenuOpen = ref(false);
 
     const selectedThumbnailPages = ref<number[]>([]);
+    const selectedPageSelection = shallowRef<TPageSelection | null>(null);
     const thumbnailInvalidationRequest = ref<{
         id: number;
         pages: number[];
@@ -35,6 +44,13 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
 
     function setSelectedThumbnailPages(pages: number[]) {
         selectedThumbnailPages.value = [...pages];
+    }
+
+    function setSelectedPageSelection(selection: TPageSelection) {
+        selectedPageSelection.value = selection;
+        setSelectedThumbnailPages(pageSelectionCount(selection) <= LEGACY_SELECTION_MATERIALIZATION_LIMIT
+            ? materializePageSelection(selection)
+            : []);
     }
 
     function requestThumbnailInvalidation(pages: number[]) {
@@ -47,6 +63,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
 
     function handleSelectedThumbnailPagesUpdate(pages: number[]) {
         setSelectedThumbnailPages(pages);
+        selectedPageSelection.value = createExplicitPageSelection(totalPages.value, pages);
     }
 
     const {
@@ -121,6 +138,17 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
     const totalPages = ref(0);
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
 
+    watch(totalPages, (pageCount) => {
+        if (selectedPageSelection.value?.pageCount === pageCount) {
+            return;
+        }
+        const pages = selectedThumbnailPages.value.filter(page => page >= 1 && page <= pageCount);
+        selectedPageSelection.value = createExplicitPageSelection(pageCount, pages);
+        if (pages.length !== selectedThumbnailPages.value.length) {
+            setSelectedThumbnailPages(pages);
+        }
+    });
+
     const isLoading = ref(false);
     // Default to text selection so reopened annotations remain immediately
     // discoverable and interactable without an extra mode switch.
@@ -145,8 +173,10 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
         handleDropdownOpenChange,
         openDropdown,
         selectedThumbnailPages,
+        selectedPageSelection,
         thumbnailInvalidationRequest,
         setSelectedThumbnailPages,
+        setSelectedPageSelection,
         requestThumbnailInvalidation,
         handleSelectedThumbnailPagesUpdate,
         zoom,

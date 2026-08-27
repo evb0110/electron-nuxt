@@ -6,6 +6,7 @@ import {
 import {
     createEmptyPdfjsAnnotationEditorState,
     decodePdfjsAnnotationStatePatch,
+    hasActivePdfjsAnnotationEditorDraft,
     toCompatibleAnnotationEditorState,
 } from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
 
@@ -54,5 +55,20 @@ describe('pdfjsAnnotationState', () => {
             hasAppAnnotationRedoHistory: false,
         });
         expect(pdfjsState.hasSomethingToUndo).toBe(false);
+    });
+
+    it('treats only a nonempty editor still in edit mode as an unsaved draft', () => {
+        expect(hasActivePdfjsAnnotationEditorDraft({
+            isEditing: true,
+            isEmpty: false,
+        })).toBe(true);
+        expect(hasActivePdfjsAnnotationEditorDraft({
+            isEditing: true,
+            isEmpty: true,
+        })).toBe(false);
+        expect(hasActivePdfjsAnnotationEditorDraft({
+            isEditing: false,
+            isEmpty: false,
+        })).toBe(false);
     });
 });

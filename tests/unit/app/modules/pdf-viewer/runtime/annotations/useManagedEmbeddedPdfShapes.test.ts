@@ -16,6 +16,7 @@ import type { IShapeAnnotation } from '@app/types/annotations';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import {
     type IManagedEmbeddedPdfShapeProjectionPort,
@@ -482,7 +483,10 @@ describe('useManagedEmbeddedPdfShapes', () => {
             [],
             expect.objectContaining({path: '/tmp/large-shapes.pdf'}),
         );
-        expect(readDocumentBytes).toHaveBeenCalledWith('/tmp/large-shapes.pdf', {signal: expect.any(AbortSignal)});
+        expect(readDocumentBytes).toHaveBeenCalledWith('/tmp/large-shapes.pdf', {
+            signal: expect.any(AbortSignal),
+            maxBytes: EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES,
+        });
         expect(importEmbeddedShapeAnnotations).toHaveBeenCalledWith(bytes);
     });
 
@@ -526,7 +530,10 @@ describe('useManagedEmbeddedPdfShapes', () => {
             [expect.objectContaining({annotationId: '91R'})],
             expect.objectContaining({path: '/tmp/large-shapes.pdf'}),
         );
-        expect(readDocumentBytes).toHaveBeenCalledWith('/tmp/large-shapes.pdf', {signal: expect.any(AbortSignal)});
+        expect(readDocumentBytes).toHaveBeenCalledWith('/tmp/large-shapes.pdf', {
+            signal: expect.any(AbortSignal),
+            maxBytes: EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES,
+        });
     });
 
     it('retries a transient failed import for the unchanged source', async () => {

@@ -14,6 +14,7 @@ import type {
 } from 'vue';
 import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scanCleanupPageOverrides';
 import {
+    attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     toScanCleanupLayoutByPage,
 } from '@contracts/scanCleanupPageOverrides';
@@ -42,6 +43,11 @@ const ETA_PAGE_STAGES = new Set([
     'classifying',
     'rendering',
 ]);
+// Large detection jobs hand their complete result store to main through an
+// opaque id. Keep legacy object maps only for the explicit small-document
+// compatibility path, even if a misconfigured or expired handoff leaves the
+// id absent.
+const DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT = 20_000;
 
 interface IUseScanCleanupRunSessionOptions {
     active: () => boolean;
@@ -54,8 +60,15 @@ interface IUseScanCleanupRunSessionOptions {
     beforeRun: () => Promise<void> | void;
     detectionError: Readonly<Ref<string>>;
     detectionErrorCode: Readonly<Ref<TScanCleanupErrorCode | null>>;
+    /** Opaque main-process handle for xlarge detection results. */
+    detectionResultStoreId?: Readonly<Ref<string | null>>;
     detectionPending: ComputedRef<boolean>;
     detectionStatus: ComputedRef<Extract<TScanCleanupDetectionJobState['status'], 'completed' | 'failed' | 'canceled'> | null>;
+    /**
+     * Large detection jobs keep their page records in a file-backed store, so
+     * completion cannot be inferred from the renderer's bounded page map.
+     */
+    detectionEvidenceComplete?: ComputedRef<boolean>;
     documentRevision: ComputedRef<string>;
     documentPriorByPage: ReadonlyMap<number, IScanCleanupDocumentPrior>;
     onCompleted: () => void;
@@ -63,7 +76,7 @@ interface IUseScanCleanupRunSessionOptions {
     placementAnchorsByPage: ComputedRef<TScanCleanupPlacementAnchorsByPage>;
     previewTotalPages: () => number;
     resolvedOptions?: ComputedRef<IScanCleanupOptions>;
-    resolvePagePlanEvidence: (pageNumbers: readonly number[]) => ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
+    resolvePagePlanEvidence: (pageNumbers: readonly number[] | null) => ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
     sourcePageNumbers: ComputedRef<number[] | null>;
     sourcePageMetadataByPage: ComputedRef<ReadonlyMap<number, IScanCleanupSourcePageMetadata>>;
     settings: IScanCleanupOptions;
@@ -75,6 +88,11 @@ interface IUseScanCleanupRunSessionOptions {
 }
 
 export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptions) => {
+    attachScanCleanupPageOverrideDefaults(
+        options.settings.pageOverrides,
+        options.settings.pageOverrideDefaults,
+        options.settings.marginsMm,
+    );
     const {t} = useTypedI18n();
 
     function formatStartFailure(
@@ -124,13 +142,33 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         options.sourcePath.value,
         options.documentRevision.value,
     ));
-    const runPageNumbers = computed(() => options.sourcePageNumbers.value
-        ?? Array.from(
-            {length: Math.max(1, options.totalPages.value)},
-            (_, index) => index + 1,
-        ));
-    const hasIncludedPage = computed(() => runPageNumbers.value
-        .some(page => !getScanCleanupPageOverride(options.settings.pageOverrides, page).excluded));
+    const runPageNumbers = computed(() => options.sourcePageNumbers.value);
+    const runPageCount = computed(() => runPageNumbers.value?.length
+        ?? Math.max(1, Math.trunc(options.totalPages.value)));
+    const hasIncludedPage = computed(() => {
+        const selected = runPageNumbers.value;
+        if (selected !== null) {
+            return selected.some(page => !getScanCleanupPageOverride(options.settings.pageOverrides, page).excluded);
+        }
+        const totalPages = runPageCount.value;
+        const defaultExcluded = options.settings.pageOverrideDefaults?.excluded === true;
+        let includedPages = defaultExcluded ? 0 : totalPages;
+        for (const [
+            key,
+            override,
+        ] of Object.entries(options.settings.pageOverrides)) {
+            const pageNumber = Number(key);
+            if (
+                Number.isSafeInteger(pageNumber)
+                && pageNumber >= 1
+                && pageNumber <= totalPages
+            ) {
+                includedPages += (override?.excluded === true ? 0 : 1)
+                    - (defaultExcluded ? 0 : 1);
+            }
+        }
+        return includedPages > 0;
+    });
     const marginsAreValid = computed(() => Object.values(options.settings.marginsMm).every(margin => (
         Number.isFinite(margin)
         && margin >= 0
@@ -139,7 +177,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     const progress = computed(() => scanCleanupRun.jobState?.progress ?? {
         stage: 'queued' as const,
         completedUnits: 0,
-        totalUnits: runPageNumbers.value.length,
+        totalUnits: runPageCount.value,
         percent: 0,
         completedPageNumbers: [],
     });
@@ -241,7 +279,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         // the run. Detection evidence does not: page verdicts can still arrive
         // while the background job is settling, and snapshotting those maps
         // here silently discarded the newest usable page plans.
-        const requestedPageNumbers = [...runPageNumbers.value];
+        const requestedPageNumbers = runPageNumbers.value;
         const requestSourcePdfPath = options.sourcePath.value;
         const requestDocumentRevision = options.documentRevision.value;
         const requestOptions = options.resolvedOptions?.value
@@ -250,19 +288,63 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             ? null
             : [...options.sourcePageNumbers.value];
         const buildRequest = () => {
+            // Detection may finish while the run waits for its terminal state.
+            // Read the opaque handoff id at request-build time so a large result
+            // store takes the descriptor path instead of falling back to maps.
+            const detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
             const pagePlanEvidence = options.resolvePagePlanEvidence(requestedPageNumbers);
+            const legacyDetectionFields = detectionResultStoreId === null
+                && runPageCount.value <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
+                ? {
+                    ...(options.recommendedOutputModeByPage.size === 0 ? {} : {outputModeRecommendations: Object.fromEntries(
+                        options.recommendedOutputModeByPage,
+                    )}),
+                    ...(options.softAlphaForegroundRecommendationByPage.size === 0
+                        ? {}
+                        : {softAlphaForegroundRecommendations: Object.fromEntries(
+                            options.softAlphaForegroundRecommendationByPage,
+                        )}),
+                    layoutByPage: toScanCleanupLayoutByPage(options.authoritativeLayoutByPage.value),
+                    ...(options.sourcePageMetadataByPage.value.size === 0
+                        ? {}
+                        : {sourcePageMetadataByPage: Object.fromEntries(options.sourcePageMetadataByPage.value)}),
+                    ...(options.documentPriorByPage.size === 0
+                        ? {}
+                        : {documentPriorByPage: Object.fromEntries(options.documentPriorByPage)}),
+                    ...(pagePlanEvidence.size === 0
+                        ? {}
+                        : {pagePlanEvidenceByPage: Object.fromEntries(pagePlanEvidence)}),
+                }
+                : {};
             // Clustered over the whole document, then narrowed to the pages
             // this run produces: a partial run has to place its pages where a
             // full run would have.
-            const placementAnchors = requestedPageNumbers.flatMap(pageNumber => {
-                const anchors = options.placementAnchorsByPage.value.get(pageNumber);
-                return anchors === undefined || Object.keys(anchors).length === 0
-                    ? []
-                    : [[
-                        String(pageNumber),
-                        anchors,
-                    ] as const];
-            });
+            const placementAnchors: Array<readonly [string, NonNullable<
+                ReturnType<typeof options.placementAnchorsByPage.value.get>
+            >]> = [];
+            if (requestedPageNumbers === null) {
+                for (const [
+                    pageNumber,
+                    anchors,
+                ] of options.placementAnchorsByPage.value) {
+                    if (Object.keys(anchors).length > 0) {
+                        placementAnchors.push([
+                            String(pageNumber),
+                            anchors,
+                        ]);
+                    }
+                }
+            } else {
+                for (const pageNumber of requestedPageNumbers) {
+                    const anchors = options.placementAnchorsByPage.value.get(pageNumber);
+                    if (anchors !== undefined && Object.keys(anchors).length > 0) {
+                        placementAnchors.push([
+                            String(pageNumber),
+                            anchors,
+                        ]);
+                    }
+                }
+            }
             return {
                 sourcePdfPath: requestSourcePdfPath,
                 ownerId: options.ownerId,
@@ -271,24 +353,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 ...(requestedSourcePageNumbers === null
                     ? {}
                     : {sourcePageNumbers: requestedSourcePageNumbers}),
-                ...(options.recommendedOutputModeByPage.size === 0 ? {} : {outputModeRecommendations: Object.fromEntries(
-                    options.recommendedOutputModeByPage,
-                )}),
-                ...(options.softAlphaForegroundRecommendationByPage.size === 0
+                ...(detectionResultStoreId === null || detectionResultStoreId === undefined
                     ? {}
-                    : {softAlphaForegroundRecommendations: Object.fromEntries(
-                        options.softAlphaForegroundRecommendationByPage,
-                    )}),
-                layoutByPage: toScanCleanupLayoutByPage(options.authoritativeLayoutByPage.value),
-                ...(options.sourcePageMetadataByPage.value.size === 0
-                    ? {}
-                    : {sourcePageMetadataByPage: Object.fromEntries(options.sourcePageMetadataByPage.value)}),
-                ...(options.documentPriorByPage.size === 0
-                    ? {}
-                    : {documentPriorByPage: Object.fromEntries(options.documentPriorByPage)}),
-                ...(pagePlanEvidence.size === 0
-                    ? {}
-                    : {pagePlanEvidenceByPage: Object.fromEntries(pagePlanEvidence)}),
+                    : {detectionResultStoreId}),
+                ...legacyDetectionFields,
                 ...(placementAnchors.length === 0
                     ? {}
                     : {placementAnchorsByPage: Object.fromEntries(placementAnchors)}),
@@ -347,8 +415,16 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 );
                 return;
             }
-            const pagePlanEvidence = options.resolvePagePlanEvidence(requestedPageNumbers);
-            if (requestedPageNumbers.some(pageNumber => !pagePlanEvidence.has(pageNumber))) {
+            const detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
+            if (
+                requestedPageNumbers === null
+                && runPageCount.value > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
+                && detectionResultStoreId === null
+            ) {
+                // A completed xlarge detection has no renderer-sized result
+                // map to fall back to. If its opaque handoff expired or was
+                // never published, refuse the run rather than sending a
+                // detection-free request to the worker.
                 reportScanCleanupRunError(
                     options.ownerId,
                     t('scanCleanup.detectAll.evidenceMissing'),
@@ -358,13 +434,50 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 );
                 return;
             }
-            const missingAutomaticModeDecisions = requestedPageNumbers.filter(pageNumber => {
+            const pagePlanEvidence = options.resolvePagePlanEvidence(requestedPageNumbers);
+            const detectionEvidenceComplete = options.detectionEvidenceComplete?.value;
+            const pagePlanEvidenceMissing = requestedPageNumbers === null
+                ? detectionEvidenceComplete === undefined
+                    ? pagePlanEvidence.size < runPageCount.value
+                    : !detectionEvidenceComplete
+                : requestedPageNumbers.some(pageNumber => !pagePlanEvidence.has(pageNumber));
+            if (pagePlanEvidenceMissing) {
+                reportScanCleanupRunError(
+                    options.ownerId,
+                    t('scanCleanup.detectAll.evidenceMissing'),
+                    requestSourcePdfPath,
+                    'internal',
+                    requestDocumentRevision,
+                );
+                return;
+            }
+            let missingAutomaticModeDecisions = false;
+            const checkAutomaticModeDecision = (pageNumber: number) => {
                 const pageOverride = getScanCleanupPageOverride(requestOptions.pageOverrides, pageNumber);
-                return !pageOverride.excluded
+                if (
+                    !pageOverride.excluded
                     && (pageOverride.outputModeOverride ?? requestOptions.outputMode) === 'auto'
-                    && !options.recommendedOutputModeByPage.has(pageNumber);
-            });
-            if (missingAutomaticModeDecisions.length > 0) {
+                    && !options.recommendedOutputModeByPage.has(pageNumber)
+                ) {
+                    missingAutomaticModeDecisions = true;
+                }
+            };
+            if (requestedPageNumbers === null) {
+                // The completed detection result store is authoritative for a
+                // full-document run. Walking 1..N here would recreate the
+                // million-page allocation this session deliberately avoids.
+                // Small compatibility callers without that scalar still use
+                // their complete page map as the proof of coverage.
+                const recommendationsComplete = options.detectionEvidenceComplete?.value
+                    ?? options.recommendedOutputModeByPage.size >= runPageCount.value;
+                missingAutomaticModeDecisions = !recommendationsComplete;
+            } else {
+                for (const pageNumber of requestedPageNumbers) {
+                    checkAutomaticModeDecision(pageNumber);
+                    if (missingAutomaticModeDecisions) break;
+                }
+            }
+            if (missingAutomaticModeDecisions) {
                 reportScanCleanupRunError(
                     options.ownerId,
                     options.detectionError.value || t('scanCleanup.detectAll.evidenceMissing'),

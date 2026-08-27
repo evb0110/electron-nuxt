@@ -25,6 +25,7 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
 import {
+    createScanCleanupSparsePageOrder,
     resolveScanCleanupSelection,
     type TScanCleanupSelectionIntent,
 } from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
@@ -470,6 +471,50 @@ afterEach(() => {
 });
 
 describe('ScanCleanupThumbnailRail', () => {
+    it('keeps a million-page sorted order bounded to the loaded pages', () => {
+        const order = createScanCleanupSparsePageOrder(
+            1_000_000,
+            new Set([
+                2,
+                999_999,
+            ]),
+            (left, right) => left - right,
+        );
+
+        expect(order.length).toBe(1_000_000);
+        expect(order.pageAt(1)).toBe(2);
+        expect(order.pageAt(2)).toBe(999_999);
+        expect(order.pageAt(3)).toBe(1);
+        expect(order.pageAt(1_000_000)).toBe(1_000_000);
+        expect(order.positionOf(999_999)).toBe(2);
+        expect(order.positionOf(1_000_000)).toBe(1_000_000);
+    });
+
+    it('matches the old full order when every small-document page is loaded', () => {
+        const pages = [
+            1,
+            2,
+            3,
+            4,
+            5,
+        ];
+        const order = createScanCleanupSparsePageOrder(
+            pages.length,
+            pages,
+            (left, right) => (right % 2) - (left % 2) || left - right,
+        );
+
+        expect(pages.map((_, index) => order.pageAt(index + 1))).toEqual([
+            1,
+            3,
+            5,
+            2,
+            4,
+        ]);
+        expect(order.positionOf(3)).toBe(2);
+        expect(order.positionOf(4)).toBe(5);
+    });
+
     it('gives every row the same two overlay buttons and the same label band', () => {
         const harness = mountRail({
             leader: 2,

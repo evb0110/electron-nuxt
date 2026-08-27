@@ -66,9 +66,14 @@ const COMBINE_PDF_EXTENSIONS = [
 export function getCombinePdfCapabilities(): ICombinePdfCapabilities {
     return hasElectronAPI() ? {
         supportedExtensions: COMBINE_PDF_EXTENSIONS,
-        maxInputs: 512,
-        maxInputBytes: 512 * 1024 * 1024,
-        maxTotalInputBytes: 1024 * 1024 * 1024,
+        // Native file-backed combine is bounded by path/protocol safety, not
+        // by a renderer product count.
+        maxInputs: Number.MAX_SAFE_INTEGER,
+        // Electron hands native combine a list of paths. The native writer
+        // owns resource admission for that file-backed route, so renderer
+        // capabilities must not retain the browser's byte ceilings.
+        maxInputBytes: Number.MAX_SAFE_INTEGER,
+        maxTotalInputBytes: Number.MAX_SAFE_INTEGER,
     } : {
         supportedExtensions: COMBINE_PDF_EXTENSIONS,
         maxInputs: 500,
@@ -86,6 +91,9 @@ function assertCombineInputsWithinCapabilities(options: ICombinePdfFilesOptions)
     for (const {file} of options.files) {
         if (file.size <= 0 || file.size > capabilities.maxInputBytes) {
             throw new CombinePdfError(file.size <= 0 ? 'invalid-input' : 'limit');
+        }
+        if (!Number.isSafeInteger(file.size) || file.size > Number.MAX_SAFE_INTEGER - totalBytes) {
+            throw new CombinePdfError('limit');
         }
         totalBytes += file.size;
     }

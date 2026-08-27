@@ -12,6 +12,7 @@ import type {
     IRunScanCleanupPipelineRequest,
     IScanCleanupWorkerPaths,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
+import type {IScanCleanupDetectionResultStoreDescriptor} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
 import {
     hasWorkerTaskErrorBeenReported,
     resolveUnpackedWorkerPath,
@@ -24,6 +25,9 @@ import {createLogger} from '@electron/utils/createLogger';
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const workerFileName = WORKER_BUNDLES_BY_ID['scan-cleanup'].fileName;
 const logger = createLogger('scan-cleanup-worker-task');
+
+/** Request data that can cross the worker_threads structured-clone boundary. */
+export type TScanCleanupWorkerRequest = Omit<IRunScanCleanupPipelineRequest, 'detectionResultStore'> & {detectionResultStoreDescriptor?: IScanCleanupDetectionResultStoreDescriptor;};
 
 function decodeProgress(value: unknown): TScanCleanupProgress | null {
     if (!isRecord(value) || value.type !== 'progress') {
@@ -49,7 +53,7 @@ function decodeSummary(value: unknown): TScanCleanupSummary | null {
 }
 
 export async function runScanCleanupWorkerTask(
-    request: IRunScanCleanupPipelineRequest,
+    request: TScanCleanupWorkerRequest,
     paths: IScanCleanupWorkerPaths,
     runtimePolicy: IScanCleanupRuntimePolicy,
     signal: AbortSignal,

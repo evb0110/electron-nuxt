@@ -38,7 +38,6 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import { useAnalytics } from '@app/composables/useAnalytics';
-import { isLargeSerializedSaveAllowedForAutomation } from '@app/utils/isLargeSerializedSaveAllowedForAutomation';
 import type {
     TWorkspaceFailureSurface,
     TWorkspaceSaveFailureReason,
@@ -64,8 +63,12 @@ import {
     type TWorkspaceSavePlan,
     type TWorkspaceSaveRequest,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePlan';
-
-const RENDERER_SERIALIZED_SAVE_MAX_WORKING_COPY_BYTES = 64 * 1024 * 1024;
+import {
+    buildSaveTransactionRequest,
+    getSaveFlow,
+    getSaveMode,
+    requiresNativePathBackedSave,
+} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveTransactionRequest';
 const SLOW_SAVE_PHASE_WARN_MS = 5_000;
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
 const MAX_STALE_REVISION_SAVE_RETRIES = 2;
@@ -106,6 +109,7 @@ export interface IWorkspaceSaveDependencies {
     };
     pdf: {
         document: ShallowRef<PDFDocumentProxy | null>;
+        commitEditorsForSave?: () => Promise<void>;
         runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
         getSourceData: () => Promise<Uint8Array | null>;
         serializeForSave: (
@@ -121,7 +125,7 @@ export interface IWorkspaceSaveDependencies {
         hasChanges: () => boolean;
         hasManagedShapes: () => boolean;
         markSaved?: (prepared?: unknown) => void;
-        preparePersistedState?: (data: Uint8Array) => Promise<unknown>;
+        preparePersistedState?: (data?: Uint8Array) => Promise<unknown>;
         restorePreparedState?: (snapshot: unknown) => Promise<void> | void;
         adoptPersistedStateOnReload?: () => void;
         clearPendingPersistedState?: () => void;
@@ -219,18 +223,6 @@ function nowMs() {
     return typeof performance !== 'undefined'
         ? performance.now()
         : Date.now();
-}
-
-function getSaveMode(plan: TWorkspaceSavePlan): TPdfSaveMode {
-    return plan.request.kind === 'save-as' || plan.request.kind === 'optimize-copy'
-        ? 'save_as_rewrite'
-        : 'rewrite';
-}
-
-function getSaveFlow(plan: TWorkspaceSavePlan): 'save' | 'save_as' {
-    return plan.request.kind === 'save-as' || plan.request.kind === 'optimize-copy'
-        ? 'save_as'
-        : 'save';
 }
 
 async function timedSavePhase<T>(
@@ -391,98 +383,6 @@ async function executeNativeWorkingCopySave(
     }
 }
 
-function buildSaveTransactionRequest(
-    plan: TWorkspaceSavePlan,
-    deps: IWorkspaceSaveDependencies,
-    body: IWorkspaceSerializedSaveBody,
-    options: {
-        allowNativeMutationPlan: boolean;
-        planOnly?: boolean;
-    },
-) {
-    return {
-        mode: 'persist' as const,
-        saveMode: getSaveMode(plan),
-        saveFlowMode: getSaveFlow(plan),
-        forcePdfjsMaterialize: plan.dirtyState.preservedAnnotationSource
-            || plan.dirtyState.savedPdfjsAnnotationBaseline,
-        includeManagedShapes: body.includeManagedShapes,
-        rewriteShapeState: plan.dirtyState.shapes,
-        forceRewrite: body.forceRewrite,
-        ...(options.planOnly !== undefined ? {planOnly: options.planOnly} : {}),
-        dirtyState: {
-            annotationDirty: plan.dirtyState.annotationDirty,
-            hasAnnotationChanges: plan.dirtyState.annotationChanges,
-            hasLivePdfJsAnnotationChanges: plan.dirtyState.livePdfJsAnnotations,
-            savedPdfjsAnnotationBaselineDirty: plan.dirtyState.savedPdfjsAnnotationBaseline,
-            shapeStateDirty: plan.dirtyState.shapes,
-        },
-        nativeCapabilities: {
-            hasNativePdfMutationCapability: options.allowNativeMutationPlan
-                && Boolean(
-                    deps.persistence.trySavePdfNativeMutations
-                    ?? deps.persistence.trySaveEmbeddedNoteTextUpdates,
-                ),
-            canPersistNativeMetadataMutations: options.allowNativeMutationPlan
-                && Boolean(deps.persistence.trySavePdfNativeMutations),
-        },
-        documentStructure: {
-            pageLabelsDirty: plan.dirtyState.pageLabels,
-            pageLabelRanges: deps.metadata.pageLabelRanges.value,
-            bookmarksDirty: plan.dirtyState.bookmarks,
-            bookmarkItems: deps.metadata.bookmarkItems.value,
-            untitledBookmarkLabel: deps.metadata.untitledBookmarkLabel,
-            totalPages: deps.metadata.totalPages.value > 0
-                ? deps.metadata.totalPages.value
-                : deps.pdf.document.value?.numPages ?? 0,
-        },
-        source: {
-            getSourcePdfData: deps.pdf.getSourceData,
-            serializePdfForSave: deps.pdf.serializeForSave,
-        },
-        serializeResult: true,
-    };
-}
-
-function formatStorageSize(bytes: number) {
-    if (!Number.isFinite(bytes) || bytes < 0) {
-        return `${bytes} bytes`;
-    }
-    const mib = bytes / (1024 * 1024);
-    if (mib < 1024) {
-        return `${Math.round(mib * 10) / 10} MiB`;
-    }
-    return `${Math.round((mib / 1024) * 10) / 10} GiB`;
-}
-
-async function assertRendererSerializedSaveAllowed(
-    plan: TWorkspaceSavePlan,
-    body: IWorkspaceSerializedSaveBody,
-    deps: IWorkspaceSaveDependencies,
-) {
-    const expectedWorkingPath = plan.target.expectedWorkingPath;
-    const getWorkingCopySize = deps.persistence.getWorkingCopySize;
-    if (!body.requiresLargeFileGuard || !getWorkingCopySize || !expectedWorkingPath) {
-        return;
-    }
-    const workingCopySize = await timedSavePhase(
-        'stat-working-copy-for-serialization',
-        () => getWorkingCopySize(expectedWorkingPath),
-    );
-    if (
-        typeof workingCopySize !== 'number'
-        || workingCopySize <= RENDERER_SERIALIZED_SAVE_MAX_WORKING_COPY_BYTES
-        || isLargeSerializedSaveAllowedForAutomation()
-    ) {
-        return;
-    }
-    throw new Error(
-        'Large PDF save requires a native save path; renderer full-PDF serialization is disabled for files '
-        + `above ${formatStorageSize(RENDERER_SERIALIZED_SAVE_MAX_WORKING_COPY_BYTES)} `
-        + `(working copy is ${formatStorageSize(workingCopySize)}).`,
-    );
-}
-
 async function executeSerializedBytesSave(
     plan: TWorkspaceSavePlan,
     body: IWorkspaceSerializedSaveBody,
@@ -490,12 +390,18 @@ async function executeSerializedBytesSave(
     reloadWaiter: IPostSaveReloadWaiter | null,
     createTransaction?: () => Promise<IPdfViewerSaveTransactionResult>,
 ): Promise<TWorkspaceSaveExecutionResult> {
-    await assertRendererSerializedSaveAllowed(plan, body, deps);
     const saveTransaction = createTransaction
         ? await createTransaction()
         : await deps.pdf.runSaveTransaction(
             buildSaveTransactionRequest(plan, deps, body, {allowNativeMutationPlan: false}),
         );
+    if (requiresNativePathBackedSave(plan)) {
+        return notSavedBeforeWrite(
+            'native-save-required',
+            plan.target.expectedRevisionToken,
+            reloadWaiter,
+        );
+    }
     const finalBytes = saveTransaction.serializedResult?.finalBytes
         ?? saveTransaction.serializedBytes
         ?? saveTransaction.baseBytes;
@@ -664,6 +570,7 @@ async function executeNativeMutationSave(
             },
         ),
     );
+    const nativePathBacked = requiresNativePathBackedSave(plan);
     const projection = saveTransaction.nativeMutationProjection;
     const executeFallback = () => executeSerializedBytesSave(
         plan,
@@ -679,20 +586,66 @@ async function executeNativeMutationSave(
         },
     );
     if (!projection) {
+        if (nativePathBacked) {
+            BrowserLogger.warn('workspace', 'Native path-backed PDF save had no mutation projection', {
+                failure: saveTransaction.nativeRequiredFailure ?? null,
+                fallbackRejection: saveTransaction.fallbackDecision.nativeRejection,
+                annotationPlan: saveTransaction.annotationSavePlan,
+            });
+            return notSavedBeforeWrite(
+                'native-save-required',
+                plan.target.expectedRevisionToken,
+                null,
+            );
+        }
         return executeFallback();
     }
 
-    const persisted = await persistNativeMutationProjection(
-        plan,
-        projection,
-        deps,
-        saveTransaction.verifyAnnotationSavePath,
-        saveTransaction.assertAnnotationSaveCurrent,
-    );
+    let persisted: IPdfPersistResult | null;
+    try {
+        persisted = await persistNativeMutationProjection(
+            plan,
+            projection,
+            deps,
+            saveTransaction.verifyAnnotationSavePath,
+            saveTransaction.assertAnnotationSaveCurrent,
+        );
+    } catch (error) {
+        if (isStaleRevisionError(error)) {
+            throw error;
+        }
+        if (nativePathBacked) {
+            BrowserLogger.warn('workspace', 'Native path-backed PDF mutation failed', error);
+            return notSavedBeforeWrite(
+                'native-save-required',
+                plan.target.expectedRevisionToken,
+                null,
+            );
+        }
+        throw error;
+    }
     if (!persisted) {
+        if (nativePathBacked) {
+            return notSavedBeforeWrite(
+                'native-save-required',
+                plan.target.expectedRevisionToken,
+                null,
+            );
+        }
         return executeFallback();
     }
     if (!persisted.success) {
+        if (
+            nativePathBacked
+            && persisted.abortReason !== 'stale'
+            && persisted.abortReason !== 'cancelled'
+        ) {
+            return notSavedBeforeWrite(
+                'native-save-required',
+                plan.target.expectedRevisionToken,
+                null,
+            );
+        }
         return notSavedAfterWrite(abortReasonForPersistResult(persisted), null);
     }
 
@@ -700,14 +653,18 @@ async function executeNativeMutationSave(
     let canMarkShapeStateSaved = !projection.hasShapeMutations;
     if (projection.hasShapeMutations) {
         try {
-            const savedBytes = await timedSavePhase(
-                'read-native-shape-saved-bytes',
-                deps.pdf.getSourceData,
-            );
-            if (savedBytes) {
-                preparedShapeStateSnapshot = await deps.shapes.preparePersistedState?.(savedBytes) ?? null;
-                canMarkShapeStateSaved = Boolean(preparedShapeStateSnapshot);
+            if (nativePathBacked) {
+                preparedShapeStateSnapshot = await deps.shapes.preparePersistedState?.() ?? null;
+            } else {
+                const savedBytes = await timedSavePhase(
+                    'read-native-shape-saved-bytes',
+                    deps.pdf.getSourceData,
+                );
+                if (savedBytes) {
+                    preparedShapeStateSnapshot = await deps.shapes.preparePersistedState?.(savedBytes) ?? null;
+                }
             }
+            canMarkShapeStateSaved = Boolean(preparedShapeStateSnapshot);
         } catch {
             // Native persistence has already committed. Keep shapes dirty when
             // the saved bytes cannot be reread or prepared for reconciliation.
@@ -1076,6 +1033,12 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                         reportSaveAbort(noteFailure);
                         return completed;
                     }
+
+                    // A nonempty FreeText editor remains outside annotation
+                    // storage until PDF.js commits it. Save planning must run
+                    // after that commit, otherwise the toolbar can start a save
+                    // whose captured dirty state still describes a clean file.
+                    await deps.pdf.commitEditorsForSave?.();
 
                     const baseline = captureBaseline(deps);
                     lastPlan = createWorkspaceSavePlan({

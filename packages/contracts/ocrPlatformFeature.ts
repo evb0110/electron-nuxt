@@ -7,6 +7,9 @@ import type {
     IOcrProgress,
     IOcrResultFileAckResult,
     IOcrSearchablePdfOptions,
+    IOcrSearchablePdfPage,
+    IOcrSearchablePdfPageRange,
+    TOcrSearchablePdfPages,
 } from '@contracts/electronApiOcr';
 import {
     OCR_COMPLETE_EVENT_CHANNEL,
@@ -18,9 +21,12 @@ import {
 import {
     decodeDocumentOcrAvailability,
     decodeDocumentOcrPageSnapshot,
+    decodeDocumentTextCatalogWindow,
     decodeDocumentTextSnapshot,
+    MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
     type IDocumentOcrAvailability,
     type IDocumentOcrPageSnapshot,
+    type IDocumentTextCatalogWindow,
     type IDocumentTextSnapshot,
 } from '@contracts/documentTextCatalog';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -35,7 +41,9 @@ import {
 } from '@contracts/ipcAssertions';
 import { decodeOcrLanguages } from '@contracts/ocrLanguages';
 import {
+    argsSchema,
     definePlatformFeature,
+    resultSchema,
     runtimeSchema as s,
     type IRuntimeSchema,
     type TFeatureCapability,
@@ -113,26 +121,6 @@ function requireDecoded<T>(
     return decoded;
 }
 
-function argsSchema<TArgs extends unknown[]>(
-    decode: (args: readonly unknown[]) => TArgs,
-    example: () => TArgs,
-) {
-    return s.declared<TArgs>()(s.fromParser((value) => {
-        if (!Array.isArray(value)) {
-            throw new Error('expected IPC arguments');
-        }
-        return decode(value);
-    }, example));
-}
-
-function resultSchema<TResult>(
-    decode: (value: unknown) => TResult,
-    example: () => TResult,
-) {
-    return s.declared<TResult>()(s.fromParser(decode, example));
-}
-
-
 function decodeOcrErrorEnvelope(value: unknown): IOcrErrorEnvelope | undefined {
     if (value === undefined) {
         return undefined;
@@ -172,15 +160,79 @@ function decodeOptionalErrorFields(value: Record<PropertyKey, unknown>) {
 }
 
 function decodeSearchablePdfPages(value: unknown) {
-    return decodeBoundedArray(value, 'OCR searchable PDF pages').map((page) => {
-        if (!isRecord(page)) {
-            throw new Error('OCR searchable PDF page must be an object');
+    if (Array.isArray(value)) {
+        return decodeBoundedArray(value, 'OCR searchable PDF pages').map((page) => {
+            if (!isRecord(page)) {
+                throw new Error('OCR searchable PDF page must be an object');
+            }
+            return {
+                pageNumber: decodeSafeIntegerArg([page.pageNumber], 0, 'pageNumber', 1),
+                languages: decodeStringArrayArg([page.languages], 0, 'languages'),
+            } satisfies IOcrSearchablePdfPage;
+        }) satisfies IOcrSearchablePdfPage[];
+    }
+    if (!isRecord(value)) {
+        throw new Error('OCR searchable PDF pages must be an array or scalar selection');
+    }
+
+    const selection = value.selection;
+    if (selection !== undefined) {
+        return decodeSearchablePdfPages(selection);
+    }
+    const kind = value.kind ?? value.mode ?? value.type;
+    if (kind === 'pages') {
+        return decodeSearchablePdfPages(value.pages);
+    }
+    if (kind !== 'all' && kind !== 'range' && kind !== 'ranges') {
+        throw new Error('OCR searchable PDF selection kind must be all, range, ranges, or pages');
+    }
+    const languages = decodeStringArrayArg([value.languages], 0, 'languages');
+    const decodePageNumber = (candidate: unknown, fieldName: string, min = 1) =>
+        decodeSafeIntegerArg([candidate], 0, fieldName, min);
+    if (kind === 'all') {
+        return {
+            kind: 'all',
+            pageCount: decodePageNumber(value.pageCount, 'pageCount'),
+            languages,
+        } as const;
+    }
+    if (kind === 'range') {
+        const firstPage = decodePageNumber(value.firstPage, 'firstPage');
+        const lastPage = decodePageNumber(value.lastPage, 'lastPage', firstPage);
+        if (lastPage < firstPage) {
+            throw new Error('lastPage must be greater than or equal to firstPage');
         }
         return {
-            pageNumber: decodeSafeIntegerArg([page.pageNumber], 0, 'pageNumber', 1),
-            languages: decodeStringArrayArg([page.languages], 0, 'languages'),
-        };
+            kind: 'range',
+            firstPage,
+            lastPage,
+            languages,
+        } as const;
+    }
+
+    const rangesValue = value.ranges;
+    const ranges = decodeBoundedArray(rangesValue, 'OCR searchable PDF ranges').map((range, index) => {
+        if (!isRecord(range)) {
+            throw new Error(`OCR searchable PDF range ${index} must be an object`);
+        }
+        const firstPage = decodePageNumber(range.firstPage, `ranges[${index}].firstPage`);
+        const lastPage = decodePageNumber(range.lastPage, `ranges[${index}].lastPage`, firstPage);
+        if (lastPage < firstPage) {
+            throw new Error(`ranges[${index}].lastPage must be greater than or equal to firstPage`);
+        }
+        return {
+            firstPage,
+            lastPage,
+        } satisfies IOcrSearchablePdfPageRange;
     });
+    if (ranges.length === 0) {
+        throw new Error('OCR searchable PDF ranges must be non-empty');
+    }
+    return {
+        kind: 'ranges',
+        ranges,
+        languages,
+    } as const;
 }
 
 function decodeSearchablePdfOptions(value: unknown): number | IOcrSearchablePdfOptions | undefined {
@@ -511,19 +563,22 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
     };
 }
 
-interface IOcrSearchablePdfPage {
-    pageNumber: number;
-    languages: string[]
-}
 type TOcrCreateSearchablePdfArgs = [
     sourcePdfPath: string,
-    pages: IOcrSearchablePdfPage[],
+    pages: TOcrSearchablePdfPages,
     requestId: string,
     renderDpiOrOptions?: number | IOcrSearchablePdfOptions,
 ];
 type TOcrAcknowledgeResultFileArgs = [requestId: string, pdfPath?: TDocumentRef];
 type TResolveDocumentTextCatalogArgs =
     [workingCopyPath: TDocumentRef, documentRevision: TDocumentRevisionToken, pageCount?: number];
+type TResolveDocumentTextCatalogWindowArgs = [
+    workingCopyPath: TDocumentRef,
+    documentRevision: TDocumentRevisionToken,
+    firstPage: number,
+    lastPage: number,
+    pageCount?: number,
+];
 
 function decodeDocumentRevisionArg(
     args: readonly unknown[],
@@ -545,7 +600,7 @@ const createSearchablePdfArgs = argsSchema<TOcrCreateSearchablePdfArgs>(
         });
         const requiredArgs: [
             string,
-            IOcrSearchablePdfPage[],
+            TOcrSearchablePdfPages,
             string,
         ] = [
             assertAbsolutePath(
@@ -639,6 +694,56 @@ const resolveDocumentTextCatalogArgs = argsSchema<TResolveDocumentTextCatalogArg
         1,
     ],
 );
+const resolveDocumentTextCatalogWindowArgs = argsSchema<TResolveDocumentTextCatalogWindowArgs>(
+    (args) => {
+        requireArgs(args, {
+            min: 4,
+            max: 5,
+        });
+        const firstPage = decodeSafeIntegerArg(args, 2, 'firstPage', 1);
+        const lastPage = decodeSafeIntegerArg(args, 3, 'lastPage', firstPage);
+        if (lastPage < firstPage) {
+            throw new Error('lastPage must be greater than or equal to firstPage');
+        }
+        if (lastPage - firstPage + 1 > MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES) {
+            throw new Error(`document text catalog windows may contain at most ${MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES} pages`);
+        }
+        const pageCount = args[4] === undefined
+            ? undefined
+            : decodeSafeIntegerArg(args, 4, 'pageCount', lastPage);
+        const requiredArgs: [
+            TDocumentRef,
+            TDocumentRevisionToken,
+            number,
+            number,
+        ] = [
+            assertAbsolutePath(
+                args[0],
+                'resolveDocumentTextCatalogWindow.workingCopyPath',
+            ),
+            decodeDocumentRevisionArg(
+                args,
+                1,
+                'resolveDocumentTextCatalogWindow.documentRevision',
+            ),
+            firstPage,
+            lastPage,
+        ];
+        return pageCount === undefined
+            ? requiredArgs
+            : [
+                ...requiredArgs,
+                pageCount,
+            ];
+    },
+    () => [
+        '/tmp/ocr-fixture.pdf',
+        parseDocumentRevisionToken('drt1:ocr-fixture')!,
+        1,
+        64,
+        64,
+    ],
+);
 const resolveDocumentOcrAvailabilityArgs = argsSchema<[
     TDocumentRef,
     TDocumentRevisionToken,
@@ -715,6 +820,21 @@ const documentTextCatalogResult = resultSchema<IDocumentTextSnapshot>(
         contentDigest: '',
     }),
 );
+const documentTextCatalogWindowResult = resultSchema<IDocumentTextCatalogWindow>(
+    value => requireDecoded(
+        value,
+        decodeDocumentTextCatalogWindow,
+        'DocumentTextCatalog window',
+    ),
+    () => ({
+        documentRevision: parseDocumentRevisionToken('drt1:ocr-fixture')!,
+        pageCount: 64,
+        firstPage: 1,
+        lastPage: 64,
+        pages: [],
+        contentDigest: '',
+    }),
+);
 const documentOcrAvailabilityResult = resultSchema<IDocumentOcrAvailability>(
     value => requireDecoded(
         value,
@@ -724,7 +844,9 @@ const documentOcrAvailabilityResult = resultSchema<IDocumentOcrAvailability>(
     () => ({
         documentRevision: parseDocumentRevisionToken('drt1:ocr-fixture')!,
         pageCount: 0,
-        pageNumbers: [],
+        mappedPageCount: 0,
+        pageRanges: [],
+        rangesComplete: true,
     }),
 );
 const documentOcrPageResult = resultSchema<IDocumentOcrPageSnapshot>(
@@ -836,6 +958,13 @@ export const OCR_PLATFORM_FEATURE = definePlatformFeature({
             channel: 'ocr:resolveDocumentTextCatalog',
             args: resolveDocumentTextCatalogArgs,
             result: documentTextCatalogResult,
+            timeout: true,
+        }),
+        resolveDocumentTextCatalogWindow: defineOcrMethod({
+            name: 'resolveDocumentTextCatalogWindow',
+            channel: 'ocr:resolveDocumentTextCatalogWindow',
+            args: resolveDocumentTextCatalogWindowArgs,
+            result: documentTextCatalogWindowResult,
             timeout: true,
         }),
         resolveDocumentOcrAvailability: defineOcrMethod({

@@ -18,11 +18,19 @@ import type {
     TPageLabelStyle,
 } from '@app/types/pdfContracts';
 import {
+    applyPageLabelRange,
+    applySparsePageLabelUpdates,
+    buildPageLabelSegments,
     buildPageLabelsFromRanges,
+    countPageLabelDifferences,
+    createPageLabelModel,
     derivePageLabelRangesFromLabels,
     isImplicitDefaultPageLabels,
     normalizePageLabelRanges,
-} from '@app/utils/pdfPageLabels';
+    PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
+    type IDocumentPageLabelModel,
+    type TDocumentPageLabelLookup,
+} from '@app/utils/document-viewer/pageLabels';
 
 type TAgentMetadataIssueSeverity = 'error' | 'warning' | 'info';
 type TAgentPageLabelInputMode = 'ranges' | 'segments' | 'labels';
@@ -65,7 +73,7 @@ interface IAgentPageLabelSnapshot {
     ranges: IPdfPageLabelRange[];
     segments: IAgentPageLabelSegment[];
     samples: IAgentPageLabelSample[];
-    labels: string[];
+    labels: string[] | null;
 }
 
 interface IAgentPageLabelPlan {
@@ -241,60 +249,62 @@ function normalizeEndPageInput(
     return endPage;
 }
 
-function createCurrentLabels(
-    totalPages: number,
-    ranges: IPdfPageLabelRange[],
-    labels: string[] | null,
-) {
-    if (labels && labels.length === totalPages) {
-        return labels;
-    }
-    return buildPageLabelsFromRanges(totalPages, ranges);
-}
-
-function createDefaultLabels(totalPages: number) {
-    return buildPageLabelsFromRanges(totalPages, [{
+function createDefaultRanges(totalPages: number) {
+    return normalizePageLabelRanges([{
         startPage: 1,
         style: 'D',
         prefix: '',
         startNumber: 1,
-    }]);
+    }], totalPages);
 }
 
-function chooseBaseLabels(
+function createPageLabelLookup(
+    totalPages: number,
+    ranges: IPdfPageLabelRange[],
+    labels: readonly string[] | null,
+): TDocumentPageLabelLookup {
+    if (
+        labels
+        && labels.length === totalPages
+        && totalPages <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
+    ) {
+        return labels;
+    }
+    return createPageLabelModel(totalPages, ranges);
+}
+
+function chooseBaseRanges(
     input: Record<string, unknown>,
     totalPages: number,
     currentRanges: IPdfPageLabelRange[],
-    currentLabels: string[] | null,
 ) {
     const base = getStringInput(input, 'base') ?? getStringInput(input, 'baseLabels');
     return base === 'default' || base === 'physical'
-        ? createDefaultLabels(totalPages)
-        : createCurrentLabels(totalPages, currentRanges, currentLabels);
+        ? createDefaultRanges(totalPages)
+        : currentRanges;
 }
 
-function applyPageLabelSegment(
-    labels: string[],
+function applyPageLabelSegmentToRanges(
+    ranges: IPdfPageLabelRange[],
     segment: Record<string, unknown>,
     totalPages: number,
     actionId: string,
 ) {
     const range = normalizePageLabelRangeInput(segment, totalPages, actionId);
     const endPage = normalizeEndPageInput(segment, range.startPage, totalPages, actionId);
-    const segmentLabels = buildPageLabelsFromRanges(
-        endPage - range.startPage + 1,
-        [{
-            ...range,
-            startPage: 1,
-        }],
+    return applyPageLabelRange(
+        totalPages,
+        ranges,
+        {
+            startPage: range.startPage,
+            endPage,
+        },
+        range,
     );
-    segmentLabels.forEach((label, index) => {
-        labels[range.startPage - 1 + index] = label;
-    });
 }
 
-function applyExplicitLabels(
-    labels: string[],
+function applyExplicitLabelsToRanges(
+    ranges: IPdfPageLabelRange[],
     input: Record<string, unknown>,
     totalPages: number,
     actionId: string,
@@ -306,23 +316,42 @@ function applyExplicitLabels(
             totalPages,
             actionId,
         );
-        rawLabels.slice(0, totalPages - startPage + 1).forEach((label, index) => {
-            labels[startPage - 1 + index] = typeof label === 'string' ? label : '';
-        });
+        const rawLabelValues: readonly unknown[] = rawLabels;
+        function* updates() {
+            const endIndex = Math.min(
+                rawLabelValues.length,
+                totalPages - startPage + 1,
+            );
+            for (let index = 0; index < endIndex; index += 1) {
+                const label = rawLabelValues[index];
+                yield {
+                    page: startPage + index,
+                    label: typeof label === 'string' ? label : '',
+                };
+            }
+        }
+        ranges = applySparsePageLabelUpdates(totalPages, ranges, updates());
     }
 
     const updates = input.updates;
     if (Array.isArray(updates)) {
-        updates
-            .filter(isRecord)
-            .forEach((update) => {
-                const page = normalizePageNumber(
-                    getNumberInput(update, 'page') ?? getNumberInput(update, 'pageNumber'),
-                    totalPages,
-                    actionId,
-                );
-                labels[page - 1] = getRawStringInput(update, 'label') ?? '';
-            });
+        const updateValues: readonly unknown[] = updates;
+        function* normalizedUpdates() {
+            for (const value of updateValues) {
+                if (!isRecord(value)) {
+                    continue;
+                }
+                yield {
+                    page: normalizePageNumber(
+                        getNumberInput(value, 'page') ?? getNumberInput(value, 'pageNumber'),
+                        totalPages,
+                        actionId,
+                    ),
+                    label: getRawStringInput(value, 'label') ?? '',
+                };
+            }
+        }
+        ranges = applySparsePageLabelUpdates(totalPages, ranges, normalizedUpdates());
     }
 
     if (!Array.isArray(rawLabels) && !Array.isArray(updates) && hasInputKey(input, 'label')) {
@@ -331,15 +360,19 @@ function applyExplicitLabels(
             totalPages,
             actionId,
         );
-        labels[page - 1] = getRawStringInput(input, 'label') ?? '';
+        ranges = applySparsePageLabelUpdates(totalPages, ranges, [{
+            page,
+            label: getRawStringInput(input, 'label') ?? '',
+        }]);
     }
+
+    return ranges;
 }
 
 function createRangesFromPageLabelInput(
     input: Record<string, unknown>,
     totalPages: number,
     currentRanges: IPdfPageLabelRange[],
-    currentLabels: string[] | null,
     actionId: string,
 ) {
     const rawRanges = input.ranges;
@@ -357,13 +390,14 @@ function createRangesFromPageLabelInput(
 
     const rawSegments = input.segments;
     if (Array.isArray(rawSegments)) {
-        const labels = chooseBaseLabels(input, totalPages, currentRanges, currentLabels);
-        rawSegments
-            .filter(isRecord)
-            .forEach(segment => applyPageLabelSegment(labels, segment, totalPages, actionId));
+        let ranges = chooseBaseRanges(input, totalPages, currentRanges);
+        const segments = rawSegments.filter(isRecord);
+        for (const segment of segments) {
+            ranges = applyPageLabelSegmentToRanges(ranges, segment, totalPages, actionId);
+        }
         return {
             inputMode: 'segments' as const,
-            ranges: derivePageLabelRangesFromLabels(labels, totalPages),
+            ranges,
         };
     }
 
@@ -372,11 +406,26 @@ function createRangesFromPageLabelInput(
         || Array.isArray(input.updates)
         || hasInputKey(input, 'label')
     ) {
-        const labels = chooseBaseLabels(input, totalPages, currentRanges, currentLabels);
-        applyExplicitLabels(labels, input, totalPages, actionId);
+        let ranges = chooseBaseRanges(input, totalPages, currentRanges);
+        const rawLabels = input.labels;
+        const startPage = getNumberInput(input, 'startPage')
+            ?? getNumberInput(input, 'page')
+            ?? 1;
+        if (
+            Array.isArray(rawLabels)
+            && startPage === 1
+            && rawLabels.length === totalPages
+        ) {
+            const exactLabels = rawLabels.every(label => typeof label === 'string')
+                ? rawLabels
+                : rawLabels.map(label => typeof label === 'string' ? label : '');
+            ranges = derivePageLabelRangesFromLabels(exactLabels, totalPages);
+        } else {
+            ranges = applyExplicitLabelsToRanges(ranges, input, totalPages, actionId);
+        }
         return {
             inputMode: 'labels' as const,
-            ranges: derivePageLabelRangesFromLabels(labels, totalPages),
+            ranges: normalizePageLabelRanges(ranges, totalPages),
         };
     }
 
@@ -385,28 +434,39 @@ function createRangesFromPageLabelInput(
 
 function createPageLabelSegments(
     ranges: IPdfPageLabelRange[],
-    labels: string[],
+    lookup: TDocumentPageLabelLookup,
     totalPages: number,
 ) {
-    return ranges.map((range, index): IAgentPageLabelSegment => {
-        const nextRange = ranges[index + 1] ?? null;
-        const endPage = nextRange ? nextRange.startPage - 1 : totalPages;
+    return buildPageLabelSegments(totalPages, ranges).map((segment): IAgentPageLabelSegment => {
         return {
-            startPage: range.startPage,
-            endPage,
-            pageCount: Math.max(0, endPage - range.startPage + 1),
-            style: range.style,
-            prefix: range.prefix,
-            startNumber: range.startNumber,
-            startLabel: labels[range.startPage - 1] ?? '',
-            endLabel: labels[endPage - 1] ?? '',
+            startPage: segment.startPage,
+            endPage: segment.endPage,
+            pageCount: Math.max(0, segment.endPage - segment.startPage + 1),
+            style: segment.style,
+            prefix: segment.prefix,
+            startNumber: segment.startNumber,
+            startLabel: lookupLabel(lookup, segment.startPage),
+            endLabel: lookupLabel(lookup, segment.endPage),
         };
     });
 }
 
+function lookupLabel(lookup: TDocumentPageLabelLookup, page: number) {
+    if (isPageLabelArray(lookup)) {
+        return lookup[page - 1] ?? '';
+    }
+    return lookup?.labelAt(page) ?? '';
+}
+
+function isPageLabelArray(
+    lookup: TDocumentPageLabelLookup,
+): lookup is readonly string[] {
+    return Array.isArray(lookup);
+}
+
 function createPageLabelSamples(
     ranges: IPdfPageLabelRange[],
-    labels: string[],
+    lookup: TDocumentPageLabelLookup,
     totalPages: number,
 ) {
     const pages = new Set<number>();
@@ -421,7 +481,7 @@ function createPageLabelSamples(
         }
     });
 
-    for (const segment of createPageLabelSegments(ranges, labels, totalPages)) {
+    for (const segment of createPageLabelSegments(ranges, lookup, totalPages)) {
         [
             segment.startPage,
             segment.startPage + 1,
@@ -442,17 +502,32 @@ function createPageLabelSamples(
         .slice(0, MAX_LABEL_SAMPLE_COUNT)
         .map(page => ({
             page,
-            label: labels[page - 1] ?? '',
+            label: lookupLabel(lookup, page),
         }));
 }
 
-function createDuplicateLabelIssues(labels: string[]) {
+function createDuplicateLabelIssues(
+    ranges: IPdfPageLabelRange[],
+    lookup: TDocumentPageLabelLookup,
+    totalPages: number,
+) {
     const counts = new Map<string, number>();
-    for (const label of labels) {
-        if (!label) {
-            continue;
+    if (isPageLabelArray(lookup)) {
+        for (const label of lookup) {
+            if (!label) {
+                continue;
+            }
+            counts.set(label, (counts.get(label) ?? 0) + 1);
         }
-        counts.set(label, (counts.get(label) ?? 0) + 1);
+    } else {
+        for (const segment of buildPageLabelSegments(totalPages, ranges)) {
+            if (segment.style === null && segment.prefix) {
+                counts.set(
+                    segment.prefix,
+                    (counts.get(segment.prefix) ?? 0) + segment.endPage - segment.startPage + 1,
+                );
+            }
+        }
     }
 
     return Array.from(counts.entries())
@@ -472,11 +547,11 @@ function createDuplicateLabelIssues(labels: string[]) {
 
 function createPageLabelIssues(
     ranges: IPdfPageLabelRange[],
-    labels: string[],
+    lookup: TDocumentPageLabelLookup,
     totalPages: number,
 ) {
-    const issues = createDuplicateLabelIssues(labels);
-    const segments = createPageLabelSegments(ranges, labels, totalPages);
+    const issues = createDuplicateLabelIssues(ranges, lookup, totalPages);
+    const segments = createPageLabelSegments(ranges, lookup, totalPages);
     for (const segment of segments) {
         if (segment.style === null && segment.pageCount > 1) {
             pushIssue(issues, {
@@ -490,10 +565,29 @@ function createPageLabelIssues(
     return issues;
 }
 
-function countDuplicateLabels(labels: string[]) {
+function countDuplicateLabels(
+    ranges: IPdfPageLabelRange[],
+    lookup: TDocumentPageLabelLookup,
+    totalPages: number,
+) {
+    if (!isPageLabelArray(lookup)) {
+        let duplicateCount = 0;
+        const counts = new Map<string, number>();
+        for (const segment of buildPageLabelSegments(totalPages, ranges)) {
+            if (segment.style !== null || !segment.prefix) {
+                continue;
+            }
+            const count = counts.get(segment.prefix) ?? 0;
+            const segmentCount = segment.endPage - segment.startPage + 1;
+            duplicateCount += Math.max(0, count + segmentCount - 1) - Math.max(0, count - 1);
+            counts.set(segment.prefix, count + segmentCount);
+        }
+        return duplicateCount;
+    }
+
     const counts = new Map<string, number>();
     let duplicateCount = 0;
-    for (const label of labels) {
+    for (const label of lookup) {
         if (!label) {
             continue;
         }
@@ -509,61 +603,139 @@ function countDuplicateLabels(labels: string[]) {
 export function createAgentPageLabelSnapshot(options: {
     totalPages: number;
     dirty: boolean;
-    pageLabelRanges: IPdfPageLabelRange[];
-    pageLabels: string[] | null;
+    pageLabelRanges: readonly IPdfPageLabelRange[];
+    pageLabels?: readonly string[] | null;
+    pageLabelModel?: IDocumentPageLabelModel;
 }): IAgentPageLabelSnapshot {
     const totalPages = Math.max(0, Math.trunc(options.totalPages));
-    const ranges = normalizePageLabelRanges(options.pageLabelRanges, totalPages);
-    const labels = createCurrentLabels(totalPages, ranges, options.pageLabels);
-    const issues = createPageLabelIssues(ranges, labels, totalPages);
+    const ranges = normalizePageLabelRanges([...options.pageLabelRanges], totalPages);
+    const labels = totalPages > 0 && totalPages <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
+        ? options.pageLabels && options.pageLabels.length === totalPages
+            ? [...options.pageLabels]
+            : buildPageLabelsFromRanges(totalPages, ranges)
+        : null;
+    const lookup = labels
+        ?? (
+            options.pageLabelModel?.totalPages === totalPages
+                ? options.pageLabelModel
+                : null
+        )
+        ?? createPageLabelLookup(totalPages, ranges, labels);
+    const issues = createPageLabelIssues(ranges, lookup, totalPages);
     return {
         totalPages,
         dirty: options.dirty,
         isDefault: isImplicitDefaultPageLabels(ranges, totalPages),
         summary: {
             rangeCount: ranges.length,
-            firstLabel: labels[0] ?? null,
-            lastLabel: labels[labels.length - 1] ?? null,
-            duplicateLabelCount: countDuplicateLabels(labels),
+            firstLabel: totalPages > 0 ? lookupLabel(lookup, 1) : null,
+            lastLabel: totalPages > 0 ? lookupLabel(lookup, totalPages) : null,
+            duplicateLabelCount: countDuplicateLabels(ranges, lookup, totalPages),
         },
         issues,
         ranges,
-        segments: createPageLabelSegments(ranges, labels, totalPages),
-        samples: createPageLabelSamples(ranges, labels, totalPages),
+        segments: createPageLabelSegments(ranges, lookup, totalPages),
+        samples: createPageLabelSamples(ranges, lookup, totalPages),
         labels,
     };
 }
 
-function createPageLabelDiff(beforeLabels: string[], afterLabels: string[]) {
+function createPageLabelDiff(options: {
+    totalPages: number;
+    beforeRanges: readonly IPdfPageLabelRange[];
+    afterRanges: readonly IPdfPageLabelRange[];
+    beforeLabels: readonly string[] | null;
+    afterLabels: readonly string[] | null;
+}) {
     const changedPages: IAgentPageLabelPlan['diff']['changedPages'] = [];
     let firstChangedPage: number | null = null;
     let lastChangedPage: number | null = null;
     let changedPageCount = 0;
-    const pageCount = Math.max(beforeLabels.length, afterLabels.length);
 
-    for (let index = 0; index < pageCount; index += 1) {
-        const before = beforeLabels[index] ?? '';
-        const after = afterLabels[index] ?? '';
-        if (before === after) {
-            continue;
+    const beforeLookup = createPageLabelLookup(
+        options.totalPages,
+        [...options.beforeRanges],
+        options.beforeLabels,
+    );
+    const afterLookup = createPageLabelLookup(
+        options.totalPages,
+        [...options.afterRanges],
+        options.afterLabels,
+    );
+
+    if (
+        options.beforeLabels !== null
+        && options.afterLabels !== null
+        && options.totalPages <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
+    ) {
+        const pageCount = Math.max(options.beforeLabels.length, options.afterLabels.length);
+        for (let index = 0; index < pageCount; index += 1) {
+            const before = options.beforeLabels[index] ?? '';
+            const after = options.afterLabels[index] ?? '';
+            if (before === after) {
+                continue;
+            }
+            const page = index + 1;
+            changedPageCount += 1;
+            firstChangedPage ??= page;
+            lastChangedPage = page;
+            if (changedPages.length < MAX_DIFF_SAMPLE_COUNT) {
+                changedPages.push({
+                    page,
+                    before,
+                    after,
+                });
+            }
         }
-        const page = index + 1;
-        changedPageCount += 1;
-        firstChangedPage ??= page;
-        lastChangedPage = page;
-        if (changedPages.length < MAX_DIFF_SAMPLE_COUNT) {
-            changedPages.push({
-                page,
-                before,
-                after,
-            });
+    } else {
+        changedPageCount = countPageLabelDifferences(
+            options.totalPages,
+            options.beforeRanges,
+            options.afterRanges,
+        );
+        const samplePages = new Set<number>([
+            1,
+            2,
+            options.totalPages - 1,
+            options.totalPages,
+        ]);
+        for (const range of [
+            ...options.beforeRanges,
+            ...options.afterRanges,
+        ]) {
+            samplePages.add(range.startPage);
+            samplePages.add(range.startPage + 1);
+            samplePages.add(range.startPage - 1);
+        }
+        for (const page of Array.from(samplePages).sort((left, right) => left - right)) {
+            if (page < 1 || page > options.totalPages) {
+                continue;
+            }
+            const before = lookupLabel(beforeLookup, page);
+            const after = lookupLabel(afterLookup, page);
+            if (before === after) {
+                continue;
+            }
+            firstChangedPage = firstChangedPage === null ? page : Math.min(firstChangedPage, page);
+            lastChangedPage = lastChangedPage === null ? page : Math.max(lastChangedPage, page);
+            if (changedPages.length < MAX_DIFF_SAMPLE_COUNT) {
+                changedPages.push({
+                    page,
+                    before,
+                    after,
+                });
+            }
+        }
+        if (changedPageCount > 0 && firstChangedPage === null) {
+            firstChangedPage = 1;
+            lastChangedPage = options.totalPages;
         }
     }
 
     return {
         wouldChange: changedPageCount > 0,
         changedPageCount,
-        unchangedPageCount: Math.max(0, pageCount - changedPageCount),
+        unchangedPageCount: Math.max(0, options.totalPages - changedPageCount),
         firstChangedPage,
         lastChangedPage,
         changedPages,
@@ -573,19 +745,22 @@ function createPageLabelDiff(beforeLabels: string[], afterLabels: string[]) {
 export function createAgentPageLabelPlan(options: {
     input: Record<string, unknown>;
     totalPages: number;
-    currentRanges: IPdfPageLabelRange[];
-    currentLabels: string[] | null;
+    currentRanges: readonly IPdfPageLabelRange[];
+    currentLabels?: readonly string[] | null;
     dirty: boolean;
     actionId: string;
 }): IAgentPageLabelPlan {
     const totalPages = requirePageCount(options.totalPages, options.actionId);
-    const currentRanges = normalizePageLabelRanges(options.currentRanges, totalPages);
-    const beforeLabels = createCurrentLabels(totalPages, currentRanges, options.currentLabels);
+    const currentRanges = normalizePageLabelRanges([...options.currentRanges], totalPages);
+    const beforeLabels = totalPages <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
+        ? options.currentLabels && options.currentLabels.length === totalPages
+            ? [...options.currentLabels]
+            : buildPageLabelsFromRanges(totalPages, currentRanges)
+        : null;
     const plan = createRangesFromPageLabelInput(
         options.input,
         totalPages,
         currentRanges,
-        options.currentLabels,
         options.actionId,
     );
     const proposed = createAgentPageLabelSnapshot({
@@ -599,7 +774,13 @@ export function createAgentPageLabelPlan(options: {
         inputMode: plan.inputMode,
         ranges: proposed.ranges,
         proposed,
-        diff: createPageLabelDiff(beforeLabels, proposed.labels),
+        diff: createPageLabelDiff({
+            totalPages,
+            beforeRanges: currentRanges,
+            afterRanges: plan.ranges,
+            beforeLabels,
+            afterLabels: proposed.labels,
+        }),
         issues: proposed.issues,
     };
 }
@@ -610,6 +791,7 @@ interface ICreateDocumentAgentPageLabelsOptions {
     handlePageLabelRangesUpdate: (ranges: IPdfPageLabelRange[]) => void;
     pageLabelRanges: Ref<IPdfPageLabelRange[]>;
     pageLabels: Ref<string[] | null>;
+    pageLabelModel?: Ref<IDocumentPageLabelModel | null>;
     pageLabelsDirty: Ref<boolean>;
     totalPages: Ref<number>;
 }
@@ -617,6 +799,7 @@ interface ICreateDocumentAgentPageLabelsOptions {
 export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageLabelsOptions) {
     const {
         handlePageLabelRangesUpdate,
+        pageLabelModel,
         pageLabelRanges,
         pageLabels,
         pageLabelsDirty,
@@ -636,15 +819,15 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
         };
     }
 
-    function getEffectiveAgentPageLabels() {
+    function getEffectiveAgentPageLabelModel() {
         const pageCount = totalPages.value;
-        if (pageCount <= 0) {
-            return [];
+        if (
+            pageLabelModel?.value
+            && pageLabelModel.value.totalPages === pageCount
+        ) {
+            return pageLabelModel.value;
         }
-        if (pageLabels.value && pageLabels.value.length === pageCount) {
-            return pageLabels.value;
-        }
-        return buildPageLabelsFromRanges(pageCount, pageLabelRanges.value);
+        return createPageLabelModel(pageCount, pageLabelRanges.value);
     }
 
     function createAgentPageLabelSnapshot() {
@@ -653,6 +836,7 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
             dirty: pageLabelsDirty.value,
             pageLabelRanges: pageLabelRanges.value,
             pageLabels: pageLabels.value,
+            pageLabelModel: getEffectiveAgentPageLabelModel(),
         });
     }
 
@@ -706,48 +890,84 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
             prefix,
             startNumber,
         } = getAgentPageLabelApplyRangeOptions(input, actionId);
-        const labels = [...getEffectiveAgentPageLabels()];
-        const segmentLabels = buildPageLabelsFromRanges(
-            endPage - startPage + 1,
-            [{
-                startPage: 1,
+        return updateAgentPageLabelRanges(applyPageLabelRange(
+            totalPages.value,
+            pageLabelRanges.value,
+            {
+                startPage,
+                endPage,
+            },
+            {
                 style,
                 prefix,
                 startNumber,
-            }],
-        );
-        segmentLabels.forEach((label, index) => {
-            labels[startPage - 1 + index] = label;
-        });
-        return updateAgentPageLabelRanges(derivePageLabelRangesFromLabels(labels, totalPages.value));
+            },
+        ));
     }
 
     function setAgentPageLabels(input: Record<string, unknown>, actionId: string) {
         const pageCount = requireAgentPdfPageCount(totalPages.value, actionId);
-        const labels = [...getEffectiveAgentPageLabels()];
+        let ranges = normalizePageLabelRanges(pageLabelRanges.value, pageCount);
         const rawLabels = input.labels;
         if (Array.isArray(rawLabels)) {
-            rawLabels.slice(0, pageCount).forEach((label, index) => {
-                labels[index] = typeof label === 'string' ? label : '';
-            });
+            if (rawLabels.length === pageCount) {
+                const exactLabels = rawLabels.every(label => typeof label === 'string')
+                    ? rawLabels
+                    : rawLabels.map(label => typeof label === 'string' ? label : '');
+                ranges = derivePageLabelRangesFromLabels(exactLabels, pageCount);
+            } else {
+                const rawLabelValues: readonly unknown[] = rawLabels;
+                function* updates() {
+                    for (let index = 0; index < rawLabelValues.length; index += 1) {
+                        const page = index + 1;
+                        if (page > pageCount) {
+                            break;
+                        }
+                        const label = rawLabelValues[index];
+                        yield {
+                            page,
+                            label: typeof label === 'string' ? label : '',
+                        };
+                    }
+                }
+                ranges = applySparsePageLabelUpdates(
+                    pageCount,
+                    ranges,
+                    updates(),
+                );
+            }
         }
 
         const updates = input.updates;
         if (Array.isArray(updates)) {
-            updates
-                .filter(isAgentRecord)
-                .forEach((update) => {
-                    const page = getAgentPageNumberInput(update, totalPages.value, actionId);
-                    labels[page - 1] = getAgentRawStringInput(update, 'label') ?? '';
-                });
+            const updateValues: readonly unknown[] = updates;
+            function* normalizedUpdates() {
+                for (const value of updateValues) {
+                    if (!isAgentRecord(value)) {
+                        continue;
+                    }
+                    yield {
+                        page: getAgentPageNumberInput(value, totalPages.value, actionId),
+                        label: getAgentRawStringInput(value, 'label') ?? '',
+                    };
+                }
+            }
+            ranges = applySparsePageLabelUpdates(
+                pageCount,
+                ranges,
+                normalizedUpdates(),
+            );
         }
 
         if (!Array.isArray(rawLabels) && !Array.isArray(updates)) {
             const page = getAgentPageNumberInput(input, totalPages.value, actionId);
-            labels[page - 1] = getAgentRawStringInput(input, 'label') ?? '';
+            ranges = applySparsePageLabelUpdates(pageCount, ranges, [{
+                page,
+                label: getAgentRawStringInput(input, 'label') ?? '',
+            }]);
         }
 
-        return updateAgentPageLabelRanges(derivePageLabelRangesFromLabels(labels, totalPages.value));
+        return updateAgentPageLabelRanges(ranges);
     }
 
     function previewAgentPageLabelPlan(input: Record<string, unknown>, actionId: string) {

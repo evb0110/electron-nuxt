@@ -1,6 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import { clamp } from 'es-toolkit/math';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import {
     BROWSER_MAX_FULL_READ_BYTES,
@@ -13,9 +12,11 @@ import {
     isPdfFileName,
 } from '@app/platform/browser-api/browserFileName';
 import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
-import type { IBrowserBatchOpenProgressOptions } from '@app/platform/browser-api/createCombinedPdfFromPaths';
+import {
+    emitBatchOpenProgress,
+    type IBrowserBatchOpenProgressOptions,
+} from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import { containsPdfEncryptMarker } from '@app/platform/browser-api/browserPdfValidation';
-import { emitBrowserOpenDocumentDirectBatchProgress } from '@app/platform/browser-api/documentsMenuCapability';
 import { stripBrowserPdfEncryption } from '@app/platform/browser-api/stripBrowserPdfEncryption';
 
 const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
@@ -27,48 +28,6 @@ function buildBrowserLargeJobError(label: string, maxBytes: number) {
         maxBytes,
         'inputs',
     );
-}
-
-function emitBatchOpenProgress(
-    options: IBrowserBatchOpenProgressOptions | undefined,
-    processed: number,
-    total: number,
-    startedAt: number,
-) {
-    const requestId = options?.requestId?.trim();
-    const safeTotal = Math.max(total, 0);
-    const safeProcessed = safeTotal > 0
-        ? clamp(processed, 0, safeTotal)
-        : 0;
-    const elapsedMs = Math.max(0, Date.now() - startedAt);
-    const percent = safeTotal > 0
-        ? (safeProcessed / safeTotal) * 100
-        : 100;
-    const estimatedRemainingMs = safeProcessed > 0 && safeProcessed < safeTotal
-        ? Math.max(
-            0,
-            Math.round((elapsedMs / safeProcessed) * (safeTotal - safeProcessed)),
-        )
-        : null;
-    const progress = {
-        processed: safeProcessed,
-        total: safeTotal,
-        percent,
-        elapsedMs,
-        estimatedRemainingMs,
-    };
-
-    options?.onProgress?.(progress);
-
-    if (!requestId) {
-        return;
-    }
-
-    emitBrowserOpenDocumentDirectBatchProgress({
-        operation: options?.operation ?? 'document-open',
-        requestId,
-        ...progress,
-    });
 }
 
 export async function decryptBrowserWorkingCopy(workingPath: string) {

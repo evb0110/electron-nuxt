@@ -13,10 +13,12 @@ import {
     readFileSync,
     realpathSync,
     rmSync,
+    symlinkSync,
     utimesSync,
     writeFileSync,
 } from 'fs';
 import {
+    basename,
     dirname,
     join,
 } from 'path';
@@ -618,6 +620,86 @@ describe('workingCopy', () => {
         await clearAllWorkingCopies();
     });
 
+    it('uses one registration for symlink aliases of a working-copy path', async () => {
+        const {
+            getWorkingCopyBackingEntry,
+            getWorkingCopyRegistrationId,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {clearAllWorkingCopies} = await import('@electron/file-access/workingCopyCleanup');
+        const realDirectory = join(tempRoot, 'evb-viewer', 'pdf-work-canonical');
+        const aliasDirectory = join(tempRoot, 'working-copy-alias');
+        const realWorkingPath = join(realDirectory, 'document.pdf');
+        mkdirSync(realDirectory, {recursive: true});
+        writeFileSync(realWorkingPath, new Uint8Array([1]));
+        symlinkSync(realDirectory, aliasDirectory, 'dir');
+        const aliasedWorkingPath = join(aliasDirectory, 'document.pdf');
+
+        await setWorkingCopyOriginalPath(aliasedWorkingPath, join(tempRoot, 'original.pdf'), 7, {deferOriginalFileExpectation: true});
+
+        expect(getWorkingCopyRegistrationId(realWorkingPath, 7)).not.toBeNull();
+        expect(getWorkingCopyBackingEntry(realWorkingPath, 7)).toMatchObject({ownerWebContentsId: 7});
+        expect(getWorkingCopyBackingEntry(aliasedWorkingPath, 7))
+            .toBe(getWorkingCopyBackingEntry(realWorkingPath, 7));
+
+        await clearAllWorkingCopies();
+    });
+
+    it('accepts a lazy managed ref without recreating or revising it', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
+        const {
+            createWorkingCopy,
+            requireManagedWorkingCopyPath,
+        } = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {clearAllWorkingCopies} = await import('@electron/file-access/workingCopyCleanup');
+        const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        const originalPath = join(tempRoot, 'lazy-managed-ref.pdf');
+        writeFileSync(originalPath, Buffer.alloc(64 * 1024, 23));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+        const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+        const before = await getWorkingCopyRevision(workingPath, 7);
+
+        await expect(requireManagedWorkingCopyPath(realpathSync.native(dirname(workingPath)) + `/${basename(workingPath)}`, 7))
+            .resolves.toBe(realpathSync.native(dirname(workingPath)) + `/${basename(workingPath)}`);
+
+        expect(existsSync(workingPath)).toBe(false);
+        await expect(getWorkingCopyRevision(workingPath, 7)).resolves.toEqual(before);
+        await clearAllWorkingCopies();
+    });
+
+    it('runs lazy working-copy reads against the witnessed original without materializing', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
+        const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {clearAllWorkingCopies} = await import('@electron/file-access/workingCopyCleanup');
+        const {runWithWorkingCopyReadBacking} = await import('@electron/file-access/runWithWorkingCopyReadBacking');
+        const originalPath = join(tempRoot, 'lazy-read-original.pdf');
+        const originalBytes = Buffer.alloc(64 * 1024, 29);
+        writeFileSync(originalPath, originalBytes);
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+        const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+        let physicalReadPath = '';
+
+        const result = await runWithWorkingCopyReadBacking(
+            workingPath,
+            async (path) => {
+                physicalReadPath = path;
+                return readFileSync(path);
+            },
+            {ownerWebContentsId: 7},
+        );
+
+        expect(physicalReadPath).toBe(realpathSync.native(originalPath));
+        expect(result).toEqual(originalBytes);
+        expect(existsSync(workingPath)).toBe(false);
+        await clearAllWorkingCopies();
+    });
+
     it('matches Windows original paths by normalized identity', async () => {
         const {
             findWorkingCopyPathByOriginalPath,
@@ -902,6 +984,25 @@ describe('workingCopy', () => {
         });
         expect(existsSync(workDir)).toBe(false);
         expect(existsSync(ocrDir)).toBe(false);
+    });
+
+    it('never sweeps an actively registered working-copy directory', async () => {
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const appTempDir = join(tempRoot, 'evb-viewer');
+        const workDir = join(appTempDir, 'pdf-work-active-but-old');
+        const workingPath = join(workDir, 'document.pdf');
+        mkdirSync(workDir, {recursive: true});
+        writeFileSync(workingPath, new Uint8Array([1]));
+        await setWorkingCopyOriginalPath(workingPath, join(tempRoot, 'original.pdf'), 7, {deferOriginalFileExpectation: true});
+        const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
+        utimesSync(workDir, staleDate, staleDate);
+
+        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({
+            removedDirectories: 0,
+            removedOcrDirectories: 0,
+        });
+        expect(existsSync(workingPath)).toBe(true);
     });
 
     it('bounds stale working-copy stats to eight workers and honors a smaller limit', async () => {

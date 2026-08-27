@@ -4,12 +4,16 @@ import {
     it,
 } from 'vitest';
 import {
+    applySparsePageLabelUpdates,
     buildPageLabelsFromRanges,
     buildWholeDocumentPageLabelRanges,
+    countPageLabelDifferences,
+    createPageLabelModel,
     findPageByPageLabelInput,
     formatPageIndicatorWithOptions,
     getMaxPageIndicatorLength,
     getPageIndicatorLayoutMetrics,
+    replacePageLabelRange,
 } from '@app/utils/document-viewer/pageLabels';
 
 describe('document page labels', () => {
@@ -235,5 +239,126 @@ describe('document page labels', () => {
             '2',
             '3',
         ]);
+    });
+
+    it('resolves million-page labels from canonical ranges and bounded windows', () => {
+        const totalPages = 1_000_000;
+        const ranges = [
+            {
+                startPage: 1,
+                style: 'D' as const,
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: 500_001,
+                style: 'D' as const,
+                prefix: 'Appendix ',
+                startNumber: 1,
+            },
+        ];
+        const model = createPageLabelModel(totalPages, ranges);
+
+        expect(model.ranges).toEqual(ranges);
+        expect(model.segments).toEqual([
+            {
+                ...ranges[0],
+                endPage: 500_000,
+            },
+            {
+                ...ranges[1],
+                endPage: totalPages,
+            },
+        ]);
+        expect(model.labelAt(1)).toBe('1');
+        expect(model.labelAt(500_000)).toBe('500000');
+        expect(model.labelAt(500_001)).toBe('Appendix 1');
+        expect(model.labelAt(totalPages)).toBe('Appendix 500000');
+        expect(model.labelAt(0)).toBeNull();
+        expect(findPageByPageLabelInput('Appendix 500000', totalPages, model)).toBe(totalPages);
+        expect(getMaxPageIndicatorLength(totalPages, model)).toBeGreaterThan(String(totalPages).length);
+        expect(model.readWindow(499_999, 500_004)).toEqual([
+            '499999',
+            '500000',
+            'Appendix 1',
+            'Appendix 2',
+            'Appendix 3',
+            'Appendix 4',
+        ]);
+        expect(model.readWindow(500_000, 500_000 + 500)).toHaveLength(128);
+    });
+
+    it('edits million-page ranges and counts only the changed span', () => {
+        const totalPages = 1_000_000;
+        const initialRanges = buildWholeDocumentPageLabelRanges(totalPages, {
+            style: 'D',
+            prefix: '',
+            startNumber: 1,
+        });
+        const editedRanges = replacePageLabelRange(
+            totalPages,
+            initialRanges,
+            {
+                startPage: 400_000,
+                endPage: 400_010,
+            },
+            {
+                style: 'R',
+                prefix: 'Section ',
+                startNumber: 1,
+            },
+        );
+        const editedModel = createPageLabelModel(totalPages, editedRanges);
+
+        expect(editedRanges).toHaveLength(3);
+        expect(editedModel.labelAt(399_999)).toBe('399999');
+        expect(editedModel.labelAt(400_000)).toBe('Section I');
+        expect(editedModel.labelAt(400_010)).toBe('Section XI');
+        expect(editedModel.labelAt(400_011)).toBe('400011');
+        expect(countPageLabelDifferences(totalPages, initialRanges, editedRanges)).toBe(11);
+
+        const sparseRanges = applySparsePageLabelUpdates(totalPages, initialRanges, [
+            {
+                page: 123_456,
+                label: 'Cover',
+            },
+            {
+                page: 987_654,
+                label: 'Back',
+            },
+        ]);
+        const sparseModel = createPageLabelModel(totalPages, sparseRanges);
+        expect(sparseModel.labelAt(123_456)).toBe('Cover');
+        expect(sparseModel.labelAt(987_654)).toBe('Back');
+        expect(sparseRanges.length).toBeLessThan(10);
+    });
+
+    it('keeps the range model exactly equivalent to the compatibility array on small documents', () => {
+        const totalPages = 16;
+        const ranges = [
+            {
+                startPage: 1,
+                style: 'r' as const,
+                prefix: 'Front ',
+                startNumber: 3,
+            },
+            {
+                startPage: 5,
+                style: null,
+                prefix: 'Plate',
+                startNumber: 1,
+            },
+            {
+                startPage: 8,
+                style: 'A' as const,
+                prefix: 'App ',
+                startNumber: 1,
+            },
+        ];
+        const model = createPageLabelModel(totalPages, ranges);
+        const labels = buildPageLabelsFromRanges(totalPages, ranges);
+
+        expect(model.readWindow(1, totalPages)).toEqual(labels);
+        expect(labels.map((_, index) => model.labelAt(index + 1))).toEqual(labels);
     });
 });

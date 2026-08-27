@@ -13,6 +13,7 @@ import type {
 import { tryOnScopeDispose } from '@vueuse/core';
 import type {
     IAnnotationCommentSummary,
+    IAnnotationModifiedPayload,
     IAnnotationSettings,
     TAnnotationTool,
     TMarkupSubtype,
@@ -130,7 +131,7 @@ interface IEditorBridgeDeps {
         ensureFreeTextEditorCanResize: (editor: IPdfjsEditor) => void;
         patchResizableFreeTextEditors: (mgr: TAnnotationEditorUIManager) => void;
     };
-    emitAnnotationModified: () => void;
+    emitAnnotationModified: (payload?: IAnnotationModifiedPayload) => void;
     emitAnnotationState: (patch: Partial<IPdfjsAnnotationEditorState>) => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     recordPdfjsExecutorCommand?: (command: IPdfAppAnnotationHistoryCommand) => void;
@@ -170,6 +171,8 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
     let documentGeneration = 0;
     let managerGeneration = 0;
     let pageGeneration = 0;
+    const boundFreeTextDraftInputs = new WeakSet<object>();
+    const pendingFreeTextDrafts = new Set<IPdfjsEditor>();
     const pdfjsFacade = new PdfjsAnnotationFacade({
         get document() { return documentGeneration; },
         get manager() { return managerGeneration; },
@@ -234,6 +237,48 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 }
             });
         });
+    }
+
+    function bindFreeTextDraftInput(editor: IPdfjsEditor) {
+        const editorObject = editor as object;
+        if (
+            boundFreeTextDraftInputs.has(editorObject)
+            || detectEditorSubtype(editor) !== 'Typewriter'
+        ) {
+            return;
+        }
+        const editable = editor.div?.querySelector<HTMLElement>('[contenteditable], .internal');
+        if (!editable) {
+            return;
+        }
+        boundFreeTextDraftInputs.add(editorObject);
+        pendingFreeTextDrafts.add(editor);
+        editable.addEventListener('input', () => {
+            const hasText = (editable.textContent ?? '').replace(/[\u200B\uFEFF]/gu, '').length > 0;
+            if (!hasText) {
+                return;
+            }
+            // PDF.js does not place a new FreeText editor in annotation
+            // storage until commit(). Publish the draft edge immediately so
+            // Save can start and perform that commit before route planning.
+            emitAnnotationState({
+                isEditing: true,
+                isEmpty: false,
+            });
+            emitAnnotationModified({forceDirty: true});
+        }, {once: true});
+    }
+
+    function commitPendingFreeTextDraftsForSave() {
+        for (const editor of [...pendingFreeTextDrafts]) {
+            if (editor.isInEditMode?.() === false) {
+                editor.enableEditMode?.();
+            }
+            editor.commitOrRemove?.();
+            if (editor.isInEditMode?.() !== true) {
+                pendingFreeTextDrafts.delete(editor);
+            }
+        }
     }
 
     function createSimpleCommentManager(_container: HTMLElement) {
@@ -432,6 +477,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         }
         annotationUiManager.value?.destroy();
         annotationUiManager.value = null;
+        pendingFreeTextDrafts.clear();
         annotationEventBus.value = null;
         annotationL10n.value = null;
 
@@ -560,13 +606,30 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
             const result = originalAddToAnnotationStorage(editor);
             const editorObject = editor as object | null;
             const createdEditor = asPdfjsEditor(editor);
+            if (isNewStorageEditor && createdEditor?.isEmpty?.() === true) {
+                // PDF.js calls this once while a new FreeText editor is still
+                // empty, and intentionally declines to add it to annotation
+                // storage. Auto-resetting the tool at that point tears down
+                // edit listeners and leaves a visible, permanently clean
+                // editor. The later non-empty commit will re-enter here.
+                bindFreeTextDraftInput(createdEditor);
+                return result;
+            }
             toolManager.enforceHighlightDefaultsForNewEditor(createdEditor);
             const editorSubtype = createdEditor
                 ? detectEditorSubtype(createdEditor)
                 : null;
+            let shouldAutoResetCommittedFreeText = false;
             if (isNewStorageEditor && editorObject && !commentSync.trackedCreatedEditors.has(editorObject)) {
                 commentSync.trackedCreatedEditors.add(editorObject);
-                if (editorSubtype !== 'Stamp') {
+                if (editorSubtype === 'Typewriter') {
+                    // FreeText calls addToAnnotationStorage from inside
+                    // commit(), before it disables edit mode. Resetting the
+                    // tool synchronously aborts those edit listeners mid-
+                    // commit and leaves contenteditable=true. Let commit
+                    // return first, then reset in post-processing below.
+                    shouldAutoResetCommittedFreeText = true;
+                } else if (editorSubtype !== 'Stamp') {
                     toolManager.maybeAutoResetAnnotationTool();
                 }
             }
@@ -650,6 +713,9 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                             emitAnnotationState({isEmpty: false});
                         }
                     }
+                }
+                if (shouldAutoResetCommittedFreeText) {
+                    toolManager.maybeAutoResetAnnotationTool();
                 }
                 if (shouldClearSelectionAfterCreate) {
                     // Newly committed ink strokes remain selected in PDF.js, so later
@@ -776,6 +842,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         annotationL10n,
         pdfjsFacade,
         initAnnotationEditor,
+        commitPendingFreeTextDraftsForSave,
         destroyAnnotationEditor,
     };
 };

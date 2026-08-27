@@ -54,7 +54,9 @@ import {
     isRecord,
 } from '@contracts/runtimeGuards';
 import {
+    argsSchema,
     definePlatformFeature,
+    resultSchema,
     runtimeSchema as s,
     type IRuntimeSchema,
     type TFeatureCapability,
@@ -953,10 +955,7 @@ function decodeAgentAssistantChatScope(value: unknown): IAgentAssistantChatScope
     };
 }
 
-function decodeAssistantProviderStatus(value: unknown): IAgentAssistantProviderStatus | null {
-    if (!isRecord(value)) {
-        return null;
-    }
+function decodeAssistantCommonStatusFields(value: Record<string, unknown>) {
     const models = decodeArray(value.models, decodeAssistantModelOption);
     const availableEfforts = decodeStringArray(value.availableEfforts);
     const availableSpeedModes = Array.isArray(value.availableSpeedModes)
@@ -967,6 +966,26 @@ function decodeAssistantProviderStatus(value: unknown): IAgentAssistantProviderS
     const errorEnvelope = value.errorEnvelope === undefined
         ? undefined
         : decodeAssistantErrorEnvelope(value.errorEnvelope);
+    return {
+        models,
+        availableEfforts,
+        availableSpeedModes,
+        account,
+        errorEnvelope,
+    };
+}
+
+function decodeAssistantProviderStatus(value: unknown): IAgentAssistantProviderStatus | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const {
+        models,
+        availableEfforts,
+        availableSpeedModes,
+        account,
+        errorEnvelope,
+    } = decodeAssistantCommonStatusFields(value);
     if (
         !isOneOf(ASSISTANT_PROVIDER_IDS, value.id)
         || typeof value.label !== 'string'
@@ -1026,18 +1045,15 @@ function decodeAgentAssistantStatus(value: unknown): IAgentAssistantStatus | nul
         return null;
     }
     const providers = decodeArray(value.providers, decodeAssistantProviderStatus);
-    const models = decodeArray(value.models, decodeAssistantModelOption);
-    const availableEfforts = decodeStringArray(value.availableEfforts);
-    const availableSpeedModes = Array.isArray(value.availableSpeedModes)
-        && value.availableSpeedModes.every(mode => isOneOf(AGENT_ASSISTANT_SPEED_MODES, mode))
-        ? [...value.availableSpeedModes]
-        : null;
-    const account = value.account === null ? null : decodeAssistantAccount(value.account);
+    const {
+        models,
+        availableEfforts,
+        availableSpeedModes,
+        account,
+        errorEnvelope,
+    } = decodeAssistantCommonStatusFields(value);
     const mcp = decodeAssistantMcpStatus(value.mcp);
     const turn = decodeAssistantTurnState(value.turn);
-    const errorEnvelope = value.errorEnvelope === undefined
-        ? undefined
-        : decodeAssistantErrorEnvelope(value.errorEnvelope);
     if (
         typeof value.supported !== 'boolean'
         || typeof value.platform !== 'string'
@@ -1346,25 +1362,6 @@ function decodeAgentAssistantEvent(value: unknown): IAgentAssistantEvent | null 
     }
 
     return event;
-}
-
-function argsSchema<TArgs extends unknown[]>(
-    decode: (args: readonly unknown[]) => TArgs,
-    example: () => TArgs,
-) {
-    return s.declared<TArgs>()(s.fromParser((value) => {
-        if (!Array.isArray(value)) {
-            throw new Error('expected IPC arguments');
-        }
-        return decode(value);
-    }, example));
-}
-
-function resultSchema<TResult>(
-    decode: (value: unknown) => TResult,
-    example: () => TResult,
-) {
-    return s.declared<TResult>()(s.fromParser(decode, example));
 }
 
 function nullableResultSchema<TResult>(

@@ -11,6 +11,24 @@ export const COMPACT_SEARCH_INDEX_MAX_TOTAL_TEXT_BYTES = 256 * 1024 * 1024;
 export const COMPACT_SEARCH_INDEX_SOURCE_KIND_GENERIC = 0;
 export const COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER = 1;
 
+/**
+ * Version 3 stores one fixed-size directory entry per declared page. The
+ * directory lives on disk, so a million-page document does not require a
+ * million-element JavaScript collection while it is being indexed.
+ */
+export const COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION = 3;
+export const COMPACT_SEARCH_INDEX_STREAMING_MAGIC = 'EVBSIDX3';
+export const COMPACT_SEARCH_INDEX_STREAMING_HEADER_SIZE = 64;
+export const COMPACT_SEARCH_INDEX_STREAMING_FOOTER_MAGIC = 'EVBSFTR3';
+export const COMPACT_SEARCH_INDEX_STREAMING_FOOTER_SIZE = 64;
+export const COMPACT_SEARCH_INDEX_STREAMING_DIRECTORY_ENTRY_SIZE = 24;
+export const COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE = 1;
+export const COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE = 1 << 1;
+export const COMPACT_SEARCH_INDEX_STREAMING_FLAG_TRUNCATED_COVERAGE = 1 << 2;
+
+/** The v3 page-count field is an unsigned 32-bit wire value, not a file-size budget. */
+export const COMPACT_SEARCH_INDEX_STREAMING_MAX_PAGE_COUNT = 0xFFFFFFFF;
+
 const MAX_UINT32 = 0xFFFFFFFF;
 const MAX_UINT16 = 0xFFFF;
 
@@ -29,6 +47,42 @@ export interface ICompactSearchIndexPayload {
     pageCount: number;
     pages: readonly ICompactSearchIndexPage[];
     textSource?: ICompactSearchIndexTextSource;
+}
+
+export interface ICompactSearchIndexStreamingOptions {
+    documentRevision: TDocumentRevisionToken;
+    pageCount: number;
+    textSource?: ICompactSearchIndexTextSource;
+    /** @deprecated Pass coverage fields to the writer's finalize options. */
+    partialCoverage?: boolean;
+    /** @deprecated Pass coverage fields to the writer's finalize options. */
+    truncatedCoverage?: boolean;
+    /** @deprecated Pass coverage fields to the writer's finalize options. */
+    pagesScanned?: number;
+    /** @deprecated Pass the hook to the writer's finalize options. */
+    beforePublish?: () => Promise<void>;
+    signal?: AbortSignal;
+}
+
+export interface ICompactSearchIndexStreamingFinalizeOptions {
+    /** Number of source pages examined, including pages with no text record. */
+    pagesScanned: number;
+    /** Mark the published index as having truncated source coverage. */
+    truncatedCoverage?: boolean;
+    /** Mark the published index as partial even when pagesScanned reaches pageCount. */
+    partialCoverage?: boolean;
+    /** Run after the temp file is fully written and synced, before atomic publication. */
+    beforePublish?: () => Promise<void>;
+}
+
+export interface ICompactSearchIndexCoverageMetadata {
+    flags: number;
+    pagesScanned: number;
+    pagesWritten: number;
+    bytesWritten: number;
+    complete: boolean;
+    partialCoverage: boolean;
+    truncatedCoverage: boolean;
 }
 
 export interface ICompactSearchIndexPageRecord {

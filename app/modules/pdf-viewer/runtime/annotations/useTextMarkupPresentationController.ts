@@ -116,6 +116,20 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
         ));
     }
 
+    function getMountedPageNumbers(container: HTMLElement) {
+        const pageNumbers = new Set<number>();
+        const pageContainers = container.querySelectorAll<HTMLElement>(
+            `${pdfViewerDomSelectors.pageContainer}[data-page]`,
+        );
+        for (const pageContainer of pageContainers) {
+            const pageNumber = Number.parseInt(pageContainer.dataset.page ?? '', 10);
+            if (Number.isSafeInteger(pageNumber) && pageNumber > 0) {
+                pageNumbers.add(pageNumber);
+            }
+        }
+        return [...pageNumbers];
+    }
+
     function clearEscalation(pageNumber: number, resetBudget = false) {
         supervisor.clearTimer(armedTimersByPage.get(pageNumber));
         armedTimersByPage.delete(pageNumber);
@@ -220,7 +234,7 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
         });
 
         const editorRead = options.readEditorPresentation(
-            pageNumber === null ? undefined : [pageNumber],
+            pageNumber === null ? getMountedPageNumbers(container) : [pageNumber],
         );
         editorRead.unresolvedPageNumbers.forEach(unresolvedPage => unresolvedPages.add(unresolvedPage));
         editorRead.editors.forEach((entry) => {

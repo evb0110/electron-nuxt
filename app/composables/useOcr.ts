@@ -8,9 +8,11 @@ import type {
     IOcrErrorEnvelope,
     IOcrSearchablePdfOptions,
     IOcrDiagnostic,
+    TOcrSearchablePdfPages,
 } from '@contracts/electronApiOcr';
 import type { IOcrCapability } from '@contracts/ocrPlatformFeature';
 import { createDocxFromText } from '@app/utils/docx';
+import { createDocxFromTextChunks } from '@app/utils/docxStreaming';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
@@ -19,7 +21,10 @@ import type {
     IOcrResults,
     IOcrSettings,
 } from '@app/utils/ocr/ocrTypes';
-import { parsePageRange } from '@app/utils/ocr/parsePageRange';
+import {
+    parseOcrPageSelection,
+    type TOcrPageSelectionScope,
+} from '@app/utils/ocr/parsePageRange';
 import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';
 import { resolveOcrExportLanguages } from '@app/utils/ocr/resolveOcrExportLanguages';
 import {
@@ -46,7 +51,6 @@ class OcrJobStartError extends Error {
 type TOcrCompleteResult = Parameters<IOcrCapability['onComplete']>[0] extends (
     result: infer TResult,
 ) => void ? TResult : never;
-type TOcrPageRequest = Parameters<IOcrCapability['createSearchablePdf']>[1][number];
 const OCR_CANCEL_COMPLETION_GRACE_MS = 5_000;
 
 export const useOcr = () => {
@@ -277,14 +281,89 @@ export const useOcr = () => {
         );
     }
 
-    function beginRunProgress(pages: number[], runSettings: IOcrSettings) {
+    function getPageSelectionCount(selection: TOcrPageSelectionScope) {
+        if (Array.isArray(selection)) {
+            return selection.length;
+        }
+        if (selection.kind === 'all') {
+            return selection.pageCount;
+        }
+        if (selection.kind === 'range') {
+            return selection.lastPage - selection.firstPage + 1;
+        }
+        return selection.ranges.reduce(
+            (count, pageRange) => count + pageRange.lastPage - pageRange.firstPage + 1,
+            0,
+        );
+    }
+
+    function buildPageSelection(
+        selection: TOcrPageSelectionScope,
+        runSettings: IOcrSettings,
+    ): TOcrSearchablePdfPages {
+        const languages = [...runSettings.selectedLanguages];
+        if (Array.isArray(selection)) {
+            return selection.map(pageNumber => ({
+                pageNumber,
+                languages,
+            }));
+        }
+        if (selection.kind === 'all') {
+            return {
+                kind: 'all',
+                pageCount: selection.pageCount,
+                languages,
+            };
+        }
+        if (selection.kind === 'range') {
+            return {
+                kind: 'range',
+                firstPage: selection.firstPage,
+                lastPage: selection.lastPage,
+                languages,
+            };
+        }
+        return {
+            kind: 'ranges',
+            ranges: selection.ranges.map(pageRange => ({...pageRange})),
+            languages,
+        };
+    }
+
+    function getFirstSelectedPage(selection: TOcrPageSelectionScope) {
+        if (Array.isArray(selection)) {
+            return selection[0] ?? 1;
+        }
+        if (selection.kind === 'all') {
+            return 1;
+        }
+        if (selection.kind === 'range') {
+            return selection.firstPage;
+        }
+        return selection.ranges[0]?.firstPage ?? 1;
+    }
+
+    function getLastSelectedPage(selection: TOcrPageSelectionScope) {
+        if (Array.isArray(selection)) {
+            return selection.at(-1) ?? 0;
+        }
+        if (selection.kind === 'all') {
+            return selection.pageCount;
+        }
+        if (selection.kind === 'range') {
+            return selection.lastPage;
+        }
+        return selection.ranges.at(-1)?.lastPage ?? 0;
+    }
+
+    function beginRunProgress(selection: TOcrPageSelectionScope, runSettings: IOcrSettings) {
         activeRunSettings.value = cloneOcrSettings(runSettings);
         progress.value = {
             isRunning: true,
             status: 'running',
             phase: 'preparing',
-            currentPage: pages[0] ?? 1,
-            totalPages: pages.length,
+            currentPage: getFirstSelectedPage(selection),
+            totalPages: getPageSelectionCount(selection),
             processedCount: 0,
             phaseProgress: null,
         };
@@ -365,14 +444,6 @@ export const useOcr = () => {
 
             resetOcrTimeout(runToken);
         });
-    }
-
-    function buildPageRequests(pages: number[], runSettings: IOcrSettings): TOcrPageRequest[] {
-        const languages = [...runSettings.selectedLanguages];
-        return pages.map(pageNum => ({
-            pageNumber: pageNum,
-            languages,
-        }));
     }
 
     function buildSearchablePdfOptions(runSettings: IOcrSettings): IOcrSearchablePdfOptions {
@@ -483,7 +554,7 @@ export const useOcr = () => {
     }
 
     function validateOcrRunRequest(
-        pages: number[],
+        selection: TOcrPageSelectionScope,
         workingCopyPath: TDocumentRef | null,
         runSettings: IOcrSettings,
     ): workingCopyPath is TDocumentRef {
@@ -491,7 +562,7 @@ export const useOcr = () => {
             error.value = t('errors.ocr.noLanguages');
             return false;
         }
-        if (pages.length === 0) {
+        if (getPageSelectionCount(selection) === 0) {
             error.value = t('errors.ocr.noValidPages');
             return false;
         }
@@ -506,23 +577,28 @@ export const useOcr = () => {
         currentPage: number,
         totalPages: number,
         runSettings: IOcrSettings,
-    ) {
-        const pages = parsePageRange(
+    ): TOcrPageSelectionScope {
+        const selection = parseOcrPageSelection(
             runSettings.pageRange,
             runSettings.customRange,
             currentPage,
             totalPages,
         );
 
-        BrowserLogger.debug('ocr', 'Pages selected', pages);
-        return pages;
+        BrowserLogger.debug('ocr', 'Pages selected', {
+            kind: Array.isArray(selection) ? 'pages' : selection.kind,
+            count: getPageSelectionCount(selection),
+            firstPage: getFirstSelectedPage(selection),
+            lastPage: getLastSelectedPage(selection),
+        });
+        return selection;
     }
 
-    function createOcrRequestId(pages: number[]) {
+    function createOcrRequestId(selection: TOcrPageSelectionScope) {
         const requestId = `ocr-${crypto.randomUUID()}`;
         BrowserLogger.info('ocr', 'Request created', {
             requestId,
-            pages: pages.length,
+            pages: getPageSelectionCount(selection),
         });
         ocrRunLifecycle.markRequestActive(requestId);
         return requestId;
@@ -550,7 +626,7 @@ export const useOcr = () => {
 
     async function executeOcrRun(
         requestId: string,
-        pages: number[],
+        selection: TOcrPageSelectionScope,
         workingCopyPath: TDocumentRef,
         runSettings: IOcrSettings,
         runToken: symbol,
@@ -558,11 +634,11 @@ export const useOcr = () => {
     ) {
         const ocr = getOcrCapability();
         registerProgressListener(ocr, requestId, runToken);
-        const pageRequests = buildPageRequests(pages, runSettings);
+        const pageRequests = buildPageSelection(selection, runSettings);
 
         BrowserLogger.debug('ocr', 'Starting backend job', {
             requestId,
-            pages,
+            pages: getPageSelectionCount(selection),
             workingCopyPath,
         });
 
@@ -621,10 +697,10 @@ export const useOcr = () => {
 
         error.value = null;
         const runSettings = createRunSettingsSnapshot(settings.value);
-        const pages = getSelectedOcrPages(currentPage, totalPages, runSettings);
+        const selection = getSelectedOcrPages(currentPage, totalPages, runSettings);
         clearResults();
 
-        if (!validateOcrRunRequest(pages, workingCopyPath, runSettings)) {
+        if (!validateOcrRunRequest(selection, workingCopyPath, runSettings)) {
             return;
         }
 
@@ -634,17 +710,17 @@ export const useOcr = () => {
             ensureRunActive,
         } = ocrRunLifecycle.beginRun();
 
-        beginRunProgress(pages, runSettings);
+        beginRunProgress(selection, runSettings);
         if (!await waitForRunUiReady(runToken, runGeneration)) {
             return;
         }
 
-        const requestId = createOcrRequestId(pages);
+        const requestId = createOcrRequestId(selection);
 
         try {
             await executeOcrRun(
                 requestId,
-                pages,
+                selection,
                 workingCopyPath,
                 runSettings,
                 runToken,
@@ -759,6 +835,7 @@ export const useOcr = () => {
                 pdfDocument,
                 hasRtl: hasRtlOcrLanguage(selectedLanguages),
                 buildDocx: createDocxFromText,
+                buildDocxChunks: createDocxFromTextChunks,
                 t,
                 toast,
                 setError: message => {

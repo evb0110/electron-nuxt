@@ -14,6 +14,7 @@ import {
     assertBrowserCombinedPdfPageCount,
     consumeBrowserDecodedWorkingSet,
 } from '@app/platform/browser-api/createCombinedPdfFromPaths';
+import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 function jpegWithExifOrientation(orientation: 3 | 6 | 8) {
     return new Uint8Array([
@@ -130,6 +131,9 @@ describe('browserRasterImageMetadata', () => {
     it('enforces fallback page, output, and aggregate decoded-working-set limits', () => {
         expect(() => assertBrowserCombinedPdfPageCount(501)).toThrow('ERR_BROWSER_PDF_COMBINE_TOO_MANY_PAGES');
         expect(() => assertBrowserCombinedPdfOutputBytes(new Uint8Array())).toThrow('ERR_BROWSER_PDF_COMBINE_INVALID_OUTPUT');
+        expect(() => assertBrowserCombinedPdfOutputBytes(new Uint8Array(BROWSER_MAX_FULL_READ_BYTES))).not.toThrow();
+        expect(() => assertBrowserCombinedPdfOutputBytes(new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1)))
+            .toThrow('ERR_BROWSER_PDF_COMBINE_INVALID_OUTPUT');
         const budget = {
             usedBytes: 250,
             maxBytes: 300,

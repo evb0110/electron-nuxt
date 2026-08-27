@@ -26,7 +26,7 @@ const filePickerMock = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/platform/browserDocumentStore', () => ({
-    BROWSER_MAX_FULL_READ_BYTES: 64 * 1024 * 1024,
+    BROWSER_MAX_FULL_READ_BYTES: 16 * 1024 * 1024,
     browserDocumentStore: browserDocumentStoreMock,
 }));
 

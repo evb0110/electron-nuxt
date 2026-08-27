@@ -15,12 +15,13 @@ import {
     resolveNativePageOpsPath,
 } from '@electron/features/page-ops/public/nativePageOpsPath';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { embedBookmarksIntoPdfFileWithPdfLib } from '@electron/djvu/embedBookmarksIntoPdfFileWithPdfLib';
+import {
+    PdfCombineCapabilityError,
+    isPdfCombineCapabilityError,
+} from '@electron/image/pdfCombineErrors';
 import { isAbortError } from '@electron/utils/abort';
-import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
-const log = createLogger('djvu-bookmarks-native');
 const NATIVE_DJVU_BOOKMARK_TIMEOUT_MS = 2 * 60 * 1000;
 const QPDF_DJVU_BOOKMARK_PAGE_COUNT_TIMEOUT_MS = 2 * 60 * 1000;
 const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
@@ -102,22 +103,36 @@ async function tryEmbedBookmarksWithNativePageOps(
     bookmarks: IPdfBookmarkEntry[],
     signal?: AbortSignal,
 ) {
-    if (bookmarks.length === 0 || isNativePageOpsDisabled()) {
-        return null;
+    throwIfAborted(signal);
+
+    if (bookmarks.length === 0) {
+        if (inputPdfPath !== outputPdfPath) {
+            await copyFile(inputPdfPath, outputPdfPath);
+        }
+        return (await stat(outputPdfPath)).size;
+    }
+
+    if (isNativePageOpsDisabled()) {
+        throw createDjvuBookmarkCapabilityError(
+            'native-unavailable',
+            'Native DjVu bookmark embedding is disabled',
+        );
     }
 
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
-        return null;
+        throw createDjvuBookmarkCapabilityError(
+            'native-unavailable',
+            'Native DjVu bookmark embedding tool is unavailable',
+        );
     }
 
-    throwIfAborted(signal);
     const cancelGroup = `djvu-bookmarks:${randomUUID()}`;
-    const tempDir = await mkdtemp(join(tmpdir(), 'djvu-bookmarks-'));
-    const workingPath = join(tempDir, 'input.pdf');
-    const mutationsPath = join(tempDir, 'bookmarks.json');
-
+    let tempDir: string | null = null;
     try {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-bookmarks-'));
+        const workingPath = join(tempDir, 'input.pdf');
+        const mutationsPath = join(tempDir, 'bookmarks.json');
         const totalPages = await getBookmarkInputPdfPageCount(inputPdfPath, {
             signal,
             cancelGroup,
@@ -158,14 +173,33 @@ async function tryEmbedBookmarksWithNativePageOps(
         if (isAbortError(error)) {
             throw error;
         }
-        log.debug(`Native DjVu bookmark embedding failed, falling back to pdf-lib: ${getErrorMessage(error)}`);
-        return null;
+        if (isPdfCombineCapabilityError(error)) {
+            throw error;
+        }
+        throw createDjvuBookmarkCapabilityError(
+            'native-failure',
+            `Native DjVu bookmark embedding failed: ${getErrorMessage(error)}`,
+            error,
+        );
     } finally {
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
+        if (tempDir !== null) {
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            }).catch(() => undefined);
+        }
     }
+}
+
+function createDjvuBookmarkCapabilityError(
+    code: 'native-unavailable' | 'native-failure',
+    message: string,
+    cause?: unknown,
+) {
+    return new PdfCombineCapabilityError(code, message, {
+        ...(cause === undefined ? {} : {cause}),
+        operation: 'djvu-bookmarks',
+    });
 }
 
 export async function embedBookmarksIntoPdfFile(
@@ -174,10 +208,5 @@ export async function embedBookmarksIntoPdfFile(
     bookmarks: IPdfBookmarkEntry[],
     signal?: AbortSignal,
 ) {
-    const nativeSize = await tryEmbedBookmarksWithNativePageOps(inputPdfPath, outputPdfPath, bookmarks, signal);
-    if (nativeSize !== null) {
-        return nativeSize;
-    }
-
-    return embedBookmarksIntoPdfFileWithPdfLib(inputPdfPath, outputPdfPath, bookmarks, signal);
+    return tryEmbedBookmarksWithNativePageOps(inputPdfPath, outputPdfPath, bookmarks, signal);
 }

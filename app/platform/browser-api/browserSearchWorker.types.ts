@@ -2,10 +2,13 @@ import {
     isRecord,
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
+import type { IBrowserSearchWorkerPageRecord } from '@app/platform/browser-api/browserSearchLegacyArrayPageLimit';
 
 interface IBrowserSearchWorkerRequestMap {
     extractDocumentText: {pdfPath: string;};
+    streamDocumentText: {pdfPath: string;};
     cancel: {requestId: number;};
+    acknowledgePage: {requestId: number;};
 }
 
 interface IBrowserSearchWorkerResultMap {
@@ -13,7 +16,9 @@ interface IBrowserSearchWorkerResultMap {
         pageCount: number;
         pageTexts: string[];
     };
+    streamDocumentText: {pageCount: number;};
     cancel: {canceled: boolean;};
+    acknowledgePage: {acknowledged: boolean;};
 }
 
 type TBrowserSearchWorkerRequestType = keyof IBrowserSearchWorkerRequestMap;
@@ -49,6 +54,13 @@ type TBrowserSearchWorkerSuccessResponse = {
     };
 }[TBrowserSearchWorkerRequestType];
 
+interface IBrowserSearchWorkerPageResponse {
+    id: number;
+    type: 'streamDocumentText';
+    ok: true;
+    page: IBrowserSearchWorkerPageRecord;
+}
+
 interface IBrowserSearchWorkerErrorResponse {
     id: number;
     ok: false;
@@ -58,6 +70,7 @@ interface IBrowserSearchWorkerErrorResponse {
 type TBrowserSearchWorkerResponse =
     | TBrowserSearchWorkerProgressResponse
     | TBrowserSearchWorkerSuccessResponse
+    | IBrowserSearchWorkerPageResponse
     | IBrowserSearchWorkerErrorResponse;
 
 
@@ -68,7 +81,21 @@ function parseExtractDocumentTextPayload(value: unknown): IBrowserSearchWorkerRe
     return {pdfPath: value.pdfPath};
 }
 
+function parseStreamDocumentTextPayload(value: unknown): IBrowserSearchWorkerRequestMap['streamDocumentText'] | null {
+    if (!isRecord(value) || typeof value.pdfPath !== 'string' || value.pdfPath.trim().length === 0) {
+        return null;
+    }
+    return {pdfPath: value.pdfPath};
+}
+
 function parseCancelPayload(value: unknown): IBrowserSearchWorkerRequestMap['cancel'] | null {
+    if (!isRecord(value) || !isSafeWorkerRequestId(value.requestId)) {
+        return null;
+    }
+    return {requestId: value.requestId};
+}
+
+function parseAcknowledgePagePayload(value: unknown): IBrowserSearchWorkerRequestMap['acknowledgePage'] | null {
     if (!isRecord(value) || !isSafeWorkerRequestId(value.requestId)) {
         return null;
     }
@@ -96,8 +123,28 @@ export function parseBrowserSearchWorkerRequest(value: unknown): TBrowserSearchW
                     payload,
                 };
         }
+        case 'streamDocumentText': {
+            const payload = parseStreamDocumentTextPayload(value.payload);
+            return payload === null
+                ? null
+                : {
+                    id: value.id,
+                    type: value.type,
+                    payload,
+                };
+        }
         case 'cancel': {
             const payload = parseCancelPayload(value.payload);
+            return payload === null
+                ? null
+                : {
+                    id: value.id,
+                    type: value.type,
+                    payload,
+                };
+        }
+        case 'acknowledgePage': {
+            const payload = parseAcknowledgePagePayload(value.payload);
             return payload === null
                 ? null
                 : {
@@ -118,4 +165,6 @@ export type {
     TBrowserSearchWorkerRequest,
     TBrowserSearchWorkerRequestType,
     TBrowserSearchWorkerResponse,
+    IBrowserSearchWorkerPageRecord,
+    IBrowserSearchWorkerPageResponse,
 };

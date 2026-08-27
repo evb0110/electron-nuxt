@@ -53,7 +53,10 @@ fn validate_crop_rect(rect: SplitCropRect) -> Result<PdfRect> {
     })
 }
 
-fn materialized_page_dictionary(document: &Document, page_id: ObjectId) -> Result<Dictionary> {
+pub(crate) fn materialized_page_dictionary(
+    document: &Document,
+    page_id: ObjectId,
+) -> Result<Dictionary> {
     let mut page = document.get_dictionary(page_id)?.clone();
     for (key, required) in [
         (b"MediaBox".as_slice(), true),
@@ -379,6 +382,131 @@ fn apply_content_transform(
     transform_annotations(document, page, transform)
 }
 
+/// Collect the existing page content references without copying their stream
+/// bodies into the incremental revision. qpdf's structural reader represents
+/// those bodies as unavailable streams, but the original PDF already contains
+/// them and the appended page can keep referring to their object numbers.
+pub(crate) fn content_stream_ids_from_base(
+    base: &Document,
+    target: &mut Document,
+    page: &Dictionary,
+) -> Result<Vec<ObjectId>> {
+    let contents = match page.get(b"Contents") {
+        Ok(value) => value.clone(),
+        Err(_) => return Ok(Vec::new()),
+    };
+    let mut ids = Vec::new();
+    collect_content_streams_from_base(base, target, contents, &mut ids, 0)?;
+    Ok(ids)
+}
+
+fn collect_content_streams_from_base(
+    base: &Document,
+    target: &mut Document,
+    object: Object,
+    ids: &mut Vec<ObjectId>,
+    depth: usize,
+) -> Result<()> {
+    if depth > MAX_CONTENTS_NESTING {
+        return Err("split-pages found a Contents entry nested past any legal shape".into());
+    }
+    let object_id = match object {
+        Object::Stream(stream) => {
+            ids.push(target.add_object(Object::Stream(stream)));
+            return Ok(());
+        }
+        Object::Array(items) => {
+            for item in items {
+                collect_content_streams_from_base(base, target, item, ids, depth + 1)?;
+            }
+            return Ok(());
+        }
+        Object::Reference(object_id) => object_id,
+        _ => return Err("split-pages found an unsupported Contents entry".into()),
+    };
+    match base.dereference(&Object::Reference(object_id)) {
+        Ok((resolved_id, Object::Stream(_))) => {
+            ids.push(resolved_id.unwrap_or(object_id));
+        }
+        Ok((_, Object::Array(items))) => {
+            for item in items.clone() {
+                collect_content_streams_from_base(base, target, item, ids, depth + 1)?;
+            }
+        }
+        // Preserve an unresolved stream reference just as the eager path does.
+        Err(_) => ids.push(object_id),
+        Ok(_) => return Err("split-pages found an unsupported Contents entry".into()),
+    }
+    Ok(())
+}
+
+fn transform_annotations_incremental(
+    base: &Document,
+    target: &mut Document,
+    page: &mut Dictionary,
+    transform: SplitContentTransform,
+) -> Result<()> {
+    let Some(source) = page_annotation_array(base, page) else {
+        return Ok(());
+    };
+    let mut transformed = Vec::with_capacity(source.len());
+    for annotation in source {
+        let resolved = base
+            .dereference(&annotation)
+            .ok()
+            .and_then(|(_, object)| object.as_dict().ok())
+            .cloned();
+        let Some(dictionary) = resolved else {
+            transformed.push(annotation);
+            continue;
+        };
+        let mut copy = dictionary;
+        for (key, shape_is_valid) in ANNOTATION_POINT_KEYS {
+            let Some(values) = annotation_array(base, &copy, key) else {
+                continue;
+            };
+            if let Some(points) = transformed_point_array(base, &values, transform, shape_is_valid)
+            {
+                copy.set(key.to_vec(), Object::Array(points));
+            }
+        }
+        if let Some(strokes) = annotation_array(base, &copy, b"InkList") {
+            if let Some(ink) = transformed_ink_list(base, &strokes, transform) {
+                copy.set(b"InkList".to_vec(), Object::Array(ink));
+            }
+        }
+        transformed.push(Object::Reference(target.add_object(copy)));
+    }
+    page.set("Annots", Object::Array(transformed));
+    Ok(())
+}
+
+fn apply_content_transform_incremental(
+    base: &Document,
+    target: &mut Document,
+    page: &mut Dictionary,
+    transform: SplitContentTransform,
+) -> Result<()> {
+    let mut streams = vec![target.add_object(Object::Stream(Stream::new(
+        Dictionary::new(),
+        format!(
+            "q {} 0 0 {} {} {} cm\n",
+            transform.scale, transform.scale, transform.translate_x, transform.translate_y
+        )
+        .into_bytes(),
+    )))];
+    streams.extend(content_stream_ids_from_base(base, target, page)?);
+    streams.push(target.add_object(Object::Stream(Stream::new(
+        Dictionary::new(),
+        b"\nQ\n".to_vec(),
+    ))));
+    page.set(
+        "Contents",
+        Object::Array(streams.into_iter().map(Object::Reference).collect()),
+    );
+    transform_annotations_incremental(base, target, page, transform)
+}
+
 const MAX_OC_GRAPH_DEPTH: usize = 64;
 const MAX_OC_GRAPH_NODES: usize = 100_000;
 
@@ -616,6 +744,153 @@ pub(crate) fn split_pages(
         document.trailer.set("Info", info_id);
     }
     document.save(output_path)?;
+    Ok(())
+}
+
+/// Split a path-backed PDF by appending a new page tree. Existing page and
+/// stream objects stay in the source revision, so a large image stream never
+/// crosses the native heap merely because the page boxes changed.
+pub(crate) fn write_split_pages_path(
+    input_path: &Path,
+    output_path: &Path,
+    instructions: &SplitPagesFile,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    // Keep the established full-rewrite semantics for compatibility-sized
+    // documents. In particular, split-pages intentionally prunes source page
+    // objects that are no longer reachable from the replacement page tree.
+    // Once the encoded input crosses the byte compatibility budget, use the
+    // append-only path below. An incremental PDF cannot delete objects from an
+    // earlier revision, but it can change the active page tree without reading
+    // the large stream bodies into memory.
+    let encoded_len = fs::metadata(input_path)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
+        .len();
+    if encoded_len <= MAX_ENCODED_PDF_BYTES as u64 {
+        let document = load_pdf_path(input_path)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+        if document.is_encrypted() {
+            return Err(domain_error(
+                NativeErrorCode::Encrypted,
+                "Encrypted PDFs are not supported by native page ops",
+            ));
+        }
+        split_pages(document, instructions, output_path)?;
+        return Ok(());
+    }
+
+    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    if incremental.get_prev_documents().is_encrypted() {
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Encrypted PDFs are not supported by native page ops",
+        ));
+    }
+
+    split_pages_incremental(&mut incremental, instructions)?;
+    incremental.new_document.version = incremental.get_prev_documents().version.clone();
+    let revision_bytes = build_incremental_revision(&mut incremental)?;
+    let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+    with_staged_incremental_output(input_path, output_path, |staged_output_path| {
+        write_incremental_revision(
+            staged_output_path,
+            &incremental,
+            &revision_bytes,
+            &expected_object_ids,
+        )
+    })
+}
+
+pub(crate) fn split_pages_incremental(
+    incremental: &mut IncrementalDocument,
+    instructions: &SplitPagesFile,
+) -> Result<()> {
+    let source_pages = incremental.previous_document.get_pages();
+    let pages_id = incremental.new_document.new_object_id();
+    let mut output_page_ids = Vec::new();
+
+    for instruction in &instructions.pages {
+        if !(0..=3).contains(&instruction.rotation_quarter_turns) {
+            return Err("split-pages rotationQuarterTurns must be between 0 and 3".into());
+        }
+        if !(1..=2).contains(&instruction.outputs.len()) {
+            return Err("split-pages requires one or two outputs per source page".into());
+        }
+        let page_number = split_source_page_number(instruction.source_page_index)?;
+        let source_page_id = resolve_page_id(&source_pages, page_number)?;
+        let source_rotation =
+            resolve_page_rotation(&incremental.previous_document, source_page_id)?;
+        for output_instruction in &instruction.outputs {
+            let crop = validate_crop_rect(output_instruction.crop_rect)?;
+            let mut page =
+                materialized_page_dictionary(&incremental.previous_document, source_page_id)?;
+            if let Some(transform) = output_instruction.content_transform {
+                apply_content_transform_incremental(
+                    &incremental.previous_document,
+                    &mut incremental.new_document,
+                    &mut page,
+                    validate_content_transform(transform)?,
+                )?;
+            }
+            set_page_box(&mut page, "MediaBox", crop);
+            set_page_box(&mut page, "CropBox", crop);
+            page.remove(b"BleedBox");
+            page.remove(b"TrimBox");
+            page.remove(b"ArtBox");
+            page.set(
+                "Rotate",
+                normalize_page_rotation(source_rotation + instruction.rotation_quarter_turns * 90),
+            );
+            page.set("Parent", pages_id);
+            output_page_ids.push(incremental.new_document.add_object(page));
+        }
+    }
+
+    let kids = output_page_ids
+        .iter()
+        .copied()
+        .map(Object::Reference)
+        .collect::<Vec<_>>();
+    incremental.new_document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => kids,
+            "Count" => i64::try_from(output_page_ids.len())?,
+        }
+        .into(),
+    );
+
+    let catalog_id = incremental
+        .previous_document
+        .trailer
+        .get(b"Root")?
+        .as_reference()?;
+    let valid_oc_properties = has_valid_oc_properties(&incremental.previous_document, catalog_id)?;
+    let catalog = incremental
+        .previous_document
+        .get_dictionary(catalog_id)?
+        .clone();
+    incremental
+        .new_document
+        .set_object(catalog_id, Object::Dictionary(catalog));
+    incremental
+        .new_document
+        .get_dictionary_mut(catalog_id)?
+        .set("Pages", pages_id);
+    if !valid_oc_properties {
+        incremental
+            .new_document
+            .get_dictionary_mut(catalog_id)?
+            .remove(b"OCProperties");
+    }
+    if let Some(stamp) = instructions.provenance_stamp_hex.as_deref() {
+        let info_id = incremental.new_document.add_object(dictionary! {
+            "EVBScanCleanup" => Object::string_literal(stamp.as_bytes().to_vec()),
+        });
+        incremental.new_document.trailer.set("Info", info_id);
+    }
     Ok(())
 }
 

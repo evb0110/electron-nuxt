@@ -1,16 +1,13 @@
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import {
-    clamp,
-    range,
-} from 'es-toolkit/math';
-import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
+    getEditorById,
+    getEditorsOnPage,
+} from '@app/services/pdfjs/annotationEditorAdapter';
+import { getAnnotationEditorPageSearchOrder } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/getAnnotationEditorPageSearchOrder';
 
-function getPreferredPageScanOrder(pageIndex: number, numPages: number) {
-    const preferredPage = clamp(pageIndex, 0, Math.max(0, numPages - 1));
-    return [
-        preferredPage,
-        ...range(numPages).filter(index => index !== preferredPage),
-    ];
+interface IFindEditorByAnnotationElementIdOptions {
+    annotationPageIndexes?: Iterable<number> | null;
+    mountedPageIndexes?: Iterable<number> | null;
 }
 
 export function findEditorByAnnotationElementId(
@@ -18,12 +15,23 @@ export function findEditorByAnnotationElementId(
     numPages: number,
     pageIndex: number,
     annotationId: string,
+    options: IFindEditorByAnnotationElementIdOptions = {},
 ) {
     if (!uiManager || numPages <= 0) {
         return null;
     }
 
-    for (const candidatePageIndex of getPreferredPageScanOrder(pageIndex, numPages)) {
+    const byGlobalId = getEditorById(uiManager, annotationId);
+    if (byGlobalId?.annotationElementId === annotationId) {
+        return byGlobalId;
+    }
+
+    for (const candidatePageIndex of getAnnotationEditorPageSearchOrder({
+        annotationPageIndexes: options.annotationPageIndexes,
+        mountedPageIndexes: options.mountedPageIndexes,
+        numPages,
+        preferredPageIndex: pageIndex,
+    })) {
         for (const normalizedEditor of getEditorsOnPage(uiManager, candidatePageIndex)) {
             if (normalizedEditor.annotationElementId === annotationId) {
                 return normalizedEditor;

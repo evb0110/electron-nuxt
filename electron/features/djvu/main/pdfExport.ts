@@ -9,11 +9,9 @@ import { uniq } from 'es-toolkit/array';
 import {
     mkdtemp,
     open,
-    readFile,
     rm,
     stat,
     statfs,
-    writeFile,
 } from 'fs/promises';
 import {
     basename,
@@ -77,14 +75,12 @@ import {
 } from '@electron/utils/abort';
 import { optimizeGeneratedPdfForInteraction } from '@electron/features/documents/public/pdfSaveAsOptimization';
 import {
-    assertPdfPathWithinSizeLimit,
     PRINT_DJVU_TEMP_PREFIX,
     printManagedTempPdfPath,
 } from '@electron/utils/printHandoff';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getDjvuPageSizesForViewing } from '@electron/features/djvu/main/pagePreview';
 import {
-    buildPrintablePdfData,
     canPrintSourcePdfDirectly,
     normalizePrintPageNumbers,
 } from '@pdf-core';
@@ -111,13 +107,6 @@ const DJVU_SUBSAMPLE_MAX = (() => {
         return 16;
     }
     return Math.min(parsed, 64);
-})();
-const DJVU_BOOKMARK_FALLBACK_MAX_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_BOOKMARK_FALLBACK_MAX_MB ?? '64', 10);
-    if (!Number.isFinite(parsed) || parsed < 8) {
-        return 64 * 1024 * 1024;
-    }
-    return parsed * 1024 * 1024;
 })();
 const DJVU_CONVERT_PROGRESS_CAP = 94;
 const DJVU_BOOKMARK_PROGRESS_PERCENT = 95;
@@ -639,20 +628,7 @@ async function embedPdfBookmarks(
                     : createAbortError('DjVu conversion canceled');
             }
 
-            const inputStats = await stat(inputPdfPath).catch(() => null);
-            if (!inputStats || inputStats.size > DJVU_BOOKMARK_FALLBACK_MAX_BYTES) {
-                const maxMb = Math.floor(DJVU_BOOKMARK_FALLBACK_MAX_BYTES / (1024 * 1024));
-                throw new Error(
-                    `DjVu bookmark embedding requires the PDF worker for files larger than ${maxMb}MB`,
-                );
-            }
-            if (signal.aborted) {
-                throw signal.reason instanceof Error
-                    ? signal.reason
-                    : createAbortError('DjVu conversion canceled');
-            }
-
-            logger.warn(`[${jobId}] DjVu PDF worker unavailable, falling back to in-process bookmark embedding: ${error.message}`);
+            logger.warn(`[${jobId}] DjVu PDF worker unavailable, using path-backed native bookmark embedding: ${error.message}`);
             await embedBookmarksIntoPdfFile(inputPdfPath, outputPdfPath, bookmarks, signal);
         }
     }, {
@@ -673,7 +649,6 @@ async function runDjvuPrintPath(
     job: IDjvuJobRunContext,
 ): Promise<IDjvuPrintResult> {
     const tempDir = await mkdtemp(join(getAppTempDir(), 'djvu-print-work-'));
-    const sourcePdfPath = join(tempDir, `${jobId}.source.pdf`);
     const finalPdfPath = join(getAppTempDir(), `${PRINT_DJVU_TEMP_PREFIX}${jobId}.pdf`);
     let finalPdfHandedToPrint = false;
 
@@ -715,10 +690,11 @@ async function runDjvuPrintPath(
             }
 
             const shouldPrintConvertedPdfDirectly = canPrintSourcePdfDirectly({
+                ...(selectedPages ? {pageNumbers: selectedPages} : {}),
                 viewMode: options.viewMode,
                 orientation: options.orientation,
             });
-            const convertedPdfPath = shouldPrintConvertedPdfDirectly ? finalPdfPath : sourcePdfPath;
+            const convertedPdfPath = finalPdfPath;
             const strategy = resolveDjvuPrintPdfExportStrategy(options.pdfStrategy);
             const convertResult = strategy === 'compact-djvu-aware'
                 ? await buildCompactDjvuAwarePdfFromDjvu({
@@ -780,28 +756,7 @@ async function runDjvuPrintPath(
             }
             throwIfCanceled(job.signal);
 
-            let printablePdfPath = convertedPdfPath;
-            if (!shouldPrintConvertedPdfDirectly) {
-                await assertPdfPathWithinSizeLimit(convertedPdfPath);
-                const sourceData = await readFile(convertedPdfPath);
-                const printableData = await buildPrintablePdfData(
-                    new Uint8Array(sourceData),
-                    {
-                        viewMode: options.viewMode,
-                        orientation: options.orientation,
-                    },
-                );
-                throwIfCanceled(job.signal);
-                if (!printableData) {
-                    return {
-                        success: false,
-                        jobId,
-                        error: 'Failed to prepare printable DjVu PDF data',
-                    };
-                }
-                await writeFile(finalPdfPath, printableData);
-                printablePdfPath = finalPdfPath;
-            }
+            const printablePdfPath = convertedPdfPath;
 
             sendProgress({
                 jobId,
@@ -821,7 +776,7 @@ async function runDjvuPrintPath(
                 resolveDjvuPrintDocumentTitle(djvuPath, options.fileName, selectedPages),
                 {
                     signal: job.signal,
-                    surface: 'rasterized-html',
+                    ...(shouldPrintConvertedPdfDirectly ? {} : {surface: 'rasterized-html'}),
                 },
             );
             if (job.signal.aborted) {

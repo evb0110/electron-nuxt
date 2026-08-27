@@ -3,6 +3,10 @@ import {
     cloneScanCleanupPreferenceValue,
     DEFAULT_SCAN_CLEANUP_PREFERENCES,
 } from '@contracts/scanCleanupSettings';
+import {
+    DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
+    isDefaultScanCleanupPageOverride,
+} from '@contracts/scanCleanupPageOverrides';
 
 export type TScanCleanupNonDefaultSettingKey =
     | 'preserveOriginalQuality'
@@ -94,8 +98,14 @@ export function resolveScanCleanupNonDefaultSettings(
     if (options.outputMode !== 'auto') {
         addBadge(badges, 'outputMode', options.outputMode);
     }
-    if (Object.keys(options.pageOverrides).length > 0) {
-        addBadge(badges, 'pageOverrides', String(Object.keys(options.pageOverrides).length));
+    const hasPageOverrideDefaults = options.pageOverrideDefaults !== undefined
+        && !isDefaultScanCleanupPageOverride(options.pageOverrideDefaults);
+    if (Object.keys(options.pageOverrides).length > 0 || hasPageOverrideDefaults) {
+        addBadge(
+            badges,
+            'pageOverrides',
+            String(Object.keys(options.pageOverrides).length + Number(hasPageOverrideDefaults)),
+        );
     }
     return badges;
 }
@@ -105,6 +115,7 @@ export function resetScanCleanupOptionsToDefaults(options: IScanCleanupOptions) 
     Object.assign(options, defaults, {
         outputMode: 'auto' as const,
         pageOverrides: {},
+        pageOverrideDefaults: cloneScanCleanupPreferenceValue(DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE),
     });
     options.autoDewarpDepth = DEFAULT_SCAN_CLEANUP_PREFERENCES.autoDewarpDepth;
     options.marginsMm = cloneScanCleanupPreferenceValue(defaults.marginsMm);

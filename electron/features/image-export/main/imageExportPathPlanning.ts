@@ -7,21 +7,6 @@ import {
 } from 'path';
 import { range } from 'es-toolkit/math';
 
-export function buildImageExportOutputPaths(
-    normalizedPath: string,
-    pageCount: number,
-    outputStem: string,
-    outputExtension: string,
-) {
-    if (pageCount === 1) {
-        return [normalizedPath];
-    }
-    const outputDirectory = dirname(normalizedPath);
-    return range(1, pageCount + 1).map(outputIndex =>
-        join(outputDirectory, `${outputStem}-${String(outputIndex).padStart(3, '0')}${outputExtension}`),
-    );
-}
-
 function buildNonConflictingOutputPath(targetPath: string, reservedPaths: Set<string>) {
     const outputDirectory = dirname(targetPath);
     const outputExtension = extname(targetPath);

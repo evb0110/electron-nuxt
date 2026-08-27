@@ -25,6 +25,7 @@ import {
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
 import { readJpegExifOrientation } from '@electron/image/imageDpi';
+import { includesAsciiToken } from '@electron/utils/includesAsciiToken';
 
 interface INativePdfImageCombineProgress {
     processed: number;
@@ -36,6 +37,10 @@ interface INativePdfImageCombineProgress {
 
 interface INativePdfImageCombineOptions {
     maxPages?: number;
+    /** Maximum input size passed to the native decoder. */
+    maxInputBytes?: number;
+    /** Maximum output size accepted from the native writer. */
+    maxOutputBytes?: number;
     onProgress?: (progress: INativePdfImageCombineProgress) => void;
     signal?: AbortSignal;
 }
@@ -77,6 +82,8 @@ const NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV = 'EVB_PDF_IMAGE_COMBINE_ENABLE';
 const PDF_HEADER_SCAN_BYTES = 1024;
 const PDF_EOF_SCAN_BYTES = 1024 * 1024;
 const JPEG_ORIENTATION_SCAN_MAX_BYTES = 4 * 1024 * 1024;
+const BYTES_PER_MEBIBYTE = 1024 * 1024;
+const NATIVE_PDF_IMAGE_COMBINE_MAX_INPUT_MB = 4_096;
 const NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_OUTPUT_MB ?? '512', 10);
     return (Number.isFinite(parsed) && parsed >= 1 ? parsed : 512) * 1024 * 1024;
@@ -156,24 +163,6 @@ function createNativeInputsFileContents(inputPaths: string[]) {
     return `${inputPaths.join('\n')}\n`;
 }
 
-function includesAsciiToken(data: Uint8Array, token: string, start: number, end: number) {
-    const tokenBytes = Buffer.from(token, 'ascii');
-    const lastStart = end - tokenBytes.byteLength;
-    for (let offset = start; offset <= lastStart; offset += 1) {
-        let matches = true;
-        for (let index = 0; index < tokenBytes.byteLength; index += 1) {
-            if (data[offset + index] !== tokenBytes[index]) {
-                matches = false;
-                break;
-            }
-        }
-        if (matches) {
-            return true;
-        }
-    }
-    return false;
-}
-
 async function isStructurallyPlausiblePdfFile(outputPath: string) {
     const handle = await open(outputPath, 'r');
     try {
@@ -197,23 +186,68 @@ async function isStructurallyPlausiblePdfFile(outputPath: string) {
     }
 }
 
-async function readValidatedNativePdfOutput(outputPath: string) {
-    let fallbackDetail: string | null = null;
-    let fallbackCause: unknown;
+function normalizeOutputLimit(value: number | undefined) {
+    return typeof value === 'number'
+        && Number.isSafeInteger(value)
+        && value >= 1
+        ? value
+        : NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES;
+}
 
+async function assertNativePdfOutputSize(outputPath: string, maxOutputBytes: number) {
     const outputHandle = await open(outputPath, 'r');
     try {
         const outputStat = await outputHandle.stat();
-        if (outputStat.size > NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES) {
+        if (outputStat.size > maxOutputBytes) {
             throw new Error('Combined PDF output is too large to return safely');
         }
     } finally {
         await outputHandle.close();
     }
+}
+
+async function isNativePdfOutputPlausibleAfterSizeCheck(outputPath: string) {
+    return isStructurallyPlausiblePdfFile(outputPath);
+}
+
+async function readNativePdfOutputAfterSizeCheck(outputPath: string) {
+    if (!await isNativePdfOutputPlausibleAfterSizeCheck(outputPath)) {
+        return null;
+    }
+    return new Uint8Array(await readFile(outputPath));
+}
+
+async function handleInvalidNativePdfOutput<T>(
+    outputPath: string,
+    fallbackDetail: string,
+    fallbackCause: unknown,
+    fallbackValue: T,
+) {
+    await rm(outputPath, { force: true }).catch(() => undefined);
+    const testFailure = createNativeFallbackTestError(
+        NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV,
+        'Native image PDF combine',
+        fallbackDetail,
+        fallbackCause,
+    );
+    if (testFailure) {
+        throw testFailure;
+    }
+    return fallbackValue;
+}
+
+async function readValidatedNativePdfOutput(
+    outputPath: string,
+    maxOutputBytes = NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES,
+) {
+    await assertNativePdfOutputSize(outputPath, maxOutputBytes);
+    let fallbackDetail: string | null = null;
+    let fallbackCause: unknown;
 
     try {
-        if (await isStructurallyPlausiblePdfFile(outputPath)) {
-            return new Uint8Array(await readFile(outputPath));
+        const output = await readNativePdfOutputAfterSizeCheck(outputPath);
+        if (output) {
+            return output;
         }
         logger.warn(`Native image PDF combine produced invalid PDF output at "${outputPath}"`);
         fallbackDetail = `native output at "${outputPath}" is not a structurally valid PDF`;
@@ -223,27 +257,24 @@ async function readValidatedNativePdfOutput(outputPath: string) {
         fallbackCause = error;
     }
 
-    await rm(outputPath, { force: true }).catch(() => undefined);
-    const testFailure = fallbackDetail
-        ? createNativeFallbackTestError(
-            NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV,
-            'Native image PDF combine',
-            fallbackDetail,
-            fallbackCause,
-        )
-        : null;
-    if (testFailure) {
-        throw testFailure;
-    }
-    return null;
+    return handleInvalidNativePdfOutput(
+        outputPath,
+        fallbackDetail,
+        fallbackCause,
+        null,
+    );
 }
 
-async function validateNativePdfOutputFile(outputPath: string) {
+async function validateNativePdfOutputFile(
+    outputPath: string,
+    maxOutputBytes = NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES,
+) {
     let fallbackDetail: string | null = null;
     let fallbackCause: unknown;
 
     try {
-        if (await isStructurallyPlausiblePdfFile(outputPath)) {
+        await assertNativePdfOutputSize(outputPath, maxOutputBytes);
+        if (await isNativePdfOutputPlausibleAfterSizeCheck(outputPath)) {
             return true;
         }
         logger.warn(`Native image PDF combine produced invalid PDF output at "${outputPath}"`);
@@ -254,19 +285,12 @@ async function validateNativePdfOutputFile(outputPath: string) {
         fallbackCause = error;
     }
 
-    await rm(outputPath, { force: true }).catch(() => undefined);
-    const testFailure = fallbackDetail
-        ? createNativeFallbackTestError(
-            NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV,
-            'Native image PDF combine',
-            fallbackDetail,
-            fallbackCause,
-        )
-        : null;
-    if (testFailure) {
-        throw testFailure;
-    }
-    return false;
+    return handleInvalidNativePdfOutput(
+        outputPath,
+        fallbackDetail,
+        fallbackCause,
+        false,
+    );
 }
 
 export async function tryCreatePdfWithNativeImageCombiner(
@@ -412,7 +436,10 @@ async function createPdfWithNativeImageCombiner(
         if (!ok) {
             return null;
         }
-        return await readValidatedNativePdfOutput(outputPath);
+        return await readValidatedNativePdfOutput(
+            outputPath,
+            normalizeOutputLimit(options?.maxOutputBytes),
+        );
     } finally {
         await rm(tempDir, {
             recursive: true,
@@ -452,7 +479,10 @@ async function writePdfWithNativeImageCombiner(
             await rm(outputPath, { force: true }).catch(() => undefined);
             return false;
         }
-        return await validateNativePdfOutputFile(outputPath);
+        return await validateNativePdfOutputFile(
+            outputPath,
+            normalizeOutputLimit(options?.maxOutputBytes),
+        );
     } catch (error) {
         if (
             error instanceof Error
@@ -490,9 +520,12 @@ async function runNativePdfImageCombine(
         args.push('--', ...inputPaths);
     }
     const maxPages = normalizeMaxPagesForEnv(options?.maxPages);
+    const maxInputMb = normalizeMaxInputMbForEnv(options?.maxInputBytes);
+    const maxOutputBytes = normalizeOutputLimit(options?.maxOutputBytes);
     const env = {
         ...process.env,
-        EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES),
+        EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(maxOutputBytes),
+        ...(maxInputMb ? {EVB_PDF_COMBINE_MAX_INPUT_MB: maxInputMb} : {}),
         ...(maxPages ? {EVB_PDF_COMBINE_MAX_PAGES: maxPages} : {}),
     };
 
@@ -709,4 +742,14 @@ function normalizeMaxPagesForEnv(value: number | undefined) {
         return null;
     }
     return String(Math.trunc(value));
+}
+
+function normalizeMaxInputMbForEnv(value: number | undefined) {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < BYTES_PER_MEBIBYTE) {
+        return null;
+    }
+    return String(Math.min(
+        NATIVE_PDF_IMAGE_COMBINE_MAX_INPUT_MB,
+        Math.max(16, Math.ceil(value / BYTES_PER_MEBIBYTE)),
+    ));
 }

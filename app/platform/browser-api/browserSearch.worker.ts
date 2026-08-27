@@ -2,22 +2,26 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { createPdfjsDocumentInitFromBrowserDocument } from '@app/platform/browser-api/browserPdfjsDocumentInit';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { extractBrowserSearchPageText } from '@app/platform/browser-api/extractBrowserSearchPageText';
-import type {
-    IBrowserSearchWorkerRequest,
-    TBrowserSearchWorkerResponse,
-} from '@app/platform/browser-api/browserSearchWorker.types';
 import {
     getBrowserSearchWorkerRequestId,
     parseBrowserSearchWorkerRequest,
+    type IBrowserSearchWorkerRequest,
+    type IBrowserSearchWorkerPageRecord,
+    type TBrowserSearchWorkerResponse,
 } from '@app/platform/browser-api/browserSearchWorker.types';
+import { BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT } from '@app/platform/browser-api/browserSearchLegacyArrayPageLimit';
 import { getErrorMessage } from '@app/utils/error';
 
 const canceledRequestIds = new Set<number>();
 const activeLoadCancellers = new Map<number, (error: Error) => void>();
+const activePageStreamAckResolvers = new Map<number, () => void>();
+const activePageStreamAckRejecters = new Map<number, (error: Error) => void>();
 
-async function handleExtractDocumentTextRequest(
-    request: IBrowserSearchWorkerRequest<'extractDocumentText'>,
-) {
+type TBrowserSearchDocumentRequest = IBrowserSearchWorkerRequest<
+    'extractDocumentText' | 'streamDocumentText'
+>;
+
+async function loadBrowserSearchDocument(request: TBrowserSearchDocumentRequest) {
     let rejectRangeReadFailure: ((error: Error) => void) | null = null;
     const rangeReadFailure = new Promise<never>((_resolve, reject) => {
         rejectRangeReadFailure = reject;
@@ -35,9 +39,8 @@ async function handleExtractDocumentTextRequest(
         rejectRangeReadFailure = null;
         reject?.(error);
     }}));
-    let pdfDocument: Awaited<typeof loadingTask.promise>;
     try {
-        pdfDocument = await Promise.race([
+        return await Promise.race([
             loadingTask.promise,
             rangeReadFailure,
             loadCancellation,
@@ -51,7 +54,24 @@ async function handleExtractDocumentTextRequest(
         cancelLoad = null;
         activeLoadCancellers.delete(request.id);
     }
-    const pageTexts = Array.from({ length: pdfDocument.numPages }, () => '');
+}
+
+async function handleExtractDocumentTextRequest(
+    request: IBrowserSearchWorkerRequest<'extractDocumentText'>,
+) {
+    const pdfDocument = await loadBrowserSearchDocument(request);
+    if (canceledRequestIds.has(request.id)) {
+        await pdfDocument.destroy();
+        canceledRequestIds.delete(request.id);
+        throw new Error('ERR_BROWSER_SEARCH_CANCELED');
+    }
+    if (pdfDocument.numPages > BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT) {
+        await pdfDocument.destroy();
+        canceledRequestIds.delete(request.id);
+        throw new Error('ERR_BROWSER_SEARCH_STREAM_REQUIRED');
+    }
+
+    const pageTexts = new Array<string>(pdfDocument.numPages);
 
     try {
         for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
@@ -84,13 +104,82 @@ async function handleExtractDocumentTextRequest(
     }
 }
 
+function waitForPageAcknowledgement(requestId: number) {
+    return new Promise<void>((resolve, reject) => {
+        activePageStreamAckResolvers.set(requestId, resolve);
+        activePageStreamAckRejecters.set(requestId, reject);
+    });
+}
+
+function acknowledgePage(requestId: number) {
+    const resolve = activePageStreamAckResolvers.get(requestId);
+    if (!resolve) {
+        return;
+    }
+    activePageStreamAckResolvers.delete(requestId);
+    activePageStreamAckRejecters.delete(requestId);
+    resolve();
+}
+
+async function handleStreamDocumentTextRequest(
+    request: IBrowserSearchWorkerRequest<'streamDocumentText'>,
+) {
+    const pdfDocument = await loadBrowserSearchDocument(request);
+
+    try {
+        for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+            if (canceledRequestIds.has(request.id)) {
+                throw new Error('ERR_BROWSER_SEARCH_CANCELED');
+            }
+
+            const page = await pdfDocument.getPage(pageNumber);
+            if (canceledRequestIds.has(request.id)) {
+                throw new Error('ERR_BROWSER_SEARCH_CANCELED');
+            }
+            const text = await extractBrowserSearchPageText(page);
+            if (canceledRequestIds.has(request.id)) {
+                throw new Error('ERR_BROWSER_SEARCH_CANCELED');
+            }
+            const pageRecord: IBrowserSearchWorkerPageRecord = {
+                pageNumber,
+                pageCount: pdfDocument.numPages,
+                text,
+            };
+            self.postMessage({
+                id: request.id,
+                type: request.type,
+                ok: true,
+                page: pageRecord,
+            });
+            await waitForPageAcknowledgement(request.id);
+            await yieldToBrowser();
+        }
+
+        return {pageCount: pdfDocument.numPages};
+    } finally {
+        const reject = activePageStreamAckRejecters.get(request.id);
+        activePageStreamAckResolvers.delete(request.id);
+        activePageStreamAckRejecters.delete(request.id);
+        reject?.(new Error('ERR_BROWSER_SEARCH_CANCELED'));
+        canceledRequestIds.delete(request.id);
+        await pdfDocument.destroy();
+    }
+}
+
 function handleCancelRequest(
     request: IBrowserSearchWorkerRequest<'cancel'>,
 ) {
     const { requestId } = request.payload;
     canceledRequestIds.add(requestId);
     activeLoadCancellers.get(requestId)?.(new Error('ERR_BROWSER_SEARCH_CANCELED'));
+    activePageStreamAckRejecters.get(requestId)?.(new Error('ERR_BROWSER_SEARCH_CANCELED'));
     return { canceled: true };
+}
+
+function handleAcknowledgePageRequest(
+    request: IBrowserSearchWorkerRequest<'acknowledgePage'>,
+) {
+    acknowledgePage(request.payload.requestId);
 }
 
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
@@ -110,6 +199,23 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
     try {
         if (request.type === 'cancel') {
             const data = handleCancelRequest(request);
+            const response = {
+                id: request.id,
+                type: request.type,
+                ok: true,
+                data,
+            } satisfies TBrowserSearchWorkerResponse;
+            self.postMessage(response);
+            return;
+        }
+
+        if (request.type === 'acknowledgePage') {
+            handleAcknowledgePageRequest(request);
+            return;
+        }
+
+        if (request.type === 'streamDocumentText') {
+            const data = await handleStreamDocumentTextRequest(request);
             const response = {
                 id: request.id,
                 type: request.type,

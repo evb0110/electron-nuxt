@@ -96,7 +96,6 @@ import {
     VIRTUAL_OVERSCAN,
     createThumbnailCanvasStyle,
     createThumbnailItemStyle,
-    isValidThumbnailAspectRatio,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
 import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection';
 import {
@@ -130,7 +129,10 @@ import type {
     IPdfThumbnailsEmits,
     IPdfThumbnailsProps,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
-
+import type {
+    TPageMoveOperation,
+    TPageSelection,
+} from '@contracts/pageNumbers';
 const THUMBNAIL_WIDTH_CHANGE_THRESHOLD = 1;
 const THUMBNAIL_RASTER_RESIZE_SETTLE_MS = 120;
 const INTERACTION_DIAGNOSTIC_THROTTLE_MS = 160;
@@ -147,9 +149,11 @@ const {
     pdfDocument,
     rasterScheduler,
     selectedPages = undefined,
+    selectedPageSelection = undefined,
     totalPages,
 } = defineProps<IPdfThumbnailsProps>();
 const emit = defineEmits<IPdfThumbnailsEmits>();
+const hasPageSelectionModel = selectedPageSelection !== undefined;
 const containerRef = ref<HTMLElement | null>(null);
 function setContainerRef(element: HTMLElement | null) {
     containerRef.value = element;
@@ -176,7 +180,6 @@ let getThumbnailRenderSummary = () => ({
     renderedCount: 0,
     renderingCount: 0,
 });
-
 const {
     aspectRatios: thumbnailAspectRatios,
     clearAspectRatios: clearThumbnailAspectRatios,
@@ -193,7 +196,6 @@ const {
     pageCount: computed(() => totalPages),
     scheduleReaction: scheduleThumbnailLayoutReaction,
 });
-
 const viewportStartIndex = computed(() => {
     if (totalPages <= 0) {
         return 0;
@@ -201,7 +203,6 @@ const viewportStartIndex = computed(() => {
     const startPage = resolvePageAtScrollOffset(scrollTop.value) ?? 1;
     return Math.max(0, startPage - 1);
 });
-
 const viewportEndIndex = computed(() => {
     if (totalPages <= 0) {
         return -1;
@@ -210,10 +211,8 @@ const viewportEndIndex = computed(() => {
     const endPage = resolvePageAtScrollOffset(viewportBottom) ?? totalPages;
     return Math.min(totalPages - 1, endPage - 1);
 });
-
 const visibleStartIndex = computed(() => Math.max(0, viewportStartIndex.value - VIRTUAL_OVERSCAN));
 const visibleEndIndex = computed(() => Math.min(totalPages - 1, viewportEndIndex.value + VIRTUAL_OVERSCAN));
-
 const viewportPages = computed(() => {
     if (totalPages <= 0 || viewportEndIndex.value < viewportStartIndex.value) {
         return [] as number[];
@@ -223,7 +222,6 @@ const viewportPages = computed(() => {
         (_, index) => viewportStartIndex.value + index + 1,
     );
 });
-
 const virtualPages = computed(() => {
     if (totalPages <= 0 || visibleEndIndex.value < visibleStartIndex.value) {
         return [] as number[];
@@ -235,7 +233,6 @@ const virtualPages = computed(() => {
     }
     return pages;
 });
-
 const virtualWrapperStyle = computed(() => {
     if (totalPages <= 0) {
         return {height: '0px'};
@@ -267,12 +264,14 @@ const {
     containerRef,
     totalPages: computed(() => totalPages),
     selectedPages: computed(() => selectedPages ?? []),
+    selectedPageSelection: computed(() => selectedPageSelection ?? null),
     resolveDropIndex: (clientY, container) => {
         const rect = container.getBoundingClientRect();
         const offsetY = clientY - rect.top + container.scrollTop;
         return clamp(resolveInsertionIndex(offsetY), 0, totalPages);
     },
     onReorder: (newOrder) => emit('reorder', newOrder),
+    onMove: hasPageSelectionModel ? (move: TPageMoveOperation) => emit('move', move) : undefined,
     onExternalFileDrop: (afterPage, filePaths) =>
         emit('file-drop', {
             afterPage,
@@ -302,9 +301,11 @@ const {
     onContextMenu: payload => emit('page-context-menu', payload),
     onGoToPage: page => emit('go-to-page', page, {navigationSource: 'thumbnail'}),
     onSelectedPagesChange: pages => emit('update:selected-pages', pages),
+    onPageSelectionChange: hasPageSelectionModel ? (selection: TPageSelection) => emit('update:selected-page-selection', selection) : undefined,
     renderedPages: virtualPages,
     scrollPageIntoKeyboardView,
     selectedPages: computed(() => selectedPages ?? []),
+    selectedPageSelection: hasPageSelectionModel ? computed<TPageSelection | null>(() => selectedPageSelection ?? null) : undefined,
     totalPages: computed(() => totalPages),
 });
 
@@ -381,7 +382,7 @@ function isThumbnailPaneActive() {
 }
 function isThumbnailLayoutStabilizing() {
     return (
-        thumbnailAspectRatios.value.every(aspectRatio => !isValidThumbnailAspectRatio(aspectRatio))
+        thumbnailAspectRatios.value.size === 0
         || !thumbnailMeasurementDiagnostics.isReady()
         || !thumbnailRenderRuntime.hasRenderedThumbnails()
     );

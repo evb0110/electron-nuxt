@@ -291,7 +291,6 @@ const CONTRACT_COMPATIBILITY_POLICY_IMPORTS = new Map([
             'normalizePdfNativeMutationSet',
             'normalizePdfNativeNoteChanges',
             'normalizePdfNativeNoteTextUpdates',
-            'normalizePdfNativeWorkingCopyExpectation',
         ]),
     ],
 ]);

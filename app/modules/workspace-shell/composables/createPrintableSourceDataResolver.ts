@@ -13,7 +13,6 @@ interface ICreatePrintableSourceDataResolverDeps {
     hasPendingUnsavedChanges: Readonly<Ref<boolean>>;
     pdfData: Readonly<Ref<Uint8Array | null>>;
     pdfViewerRef: Readonly<Ref<IPrintSaveViewer | null>>;
-    readWorkingCopyBytes: () => Promise<Uint8Array | null>;
     source: NonNullable<IPdfViewerSaveTransactionRequest['source']>;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
@@ -33,7 +32,7 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
         ?? runWithoutDocumentOperationLease;
 
     async function readPersistedPrintableBytes() {
-        return deps.pdfData.value ?? await deps.readWorkingCopyBytes();
+        return deps.pdfData.value ?? await deps.source.getSourcePdfData();
     }
 
     async function materializeDirtyPrintableBytes() {

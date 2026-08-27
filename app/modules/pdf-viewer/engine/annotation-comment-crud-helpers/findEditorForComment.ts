@@ -1,19 +1,31 @@
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-import {
-    clamp,
-    range,
-} from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { getCommentCandidateIds } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
-import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
+import {
+    getEditorById,
+    getEditorsOnPage,
+} from '@app/services/pdfjs/annotationEditorAdapter';
+import { getAnnotationEditorPageSearchOrder } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/getAnnotationEditorPageSearchOrder';
 
-function getPreferredPageScanOrder(pageIndex: number, numPages: number) {
-    const preferredPage = clamp(pageIndex, 0, Math.max(0, numPages - 1));
-    return [
-        preferredPage,
-        ...range(numPages).filter(index => index !== preferredPage),
-    ];
+interface IFindEditorForCommentOptions {
+    annotationPageIndexes?: Iterable<number> | null;
+    mountedPageIndexes?: Iterable<number> | null;
+}
+
+function getEditorIds(
+    editor: IPdfjsEditor,
+    pageIndex: number,
+    getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string,
+) {
+    return new Set([
+        getEditorIdentity(editor, pageIndex),
+        editor.uid,
+        editor.annotationElementId,
+        editor.id === null || editor.id === undefined
+            ? null
+            : String(editor.id),
+    ].filter((value): value is string => Boolean(value)));
 }
 
 export function findEditorForComment(
@@ -21,6 +33,7 @@ export function findEditorForComment(
     numPages: number,
     comment: IAnnotationCommentSummary,
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string,
+    options: IFindEditorForCommentOptions = {},
 ) {
     if (!uiManager || numPages <= 0) {
         return null;
@@ -31,17 +44,28 @@ export function findEditorForComment(
         return null;
     }
 
-    for (const pageIndex of getPreferredPageScanOrder(comment.pageIndex, numPages)) {
+    for (const candidateId of candidateIds) {
+        const byGlobalId = getEditorById(uiManager, candidateId);
+        if (!byGlobalId) {
+            continue;
+        }
+        const pageIndex = Number.isSafeInteger(byGlobalId.parentPageIndex)
+            ? byGlobalId.parentPageIndex as number
+            : comment.pageIndex;
+        const editorIds = getEditorIds(byGlobalId, pageIndex, getEditorIdentity);
+        if (candidateIds.some(id => editorIds.has(id))) {
+            return byGlobalId;
+        }
+    }
+
+    for (const pageIndex of getAnnotationEditorPageSearchOrder({
+        annotationPageIndexes: options.annotationPageIndexes,
+        mountedPageIndexes: options.mountedPageIndexes,
+        numPages,
+        preferredPageIndex: comment.pageIndex,
+    })) {
         for (const normalizedEditor of getEditorsOnPage(uiManager, pageIndex)) {
-            const editorIdentity = getEditorIdentity(normalizedEditor, pageIndex);
-            const editorIds = new Set([
-                editorIdentity,
-                normalizedEditor.uid,
-                normalizedEditor.annotationElementId,
-                normalizedEditor.id === null || normalizedEditor.id === undefined
-                    ? null
-                    : String(normalizedEditor.id),
-            ].filter((value): value is string => Boolean(value)));
+            const editorIds = getEditorIds(normalizedEditor, pageIndex, getEditorIdentity);
             if (candidateIds.some(candidateId => editorIds.has(candidateId))) {
                 return normalizedEditor;
             }

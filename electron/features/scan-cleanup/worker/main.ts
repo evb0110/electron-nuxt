@@ -9,16 +9,20 @@ import { createLogger } from '@electron/utils/createLogger';
 import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { isAbortError } from '@electron/utils/abort';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import {openScanCleanupDetectionResultStoreDescriptor} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+import type {IScanCleanupDetectionResultStore} from '@scan-cleanup-core/types';
 import {
     runScanCleanupPipeline,
     type IRunScanCleanupPipelineRequest,
     type IScanCleanupWorkerPaths,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
+import type {TScanCleanupWorkerRequest} from '@electron/features/scan-cleanup/runScanCleanupWorkerTask';
 
 if (!parentPort) throw new Error('Scan cleanup worker started without a parent port');
 const port = parentPort;
 const data = workerData as {
-    request: IRunScanCleanupPipelineRequest;
+    request: TScanCleanupWorkerRequest;
     paths: IScanCleanupWorkerPaths;
     runtimePolicy?: unknown;
 };
@@ -29,15 +33,32 @@ let lastProgressStage: TScanCleanupProgress['stage'] | null = null;
 port.on('message', message => {
     if ((message as {type?: string}).type === 'cancel') abortController.abort(new DOMException('Scan cleanup canceled', 'AbortError'));
 });
+let detectionResultStore: IScanCleanupDetectionResultStore | null = null;
 try {
     const runtimePolicy = decodeScanCleanupRuntimePolicy(data.runtimePolicy);
     if (!runtimePolicy) throw new Error('Scan cleanup worker received an invalid runtime policy');
+    const {
+        detectionResultStoreDescriptor,
+        ...requestWithoutDetectionResultStoreDescriptor
+    } = data.request;
+    detectionResultStore = detectionResultStoreDescriptor === undefined
+        ? null
+        : await openScanCleanupDetectionResultStoreDescriptor(detectionResultStoreDescriptor);
+    const request: IRunScanCleanupPipelineRequest = {
+        ...requestWithoutDetectionResultStoreDescriptor,
+        ...(detectionResultStore === null ? {} : {detectionResultStore}),
+    };
+    attachScanCleanupPageOverrideDefaults(
+        request.options.pageOverrides,
+        request.options.pageOverrideDefaults,
+        request.options.marginsMm,
+    );
     logger.info(
         `Run started: source=${basename(data.request.sourcePdfPath)} `
         + `selectedPages=${String(data.request.sourcePageNumbers?.length ?? 'all')}`,
     );
     const result = await runScanCleanupPipeline(
-        data.request,
+        request,
         data.paths,
         abortController.signal,
         (progress: TScanCleanupProgress) => {
@@ -91,4 +112,6 @@ try {
         error: error instanceof Error ? error.message : String(error),
         errorFrame: createWorkerTaskErrorFrame(error, {source: 'scan-cleanup'}),
     });
+} finally {
+    await detectionResultStore?.close().catch(() => undefined);
 }

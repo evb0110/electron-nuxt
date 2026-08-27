@@ -38,6 +38,7 @@
             :total-pages="totalPages"
             :current-page="cropDialogPageNumber"
             :selected-pages="selectedThumbnailPages"
+            :selected-page-selection="selectedPageSelection"
             :initial-margins="cropDialogMargins"
             :media-box="cropDialogMediaBox"
             :current-visible-box="cropDialogCurrentBox"
@@ -62,6 +63,7 @@ import { PdfCropDialog } from '@app/modules/pdf-viewer/public/component-exports/
 import { PdfExportScopeDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfExportScopeDialog';
 import { PdfOptimizeDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfOptimizeDialog';
 import { PdfPrintDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfPrintDialog';
+import type { TPageSelection } from '@contracts/pageNumbers';
 
 const DjvuConvertDialog = defineAsyncComponent(
     () => import('@app/modules/djvu-viewer/public')
@@ -97,6 +99,7 @@ defineProps<{
     cropDialogCurrentBox: TPdfCropDialogProps['currentVisibleBox'];
     cropDialogRotation: TPdfCropDialogProps['rotation'];
     selectedThumbnailPages: number[];
+    selectedPageSelection?: TPageSelection | null | undefined;
     totalPages: number;
     currentPage: number;
     viewMode: TPdfPrintDialogProps['defaultViewMode'];

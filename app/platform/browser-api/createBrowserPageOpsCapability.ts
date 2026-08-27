@@ -3,6 +3,15 @@ import type {
     PAGE_OPS_PLATFORM_FEATURE,
     IPageOpsCapability,
 } from '@contracts/pageOpsPlatformFeature';
+import {
+    buildPageMoveOrder,
+    buildPageMoveRangesOrder,
+    createPageMoveRange,
+    createPageMoveRanges,
+    isPageMoveNoOp,
+    isPageMoveRangesNoOp,
+} from '@contracts/pageNumbers';
+import type { IPageMoveRangeSegment } from '@contracts/pageNumbers';
 import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import type { IPageGeometry } from '@contracts/shared';
 import { normalizeCropMargins } from '@contracts/shared';
@@ -11,6 +20,7 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
+import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 import type { IPickedBrowserFile } from '@app/platform/browser-api/browserFilePickerAdapter';
 import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
@@ -71,13 +81,20 @@ interface ICreateBrowserPageOpsOptions {
     ) => Promise<void>;
 }
 
-const BROWSER_PAGE_OP_PDF_MAX_BYTES = 64 * 1024 * 1024;
-const BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
+const BROWSER_PAGE_OP_PDF_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
+const BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
 const BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES = BROWSER_PAGE_OP_PDF_MAX_BYTES;
 const BROWSER_PAGE_OP_INSERT_MAX_BYTES = BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES;
 const BROWSER_PAGE_OP_GEOMETRY_MAX_BYTES = BROWSER_PAGE_OP_PDF_MAX_BYTES;
-const BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES = 64 * 1024 * 1024;
+const BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
 const BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES = 96 * 1024 * 1024;
+/**
+ * Browser page moves still need a full permutation for pdf-lib. Keep that
+ * fallback deliberately small. Desktop uses the qpdf range operation and has
+ * no corresponding page-count cap.
+ */
+export const BROWSER_PAGE_OP_MOVE_MAX_PAGES = 10_000;
+export const BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES = 10_000;
 
 type TBrowserPageOpsCoreModule = typeof BrowserPageOpsCoreModule;
 
@@ -94,6 +111,31 @@ function buildBrowserPageOpLimitError(label: string, maxBytes: number) {
 
 function buildBrowserPageOpJobLimitError(label: string, maxBytes: number) {
     return buildBrowserByteLimitError(label, maxBytes, 'jobs');
+}
+
+function materializePageRanges(
+    ranges: readonly IPageMoveRangeSegment[],
+    totalPages: number,
+) {
+    const selectedCount = ranges.reduce(
+        (count, range) => count + range.endPage - range.startPage + 1,
+        0,
+    );
+    if (selectedCount <= 0 || selectedCount > BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES) {
+        throw new Error(
+            `Deleting page ranges in the browser is limited to ${BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES} pages; use the desktop app for larger documents`,
+        );
+    }
+    const pages: number[] = [];
+    for (const range of ranges) {
+        for (let page = range.startPage; page <= range.endPage; page += 1) {
+            pages.push(page);
+        }
+    }
+    if (pages.some(page => page < 1 || page > totalPages)) {
+        throw new Error('Deleting page ranges received an out-of-range page');
+    }
+    return pages;
 }
 
 export function createBrowserPageOpsCapability(
@@ -295,6 +337,10 @@ export function createBrowserPageOpsCapability(
                 );
             });
         },
+        async deleteRanges(workingCopyPath, ranges, _totalPages, mutationOptions) {
+            const pages = materializePageRanges(ranges, _totalPages);
+            return pageOps.delete(workingCopyPath, pages, _totalPages, mutationOptions);
+        },
         async extract(workingCopyPath, pages) {
             const sourceName = getBrowserDocumentFileName(workingCopyPath).replace(
                 /\.pdf$/iu,
@@ -390,6 +436,44 @@ export function createBrowserPageOpsCapability(
                     result.pageCount,
                 );
             });
+        },
+        async move(workingCopyPath, startPage, endPage, insertAt, totalPages, mutationOptions) {
+            if (totalPages > BROWSER_PAGE_OP_MOVE_MAX_PAGES) {
+                throw new Error(
+                    `Moving pages in the browser is limited to ${BROWSER_PAGE_OP_MOVE_MAX_PAGES} pages; use the desktop app for larger documents`,
+                );
+            }
+            const move = createPageMoveRange(totalPages, startPage, endPage, insertAt);
+            if (isPageMoveNoOp(move)) {
+                return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, () => Promise.resolve({
+                    success: true,
+                    pageCount: move.pageCount,
+                }));
+            }
+            return pageOps.reorder(
+                workingCopyPath,
+                buildPageMoveOrder(move),
+                mutationOptions,
+            );
+        },
+        async moveRanges(workingCopyPath, ranges, insertAt, totalPages, mutationOptions) {
+            if (totalPages > BROWSER_PAGE_OP_MOVE_MAX_PAGES) {
+                throw new Error(
+                    `Moving pages in the browser is limited to ${BROWSER_PAGE_OP_MOVE_MAX_PAGES} pages; use the desktop app for larger documents`,
+                );
+            }
+            const move = createPageMoveRanges(totalPages, ranges, insertAt);
+            if (isPageMoveRangesNoOp(move)) {
+                return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, () => Promise.resolve({
+                    success: true,
+                    pageCount: move.pageCount,
+                }));
+            }
+            return pageOps.reorder(
+                workingCopyPath,
+                buildPageMoveRangesOrder(move),
+                mutationOptions,
+            );
         },
         async insert(workingCopyPath, _totalPages, afterPage, mutationOptions) {
             const pickedFiles = await options.pickFiles({

@@ -31,6 +31,12 @@ export function createEmptyPdfjsAnnotationEditorState(): IPdfjsAnnotationEditorS
     };
 }
 
+export function hasActivePdfjsAnnotationEditorDraft(
+    state: Pick<IPdfjsAnnotationEditorState, 'isEditing' | 'isEmpty'>,
+) {
+    return state.isEditing && !state.isEmpty;
+}
+
 export function decodePdfjsAnnotationStatePatch(
     value: unknown,
 ): Partial<IPdfjsAnnotationEditorState> | null {

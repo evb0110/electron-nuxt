@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as EsToolkitMath from 'es-toolkit/math';
 import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
@@ -35,6 +36,16 @@ vi.mock('fs/promises', () => ({
     stat: mocks.stat,
     writeFile: mocks.writeFile,
 }));
+
+vi.mock('es-toolkit/math', async (importOriginal) => {
+    const actual = await importOriginal<typeof EsToolkitMath>();
+    return {
+        ...actual,
+        range: vi.fn(() => {
+            throw new Error('Dense page ranges must not be used by search index building');
+        }),
+    };
+});
 
 vi.mock('@electron/search/extractTextFromPdf', () => ({extractTextFromPdf: mocks.extractTextFromPdf}));
 
@@ -159,6 +170,7 @@ describe('buildSearchIndex cancellation', () => {
             signal: controller.signal,
             collectPages: false,
             onPageText: expect.any(Function),
+            pageCount: 1,
         });
         expect(mocks.extractTextFromPdf).toHaveBeenCalledWith('/tmp/file.pdf', {
             pageCount: 1,
@@ -202,6 +214,28 @@ describe('buildSearchIndex cancellation', () => {
         ).rejects.toBe(abortError);
         expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
         expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
+    });
+
+    it('short-circuits missing coverage before scanning a huge page count', async () => {
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const pageCount = 1_000_001;
+        const abortError = createAbortError();
+        mockCatalog(pageCount, [{
+            pageNumber: 1,
+            text: 'first page',
+        }]);
+        mocks.extractTextWithPdfjs.mockRejectedValue(abortError);
+
+        await expect(buildSearchIndex('/tmp/huge.pdf', [], {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount,
+        })).rejects.toBe(abortError);
+
+        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/huge.pdf', {
+            collectPages: false,
+            onPageText: expect.any(Function),
+            pageCount,
+        });
     });
 });
 

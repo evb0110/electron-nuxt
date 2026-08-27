@@ -3,7 +3,9 @@ import type {
     IpcMainInvokeEvent,
 } from 'electron';
 import {randomUUID} from 'node:crypto';
+import {stat} from 'node:fs/promises';
 import type { IPdfSearchResponse } from '@contracts/search';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type { ISearchMatchOptions } from '@pdf-core';
 import type { IAgentTabSnapshot } from '@contracts/agent';
 import { requirePageNumber } from '@contracts/pageNumbers';
@@ -16,6 +18,11 @@ import {
     validateSearchQuery,
 } from '@electron/features/search/public';
 import { loadSearchIndex } from '@electron/search/indexBuilder';
+import {
+    loadCompactSearchIndex,
+    type ICompactSearchIndex,
+} from '@electron/search/searchIndexSidecar';
+import {classifyXlargeSearchPath} from '@electron/search/xlargeSearchRouting';
 import {loadPdfjsTextExtractor} from '@electron/search/loadPdfjsTextExtractor';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import type { IPageText } from '@electron/search/pageText';
@@ -55,6 +62,10 @@ type TAgentPageTextSource =
     | 'search-index'
     | 'direct-pdfjs'
     | 'direct-pdftotext';
+
+type TAgentTextStatus =
+    | ReturnType<typeof buildTextStatus>
+    | ReturnType<typeof buildXlargeTextStatus>;
 
 function createSearchEvent(window: BrowserWindow) {
     return {sender: window.webContents} as IpcMainInvokeEvent;
@@ -150,6 +161,45 @@ async function resolveAgentSearchPath(window: BrowserWindow, tab: IAgentTabSnaps
     };
 }
 
+/**
+ * Agent calls can arrive without a live renderer page count. A known high page
+ * count still selects the bounded route when the scalar stat is unavailable.
+ * This keeps the routing decision independent of document-text loading.
+ */
+async function classifyAgentSearchPath(
+    pdfPath: string,
+    pageCount: number | undefined,
+) {
+    try {
+        const fileStat = await stat(pdfPath);
+        const pathSizeBytes = typeof fileStat.size === 'number' && Number.isFinite(fileStat.size)
+            ? fileStat.size
+            : undefined;
+        return classifyXlargeSearchPath({
+            ...(pageCount === undefined ? {} : {pageCount}),
+            ...(pathSizeBytes === undefined ? {} : {pathSizeBytes}),
+        });
+    } catch {
+        return classifyXlargeSearchPath(
+            pageCount === undefined ? {} : {pageCount},
+        );
+    }
+}
+
+async function loadXlargeSearchMetadata(
+    pdfPath: string,
+    documentRevision: TDocumentRevisionToken,
+    pageCount: number | undefined,
+    signal?: AbortSignal,
+) {
+    return loadCompactSearchIndex(pdfPath, {
+        documentRevision,
+        ...(pageCount === undefined ? {} : {expectedPageCount: pageCount}),
+        metadataOnly: true,
+        ...(signal === undefined ? {} : {signal}),
+    });
+}
+
 async function warmAgentSearchIndex(
     window: BrowserWindow,
     tab: IAgentTabSnapshot,
@@ -162,6 +212,7 @@ async function warmAgentSearchIndex(
         documentRevision,
     } = await resolveAgentSearchPath(window, tab);
     const pageCount = getValidatedSearchPageCount(tab);
+    const classification = await classifyAgentSearchPath(resolvedPdfPath, pageCount);
     await dispatchAgentSearchRequest(
         window,
         {
@@ -176,12 +227,31 @@ async function warmAgentSearchIndex(
     );
 
     throwIfAborted(signal);
+    if (classification.isXlarge) {
+        const xlargeMetadata = await loadXlargeSearchMetadata(
+            resolvedPdfPath,
+            documentRevision,
+            pageCount,
+            signal,
+        );
+        throwIfAborted(signal);
+        return {
+            requestedPath,
+            resolvedPdfPath,
+            index: null,
+            xlargeMetadata,
+            isXlarge: true as const,
+        };
+    }
+
     const index = await loadSearchIndex(resolvedPdfPath, documentRevision);
     throwIfAborted(signal);
     return {
         requestedPath,
         resolvedPdfPath,
         index,
+        xlargeMetadata: null,
+        isXlarge: false as const,
     };
 }
 
@@ -193,6 +263,55 @@ function resolvePageCount(tab: IAgentTabSnapshot, indexPageCount: number | undef
         return Math.trunc(indexPageCount);
     }
     return indexedPages;
+}
+
+function buildXlargeTextStatus(
+    tab: IAgentTabSnapshot,
+    index: ICompactSearchIndex | null,
+) {
+    const pageCount = resolvePageCount(tab, index?.pageCount, 0);
+    const coverage = index?.coverage;
+    if (!index || !coverage || pageCount <= 0) {
+        return {
+            status: 'unknown' as const,
+            pageCount,
+            textPageCount: 0,
+            missingTextPages: [],
+            missingTextPageSample: [],
+            missingTextPageCount: pageCount,
+            coverage: 0,
+            coverageScope: 'document' as const,
+            globalCoverageKnown: false,
+        };
+    }
+
+    const textPageCount = Math.min(pageCount, Math.max(0, coverage.pagesWritten));
+    const missingTextPageCount = Math.max(0, pageCount - textPageCount);
+    const scanComplete = coverage.complete
+        && !coverage.partialCoverage
+        && !coverage.truncatedCoverage
+        && coverage.pagesScanned >= pageCount;
+    const status = scanComplete
+        ? 'complete' as const
+        : textPageCount === 0
+            ? 'none' as const
+            : 'partial' as const;
+
+    return {
+        status,
+        pageCount,
+        textPageCount,
+        // Never materialize one entry per missing page for xlarge documents.
+        missingTextPages: [],
+        missingTextPageSample: [],
+        missingTextPageCount,
+        missingTextPagesTruncated: missingTextPageCount > 0,
+        scanComplete,
+        pagesScanned: coverage.pagesScanned,
+        coverage: pageCount > 0 ? textPageCount / pageCount : 0,
+        coverageScope: 'document' as const,
+        globalCoverageKnown: true,
+    };
 }
 
 function buildTextStatus(tab: IAgentTabSnapshot, index: Awaited<ReturnType<typeof loadSearchIndex>>) {
@@ -240,7 +359,7 @@ function buildTextStatus(tab: IAgentTabSnapshot, index: Awaited<ReturnType<typeo
     };
 }
 
-function createTextRecommendations(textStatus: ReturnType<typeof buildTextStatus>) {
+function createTextRecommendations(textStatus: TAgentTextStatus) {
     if (textStatus.status === 'complete' || textStatus.status === 'unknown') {
         return [];
     }
@@ -268,8 +387,12 @@ export async function inspectAgentDocumentText(
         requestedPath,
         resolvedPdfPath,
         index,
+        xlargeMetadata,
+        isXlarge,
     } = await warmAgentSearchIndex(window, input.tab, signal);
-    const textStatus = buildTextStatus(input.tab, index);
+    const textStatus = isXlarge
+        ? buildXlargeTextStatus(input.tab, xlargeMetadata)
+        : buildTextStatus(input.tab, index);
 
     return {
         tabId: input.tab.tabId,
@@ -342,6 +465,7 @@ export async function searchAgentDocument(
         documentRevision,
     } = await resolveAgentSearchPath(window, input.tab);
     const pageCount = getValidatedSearchPageCount(input.tab);
+    const classification = await classifyAgentSearchPath(resolvedPdfPath, pageCount);
     const response: IPdfSearchResponse = await dispatchAgentSearchRequest(
         window,
         {
@@ -357,10 +481,15 @@ export async function searchAgentDocument(
         signal,
     );
     const results = response.results.slice(0, maxResults);
-    const index = await loadSearchIndex(resolvedPdfPath, documentRevision).catch((error) => {
-        logger.debug(`Failed to load search index after agent search: ${error instanceof Error ? error.message : String(error)}`);
-        return null;
-    });
+    const xlargeMetadata = classification.isXlarge
+        ? await loadXlargeSearchMetadata(resolvedPdfPath, documentRevision, pageCount, signal)
+        : null;
+    const index = classification.isXlarge
+        ? null
+        : await loadSearchIndex(resolvedPdfPath, documentRevision).catch((error) => {
+            logger.debug(`Failed to load search index after agent search: ${error instanceof Error ? error.message : String(error)}`);
+            return null;
+        });
 
     return {
         tabId: input.tab.tabId,
@@ -380,7 +509,9 @@ export async function searchAgentDocument(
         truncated: response.truncated || response.results.length > results.length,
         searchTruncated: response.truncated,
         toolTruncated: response.results.length > results.length,
-        textStatus: buildTextStatus(input.tab, index),
+        textStatus: classification.isXlarge
+            ? buildXlargeTextStatus(input.tab, xlargeMetadata)
+            : buildTextStatus(input.tab, index),
     };
 }
 
@@ -402,11 +533,11 @@ function buildPageTextResponse(
     };
 }
 
-function normalizeRequestedReadPages(pages: readonly number[], pageCount: number) {
+function normalizeRequestedReadPages(pages: readonly number[], pageCount?: number) {
     return Array.from(new Set(
         pages
             .map(page => Math.trunc(page))
-            .filter(page => page >= 1 && page <= pageCount),
+            .filter(page => page >= 1 && (pageCount === undefined || page <= pageCount)),
     )).sort((left, right) => left - right);
 }
 
@@ -463,7 +594,7 @@ function searchBoundedPageTexts(
 async function extractSelectedPdfPageTextWithFallback(
     pdfPath: string,
     pages: readonly number[],
-    pageCount: number,
+    pageCount: number | undefined,
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
@@ -473,6 +604,7 @@ async function extractSelectedPdfPageTextWithFallback(
             source: 'direct-pdfjs' as const,
             pages: completeRequestedPageTexts(await extractTextWithPdfjs(pdfPath, {
                 pages,
+                ...(pageCount === undefined ? {} : {pageCount}),
                 ...(signal === undefined ? {} : {signal}),
             }), pages),
         };
@@ -483,7 +615,7 @@ async function extractSelectedPdfPageTextWithFallback(
         return {
             source: 'direct-pdftotext' as const,
             pages: completeRequestedPageTexts(await extractTextFromPdf(pdfPath, {
-                pageCount,
+                ...(pageCount === undefined ? {} : {pageCount}),
                 pages,
                 ...(signal === undefined ? {} : {signal}),
             }), pages),
@@ -534,17 +666,62 @@ export async function readAgentDocumentPages(
         resolvedPdfPath,
         documentRevision,
     } = await resolveAgentSearchPath(window, input.tab);
+    const knownPageCount = getValidatedSearchPageCount(input.tab);
+    const classification = await classifyAgentSearchPath(resolvedPdfPath, knownPageCount);
+    const maxCharsPerPage = normalizePositiveInteger(
+        input.options.maxCharsPerPage,
+        DEFAULT_PAGE_TEXT_CHARS,
+        MAX_PAGE_TEXT_CHARS,
+    );
+
+    if (classification.isXlarge) {
+        const uniquePages = normalizeRequestedReadPages(input.options.pages, knownPageCount);
+        const pageCount = knownPageCount ?? uniquePages.at(-1) ?? 0;
+        if (uniquePages.length === 0) {
+            throw new Error(
+                knownPageCount === undefined
+                    ? 'No requested pages were positive integers.'
+                    : `No requested pages are within the document's 1-${pageCount} page range.`,
+            );
+        }
+        const directPageProbe = await extractSelectedPdfPageTextWithFallback(
+            resolvedPdfPath,
+            uniquePages,
+            knownPageCount,
+            signal,
+        );
+        throwIfAborted(signal);
+        const pageTexts = uniquePages.map(pageNumber => ({
+            pageNumber,
+            text: directPageProbe.pages.find(page => page.pageNumber === pageNumber)?.text ?? '',
+        }));
+        const pages = pageTexts.map(page => buildPageTextResponse(
+            page.pageNumber,
+            page.text,
+            maxCharsPerPage,
+            directPageProbe.source,
+        ));
+
+        return {
+            tabId: input.tab.tabId,
+            fileName: input.tab.fileName,
+            originalPath: input.tab.originalPath,
+            requestedPath,
+            resolvedPdfPath,
+            pageCount,
+            source: directPageProbe.source,
+            usedCachedSearchIndex: false,
+            pages,
+            textStatus: buildRequestedPagesTextStatus(input.tab, pageCount, pageTexts),
+        };
+    }
+
     const index = await loadSearchIndex(resolvedPdfPath, documentRevision).catch((error) => {
         logger.debug(`No cached search index available for agent page read; using direct page probe: ${error instanceof Error ? error.message : String(error)}`);
         return null;
     });
     throwIfAborted(signal);
     const pageCount = resolvePageCount(input.tab, index?.pageCount, index?.pages.length ?? 0);
-    const maxCharsPerPage = normalizePositiveInteger(
-        input.options.maxCharsPerPage,
-        DEFAULT_PAGE_TEXT_CHARS,
-        MAX_PAGE_TEXT_CHARS,
-    );
     const uniquePages = normalizeRequestedReadPages(input.options.pages, pageCount);
     if (uniquePages.length === 0) {
         throw new Error(`No requested pages are within the document's 1-${pageCount} page range.`);

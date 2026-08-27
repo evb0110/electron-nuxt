@@ -8,7 +8,6 @@ import {
     normalizePdfNativeMutationSet,
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
-    normalizePdfNativeWorkingCopyExpectation,
 } from '@contracts/nativePdfMutations';
 
 const validNoteTextUpdate = {
@@ -256,21 +255,6 @@ describe('native PDF mutation contracts', () => {
             ...validImage,
             source: null,
         }]}, 'mutations')).toThrow('valid managed binary handle');
-    });
-
-    it('normalizes working-copy expectations with the shared SHA-256 guard', () => {
-        expect(normalizePdfNativeWorkingCopyExpectation({
-            byteLength: 3,
-            sha256: 'A'.repeat(64),
-        }, 'expectedBase')).toEqual({
-            byteLength: 3,
-            sha256: 'a'.repeat(64),
-        });
-
-        expect(() => normalizePdfNativeWorkingCopyExpectation({
-            byteLength: 3,
-            sha256: 'not-a-digest',
-        }, 'expectedBase')).toThrow('SHA-256 hex digest');
     });
 
     it('accepts native mutation bounds that exactly touch normalized page edges', () => {

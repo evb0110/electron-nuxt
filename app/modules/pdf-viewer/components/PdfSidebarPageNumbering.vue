@@ -159,13 +159,14 @@ import type {
 } from '@app/types/pdfContracts';
 import type { IPdfPageRange } from '@app/types/pdfUi';
 import {
+    applyPageLabelRange,
     buildWholeDocumentPageLabelRanges,
-    buildPageLabelsFromRanges,
     derivePageLabelRangesFromLabels,
     formatPageRange,
     normalizePageLabelRanges,
+    PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
     parsePageRangeInput,
-} from '@app/utils/pdfPageLabels';
+} from '@app/utils/document-viewer/pageLabels';
 import { arePageNumberListsEqual } from '@app/utils/pdfPageSelection';
 
 type TNumberingScope = 'all' | 'range' | 'selection';
@@ -268,15 +269,27 @@ const pageLabelStyleSelectValue = computed({
 });
 
 const normalizedPageLabelRanges = computed(() => normalizePageLabelRanges(
-    pageLabelRanges ?? [],
+    pageLabelRanges
+        ?? (
+            pageLabels
+            && totalPages <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
+            && pageLabels.length === totalPages
+                ? derivePageLabelRangesFromLabels(pageLabels, totalPages)
+                : []
+        ),
     totalPages,
 ));
 
-function buildEffectivePageLabels() {
-    if (pageLabels && pageLabels.length === totalPages) {
-        return pageLabels;
+function buildRangePages(range: IPdfPageRange) {
+    const pageCount = range.endPage - range.startPage + 1;
+    if (pageCount > PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES) {
+        return [];
     }
-    return buildPageLabelsFromRanges(totalPages, normalizedPageLabelRanges.value);
+    const pages: number[] = [];
+    for (let page = range.startPage; page <= range.endPage; page += 1) {
+        pages.push(page);
+    }
+    return pages;
 }
 
 function normalizePageLabelStyleSelectValue(value: string): Exclude<TPageLabelStyle, null> {
@@ -309,7 +322,7 @@ function deriveContiguousSelectionRange(pages: number[]): IPdfPageRange | null {
 
     return {
         startPage,
-        endPage, 
+        endPage,
     };
 }
 
@@ -410,14 +423,6 @@ function handleStartNumberModelUpdate(value: number | null | undefined) {
     pageLabelStartNumber.value = Math.max(1, Math.trunc(value));
 }
 
-function buildRangePages(range: IPdfPageRange) {
-    const pages: number[] = [];
-    for (let page = range.startPage; page <= range.endPage; page += 1) {
-        pages.push(page);
-    }
-    return pages;
-}
-
 function setSelectedPagesSilently(pages: number[]) {
     if (arePageNumberListsEqual(selectedPages, pages)) {
         return;
@@ -460,23 +465,12 @@ function applyPageLabelsToRange(range: IPdfPageRange) {
     if (totalPages <= 0) {
         return;
     }
-
-    const nextLabels = [...buildEffectivePageLabels()];
-    if (nextLabels.length !== totalPages) {
-        return;
-    }
-
-    const segmentLabels = buildPageLabelsFromRanges(
-        range.endPage - range.startPage + 1,
-        [getConfiguredPageLabelRange(1)],
-    );
-
-    segmentLabels.forEach((label, index) => {
-        nextLabels[range.startPage - 1 + index] = label;
-    });
-
-    const nextRanges = derivePageLabelRangesFromLabels(nextLabels, totalPages);
-    emit('update:pageLabelRanges', nextRanges);
+    emit('update:pageLabelRanges', applyPageLabelRange(
+        totalPages,
+        normalizedPageLabelRanges.value,
+        range,
+        getConfiguredPageLabelRange(1),
+    ));
 }
 
 function applyToTargetRange() {

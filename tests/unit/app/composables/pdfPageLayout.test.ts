@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import {
@@ -12,7 +13,12 @@ import {
 } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
 import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
-import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+import {
+    cloneSparsePageMetrics,
+    getPageMetricMaximum,
+    isSparsePageMetricCollection,
+    normalizePageMetrics,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 
@@ -218,5 +224,180 @@ describe('pdfPageLayout', () => {
                 height: 520,
             },
         ]);
+    });
+
+    it('clones a million-page public metric snapshot without iterating sparse holes', () => {
+        const totalPages = 1_000_000;
+        const pageMetrics: IPdfPageMetric[] = [];
+        pageMetrics[0] = {
+            width: 300,
+            height: 500,
+        };
+        pageMetrics[totalPages - 1] = {
+            width: 320,
+            height: 520,
+        };
+        const iteratorSpy = vi.spyOn(pageMetrics, Symbol.iterator).mockImplementation(() => {
+            throw new Error('sparse public snapshots must not iterate metrics');
+        });
+
+        try {
+            const snapshot = cloneSparsePageMetrics(pageMetrics);
+            expect(snapshot.length).toBe(totalPages);
+            expect(snapshot[0]).toEqual(pageMetrics[0]);
+            expect(snapshot[totalPages - 1]).toEqual(pageMetrics[totalPages - 1]);
+            expect(Object.keys(snapshot).filter(key => /^\d+$/.test(key))).toHaveLength(2);
+        } finally {
+            iteratorSpy.mockRestore();
+        }
+    });
+
+    it('normalizes a million-page sparse metric source without a dense fill', () => {
+        const totalPages = 1_000_000;
+        const sparseMetrics: IPdfPageMetric[] = [];
+        sparseMetrics[0] = {
+            width: 300,
+            height: 500,
+        };
+        sparseMetrics[totalPages - 1] = {
+            width: 320,
+            height: 520,
+            rotation: 90,
+            userUnit: 2,
+        };
+
+        const arrayFromSpy = vi.spyOn(Array, 'from');
+        let normalized: IPdfPageMetric[];
+        try {
+            normalized = normalizePageMetrics({
+                pageMetrics: sparseMetrics,
+                totalPages,
+                fallbackWidth: 1200,
+                fallbackHeight: 1600,
+            });
+        } finally {
+            arrayFromSpy.mockRestore();
+        }
+
+        expect(arrayFromSpy).not.toHaveBeenCalled();
+        expect(Array.isArray(normalized)).toBe(true);
+        expect(normalized.length).toBe(totalPages);
+        expect(isSparsePageMetricCollection(normalized)).toBe(true);
+        expect(normalized[0]).toEqual({
+            width: 300,
+            height: 500,
+        });
+        const firstEstimate = normalized[1];
+        expect(firstEstimate).toEqual({
+            width: 300,
+            height: 500,
+        });
+        expect(normalized[totalPages - 1]).toEqual({
+            width: 320,
+            height: 520,
+            rotation: 90,
+            userUnit: 2,
+        });
+        expect(normalized[1]).toBe(firstEstimate);
+        expect(getPageMetricMaximum(normalized, 'height')).toBe(1600);
+        expect((normalized as typeof normalized & {knownIndices: readonly number[];}).knownIndices).toEqual([
+            0,
+            totalPages - 1,
+        ]);
+    });
+
+    it('builds early million-page layout lookups from chunked rows and prefixes', () => {
+        const totalPages = 1_000_000;
+        const sparseMetrics: IPdfPageMetric[] = [];
+        sparseMetrics[0] = {
+            width: 300,
+            height: 500,
+        };
+        sparseMetrics[100] = {
+            width: 700,
+            height: 1000,
+        };
+        sparseMetrics[totalPages - 1] = {
+            width: 320,
+            height: 520,
+        };
+        const normalized = normalizePageMetrics({
+            pageMetrics: sparseMetrics,
+            totalPages,
+            fallbackWidth: 1200,
+            fallbackHeight: 1600,
+        });
+        const arrayFromSpy = vi.spyOn(Array, 'from');
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: normalized,
+            pageMetricsVersion: 1,
+            totalPages,
+            viewMode: 'facing',
+            scale: 1,
+            gap: 12,
+            paddingTop: 8,
+            paddingBottom: 8,
+        });
+        arrayFromSpy.mockRestore();
+
+        expect(arrayFromSpy).not.toHaveBeenCalled();
+        expect(layout).not.toBeNull();
+        expect(layout?.base.pageWidths.length).toBe(totalPages);
+        expect(layout?.base.pageRowIndices.length).toBe(totalPages);
+        expect(layout?.base.rowStartPages.length).toBe(500_000);
+        expect(layout?.base.pageRowIndices[0]).toBe(0);
+        expect(layout?.base.pageRowIndices[1]).toBe(0);
+        expect(layout?.base.pageRowIndices[totalPages - 1]).toBe(499_999);
+        expect(layout?.base.rowStartPages[0]).toBe(1);
+        expect(layout?.base.rowEndPages[0]).toBe(2);
+        expect(layout?.base.rowStartPages[499_999]).toBe(999_999);
+        expect(layout?.base.rowEndPages[499_999]).toBe(totalPages);
+        expect(layout && getLayoutPageTop(layout, 0)).toBe(8);
+        expect(layout && getLayoutPageHeight(layout, totalPages - 1)).toBe(520);
+        expect(layout?.base.rowHeights[0]).toBe(500);
+        expect(layout?.base.rowHeights[499_999]).toBe(520);
+        expect(layout?.base.pageHeightPrefixSums[0]).toBe(500);
+        expect(layout?.base.pageHeightPrefixSums[300]).toBe(275_500);
+        expect(layout?.base.rowHeightPrefixSums[0]).toBe(500);
+        expect(layout?.base.rowHeightPrefixSums[1]).toBe(1_000);
+        expect(layout?.base.rowHeightPrefixSums[30]).toBe(18_500);
+        expect(Object.keys(layout?.base.pageWidths ?? []).filter(key => /^\d+$/.test(key))).toHaveLength(0);
+    });
+
+    it('keeps exact prefix corrections after distant chunks are evicted', () => {
+        const totalPages = 1_000_000;
+        const sparseMetrics: IPdfPageMetric[] = [];
+        sparseMetrics[0] = {
+            width: 300,
+            height: 100,
+        };
+        const normalized = normalizePageMetrics({
+            pageMetrics: sparseMetrics,
+            totalPages,
+            fallbackWidth: 300,
+            fallbackHeight: 100,
+        });
+        sparseMetrics[256] = {
+            width: 300,
+            height: 900,
+        };
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: normalized,
+            pageMetricsVersion: 1,
+            totalPages,
+            viewMode: 'single',
+            scale: 1,
+            gap: 0,
+            paddingTop: 0,
+            paddingBottom: 0,
+        });
+
+        expect(layout?.base.pageHeightPrefixSums[256]).toBe(26_500);
+        for (let block = 2; block < 80; block += 1) {
+            void layout?.base.pageHeightPrefixSums[block * 256];
+        }
+        // Block one has left the 32-block value cache, but its sparse exact
+        // correction remains in the prefix tree.
+        expect(layout?.base.pageHeightPrefixSums[512]).toBe(52_100);
     });
 });

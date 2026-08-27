@@ -10,6 +10,7 @@ import {
     handleOcrGetLanguages,
     handleResolveDocumentOcrAvailability,
     handleResolveDocumentOcrPage,
+    handleResolveDocumentTextCatalogWindow,
     handleResolveDocumentTextCatalog,
 } from '@electron/features/ocr/main/ocrOperations';
 import { subscribeManagedOcrProgress } from '@electron/ocr/jobManager';
@@ -18,6 +19,7 @@ export const ocrMainBindings = {
     cancel: handleOcrCancelValidated,
     getLanguages: handleOcrGetLanguages,
     resolveDocumentTextCatalog: handleResolveDocumentTextCatalog,
+    resolveDocumentTextCatalogWindow: handleResolveDocumentTextCatalogWindow,
     resolveDocumentOcrAvailability: handleResolveDocumentOcrAvailability,
     resolveDocumentOcrPage: handleResolveDocumentOcrPage,
     acknowledgeResultFile: handleOcrAcknowledgeResultFileValidated,

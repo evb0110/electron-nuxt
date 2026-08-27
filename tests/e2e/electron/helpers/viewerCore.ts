@@ -17,6 +17,7 @@ import {
     getWorkspaceToolbarSnapshot,
     installWorkspaceExposeProbe,
     waitForAutomationEvent,
+    waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 export {
@@ -1326,35 +1327,7 @@ export async function waitForToolbarCurrentPage(
     expectedPage: number,
     timeoutMs = DEFAULT_TIMEOUT_MS,
 ) {
-    await page.waitForFunction((targetPage: number) => {
-        const isVisibleElement = (element: HTMLElement) => {
-            if (!element.isConnected) {
-                return false;
-            }
-
-            let current: HTMLElement | null = element;
-            while (current) {
-                const style = window.getComputedStyle(current);
-                if (
-                    style.display === 'none'
-                    || style.visibility === 'hidden'
-                    || Number(style.opacity || '1') === 0
-                ) {
-                    return false;
-                }
-                current = current.parentElement;
-            }
-
-            const rect = element.getBoundingClientRect();
-            return rect.width > 8 && rect.height > 8;
-        };
-
-        const currentPageText = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current'))
-            .find(isVisibleElement)
-            ?.textContent
-            ?.trim() ?? '';
-        return Number.parseInt(currentPageText, 10) === targetPage;
-    }, {timeout: timeoutMs}, expectedPage);
+    await waitForWorkspaceToolbarSnapshot(page, {currentPage: expectedPage}, {timeoutMs});
 }
 
 

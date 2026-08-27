@@ -16,10 +16,14 @@ import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers
 import { appendHistoryEntry } from '@app/services/pdf-file/appendHistoryEntry';
 import { areByteArraysEqual } from '@app/utils/areByteArraysEqual';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { getDocumentRefBaseName } from '@app/utils/documentRef';
+import {
+    getDocumentRefBaseName,
+    isNativeDocumentRef,
+} from '@app/utils/documentRef';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import { createWorkingCopySnapshotFromData } from '@app/services/pdf-file/createWorkingCopySnapshotFromData';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
+import { isPathPdfSource } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 
 export interface IPdfLoadedState {
     pdfData: Uint8Array | null;
@@ -77,7 +81,6 @@ interface ICreateDocumentHistoryDeps {
 const MAX_HISTORY_ENTRIES = 20;
 // Annotation commands use the other 16 MiB half of the app-wide 32 MiB undo cap.
 const MAX_FILE_HISTORY_BYTES = 16 * 1024 * 1024;
-const MAX_FILE_HISTORY_PATH_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_IN_MEMORY_HISTORY_SNAPSHOT_BYTES = 8 * 1024 * 1024;
 
 function createDocumentMutationRevisionOptions(
@@ -235,6 +238,44 @@ export function createDocumentHistory(
         };
     }
 
+    function getNativePathHistorySource(path: TDocumentRef) {
+        const sources = [
+            state.pdfSrc.value,
+            state.pdfReloadSrc.value,
+        ];
+        return sources.find(source => (
+            isPathPdfSource(source)
+            && source.path === path
+            && state.isElectron.value
+            && isNativeDocumentRef(path)
+        )) ?? null;
+    }
+
+    async function createCurrentPathHistoryEntry(
+        path: TDocumentRef,
+        size: number,
+    ): Promise<IPathHistoryEntry | null> {
+        if (!state.isActiveWorkingCopy(path)) {
+            return null;
+        }
+
+        const entry = await createPathHistoryEntry(path, size);
+        if (state.isActiveWorkingCopy(path)) {
+            return entry;
+        }
+
+        // The path clone may finish after an open/close or a newer working copy
+        // took ownership of the session. Never retain a snapshot belonging to
+        // that old session.
+        await deps.documentWorkingCopy().cleanupFile(entry.path).catch((cleanupError: unknown) => {
+            BrowserLogger.warn('pdf-file', 'Failed to cleanup stale path history snapshot', {
+                path: entry.path,
+                error: cleanupError,
+            });
+        });
+        return null;
+    }
+
     function shouldStoreHistorySnapshotOnDisk(snapshot: Uint8Array) {
         return (
             state.isElectron.value
@@ -276,6 +317,30 @@ export function createDocumentHistory(
         options?: { reuseSnapshot?: boolean },
     ): Promise<TPdfHistoryEntry | null> {
         const expectedWorkingPath = state.workingCopyPath.value;
+
+        // A native path source already has an authoritative, managed working
+        // copy. Do not turn a save/recovery byte hint into another whole-PDF
+        // renderer allocation. The hint only tells this method that a new
+        // history state exists; the path clone is the snapshot.
+        const nativePathSource = expectedWorkingPath
+            ? getNativePathHistorySource(expectedWorkingPath)
+            : null;
+        if (nativePathSource) {
+            try {
+                return await createCurrentPathHistoryEntry(
+                    expectedWorkingPath!,
+                    nativePathSource.size,
+                );
+            } catch (snapshotError) {
+                BrowserLogger.warn('pdf-file', 'Failed to create path-backed history snapshot', {
+                    path: expectedWorkingPath,
+                    bytes: nativePathSource.size,
+                    error: snapshotError,
+                });
+                return null;
+            }
+        }
+
         if (expectedWorkingPath && shouldStoreHistorySnapshotOnDisk(snapshot)) {
             try {
                 const entry = await createPathHistoryEntryFromSnapshot(snapshot, expectedWorkingPath);
@@ -570,7 +635,6 @@ export function createDocumentHistory(
         }, entry, {
             maxEntries: MAX_HISTORY_ENTRIES,
             maxBytes: MAX_FILE_HISTORY_BYTES,
-            maxPathBytes: MAX_FILE_HISTORY_PATH_BYTES,
         });
 
         // A post-mutation checkpoint without its baseline cannot be undone.

@@ -3,10 +3,14 @@ import {
     createRafCoalescedCallback,
     type IRafCoalescedCallbackEnvironment,
 } from '@app/utils/createRafCoalescedCallback';
+import {
+    mergeDocumentPageMetrics,
+    type TDocumentPageMetricsCollection,
+} from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
 
 interface ICreateDocumentPageMetricPublicationOptions {
-    readMetrics: () => readonly IDocumentPageMetrics[];
-    commitMetrics: (metrics: IDocumentPageMetrics[]) => void;
+    readMetrics: () => TDocumentPageMetricsCollection;
+    commitMetrics: (metrics: TDocumentPageMetricsCollection) => void;
     onPublished: () => void;
 }
 
@@ -21,11 +25,7 @@ export function createDocumentPageMetricPublication(
         if (pendingMetrics.size === 0) {
             return;
         }
-        const nextMetrics = options.readMetrics().slice();
-        for (const [
-            pageNumber,
-            metric,
-        ] of pendingMetrics) nextMetrics[pageNumber - 1] = metric;
+        const nextMetrics = mergeDocumentPageMetrics(options.readMetrics(), pendingMetrics);
         pendingMetrics.clear();
         options.commitMetrics(nextMetrics);
         options.onPublished();

@@ -158,6 +158,7 @@ describe('feature IPC codec maps', () => {
             text: 'Updated note',
         }]};
         const validModifiedAt = 'D:20260810010203Z';
+        const revisionOptions = {expectedDocumentRevisionToken: 'drt1:test:feature-ipc'};
 
         expect(saveCodec?.decodeArgs([
             '/tmp/working.pdf',
@@ -191,11 +192,18 @@ describe('feature IPC codec maps', () => {
             '/tmp/working.pdf',
             validMutation,
             validModifiedAt,
-            {
-                byteLength: 1,
-                sha256: 'invalid',
-            },
-        ])).toThrow('expectedBase.sha256');
+        ])).toThrow('expected 4 arguments');
+        expect(applyCodec?.decodeArgs([
+            '/tmp/working.pdf',
+            validMutation,
+            validModifiedAt,
+            revisionOptions,
+        ])).toEqual([
+            '/tmp/working.pdf',
+            validMutation,
+            validModifiedAt,
+            revisionOptions,
+        ]);
     });
 
     it('deeply validates workspace snapshots at the platform boundary', () => {
@@ -385,14 +393,42 @@ describe('feature IPC codec maps', () => {
             pageNumber: 9,
             words: [{y: 400}],
         }]});
-        expect(() => djvuCodec(DJVU_CHANNELS.searchText).decodeArgs([
+        const largePageCountArgs = [
             '/tmp/book.djvu',
             'needle',
             {
                 requestId: 'djvu-search-1',
-                pageCount: 20_001,
+                pageCount: 1_000_001,
             },
-        ])).toThrow('valid requestId and pageCount');
+        ] as const;
+        expect(djvuCodec(DJVU_CHANNELS.searchText).decodeArgs(largePageCountArgs)).toEqual([
+            '/tmp/book.djvu',
+            'needle',
+            {
+                requestId: 'djvu-search-1',
+                pageCount: 1_000_001,
+                matchCase: false,
+                wholeWord: false,
+                useRegex: false,
+            },
+        ]);
+
+        for (const invalidPageCount of [
+            0,
+            -1,
+            1.5,
+            Number.MAX_SAFE_INTEGER + 1,
+            Number.POSITIVE_INFINITY,
+        ]) {
+            expect(() => djvuCodec(DJVU_CHANNELS.searchText).decodeArgs([
+                '/tmp/book.djvu',
+                'needle',
+                {
+                    requestId: 'djvu-search-1',
+                    pageCount: invalidPageCount,
+                },
+            ])).toThrow('pageCount must be a positive safe integer');
+        }
         expect(() => djvuCodec(DJVU_CHANNELS.searchText).decodeResult({
             truncated: false,
             results: [{

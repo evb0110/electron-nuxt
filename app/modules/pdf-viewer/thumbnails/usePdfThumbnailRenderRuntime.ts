@@ -301,7 +301,7 @@ export const usePdfThumbnailRenderRuntime = (
             return false;
         }
         const nextAspectRatio = viewportHeightValue / viewportWidth;
-        const previousAspectRatio = layout.thumbnailAspectRatios.value[pageNumber - 1] ?? null;
+        const previousAspectRatio = layout.thumbnailAspectRatios.value.get(pageNumber) ?? null;
         if (
             !Number.isFinite(nextAspectRatio)
             || nextAspectRatio <= 0
@@ -504,7 +504,7 @@ export const usePdfThumbnailRenderRuntime = (
 
     function estimateThumbnailPixels(pageNumber: number) {
         const width = Math.max(1, layout.thumbnailRenderWidth.value);
-        const aspectRatio = layout.thumbnailAspectRatios.value[pageNumber - 1] ?? 1.3;
+        const aspectRatio = layout.thumbnailAspectRatios.value.get(pageNumber) ?? 1.3;
         const outputScale = resolveThumbnailOutputScale();
         return Math.max(1, Math.ceil(width * outputScale))
             * Math.max(1, Math.ceil(width * aspectRatio * outputScale));
@@ -675,7 +675,7 @@ export const usePdfThumbnailRenderRuntime = (
                 pageNumber,
                 (pageRenderEpochs.get(pageNumber) ?? 0) + 1,
             );
-            if (layout.thumbnailAspectRatios.value[pageNumber - 1] !== undefined) {
+            if (layout.thumbnailAspectRatios.value.has(pageNumber)) {
                 layout.updateThumbnailAspectRatio(pageNumber, null);
             }
             const canvas = dom.getCanvas(pageNumber);
@@ -740,7 +740,7 @@ export const usePdfThumbnailRenderRuntime = (
                     1,
                     Math.max(1, source.totalPages.value),
                 );
-                const aspectRatio = layout.thumbnailAspectRatios.value[pageNumber - 1] ?? null;
+                const aspectRatio = layout.thumbnailAspectRatios.value.get(pageNumber) ?? null;
                 if (!aspectRatio || aspectRatio <= 0) {
                     void preloadThumbnailAspectRatio(
                         document,

@@ -7,7 +7,8 @@ use evb_native_support::{
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 use lopdf::dictionary;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat};
-use page_sizes::write_page_sizes_json;
+use page_geometry::write_page_geometry_path;
+use page_sizes::write_page_sizes_path;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::{
@@ -19,9 +20,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod annotation_index;
 mod annotations;
 mod catalog;
 mod cli;
+mod conformance;
 mod dispatcher;
 mod incremental;
 mod incremental_document;
@@ -34,6 +37,7 @@ mod page_geometry;
 mod page_tree_ops;
 mod placed_images;
 mod postconditions;
+mod shape_index;
 mod shapes;
 mod split_pages;
 mod text_layer;
@@ -57,9 +61,11 @@ fn read_json_sidecar<T: DeserializeOwned>(path: &std::path::Path, label: &str) -
     })
 }
 
+pub(crate) use annotation_index::*;
 pub(crate) use annotations::*;
 pub(crate) use catalog::*;
 pub(crate) use cli::*;
+pub(crate) use conformance::*;
 pub(crate) use dispatcher::*;
 pub(crate) use incremental::*;
 pub(crate) use incremental_document::*;
@@ -72,6 +78,7 @@ pub(crate) use page_geometry::*;
 pub(crate) use page_tree_ops::*;
 pub(crate) use placed_images::*;
 pub(crate) use postconditions::*;
+pub(crate) use shape_index::*;
 pub(crate) use shapes::*;
 pub(crate) use split_pages::*;
 pub(crate) use text_layer::*;

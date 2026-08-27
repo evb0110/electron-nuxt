@@ -1,9 +1,19 @@
 use super::*;
-use lopdf::content::{Content, Operation as ContentOperation};
-use std::path::Path;
+use lopdf::{
+    content::{Content, Operation as ContentOperation},
+    DecompressError, Error as LopdfError,
+};
+use std::{
+    path::Path,
+    process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 
 const MAX_TEXT_CONTENT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_OBJECT_GRAPH_DEPTH: usize = 128;
+const MAX_SOURCE_PAGE_BATCH_PAGES: usize = 64;
+const QPDF_SOURCE_EXTRACTION_TIMEOUT: Duration = Duration::from_secs(110);
 
 pub(crate) fn read_text_layer_file(path: &Path) -> Result<TextLayerFile> {
     let instructions: TextLayerFile = read_json_sidecar(path, "text-layer instructions")?;
@@ -88,6 +98,19 @@ fn page_fonts(document: &Document, page_id: ObjectId) -> Result<BTreeMap<Vec<u8>
 }
 
 fn page_resources(document: &Document, page_id: ObjectId) -> Result<Dictionary> {
+    // Incremental page dictionaries live in `new_document`, while their
+    // preserved `/Parent` points into the base document. Resolve a direct
+    // `/Resources` value before walking parents so materialized pages do not
+    // require copying the entire base page tree into the new revision.
+    if let Ok(page) = document.get_dictionary(page_id) {
+        if let Ok(resources) = page.get(b"Resources") {
+            if let Ok((_, resources)) = document.dereference(resources) {
+                if let Ok(resources) = resources.as_dict() {
+                    return Ok(resources.clone());
+                }
+            }
+        }
+    }
     let (direct_resources, inherited_resource_ids) = document.get_page_resources(page_id)?;
     if let Some(resources) = direct_resources {
         return Ok(resources.clone());
@@ -612,7 +635,19 @@ fn text_operations(
     page_id: ObjectId,
     filter: Option<(TextMatrix, PdfRect)>,
 ) -> Result<(Vec<ContentOperation>, HashSet<Vec<u8>>)> {
-    let bytes = source.get_page_content_with_limit(page_id, MAX_TEXT_CONTENT_BYTES)?;
+    let bytes = source
+        .get_page_content_with_limit(page_id, MAX_TEXT_CONTENT_BYTES)
+        .map_err(|error| match error {
+            LopdfError::Decompress(DecompressError::MemoryLimitExceeded { limit }) => {
+                domain_error(
+                    NativeErrorCode::TooLarge,
+                    format!(
+                        "overlay-text source page content exceeds the {limit}-byte decompression ceiling"
+                    ),
+                )
+            }
+            error => Box::new(error) as Box<dyn Error>,
+        })?;
     let content = Content::decode(&bytes)?;
     let strict = filter.is_some();
     let source_fonts = strict.then(|| page_fonts(source, page_id)).transpose()?;
@@ -1045,6 +1080,21 @@ fn append_text_layer(
             operations: wrapped,
         },
     )?;
+    // The full-rewrite path compresses all eligible streams at the end of the
+    // operation. A path-backed incremental revision must compress only the
+    // stream just added here. Calling `Document::compress` would touch qpdf's
+    // structural stream placeholders and could write an empty replacement for
+    // an unavailable base stream.
+    let content_id = target
+        .get_page_contents(target_page_id)
+        .last()
+        .copied()
+        .ok_or("overlay-text failed to locate its new content stream")?;
+    let stream = target.get_object_mut(content_id)?.as_stream_mut()?;
+    if stream.dict.get(b"Filter").is_ok() {
+        return Err("overlay-text located an already filtered content stream".into());
+    }
+    stream.compress()?;
     *copied = staged_copied;
     Ok(None)
 }
@@ -1054,20 +1104,20 @@ pub(crate) fn overlay_text_layers(
     source: &Document,
     instructions: &TextLayerFile,
 ) -> Result<()> {
-    let source_pages = source.get_pages();
-    let target_pages = target.get_pages();
+    let source_resolver = PageTreeResolver::new(source)?;
+    let target_resolver = PageTreeResolver::new(target)?;
     // Producer OCR commonly shares one font, descriptor, embedded program and
     // ToUnicode CMap across the whole book. Keep one source-to-target object
     // map for the overlay operation so each source object is cloned once, then
     // referenced from every output page that uses it.
     let mut copied = HashMap::new();
     for instruction in &instructions.pages {
-        let source_page_number = u32::try_from(instruction.source_page_index + 1)
-            .map_err(|_| "overlay-text sourcePageIndex is too large")?;
-        let output_page_number = u32::try_from(instruction.output_page_index + 1)
-            .map_err(|_| "overlay-text outputPageIndex is too large")?;
-        let source_page_id = resolve_page_id(&source_pages, source_page_number)?;
-        let target_page_id = resolve_page_id(&target_pages, output_page_number)?;
+        let source_page_number =
+            overlay_page_number(instruction.source_page_index, "sourcePageIndex")?;
+        let output_page_number =
+            overlay_page_number(instruction.output_page_index, "outputPageIndex")?;
+        let source_page_id = source_resolver.page_id(source, source_page_number)?;
+        let target_page_id = target_resolver.page_id(target, output_page_number)?;
         let skipped = append_text_layer(
             target,
             source,
@@ -1098,4 +1148,567 @@ pub(crate) fn overlay_text_layers(
     // existing image/JBIG2/JPX payloads remain byte-for-byte untouched.
     target.compress();
     Ok(())
+}
+
+/// Materialize only the target page dictionaries touched by an overlay. The
+/// source page content remains in the base revision, while new OCR streams and
+/// copied font objects go into the incremental revision.
+fn prepare_incremental_overlay_page(
+    incremental: &mut IncrementalDocument,
+    page_id: ObjectId,
+) -> Result<()> {
+    let base = &incremental.previous_document;
+    let parent = base.get_dictionary(page_id)?.get(b"Parent").ok().cloned();
+    let mut page = materialized_page_dictionary(base, page_id)?;
+    if let Some(parent) = parent {
+        page.set("Parent", parent);
+    }
+    if let Some(resources) = page.get(b"Resources").ok().cloned() {
+        let (_, resources) = base.dereference(&resources)?;
+        let mut resources = resources.as_dict()?.clone();
+        if let Some(fonts) = resources.get(b"Font").ok().cloned() {
+            if let Ok((_, fonts)) = base.dereference(&fonts) {
+                if let Ok(fonts) = fonts.as_dict() {
+                    resources.set("Font", Object::Dictionary(fonts.clone()));
+                }
+            }
+        }
+        page.set("Resources", Object::Dictionary(resources));
+    }
+
+    // Normalize nested /Contents arrays while the base structure is available.
+    // This keeps `Document::add_page_contents` from treating an indirect array
+    // as if it were a stream reference in the new revision.
+    if page.get(b"Contents").is_ok() {
+        let content_ids = content_stream_ids_from_base(base, &mut incremental.new_document, &page)?;
+        page.set(
+            "Contents",
+            Object::Array(content_ids.into_iter().map(Object::Reference).collect()),
+        );
+    }
+    incremental
+        .new_document
+        .set_object(page_id, Object::Dictionary(page));
+    Ok(())
+}
+
+pub(crate) fn overlay_text_layers_incremental(
+    incremental: &mut IncrementalDocument,
+    source: &Document,
+    instructions: &TextLayerFile,
+) -> Result<()> {
+    let source_resolver = PageTreeResolver::new(source)?;
+    let target_resolver = PageTreeResolver::new(&incremental.previous_document)?;
+    let mut copied = HashMap::new();
+    let mut prepared_pages = HashSet::new();
+    for instruction in &instructions.pages {
+        let source_page_number =
+            overlay_page_number(instruction.source_page_index, "sourcePageIndex")?;
+        let output_page_number =
+            overlay_page_number(instruction.output_page_index, "outputPageIndex")?;
+        let source_page_id = source_resolver.page_id(source, source_page_number)?;
+        let target_page_id =
+            target_resolver.page_id(&incremental.previous_document, output_page_number)?;
+        // Materializing a page copies its base /Contents into the new
+        // revision. Do it once per resolved page, otherwise a later
+        // instruction targeting the same page would replace the streams
+        // appended by earlier instructions. The object-map check also covers
+        // another source batch applied to the same IncrementalDocument.
+        if prepared_pages.insert(target_page_id)
+            && !incremental.new_document.has_object(target_page_id)
+        {
+            prepare_incremental_overlay_page(incremental, target_page_id)?;
+        }
+        let skipped = append_text_layer(
+            &mut incremental.new_document,
+            source,
+            target_page_id,
+            source_page_id,
+            instruction.matrix,
+            instruction.filter_to_output_page,
+            &mut copied,
+        )?;
+        if let Some(reason) = skipped {
+            eprintln!(
+                "{}",
+                serde_json::json!({
+                    "level": "warning",
+                    "event": "scan_cleanup_text_overlay_skipped",
+                    "sourcePageIndex": instruction.source_page_index,
+                    "outputPageIndex": instruction.output_page_index,
+                    "reason": reason,
+                })
+            );
+        }
+    }
+    Ok(())
+}
+
+struct OverlaySourceTempDir {
+    path: PathBuf,
+}
+
+impl OverlaySourceTempDir {
+    fn create() -> Result<Self> {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("evb-overlay-text-{}-{nonce}", std::process::id()));
+        fs::create_dir(&path)
+            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+        #[cfg(target_family = "unix")]
+        if let Err(error) =
+            fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o700))
+        {
+            let _ = fs::remove_dir_all(&path);
+            return Err(domain_error(NativeErrorCode::Io, error.to_string()));
+        }
+        Ok(Self { path })
+    }
+
+    fn subset_path(&self, batch_id: usize) -> PathBuf {
+        self.path.join(format!("batch-{batch_id}.pdf"))
+    }
+}
+
+impl Drop for OverlaySourceTempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+enum OverlaySourceBatchFailure {
+    TooLarge,
+    Failed(Box<dyn Error>),
+}
+
+fn overlay_page_number(index: usize, label: &str) -> Result<u32> {
+    let number = index
+        .checked_add(1)
+        .ok_or_else(|| format!("overlay-text {label} is too large"))?;
+    u32::try_from(number).map_err(|_| format!("overlay-text {label} is too large").into())
+}
+
+fn is_too_large_error(error: &(dyn Error + 'static)) -> bool {
+    error
+        .downcast_ref::<NativeError>()
+        .is_some_and(|error| error.code == NativeErrorCode::TooLarge)
+}
+
+fn referenced_source_pages(instructions: &TextLayerFile) -> Result<Vec<usize>> {
+    let mut pages = instructions
+        .pages
+        .iter()
+        .map(|instruction| instruction.source_page_index)
+        .collect::<Vec<_>>();
+    pages.sort_unstable();
+    pages.dedup();
+    for page in &pages {
+        overlay_page_number(*page, "sourcePageIndex")?;
+    }
+    Ok(pages)
+}
+
+fn validate_overlay_page_numbers(instructions: &TextLayerFile) -> Result<()> {
+    for instruction in &instructions.pages {
+        overlay_page_number(instruction.source_page_index, "sourcePageIndex")?;
+        overlay_page_number(instruction.output_page_index, "outputPageIndex")?;
+    }
+    Ok(())
+}
+
+fn source_page_ranges(pages: &[usize]) -> Result<Vec<String>> {
+    let Some(&first_page) = pages.first() else {
+        return Err("overlay-text source batch cannot be empty".into());
+    };
+    let mut start = overlay_page_number(first_page, "sourcePageIndex")?;
+    let mut end = start;
+    let mut ranges = Vec::new();
+    for page in pages.iter().skip(1) {
+        let number = overlay_page_number(*page, "sourcePageIndex")?;
+        if end.checked_add(1).is_some_and(|next| number == next) {
+            end = number;
+            continue;
+        }
+        ranges.push(if start == end {
+            start.to_string()
+        } else {
+            format!("{start}-{end}")
+        });
+        start = number;
+        end = number;
+    }
+    ranges.push(if start == end {
+        start.to_string()
+    } else {
+        format!("{start}-{end}")
+    });
+    Ok(ranges)
+}
+
+fn extract_overlay_source_batch(
+    source_path: &Path,
+    qpdf_path: &Path,
+    pages: &[usize],
+    temp_dir: &OverlaySourceTempDir,
+    batch_id: usize,
+) -> std::result::Result<PathBuf, OverlaySourceBatchFailure> {
+    let ranges = source_page_ranges(pages).map_err(OverlaySourceBatchFailure::Failed)?;
+    let subset_path = temp_dir.subset_path(batch_id);
+    let mut child = Command::new(qpdf_path)
+        .args([
+            "--suppress-recovery",
+            "--warning-exit-0",
+            "--empty",
+            "--pages",
+        ])
+        .arg(source_path)
+        .arg(ranges.join(","))
+        .arg("--")
+        .arg(&subset_path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| {
+            OverlaySourceBatchFailure::Failed(domain_error(NativeErrorCode::Io, error.to_string()))
+        })?;
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = fs::remove_file(&subset_path);
+                return Err(OverlaySourceBatchFailure::Failed(domain_error(
+                    NativeErrorCode::Io,
+                    error.to_string(),
+                )));
+            }
+        }
+        if started.elapsed() > QPDF_SOURCE_EXTRACTION_TIMEOUT {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = fs::remove_file(&subset_path);
+            return Err(OverlaySourceBatchFailure::TooLarge);
+        }
+        if fs::metadata(&subset_path)
+            .map(|metadata| metadata.len() > MAX_ENCODED_PDF_BYTES as u64)
+            .unwrap_or(false)
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = fs::remove_file(&subset_path);
+            return Err(OverlaySourceBatchFailure::TooLarge);
+        }
+        thread::sleep(Duration::from_millis(25));
+    };
+    if !status.success() {
+        let _ = fs::remove_file(&subset_path);
+        return Err(OverlaySourceBatchFailure::Failed(domain_error(
+            NativeErrorCode::CorruptXref,
+            format!("qpdf source-page extraction failed with status {status}"),
+        )));
+    }
+    let encoded_len = fs::metadata(&subset_path)
+        .map_err(|error| {
+            OverlaySourceBatchFailure::Failed(domain_error(NativeErrorCode::Io, error.to_string()))
+        })?
+        .len();
+    if encoded_len > MAX_ENCODED_PDF_BYTES as u64 {
+        let _ = fs::remove_file(&subset_path);
+        return Err(OverlaySourceBatchFailure::TooLarge);
+    }
+    if encoded_len == 0 {
+        let _ = fs::remove_file(&subset_path);
+        return Err(OverlaySourceBatchFailure::Failed(domain_error(
+            NativeErrorCode::CorruptXref,
+            "qpdf source-page extraction produced an empty PDF",
+        )));
+    }
+    Ok(subset_path)
+}
+
+fn rebase_overlay_source_instructions(
+    instructions: &TextLayerFile,
+    pages: &[usize],
+) -> Result<TextLayerFile> {
+    let local_pages = pages
+        .iter()
+        .enumerate()
+        .map(|(local_index, page)| (*page, local_index))
+        .collect::<HashMap<_, _>>();
+    let batch_pages = instructions
+        .pages
+        .iter()
+        .filter_map(|instruction| {
+            local_pages
+                .get(&instruction.source_page_index)
+                .map(|local_index| TextLayerInstruction {
+                    source_page_index: *local_index,
+                    output_page_index: instruction.output_page_index,
+                    matrix: instruction.matrix,
+                    filter_to_output_page: instruction.filter_to_output_page,
+                })
+        })
+        .collect::<Vec<_>>();
+    if batch_pages.is_empty() {
+        return Err("overlay-text source batch has no matching instructions".into());
+    }
+    Ok(TextLayerFile { pages: batch_pages })
+}
+
+fn try_write_overlay_source_batch(
+    output_path: &Path,
+    source_path: &Path,
+    qpdf_path: &Path,
+    pages: &[usize],
+    instructions: &TextLayerFile,
+    temp_dir: &OverlaySourceTempDir,
+    batch_id: usize,
+) -> std::result::Result<(), OverlaySourceBatchFailure> {
+    let subset_path =
+        extract_overlay_source_batch(source_path, qpdf_path, pages, temp_dir, batch_id)?;
+    let result = (|| {
+        let source = match load_pdf_path(&subset_path) {
+            Ok(source) => source,
+            Err(error) => {
+                let error = classify_pdf_load_error(
+                    error,
+                    "Failed to parse extracted overlay-text source PDF structure",
+                );
+                return Err(if is_too_large_error(error.as_ref()) {
+                    OverlaySourceBatchFailure::TooLarge
+                } else {
+                    OverlaySourceBatchFailure::Failed(error)
+                });
+            }
+        };
+        if source.is_encrypted() {
+            return Err(OverlaySourceBatchFailure::Failed(domain_error(
+                NativeErrorCode::Encrypted,
+                "Encrypted source PDFs are not supported by native page ops",
+            )));
+        }
+        let batch_instructions = rebase_overlay_source_instructions(instructions, pages)
+            .map_err(OverlaySourceBatchFailure::Failed)?;
+        let mut incremental =
+            load_incremental_pdf_path(output_path, Some(qpdf_path)).map_err(|error| {
+                OverlaySourceBatchFailure::Failed(classify_pdf_load_error(
+                    error,
+                    "Failed to parse PDF structure",
+                ))
+            })?;
+        if incremental.get_prev_documents().is_encrypted() {
+            return Err(OverlaySourceBatchFailure::Failed(domain_error(
+                NativeErrorCode::Encrypted,
+                "Encrypted PDFs are not supported by native page ops",
+            )));
+        }
+        if let Err(error) =
+            overlay_text_layers_incremental(&mut incremental, &source, &batch_instructions)
+        {
+            return Err(if is_too_large_error(error.as_ref()) {
+                OverlaySourceBatchFailure::TooLarge
+            } else {
+                OverlaySourceBatchFailure::Failed(error)
+            });
+        }
+        incremental.new_document.version = incremental.get_prev_documents().version.clone();
+        let revision_bytes = build_incremental_revision(&mut incremental)
+            .map_err(OverlaySourceBatchFailure::Failed)?;
+        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        write_incremental_revision(
+            output_path,
+            &incremental,
+            &revision_bytes,
+            &expected_object_ids,
+        )
+        .map_err(OverlaySourceBatchFailure::Failed)
+    })();
+    let _ = fs::remove_file(&subset_path);
+    result
+}
+
+fn write_overlay_source_batch_with_split(
+    output_path: &Path,
+    source_path: &Path,
+    qpdf_path: &Path,
+    pages: &[usize],
+    instructions: &TextLayerFile,
+    temp_dir: &OverlaySourceTempDir,
+    next_batch_id: &mut usize,
+) -> Result<()> {
+    let batch_id = *next_batch_id;
+    *next_batch_id = batch_id
+        .checked_add(1)
+        .ok_or("overlay-text source batch count overflow")?;
+    match try_write_overlay_source_batch(
+        output_path,
+        source_path,
+        qpdf_path,
+        pages,
+        instructions,
+        temp_dir,
+        batch_id,
+    ) {
+        Ok(()) => Ok(()),
+        Err(OverlaySourceBatchFailure::Failed(error)) => Err(error),
+        Err(OverlaySourceBatchFailure::TooLarge) if pages.len() > 1 => {
+            let midpoint = pages.len() / 2;
+            write_overlay_source_batch_with_split(
+                output_path,
+                source_path,
+                qpdf_path,
+                &pages[..midpoint],
+                instructions,
+                temp_dir,
+                next_batch_id,
+            )?;
+            write_overlay_source_batch_with_split(
+                output_path,
+                source_path,
+                qpdf_path,
+                &pages[midpoint..],
+                instructions,
+                temp_dir,
+                next_batch_id,
+            )
+        }
+        Err(OverlaySourceBatchFailure::TooLarge) => {
+            let page = pages
+                .first()
+                .copied()
+                .ok_or("overlay-text source batch cannot be empty")?;
+            Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!(
+                    "overlay-text source page {page} exceeds the bounded decoder resource limit"
+                ),
+            ))
+        }
+    }
+}
+
+pub(crate) fn write_overlay_text_layers_path(
+    input_path: &Path,
+    source_path: &Path,
+    output_path: &Path,
+    instructions: &TextLayerFile,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    validate_overlay_page_numbers(instructions)?;
+    // Preserve the established rewrite semantics only when both documents fit
+    // the byte-input compatibility budget. A large source is just as unsafe to
+    // eagerly load as a large target, even when the target itself is small.
+    let encoded_len = fs::metadata(input_path)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
+        .len();
+    let source_encoded_len = fs::metadata(source_path)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
+        .len();
+    if encoded_len <= MAX_ENCODED_PDF_BYTES as u64
+        && source_encoded_len <= MAX_ENCODED_PDF_BYTES as u64
+    {
+        let mut target = load_pdf_path(input_path)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+        if target.is_encrypted() {
+            return Err(domain_error(
+                NativeErrorCode::Encrypted,
+                "Encrypted PDFs are not supported by native page ops",
+            ));
+        }
+        let source = load_pdf_path(source_path).map_err(|error| {
+            classify_pdf_load_error(error, "Failed to parse source PDF structure")
+        })?;
+        if source.is_encrypted() {
+            return Err(domain_error(
+                NativeErrorCode::Encrypted,
+                "Encrypted source PDFs are not supported by native page ops",
+            ));
+        }
+        overlay_text_layers(&mut target, &source, instructions)?;
+        target.save(output_path)?;
+        return Ok(());
+    }
+
+    let qpdf_path = qpdf_path.ok_or_else(|| {
+        domain_error(
+            NativeErrorCode::TooLarge,
+            "qpdf is required for overlay-text path operations above the byte-input compatibility budget",
+        )
+    })?;
+
+    // A compatibility-sized source can still be held in memory while the
+    // target uses the qpdf-backed incremental writer. This keeps the ordinary
+    // source semantics, while avoiding a target-wide rewrite.
+    if source_encoded_len <= MAX_ENCODED_PDF_BYTES as u64 {
+        let mut incremental = load_incremental_pdf_path(input_path, Some(qpdf_path))
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+        if incremental.get_prev_documents().is_encrypted() {
+            return Err(domain_error(
+                NativeErrorCode::Encrypted,
+                "Encrypted PDFs are not supported by native page ops",
+            ));
+        }
+        let source = load_pdf_path(source_path).map_err(|error| {
+            classify_pdf_load_error(error, "Failed to parse source PDF structure")
+        })?;
+        if source.is_encrypted() {
+            return Err(domain_error(
+                NativeErrorCode::Encrypted,
+                "Encrypted source PDFs are not supported by native page ops",
+            ));
+        }
+        overlay_text_layers_incremental(&mut incremental, &source, instructions)?;
+        incremental.new_document.version = incremental.get_prev_documents().version.clone();
+        let revision_bytes = build_incremental_revision(&mut incremental)?;
+        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        return with_staged_incremental_output(input_path, output_path, |staged_output_path| {
+            write_incremental_revision(
+                staged_output_path,
+                &incremental,
+                &revision_bytes,
+                &expected_object_ids,
+            )
+        });
+    }
+
+    // Probe both path-backed documents through qpdf before extracting any
+    // source page. qpdf reads structure without retaining stream bodies, so a
+    // multi-gigabyte source never crosses the eager decoder boundary here.
+    let target_probe = load_incremental_pdf_path(input_path, Some(qpdf_path))
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    if target_probe.get_prev_documents().is_encrypted() {
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Encrypted PDFs are not supported by native page ops",
+        ));
+    }
+    let source_probe = load_incremental_pdf_path(source_path, Some(qpdf_path))
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse source PDF structure"))?;
+    if source_probe.get_prev_documents().is_encrypted() {
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Encrypted source PDFs are not supported by native page ops",
+        ));
+    }
+
+    let source_pages = referenced_source_pages(instructions)?;
+    let temp_dir = OverlaySourceTempDir::create()?;
+    with_staged_incremental_output(input_path, output_path, |staged_output_path| {
+        let mut next_batch_id = 0;
+        for pages in source_pages.chunks(MAX_SOURCE_PAGE_BATCH_PAGES) {
+            write_overlay_source_batch_with_split(
+                staged_output_path,
+                source_path,
+                qpdf_path,
+                pages,
+                instructions,
+                &temp_dir,
+                &mut next_batch_id,
+            )?;
+        }
+        Ok(())
+    })
 }

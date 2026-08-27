@@ -57,6 +57,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     });
     const {
         pageLabels,
+        pageLabelModel,
         pageLabelRanges,
         pageLabelsDirty,
     } = pageLabelState;
@@ -76,6 +77,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         bookmarkItems,
         bookmarksDirty,
         pageLabels,
+        pageLabelModel,
         pageLabelRanges,
         pageLabelsDirty,
         totalPages,

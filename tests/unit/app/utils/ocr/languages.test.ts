@@ -3,9 +3,37 @@ import {
     expect,
     it,
 } from 'vitest';
-import { parsePageRange } from '@app/utils/ocr/parsePageRange';
+import {
+    OCR_PAGE_SELECTION_EXPANSION_LIMIT,
+    parseOcrPageSelection,
+    parsePageRange,
+} from '@app/utils/ocr/parsePageRange';
 
 describe('parsePageRange', () => {
+    it.each([
+        100_001,
+        1_000_001,
+    ])('keeps all-page selection scalar for %i pages', (totalPages) => {
+        const selection = parseOcrPageSelection('all', '', 1, totalPages);
+
+        expect(Array.isArray(selection)).toBe(false);
+        expect(selection).toEqual({
+            kind: 'all',
+            pageCount: totalPages,
+        });
+        expect(totalPages).toBeGreaterThan(OCR_PAGE_SELECTION_EXPANSION_LIMIT);
+    });
+
+    it('keeps a wide custom range scalar instead of expanding every page', () => {
+        const selection = parseOcrPageSelection('custom', '1-1000001', 1, 1_000_001);
+
+        expect(selection).toEqual({
+            kind: 'range',
+            firstPage: 1,
+            lastPage: 1_000_001,
+        });
+    });
+
     describe('rangeType "current"', () => {
         it('returns only the current page', () => {
             expect(parsePageRange('current', '', 5, 10)).toEqual([5]);

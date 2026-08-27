@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
     cancelSearch: vi.fn(),
     resolveSearchablePdfPath: vi.fn(),
     resolveSearchWorkerPath: vi.fn(() => '/tmp/search-worker.js'),
+    stat: vi.fn(),
+    loadCompactSearchIndex: vi.fn(),
     loadSearchIndex: vi.fn(),
     extractTextWithPdfjs: vi.fn(),
     extractTextFromPdf: vi.fn(),
@@ -36,6 +38,10 @@ vi.mock('@electron/features/search/public', async () => {
 });
 
 vi.mock('@electron/search/indexBuilder', () => ({ loadSearchIndex: mocks.loadSearchIndex }));
+
+vi.mock('node:fs/promises', () => ({stat: mocks.stat}));
+
+vi.mock('@electron/search/searchIndexSidecar', () => ({loadCompactSearchIndex: mocks.loadCompactSearchIndex}));
 
 vi.mock('@electron/search/extractTextWithPdfjs', () => ({ extractTextWithPdfjs: mocks.extractTextWithPdfjs }));
 
@@ -78,6 +84,8 @@ describe('agent document search validation', () => {
         vi.resetModules();
         vi.clearAllMocks();
         mocks.resolveSearchablePdfPath.mockResolvedValue('/tmp/Grammar.pdf');
+        mocks.stat.mockRejectedValue(new Error('missing test path'));
+        mocks.loadCompactSearchIndex.mockResolvedValue(null);
         mocks.dispatchSearchRequest.mockResolvedValue({
             results: [],
             truncated: false,
@@ -138,10 +146,16 @@ describe('agent document search validation', () => {
                 },
             ],
         });
-        mocks.extractTextWithPdfjs.mockResolvedValue([{
-            pageNumber: 8,
-            text: 'Kurdan front matter Kurdan',
-        }]);
+        mocks.extractTextWithPdfjs.mockResolvedValue([
+            {
+                pageNumber: 7,
+                text: 'Kurdish introduction',
+            },
+            {
+                pageNumber: 8,
+                text: 'Kurdan front matter Kurdan',
+            },
+        ]);
 
         const result = await searchAgentDocument(
             createWindow() as never,
@@ -162,6 +176,7 @@ describe('agent document search validation', () => {
         );
 
         expect(mocks.dispatchSearchRequest).not.toHaveBeenCalled();
+        expect(mocks.loadSearchIndex).not.toHaveBeenCalled();
         expect(result).toMatchObject({
             bounded: true,
             returnedResults: 1,
@@ -214,10 +229,13 @@ describe('agent document search validation', () => {
         );
 
         expect(mocks.dispatchSearchRequest).not.toHaveBeenCalled();
-        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/Grammar.pdf', {pages: [
-            2,
-            4,
-        ]});
+        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/Grammar.pdf', {
+            pages: [
+                2,
+                4,
+            ],
+            pageCount: 10,
+        });
         expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
         expect(result).toMatchObject({
             source: 'direct-pdfjs',
@@ -285,6 +303,10 @@ describe('agent document search validation', () => {
                 pageNumber: 5,
                 text: 'front matter text',
             },
+            {
+                pageNumber: 25,
+                text: 'cached dictionary text',
+            },
         ]);
 
         const result = await readAgentDocumentPages(
@@ -303,13 +325,17 @@ describe('agent document search validation', () => {
             },
         );
 
-        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/Grammar.pdf', {pages: [
-            1,
-            3,
-            5,
-        ]});
+        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/Grammar.pdf', {
+            pages: [
+                1,
+                3,
+                5,
+                25,
+            ],
+            pageCount: 2136,
+        });
         expect(result).toMatchObject({
-            usedCachedSearchIndex: true,
+            usedCachedSearchIndex: false,
             pages: [
                 {
                     page: 1,
@@ -330,7 +356,7 @@ describe('agent document search validation', () => {
                 },
                 {
                     page: 25,
-                    source: 'search-index',
+                    source: 'direct-pdfjs',
                     hasText: true,
                     text: 'cached dictionary text',
                 },
@@ -347,10 +373,6 @@ describe('agent document search validation', () => {
                 ],
                 coverage: 0.75,
                 missingTextPages: [1],
-            },
-            globalTextStatus: {
-                status: 'partial',
-                pageCount: 2136,
             },
         });
     });
@@ -426,5 +448,126 @@ describe('agent document search validation', () => {
 
         await expect(read).rejects.toThrow('client disconnected');
         expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
+    });
+
+    it('keeps xlarge agent warm/status scalar and avoids the legacy index', async () => {
+        const pageCount = 1_000_001;
+        mocks.stat.mockResolvedValue({size: 17 * 1024 * 1024});
+        mocks.loadCompactSearchIndex.mockResolvedValue({
+            documentRevision: 'revision-token',
+            pageCount,
+            pages: [],
+            textSource: {
+                kind: 0,
+                version: 0,
+            },
+            coverage: {
+                flags: 1,
+                pagesScanned: pageCount,
+                pagesWritten: 1,
+                bytesWritten: 1,
+                complete: true,
+                partialCoverage: false,
+                truncatedCoverage: false,
+            },
+        });
+        const {inspectAgentDocumentText} = await import('@electron/features/agent/documentText');
+
+        const result = await inspectAgentDocumentText(
+            createWindow() as never,
+            {
+                tab: {
+                    ...pdfTab,
+                    totalPages: pageCount,
+                },
+                options: {},
+            },
+        );
+
+        expect(mocks.dispatchSearchRequest).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                warmup: true,
+                pageCount,
+            }),
+        );
+        expect(mocks.loadCompactSearchIndex).toHaveBeenCalledWith('/tmp/Grammar.pdf', expect.objectContaining({
+            metadataOnly: true,
+            expectedPageCount: pageCount,
+        }));
+        expect(mocks.loadSearchIndex).not.toHaveBeenCalled();
+        expect(result.textStatus).toMatchObject({
+            status: 'complete',
+            pageCount,
+            pagesScanned: pageCount,
+            textPageCount: 1,
+            missingTextPages: [],
+        });
+    });
+
+    it('keeps unbounded xlarge agent search native and scalar-only', async () => {
+        const pageCount = 1_000_001;
+        mocks.stat.mockResolvedValue({size: 17 * 1024 * 1024});
+        mocks.dispatchSearchRequest.mockResolvedValue({
+            results: [{
+                pageNumber: pageCount,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 0,
+                endOffset: 6,
+                excerpt: {
+                    prefix: false,
+                    suffix: false,
+                    before: '',
+                    match: 'needle',
+                    after: '',
+                },
+            }],
+            truncated: false,
+        });
+        mocks.loadCompactSearchIndex.mockResolvedValue({
+            documentRevision: 'revision-token',
+            pageCount,
+            pages: [],
+            textSource: {
+                kind: 0,
+                version: 0,
+            },
+            coverage: {
+                flags: 1,
+                pagesScanned: pageCount,
+                pagesWritten: 1,
+                bytesWritten: 1,
+                complete: true,
+                partialCoverage: false,
+                truncatedCoverage: false,
+            },
+        });
+        const {searchAgentDocument} = await import('@electron/features/agent/documentText');
+
+        const result = await searchAgentDocument(
+            createWindow() as never,
+            {
+                tab: {
+                    ...pdfTab,
+                    totalPages: pageCount,
+                },
+                options: {query: 'needle'},
+            },
+        );
+
+        expect(mocks.loadSearchIndex).not.toHaveBeenCalled();
+        expect(mocks.loadCompactSearchIndex).toHaveBeenCalledWith('/tmp/Grammar.pdf', expect.objectContaining({
+            metadataOnly: true,
+            expectedPageCount: pageCount,
+        }));
+        expect(result).toMatchObject({
+            returnedResults: 1,
+            textStatus: {
+                pageCount,
+                missingTextPages: [],
+                pagesScanned: pageCount,
+            },
+        });
     });
 });

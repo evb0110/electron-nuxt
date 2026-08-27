@@ -60,6 +60,105 @@ export interface IDocumentChunkReadResult {
     chunks: number;
 }
 
+/** A PDF indirect-object reference returned by the native annotation index. */
+export interface IPdfAnnotationIndexObjectRef {
+    objectNumber: number;
+    generationNumber: number;
+}
+
+export const PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES = 4 * 1024 * 1024;
+
+/** One page-addressed annotation entry in a PDF annotation index. */
+export interface IPdfAnnotationIndexEntry {
+    pageIndex: TPageIndex;
+    /** Zero is reserved for a direct-dictionary page-presence marker. */
+    objectNumber: number;
+    generationNumber: number;
+    subtype: string;
+    name: string | null;
+    popupRef: IPdfAnnotationIndexObjectRef | null;
+    parentRef: IPdfAnnotationIndexObjectRef | null;
+}
+
+export interface IPdfAnnotationIndexOptions {expectedDocumentRevisionToken: TDocumentRevisionToken;}
+
+export interface IPdfAnnotationIndexChunkOptions {chunkBytes?: number;}
+
+export interface IPdfAnnotationIndexSession {
+    sessionId: string;
+    documentRef: TDocumentRef;
+    documentRevisionToken: TDocumentRevisionToken;
+    pageCount: number;
+    entryCount: number;
+    totalBytes: number;
+}
+
+export interface IPdfAnnotationIndexChunk {
+    offset: number;
+    nextOffset: number | null;
+    byteLength: number;
+    done: boolean;
+    entries: IPdfAnnotationIndexEntry[];
+}
+
+/** A normalized point returned by the private embedded-shape index. */
+export interface IPdfEmbeddedShapeIndexPoint {
+    x: number;
+    y: number;
+}
+
+/** A typed structural shape entry returned by the private embedded-shape index. */
+export interface IPdfEmbeddedShapeIndexEntry {
+    pageIndex: TPageIndex;
+    objectNumber: number;
+    generationNumber: number;
+    stableKey: string | null;
+    pdfSubtype: TPdfNativeShapePdfSubtype;
+    type: TPdfNativeShapeType;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    x2: number | null;
+    y2: number | null;
+    color: string;
+    fillColor: string | null;
+    opacity: number;
+    strokeWidth: number;
+    points: IPdfEmbeddedShapeIndexPoint[] | null;
+    strokes: IPdfEmbeddedShapeIndexPoint[][] | null;
+    lineStartStyle: TPdfNativeShapeLineEndStyle | null;
+    lineEndStyle: TPdfNativeShapeLineEndStyle | null;
+    createdAt: number | null;
+    modifiedAt: number | null;
+}
+
+/** The renderer requests at most 512 KiB of decoded shape-index data. */
+export const PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES = 512 * 1024;
+/** Native JSONL lines may be larger than one renderer pull, but never exceed 4 MiB. */
+export const PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES = 4 * 1024 * 1024;
+
+export interface IPdfEmbeddedShapeIndexOptions {expectedDocumentRevisionToken: TDocumentRevisionToken;}
+
+export interface IPdfEmbeddedShapeIndexChunkOptions {chunkBytes?: number;}
+
+export interface IPdfEmbeddedShapeIndexSession {
+    sessionId: string;
+    documentRef: TDocumentRef;
+    documentRevisionToken: TDocumentRevisionToken;
+    pageCount: number;
+    entryCount: number;
+    totalBytes: number;
+}
+
+export interface IPdfEmbeddedShapeIndexChunk {
+    offset: number;
+    nextOffset: number | null;
+    byteLength: number;
+    done: boolean;
+    entries: IPdfEmbeddedShapeIndexEntry[];
+}
+
 export const IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES = 16 * 1024 * 1024;
 
 export interface IManagedTempFileHandle {
@@ -398,6 +497,23 @@ export interface IPdfNativePageSize {
     height: number;
 }
 
+export interface IPdfNativePageSizeOverride extends IPdfNativePageSize {pageNumber: number;}
+
+/** Compact native page metadata carries only bounded early/late overrides. */
+export const PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT = 256;
+
+/**
+ * Compact native page-size metadata for documents whose page count cannot be
+ * represented by a materialized JavaScript array.
+ */
+export interface IPdfNativePageSizes {
+    pageCount: number;
+    defaultPageSize: IPdfNativePageSize;
+    overrides: IPdfNativePageSizeOverride[];
+}
+
+export type TPdfNativePageSizes = IPdfNativePageSize[] | IPdfNativePageSizes;
+
 export interface IPdfOpeningGeometry {
     pageNumber: 1;
     pageCount: number;
@@ -563,11 +679,6 @@ export interface IPdfNativeNoteTextSaveResult {
 
 export type IPdfNativeSaveResult = IPdfNativeNoteTextSaveResult;
 
-export interface IPdfNativeWorkingCopyExpectation {
-    byteLength: number;
-    sha256: string;
-}
-
 export type TDocumentSaveFailureReason =
     | 'user-canceled'
     | 'validation-failed'
@@ -723,13 +834,35 @@ export interface IDocumentsFileCapability {
     createManagedTempFileHandle?: (path: TDocumentRef) => Promise<IManagedTempFileHandle>;
     releaseManagedTempFileHandle?: (leaseId: string) => Promise<boolean>;
     getPdfOpeningGeometry?: (path: TDocumentRef) => Promise<IPdfOpeningGeometry | null>;
-    getPdfNativePageSizes?: (path: TDocumentRef) => Promise<IPdfNativePageSize[]>;
+    getPdfNativePageSizes?: (path: TDocumentRef) => Promise<TPdfNativePageSizes>;
     cancelPdfNativePagePreview?: (requestId: string) => Promise<{ canceled: boolean }>;
     renderPdfNativePagePreview?: (
         path: TDocumentRef,
         pageNumber: number,
         options?: IPdfNativePagePreviewOptions,
     ) => Promise<IPdfNativePagePreview>;
+    beginPdfAnnotationIndex?: (
+        path: TDocumentRef,
+        options: IPdfAnnotationIndexOptions,
+    ) => Promise<IPdfAnnotationIndexSession>;
+    readPdfAnnotationIndexChunk?: (
+        sessionId: string,
+        offset: number,
+        options?: IPdfAnnotationIndexChunkOptions,
+    ) => Promise<IPdfAnnotationIndexChunk>;
+    releasePdfAnnotationIndex?: (sessionId: string) => Promise<boolean>;
+    cancelPdfAnnotationIndex?: (sessionId: string) => Promise<{canceled: boolean}>;
+    beginPdfEmbeddedShapeIndex?: (
+        path: TDocumentRef,
+        options: IPdfEmbeddedShapeIndexOptions,
+    ) => Promise<IPdfEmbeddedShapeIndexSession>;
+    readPdfEmbeddedShapeIndexChunk?: (
+        sessionId: string,
+        offset: number,
+        options?: IPdfEmbeddedShapeIndexChunkOptions,
+    ) => Promise<IPdfEmbeddedShapeIndexChunk>;
+    releasePdfEmbeddedShapeIndex?: (sessionId: string) => Promise<boolean>;
+    cancelPdfEmbeddedShapeIndex?: (sessionId: string) => Promise<{canceled: boolean}>;
     readFileChunks: (
         path: TDocumentRef,
         options: IDocumentChunkReadOptions,
@@ -817,14 +950,24 @@ export interface IDocumentsFileCapability {
         path: TDocumentRef,
         mutations: IPdfNativeMutationSet,
         modifiedAt: string,
-        expectedBase: IPdfNativeWorkingCopyExpectation,
-        options?: IDocumentMutationRevisionOptions,
+        options: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfNativeSaveResult>;
     commitStagedPdfNativeMutations?: (
         path: TDocumentRef,
         stagedOutput: ITypedStagedArtifact,
         options?: IPdfNativeStagedCommitOptions,
     ) => Promise<IPdfNativeSaveResult>;
+    /** Consume a native staged receipt as an uncommitted split snapshot. */
+    cloneStagedPdfNativeMutationToWorkingCopy?: (
+        stagedOutput: ITypedStagedArtifact,
+        originalPath?: TDocumentRef,
+    ) => Promise<TDocumentRef>;
+    /** Consume a native staged receipt by replacing only the working copy. */
+    replaceWorkingCopyFromStagedPdfNativeMutation?: (
+        path: TDocumentRef,
+        stagedOutput: ITypedStagedArtifact,
+        options: IDocumentMutationRevisionOptions,
+    ) => Promise<boolean>;
     savePdfDataAs: (
         workingCopyPath: TDocumentRef,
         data: Uint8Array,
@@ -920,6 +1063,14 @@ export interface IDocumentsReadCapability extends Pick<
     | 'getPdfNativePageSizes'
     | 'cancelPdfNativePagePreview'
     | 'renderPdfNativePagePreview'
+    | 'beginPdfAnnotationIndex'
+    | 'readPdfAnnotationIndexChunk'
+    | 'releasePdfAnnotationIndex'
+    | 'cancelPdfAnnotationIndex'
+    | 'beginPdfEmbeddedShapeIndex'
+    | 'readPdfEmbeddedShapeIndexChunk'
+    | 'releasePdfEmbeddedShapeIndex'
+    | 'cancelPdfEmbeddedShapeIndex'
     | 'readFileChunks'
     | 'readTextFile'
     | 'fileExists'
@@ -965,6 +1116,8 @@ export interface IDocumentsPdfPersistenceCapability extends Pick<
     | 'savePdfNativeMutations'
     | 'applyPdfNativeMutationsToWorkingCopy'
     | 'commitStagedPdfNativeMutations'
+    | 'cloneStagedPdfNativeMutationToWorkingCopy'
+    | 'replaceWorkingCopyFromStagedPdfNativeMutation'
 > {}
 
 export interface IDocumentsFileIoCapability extends

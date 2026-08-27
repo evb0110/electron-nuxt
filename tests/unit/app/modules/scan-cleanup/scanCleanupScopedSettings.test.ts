@@ -4,10 +4,15 @@ import {
     it,
 } from 'vitest';
 import {
+    attachScanCleanupPageOverrideDefaults,
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
+    setScanCleanupPageOverride,
 } from '@contracts/scanCleanupPageOverrides';
-import {resolveScanCleanupApplyScope} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupApplyScope';
+import {
+    resolveScanCleanupApplyScope,
+    type IScanCleanupPageRange,
+} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupApplyScope';
 import {
     resolveScanCleanupMixedValue,
     updateScanCleanupPageOverrides,
@@ -16,8 +21,26 @@ import {reactive} from 'vue';
 import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {resolveScanCleanupMarginPatch} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
+import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 
 describe('scan cleanup apply scopes', () => {
+    it('keeps a million-page all scope as a scalar range token', () => {
+        const scope = resolveScanCleanupApplyScope({
+            leader: 500_000,
+            pageCount: 1_000_000,
+            selectedPages: new Set(),
+        }, 'all') as IScanCleanupPageRange;
+        const iterator = scope[Symbol.iterator]();
+
+        expect(scope.kind).toBe('range');
+        expect(scope.size).toBe(1_000_000);
+        expect(scope.startPageNumber).toBe(1);
+        expect(scope.endPageNumber).toBe(1_000_000);
+        expect(iterator.next().value).toBe(1);
+        expect(scope.has(1_000_000)).toBe(true);
+        expect(scope.has(1_000_001)).toBe(false);
+    });
+
     it('resolves all pages and from-here at the first and last page', () => {
         const selection = new Set([
             2,
@@ -114,6 +137,73 @@ describe('scan cleanup apply scopes', () => {
 });
 
 describe('scan cleanup selection override state', () => {
+    it('applies an all-page override to a million-page document as one scalar', () => {
+        const settings = reactive<IScanCleanupOptions>({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto',
+            outputMode: 'auto',
+            readingOrder: 'ltr',
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'top-center',
+            marginsMm: {
+                leftMm: 5,
+                topMm: 5,
+                rightMm: 5,
+                bottomMm: 5,
+            },
+            skipBlankPages: false,
+            pageOverrides: {
+                '1': createScanCleanupPageOverride({
+                    rotationDegrees: 90,
+                    excluded: true,
+                }),
+                '37': createScanCleanupPageOverride({rotationDegrees: 180}),
+            },
+            pageOverrideDefaults: createScanCleanupPageOverride(),
+        });
+        attachScanCleanupPageOverrideDefaults(
+            settings.pageOverrides,
+            settings.pageOverrideDefaults,
+            settings.marginsMm,
+        );
+        const selection = useScanCleanupSelection({
+            initialPage: 1,
+            previewResult: () => null,
+            previewTotalPages: () => 1_000_000,
+            settings,
+        });
+
+        selection.applyLeaderOverrides('all');
+
+        expect(Object.keys(settings.pageOverrides)).toEqual([]);
+        expect(settings.pageOverrideDefaults).toMatchObject({
+            rotationDegrees: 90,
+            excluded: true,
+        });
+        expect(getScanCleanupPageOverride(settings.pageOverrides, 1).excluded).toBe(true);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, 1_000_000).rotationDegrees).toBe(90);
+        const requestOptions = toPlainScanCleanupOptions(settings);
+        expect(requestOptions.pageOverrideDefaults).toMatchObject({
+            rotationDegrees: 90,
+            excluded: true,
+        });
+        expect(getScanCleanupPageOverride(requestOptions.pageOverrides, 1_000_000).excluded).toBe(true);
+
+        setScanCleanupPageOverride(
+            settings.pageOverrides,
+            37,
+            createScanCleanupPageOverride({
+                rotationDegrees: 270,
+                excluded: false,
+            }),
+        );
+        expect(Object.keys(settings.pageOverrides)).toEqual(['37']);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, 37).rotationDegrees).toBe(270);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, 1_000_000).excluded).toBe(true);
+    });
+
     it('persists manual zones on the leader page and clears rotation-bound geometry after rotation', () => {
         const settings = reactive<IScanCleanupOptions>({
             preserveOriginalQuality: false,

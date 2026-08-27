@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { createDocumentPageMetricPublication } from '@app/modules/workspace-shell/viewers/createDocumentPageMetricPublication';
+import { createProvisionalDocumentPageMetrics } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
 
 const metric = (widthPoints: number) => ({
     widthPoints,
@@ -50,5 +51,33 @@ describe('createDocumentPageMetricPublication', () => {
             metric(303),
         ]]);
         expect(onPublished).toHaveBeenCalledOnce();
+    });
+
+    it('merges a far-page update without slicing a sparse document collection', () => {
+        const frame: {callback: FrameRequestCallback | null} = {callback: null};
+        const environment = {
+            requestAnimationFrame: vi.fn((callback: FrameRequestCallback) => {
+                frame.callback = callback;
+                return 1;
+            }),
+            cancelAnimationFrame: vi.fn(),
+        };
+        const metrics = createProvisionalDocumentPageMetrics(1_000_000, metric(100));
+        const committed: unknown[] = [];
+        const publication = createDocumentPageMetricPublication({
+            readMetrics: () => metrics,
+            commitMetrics: nextMetrics => committed.push(nextMetrics),
+            onPublished: vi.fn(),
+        }, environment);
+
+        publication.enqueue(1_000_000, metric(999));
+        if (!frame.callback) {
+            throw new Error('Publication frame was not scheduled');
+        }
+        frame.callback(0);
+
+        expect(committed).toEqual([metrics]);
+        expect(metrics[999_999]).toEqual(metric(999));
+        expect(Object.keys(metrics).filter(key => /^\d+$/.test(key))).toEqual([]);
     });
 });

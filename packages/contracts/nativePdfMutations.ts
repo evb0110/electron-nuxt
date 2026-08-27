@@ -19,7 +19,6 @@ import type {
     IPdfNativeShapeAnnotation,
     IPdfNativeShapePoint,
     IPdfNativeShapesMutation,
-    IPdfNativeWorkingCopyExpectation,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
 import {decodeManagedTempFileHandle} from '@contracts/electronApiDocuments';
@@ -69,7 +68,6 @@ export const PDF_NATIVE_MUTATION_ENUM_VALUES = {
 } as const;
 
 export const PDF_NATIVE_DATE_PATTERN = /^D:\d{14}(?:Z|[+-]\d{2}'\d{2}')?$/u;
-export const PDF_NATIVE_SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/iu;
 
 type TPdfNativeValidationErrorKind = 'typeError' | 'error';
 export type IPdfNativePlacedImageNativeToolPayload = Simplify<
@@ -980,31 +978,6 @@ export function normalizePdfNativeModifiedAt(
         fail(`${label} must be a PDF date string`, options);
     }
     return normalized;
-}
-
-export function normalizePdfNativeWorkingCopyExpectation(
-    value: unknown,
-    label: string,
-    options: IPdfNativeValidationOptions = {},
-): IPdfNativeWorkingCopyExpectation {
-    if (value === undefined || value === null) {
-        fail(`${label} must be an object`, options);
-    }
-    if (!isRecord(value)) {
-        fail(`${label} must be an object`, options);
-    }
-    const byteLength = value.byteLength;
-    const sha256 = value.sha256;
-    if (typeof byteLength !== 'number' || !Number.isSafeInteger(byteLength) || byteLength <= 0) {
-        fail(`${label}.byteLength must be a positive safe integer`, options);
-    }
-    if (typeof sha256 !== 'string' || !PDF_NATIVE_SHA256_HEX_PATTERN.test(sha256)) {
-        fail(`${label}.sha256 must be a SHA-256 hex digest`, options);
-    }
-    return {
-        byteLength,
-        sha256: sha256.toLowerCase(),
-    };
 }
 
 export function normalizePdfNativeNoteTextUpdates(

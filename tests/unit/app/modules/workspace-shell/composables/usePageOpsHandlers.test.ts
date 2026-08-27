@@ -10,14 +10,22 @@ import {
     type Ref,
 } from 'vue';
 import type { ICropMargins } from '@app/types/crop';
+import type { TPageSelection } from '@contracts/pageNumbers';
+import {
+    createAllPageSelection,
+    createPageMoveRange,
+    createPredicatePageSelection,
+} from '@contracts/pageNumbers';
 
 const operationMocks = vi.hoisted(() => ({
     deletePages: vi.fn(),
+    deletePageRanges: vi.fn(),
     extractPages: vi.fn(),
     rotatePages: vi.fn(),
     insertPages: vi.fn(),
     insertFile: vi.fn(),
     reorderPages: vi.fn(),
+    movePages: vi.fn(),
     cropPages: vi.fn(),
     removeCrop: vi.fn(),
 }));
@@ -25,11 +33,13 @@ const operationMocks = vi.hoisted(() => ({
 vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations', () => ({ usePageOperations: () => ({
     isOperationInProgress: ref(false),
     deletePages: operationMocks.deletePages,
+    deletePageRanges: operationMocks.deletePageRanges,
     extractPages: operationMocks.extractPages,
     rotatePages: operationMocks.rotatePages,
     insertPages: operationMocks.insertPages,
     insertFile: operationMocks.insertFile,
     reorderPages: operationMocks.reorderPages,
+    movePages: operationMocks.movePages,
     cropPages: operationMocks.cropPages,
     removeCrop: operationMocks.removeCrop,
 }) }));
@@ -38,13 +48,16 @@ const { usePageOpsHandlers } = await import('@app/modules/workspace-shell/compos
 
 function createHarness(options: {
     canMutatePages?: Ref<boolean>;
-    selectedPages?: number[]
+    selectedPages?: number[];
+    selectedPageSelection?: Ref<TPageSelection | null>;
+    totalPages?: number;
 } = {}) {
     const { canMutatePages = ref(true) } = options;
     const invalidateThumbnailPages = vi.fn();
     const invalidatePages = vi.fn();
     const onExportPages = vi.fn();
     const setSelectedThumbnailPages = vi.fn();
+    const setSelectedPageSelection = vi.fn();
     const reloadWaiterCancel = vi.fn();
     const pageContextMenu = ref({
         visible: false,
@@ -60,9 +73,11 @@ function createHarness(options: {
         pageLabels: ref(null),
         bookmarkItems: ref([]),
         currentPage: ref(4),
-        totalPages: ref(10),
+        totalPages: ref(options.totalPages ?? 10),
         selectedThumbnailPages: ref(options.selectedPages ?? []),
+        ...(options.selectedPageSelection === undefined ? {} : {selectedPageSelection: options.selectedPageSelection}),
         setSelectedThumbnailPages,
+        setSelectedPageSelection,
         invalidateThumbnailPages,
         pdfViewerRef: ref({
             invalidatePages,
@@ -86,6 +101,7 @@ function createHarness(options: {
         invalidatePages,
         onExportPages,
         setSelectedThumbnailPages,
+        setSelectedPageSelection,
         pageContextMenu,
         preparePdfReloadWaiter,
         reloadWaiterCancel,
@@ -94,7 +110,11 @@ function createHarness(options: {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    operationMocks.deletePages.mockResolvedValue(true);
+    operationMocks.deletePageRanges.mockResolvedValue(true);
+    operationMocks.extractPages.mockResolvedValue(true);
     operationMocks.rotatePages.mockResolvedValue(true);
+    operationMocks.movePages.mockResolvedValue(true);
     operationMocks.cropPages.mockResolvedValue(true);
     operationMocks.removeCrop.mockResolvedValue(true);
 });
@@ -225,6 +245,80 @@ describe('usePageOpsHandlers crop reload strategy', () => {
             1,
             5,
         ]);
+    });
+
+    it('keeps a million-page selection lazy while moving one page', async () => {
+        const selectedPageSelection = ref<TPageSelection>(
+            createPredicatePageSelection(1_000_000, 'odd'),
+        );
+        const {
+            handlers,
+            setSelectedPageSelection,
+            setSelectedThumbnailPages,
+        } = createHarness({
+            selectedPageSelection,
+            totalPages: 1_000_000,
+        });
+        const move = createPageMoveRange(1_000_000, 900_000, 900_000, 0);
+
+        await expect(handlers.pageOpsMove(move)).resolves.toBe(true);
+
+        expect(operationMocks.movePages).toHaveBeenCalledOnce();
+        expect(operationMocks.movePages).toHaveBeenCalledWith(move);
+        expect(setSelectedThumbnailPages).toHaveBeenCalledWith([]);
+        expect(setSelectedPageSelection).toHaveBeenCalledOnce();
+        expect(setSelectedPageSelection.mock.calls[0]?.[0]).toMatchObject({
+            kind: 'mapped',
+            pageCount: 1_000_000,
+            moves: [move],
+        });
+    });
+
+    it('batches a million-page select-all toolbar rotation without materializing the selection', async () => {
+        const selectedPageSelection = ref<TPageSelection>(createAllPageSelection(1_000_000));
+        const { handlers } = createHarness({
+            selectedPageSelection,
+            totalPages: 1_000_000,
+        });
+
+        await expect(handlers.handlePageRotate(selectedPageSelection.value, 90)).resolves.toBe(true);
+
+        expect(operationMocks.rotatePages).toHaveBeenCalledTimes(100);
+        expect(operationMocks.rotatePages.mock.calls.every(([pages]) => (
+            Array.isArray(pages) && pages.length <= 10_000
+        ))).toBe(true);
+        expect(operationMocks.rotatePages.mock.calls[0]?.[0]).toEqual(
+            Array.from({length: 10_000}, (_, index) => index + 1),
+        );
+        expect(operationMocks.rotatePages.mock.calls.at(-1)?.[0]).toEqual(
+            Array.from({length: 10_000}, (_, index) => 990_001 + index),
+        );
+    });
+
+    it('deletes a million-page select-all through one compact native range request', async () => {
+        const selectedPageSelection = ref<TPageSelection>(createAllPageSelection(1_000_000));
+        const {
+            handlers,
+            setSelectedPageSelection,
+            setSelectedThumbnailPages,
+        } = createHarness({
+            selectedPageSelection,
+            totalPages: 1_000_000,
+        });
+
+        await expect(handlers.pageOpsDelete(selectedPageSelection.value, 1_000_000)).resolves.toBe(true);
+
+        expect(operationMocks.deletePageRanges).toHaveBeenCalledOnce();
+        expect(operationMocks.deletePageRanges).toHaveBeenCalledWith([{
+            startPage: 2,
+            endPage: 1_000_000,
+        }], 1_000_000);
+        expect(operationMocks.deletePages).not.toHaveBeenCalled();
+        expect(setSelectedPageSelection).toHaveBeenCalledWith({
+            kind: 'none',
+            pageCount: 1,
+        });
+        expect(setSelectedThumbnailPages).toHaveBeenCalledWith([]);
     });
 
     it('keeps thumbnail selection when a structural page mutation fails', async () => {

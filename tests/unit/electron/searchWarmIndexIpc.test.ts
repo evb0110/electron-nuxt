@@ -163,16 +163,17 @@ describe('search warm-index IPC', () => {
         mocks.getWorkingCopyRevision.mockResolvedValue({token: DOCUMENT_REVISION});
     });
 
-    it('routes warm-index requests through worker warmup mode', async () => {
+    it('forwards large page counts through bounded warm-index worker messages', async () => {
         await registerSearchHandlers();
         const warmIndexHandler = mocks.handlers.get('pdf:search:warmIndex');
+        const pageCount = 1_000_001;
 
         expect(warmIndexHandler).toBeTypeOf('function');
         await expect(warmIndexHandler?.(
             createInvokeEvent(111),
             {
                 pdfPath: '/tmp/original.pdf',
-                pageCount: 42,
+                pageCount,
                 requestId: 'warm-req-1',
             },
         )).resolves.toBe(true);
@@ -187,7 +188,7 @@ describe('search warm-index IPC', () => {
                 pdfPath: '/tmp/allowed.pdf',
                 documentRevision: DOCUMENT_REVISION,
                 query: '',
-                pageCount: 42,
+                pageCount,
                 warmup: true,
             },
         });

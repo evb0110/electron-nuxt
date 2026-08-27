@@ -1,5 +1,6 @@
 import type {
     IScanCleanupMarginsMm,
+    IScanCleanupPageOverride,
     TScanCleanupOutputModeSetting,
     TScanCleanupPageOverrides,
 } from '@contracts/electronApiScanCleanup';
@@ -19,6 +20,7 @@ import {
     clearScanCleanupLegacyStorage,
     exportScanCleanupLegacyStorage,
     loadScanCleanupDocumentMargins,
+    loadScanCleanupDocumentPageOverrideDefaults,
     loadScanCleanupDocumentOutputMode,
     loadScanCleanupDocumentOverrides,
     loadScanCleanupPreferences,
@@ -37,6 +39,7 @@ interface IScanCleanupPreferencesStoreOptions {
 
 export interface IScanCleanupDocumentSettingsSnapshot {
     overrides: TScanCleanupPageOverrides;
+    pageOverrideDefaults: IScanCleanupPageOverride | null;
     marginsMm: IScanCleanupMarginsMm | null;
     outputMode: TScanCleanupOutputModeSetting;
 }
@@ -290,6 +293,7 @@ export function loadScanCleanupDocumentSettings(
         const browserDocumentKey = legacyDocumentKey ?? sourceSha256;
         return {
             overrides: loadScanCleanupDocumentOverrides(browserDocumentKey),
+            pageOverrideDefaults: loadScanCleanupDocumentPageOverrideDefaults(browserDocumentKey),
             marginsMm: loadScanCleanupDocumentMargins(browserDocumentKey),
             outputMode: loadScanCleanupDocumentOutputMode(browserDocumentKey),
         };
@@ -299,6 +303,7 @@ export function loadScanCleanupDocumentSettings(
             warnMissingDocumentSourceHash('load', legacyDocumentKey);
             return {
                 overrides: {},
+                pageOverrideDefaults: null,
                 marginsMm: null,
                 outputMode: 'auto' as const,
             };
@@ -317,6 +322,9 @@ export function loadScanCleanupDocumentSettings(
         const entry = remoteSettingsFile?.documentOverrides[normalizedSourceSha256];
         return {
             overrides: cloneScanCleanupPreferenceValue(entry?.overrides ?? {}),
+            pageOverrideDefaults: entry?.pageOverrideDefaults === undefined
+                ? null
+                : cloneScanCleanupPreferenceValue(entry.pageOverrideDefaults),
             marginsMm: entry?.marginsMm === undefined
                 ? null
                 : cloneScanCleanupPreferenceValue(entry.marginsMm),

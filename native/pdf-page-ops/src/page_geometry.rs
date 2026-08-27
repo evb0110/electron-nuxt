@@ -1,4 +1,206 @@
 use super::*;
+use evb_native_support::output::{AtomicOutput, ValidatedInputFiles};
+use serde::Serialize;
+
+#[derive(Clone, Copy)]
+pub(crate) struct PageGeometry {
+    pub(crate) media_box: PdfRect,
+    pub(crate) crop_box: Option<PdfRect>,
+    pub(crate) rotation: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PageGeometryBoxOutput {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PageGeometryOutput {
+    media_box: PageGeometryBoxOutput,
+    crop_box: Option<PageGeometryBoxOutput>,
+    rotation: i64,
+}
+
+fn page_geometry_box_output(rect: PdfRect) -> PageGeometryBoxOutput {
+    PageGeometryBoxOutput {
+        x: rect.x1,
+        y: rect.y1,
+        width: rect.width(),
+        height: rect.height(),
+    }
+}
+
+fn page_geometry_output(geometry: PageGeometry) -> PageGeometryOutput {
+    PageGeometryOutput {
+        media_box: page_geometry_box_output(geometry.media_box),
+        crop_box: geometry.crop_box.map(page_geometry_box_output),
+        rotation: geometry.rotation,
+    }
+}
+
+pub(crate) fn get_page_geometry(
+    document: &impl PdfObjectSource,
+    page_number: u32,
+) -> Result<PageGeometry> {
+    let page_resolver = PageTreeResolver::new(document)?;
+    let page_id = page_resolver.page_id(document, page_number)?;
+    let media_box = resolve_inherited_box(document, page_id, b"MediaBox")?;
+    let crop_box = resolve_inherited_box(document, page_id, b"CropBox")
+        .ok()
+        .and_then(|crop_box| intersect_rect(crop_box, media_box))
+        .filter(|crop_box| !pdf_rects_equal(*crop_box, media_box));
+
+    Ok(PageGeometry {
+        media_box,
+        crop_box,
+        rotation: resolve_page_rotation(document, page_id)?,
+    })
+}
+
+pub(crate) fn write_page_geometry_path(
+    input_path: &Path,
+    output_path: &Path,
+    page_number: u32,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    let _validated_input = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
+    let incremental = load_incremental_pdf_path(input_path, qpdf_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    if incremental.get_prev_documents().is_encrypted() {
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Encrypted PDFs are not supported by native page ops",
+        ));
+    }
+
+    let geometry = get_page_geometry(&AppendedRevision::new(&incremental), page_number)?;
+    let mut output = AtomicOutput::create(output_path)?;
+    serde_json::to_writer(output.file_mut()?, &page_geometry_output(geometry))?;
+    output.publish()?;
+    Ok(())
+}
+
+pub(crate) fn write_crop_pages_path(
+    input_path: &Path,
+    output_path: &Path,
+    pages: &[u32],
+    margins: CropMargins,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    if incremental.get_prev_documents().is_encrypted() {
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Encrypted PDFs are not supported by native page ops",
+        ));
+    }
+
+    crop_pages_incremental(&mut incremental, pages, margins)?;
+    append_incremental_page_revision(
+        input_path,
+        output_path,
+        &mut incremental,
+        pages,
+        CropRevisionExpectation::Margins(margins),
+    )
+}
+
+pub(crate) fn write_remove_crop_pages_path(
+    input_path: &Path,
+    output_path: &Path,
+    pages: &[u32],
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    if incremental.get_prev_documents().is_encrypted() {
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Encrypted PDFs are not supported by native page ops",
+        ));
+    }
+
+    remove_crop_from_pages_incremental(&mut incremental, pages)?;
+    append_incremental_page_revision(
+        input_path,
+        output_path,
+        &mut incremental,
+        pages,
+        CropRevisionExpectation::RestoreMediaBox,
+    )
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum CropRevisionExpectation {
+    Margins(CropMargins),
+    RestoreMediaBox,
+}
+
+pub(crate) fn append_incremental_page_revision(
+    input_path: &Path,
+    output_path: &Path,
+    incremental: &mut IncrementalDocument,
+    pages: &[u32],
+    expectation: CropRevisionExpectation,
+) -> Result<()> {
+    incremental.new_document.version = incremental.get_prev_documents().version.clone();
+    with_staged_incremental_output(input_path, output_path, |staged_output_path| {
+        assert_append_output_length(staged_output_path, incremental.previous_len())?;
+        let revision_bytes = build_incremental_revision(incremental)?;
+        let expected_object_ids = collect_incremental_append_object_ids(incremental);
+        write_incremental_revision(
+            staged_output_path,
+            incremental,
+            &revision_bytes,
+            &expected_object_ids,
+        )?;
+        validate_crop_revision_postconditions(incremental, pages, expectation)
+    })
+}
+
+fn validate_crop_revision_postconditions(
+    incremental: &IncrementalDocument,
+    pages: &[u32],
+    expectation: CropRevisionExpectation,
+) -> Result<()> {
+    let revision = AppendedRevision::new(incremental);
+    let page_resolver = PageTreeResolver::new(&revision)?;
+
+    for &page_number in pages {
+        let page_id = page_resolver.page_id(&revision, page_number)?;
+        let media_box = resolve_inherited_box(&revision, page_id, b"MediaBox")?;
+        let expected_crop_box = match expectation {
+            CropRevisionExpectation::Margins(margins) => {
+                let crop_width = media_box.width() - margins.left - margins.right;
+                let crop_height = media_box.height() - margins.top - margins.bottom;
+                if crop_width <= 0.0 || crop_height <= 0.0 {
+                    return Err(
+                        format!("Crop postcondition could not resolve page {page_number}").into(),
+                    );
+                }
+                PdfRect {
+                    x1: media_box.x1 + margins.left,
+                    y1: media_box.y1 + margins.bottom,
+                    x2: media_box.x1 + margins.left + crop_width,
+                    y2: media_box.y1 + margins.bottom + crop_height,
+                }
+            }
+            CropRevisionExpectation::RestoreMediaBox => media_box,
+        };
+        let actual_crop_box = resolve_inherited_box(&revision, page_id, b"CropBox")?;
+        if !pdf_rects_equal(actual_crop_box, expected_crop_box) {
+            return Err(format!("Crop postcondition failed for page {page_number}").into());
+        }
+    }
+
+    Ok(())
+}
 
 pub(crate) fn normalize_page_rotation(value: i64) -> i64 {
     let snapped = ((value as f64) / 90.0).round() as i64 * 90;
@@ -44,6 +246,10 @@ pub(crate) fn intersect_rect(left: PdfRect, right: PdfRect) -> Option<PdfRect> {
         return None;
     }
     Some(rect)
+}
+
+pub(crate) fn pdf_rects_equal(left: PdfRect, right: PdfRect) -> bool {
+    left.x1 == right.x1 && left.y1 == right.y1 && left.x2 == right.x2 && left.y2 == right.y2
 }
 
 pub(crate) fn resolve_page_view(
@@ -126,20 +332,20 @@ pub(crate) fn marker_rect_to_pdf_rect(
     ]))
 }
 
-pub(crate) fn crop_pages(
-    document: &mut Document,
+pub(crate) fn crop_pages_incremental(
+    incremental: &mut IncrementalDocument,
     pages: &[u32],
     margins: CropMargins,
 ) -> Result<()> {
     validate_crop_margins(margins)?;
-    let page_map = document.get_pages();
+    let selected_pages = resolve_selected_page_ids(incremental.get_prev_documents(), pages)?;
     let mut preflighted_pages = Vec::new();
     preflighted_pages
-        .try_reserve_exact(pages.len())
+        .try_reserve_exact(selected_pages.len())
         .map_err(|_| "Too many pages selected for crop")?;
-    for page_number in pages {
-        let page_id = resolve_page_id(&page_map, *page_number)?;
-        let media_box = resolve_inherited_box(document, page_id, b"MediaBox")?;
+    for (page_number, page_id) in selected_pages {
+        let media_box =
+            resolve_inherited_box(incremental.get_prev_documents(), page_id, b"MediaBox")?;
         let crop_width = media_box.width() - margins.left - margins.right;
         let crop_height = media_box.height() - margins.top - margins.bottom;
         if crop_width <= 0.0 || crop_height <= 0.0 {
@@ -160,7 +366,9 @@ pub(crate) fn crop_pages(
     }
 
     for (page_id, crop_box) in preflighted_pages {
-        set_page_crop_box(document, page_id, crop_box)?;
+        incremental.opt_clone_object_to_new_document(page_id)?;
+        let page = incremental.new_document.get_dictionary_mut(page_id)?;
+        set_page_crop_box_on_dictionary(page, crop_box);
     }
     Ok(())
 }
@@ -179,14 +387,47 @@ pub(crate) fn validate_crop_margins(margins: CropMargins) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn remove_crop_from_pages(document: &mut Document, pages: &[u32]) -> Result<()> {
-    let page_map = document.get_pages();
-    for page_number in pages {
-        let page_id = resolve_page_id(&page_map, *page_number)?;
-        let media_box = resolve_inherited_box(document, page_id, b"MediaBox")?;
-        set_page_crop_box(document, page_id, media_box)?;
+pub(crate) fn remove_crop_from_pages_incremental(
+    incremental: &mut IncrementalDocument,
+    pages: &[u32],
+) -> Result<()> {
+    let selected_pages = resolve_selected_page_ids(incremental.get_prev_documents(), pages)?;
+    let mut preflighted_pages = Vec::new();
+    preflighted_pages
+        .try_reserve_exact(selected_pages.len())
+        .map_err(|_| "Too many pages selected for crop removal")?;
+    for (page_number, page_id) in selected_pages {
+        let media_box =
+            resolve_inherited_box(incremental.get_prev_documents(), page_id, b"MediaBox")?;
+        preflighted_pages.push((page_number, page_id, media_box));
+    }
+
+    for (_page_number, page_id, media_box) in preflighted_pages {
+        incremental.opt_clone_object_to_new_document(page_id)?;
+        let page = incremental.new_document.get_dictionary_mut(page_id)?;
+        set_page_crop_box_on_dictionary(page, media_box);
     }
     Ok(())
+}
+
+fn resolve_selected_page_ids(
+    document: &impl PdfObjectSource,
+    pages: &[u32],
+) -> Result<Vec<(u32, ObjectId)>> {
+    let mut selected = Vec::new();
+    selected
+        .try_reserve_exact(pages.len())
+        .map_err(|_| "Too many pages selected for crop")?;
+    if pages.is_empty() {
+        return Ok(selected);
+    }
+
+    let page_resolver = PageTreeResolver::new(document)?;
+    for &page_number in pages {
+        let page_id = page_resolver.page_id(document, page_number)?;
+        selected.push((page_number, page_id));
+    }
+    Ok(selected)
 }
 
 pub(crate) fn resolve_page_id(
@@ -261,12 +502,7 @@ pub(crate) fn object_to_f64(object: &Object) -> Result<f64> {
     Ok(value)
 }
 
-pub(crate) fn set_page_crop_box(
-    document: &mut Document,
-    page_id: ObjectId,
-    rect: PdfRect,
-) -> Result<()> {
-    let page = document.get_dictionary_mut(page_id)?;
+pub(crate) fn set_page_crop_box_on_dictionary(page: &mut Dictionary, rect: PdfRect) {
     page.set(
         "CropBox",
         Object::Array(vec![
@@ -276,7 +512,6 @@ pub(crate) fn set_page_crop_box(
             number_object(rect.y2),
         ]),
     );
-    Ok(())
 }
 
 pub(crate) fn number_object(value: f64) -> Object {

@@ -23,14 +23,11 @@ import {
 import {createReadStream} from 'node:fs';
 import {
     mkdir,
-    mkdtemp,
     readFile,
     rm,
     stat,
 } from 'fs/promises';
 import { join } from 'path';
-import {uniq} from 'es-toolkit/array';
-import { PDFDocument } from 'pdf-lib';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type {
     IOcrDiagnostic,
@@ -48,6 +45,7 @@ import type {
     TOcrWorkerOutboundMessage,
     IOcrPageWithWords,
     IOcrPdfPageRequest,
+    TOcrPdfPageSelection,
     TWorkerLog,
 } from '@electron/ocr/worker/types';
 import { detectSourceDpiDetails } from '@electron/pdf/sourceDpiDetection';
@@ -61,11 +59,6 @@ import {
     assembleSearchablePdf,
     getPageCount,
 } from '@electron/ocr/worker/pdfAssembler';
-import { runOcrCommand } from '@electron/ocr/worker/runOcrCommand';
-import {
-    resolveSafeOcrIndexBasePath,
-    writeOcrIndexV3,
-} from '@electron/ocr/worker/indexWriter';
 import {
     parseInvalidOcrWorkerStartMessage,
     parseOcrWorkerInboundMessage,
@@ -78,10 +71,16 @@ import {
 } from '@electron/ocr/worker/popplerStage';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
-import { buildOcrErrorEnvelope } from '@electron/ocr/contracts';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import {
+    buildOcrErrorEnvelope,
+    getOcrPageSelectionCount,
+    iterateOcrPageRequestBatches,
+} from '@electron/ocr/contracts';
 import {selectOcrPagesForSupersession} from '@electron/ocr/worker/selectOcrPagesForSupersession';
-import { assertPdfPageSizeFallbackInputSafe } from '@electron/ocr/worker/assertPdfPageSizeFallbackInputSafe';
+import {
+    readOcrPdfPageSizesInches,
+    type IOcrPageSizeInches,
+} from '@electron/ocr/worker/pdfPageSizeProbe';
 import {
     cleanupStaleOcrJobDirectories,
     createOcrJobManifestController,
@@ -91,19 +90,21 @@ import {
     isOcrStorageFailure,
     type TOcrJobStorageBudget,
 } from '@electron/ocr/worker/ocrJobStorageBudget';
+import {cleanupOcrTempFiles} from '@electron/ocr/worker/cleanupOcrTempFiles';
 import {persistOcrPageCheckpoint} from '@electron/ocr/worker/persistOcrPageCheckpoint';
+import {
+    getLastOcrSelectionPage,
+    getOcrSelectionLanguages,
+    iterateCheckpointPageData,
+    iterateCheckpointPdfEntries,
+    normalizeOcrPageSelection,
+} from '@electron/ocr/worker/ocrPageSelectionStream';
+import {writeOcrIndexes} from '@electron/ocr/worker/writeOcrIndexes';
 
 const initialWorkerData: unknown = workerData;
 const paths = resolveWorkerPaths(initialWorkerData);
 const activeJobControllers = new Map<string, AbortController>();
 const activeSharedCheckpointFingerprints = new Set<string>();
-const OCR_PAGE_SIZES_TIMEOUT_MS = 30_000;
-const OCR_PAGE_SIZE_FALLBACK_MAX_INPUT_BYTES = parseIntegerEnv(
-    'EVB_OCR_PAGE_SIZE_FALLBACK_MAX_INPUT_MB',
-    128,
-    1,
-    1024,
-) * 1024 * 1024;
 const OCR_RESOURCE_ACQUIRE_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_OCR_RESOURCE_ACQUIRE_TIMEOUT_MS ?? '30000', 10);
     if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -119,6 +120,7 @@ const pendingResourceAcquires = new Map<string, {
     resolve: (lease: IOcrResourceSlotLease) => void;
     reject: (error: Error) => void;
 }>();
+export const OCR_WORKER_PAGE_BATCH_SIZE = 5_000;
 
 const log: TWorkerLog = (level, message) => {
     const timestamp = new Date().toISOString();
@@ -156,14 +158,23 @@ function sendProgress(
 
 function sendStageProgress(
     jobId: string,
-    pages: readonly IOcrPdfPageRequest[],
+    selection: TOcrPdfPageSelection,
     phase: TOcrProgressPhase,
 ) {
+    const firstPage = Array.isArray(selection)
+        ? selection[0]?.pageNumber ?? 0
+        : selection.kind === 'all'
+            ? 1
+            : selection.kind === 'range'
+                ? selection.firstPage
+                : selection.kind === 'ranges'
+                    ? selection.ranges[0]?.firstPage ?? 0
+                    : selection.pages[0]?.pageNumber ?? 0;
     sendProgress(
         jobId,
-        pages[0]?.pageNumber ?? 0,
+        firstPage,
         0,
-        pages.length,
+        getOcrPageSelectionCount(selection),
         { phase },
     );
 }
@@ -248,8 +259,8 @@ function releaseOcrResourceSlot(jobId: string, token: string) {
     parentPort?.postMessage(payload);
 }
 
-function throwIfAborted(signal: AbortSignal) {
-    if (!signal.aborted) {
+function throwIfAborted(signal?: AbortSignal) {
+    if (!signal?.aborted) {
         return;
     }
     throw signal.reason instanceof Error
@@ -285,10 +296,7 @@ interface IOcrPageProcessingContext {
     trackTempFile: (path: string) => string;
 }
 
-interface IOcrPageSizeInches {
-    width: number;
-    height: number;
-}
+type TOcrPageProcessingResult = Awaited<ReturnType<typeof processOcrPage>>;
 
 async function processOcrPage(
     page: IOcrPdfPageRequest,
@@ -321,6 +329,8 @@ async function processOcrPage(
             return {
                 pageData: checkpoint.pageData,
                 pdfPath: checkpointPdfPath,
+                checkpointJsonPath,
+                checkpointPdfPath,
                 effectiveDpi: checkpoint.effectiveDpi,
                 diagnostics: checkpoint.diagnostics ?? [],
             };
@@ -337,6 +347,7 @@ async function processOcrPage(
     const pageImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}.png`));
     const preprocessedImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-clean.png`));
     const preprocessMetadataPath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-clean.json`));
+    let ocrOutputPath: string | null = null;
     let resourceToken: string | null = null;
     const diagnostics: IOcrDiagnostic[] = [];
 
@@ -432,7 +443,11 @@ async function processOcrPage(
 
         if (!ocrResult.success || !ocrResult.pageData) {
             await context.storageBudget.assertFailureWithinBudget(ocrResult.error);
-            return { error: `Page ${page.pageNumber}: ${ocrResult.error}` };
+            return {
+                error: `Page ${page.pageNumber}: ${ocrResult.error}`,
+                checkpointJsonPath,
+                checkpointPdfPath,
+            };
         }
         await context.storageBudget.assertWithinBudget();
 
@@ -448,10 +463,12 @@ async function processOcrPage(
             return {
                 pageData,
                 error: `Page ${page.pageNumber}: Tesseract did not produce PDF output`,
+                checkpointJsonPath,
+                checkpointPdfPath,
             };
         }
 
-        context.trackTempFile(ocrResult.pdfPath);
+        ocrOutputPath = context.trackTempFile(ocrResult.pdfPath);
         await persistOcrPageCheckpoint({
             checkpointJsonPath,
             checkpointPdfPath,
@@ -470,6 +487,8 @@ async function processOcrPage(
         return {
             pageData,
             pdfPath: checkpointPdfPath,
+            checkpointJsonPath,
+            checkpointPdfPath,
             effectiveDpi,
             diagnostics,
         };
@@ -482,51 +501,82 @@ async function processOcrPage(
         }
         const errMsg = getErrorMessage(err);
         log('warn', `Failed to process page ${page.pageNumber}: ${errMsg}`);
-        return { error: `Failed to process page ${page.pageNumber}: ${errMsg}` };
+        return {
+            error: `Failed to process page ${page.pageNumber}: ${errMsg}`,
+            checkpointJsonPath,
+            checkpointPdfPath,
+        };
     } finally {
         if (resourceToken) {
             releaseOcrResourceSlot(context.jobId, resourceToken);
         }
+        await Promise.all([
+            rm(pageImagePath, {force: true}),
+            rm(preprocessedImagePath, {force: true}),
+            rm(preprocessMetadataPath, {force: true}),
+            ...(ocrOutputPath === null ? [] : [rm(ocrOutputPath, {force: true})]),
+        ]).catch(() => undefined);
     }
 }
 
-async function processOcrPages(
+export async function processOcrPages(
     jobId: string,
-    targetPages: IOcrPdfPageRequest[],
+    targetPages: readonly IOcrPdfPageRequest[],
     concurrency: number,
     context: IOcrPageProcessingContext,
+    progress: {
+        processedOffset?: number;
+        totalPages?: number;
+    } = {},
 ) {
     let processedCount = 0;
+    const processedOffset = progress.processedOffset ?? 0;
+    const totalPages = progress.totalPages ?? targetPages.length;
 
     sendProgress(
         jobId,
         targetPages[0]?.pageNumber ?? 0,
-        0,
-        targetPages.length,
+        processedOffset,
+        totalPages,
         { phase: 'processing' },
     );
 
     const errors: string[] = [];
     const ocrPageData: IOcrPageWithWords[] = [];
     const ocrPdfMap = new Map<number, string>();
+    const pageResults: Array<{
+        pageNumber: number;
+        pageDataPath: string;
+        pdfPath: string;
+        effectiveDpi?: number;
+    }> = [];
     let effectiveRenderDpi = context.extractionDpi;
     const diagnostics: IOcrDiagnostic[] = [];
+    const MAX_AGGREGATED_DIAGNOSTICS = 10_000;
     let nextPageIndex = 0;
 
-    const aggregateResult = (pageNumber: number, result: Awaited<ReturnType<typeof processOcrPage>>) => {
+    const aggregateResult = (pageNumber: number, result: TOcrPageProcessingResult) => {
         if (result.error) {
             errors.push(result.error);
         }
         if (result.pageData) {
             ocrPageData.push(result.pageData);
+            if (result.pdfPath) {
+                ocrPdfMap.set(pageNumber, result.pdfPath);
+                pageResults.push({
+                    pageNumber,
+                    pageDataPath: result.checkpointJsonPath,
+                    pdfPath: result.pdfPath,
+                    ...(typeof result.effectiveDpi === 'number' ? {effectiveDpi: result.effectiveDpi} : {}),
+                });
+            }
         }
         if (typeof result.effectiveDpi === 'number') {
             effectiveRenderDpi = Math.min(effectiveRenderDpi, result.effectiveDpi);
         }
-        if (result.pdfPath) {
-            ocrPdfMap.set(pageNumber, result.pdfPath);
+        if (diagnostics.length < MAX_AGGREGATED_DIAGNOSTICS) {
+            diagnostics.push(...(result.diagnostics ?? []).slice(0, MAX_AGGREGATED_DIAGNOSTICS - diagnostics.length));
         }
-        diagnostics.push(...(result.diagnostics ?? []));
     };
 
     const runWorker = async () => {
@@ -541,9 +591,9 @@ async function processOcrPages(
             processedCount += 1;
             sendProgress(
                 jobId,
-                getSequentialProgressPage(targetPages, processedCount),
-                processedCount,
-                targetPages.length,
+                getSequentialProgressPage(targetPages as IOcrPdfPageRequest[], processedCount),
+                processedOffset + processedCount,
+                totalPages,
                 { phase: 'processing' },
             );
         }
@@ -557,63 +607,19 @@ async function processOcrPages(
 
     return {
         errors,
+        // Keep the legacy fields for direct callers. They are bounded by the
+        // 5,000-page worker window; the job-level path uses pageResults and
+        // file-backed checkpoint streams instead of concatenating them.
         ocrPageData: ocrPageData.sort((left, right) => left.pageNumber - right.pageNumber),
         ocrPdfMap,
+        pageResults: pageResults.sort((left, right) => left.pageNumber - right.pageNumber),
+        successfulPageCount: pageResults.length,
         effectiveRenderDpi,
         diagnostics,
     };
 }
 
-async function resolveOcrIndexPath(sourcePdfPath: string) {
-    try {
-        return await resolveSafeOcrIndexBasePath(sourcePdfPath, paths.tempDir);
-    } catch (pathErr) {
-        const pathErrMsg = getErrorMessage(pathErr);
-        log('warn', `Rejected OCR index path "${sourcePdfPath}": ${pathErrMsg}`);
-        return undefined;
-    }
-}
-
-async function writeOcrIndexes(
-    sourcePdfPath: string,
-    stagedResultPdfPath: string,
-    documentRevision: IDocumentRevisionInfo,
-    ocrPageData: IOcrPageWithWords[],
-    pageCount: number,
-    allLanguages: string[],
-    effectiveRenderDpi: number,
-    signal: AbortSignal,
-) {
-    const validatedWorkingCopyPath = await resolveOcrIndexPath(sourcePdfPath);
-    if (!validatedWorkingCopyPath) {
-        const warning = 'Skipping OCR index writes due to invalid source PDF path';
-        log('warn', warning);
-        return [warning];
-    }
-
-    try {
-        await writeOcrIndexV3(
-            validatedWorkingCopyPath,
-            documentRevision,
-            ocrPageData,
-            pageCount,
-            allLanguages,
-            effectiveRenderDpi,
-            log,
-            signal,
-            stagedResultPdfPath,
-        );
-    } catch (indexError) {
-        if (isAbortError(indexError)) {
-            throw indexError;
-        }
-        const indexErrorMessage = getErrorMessage(indexError);
-        log('error', `Failed to stage OCR text catalog: ${indexErrorMessage}`);
-        throw new Error(`Failed to stage OCR text catalog: ${indexErrorMessage}`, {cause: indexError});
-    }
-
-    return [];
-}
+export {iterateCheckpointPageResults} from '@electron/ocr/worker/ocrPageSelectionStream';
 
 async function validateSourcePdf(jobId: string, sourcePdfPath: string, pageCount: number) {
     const sourceStat = await stat(sourcePdfPath);
@@ -621,16 +627,6 @@ async function validateSourcePdf(jobId: string, sourcePdfPath: string, pageCount
         throw new Error(`Source PDF is empty: ${sourcePdfPath}`);
     }
     log('debug', `Processing OCR job ${jobId}: sourcePath=${sourcePdfPath}, pdfBytes=${sourceStat.size}, pages=${pageCount}`);
-}
-
-function assertUniqueOcrPageNumbers(pages: readonly IOcrPdfPageRequest[]) {
-    const seenPageNumbers = new Set<number>();
-    for (const page of pages) {
-        if (seenPageNumbers.has(page.pageNumber)) {
-            throw new Error(`Duplicate OCR page number ${page.pageNumber}`);
-        }
-        seenPageNumbers.add(page.pageNumber);
-    }
 }
 
 function logPopplerEnvironment(popplerEnv?: NodeJS.ProcessEnv) {
@@ -644,117 +640,6 @@ function logPopplerEnvironment(popplerEnv?: NodeJS.ProcessEnv) {
 
     if (process.platform === 'win32') {
         log('warn', 'Poppler env data/config paths are unavailable; Windows builds may crash if Poppler runtime assets are missing');
-    }
-}
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-    return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function parseNativePageSizesPayload(payload: unknown) {
-    if (!isObjectRecord(payload) || !Array.isArray(payload.pages)) {
-        return null;
-    }
-
-    const pageSizes = new Map<number, IOcrPageSizeInches>();
-    for (const page of payload.pages) {
-        if (!isObjectRecord(page)) {
-            return null;
-        }
-
-        const {
-            pageNumber,
-            widthInches,
-            heightInches,
-        } = page;
-        if (
-            typeof pageNumber !== 'number'
-            || !Number.isSafeInteger(pageNumber)
-            || pageNumber < 1
-            || typeof widthInches !== 'number'
-            || !Number.isFinite(widthInches)
-            || widthInches <= 0
-            || typeof heightInches !== 'number'
-            || !Number.isFinite(heightInches)
-            || heightInches <= 0
-        ) {
-            return null;
-        }
-
-        pageSizes.set(pageNumber, {
-            width: widthInches,
-            height: heightInches,
-        });
-    }
-
-    return pageSizes;
-}
-
-async function readPdfPageSizesInchesNative(pdfPath: string, signal?: AbortSignal) {
-    if (!paths.pdfPageOpsBinary) {
-        return null;
-    }
-
-    let tempDir: string | null = null;
-    try {
-        tempDir = await mkdtemp(join(paths.tempDir, 'ocr-page-sizes-'));
-        const outputPath = join(tempDir, 'page-sizes.json');
-        await runOcrCommand(paths.pdfPageOpsBinary, [
-            'page-sizes',
-            '--input',
-            pdfPath,
-            '--output',
-            outputPath,
-        ], {
-            timeoutMs: OCR_PAGE_SIZES_TIMEOUT_MS,
-            commandLabel: 'evb-pdf-page-ops(page-sizes)',
-            ...(signal ? { signal } : {}),
-        });
-        const payload: unknown = JSON.parse(await readFile(outputPath, 'utf8'));
-        return parseNativePageSizesPayload(payload);
-    } catch (error) {
-        log('debug', `Native PDF page-size inspection failed for OCR resource budgeting; falling back to pdf-lib: ${getErrorMessage(error)}`);
-        return null;
-    } finally {
-        if (tempDir) {
-            await rm(tempDir, {
-                recursive: true,
-                force: true,
-            }).catch(() => undefined);
-        }
-    }
-}
-
-async function readPdfPageSizesInches(pdfPath: string, signal?: AbortSignal) {
-    const nativePageSizes = await readPdfPageSizesInchesNative(pdfPath, signal);
-    if (nativePageSizes) {
-        return nativePageSizes;
-    }
-
-    try {
-        if (signal?.aborted) {
-            throw signal.reason instanceof Error ? signal.reason : new Error('OCR job canceled');
-        }
-        await assertPdfPageSizeFallbackInputSafe(pdfPath, OCR_PAGE_SIZE_FALLBACK_MAX_INPUT_BYTES);
-        const pdfBytes = await readFile(pdfPath);
-        if (signal?.aborted) {
-            throw signal.reason instanceof Error ? signal.reason : new Error('OCR job canceled');
-        }
-        const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-        const pageSizes = new Map<number, IOcrPageSizeInches>();
-        pdfDoc.getPages().forEach((page, index) => {
-            const size = page.getSize();
-            if (size.width > 0 && size.height > 0) {
-                pageSizes.set(index + 1, {
-                    width: size.width / 72,
-                    height: size.height / 72,
-                });
-            }
-        });
-        return pageSizes;
-    } catch (err) {
-        log('debug', `Unable to inspect PDF page sizes for OCR resource budgeting; using fallback page size: ${getErrorMessage(err)}`);
-        return new Map<number, IOcrPageSizeInches>();
     }
 }
 
@@ -786,7 +671,15 @@ async function buildOcrPageProcessingPlan(
     const concurrency = getOcrConcurrency(targetPages.length);
     const tesseractThreads = getTesseractThreadLimit(concurrency);
     sendStage('page-size-probing');
-    const pageSizeByNumber = await readPdfPageSizesInches(popplerSourcePdfPath, baseContext.signal);
+    const pageSizeProbe = await readOcrPdfPageSizesInches({
+        pdfPath: popplerSourcePdfPath,
+        ...(paths.pdfPageOpsBinary ? {pdfPageOpsBinary: paths.pdfPageOpsBinary} : {}),
+        qpdfBinary: paths.qpdfBinary,
+        tempDir: paths.tempDir,
+        pageNumbers: targetPages.map(page => page.pageNumber),
+        signal: baseContext.signal,
+        log,
+    });
 
     log('debug', `OCR PDF: pages=${targetPages.length}, dpi=${extractionDpi}, concurrency=${concurrency}, threads=${tesseractThreads}`);
 
@@ -794,11 +687,12 @@ async function buildOcrPageProcessingPlan(
         targetPages,
         concurrency,
         effectiveRenderDpi: extractionDpi,
+        pageSizeProbe,
         pageContext: {
             ...baseContext,
             extractionDpi,
             tesseractThreads,
-            pageSizeByNumber,
+            pageSizeByNumber: pageSizeProbe.pageSizes,
             pageSourceDpiByNumber: detectedSourceDpi.pageDpiByNumber,
         },
     };
@@ -818,7 +712,7 @@ function sendEmptyOcrResultFailure(
 async function assembleMergedOcrPdf(
     jobId: string,
     sourcePdfPath: string,
-    ocrPdfMap: Map<number, string>,
+    ocrPdfEntries: Map<number, string> | AsyncIterable<readonly [number, string]>,
     pageCount: number,
     sessionId: string,
     trackTempFile: (path: string) => string,
@@ -829,7 +723,7 @@ async function assembleMergedOcrPdf(
         return await assembleSearchablePdf(
             paths.qpdfBinary,
             sourcePdfPath,
-            ocrPdfMap,
+            ocrPdfEntries,
             pageCount,
             paths.tempDir,
             sessionId,
@@ -845,21 +739,6 @@ async function assembleMergedOcrPdf(
             errors,
         });
         return null;
-    }
-}
-
-async function cleanupTempFiles(
-    tempFiles: Set<string>,
-    keepFiles: Set<string>,
-) {
-    for (const filePath of tempFiles) {
-        if (keepFiles.has(filePath)) {
-            continue;
-        }
-        await rm(filePath, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
     }
 }
 
@@ -879,7 +758,7 @@ async function processOcrJob(
     jobId: string,
     sourcePdfPath: string,
     documentRevision: IDocumentRevisionInfo,
-    pages: IOcrPdfPageRequest[],
+    pages: TOcrPdfPageSelection,
     options: IOcrSearchablePdfOptions = {},
 ) {
     const abortController = new AbortController();
@@ -887,56 +766,61 @@ async function processOcrJob(
     const tempFiles = new Set<string>();
     const keepFiles = new Set<string>();
     const jobWarnings: string[] = [];
+    const jobErrors: string[] = [];
     const jobDiagnostics: IOcrDiagnostic[] = [];
+    const MAX_JOB_MESSAGES = 10_000;
+    const MAX_JOB_DIAGNOSTICS = 10_000;
+    const MAX_TRACKED_TEMP_FILES = 1_024;
+    let omittedMessageCount = 0;
+    let sessionId: string | null = null;
+    let tempFileTrackingOverflow = false;
     let durableManifest: Awaited<ReturnType<typeof createOcrJobManifestController>> | null = null;
     let storageBudget: TOcrJobStorageBudget | null = null;
     let ownedSharedCheckpointFingerprint: string | null = null;
 
     const trackTempFile = (filePath: string) => {
-        tempFiles.add(filePath);
+        if (tempFiles.size < MAX_TRACKED_TEMP_FILES) {
+            tempFiles.add(filePath);
+        } else {
+            tempFileTrackingOverflow = true;
+        }
         return filePath;
     };
 
+    const appendMessages = (target: string[], messages: readonly string[]) => {
+        if (target.length >= MAX_JOB_MESSAGES) {
+            omittedMessageCount += messages.length;
+            return;
+        }
+        const remaining = MAX_JOB_MESSAGES - target.length;
+        target.push(...messages.slice(0, remaining));
+        omittedMessageCount += Math.max(0, messages.length - remaining);
+    };
+
+    const appendDiagnostics = (diagnostics: readonly IOcrDiagnostic[]) => {
+        if (jobDiagnostics.length >= MAX_JOB_DIAGNOSTICS) {
+            return;
+        }
+        const remaining = MAX_JOB_DIAGNOSTICS - jobDiagnostics.length;
+        jobDiagnostics.push(...diagnostics.slice(0, remaining));
+    };
+
     try {
-        assertUniqueOcrPageNumbers(pages);
-        await validateSourcePdf(jobId, sourcePdfPath, pages.length);
+        const requestedSelection = normalizeOcrPageSelection(pages);
+        const requestedPageCount = getOcrPageSelectionCount(requestedSelection);
+        await validateSourcePdf(jobId, sourcePdfPath, requestedPageCount);
 
         const supersessionPolicy = options.supersessionPolicy ?? 'missing-only';
         if (supersessionPolicy === 'replace-all' && options.replaceAllAcknowledged !== true) {
             throw new Error('replace-all OCR requires explicit acknowledgement');
         }
-        const selection = await selectOcrPagesForSupersession({
-            sourcePdfPath,
-            documentRevisionToken: documentRevision.token,
-            pages,
-            supersessionPolicy,
-            ...(paths.pdftotextBinary ? {pdftotextBinary: paths.pdftotextBinary} : {}),
-            log,
-            signal: abortController.signal,
-        });
-        jobWarnings.push(...selection.warnings);
-        jobDiagnostics.push(...selection.diagnostics);
-        if (selection.pages.length === 0) {
-            sendComplete(jobId, {
-                success: false,
-                errors: [
-                    ...jobWarnings,
-                    'No pages require OCR under the selected text supersession policy',
-                ],
-                diagnostics: jobDiagnostics,
-            });
-            return;
-        }
-        pages = selection.pages;
 
-        const sessionId = `ocr-${randomUUID()}`;
+        const activeSessionId = `ocr-${randomUUID()}`;
+        sessionId = activeSessionId;
         const checkpointFingerprint = createHash('sha256').update(JSON.stringify({
             sourcePdfPath,
             documentRevision: documentRevision.token,
-            pages: pages.map(page => ({
-                pageNumber: page.pageNumber,
-                languages: [...page.languages].sort(),
-            })),
+            pages: requestedSelection,
             options,
         })).digest('hex');
         const checkpointRoot = join(paths.tempDir, 'ocr-checkpoints');
@@ -956,7 +840,7 @@ async function processOcrJob(
         storageBudget = createOcrJobStorageBudget({
             abortController,
             checkpointDir,
-            sessionId,
+            sessionId: activeSessionId,
             tempDir: paths.tempDir,
         });
         await storageBudget.assertWithinBudget();
@@ -964,14 +848,14 @@ async function processOcrJob(
         durableManifest = await createOcrJobManifestController(checkpointDir, checkpointFingerprint);
         await durableManifest.markNode('model', 'verified');
         await durableManifest.markNode('normalized-source', 'running');
-        sendStageProgress(jobId, pages, 'pdf-prep');
+        sendStageProgress(jobId, requestedSelection, 'pdf-prep');
         const preparedPopplerPdf = await storageBudget.withReservation(
             (await stat(sourcePdfPath)).size,
             () => preparePdfForPoppler(
                 paths,
                 log,
                 sourcePdfPath,
-                sessionId,
+                activeSessionId,
                 trackTempFile,
                 abortController.signal,
             ),
@@ -979,86 +863,171 @@ async function processOcrJob(
         await storageBudget.assertWithinBudget();
         const popplerSourcePdfPath = preparedPopplerPdf.pdfPath;
         await durableManifest.markNode('normalized-source', 'verified');
-        jobWarnings.push(...preparedPopplerPdf.warnings);
+        appendMessages(jobWarnings, preparedPopplerPdf.warnings);
         const popplerEnv = buildPopplerEnv(paths);
         logPopplerEnvironment(popplerEnv);
 
+        let firstCheckpointMarked = false;
         const planOptions: Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads' | 'pageSizeByNumber' | 'pageSourceDpiByNumber'> = {
-            sessionId,
+            sessionId: activeSessionId,
             jobId,
             popplerSourcePdfPath,
             signal: abortController.signal,
             options,
             checkpointDir,
-            checkpointPage: pageNumber => durableManifest!.markPageVerified(pageNumber),
+            // Per-page manifest rewrites are quadratic for a large scalar
+            // selection. Page files are the durable source of truth; retain a
+            // bounded manifest breadcrumb for diagnostics and resume tooling.
+            checkpointPage: pageNumber => {
+                if (firstCheckpointMarked) {
+                    return Promise.resolve();
+                }
+                firstCheckpointMarked = true;
+                return durableManifest!.markPageVerified(pageNumber);
+            },
             storageBudget,
             trackTempFile,
         };
         if (popplerEnv !== undefined) {
             planOptions.popplerEnv = popplerEnv;
         }
-        const {
-            targetPages,
-            concurrency,
-            pageContext,
-        } = await buildOcrPageProcessingPlan(
-            pages,
-            popplerSourcePdfPath,
-            options.renderDpi,
-            popplerEnv,
-            planOptions,
-            phase => sendStageProgress(jobId, pages, phase),
-        );
         await durableManifest.markNode('page-raster', 'running');
         await durableManifest.markNode('preprocessed', 'running');
         await durableManifest.markNode('recognized-page', 'running');
-        const {
-            errors,
-            ocrPageData,
-            ocrPdfMap,
-            effectiveRenderDpi: actualRenderDpi,
-            diagnostics: pageDiagnostics,
-        } = await processOcrPages(jobId, targetPages, concurrency, pageContext);
-        jobDiagnostics.push(...pageDiagnostics);
+        let processedPageCount = 0;
+        let successfulPageCount = 0;
+        let actualRenderDpi = clampDpi(options.renderDpi ?? 300);
+        let pageSizeWarningReported = false;
+        let hadTargetPages = false;
+
+        for (const requestBatch of iterateOcrPageRequestBatches(requestedSelection)) {
+            throwIfAborted(abortController.signal);
+            let targetPages = requestBatch;
+            if (supersessionPolicy) {
+                const selection = await selectOcrPagesForSupersession({
+                    sourcePdfPath,
+                    documentRevisionToken: documentRevision.token,
+                    pages: requestBatch,
+                    supersessionPolicy,
+                    ...(paths.pdftotextBinary ? {pdftotextBinary: paths.pdftotextBinary} : {}),
+                    qpdfBinary: paths.qpdfBinary,
+                    log,
+                    signal: abortController.signal,
+                });
+                appendMessages(jobWarnings, selection.warnings);
+                appendDiagnostics(selection.diagnostics);
+                targetPages = selection.pages;
+            }
+
+            if (targetPages.length === 0) {
+                processedPageCount += requestBatch.length;
+                sendProgress(
+                    jobId,
+                    requestBatch.at(-1)?.pageNumber ?? 0,
+                    processedPageCount,
+                    requestedPageCount,
+                    {phase: 'processing'},
+                );
+                continue;
+            }
+            hadTargetPages = true;
+
+            const batchFirstPage = targetPages[0]?.pageNumber ?? requestBatch[0]?.pageNumber ?? 0;
+            const {
+                targetPages: plannedPages,
+                concurrency,
+                pageSizeProbe,
+                pageContext,
+            } = await buildOcrPageProcessingPlan(
+                targetPages,
+                popplerSourcePdfPath,
+                options.renderDpi,
+                popplerEnv,
+                planOptions,
+                phase => sendProgress(
+                    jobId,
+                    batchFirstPage,
+                    processedPageCount,
+                    requestedPageCount,
+                    {phase},
+                ),
+            );
+            if (pageSizeProbe.status === 'degraded' && !pageSizeWarningReported) {
+                appendMessages(jobWarnings, [pageSizeProbe.message]);
+                pageSizeWarningReported = true;
+            }
+            const batchResult = await processOcrPages(
+                jobId,
+                plannedPages,
+                concurrency,
+                pageContext,
+                {
+                    processedOffset: processedPageCount,
+                    totalPages: requestedPageCount,
+                },
+            );
+            appendMessages(jobErrors, batchResult.errors);
+            appendDiagnostics(batchResult.diagnostics);
+            successfulPageCount += batchResult.successfulPageCount;
+            actualRenderDpi = Math.min(actualRenderDpi, batchResult.effectiveRenderDpi);
+            processedPageCount += requestBatch.length;
+            await durableManifest.markPageVerified(plannedPages.at(-1)?.pageNumber ?? batchFirstPage);
+            sendProgress(
+                jobId,
+                requestBatch.at(-1)?.pageNumber ?? batchFirstPage,
+                processedPageCount,
+                requestedPageCount,
+                {phase: 'processing'},
+            );
+        }
+
         await durableManifest.markNode('page-raster', 'verified');
         await durableManifest.markNode('preprocessed', 'verified');
         await durableManifest.markNode('recognized-page', 'verified');
-        const completionMessages = [
-            ...jobWarnings,
-            ...errors,
-        ];
+        const completionMessages: string[] = [];
+        appendMessages(completionMessages, jobWarnings);
+        appendMessages(completionMessages, jobErrors);
+        if (omittedMessageCount > 0) {
+            appendMessages(completionMessages, [`${omittedMessageCount} OCR diagnostic message(s) omitted from the completion payload`]);
+        }
 
-        log('debug', `OCR done. ocrPageData=${ocrPageData.length}, ocrPdfMap=${ocrPdfMap.size}, errors=${errors.length}, renderDpi=${actualRenderDpi}`);
+        log('debug', `OCR done. successfulPages=${successfulPageCount}, requestedPages=${requestedPageCount}, errors=${jobErrors.length}, renderDpi=${actualRenderDpi}`);
 
         sendProgress(
             jobId,
-            targetPages[targetPages.length - 1]?.pageNumber ?? 0,
-            targetPages.length,
-            targetPages.length,
+            getLastOcrSelectionPage(requestedSelection),
+            requestedPageCount,
+            requestedPageCount,
             { phase: 'processing' },
         );
 
-        if (ocrPageData.length === 0 || ocrPdfMap.size === 0) {
+        if (successfulPageCount === 0) {
+            if (!hadTargetPages) {
+                appendMessages(completionMessages, ['No pages require OCR under the selected text supersession policy']);
+            }
             sendEmptyOcrResultFailure(jobId, completionMessages);
             return;
         }
 
-        const ocrPageNumbers = Array.from(ocrPdfMap.keys()).sort((a, b) => a - b);
-        const maxOcrPage = ocrPageNumbers[ocrPageNumbers.length - 1] ?? 1;
-        const pageCountResult = await getPageCount(paths.qpdfBinary, sourcePdfPath, maxOcrPage, abortController.signal);
+        const pageCountResult = await getPageCount(
+            paths.qpdfBinary,
+            sourcePdfPath,
+            getLastOcrSelectionPage(requestedSelection),
+            abortController.signal,
+        );
         const pageCount = pageCountResult.pageCount;
-        completionMessages.push(...pageCountResult.warnings);
+        appendMessages(completionMessages, pageCountResult.warnings);
 
-        sendStageProgress(jobId, targetPages, 'merging');
+        sendStageProgress(jobId, requestedSelection, 'merging');
         await durableManifest.markNode('assembled-document', 'running');
         const mergedPdfPath = await storageBudget.withReservation(
             (await stat(sourcePdfPath)).size,
             () => assembleMergedOcrPdf(
                 jobId,
                 sourcePdfPath,
-                ocrPdfMap,
+                iterateCheckpointPdfEntries(requestedSelection, checkpointDir, abortController.signal),
                 pageCount,
-                sessionId,
+                activeSessionId,
                 trackTempFile,
                 completionMessages,
                 abortController.signal,
@@ -1071,26 +1040,36 @@ async function processOcrJob(
         }
         await durableManifest.markNode('assembled-document', 'verified');
 
-        const allLanguages = uniq(targetPages.flatMap(p => p.languages));
-        sendStageProgress(jobId, targetPages, 'indexing');
+        const allLanguages = getOcrSelectionLanguages(requestedSelection);
+        const resultSha256 = await sha256File(mergedPdfPath);
+        sendStageProgress(jobId, requestedSelection, 'indexing');
         await durableManifest.markNode('text-catalog', 'running');
-        completionMessages.push(...await writeOcrIndexes(
+        appendMessages(completionMessages, await writeOcrIndexes({
             sourcePdfPath,
-            mergedPdfPath,
+            stagedResultPdfPath: mergedPdfPath,
+            resultIdentity: resultSha256,
             documentRevision,
-            ocrPageData,
+            ocrPageData: iterateCheckpointPageData(
+                requestedSelection,
+                checkpointDir,
+                abortController.signal,
+            ),
+            successfulPageCount,
             pageCount,
             allLanguages,
-            actualRenderDpi,
-            abortController.signal,
-        ));
+            effectiveRenderDpi: actualRenderDpi,
+            signal: abortController.signal,
+            tempDir: paths.tempDir,
+            log,
+            storageBudget,
+        }));
         await durableManifest.markNode('text-catalog', 'verified');
         await durableManifest.markNode('verified-result', 'verified');
         sendProgress(
             jobId,
-            targetPages[targetPages.length - 1]?.pageNumber ?? 0,
-            targetPages.length,
-            targetPages.length,
+            getLastOcrSelectionPage(requestedSelection),
+            requestedPageCount,
+            requestedPageCount,
             {
                 phase: 'indexing',
                 phaseProgress: 100,
@@ -1098,12 +1077,15 @@ async function processOcrJob(
         );
 
         keepFiles.add(mergedPdfPath);
+        // v4 writes a small authenticated descriptor beside the staged PDF.
+        // Keep it with the PDF until the renderer acknowledges both artifacts.
+        keepFiles.add(`${mergedPdfPath}.ocr-v4-prepared.json`);
         await durableManifest.setTerminal('completed');
         sendComplete(jobId, {
             success: true,
             pdfPath: mergedPdfPath,
             sourceDocumentRevisionToken: documentRevision.token,
-            resultSha256: await sha256File(mergedPdfPath),
+            resultSha256,
             requiresCleanupAck: true,
             errors: completionMessages,
             diagnostics: jobDiagnostics,
@@ -1135,7 +1117,13 @@ async function processOcrJob(
             activeSharedCheckpointFingerprints.delete(ownedSharedCheckpointFingerprint);
         }
         activeJobControllers.delete(jobId);
-        await cleanupTempFiles(tempFiles, keepFiles);
+        await cleanupOcrTempFiles(
+            tempFiles,
+            keepFiles,
+            tempFileTrackingOverflow,
+            paths.tempDir,
+            sessionId,
+        );
         sendCleanupComplete(jobId);
     }
 }

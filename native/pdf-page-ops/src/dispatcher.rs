@@ -1,6 +1,102 @@
 use super::*;
 
 pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
+    match &config.operation {
+        Operation::Crop {
+            pages_file,
+            margins,
+        } => {
+            let pages = read_pages_file(pages_file)
+                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
+            return write_crop_pages_path(
+                &config.input_path,
+                &config.output_path,
+                &pages,
+                *margins,
+                config.qpdf_path.as_deref(),
+            );
+        }
+        Operation::RemoveCrop { pages_file } => {
+            let pages = read_pages_file(pages_file)
+                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
+            return write_remove_crop_pages_path(
+                &config.input_path,
+                &config.output_path,
+                &pages,
+                config.qpdf_path.as_deref(),
+            );
+        }
+        _ => {}
+    }
+
+    match &config.operation {
+        Operation::SplitPages { instructions_file } => {
+            let instructions = read_split_pages_file(instructions_file)
+                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
+            return write_split_pages_path(
+                &config.input_path,
+                &config.output_path,
+                &instructions,
+                config.qpdf_path.as_deref(),
+            );
+        }
+        Operation::OverlayText {
+            source_path,
+            instructions_file,
+        } => {
+            let instructions = read_text_layer_file(instructions_file)
+                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
+            return write_overlay_text_layers_path(
+                &config.input_path,
+                source_path,
+                &config.output_path,
+                &instructions,
+                config.qpdf_path.as_deref(),
+            );
+        }
+        _ => {}
+    }
+
+    match &config.operation {
+        Operation::AnnotationNameIndex => {
+            return write_annotation_name_index_path(
+                &config.input_path,
+                &config.output_path,
+                config.qpdf_path.as_deref(),
+            )
+        }
+        Operation::EmbeddedShapeIndex => {
+            return write_embedded_shape_index_path(
+                &config.input_path,
+                &config.output_path,
+                config.qpdf_path.as_deref(),
+            )
+        }
+        Operation::PageSizes => {
+            return write_page_sizes_path(
+                &config.input_path,
+                &config.output_path,
+                config.qpdf_path.as_deref(),
+            )
+        }
+        Operation::PdfConformance => {
+            return write_pdf_conformance_path(
+                &config.input_path,
+                &config.output_path,
+                config.qpdf_path.as_deref(),
+            )
+        }
+        Operation::PageGeometry { page_number } => {
+            return write_page_geometry_path(
+                &config.input_path,
+                &config.output_path,
+                *page_number,
+                config.qpdf_path.as_deref(),
+            )
+        }
+        _ => {}
+    }
+
     let appended = read_append_mutations(&config.operation)
         .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
     if let Some((mutations, modified_at)) = appended {
@@ -13,89 +109,19 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         );
     }
 
-    let mut document = load_pdf_path(&config.input_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if document.is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
+    if let Some((mutations, modified_at)) = read_non_append_mutations(&config.operation)
+        .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?
+    {
+        return write_native_mutations_path(
+            &config.input_path,
+            &config.output_path,
+            &mutations,
+            modified_at,
+            config.qpdf_path.as_deref(),
+        );
     }
 
-    match config.operation {
-        Operation::SplitPages { instructions_file } => {
-            let instructions = read_split_pages_file(&instructions_file)
-                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            split_pages(document, &instructions, &config.output_path)?;
-            return Ok(());
-        }
-        Operation::OverlayText {
-            source_path,
-            instructions_file,
-        } => {
-            let source = load_pdf_path(&source_path).map_err(|error| {
-                classify_pdf_load_error(error, "Failed to parse source PDF structure")
-            })?;
-            if source.is_encrypted() {
-                return Err(domain_error(
-                    NativeErrorCode::Encrypted,
-                    "Encrypted source PDFs are not supported by native page ops",
-                ));
-            }
-            let instructions = read_text_layer_file(&instructions_file)
-                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            overlay_text_layers(&mut document, &source, &instructions)?;
-        }
-        Operation::Crop {
-            pages_file,
-            margins,
-        } => {
-            let pages = read_pages_file(&pages_file)
-                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            crop_pages(&mut document, &pages, margins)?;
-        }
-        Operation::RemoveCrop { pages_file } => {
-            let pages = read_pages_file(&pages_file)
-                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            remove_crop_from_pages(&mut document, &pages)?;
-        }
-        Operation::UpdateNoteText {
-            updates_file,
-            modified_at,
-            append: _,
-        } => {
-            let updates = read_note_text_updates(&updates_file)
-                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            update_note_text(&mut document, &updates, &modified_at)?;
-        }
-        Operation::SaveNoteChanges {
-            changes_file,
-            modified_at,
-            append: _,
-        } => {
-            let changes = read_note_changes(&changes_file)
-                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            update_note_text(&mut document, &changes.updates, &modified_at)?;
-            upsert_free_text_notes(&mut document, &changes.free_text_notes, &modified_at)?;
-            delete_annotations(&mut document, &changes.deletes)?;
-        }
-        Operation::SaveMutations {
-            mutations_file,
-            modified_at,
-            append: _,
-        } => {
-            let mutations = read_native_mutations(&mutations_file)
-                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            apply_native_mutations(&mut document, &mutations, &modified_at)?;
-        }
-        Operation::PageSizes => {
-            write_page_sizes_json(&document, &config.output_path)?;
-            return Ok(());
-        }
-    }
-
-    document.save(&config.output_path)?;
-    Ok(())
+    unreachable!("all PDF page operations must be dispatched before this point")
 }
 
 pub(crate) fn classify_pdf_load_error(error: Box<dyn Error>, context: &str) -> Box<dyn Error> {
@@ -141,6 +167,45 @@ fn read_append_mutations(operation: &Operation) -> Result<Option<(NativeMutation
             mutations_file,
             modified_at,
             append: true,
+        } => (read_native_mutations(mutations_file)?, modified_at.as_str()),
+        _ => return Ok(None),
+    };
+    Ok(Some(mutations))
+}
+
+fn read_non_append_mutations(operation: &Operation) -> Result<Option<(NativeMutationsFile, &str)>> {
+    let mutations = match operation {
+        Operation::UpdateNoteText {
+            updates_file,
+            modified_at,
+            append: false,
+        } => (
+            NativeMutationsFile {
+                updates: read_note_text_updates(updates_file)?,
+                ..NativeMutationsFile::default()
+            },
+            modified_at.as_str(),
+        ),
+        Operation::SaveNoteChanges {
+            changes_file,
+            modified_at,
+            append: false,
+        } => {
+            let changes = read_note_changes(changes_file)?;
+            (
+                NativeMutationsFile {
+                    updates: changes.updates,
+                    free_text_notes: changes.free_text_notes,
+                    deletes: changes.deletes,
+                    ..NativeMutationsFile::default()
+                },
+                modified_at.as_str(),
+            )
+        }
+        Operation::SaveMutations {
+            mutations_file,
+            modified_at,
+            append: false,
         } => (read_native_mutations(mutations_file)?, modified_at.as_str()),
         _ => return Ok(None),
     };

@@ -1,6 +1,7 @@
 import type {
     IScanCleanupMarginsMm,
     IScanCleanupOptions,
+    IScanCleanupPageOverride,
     TScanCleanupOutputModeSetting,
     TScanCleanupPageOverrides,
 } from '@contracts/electronApiScanCleanup';
@@ -23,7 +24,11 @@ import {
     type IScanCleanupGlobalPreferences,
     type IScanCleanupLegacyStorageExport,
 } from '@contracts/scanCleanupSettings';
-import {decodeScanCleanupPageOverrides} from '@contracts/scan-cleanup/ipcRequestCodecs';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+import {
+    decodeScanCleanupPageOverride,
+    decodeScanCleanupPageOverrides,
+} from '@contracts/scan-cleanup/ipcRequestCodecs';
 
 const SETTINGS_KEY = 'evb.scanCleanup.settings.v1';
 const OVERRIDES_KEY = 'evb.scanCleanup.documentOverrides.v1';
@@ -116,7 +121,13 @@ export function dismissScanCleanupFirstRunGuidance(
 }
 
 export function toPlainScanCleanupOptions(value: IScanCleanupOptions): IScanCleanupOptions {
-    return cloneScanCleanupPreferenceValue(value);
+    const plain = cloneScanCleanupPreferenceValue(value);
+    attachScanCleanupPageOverrideDefaults(
+        plain.pageOverrides,
+        plain.pageOverrideDefaults,
+        plain.marginsMm,
+    );
+    return plain;
 }
 
 export function loadScanCleanupDocumentOverrides(
@@ -153,6 +164,24 @@ export function loadScanCleanupDocumentMargins(
         return null;
     }
     return decodeScanCleanupMarginsMm(marginsMm);
+}
+
+export function loadScanCleanupDocumentPageOverrideDefaults(
+    documentKey: string | null | undefined,
+    storage: IScanCleanupPreferenceStorage = browserStorage,
+): IScanCleanupPageOverride | null {
+    if (!documentKey) {
+        return null;
+    }
+    const entry = scanCleanupPreferenceRecord(loadDocumentEntries(storage)[documentKey]);
+    if (entry?.pageOverrideDefaults === undefined) {
+        return null;
+    }
+    try {
+        return decodeScanCleanupPageOverride(entry.pageOverrideDefaults);
+    } catch {
+        return null;
+    }
 }
 
 export function loadScanCleanupDocumentOutputMode(
@@ -203,8 +232,13 @@ export function saveScanCleanupDocumentPreferences(
         && (patch.overrides === undefined || Object.keys(patch.overrides).length === 0);
     if (resetToEmptyOverrides) {
         Reflect.deleteProperty(nextEntry, 'overrides');
+        Reflect.deleteProperty(nextEntry, 'pageOverrideDefaults');
     } else if (patch.overrides !== undefined) {
         nextEntry.overrides = decodeScanCleanupPageOverrides(patch.overrides);
+        writesUpdatedAt = true;
+    }
+    if (patch.pageOverrideDefaults !== undefined && !resetToEmptyOverrides) {
+        nextEntry.pageOverrideDefaults = decodeScanCleanupPageOverride(patch.pageOverrideDefaults);
         writesUpdatedAt = true;
     }
     if (patch.marginsMm !== undefined) {
@@ -298,6 +332,7 @@ export function resetScanCleanupDocumentOverrides(
     const entry = scanCleanupPreferenceRecord(entries[documentKey]);
     if (entry?.marginsMm !== undefined || entry?.outputMode !== undefined) {
         Reflect.deleteProperty(entry, 'overrides');
+        Reflect.deleteProperty(entry, 'pageOverrideDefaults');
         entries[documentKey] = entry;
     } else {
         Reflect.deleteProperty(entries, documentKey);

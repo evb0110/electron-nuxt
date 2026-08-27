@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
 import { requireDocumentRevisionToken } from '@contracts';
+import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 const serializePdfEditsMock = vi.hoisted(() => vi.fn(async (data: Uint8Array) => data));
@@ -197,7 +198,7 @@ describe('pdfSerializationWorkerClient', {timeout: 20_000}, () => {
         await serializePdfEditsOffThread({
             bytes: data,
             ownership: 'disposable',
-            reloadPath: '/tmp/disposable.pdf',
+            reloadPath: 'browser://documents/disposable.pdf',
             revision,
         }, payload);
 
@@ -248,12 +249,12 @@ describe('pdfSerializationWorkerClient', {timeout: 20_000}, () => {
             await expect(serializePdfEditsOffThread({
                 bytes: data,
                 ownership: 'disposable',
-                reloadPath: '/tmp/disposable.pdf',
+                reloadPath: 'browser://documents/disposable.pdf',
                 revision,
             }, payload)).resolves.toBe(reloaded);
 
             expect(data.byteLength).toBe(0);
-            expect(readDocumentBytesMock).toHaveBeenCalledWith('/tmp/disposable.pdf');
+            expect(readDocumentBytesMock).toHaveBeenCalledWith('browser://documents/disposable.pdf');
             expect(getDocumentRevisionMock).toHaveBeenCalledTimes(2);
             expect(serializePdfEditsMock).toHaveBeenCalledWith(reloaded, payload);
         } finally {
@@ -290,11 +291,51 @@ describe('pdfSerializationWorkerClient', {timeout: 20_000}, () => {
                     3,
                 ]),
                 ownership: 'disposable',
-                reloadPath: '/tmp/disposable.pdf',
+                reloadPath: 'browser://documents/disposable.pdf',
                 revision,
             }, createSavePayload())).rejects.toThrow('revision changed before reload');
 
             expect(readDocumentBytesMock).not.toHaveBeenCalled();
+            expect(serializePdfEditsMock).not.toHaveBeenCalled();
+        } finally {
+            FakeWorker.prototype.postMessage = originalPostMessage;
+        }
+    });
+
+    it('fails closed before reloading a large native path after a disposable transfer detaches', async () => {
+        const revision = requireDocumentRevisionToken('drt1:test:native-disposable-reload');
+        const originalPostMessage = FakeWorker.prototype.postMessage;
+        FakeWorker.prototype.postMessage = function detachingFailure(
+            message: unknown,
+            transfer: Transferable[],
+        ) {
+            structuredClone(message, {transfer});
+            throw new Error('worker transport failed');
+        };
+
+        try {
+            const { serializePdfEditsOffThread } = await import('@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/serializePdfEditsOffThread');
+
+            await expect(serializePdfEditsOffThread({
+                bytes: new Uint8Array([
+                    1,
+                    2,
+                    3,
+                ]),
+                ownership: 'disposable',
+                reloadPath: '/tmp/large-native.pdf',
+                revision,
+            }, createSavePayload())).rejects.toMatchObject({
+                code: 'native-save-required',
+                failure: {
+                    code: 'native-save-required',
+                    phase: 'pre-write',
+                    reason: 'missing-native-capability',
+                },
+            });
+
+            expect(readDocumentBytesMock).not.toHaveBeenCalled();
+            expect(getDocumentRevisionMock).not.toHaveBeenCalled();
             expect(serializePdfEditsMock).not.toHaveBeenCalled();
         } finally {
             FakeWorker.prototype.postMessage = originalPostMessage;
@@ -634,7 +675,15 @@ describe('pdfSerializationWorkerClient', {timeout: 20_000}, () => {
         };
 
         await serializePdfEditsOffThread(new Uint8Array([1]), payload);
+        await expect(serializePdfEditsOffThread(
+            new Uint8Array(BROWSER_MAX_FULL_READ_BYTES),
+            payload,
+        )).resolves.toBeInstanceOf(Uint8Array);
+        await expect(serializePdfEditsOffThread(
+            new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1),
+            payload,
+        )).rejects.toThrow('PDF serialization input exceeds the 16 MiB worker limit');
 
-        expect(yieldToBrowserMock).toHaveBeenCalledTimes(2);
+        expect(yieldToBrowserMock).toHaveBeenCalledTimes(4);
     });
 });

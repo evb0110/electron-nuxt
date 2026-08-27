@@ -300,11 +300,10 @@ type TPdfDataRangeTransportCtor = new (
 ) => PDFDataRangeTransport;
 
 const RANGE_CHUNK_BYTES = 1024 * 1024;
-// This caps the memory-backed PDF.js transport. It is intentionally separate
-// from the native opening-preview threshold, even while both default to 512
-// MiB: preview routing is a first-paint policy, while this is a Blob safety
-// limit and either may change without changing the other.
-const PDFJS_BLOB_URL_MAX_BYTES = 512 * 1024 * 1024;
+// Blob loading is the explicit small-input compatibility route. Desktop
+// path-backed documents use the range transport and never cross this boundary
+// as one JavaScript value.
+const PDFJS_BLOB_URL_MAX_BYTES = 16 * 1024 * 1024;
 
 interface ICreatePdfjsDocumentSourceLoaderOptions {
     getRenderVersion: () => number;
@@ -373,11 +372,28 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         objectUrl = null;
     }
 
+    function getBlobSizeError(src: Blob) {
+        if (src.size <= PDFJS_BLOB_URL_MAX_BYTES) {
+            return null;
+        }
+        return new RangeError(
+            `Blob-backed PDF is ${src.size} bytes; PDF.js blob loading is capped at ${PDFJS_BLOB_URL_MAX_BYTES} bytes`,
+        );
+    }
+
+    function supersedeActiveOpen() {
+        abortTransport('Failed to abort PDF range transport before opening a new document');
+        destroyLoadingTask(
+            'PDF loading task destroy rejected before opening a new document',
+            'Failed to destroy PDF loading task before opening a new document',
+        );
+        revokeObjectUrl();
+    }
+
     async function openBlob(src: Blob, version: number) {
-        if (src.size >= PDFJS_BLOB_URL_MAX_BYTES) {
-            throw new RangeError(
-                `Blob-backed PDF is ${src.size} bytes; PDF.js blob loading is capped at ${PDFJS_BLOB_URL_MAX_BYTES} bytes`,
-            );
+        const blobSizeError = getBlobSizeError(src);
+        if (blobSizeError) {
+            throw blobSizeError;
         }
         if (version !== options.getRenderVersion()) {
             return null;
@@ -528,6 +544,14 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             loadingTaskLifecycleKey = lifecycleKey;
         },
         open(src: TPdfSource, version: number): Promise<PDFDocumentProxy | null> {
+            if (version !== options.getRenderVersion()) {
+                return Promise.resolve(null);
+            }
+            const blobSizeError = src instanceof Blob ? getBlobSizeError(src) : null;
+            if (blobSizeError) {
+                return Promise.reject(blobSizeError);
+            }
+            supersedeActiveOpen();
             return src instanceof Blob ? openBlob(src, version) : openPath(src, version);
         },
         abortTransport,

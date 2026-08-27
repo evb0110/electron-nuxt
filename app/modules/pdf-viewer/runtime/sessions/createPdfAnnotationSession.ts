@@ -378,6 +378,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationKeepActive: options.annotationKeepActive,
         annotationSettings: options.annotationSettings,
         numPages: documentSession.numPages,
+        getMountedPageNumbers: () => viewport.demand.value.mountedPages,
+        getAnnotationPageIndexes: () => annotationCommentsCache.value.map(comment => comment.pageIndex),
         getEditorIdentity: identity.getEditorIdentity,
         getCanonicalMarkupSubtypes: () => annotationApplication.value.store.markupSubtypesByExternalId(),
         recordCanonicalMarkupSubtype: (externalIds, subtype) =>
@@ -464,6 +466,15 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     : null;
         },
         isPdfSourceBlob: () => typeof Blob !== 'undefined' && options.src.value instanceof Blob,
+        getPdfSourcePath: () => {
+            if (options.workingCopyPath.value) {
+                return options.workingCopyPath.value;
+            }
+            const source = options.src.value;
+            return source && typeof source === 'object' && 'kind' in source && source.kind === 'path'
+                ? source.path
+                : null;
+        },
     });
     watch(
         commentSync.annotationEnrichmentState,
@@ -706,6 +717,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationUiManager,
         numPages: documentSession.numPages,
         currentPage: viewport.currentPage,
+        getMountedPageNumbers: () => viewport.demand.value.mountedPages,
+        getAnnotationPageIndexes: () => annotationCommentsCache.value.map(comment => comment.pageIndex),
         annotationTool: options.annotationTool,
         annotationCommentsCache,
         getIdentity: () => identity,
@@ -990,6 +1003,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         documentRevisionToken: options.documentRevisionToken,
         documentSession,
         flushAnnotationMutationsForSave: annotationMutationService.flushForSave,
+        commitPendingEditorDraftsForSave: annotations.editor.commitPendingFreeTextDraftsForSave,
         getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
         getMarkupSubtypeHints: annotations.editor.getMarkupSubtypeHints,
         getAllShapes: shapeComposable.getAllShapes,

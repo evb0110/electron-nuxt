@@ -23,6 +23,7 @@ import {
 } from '@electron/search/searchIndexSidecar';
 import { OCR_TEXT_LAYER_INDEX_VERSION } from '@contracts/ocrText';
 import {requireDocumentRevisionToken} from '@contracts';
+import {SEARCH_JS_WHOLE_VALUE_MAX_BYTES} from '@electron/search/xlargeSearchRouting';
 
 const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 
@@ -197,6 +198,31 @@ describe('writeOcrIndexV3 compact search sidecar', () => {
         await expect(readFile(join(`${resultPdfPath}.ocr`, 'page-0001.json'), 'utf8'))
             .resolves.toContain('private until apply');
         expect(await loadCompactSearchIndex(resultPdfPath, {documentRevision: DOCUMENT_REVISION})).toBeNull();
+    });
+
+    it('invalidates an existing compact sidecar for an oversized direct OCR write', async () => {
+        const pdfPath = join(tempDir, 'oversized.pdf');
+        await writeFile(pdfPath, Buffer.alloc(SEARCH_JS_WHOLE_VALUE_MAX_BYTES + 1));
+        await persistCompactSearchIndex(pdfPath, {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 1,
+            pages: [{
+                pageNumber: 1,
+                text: 'stale text',
+            }],
+        });
+
+        await writeOcrIndexV3ForTest(pdfPath, [{
+            pageNumber: 1,
+            text: 'fresh OCR text',
+            imageWidth: 100,
+            imageHeight: 200,
+            words: [],
+        }], 1, ['eng'], 300, vi.fn());
+
+        await expect(loadCompactSearchIndex(pdfPath, {documentRevision: DOCUMENT_REVISION})).resolves.toBeNull();
+        await expect(readFile(join(`${pdfPath}.ocr`, 'page-0001.json'), 'utf-8'))
+            .resolves.toContain('fresh OCR text');
     });
 
     it('merges a partial OCR rerun into the existing compact sidecar', async () => {

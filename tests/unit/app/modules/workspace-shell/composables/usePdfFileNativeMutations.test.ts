@@ -153,13 +153,11 @@ describe('usePdfFile native mutations', () => {
         });
 
         expect(result?.success).toBe(true);
-        expect(documentsMock.createManagedTempFileHandle).toHaveBeenCalledWith('/tmp/work.pdf');
-        expect(documentsMock.releaseManagedTempFileHandle).toHaveBeenCalledWith('working-copy-expectation-lease');
+        expect(documentsMock.createManagedTempFileHandle).not.toHaveBeenCalled();
         expect(documentsMock.applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             mutations,
             'D:20260609133855+03\'00\'',
-            expect.objectContaining({byteLength: 4}),
             {expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:test:markup-base')},
         );
         expect(documentsMock.commitStagedPdfNativeMutations).toHaveBeenCalledWith(
@@ -200,6 +198,7 @@ describe('usePdfFile native mutations', () => {
         pdfFile.originalPath.value = '/tmp/source.pdf';
         pdfFile.pdfConformanceProfile.value = UNSIGNED_PROFILE;
         await pdfFile.loadPdfFromData(initialBytes);
+        pdfFile.documentRevisionToken.value = requireDocumentRevisionToken('drt1:test:loaded-base');
         const versionAfterLoad = pdfFile.fileHistoryMutationVersion.value;
 
         documentsMock.statFile.mockResolvedValueOnce({size: savedBytes.byteLength});

@@ -47,6 +47,16 @@ export const browserOcrCapability: IOcrCapability = {
             contentDigest: '',
         });
     },
+    resolveDocumentTextCatalogWindow(_workingCopyPath, documentRevision, firstPage, lastPage, pageCount = lastPage) {
+        return Promise.resolve({
+            documentRevision,
+            pageCount,
+            firstPage,
+            lastPage,
+            pages: [],
+            contentDigest: '',
+        });
+    },
     acknowledgeResultFile() {
         return Promise.resolve({
             cleaned: false,

@@ -1,7 +1,8 @@
 use lopdf::{dictionary, Dictionary, Document, Object, Stream};
 use std::{
     env,
-    fs::{remove_file, write},
+    fs::{self, remove_file, write, File},
+    io::{Seek, SeekFrom, Write},
     path::Path,
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
@@ -72,6 +73,33 @@ fn save_two_pages(path: &Path, contents: [Vec<u8>; 2], resources: Dictionary) ->
     document
 }
 
+fn save_empty_pages(path: &Path, count: usize) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_ids = (0..count)
+        .map(|_| {
+            document.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+                "Resources" => Dictionary::new(),
+            })
+        })
+        .collect::<Vec<_>>();
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => page_ids.into_iter().map(Object::Reference).collect::<Vec<_>>(),
+            "Count" => count as i64,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(path).unwrap();
+}
+
 fn run_overlay_text(
     input: &Path,
     source: &Path,
@@ -89,6 +117,158 @@ fn run_overlay_text(
         .arg(instructions)
         .output()
         .unwrap()
+}
+
+fn qpdf_path() -> std::path::PathBuf {
+    env::var_os("QPDF_PATH")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("qpdf"))
+}
+
+fn run_overlay_text_with_qpdf(
+    input: &Path,
+    source: &Path,
+    output: &Path,
+    instructions: &Path,
+) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"));
+    command
+        .args(["overlay-text", "--input"])
+        .arg(input)
+        .arg("--source")
+        .arg(source)
+        .arg("--output")
+        .arg(output)
+        .arg("--instructions-file")
+        .arg(instructions)
+        .arg("--qpdf")
+        .arg(qpdf_path());
+    command.output().unwrap()
+}
+
+fn write_raw_object(file: &mut File, offsets: &mut [u64], object_number: usize, body: &[u8]) {
+    offsets[object_number] = file.stream_position().unwrap();
+    writeln!(file, "{object_number} 0 obj").unwrap();
+    file.write_all(body).unwrap();
+    file.write_all(b"\nendobj\n").unwrap();
+}
+
+fn write_sparse_source(
+    path: &Path,
+    page_count: usize,
+    ocr_source_page_index: Option<usize>,
+    malformed_source_page_index: Option<usize>,
+) -> u64 {
+    const SPARSE_UNREFERENCED_BYTES: u64 = 600 * 1024 * 1024;
+    let first_page_object = 3;
+    let last_page_object = first_page_object + page_count - 1;
+    let empty_content_object = last_page_object + 1;
+    let ocr_content_object = empty_content_object + 1;
+    let malformed_content_object = ocr_content_object + 1;
+    let font_object = malformed_content_object + 1;
+    let sparse_object = font_object + 1;
+    let mut offsets = vec![0_u64; sparse_object + 1];
+    let mut file = File::create(path).unwrap();
+    file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
+    write_raw_object(&mut file, &mut offsets, 1, b"<</Type/Catalog/Pages 2 0 R>>");
+    let kids = (first_page_object..=last_page_object)
+        .map(|object| format!("{object} 0 R"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let pages = format!("<</Type/Pages/Kids[{kids}]/Count {page_count}>>");
+    write_raw_object(&mut file, &mut offsets, 2, pages.as_bytes());
+    for (page_index, object_number) in (first_page_object..=last_page_object).enumerate() {
+        let content_object = if malformed_source_page_index == Some(page_index) {
+            malformed_content_object
+        } else if ocr_source_page_index == Some(page_index) {
+            ocr_content_object
+        } else {
+            empty_content_object
+        };
+        let page = format!(
+            "<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 120]/Resources<< /Font<< /F1 {font_object} 0 R>> >>/Contents {content_object} 0 R>>"
+        );
+        write_raw_object(&mut file, &mut offsets, object_number, page.as_bytes());
+    }
+    write_raw_object(
+        &mut file,
+        &mut offsets,
+        empty_content_object,
+        b"<</Length 0>>\nstream\n\nendstream",
+    );
+    const OCR_CONTENT: &[u8] = b"BT /F1 12 Tf 3 Tr 10 20 Td (HIGH INDEX OCR) Tj ET";
+    let mut ocr_stream = format!("<</Length {}>>\nstream\n", OCR_CONTENT.len()).into_bytes();
+    ocr_stream.extend_from_slice(OCR_CONTENT);
+    ocr_stream.extend_from_slice(b"\nendstream");
+    write_raw_object(&mut file, &mut offsets, ocr_content_object, &ocr_stream);
+    const MALFORMED_CONTENT: &[u8] = b"BT /FMissing 12 Tf 3 Tr 10 20 Td (MALFORMED OCR) Tj ET";
+    let mut malformed_stream =
+        format!("<</Length {}>>\nstream\n", MALFORMED_CONTENT.len()).into_bytes();
+    malformed_stream.extend_from_slice(MALFORMED_CONTENT);
+    malformed_stream.extend_from_slice(b"\nendstream");
+    write_raw_object(
+        &mut file,
+        &mut offsets,
+        malformed_content_object,
+        &malformed_stream,
+    );
+    write_raw_object(
+        &mut file,
+        &mut offsets,
+        font_object,
+        b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
+    );
+    offsets[sparse_object] = file.stream_position().unwrap();
+    write!(
+        file,
+        "{sparse_object} 0 obj\n<</Length {SPARSE_UNREFERENCED_BYTES}>>\nstream\n"
+    )
+    .unwrap();
+    file.seek(SeekFrom::Current(
+        i64::try_from(SPARSE_UNREFERENCED_BYTES).unwrap(),
+    ))
+    .unwrap();
+    file.write_all(b"\nendstream\nendobj\n").unwrap();
+
+    let xref_offset = file.stream_position().unwrap();
+    let xref_size = sparse_object + 1;
+    write!(file, "xref\n0 {xref_size}\n0000000000 65535 f \n").unwrap();
+    for offset in offsets.iter().skip(1) {
+        writeln!(file, "{offset:010} 00000 n ").unwrap();
+    }
+    write!(
+        file,
+        "trailer\n<</Size {xref_size}/Root 1 0 R>>\nstartxref\n{xref_offset}\n%%EOF\n"
+    )
+    .unwrap();
+    file.sync_all().unwrap();
+    fs::metadata(path).unwrap().len()
+}
+
+fn write_sparse_high_index_source(path: &Path) -> u64 {
+    write_sparse_source(path, 1_235, Some(1_234), None)
+}
+
+fn write_sparse_malformed_source(path: &Path) -> u64 {
+    write_sparse_source(path, 65, None, Some(64))
+}
+
+fn atomic_output_siblings(output: &Path) -> Vec<std::path::PathBuf> {
+    let prefix = format!(
+        ".{}.evb-tmp-",
+        output.file_name().unwrap().to_string_lossy(),
+    );
+    output
+        .parent()
+        .unwrap()
+        .read_dir()
+        .unwrap()
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(&prefix))
+        })
+        .collect()
 }
 
 fn pdftotext_page(pdf: &Path, page: usize, extra_args: &[&str]) -> std::process::Output {
@@ -276,6 +456,33 @@ fn overlay_text_rejects_singular_affines_before_mutating_the_pdf() {
     assert!(!output.exists());
 
     for path in [source, input, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
+fn overlay_text_rejects_page_index_overflow_before_seeding_path_output() {
+    let source = path("overflow-source", "pdf");
+    let input = path("overflow-input", "pdf");
+    let output = path("overflow-output", "pdf");
+    let instructions = path("overflow-instructions", "json");
+    save_single_page(&source, Vec::new(), Dictionary::new());
+    save_single_page(&input, Vec::new(), Dictionary::new());
+    write(
+        &instructions,
+        format!(
+            r#"{{"pages":[{{"sourcePageIndex":{},"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}}]}}"#,
+            usize::MAX
+        ),
+    )
+    .unwrap();
+
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("sourcePageIndex is too large"));
+    assert!(!output.exists());
+
+    for path in [source, input, output, instructions] {
         let _ = remove_file(path);
     }
 }
@@ -584,6 +791,109 @@ fn split_text_filter_skips_an_unbalanced_graphics_state_without_aborting_cleanup
             .filter(|operation| operation.operator == "Q")
             .count()
     );
+
+    for path in [source, input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
+fn overlay_text_extracts_a_high_index_page_from_a_sparse_source_above_the_byte_budget() {
+    const HIGH_SOURCE_PAGE_INDEX: usize = 1_234;
+    let source = path("large-source-high-page", "pdf");
+    let input = path("large-source-high-page-input", "pdf");
+    let output = path("large-source-high-page-output", "pdf");
+    let instructions = path("large-source-high-page-instructions", "json");
+    let source_len = write_sparse_high_index_source(&source);
+    assert!(source_len > 512 * 1024 * 1024);
+    save_empty_pages(&input, 66);
+    let mut page_instructions = (0..65)
+        .map(|page_index| {
+            format!(
+                r#"{{"sourcePageIndex":{page_index},"outputPageIndex":{page_index},"matrix":[1,0,0,1,0,0]}}"#
+            )
+        })
+        .collect::<Vec<_>>();
+    page_instructions.push(format!(
+        r#"{{"sourcePageIndex":{HIGH_SOURCE_PAGE_INDEX},"outputPageIndex":65,"matrix":[1,0,0,1,0,0]}}"#
+    ));
+    write(
+        &instructions,
+        format!(r#"{{"pages":[{}]}}"#, page_instructions.join(",")),
+    )
+    .unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "overlay-text failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let text = pdftotext_page(&output, 66, &[]);
+    assert!(
+        text.status.success(),
+        "pdftotext failed: {}",
+        String::from_utf8_lossy(&text.stderr)
+    );
+    assert!(String::from_utf8_lossy(&text.stdout).contains("HIGH INDEX OCR"));
+    let overlaid = Document::load(&output).unwrap();
+    let page_id = *overlaid.get_pages().get(&66).unwrap();
+    let parent_id = overlaid
+        .get_dictionary(page_id)
+        .unwrap()
+        .get(b"Parent")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    assert_eq!(
+        overlaid
+            .get_dictionary(parent_id)
+            .unwrap()
+            .get(b"Type")
+            .unwrap()
+            .as_name()
+            .unwrap(),
+        b"Pages"
+    );
+
+    for path in [source, input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
+fn overlay_text_failure_preserves_existing_output_after_a_prior_batch() {
+    let source = path("large-source-malformed", "pdf");
+    let input = path("large-source-malformed-input", "pdf");
+    let output = path("large-source-malformed-output", "pdf");
+    let instructions = path("large-source-malformed-instructions", "json");
+    let source_len = write_sparse_malformed_source(&source);
+    assert!(source_len > 512 * 1024 * 1024);
+    save_empty_pages(&input, 65);
+    let page_instructions = (0..65)
+        .map(|page_index| {
+            format!(
+                r#"{{"sourcePageIndex":{page_index},"outputPageIndex":{page_index},"matrix":[1,0,0,1,0,0]}}"#
+            )
+        })
+        .collect::<Vec<_>>();
+    write(
+        &instructions,
+        format!(r#"{{"pages":[{}]}}"#, page_instructions.join(",")),
+    )
+    .unwrap();
+    let existing_output = b"existing-overlay-output";
+    write(&output, existing_output).unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(!result.status.success());
+    assert!(
+        String::from_utf8_lossy(&result.stderr).contains("missing from Resources"),
+        "unexpected overlay-text error: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(&output).unwrap(), existing_output);
+    assert!(atomic_output_siblings(&output).is_empty());
 
     for path in [source, input, output, instructions] {
         let _ = remove_file(path);

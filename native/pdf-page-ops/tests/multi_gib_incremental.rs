@@ -1,5 +1,6 @@
 #![cfg(target_family = "unix")]
 
+use lopdf::{dictionary, Document, Object, Stream};
 use std::{
     env,
     fs::{self, File},
@@ -55,7 +56,7 @@ fn write_sparse_five_gib_pdf(path: &Path) -> u64 {
     write_object(
         &mut file,
         &mut offsets,
-        b"3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]/Resources<<>>>>\nendobj\n",
+        b"3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]/Resources<<>>/Contents 4 0 R>>\nendobj\n",
     );
     for object_number in 4..4 + SPARSE_STREAM_COUNT {
         offsets.push(file.stream_position().unwrap());
@@ -235,6 +236,83 @@ fn append_bookmark(pdf: &Path, mutations: &Path) -> Output {
         .unwrap()
 }
 
+fn split_pages_to_new_path(pdf: &Path, output: &Path, instructions: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["split-pages", "--input"])
+        .arg(pdf)
+        .args(["--output"])
+        .arg(output)
+        .args(["--instructions-file"])
+        .arg(instructions)
+        .args(["--qpdf"])
+        .arg(qpdf_path())
+        .output()
+        .unwrap()
+}
+
+fn save_overlay_source(path: &Path) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let font_id = document.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Helvetica",
+    });
+    let content_id = document.add_object(Stream::new(
+        dictionary! {},
+        b"BT /F1 12 Tf 3 Tr 10 20 Td (Sparse OCR) Tj ET".to_vec(),
+    ));
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+        "Resources" => dictionary! { "Font" => dictionary! { "F1" => font_id } },
+        "Contents" => content_id,
+    });
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    document.trailer.set("Root", catalog_id);
+    document.save(path).unwrap();
+}
+
+fn save_bookmark_mutations(path: &Path) {
+    fs::write(
+        path,
+        br#"{"bookmarks":{"totalPages":1,"untitledLabel":"Untitled","items":[{"title":"A","pageIndex":0,"pageYRatio":0.5,"namedDest":null,"bold":false,"italic":false,"color":null,"items":[]}]}}"#,
+    )
+    .unwrap();
+}
+
+fn save_overlay_instructions(path: &Path) {
+    fs::write(
+        path,
+        br#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
+}
+
+fn assert_qpdf_page_count(pdf: &Path, expected: &str) {
+    let output = Command::new(qpdf_path())
+        .args(["--show-npages", "--suppress-recovery", "--"])
+        .arg(pdf)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "qpdf page-count check failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), expected);
+}
+
 fn assert_qpdf_check(pdf: &Path) {
     let output = Command::new(qpdf_path())
         .args(["--check", "--suppress-recovery", "--"])
@@ -271,6 +349,103 @@ fn terminal_xref_marker(pdf: &Path) -> [u8; 4] {
     let mut bytes = [0_u8; 4];
     file.read_exact(&mut bytes).unwrap();
     bytes
+}
+
+#[test]
+fn split_pages_writes_a_new_revision_for_a_sparse_pdf_beyond_four_gib() {
+    let pdf = temp_path("five-gib-split", "pdf");
+    let output_pdf = temp_path("five-gib-split-output", "pdf");
+    let instructions = temp_path("five-gib-split", "json");
+    let _cleanup = TempFiles(vec![pdf.clone(), output_pdf.clone(), instructions.clone()]);
+    let original_len = write_sparse_five_gib_pdf(&pdf);
+    fs::write(
+        &instructions,
+        br#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":100},"contentTransform":{"scale":1,"translateX":0,"translateY":0}}]}]}"#,
+    )
+    .unwrap();
+
+    let result = split_pages_to_new_path(&pdf, &output_pdf, &instructions);
+    assert!(
+        result.status.success(),
+        "split-pages failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(fs::metadata(&output_pdf).unwrap().len() > original_len);
+    assert_eq!(terminal_xref_marker(&output_pdf), *b"xref");
+    assert_qpdf_page_count(&output_pdf, "1");
+    assert_qpdf_check(&output_pdf);
+}
+
+#[test]
+fn overlay_text_writes_a_new_revision_for_a_sparse_pdf_beyond_four_gib() {
+    let pdf = temp_path("five-gib-overlay", "pdf");
+    let output_pdf = temp_path("five-gib-overlay-output", "pdf");
+    let source_pdf = temp_path("five-gib-overlay-source", "pdf");
+    let instructions = temp_path("five-gib-overlay", "json");
+    let _cleanup = TempFiles(vec![
+        pdf.clone(),
+        output_pdf.clone(),
+        source_pdf.clone(),
+        instructions.clone(),
+    ]);
+    let original_len = write_sparse_five_gib_pdf(&pdf);
+    save_overlay_source(&source_pdf);
+    save_overlay_instructions(&instructions);
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["overlay-text", "--input"])
+        .arg(&pdf)
+        .args(["--source"])
+        .arg(&source_pdf)
+        .args(["--output"])
+        .arg(&output_pdf)
+        .args(["--instructions-file"])
+        .arg(&instructions)
+        .args(["--qpdf"])
+        .arg(qpdf_path())
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "overlay-text failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(fs::metadata(&output_pdf).unwrap().len() > original_len);
+    assert_eq!(terminal_xref_marker(&output_pdf), *b"xref");
+    assert_qpdf_page_count(&output_pdf, "1");
+    assert_qpdf_check(&output_pdf);
+}
+
+#[test]
+fn non_append_mutations_write_a_new_revision_for_a_sparse_pdf_beyond_four_gib() {
+    let pdf = temp_path("five-gib-non-append", "pdf");
+    let output_pdf = temp_path("five-gib-non-append-output", "pdf");
+    let mutations = temp_path("five-gib-non-append", "json");
+    let _cleanup = TempFiles(vec![pdf.clone(), output_pdf.clone(), mutations.clone()]);
+    let original_len = write_sparse_five_gib_pdf(&pdf);
+    save_bookmark_mutations(&mutations);
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["save-mutations", "--input"])
+        .arg(&pdf)
+        .args(["--output"])
+        .arg(&output_pdf)
+        .args(["--mutations-file"])
+        .arg(&mutations)
+        .args(["--qpdf"])
+        .arg(qpdf_path())
+        .args(["--modified-at", "D:20260826120000Z"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "non-append save-mutations failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(fs::metadata(&output_pdf).unwrap().len() > original_len);
+    assert_eq!(terminal_xref_marker(&output_pdf), *b"xref");
+    assert_qpdf_page_count(&output_pdf, "1");
+    assert_qpdf_check(&output_pdf);
 }
 
 #[test]

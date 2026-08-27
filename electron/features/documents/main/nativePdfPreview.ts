@@ -15,7 +15,10 @@ import {
     type IPdfNativePagePreview,
     type IPdfNativePagePreviewOptions,
     type IPdfNativePageSize,
+    type IPdfNativePageSizeOverride,
+    type IPdfNativePageSizes,
     type IPdfOpeningGeometry,
+    type TPdfNativePageSizes,
 } from '@contracts/electronApiDocuments';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
@@ -41,8 +44,9 @@ import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopySto
 
 const PDFINFO_TIMEOUT_MS = 20_000;
 const PDF_RENDER_TIMEOUT_MS = 30_000;
-const PDFINFO_DETAILED_PAGE_LIMIT = 5_000;
-const PDF_NATIVE_MAX_PAGE_COUNT = 100_000;
+const PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT = 5_000;
+const PDFINFO_PAGE_SIZE_WINDOW_PAGES = 64;
+const PDFINFO_PAGE_SIZE_WINDOW_LIMIT = PDFINFO_PAGE_SIZE_WINDOW_PAGES * 2;
 const PDFINFO_BASE_STDOUT_BYTES = 256 * 1024;
 const PDFINFO_PER_PAGE_STDOUT_BYTES = 512;
 const PDF_RENDER_DEFAULT_TARGET_WIDTH_PX = 1_200;
@@ -87,9 +91,6 @@ function normalizePageCount(pdfInfoOutput: string) {
     if (!Number.isSafeInteger(count) || count < 1) {
         throw new Error('Unable to determine PDF page count for native preview');
     }
-    if (count > PDF_NATIVE_MAX_PAGE_COUNT) {
-        throw new RangeError(`Native PDF preview supports at most ${PDF_NATIVE_MAX_PAGE_COUNT.toLocaleString()} pages`);
-    }
     return count;
 }
 
@@ -103,16 +104,20 @@ function parseDefaultPageSize(pdfInfoOutput: string): IPdfNativePageSize | null 
     } : null;
 }
 
+function isPageInPdfInfoWindow(pageNumber: number, pageCount: number) {
+    return pageNumber <= PDFINFO_PAGE_SIZE_WINDOW_PAGES
+        || pageNumber > pageCount - PDFINFO_PAGE_SIZE_WINDOW_PAGES;
+}
+
 export function parsePdfInfoPageSizes(
     pdfInfoOutput: string,
     pageCount: number,
     fallbackPageSize?: IPdfNativePageSize | null,
-): IPdfNativePageSize[] {
-    const sizes = Array.from({ length: pageCount }, () => (
-        fallbackPageSize
-            ? { ...fallbackPageSize }
-            : null
-    ));
+): TPdfNativePageSizes {
+    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
+        throw new Error('Unable to determine PDF page count for native preview');
+    }
+    const parsedPageSizes = new Map<number, IPdfNativePageSize>();
 
     PAGE_SIZE_RE.lastIndex = 0;
     for (const match of pdfInfoOutput.matchAll(PAGE_SIZE_RE)) {
@@ -125,20 +130,62 @@ export function parsePdfInfoPageSizes(
             || pageNumber > pageCount
             || !width
             || !height
+            || pageCount > PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT
+                && !isPageInPdfInfoWindow(pageNumber, pageCount)
         ) {
             continue;
         }
-        sizes[pageNumber - 1] = {
+        parsedPageSizes.set(pageNumber, {
             width,
             height,
-        };
+        });
     }
 
-    const firstResolvedSize = sizes.find((size): size is IPdfNativePageSize => Boolean(size));
+    const firstResolvedSize = fallbackPageSize
+        ?? parsedPageSizes.values().next().value
+        ?? null;
     if (!firstResolvedSize) {
         throw new Error('Unable to determine PDF page dimensions for native preview');
     }
 
+    if (pageCount > PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT) {
+        const overrides: IPdfNativePageSizeOverride[] = [];
+        for (const [
+            pageNumber,
+            size,
+        ] of parsedPageSizes) {
+            if (
+                size.width === firstResolvedSize.width
+                && size.height === firstResolvedSize.height
+            ) {
+                continue;
+            }
+            overrides.push({
+                pageNumber,
+                ...size,
+            });
+            if (overrides.length >= PDFINFO_PAGE_SIZE_WINDOW_LIMIT) {
+                break;
+            }
+        }
+        return {
+            pageCount,
+            defaultPageSize: { ...firstResolvedSize },
+            overrides,
+        } satisfies IPdfNativePageSizes;
+    }
+
+    const sizes = Array.from({ length: pageCount }, () => (
+        fallbackPageSize
+            ? { ...fallbackPageSize }
+            : null
+    ));
+    for (const [
+        pageNumber,
+        size,
+    ] of parsedPageSizes) {
+        sizes[pageNumber - 1] = size;
+    }
     return sizes.map(size => size ?? { ...firstResolvedSize });
 }
 
@@ -160,8 +207,13 @@ export function parsePdfOpeningGeometryMetadata(
 ): IPdfOpeningGeometry {
     const pageCount = normalizePageCount(pdfInfoOutput);
     PAGE_SIZE_RE.lastIndex = 0;
-    const firstPageSizeMatch = Array.from(pdfInfoOutput.matchAll(PAGE_SIZE_RE))
-        .find(match => Number.parseInt(match[1] ?? '', 10) === 1);
+    let firstPageSizeMatch: RegExpMatchArray | undefined;
+    for (const match of pdfInfoOutput.matchAll(PAGE_SIZE_RE)) {
+        if (Number.parseInt(match[1] ?? '', 10) === 1) {
+            firstPageSizeMatch = match;
+            break;
+        }
+    }
     const fallbackPageSize = parseDefaultPageSize(pdfInfoOutput);
     const width = parsePositiveFiniteNumber(firstPageSizeMatch?.[2]) ?? fallbackPageSize?.width ?? null;
     const height = parsePositiveFiniteNumber(firstPageSizeMatch?.[3]) ?? fallbackPageSize?.height ?? null;
@@ -169,8 +221,13 @@ export function parsePdfOpeningGeometryMetadata(
         throw new Error('Unable to determine PDF opening page dimensions');
     }
     PAGE_ROTATION_RE.lastIndex = 0;
-    const firstPageRotationMatch = Array.from(pdfInfoOutput.matchAll(PAGE_ROTATION_RE))
-        .find(match => Number.parseInt(match[1] ?? '', 10) === 1);
+    let firstPageRotationMatch: RegExpMatchArray | undefined;
+    for (const match of pdfInfoOutput.matchAll(PAGE_ROTATION_RE)) {
+        if (Number.parseInt(match[1] ?? '', 10) === 1) {
+            firstPageRotationMatch = match;
+            break;
+        }
+    }
     const optimized = OPTIMIZED_RE.exec(pdfInfoOutput)?.[1]?.toLowerCase();
     return {
         pageNumber: 1,
@@ -316,7 +373,7 @@ function cancelActivePreviewRequest(senderId: number, requestId: string, reason:
     return true;
 }
 
-function registerNativePdfSenderCleanup(
+export function registerNativePdfSenderCleanup(
     sender: Electron.WebContents | undefined,
     abort: (reason: string) => void,
     navigationReason = 'Renderer navigation canceled native PDF preview',
@@ -393,7 +450,7 @@ function createNativePdfPreviewRequestLifecycle(
 export async function handlePdfNativePageSizes(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
-): Promise<IPdfNativePageSize[]> {
+): Promise<TPdfNativePageSizes> {
     const resolvedPath = await resolvePdfPath(context, filePath);
     const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
     const tools = getPdfNativeToolPaths();
@@ -438,36 +495,57 @@ export async function handlePdfNativePageSizes(
         throwIfAborted(abortController.signal);
         const pageCount = normalizePageCount(overview.stdout);
         const fallbackPageSize = parseDefaultPageSize(overview.stdout);
+        const readPageSizeWindow = async (startPage: number, endPage: number) => {
+            const detailed = await runNativeToolCommand(
+                tools.pdfinfo,
+                [
+                    '-box',
+                    '-f',
+                    String(startPage),
+                    '-l',
+                    String(endPage),
+                    physicalPath,
+                ],
+                withPopplerEnv(env, {
+                    timeoutMs: PDFINFO_TIMEOUT_MS,
+                    maxStdoutBytes: Math.max(
+                        PDFINFO_BASE_STDOUT_BYTES,
+                        (endPage - startPage + 1) * PDFINFO_PER_PAGE_STDOUT_BYTES,
+                    ),
+                    rejectOnStdoutTruncation: true,
+                    commandLabel: 'pdfinfo',
+                    signal: abortController.signal,
+                    cancelGroup,
+                }),
+            );
+            throwIfAborted(abortController.signal);
+            return detailed.stdout;
+        };
 
-        if (pageCount > PDFINFO_DETAILED_PAGE_LIMIT) {
-            return parsePdfInfoPageSizes(overview.stdout, pageCount, fallbackPageSize);
+        if (pageCount <= PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT) {
+            const detailed = await readPageSizeWindow(1, pageCount);
+            return parsePdfInfoPageSizes(
+                detailed,
+                pageCount,
+                parseDefaultPageSize(detailed) ?? fallbackPageSize,
+            );
         }
 
-        const detailed = await runNativeToolCommand(
-            tools.pdfinfo,
-            [
-                '-box',
-                '-f',
-                '1',
-                '-l',
-                String(pageCount),
-                physicalPath,
-            ],
-            withPopplerEnv(env, {
-                timeoutMs: PDFINFO_TIMEOUT_MS,
-                maxStdoutBytes: Math.max(PDFINFO_BASE_STDOUT_BYTES, pageCount * PDFINFO_PER_PAGE_STDOUT_BYTES),
-                rejectOnStdoutTruncation: true,
-                commandLabel: 'pdfinfo',
-                signal: abortController.signal,
-                cancelGroup,
-            }),
+        const firstWindowEnd = Math.min(pageCount, PDFINFO_PAGE_SIZE_WINDOW_PAGES);
+        const lastWindowStart = Math.max(
+            1,
+            pageCount - PDFINFO_PAGE_SIZE_WINDOW_PAGES + 1,
         );
-        throwIfAborted(abortController.signal);
-
+        const firstWindow = await readPageSizeWindow(1, firstWindowEnd);
+        const lastWindow = await readPageSizeWindow(lastWindowStart, pageCount);
         return parsePdfInfoPageSizes(
-            detailed.stdout,
+            [
+                overview.stdout,
+                firstWindow,
+                lastWindow,
+            ].join('\n'),
             pageCount,
-            parseDefaultPageSize(detailed.stdout) ?? fallbackPageSize,
+            parseDefaultPageSize(firstWindow) ?? fallbackPageSize,
         );
     };
 

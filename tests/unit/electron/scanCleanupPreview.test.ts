@@ -45,6 +45,7 @@ import {
     type IScanCleanupPreviewDependencies,
     type IScanCleanupPreviewService,
 } from '@electron/features/scan-cleanup/createScanCleanupPreviewService';
+import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {resolveScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/createScanCleanupService';
 import {formatScanCleanupWarningEvent} from '@scan-cleanup-core/policy/scanCleanupWarningEvents';
 import {fitScanCleanupMarginAxisPx} from '@scan-cleanup-core/policy/documentCanvas';
@@ -4510,6 +4511,303 @@ describe('scan cleanup preview', () => {
         expect(existsSync(staged.path)).toBe(false);
         expect((await retention.retainedPaths(document, [1], 150)).size).toBe(0);
         await retention.dispose();
+    });
+
+    it('opens bounded page geometry and raster facts without the legacy arrays', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const pageSizes = [
+            {
+                ...DOCUMENT_PAGE_SIZES[0]!,
+                dominantImageWidthPx: 1_275,
+                dominantImageHeightPx: 1_650,
+                dominantImageWidthPoints: 306,
+                dominantImageHeightPoints: 396,
+            },
+            DOCUMENT_PAGE_SIZES[1]!,
+        ];
+        const close = vi.fn(async () => undefined);
+        const store: IPdfPageSizeStore = {
+            pageCount: pageSizes.length,
+            getPage: vi.fn(async pageNumber => pageSizes[pageNumber - 1]!),
+            readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
+                pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
+            forEachChunk: vi.fn(async onChunk => {
+                await onChunk({
+                    pageCount: pageSizes.length,
+                    chunkIndex: 0,
+                    firstPageNumber: 1,
+                    offset: 0,
+                    byteLength: 0,
+                    pages: [...pageSizes],
+                });
+            }),
+            close,
+        };
+        deps.getPageSizeStore = vi.fn(() => store);
+        deps.getPageSizes = vi.fn(async () => {
+            throw new Error('legacy page-size array reader must not be used');
+        });
+        const retention = createRawRasterRetention(deps);
+        const document = await retention.openDocument({
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'revision-1',
+        });
+
+        const pageSizeStore = await retention.pageSizeStore(document, new AbortController().signal);
+        expect(deps.getPageSizeStore).toHaveBeenCalledOnce();
+        expect(deps.getPageSizes).not.toHaveBeenCalled();
+        expect(await pageSizeStore.getPage(1)).toMatchObject({pageNumber: 1});
+        await pageSizeStore.close();
+
+        const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
+        expect(rasterSource.detected).toBe(false);
+        expect(await rasterSource.getPageRaster(1)).toMatchObject({
+            dpi: 300,
+            width: 1_275,
+            height: 1_650,
+        });
+        expect(rasterSource.documentDpi).toBe(300);
+        expect(await rasterSource.getPageRaster(2)).toBeUndefined();
+        await retention.release(document);
+        expect(close).toHaveBeenCalled();
+        await retention.dispose();
+    });
+
+    it('plans a bounded matched preview from chunked geometry and page raster metadata', async () => {
+        const dir = await setup();
+        const pageSizes = [
+            {
+                ...DOCUMENT_PAGE_SIZES[0]!,
+                dominantImageWidthPx: 2_550,
+                dominantImageHeightPx: 3_300,
+                dominantImageWidthPoints: 612,
+                dominantImageHeightPoints: 792,
+            },
+            {
+                ...DOCUMENT_PAGE_SIZES[0]!,
+                pageNumber: 2,
+                widthPoints: 1_224,
+                dominantImageWidthPx: 5_100,
+                dominantImageHeightPx: 3_300,
+                dominantImageWidthPoints: 1_224,
+                dominantImageHeightPoints: 792,
+            },
+            {
+                ...DOCUMENT_PAGE_SIZES[0]!,
+                pageNumber: 3,
+                dominantImageWidthPx: 2_550,
+                dominantImageHeightPx: 3_300,
+                dominantImageWidthPoints: 612,
+                dominantImageHeightPoints: 792,
+            },
+            {
+                ...DOCUMENT_PAGE_SIZES[0]!,
+                pageNumber: 4,
+                widthPoints: 100,
+                heightPoints: 100,
+                dominantImageWidthPx: 417,
+                dominantImageHeightPx: 417,
+                dominantImageWidthPoints: 100,
+                dominantImageHeightPoints: 100,
+            },
+        ];
+        const stores: IPdfPageSizeStore[] = [];
+        const createStore = (): IPdfPageSizeStore => {
+            const store: IPdfPageSizeStore = {
+                pageCount: pageSizes.length,
+                getPage: vi.fn(async pageNumber => pageSizes[pageNumber - 1]!),
+                readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
+                    pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
+                forEachChunk: vi.fn(async onChunk => {
+                    for (const [
+                        chunkIndex,
+                        page,
+                    ] of pageSizes.entries()) {
+                        await onChunk({
+                            pageCount: pageSizes.length,
+                            chunkIndex,
+                            firstPageNumber: page.pageNumber,
+                            offset: chunkIndex,
+                            byteLength: 0,
+                            pages: [page],
+                        });
+                    }
+                }),
+                close: vi.fn(async () => undefined),
+            };
+            stores.push(store);
+            return store;
+        };
+        const deps = dependencies(dir);
+        deps.getPageCount = vi.fn(async () => pageSizes.length);
+        deps.getPageSizeStore = vi.fn(createStore);
+        deps.getPageSizes = vi.fn(async () => {
+            throw new Error('legacy page-size array reader must not be used');
+        });
+        // Keep the bounded raster source on its page accessor. With no
+        // pdfimages evidence, the matcher must conservatively check every page.
+        deps.isRasterDetectionAvailable = () => false;
+        let capturedManifest: {
+            operation: string;
+            documentCanvas?: {
+                widthPoints: number;
+                heightPoints: number;
+            };
+            pages: Array<{options: {
+                sourceDpi: number;
+                dpi: number;
+            }}>;
+        } | undefined;
+        const originalSidecar = deps.runSidecar;
+        deps.runSidecar = vi.fn(async (...args: Parameters<typeof originalSidecar>) => {
+            capturedManifest = JSON.parse(await readFile(args[1], 'utf8')) as typeof capturedManifest;
+            await originalSidecar(...args);
+        });
+        const options: IScanCleanupPreviewRequest['options'] = {
+            ...request.options,
+            preserveOriginalQuality: true,
+            pageOverrides: {
+                '1': {
+                    rotationDegrees: 0,
+                    layoutOverride: 'spread' as const,
+                    excluded: false,
+                    manualSplit: null,
+                },
+                '2': {
+                    rotationDegrees: 0,
+                    layoutOverride: 'single' as const,
+                    excluded: false,
+                    manualSplit: null,
+                },
+                '3': {
+                    rotationDegrees: 0,
+                    layoutOverride: 'auto' as const,
+                    excluded: false,
+                    manualSplit: {
+                        xNormalized: 0.5,
+                        rotationDegrees: 0,
+                    },
+                },
+            },
+        };
+        const service = createScanCleanupPreviewService(deps);
+        const result = await previewOf(service, sender(), {
+            ...request,
+            options,
+            layoutByPage: {
+                ...SETTLED_SINGLE_LAYOUT_BY_PAGE,
+                '4': 'single-uncut-page',
+            },
+            layoutDetectionComplete: true,
+        });
+
+        expect(result.pageNumber).toBe(1);
+        expect(deps.getPageSizeStore).toHaveBeenCalledTimes(2);
+        expect(deps.getPageSizes).not.toHaveBeenCalled();
+        expect(deps.runSidecar).toHaveBeenCalledOnce();
+        expect(capturedManifest?.documentCanvas?.widthPoints).toBe(1_224);
+        expect(capturedManifest?.documentCanvas?.heightPoints).toBe(792);
+        // Page four is smaller than the shared spread canvas, so matching
+        // requires the same rasterized fallback the final lossless run uses.
+        expect(capturedManifest?.operation).toBe('render');
+        expect(capturedManifest?.pages[0]?.options).toMatchObject({
+            dpi: 150,
+            sourceDpi: 300,
+        });
+        expect(stores.every(store => vi.mocked(store.close).mock.calls.length === 1)).toBe(true);
+        await service.dispose();
+    });
+
+    it('bounds fallback raster probes and keeps only a scalar document DPI', async () => {
+        const dir = await setup();
+        const pageSizes = Array.from({length: 100}, (_, index) => ({
+            ...DOCUMENT_PAGE_SIZES[0]!,
+            pageNumber: index + 1,
+        }));
+        const store: IPdfPageSizeStore = {
+            pageCount: pageSizes.length,
+            getPage: vi.fn(async pageNumber => pageSizes[pageNumber - 1]!),
+            readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
+                pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
+            forEachChunk: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
+        };
+        const probeCalls: number[][] = [];
+        const deps = dependencies(dir);
+        deps.getPageSizeStore = vi.fn(() => store);
+        deps.isRasterDetectionAvailable = () => true;
+        deps.detectRasterPages = vi.fn(async (
+            _sourcePdfPath: string,
+            _signal: AbortSignal,
+            pageNumbers: readonly number[] = [],
+        ) => {
+            probeCalls.push([...pageNumbers]);
+            return {
+                detected: true,
+                pages: new Set(pageNumbers),
+                sourceDpiByPage: new Map(pageNumbers.map(pageNumber => [
+                    pageNumber,
+                    280,
+                ] as const)),
+            };
+        });
+        const retention = createRawRasterRetention(deps);
+        const document = await retention.openDocument({
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'revision-1',
+        });
+        const source = await retention.rasterPageSource(document, new AbortController().signal);
+        const rasters = await Promise.all(Array.from({length: pageSizes.length}, (_, index) =>
+            source.getPageRaster(index + 1)));
+
+        expect(rasters.every(raster => raster?.dpi === 280)).toBe(true);
+        expect(source.documentDpi).toBe(280);
+        expect(probeCalls.every(pageNumbers => pageNumbers.length <= 48)).toBe(true);
+        expect(probeCalls.flat().sort((left, right) => left - right)).toEqual(
+            pageSizes.map(page => page.pageNumber),
+        );
+        await retention.release(document);
+        await retention.dispose();
+    });
+
+    it('refuses an implicit all-page legacy raster probe for million-page documents', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.getPageCount = vi.fn(async () => 1_000_000);
+        deps.detectRasterPages = vi.fn(async () => ({
+            detected: true,
+            pages: new Set([1]),
+        }));
+        const retention = createRawRasterRetention(deps);
+        const document = await retention.openDocument({
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'revision-1',
+        });
+
+        const result = await retention.previewRasterPages(document, new AbortController().signal);
+
+        expect(result.detected).toBe(false);
+        expect(result.pages.size).toBe(0);
+        expect(deps.detectRasterPages).not.toHaveBeenCalled();
+        await retention.release(document);
+        await retention.dispose();
+    });
+
+    it('refuses legacy array geometry for million-page previews', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.getPageCount = vi.fn(async () => 1_000_000);
+        deps.getPageSizes = vi.fn(async () => {
+            throw new Error('legacy page-size array reader must not be used');
+        });
+        const service = createScanCleanupPreviewService(deps);
+
+        await expect(previewOf(service, sender(), request)).rejects.toThrow(
+            'bounded page-size store for large documents',
+        );
+        expect(deps.getPageSizes).not.toHaveBeenCalled();
+        await service.dispose();
     });
 
     it('stops protecting an adopted raster once the index has forgotten it', async () => {

@@ -21,6 +21,8 @@ import type {
 import {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+import type { TPdfPlacedImageEmbeddingResult } from '@app/modules/pdf-viewer/public';
+import { requireDocumentRevisionToken } from '@contracts';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createTestDomRect } from '@tests/helpers/domGeometryTestHarness';
@@ -220,6 +222,10 @@ function createHarness() {
         _kind: TDocumentOperationKind,
         operation: () => Promise<T>,
     ) => operation()) as TRunWithDocumentOperationLeaseMock;
+    const embedPlacedImageToPage = vi.fn<(
+        data: Uint8Array | null,
+        placement: IPdfPlacedImageFinalizePayload,
+    ) => Promise<TPdfPlacedImageEmbeddingResult>>(async () => Uint8Array.of(7, 7));
     const deps = {
         pdfViewerRef: ref(viewer),
         annotationTool,
@@ -240,7 +246,7 @@ function createHarness() {
         sidebarTab: ref<'annotations' | 'thumbnails' | 'bookmarks' | 'search'>('search'),
         dragMode,
         currentPage: ref(3),
-        workingCopyPath: ref<string | null>('/tmp/work.pdf'),
+        workingCopyPath: ref<string | null>('browser://documents/work.pdf'),
         closeAnnotationContextMenu: vi.fn(),
         showAnnotationContextMenu: vi.fn(),
         handleAnnotationToolChange,
@@ -257,6 +263,8 @@ function createHarness() {
             pushHistory?: boolean;
             persistWorkingCopy?: boolean;
         }) => {}),
+        loadPdfFromPath: vi.fn(async (_path: string, _opts?: { markDirty?: boolean }) => {}),
+        materializeAnnotationsForPageMutation: vi.fn(async () => true),
         waitForPdfReload: vi.fn(async (_page: number) => {}),
         invalidateThumbnailPages: vi.fn(),
         removeAnnotationFromCache: vi.fn(),
@@ -269,7 +277,7 @@ function createHarness() {
         getAnnotationCommentsSnapshot: vi.fn((): IAnnotationCommentSummary[] => []),
         getAnnotationCommentsStatusSnapshot: vi.fn((): TAnnotationCommentsStatus => 'loading'),
         getEmbeddedMutationBaseData: vi.fn(async () => Uint8Array.of(6, 6)),
-        embedPlacedImageToPage: vi.fn(async (_data: Uint8Array, _placement: IPdfPlacedImageFinalizePayload) => Uint8Array.of(7, 7)),
+        embedPlacedImageToPage,
         runWithDocumentOperationLease,
     };
 
@@ -884,6 +892,75 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.saveDocument).not.toHaveBeenCalled();
     });
 
+    it('reloads the working-copy path after native placed-image persistence', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        deps.workingCopyPath.value = '/tmp/work.pdf';
+        deps.embedPlacedImageToPage.mockResolvedValueOnce({
+            kind: 'native-path',
+            path: '/tmp/work.pdf',
+            revisionToken: requireDocumentRevisionToken('drt1:test:placed-image-native'),
+        });
+
+        const finalized = await actions.handleFinalizePlacedImage(placedImagePayload(90));
+
+        expect(finalized).toBe(true);
+        expect(deps.loadPdfFromPath).toHaveBeenCalledWith('/tmp/work.pdf', {markDirty: true});
+        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
+        expect(viewer.clearPendingImagePlacement).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        {
+            label: 'clean',
+            pendingAnnotations: false,
+        },
+        {
+            label: 'pending annotations',
+            pendingAnnotations: true,
+        },
+    ])('keeps $label native placed-image finalization path-backed for large documents', async ({pendingAnnotations}) => {
+        const {
+            deps,
+            actions,
+        } = createHarness();
+        deps.workingCopyPath.value = '/tmp/large-work.pdf';
+        const appliedMutations: string[] = [];
+        deps.materializeAnnotationsForPageMutation.mockImplementationOnce(async () => {
+            if (pendingAnnotations) {
+                appliedMutations.push('annotations');
+            }
+            return true;
+        });
+        deps.embedPlacedImageToPage.mockImplementationOnce(async (data) => {
+            expect(data).toBeNull();
+            appliedMutations.push('placed-image');
+            return {
+                kind: 'native-path',
+                path: '/tmp/large-work.pdf',
+                revisionToken: requireDocumentRevisionToken('drt1:test:large-placed-image'),
+            };
+        });
+
+        const finalized = await actions.handleFinalizePlacedImage(placedImagePayload(90));
+
+        expect(finalized).toBe(true);
+        expect(deps.materializeAnnotationsForPageMutation).toHaveBeenCalledOnce();
+        expect(deps.getEmbeddedMutationBaseData).not.toHaveBeenCalled();
+        expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(null, expect.any(Object));
+        expect(deps.loadPdfFromPath).toHaveBeenCalledWith('/tmp/large-work.pdf', {markDirty: true});
+        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
+        expect(appliedMutations).toEqual(pendingAnnotations
+            ? [
+                'annotations',
+                'placed-image',
+            ]
+            : ['placed-image']);
+    });
+
     it('runs placed image working-copy writes through the document operation lease', async () => {
         const {
             deps,
@@ -922,7 +999,7 @@ describe('usePageAnnotationActions', () => {
             actions,
         } = createHarness();
         deps.embedPlacedImageToPage.mockImplementationOnce(async () => {
-            deps.workingCopyPath.value = '/tmp/other.pdf';
+            deps.workingCopyPath.value = 'browser://documents/other.pdf';
             return Uint8Array.of(7, 7);
         });
 

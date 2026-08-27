@@ -1,7 +1,4 @@
-import {
-    readFile,
-    stat,
-} from 'fs/promises';
+import {stat} from 'fs/promises';
 import { existsSync } from 'fs';
 import { createRequire } from 'module';
 import { dirname } from 'path';
@@ -20,7 +17,11 @@ import {
     OPS,
     VerbosityLevel,
 } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { abortErrorFromSignal } from '@electron/utils/abort';
+import {
+    abortErrorFromSignal,
+    isAbortError,
+} from '@electron/utils/abort';
+import {getErrorMessage} from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 import { buildOcrTextLayerIndexText } from '@contracts/ocrText';
@@ -33,6 +34,10 @@ import {
     getPdfjsPageViewBox,
 } from '@pdf-core';
 import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
+import {
+    extractTextFromPdf,
+    isPdfTextExtractionCapabilityError,
+} from '@electron/search/extractTextFromPdf';
 
 function resolvePdfjsFakeWorkerSrc() {
     // pdfjs's Node fallback dynamically imports workerSrc; the default
@@ -53,19 +58,18 @@ function resolvePdfjsFakeWorkerSrc() {
 GlobalWorkerOptions.workerSrc = resolvePdfjsFakeWorkerSrc();
 
 const log = createLogger('pdfjsTextExtractor');
-const PDFJS_MAX_INPUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDFJS_MAX_INPUT_MB ?? '256', 10);
-    if (!Number.isFinite(parsed) || parsed < 16) {
-        return 256 * 1024 * 1024;
-    }
-    return parsed * 1024 * 1024;
-})();
+// Keep PDF.js as the compatibility route for small files. Desktop paths above
+// this threshold use Poppler so extraction can stay page-bounded. This is a
+// routing threshold, not a refusal to open a larger document.
+const PDFJS_COMPATIBILITY_MAX_INPUT_BYTES = 16 * 1024 * 1024;
+const PDFJS_RANGE_CHUNK_SIZE = 1 * 1024 * 1024;
 
 export interface IExtractPdfjsTextOptions {
     signal?: AbortSignal;
     onPageText?: (page: IPageText) => void;
     collectPages?: boolean;
     pages?: readonly number[];
+    pageCount?: number;
 }
 
 function isInvisibleTextRenderingMode(args: unknown) {
@@ -84,6 +88,7 @@ export interface IExtractPdfjsWordBoxOptions {
     signal?: AbortSignal;
     onPageText?: (page: IPageTextWithWordBoxes) => void;
     collectPages?: boolean;
+    pages?: readonly number[];
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -92,9 +97,18 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-function getPdfjsTextExtractionPages(requestedPages: readonly number[] | undefined, pageCount: number) {
+function* iteratePageNumbers(firstPage: number, lastPage: number) {
+    for (let pageNumber = firstPage; pageNumber <= lastPage; pageNumber += 1) {
+        yield pageNumber;
+    }
+}
+
+function getPdfjsTextExtractionPages(
+    requestedPages: readonly number[] | undefined,
+    pageCount: number,
+): Iterable<number> {
     if (!requestedPages || requestedPages.length === 0) {
-        return Array.from({length: pageCount}, (_value, index) => index + 1);
+        return iteratePageNumbers(1, pageCount);
     }
 
     return Array.from(new Set(
@@ -102,6 +116,18 @@ function getPdfjsTextExtractionPages(requestedPages: readonly number[] | undefin
             .map(page => Math.trunc(page))
             .filter(page => page >= 1 && page <= pageCount),
     )).sort((left, right) => left - right);
+}
+
+function createPdfjsPathDocumentOptions(pdfPath: string) {
+    return {
+        url: pdfPath,
+        // A path-backed PDF must not be auto-fetched into one worker-side
+        // document buffer. PDF.js asks Node for the ranges needed by each page.
+        disableAutoFetch: true,
+        disableStream: true,
+        rangeChunkSize: PDFJS_RANGE_CHUNK_SIZE,
+        ...createPdfjsNodeDocumentOptions({VerbosityLevel}),
+    };
 }
 
 async function withAbortSignal<T>(
@@ -150,17 +176,7 @@ export async function extractTextWithPdfjsWordBoxes(
     log.debug(`Extracting pdfjs-dist text geometry: ${pdfPath}`);
     throwIfAborted(signal);
 
-    const fileStat = await stat(pdfPath);
-    if (fileStat.size > PDFJS_MAX_INPUT_BYTES) {
-        throw new Error(`PDF is too large for pdfjs text geometry extraction (${fileStat.size} bytes)`);
-    }
-
-    const data = new Uint8Array(await readFile(pdfPath, signal ? {signal} : undefined));
-    throwIfAborted(signal);
-    const loadingTask = getDocument({
-        data,
-        ...createPdfjsNodeDocumentOptions({VerbosityLevel}),
-    });
+    const loadingTask = getDocument(createPdfjsPathDocumentOptions(pdfPath));
     const doc = await withAbortSignal(loadingTask.promise, signal, () => {
         void loadingTask.destroy();
     });
@@ -169,42 +185,47 @@ export async function extractTextWithPdfjsWordBoxes(
         const pages: IPageTextWithWordBoxes[] = [];
         let extractedPageCount = 0;
 
-        for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
+        const pagesToExtract = getPdfjsTextExtractionPages(options.pages, doc.numPages);
+        for (const pageNumber of pagesToExtract) {
             throwIfAborted(signal);
             const page = await withAbortSignal(doc.getPage(pageNumber), signal, () => {
                 void doc.destroy();
             });
-            const pageBox = getPdfjsPageViewBox(page);
-            const operatorList = await withAbortSignal(page.getOperatorList(), signal, () => {
-                void doc.destroy();
-            });
-            throwIfAborted(signal);
+            try {
+                const pageBox = getPdfjsPageViewBox(page);
+                const operatorList = await withAbortSignal(page.getOperatorList(), signal, () => {
+                    void doc.destroy();
+                });
+                throwIfAborted(signal);
 
-            const words = extractPdfjsWordBoxesFromOperatorList(
-                operatorList,
-                pageBox,
-                OPS,
-                {throwIfAborted: () => throwIfAborted(signal)},
-            );
-            const pageText = buildOcrTextLayerIndexText(words);
-            const pageWithGeometry: IPageTextWithWordBoxes = {
-                pageNumber,
-                text: pageText,
-                words,
-                pageWidth: pageBox.pageWidth,
-                pageHeight: pageBox.pageHeight,
-                rotation: pageBox.rotation,
-                hasInvisibleText: operatorList.fnArray.some((operator, index) => (
-                    operator === OPS.setTextRenderingMode
-                    && isInvisibleTextRenderingMode(operatorList.argsArray[index])
-                )),
-            };
+                const words = extractPdfjsWordBoxesFromOperatorList(
+                    operatorList,
+                    pageBox,
+                    OPS,
+                    {throwIfAborted: () => throwIfAborted(signal)},
+                );
+                const pageText = buildOcrTextLayerIndexText(words);
+                const pageWithGeometry: IPageTextWithWordBoxes = {
+                    pageNumber,
+                    text: pageText,
+                    words,
+                    pageWidth: pageBox.pageWidth,
+                    pageHeight: pageBox.pageHeight,
+                    rotation: pageBox.rotation,
+                    hasInvisibleText: operatorList.fnArray.some((operator, index) => (
+                        operator === OPS.setTextRenderingMode
+                        && isInvisibleTextRenderingMode(operatorList.argsArray[index])
+                    )),
+                };
 
-            extractedPageCount += 1;
-            if (collectPages) {
-                pages.push(pageWithGeometry);
+                extractedPageCount += 1;
+                if (collectPages) {
+                    pages.push(pageWithGeometry);
+                }
+                onPageText?.(pageWithGeometry);
+            } finally {
+                page.cleanup?.();
             }
-            onPageText?.(pageWithGeometry);
         }
 
         log.debug(`Extracted ${extractedPageCount} pages with pdfjs-dist geometry`);
@@ -224,75 +245,96 @@ export async function extractTextWithPdfjs(
         collectPages = !onPageText,
         pages: requestedPages,
     } = options;
-    log.debug(`Extracting text with pdfjs-dist: ${pdfPath}`);
+    log.debug(`Extracting desktop PDF text: ${pdfPath}`);
     throwIfAborted(signal);
 
     const fileStat = await stat(pdfPath);
-    if (fileStat.size > PDFJS_MAX_INPUT_BYTES) {
-        throw new Error(`PDF is too large for pdfjs text extraction (${fileStat.size} bytes)`);
+    if (fileStat.size > PDFJS_COMPATIBILITY_MAX_INPUT_BYTES) {
+        return extractTextFromPdf(pdfPath, {
+            ...(options.pageCount === undefined ? {} : {pageCount: options.pageCount}),
+            ...(requestedPages === undefined ? {} : {pages: requestedPages}),
+            ...(signal === undefined ? {} : {signal}),
+            collectPages,
+            ...(onPageText === undefined ? {} : {onPageText}),
+        });
     }
 
-    const data = new Uint8Array(await readFile(pdfPath, signal ? {signal} : undefined));
-    throwIfAborted(signal);
-    const loadingTask = getDocument({
-        data,
-        ...createPdfjsNodeDocumentOptions({VerbosityLevel}),
-    });
-    const doc = await withAbortSignal(loadingTask.promise, signal, () => {
-        void loadingTask.destroy();
-    });
-
+    const loadingTask = getDocument(createPdfjsPathDocumentOptions(pdfPath));
     try {
-        const pages: IPageText[] = [];
-        let extractedPageCount = 0;
-        const pagesToExtract = getPdfjsTextExtractionPages(requestedPages, doc.numPages);
+        const doc = await withAbortSignal(loadingTask.promise, signal, () => {
+            void loadingTask.destroy();
+        });
 
-        for (const pageNumber of pagesToExtract) {
-            throwIfAborted(signal);
-            const page = await withAbortSignal(doc.getPage(pageNumber), signal, () => {
-                void doc.destroy();
-            });
-            const content = await withAbortSignal(
-                page.getTextContent({
-                    includeMarkedContent: true,
-                    disableNormalization: true,
-                }),
-                signal,
-                () => {
-                    void doc.destroy();
-                },
-            );
-            throwIfAborted(signal);
+        try {
+            const pages: IPageText[] = [];
+            let extractedPageCount = 0;
+            const pagesToExtract = getPdfjsTextExtractionPages(requestedPages, doc.numPages);
 
-            const textItems: Array<{
-                text: string;
-                separatorAfter: 'line' | 'none'
-            }> = [];
-            for (const item of content.items) {
+            for (const pageNumber of pagesToExtract) {
                 throwIfAborted(signal);
-                if ('str' in item) {
-                    const textItem = item;
-                    textItems.push({
-                        text: textItem.str,
-                        separatorAfter: textItem.hasEOL ? 'line' : 'none',
-                    });
+                const page = await withAbortSignal(doc.getPage(pageNumber), signal, () => {
+                    void doc.destroy();
+                });
+                try {
+                    const content = await withAbortSignal(
+                        page.getTextContent({
+                            includeMarkedContent: true,
+                            disableNormalization: true,
+                        }),
+                        signal,
+                        () => {
+                            void doc.destroy();
+                        },
+                    );
+                    throwIfAborted(signal);
+
+                    const textItems: Array<{
+                        text: string;
+                        separatorAfter: 'line' | 'none'
+                    }> = [];
+                    for (const item of content.items) {
+                        throwIfAborted(signal);
+                        if ('str' in item) {
+                            const textItem = item;
+                            textItems.push({
+                                text: textItem.str,
+                                separatorAfter: textItem.hasEOL ? 'line' : 'none',
+                            });
+                        }
+                    }
+
+                    const pageText = {
+                        pageNumber,
+                        text: assembleSearchablePageText(textItems).text,
+                    };
+                    extractedPageCount += 1;
+                    if (collectPages) {
+                        pages.push(pageText);
+                    }
+                    onPageText?.(pageText);
+                } finally {
+                    page.cleanup?.();
                 }
             }
 
-            const pageText = {
-                pageNumber,
-                text: assembleSearchablePageText(textItems).text,
-            };
-            extractedPageCount += 1;
-            if (collectPages) {
-                pages.push(pageText);
-            }
-            onPageText?.(pageText);
+            log.debug(`Extracted ${extractedPageCount} pages with pdfjs-dist path ranges`);
+            return pages;
+        } finally {
+            await doc.destroy();
         }
-
-        log.debug(`Extracted ${extractedPageCount} pages with pdfjs-dist`);
-        return pages;
-    } finally {
-        await doc.destroy();
+    } catch (error) {
+        if (isPdfTextExtractionCapabilityError(error) || isAbortError(error)) {
+            throw error;
+        }
+        // PDF.js remains a useful compatibility path for small desktop files,
+        // but a failed read can still be retried through bounded Poppler text.
+        log.debug(`PDF.js path text extraction failed; falling back to Poppler: ${getErrorMessage(error)}`);
+        return extractTextFromPdf(pdfPath, {
+            ...(options.pageCount === undefined ? {} : {pageCount: options.pageCount}),
+            ...(requestedPages === undefined ? {} : {pages: requestedPages}),
+            ...(signal === undefined ? {} : {signal}),
+            collectPages,
+            ...(onPageText === undefined ? {} : {onPageText}),
+        });
     }
 }

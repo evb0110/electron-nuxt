@@ -245,7 +245,13 @@ export const useOcrTextContent = () => {
         documentRevisionToken: TDocumentRevisionToken,
     ) {
         const availability = await loadSharedDocumentOcrAvailability(workingCopyPath, documentRevisionToken);
-        return availability !== null && availability.pageNumbers.length > 0;
+        if (!availability) {
+            return false;
+        }
+        if (availability.mappedPageCount !== undefined) {
+            return availability.mappedPageCount > 0;
+        }
+        return (availability.pageNumbers?.length ?? availability.pageRanges?.length ?? 0) > 0;
     }
 
     /**
@@ -261,7 +267,25 @@ export const useOcrTextContent = () => {
         pageNumber: number,
     ) {
         const availability = await loadSharedDocumentOcrAvailability(workingCopyPath, documentRevisionToken);
-        return availability?.pageNumbers.includes(pageNumber) === true;
+        if (!availability) {
+            return false;
+        }
+        if (availability.pageNumbers?.includes(pageNumber) === true) {
+            return true;
+        }
+        if (availability.pageRanges?.some(range =>
+            pageNumber >= range.firstPage && pageNumber <= range.lastPage,
+        ) === true) {
+            return true;
+        }
+        if (availability.rangesComplete !== false || availability.mappedPageCount === 0) {
+            return false;
+        }
+        return (await loadSharedDocumentOcrPage(
+            workingCopyPath,
+            documentRevisionToken,
+            pageNumber,
+        )) !== null;
     }
 
     /**
