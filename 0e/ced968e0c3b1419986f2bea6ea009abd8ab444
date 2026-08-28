@@ -1,0 +1,27 @@
+electron/ocr/ocrCatalogV4.ts
+  s_b2ece6dfe48478::t_f0560ff7f00e65 402,572,594,641,687,710,724,883,1619,1677
+  s_b2ece6dfe48478::t_b1a180149e5860 517
+electron/ocr/worker/indexWriterV4.ts
+  s_b2ece6dfe48478::t_6ae0e0f4ffd84a 474-475,478-482,484
+  s_b2ece6dfe48478::t_b1a180149e5860 78
+  s_b2ece6dfe48478::t_dcf2faaea5cdaa 75-77,79,82-84
+electron/ocr/documentTextCatalog.ts
+  s_b2ece6dfe48478::t_4a9104e2f53af6 658,797
+  s_b2ece6dfe48478::t_b24684363f89f7 366-378
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0eced968e0c3b1419986f2bea6ea009abd8ab444",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
