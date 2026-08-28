@@ -27,6 +27,7 @@ import {
     sessionDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import { createE2ERunScopedSessionName } from '@scripts/electron-run/electronRunRunId';
+import { PINNED_CODEX_CLI_VERSION } from '@electron/features/agent/codexCliReleaseManifest';
 
 const ASSISTANT_COMPLETION_E2E_TIMEOUT_MS = 90_000;
 const SESSION_NAME = 'assistant-completion-finalization';
@@ -39,7 +40,7 @@ function installFakeCodexCli() {
 import readline from 'node:readline';
 
 if (process.argv.includes('--version')) {
-  console.log('codex-cli 0.133.0');
+  console.log('codex-cli ${PINNED_CODEX_CLI_VERSION}');
   process.exit(0);
 }
 
