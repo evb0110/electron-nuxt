@@ -1,5 +1,9 @@
 import type {TPerformanceMode} from '@contracts/hostResourceProfile';
-import {BROWSER_SETTINGS_COOKIE_KEY} from '@app/utils/browserSettingsPersistence';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
+import {
+    BROWSER_SETTINGS_COOKIE_KEY,
+    serializeBrowserSettingsPayload,
+} from '@app/utils/browserSettingsPersistence';
 import {
     stabilizeSharedRendererClient,
     startElectronE2ESession,
@@ -35,12 +39,15 @@ export async function startConfiguredElectronE2ESession(
     });
     await session.page.evaluate((payload: {
         cookieKey: string;
-        performanceMode: TPerformanceMode;
+        settingsPayload: string;
     }) => {
-        document.cookie = `${payload.cookieKey}=${encodeURIComponent(JSON.stringify({performanceMode: payload.performanceMode}))}; path=/`;
+        document.cookie = `${payload.cookieKey}=${encodeURIComponent(payload.settingsPayload)}; path=/`;
     }, {
         cookieKey: BROWSER_SETTINGS_COOKIE_KEY,
-        performanceMode,
+        settingsPayload: serializeBrowserSettingsPayload({
+            ...DEFAULT_SETTINGS,
+            performanceMode,
+        }),
     });
     // Apply the neutral media baseline before the configured reload. The
     // performance-profile plugin reads matchMedia during module startup, so
