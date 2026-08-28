@@ -1,0 +1,81 @@
+tests/e2e/electron/djvuPrintHandoff.e2e.test.ts
+  s_3f273936057f92::t_ce4ed56ad8d99e 46-50,114-117
+tests/e2e/electron/helpers/createElectronE2ESessionFixture.ts
+  s_3f273936057f92::t_291103da5feaee 38,73-76,155-158
+tests/e2e/electron/helpers/startConfiguredElectronE2ESession.ts
+  s_3f273936057f92::t_2b96d5a6bf02e0 23,31
+tests/e2e/electron/quarantine/assistantAuthFallback.e2e.test.ts
+  s_3f273936057f92::t_a988c148822c26 131
+tests/e2e/electron/quarantine/assistantCompletionFinalization.e2e.test.ts
+  s_3f273936057f92::t_b5a497fcd009f2 157
+tests/e2e/electron/savePipeline.e2e.test.ts
+  s_3f273936057f92::t_61e9438f02ce92 315,376,436-439,445,459
+tests/e2e/electron/savePipelineBenchmark.e2e.test.ts
+  s_3f273936057f92::t_1c929f65e7e845 206-209
+tests/setup.ts
+  s_3f273936057f92::t_20ad5ca1c4f966 52,81-83,86,99-100,105-110,117-118,120-131
+tests/unit/app/composables/pdfWordBoxGeometry.test.ts
+  s_3f273936057f92::t_54a3609b612f39 44
+tests/unit/app/composables/useDjvu.test.ts
+  s_3f273936057f92::t_af759ac38f017a 246,325,447,502,551
+tests/unit/app/composables/useOcr.test.ts
+  s_3f273936057f92::t_f97cc9418b202c 325,644,677,706
+tests/unit/app/composables/useSettings.test.ts
+  s_3f273936057f92::t_c55eb04e382f0d 147
+tests/unit/app/modules/native-pdf-viewer/nativePdfViewerRevisionLifecycle.test.ts
+  s_3f273936057f92::t_bfe5446a674af2 200,272
+tests/unit/app/modules/pdf-viewer/components/pdfOutlineToolbarState.test.ts
+  s_3f273936057f92::t_b160ce1b31d0bb 126,149
+tests/unit/app/modules/pdf-viewer/composables/usePdfViewerInitialRenderRecovery.test.ts
+  s_3f273936057f92::t_31d8d9b0b1b33b 266,283
+tests/unit/app/modules/workspace-shell/components/deferredDocumentWorkspaceHostModule.test.ts
+  s_3f273936057f92::t_7894bee456a76d 57
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.test.ts
+  s_3f273936057f92::t_c3bb49b32ab4f9 1101
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_3f273936057f92::t_b2fbe167baedf0 128,474
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveService.test.ts
+  s_3f273936057f92::t_8b7a2babd3ea43 140,219,341
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceNativePersistence.test.ts
+  s_3f273936057f92::t_d22547e8996e2e 583,1065,1171
+tests/unit/app/modules/workspace-shell/composables/useAppShellTabLifecycle.test.ts
+  s_3f273936057f92::t_ba8a103f78ea37 206
+tests/unit/app/modules/workspace-shell/composables/useAppShellWorkspaceRouting.test.ts
+  s_3f273936057f92::t_61b9df368c423f 717,1129
+tests/unit/app/modules/workspace-shell/composables/useWindowTabTransfers.test.ts
+  s_3f273936057f92::t_d8d8769119caf0 56,118
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.test.ts
+  s_3f273936057f92::t_39a69cc75fafc4 183,200
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceExport.test.ts
+  s_3f273936057f92::t_8148091aa391d3 403
+tests/unit/app/platform/browserOcrCapability.test.ts
+  s_3f273936057f92::t_9a8e4be4dc3604 85
+tests/unit/app/services/pdf/combinePdfFiles.test.ts
+  s_3f273936057f92::t_1114997071e2ea 291
+tests/unit/electron/ocrIndexWriterV4.test.ts
+  s_3f273936057f92::t_dac84b1d934ddb 223
+tests/unit/electron/searchIndexSidecar.test.ts
+  s_3f273936057f92::t_03d893ae3de95d 7,324
+tests/unit/scripts/commitAttributionPolicy.test.ts
+  s_3f273936057f92::t_d05fe2f76cb2dd 18,219,438,471,496,896,917
+tests/unit/scripts/unitSuiteFailClosedPolicy.test.ts
+  s_3f273936057f92::t_b3b76a973359a3 16,34-36,42-55,76-78,87,98,136,138
+vitest.shared.config.ts
+  s_3f273936057f92::t_8e71a7e7cdade9 166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b0d39c76a3a7fc2a3eeab98a9e7fc9db0cabc7b5",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
