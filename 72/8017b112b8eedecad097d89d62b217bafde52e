@@ -1,5 +1,6 @@
 docs/reliability/large-document-audit-ledger-2026-08-27.md
   s_08917445274696::t_6ff65a7c719a22 248
+  s_b2ece6dfe48478::t_ecd40638aed3a4 246-247,249-252
 ---
 {
   "schema_version": "authorship/3.0.0",
@@ -11,6 +12,14 @@ docs/reliability/large-document-audit-ledger-2026-08-27.md
       "agent_id": {
         "tool": "codex",
         "id": "01a048d0-811a-7aa2-b924-ef6f2f0be7c6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
         "model": "gpt-5.6-luna"
       },
       "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
