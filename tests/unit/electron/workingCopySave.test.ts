@@ -77,7 +77,13 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({
     transitionWorkingCopyContentRevision: (...args: unknown[]) => mocks.transitionWorkingCopyContentRevision(...args),
 }));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
-vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
+vi.mock('@electron/file-access/workingCopyDirectory', () => ({
+    attemptWorkingCopyClone: async (...args: [string, string]) => {
+        await mocks.copyFileCopyOnWrite(...args);
+        return 'cloned';
+    },
+    copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args),
+}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args)}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/file-access/workingCopyMaterialization', () => {

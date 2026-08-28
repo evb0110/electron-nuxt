@@ -92,6 +92,9 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         await measureTransitionPhase('transition-sync-working-copy', input.onPhase, () =>
                             copyFileAtomic(input.originalPath, input.workingCopyPath, {
                                 durable: false,
+                                // The published original is immutable from the app's point of view.
+                                // Working-copy writers must keep staging a sibling and renaming it.
+                                linkImmutableSource: true,
                                 onPhase: (phase, durationMs) => input.onPhase?.(
                                     `transition-sync-working-copy-${phase}`,
                                     durationMs,

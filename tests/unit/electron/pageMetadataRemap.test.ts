@@ -1,10 +1,19 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
+import {
+    linkSync,
+    mkdtempSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {
     applyPageMetadataRemap,
     remapPageMetadata,
@@ -33,13 +42,23 @@ const bookmark = (title: string, pageIndex: number | null, items: IPdfBookmarkEn
     items,
 });
 
+let tempRoot = '';
+
 describe('page metadata remap', () => {
     beforeEach(() => {
+        tempRoot = mkdtempSync(join(tmpdir(), 'evb-page-metadata-remap-'));
         mocks.runNativeToolCommand.mockReset();
         mocks.runNativeToolCommand.mockResolvedValue({
             stdout: '',
             stderr: '',
             exitCode: 0,
+        });
+    });
+
+    afterEach(() => {
+        rmSync(tempRoot, {
+            force: true,
+            recursive: true,
         });
     });
 
@@ -91,8 +110,10 @@ describe('page metadata remap', () => {
     });
 
     it('writes the remapped metadata as an incremental append', async () => {
+        const workingCopyPath = join(tempRoot, 'working.pdf');
+        writeFileSync(workingCopyPath, 'pdf');
         await applyPageMetadataRemap({
-            workingCopyPath: '/managed/working.pdf',
+            workingCopyPath,
             delta: {
                 previousPageCount: 1,
                 pages: [{fromPageNumber: 1}],
@@ -114,5 +135,28 @@ describe('page metadata remap', () => {
             '/mock/qpdf',
         ]));
         expect(args.some(arg => arg.startsWith('--incremental-validation'))).toBe(false);
+    });
+
+    it('refuses an in-place append when the working-copy inode is shared', async () => {
+        const originalPath = join(tempRoot, 'original.pdf');
+        const workingCopyPath = join(tempRoot, 'working.pdf');
+        writeFileSync(originalPath, 'pdf');
+        linkSync(originalPath, workingCopyPath);
+
+        await expect(applyPageMetadataRemap({
+            workingCopyPath,
+            delta: {
+                previousPageCount: 1,
+                pages: [{fromPageNumber: 1}],
+            },
+            metadataSnapshot: {
+                pageLabels: ['1'],
+                bookmarks: [],
+                untitledBookmarkLabel: 'Untitled',
+            },
+            signal: new AbortController().signal,
+            cancelGroup: 'page-remap-shared-inode',
+        })).rejects.toThrow('exclusively owned working-copy inode');
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
     });
 });

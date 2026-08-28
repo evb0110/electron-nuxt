@@ -3,6 +3,7 @@ import {
     realpathSync,
 } from 'fs';
 import {
+    copyFile,
     link,
     open as openFileHandle,
     rename,
@@ -17,7 +18,7 @@ import {
 import { randomUUID } from 'crypto';
 import {performance} from 'node:perf_hooks';
 import { isErrnoException } from '@contracts/runtimeGuards';
-import {copyFileCopyOnWrite} from '@electron/file-access/workingCopyDirectory';
+import {attemptWorkingCopyClone} from '@electron/file-access/workingCopyDirectory';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
@@ -46,6 +47,16 @@ function assertWithinIpcWriteBudget(byteLength: number) {
     if (byteLength > MAX_IPC_WRITE_BYTES) {
         throw new Error(`Invalid data: exceeds max size (${MAX_IPC_WRITE_BYTES} bytes)`);
     }
+}
+
+async function linkImmutableSourceForAtomicCopy(sourcePath: string, targetPath: string) {
+    if (
+        process.env.NODE_ENV === 'test'
+        && process.env.EVB_TEST_FORCE_IMMUTABLE_LINK_RESULT === 'cross-device'
+    ) {
+        throw Object.assign(new Error('Forced cross-device immutable link for tests'), {code: 'EXDEV'});
+    }
+    await link(sourcePath, targetPath);
 }
 
 export function normalizeIpcWritePayload(data: unknown) {
@@ -147,6 +158,7 @@ export async function copyFileAtomic(
     resolvedTargetPath: string,
     options: {
         durable?: boolean;
+        linkImmutableSource?: boolean;
         onPhase?: (phase: string, durationMs: number) => void;
     } = {},
 ) {
@@ -160,8 +172,35 @@ export async function copyFileAtomic(
     );
 
     try {
-        await measureCopyPhase(options.onPhase, 'clone', () =>
-            copyFileCopyOnWrite(resolvedSourcePath, temporaryPath));
+        const cloneOutcome = await measureCopyPhase(options.onPhase, 'clone', () =>
+            attemptWorkingCopyClone(resolvedSourcePath, temporaryPath));
+        if (cloneOutcome === 'known-unsupported') {
+            let linked = false;
+            if (options.linkImmutableSource) {
+                try {
+                    await measureCopyPhase(options.onPhase, 'link', () =>
+                        linkImmutableSourceForAtomicCopy(resolvedSourcePath, temporaryPath));
+                    linked = true;
+                } catch (error) {
+                    const code = isErrnoException(error) && typeof error.code === 'string'
+                        ? error.code
+                        : undefined;
+                    if (![
+                        'EXDEV',
+                        'ENOTSUP',
+                        'EOPNOTSUPP',
+                        'EPERM',
+                        'EMLINK',
+                    ].includes(code ?? '')) {
+                        throw error;
+                    }
+                }
+            }
+            if (!linked) {
+                await measureCopyPhase(options.onPhase, 'copy', () =>
+                    copyFile(resolvedSourcePath, temporaryPath));
+            }
+        }
         if (options.durable !== false) {
             const handle = await openFileHandle(temporaryPath, 'r');
             try {

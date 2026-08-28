@@ -2,6 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {
     mkdtemp,
     rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -115,6 +116,10 @@ export async function applyPageMetadataRemap(input: {
     const tempDir = await mkdtemp(join(tmpdir(), `page-metadata-${randomUUID()}-`));
     const mutationsPath = join(tempDir, 'mutations.json');
     try {
+        const workingCopyStat = await stat(input.workingCopyPath, {bigint: true});
+        if (!workingCopyStat.isFile() || workingCopyStat.nlink !== 1n) {
+            throw new Error('Page metadata remap requires an exclusively owned working-copy inode');
+        }
         await writeFile(
             mutationsPath,
             JSON.stringify(remapPageMetadata(input.metadataSnapshot, input.delta)),
