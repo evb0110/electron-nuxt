@@ -729,12 +729,21 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             const applyPressure = () => pressureWindow.__setWorkspaceSurfacePressureForE2E?.('moderate');
             applyPressure();
             const pressureTimer = window.setInterval(applyPressure, 200);
-            const startedAt = performance.now();
             try {
                 const tabs = Array.from(document.querySelectorAll<HTMLElement>(
                     '.tab-list .tab[data-tab-id]',
                 ));
                 tabs[1]?.click();
+                const activationDeadline = performance.now() + 1_250;
+                while (
+                    performance.now() < activationDeadline
+                    && tabs[1]?.getAttribute('aria-selected') !== 'true'
+                ) {
+                    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                }
+                const tabActivated = tabs[1]?.getAttribute('aria-selected') === 'true';
+                applyPressure();
+                const startedAt = performance.now();
                 const deadline = startedAt + 1_250;
                 let snapshot = pressureWindow.__getWorkspaceSurfaceBudgetForE2E();
                 while (
@@ -747,7 +756,8 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
                 return {
                     elapsedMs: performance.now() - startedAt,
                     snapshot,
-                    switchedTabs: Boolean(tabs[1]),
+                    switchedTabs: tabActivated,
+                    tabActivated,
                 };
             } finally {
                 window.clearInterval(pressureTimer);
@@ -756,6 +766,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         });
 
         expect(release.switchedTabs).toBe(true);
+        expect(release.tabActivated).toBe(true);
         expect(release.snapshot.pressureLevel).toBe('moderate');
         expect(release.snapshot.reservedBytesByCategory['djvu-preview'] ?? -1).toBe(0);
         expect(release.elapsedMs, JSON.stringify(release)).toBeLessThan(1_250);
