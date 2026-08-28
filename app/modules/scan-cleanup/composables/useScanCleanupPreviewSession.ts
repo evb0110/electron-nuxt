@@ -58,6 +58,22 @@ const SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS = 600;
 const PREVIEW_CANCELLATION_RETRY_LIMIT = 2;
 const PREVIEW_METADATA_PAGE_CACHE_LIMIT = 256;
 
+export type TScanCleanupDetailDiagnostic =
+    | {
+        kind: 'not-requested';
+        reason: 'ineligible' | 'missing-capability' | 'unsupported-output-mode'
+    }
+    | {
+        kind: 'bridge-null';
+        attempts: number
+    }
+    | {
+        kind: 'service-failure';
+        attempts: number;
+        message: string
+    }
+    | null;
+
 interface IUseScanCleanupPreviewSessionOptions {
     active: () => boolean;
     authoritativeLayoutByPage: ComputedRef<ReadonlyMap<number, TScanCleanupLayoutClassification>>;
@@ -199,6 +215,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     const resultPresentationKey = shallowRef('');
     const detailResult = shallowRef<IScanCleanupPreviewResult | null>(null);
     const detailLoading = ref(false);
+    const detailDiagnostic = ref<TScanCleanupDetailDiagnostic>(null);
     const loading = ref(false);
     const error = ref('');
     const errorCode = ref<TScanCleanupErrorCode | null>(null);
@@ -216,6 +233,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let timer: ReturnType<typeof setTimeout> | null = null;
     let detailRetryTimer: ReturnType<typeof setTimeout> | null = null;
     let detailRetriesRemaining = 0;
+    let detailAttemptCount = 0;
     let scheduledPage: number | null = null;
     let scheduledKey: string | null = null;
     let cancellationRetryKey: string | null = null;
@@ -479,11 +497,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         clearDetailRetry();
         detailRetriesRemaining = 0;
         detailLoading.value = false;
+        detailDiagnostic.value = null;
     }
 
     function clearDetail() {
         invalidateDetailRequest();
         detailResult.value = null;
+        detailDiagnostic.value = null;
         displayedDetailSourceKey = null;
     }
 
@@ -838,14 +858,23 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             || options.settings.preserveOriginalQuality
             || !resultCurrent.value
         ) {
+            detailDiagnostic.value = {
+                kind: 'not-requested',
+                reason: 'ineligible',
+            };
             return;
         }
         if (!isRetry) {
             clearDetailRetry();
             detailRetriesRemaining = 2;
+            detailDiagnostic.value = null;
         }
         const capability = getScanCleanupCapability();
         if (!capability) {
+            detailDiagnostic.value = {
+                kind: 'not-requested',
+                reason: 'missing-capability',
+            };
             return;
         }
         prefetcher.supersede();
@@ -855,6 +884,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const outputMode = resolveDetailOutputMode(requestPage);
         if (outputMode === undefined) {
             detailLoading.value = false;
+            detailDiagnostic.value = {
+                kind: 'not-requested',
+                reason: 'unsupported-output-mode',
+            };
             return;
         }
         const baseKey = cacheKey(requestPage, requestOptions, requestSourcePath);
@@ -871,6 +904,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         detailResult.value = null;
         displayedDetailSourceKey = null;
         detailLoading.value = true;
+        if (!isRetry) detailAttemptCount = 0;
+        detailAttemptCount += 1;
         try {
             const documentPrior = options.documentPriorByPage.get(requestPage);
             const softAlphaForegroundRecommendation =
@@ -878,7 +913,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             const pagePlanEvidence = options.pagePlanEvidenceByPage.get(requestPage);
             const placementAnchors = placementAnchorsFor(requestPage);
             const requestId = nextRequestId();
-            const next = withStreamedRaw(await capability.preview(toBridgeSafeScanCleanupPayload({
+            const wireResult = await capability.preview(toBridgeSafeScanCleanupPayload({
                 requestId,
                 sourcePdfPath: requestSourcePath,
                 ownerId: options.ownerId,
@@ -897,7 +932,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     viewports,
                     outputMode,
                 },
-            })), requestId);
+            }));
+            const next = wireResult === null
+                ? null
+                : withStreamedRaw(wireResult, requestId);
             if (requestSequence !== detailSequence || baseKey !== cacheKey()) {
                 return;
             }
@@ -905,7 +943,14 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             // takes the same bounded retry a failed one does rather than
             // waiting for a gesture that is not coming.
             if (next === null) {
-                scheduleDetailRetry(viewports, requestSequence);
+                if (detailRetriesRemaining > 0) {
+                    scheduleDetailRetry(viewports, requestSequence);
+                } else {
+                    detailDiagnostic.value = {
+                        kind: 'bridge-null',
+                        attempts: detailAttemptCount,
+                    };
+                }
                 return;
             }
             detailSourceCache.set(tileKey, next);
@@ -918,6 +963,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     .replace(/^(?:Error:\s*)+/u, '')
                     .trim()
                 : '';
+            if (detailRetriesRemaining <= 0 && !(caught instanceof Error && caught.name === 'AbortError')) {
+                detailDiagnostic.value = {
+                    kind: 'service-failure',
+                    attempts: detailAttemptCount,
+                    message: (normalizedMessage || 'Unknown detail failure').slice(0, 256),
+                };
+            }
             if (
                 normalizedMessage.startsWith('Scan cleanup detail geometry is unavailable')
             ) {
@@ -997,6 +1049,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         resultKey.value = null;
         resultPresentationKey.value = '';
         detailResult.value = null;
+        detailDiagnostic.value = null;
         displayedDetailSourceKey = null;
     });
     watch(cacheKey, () => schedule());
@@ -1012,6 +1065,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         error,
         errorCode,
         detailLoading,
+        detailDiagnostic,
         detailResult,
         loading,
         metadataByPage,

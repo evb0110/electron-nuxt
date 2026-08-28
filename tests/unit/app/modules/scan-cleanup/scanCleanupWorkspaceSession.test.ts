@@ -979,7 +979,9 @@ describe('scan cleanup workspace session detection guidance', () => {
     it('reports when the detail bridge returns null after bounded retries', async () => {
         const harness = capabilityHarness();
         vi.mocked(harness.value.preview).mockImplementation(async request => (
-            request.detail ? null : previewResult(request.pageNumber, 'single-uncut-page')
+            request.detail
+                ? null as never
+                : previewResult(request.pageNumber, 'single-uncut-page')
         ));
         capability.value = harness.value;
         const mounted = mountSession(`detail-null-diagnostic-${Date.now()}`);
