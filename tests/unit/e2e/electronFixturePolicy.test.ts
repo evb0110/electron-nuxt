@@ -156,6 +156,16 @@ describe('Electron E2E fixture policy', () => {
         expect(source).not.toContain('=== \'Got it\'');
     });
 
+    it('scopes the native image-combine override to the PNG-open restart', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/viewerSmoke.e2e.test.ts'),
+            'utf8',
+        );
+
+        expect(source.match(/EVB_PDF_IMAGE_COMBINE_ENABLE/gu)).toHaveLength(1);
+        expect(source).toContain('EVB_PDF_IMAGE_COMBINE_ENABLE: \'1\'');
+    });
+
     it('rejects OCR completion artifacts that do not contain the expected semantic text', async () => {
         const outputPath = await createMultiPageTextFixturePdf('unit-ocr-semantic-output.pdf', 1);
 
