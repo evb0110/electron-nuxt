@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -33,13 +34,14 @@ const state = vi.hoisted(() => {
             complete: false,
         },
         readPage: vi.fn(async (pageNumber: number) => pageNumber === 900_000 ? page : null),
-        readWindow: vi.fn(async (start: number, count: number) => Array.from(
-            {length: count},
-            (_value, index) => ({
-                pageNumber: start + index,
-                artifact: start + index === 900_000 ? page : null,
-            }),
-        )),
+        readWindow: vi.fn(async function* (start: number, count: number) {
+            for (let index = 0; index < count; index += 1) {
+                yield {
+                    pageNumber: start + index,
+                    artifact: start + index === 900_000 ? page : null,
+                };
+            }
+        }),
         readWindowMappings: vi.fn(async (start: number, count: number) => Array.from(
             {length: count},
             (_value, index) => ({
@@ -69,6 +71,7 @@ const state = vi.hoisted(() => {
     };
     const openCatalog = vi.fn<() => Promise<typeof handle | null>>(async () => handle);
     return {
+        page,
         handle,
         openCatalog,
         extractTextFromPdf: vi.fn(async () => []),
@@ -213,5 +216,133 @@ describe('DocumentTextCatalog availability validation (SRCH-004)', () => {
             header.complete = false;
             header.mappedPageCount = originalMappedPageCount;
         }
+    });
+});
+
+describe('DocumentTextCatalog bounded, revision-safe reads (SRCH-005)', () => {
+    const MIB = 1024 * 1024;
+
+    afterEach(() => {
+        state.assertWorkingCopyRevisionSidecarCurrent.mockReset();
+        state.assertWorkingCopyRevisionSidecarCurrent.mockResolvedValue(undefined);
+    });
+
+    it('rejects an invalid window before opening the catalog', async () => {
+        await expect(resolveDocumentTextCatalogWindow(
+            '/tmp/large.pdf',
+            DOCUMENT_REVISION,
+            1,
+            65,
+            1_000_001,
+        )).rejects.toThrow('Invalid document text catalog window');
+        expect(state.openCatalog).not.toHaveBeenCalled();
+    });
+
+    it('rejects an oversized snapshot page count before opening the catalog', async () => {
+        await expect(resolveDocumentTextCatalogSnapshot(
+            '/tmp/large.pdf',
+            DOCUMENT_REVISION,
+            1_000_001,
+        )).rejects.toMatchObject({code: 'OCR_CATALOG_TOO_LARGE'});
+        expect(state.openCatalog).not.toHaveBeenCalled();
+    });
+
+    it('stops pulling window pages once the window text budget is exceeded', async () => {
+        let pulled = 0;
+        state.handle.readWindow.mockImplementationOnce(async function* (start: number, count: number) {
+            for (let index = 0; index < count; index += 1) {
+                pulled += 1;
+                yield {
+                    pageNumber: start + index,
+                    artifact: {
+                        ...state.page,
+                        text: 'x'.repeat(16 * MIB),
+                    },
+                };
+            }
+        });
+
+        await expect(resolveDocumentTextCatalogWindow(
+            '/tmp/large.pdf',
+            DOCUMENT_REVISION,
+            900_000,
+            900_009,
+            1_000_001,
+        )).rejects.toThrow('bounded text budget');
+        expect(pulled).toBe(5);
+    });
+
+    it('does not emit a window read across a working-copy revision change', async () => {
+        state.extractTextFromPdf.mockImplementationOnce(async () => {
+            state.assertWorkingCopyRevisionSidecarCurrent.mockRejectedValue(new Error('stale revision'));
+            return [];
+        });
+
+        await expect(resolveDocumentTextCatalogWindow(
+            '/tmp/large.pdf',
+            DOCUMENT_REVISION,
+            900_000,
+            900_000,
+            1_000_001,
+        )).rejects.toThrow('stale revision');
+    });
+
+    it('stops pulling snapshot pages once the aggregate text budget is exceeded', async () => {
+        let pulled = 0;
+        state.openCatalog.mockResolvedValueOnce({
+            ...state.handle,
+            header: {
+                ...state.handle.header,
+                pageCount: 10,
+                mappedPageCount: 10,
+            },
+            iterateMappedPages: vi.fn(async function* () {
+                for (let pageNumber = 1; pageNumber <= 10; pageNumber += 1) {
+                    pulled += 1;
+                    yield {
+                        pageNumber,
+                        artifact: {
+                            ...state.page,
+                            text: 'x'.repeat(3 * MIB),
+                        },
+                    };
+                }
+            }),
+        });
+
+        await expect(resolveDocumentTextCatalogSnapshot(
+            '/tmp/small.pdf',
+            DOCUMENT_REVISION,
+            10,
+        )).rejects.toThrow('aggregate text budget');
+        expect(pulled).toBe(3);
+        expect(state.handle.readSnapshot).not.toHaveBeenCalled();
+    });
+
+    it('does not return a snapshot across a working-copy revision change', async () => {
+        state.openCatalog.mockResolvedValueOnce({
+            ...state.handle,
+            header: {
+                ...state.handle.header,
+                pageCount: 10,
+                mappedPageCount: 1,
+            },
+            iterateMappedPages: vi.fn(async function* () {
+                yield {
+                    pageNumber: 1,
+                    artifact: state.page,
+                };
+            }),
+        });
+        state.extractTextWithPdfjsWordBoxes.mockImplementationOnce(async () => {
+            state.assertWorkingCopyRevisionSidecarCurrent.mockRejectedValue(new Error('stale revision'));
+            return [];
+        });
+
+        await expect(resolveDocumentTextCatalogSnapshot(
+            '/tmp/small.pdf',
+            DOCUMENT_REVISION,
+            10,
+        )).rejects.toThrow('stale revision');
     });
 });
