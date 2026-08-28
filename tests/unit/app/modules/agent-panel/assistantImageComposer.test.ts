@@ -67,7 +67,7 @@ describe('assistant image composer', () => {
     let unmount: (() => void) | null = null;
 
     beforeEach(() => {
-        vi.clearAllMocks();
+        mocks.buildComposerImageAttachments.mockReset();
     });
 
     afterEach(() => {
@@ -189,5 +189,39 @@ describe('assistant image composer', () => {
         expect(harness.composer().isImageIngestionPending.value).toBe(false);
         expect(harness.composerImages().value).toEqual([]);
         expect(harness.composerError().value).toBe('');
+    });
+
+    it('keeps an in-flight paste when an existing attachment is removed', async () => {
+        const harness = mountComposer();
+        const existingImage = createImage('existing');
+        const pastedImage = createImage('pasted');
+        const pending = createDeferred<{
+            images: IAgentAssistantImageAttachment[];
+            error: null;
+        }>();
+        harness.composerImages().value = [existingImage];
+        mocks.buildComposerImageAttachments.mockReturnValueOnce(pending.promise);
+
+        harness.composer().handleComposerPaste(cast<ClipboardEvent>({
+            clipboardData: {files: [createFile('pasted.png')]},
+            preventDefault: vi.fn(),
+        }));
+        await vi.waitFor(() => {
+            expect(mocks.buildComposerImageAttachments).toHaveBeenCalledOnce();
+        });
+
+        harness.composer().removeComposerImage(existingImage.id);
+        pending.resolve({
+            images: [
+                existingImage,
+                pastedImage,
+            ],
+            error: null,
+        });
+        await vi.waitFor(() => {
+            expect(harness.composer().isImageIngestionPending.value).toBe(false);
+        });
+
+        expect(harness.composerImages().value).toEqual([pastedImage]);
     });
 });

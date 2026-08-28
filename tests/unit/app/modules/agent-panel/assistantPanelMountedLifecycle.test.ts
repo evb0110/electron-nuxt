@@ -370,6 +370,26 @@ describe('mounted assistant panel lifecycle', () => {
         harness.unmount();
     });
 
+    it('restores a failed queued steer as an editable draft without retrying it', async () => {
+        const harness = await mountHarness(createReadyState());
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        mocks.sendAssistantMessage.mockRejectedValueOnce(new Error('send failed'));
+
+        (harness.host.querySelector('.set-image') as HTMLButtonElement).click();
+        (harness.host.querySelector('.set-draft') as HTMLButtonElement).click();
+        (harness.host.querySelector('.send') as HTMLButtonElement).click();
+
+        await vi.waitFor(() => expect(mocks.sendAssistantMessage).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(harness.host.querySelector('.queued')?.textContent).toBe('false'));
+        expect(harness.host.querySelector('.draft')?.textContent).toBe('Continue');
+        expect(harness.host.querySelector('.image-count')?.textContent).toBe('1');
+
+        await nextTick();
+        await nextTick();
+        expect(mocks.sendAssistantMessage).toHaveBeenCalledOnce();
+        harness.unmount();
+    });
+
     it('unlocks the composer when a terminal turn retains a stale busy runtime', async () => {
         const terminalState = createReadyState('done');
         terminalState.status.runtimeState = 'busy';

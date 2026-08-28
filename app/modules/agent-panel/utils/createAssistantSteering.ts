@@ -100,6 +100,7 @@ export function createAssistantSteering(options: IAssistantSteeringOptions) {
                 options.draft.value = '';
                 options.clearComposerImages();
             } else {
+                options.queuedSteer.value = null;
                 options.draft.value = payload.text;
                 options.replaceComposerImages(payload.attachments ?? []);
             }

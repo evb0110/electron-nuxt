@@ -80,15 +80,21 @@ export const useAssistantImageComposer = (options: {
                 if (generation !== imageIngestionGeneration) {
                     return;
                 }
+                const existingImages = options.composerImages.value;
+                const existingImageIds = new Set(existingImages.map(image => image.id));
                 const result = await buildComposerImageAttachments({
                     files,
-                    existingImages: options.composerImages.value,
+                    existingImages,
                     fallbackName: index => options.t('assistant.imageAttachmentFallbackName', { count: index + 1 }),
                 });
                 if (generation !== imageIngestionGeneration) {
                     return;
                 }
-                options.composerImages.value = result.images;
+                const ingestedImages = result.images.filter(image => !existingImageIds.has(image.id));
+                options.composerImages.value = [
+                    ...options.composerImages.value,
+                    ...ingestedImages,
+                ];
                 options.composerError.value = formatError(result.error);
             })
             .catch(() => {
@@ -110,7 +116,6 @@ export const useAssistantImageComposer = (options: {
         void addImages(imageFiles);
     };
     const removeComposerImage = (imageId: string) => {
-        invalidatePendingImageIngestion();
         options.composerImages.value = options.composerImages.value.filter(image => image.id !== imageId);
         options.composerError.value = '';
     };

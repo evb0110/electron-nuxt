@@ -447,6 +447,56 @@ describe('useDocumentWorkspaceAgent', () => {
         });
     });
 
+    it('reports a stale compact viewer lookup when metadata changes without changing page count', async () => {
+        const oldRanges: IPdfPageLabelRange[] = [{
+            startPage: 1,
+            style: 'D',
+            prefix: '',
+            startNumber: 1,
+        }];
+        const currentRanges: IPdfPageLabelRange[] = [
+            {
+                startPage: 1,
+                style: null,
+                prefix: 'Cover',
+                startNumber: 1,
+            },
+            {
+                startPage: 2,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        ];
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            pageLabelRanges: ref(currentRanges),
+            pageLabelModel: ref(createPageLabelModel(273, oldRanges)),
+            pageLabels: ref(null),
+            totalPages: ref(273),
+        }));
+
+        await expect(agent.runAgentAction('page_labels.read', {})).resolves.toMatchObject({
+            viewerState: {
+                displayMode: 'pdf-labels',
+                expectedDisplayMode: 'pdf-labels',
+                matchesMetadata: false,
+                lookup: 'range-model',
+                resolved: true,
+            },
+            samples: expect.arrayContaining([
+                {
+                    page: 1,
+                    label: 'Cover',
+                },
+                {
+                    page: 273,
+                    label: '272',
+                },
+            ]),
+            issues: expect.arrayContaining([expect.objectContaining({code: 'viewer_page_labels_out_of_sync'})]),
+        });
+    });
+
     it('includes the current viewer lookup state in a page-label preview', async () => {
         const ranges: IPdfPageLabelRange[] = [
             {

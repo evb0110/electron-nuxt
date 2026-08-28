@@ -842,31 +842,20 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
         };
     }
 
-    function getEffectiveAgentPageLabelModel() {
-        const pageCount = totalPages.value;
-        if (
-            pageLabelModel?.value
-            && pageLabelModel.value.totalPages === pageCount
-        ) {
-            return pageLabelModel.value;
-        }
-        return createPageLabelModel(pageCount, pageLabelRanges.value);
-    }
-
     function createAgentPageLabelSnapshot() {
         const viewerLabelsResolved = pageLabelsResolved?.value ?? true;
         const viewerModel = viewerLabelsResolved
             && pageLabelModel?.value?.totalPages === totalPages.value
             ? pageLabelModel.value
             : null;
+        const expectedModel = createPageLabelModel(totalPages.value, pageLabelRanges.value);
         const snapshot = createAgentPageLabelPlanSnapshot({
             totalPages: totalPages.value,
             dirty: pageLabelsDirty.value,
             pageLabelRanges: pageLabelRanges.value,
             pageLabels: pageLabels.value,
-            pageLabelModel: viewerModel ?? getEffectiveAgentPageLabelModel(),
+            pageLabelModel: expectedModel,
         });
-        const expectedModel = getEffectiveAgentPageLabelModel();
         const expectedIsDefault = isImplicitDefaultPageLabels(
             pageLabelRanges.value,
             totalPages.value,

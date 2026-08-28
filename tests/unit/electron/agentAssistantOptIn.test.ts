@@ -667,6 +667,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             getAgentAssistantState,
             installAgentAssistantCodex,
+            sendAgentAssistantMessage,
         }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
         await getAgentAssistantState();
         expect(mocks.spawn).toHaveBeenCalledOnce();
@@ -685,6 +686,15 @@ describe('agent assistant opt-in gating', () => {
         expect(oldProcess.kill).toHaveBeenCalledOnce();
         expect(mocks.spawn).toHaveBeenCalledTimes(2);
         expect(newProcess.requestMethods).toContain('initialize');
+
+        await expect(sendAgentAssistantMessage({
+            text: 'Use the updated runtime',
+            scope: createDocumentScope('updated-runtime.pdf'),
+        })).resolves.toMatchObject({ok: true});
+        expect(newProcess.requestMethods).toEqual(expect.arrayContaining([
+            'thread/start',
+            'turn/start',
+        ]));
     });
 
     it('runs every shutdown cleanup request when shutdowns overlap', async () => {
