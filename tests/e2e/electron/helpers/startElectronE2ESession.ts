@@ -408,6 +408,17 @@ async function connectToSessionPage(sessionName: string) {
     );
 }
 
+export async function startElectronE2ESession(
+    sessionName: string,
+    options?: IElectronE2ESessionStartOptions,
+) {
+    return startElectronE2ESessionWithAutomationEnv(
+        sessionName,
+        options,
+        buildElectronE2EAutomationEnv,
+    );
+}
+
 interface IElectronE2ESessionStartOptions {
     clean?: boolean;
     extraEnv?: Record<string, string>;
@@ -613,17 +624,6 @@ async function startElectronE2ESessionWithAutomationEnv(
         resetForE2E,
         stop,
     };
-}
-
-export async function startElectronE2ESession(
-    sessionName: string,
-    options?: IElectronE2ESessionStartOptions,
-) {
-    return startElectronE2ESessionWithAutomationEnv(
-        sessionName,
-        options,
-        buildElectronE2EAutomationEnv,
-    );
 }
 
 /**
