@@ -1,0 +1,19 @@
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_3f273936057f92::t_73afe18802ff90 61,149-166,172-176,659-665,667-668,670-679,780-850,1578-1585,1616-1617,1634-1635,1644-1647,1671-1678,1690-1692,1742,1775,1929,2075,2208-2210,2222-2223,2231-2266,2288-2292,2294-2307,2309-2335,2373-2392,2484-2534,2536-2569
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "727349e7e161c2e31c21ddc90bc96e66070bea6b",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
