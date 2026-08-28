@@ -726,7 +726,9 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             ) {
                 throw new Error('Workspace surface pressure E2E hook is unavailable');
             }
-            pressureWindow.__setWorkspaceSurfacePressureForE2E('moderate');
+            const applyPressure = () => pressureWindow.__setWorkspaceSurfacePressureForE2E?.('moderate');
+            applyPressure();
+            const pressureTimer = window.setInterval(applyPressure, 200);
             const startedAt = performance.now();
             try {
                 const tabs = Array.from(document.querySelectorAll<HTMLElement>(
@@ -748,6 +750,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
                     switchedTabs: Boolean(tabs[1]),
                 };
             } finally {
+                window.clearInterval(pressureTimer);
                 pressureWindow.__setWorkspaceSurfacePressureForE2E('healthy');
             }
         });
