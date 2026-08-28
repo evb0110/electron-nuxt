@@ -89,6 +89,7 @@ export interface IElectronE2EFailureArtifacts {
 export interface IElectronE2ESessionStopOptions {
     keepNuxt?: boolean;
     preserveArtifacts?: boolean;
+    crashElectronBeforeStop?: boolean;
 }
 
 export function shouldPreserveE2EArtifacts(env: NodeJS.ProcessEnv = process.env) {
@@ -544,7 +545,10 @@ async function startElectronE2ESessionWithAutomationEnv(
                     scopedSessionName,
                     `Stopping Electron E2E session '${scopedSessionName}'`,
                     SESSION_STOP_TIMEOUT_MS,
-                    () => stopSingleSession(scopedSessionName, {keepNuxt: stopOptions.keepNuxt ?? false}),
+                    () => stopSingleSession(scopedSessionName, {
+                        keepNuxt: stopOptions.keepNuxt ?? false,
+                        crashElectronBeforeStop: stopOptions.crashElectronBeforeStop ?? false,
+                    }),
                 ),
             );
             if (stopOptions.preserveArtifacts || shouldPreserveE2EArtifacts()) {

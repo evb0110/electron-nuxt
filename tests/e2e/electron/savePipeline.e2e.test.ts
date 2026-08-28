@@ -1,8 +1,11 @@
+import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
+import {existsSync} from 'node:fs';
 import {
     open,
     readFile,
 } from 'node:fs/promises';
+import {promisify} from 'node:util';
 import {
     afterEach,
     describe,
@@ -11,6 +14,12 @@ import {
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
+import {findSessionOwnedElectronPids} from '@scripts/electron-run/electronRunProcessIdentity';
+import {
+    collectDescendantPidsUnix,
+    isProcessAlive,
+} from '@scripts/electron-run/electronRunProcessTree';
+import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     createMultiPageTextFixturePdf,
     readPdfAnnotationSummary,
@@ -288,6 +297,51 @@ async function expectCommittedCanvasSurvivedSave(
     expect(continuity.width).toBeGreaterThan(0);
 }
 
+const execFileAsync = promisify(execFile);
+
+function readSessionProcessTree(sessionName: string) {
+    const info = getSessionInfo(sessionName);
+    if (!info) {
+        throw new Error(`Electron E2E session '${sessionName}' has no session metadata`);
+    }
+    const roots = [
+        info.pid,
+        ...(info.electronPid ? [info.electronPid] : []),
+    ];
+    return [...new Set(roots.flatMap(pid => [
+        pid,
+        ...collectDescendantPidsUnix(pid),
+    ]))];
+}
+
+// `lsof -t` exits 1 when no process holds any of the paths.
+async function readOpenHandlePids(paths: readonly string[]) {
+    try {
+        const {stdout} = await execFileAsync('lsof', [
+            '-t',
+            '--',
+            ...paths,
+        ]);
+        return stdout.split('\n').map(Number).filter(pid => Number.isInteger(pid) && pid > 0);
+    } catch (error) {
+        const failure = error as {
+            code?: number | string;
+            stdout?: string;
+        };
+        if (Number(failure.code) === 1 && !failure.stdout?.trim()) {
+            return [];
+        }
+        throw error;
+    }
+}
+
+async function isLinearizedPdf(path: string) {
+    const bytes = await readFile(path);
+    return bytes.subarray(0, Math.min(bytes.byteLength, 4096))
+        .toString()
+        .includes('/Linearized');
+}
+
 describe('Electron E2E - save pipeline diagnostics', () => {
     let session: IElectronE2ESession | null = null;
 
@@ -367,6 +421,80 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         );
         await waitForViewerInteractive(session.page, 20_000);
     }, E2E_TIMEOUT_MS);
+
+    it.runIf(process.platform !== 'win32')(
+        'leaves no process, handle, or partial write behind when the app is stopped hard mid-save',
+        async () => {
+            const pdfPath = await createMultiPageTextFixturePdf(`save-interrupt-residue-${Date.now()}.pdf`, 1);
+            const beforeHash = await hashFile(pdfPath);
+            session = await startElectronE2ESession(`e2e-save-interrupt-${Date.now()}`, {
+                clean: true,
+                extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+                initialOpenPaths: [pdfPath],
+            });
+            await waitForOpenedPdf(session.page, pdfPath);
+            await installReceiptProbe(session.page, true);
+            await createDirtyStickyNote(session.page);
+
+            // The commit barrier holds the save with its staged artifact and
+            // lease live, which is the state a hard stop must not leak.
+            const savePromise = callWorkspaceCommand<boolean>(session.page, 'handleSave').then(
+                value => ({
+                    error: null,
+                    value,
+                }),
+                (error: unknown) => ({
+                    error,
+                    value: null,
+                }),
+            );
+            const stagedArtifact = await waitForStagedArtifact(session.page);
+            expect(existsSync(stagedArtifact.path)).toBe(true);
+            const processTree = readSessionProcessTree(session.name);
+            expect(processTree.length).toBeGreaterThan(1);
+
+            const interrupted = session;
+            session = null;
+            await interrupted.browser.disconnect();
+            await interrupted.stop({crashElectronBeforeStop: true});
+            const saveOutcome = await savePromise;
+
+            const survivors = processTree.filter(isProcessAlive);
+            const sessionOwned = findSessionOwnedElectronPids({
+                kind: 'electron',
+                sessionName: interrupted.name,
+            });
+            const openHandles = await readOpenHandlePids([
+                pdfPath,
+                stagedArtifact.path,
+            ]);
+            const afterHash = await hashFile(pdfPath);
+            const diagnostics = JSON.stringify({
+                afterHash,
+                beforeHash,
+                openHandles,
+                processTree,
+                saveOutcome: saveOutcome.error instanceof Error ? saveOutcome.error.message : saveOutcome,
+                sessionOwned,
+                stagedArtifactPath: stagedArtifact.path,
+                stagedArtifactRemains: existsSync(stagedArtifact.path),
+                survivors,
+            }, null, 2);
+            expect(survivors, diagnostics).toEqual([]);
+            expect(sessionOwned, diagnostics).toEqual([]);
+            expect(openHandles, diagnostics).toEqual([]);
+            expect(afterHash, diagnostics).toBe(beforeHash);
+
+            session = await startElectronE2ESession(`e2e-save-interrupt-reopen-${Date.now()}`, {
+                clean: true,
+                extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+                initialOpenPaths: [pdfPath],
+            });
+            await waitForOpenedPdf(session.page, pdfPath);
+            expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBe(0);
+        },
+        E2E_TIMEOUT_MS,
+    );
 
     it('invalidates a same-size drifted staged artifact before commit', async () => {
         const pdfPath = await createMultiPageTextFixturePdf(`save-receipt-drift-${Date.now()}.pdf`, 1);
