@@ -42,6 +42,7 @@ app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
   s_b2ece6dfe48478::t_a147a3c11fbd27 141
   s_b2ece6dfe48478::t_060664a943c463 467-479,481-484,486-487,495-496,501-532,543-544,546
   s_b2ece6dfe48478::t_a25e3ce93f7325 636-643,651,666-672,693-696
+  s_b2ece6dfe48478::t_e7a1ea158fc391 574,577-580,582-595
 native/pdf-page-ops/src/types.rs
   s_b2ece6dfe48478::t_dd4dd308e5f9b2 46-53,77,80-81,856
   s_b2ece6dfe48478::t_9d9a39a63146f6 54-76,78-79
