@@ -1,0 +1,31 @@
+app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts
+  s_5ac4a3281ca4f3::t_8b46236af8dadb 936-944
+tests/unit/electron/handleNativeNoteTextSave.test.ts
+  s_5ac4a3281ca4f3::t_8b46236af8dadb 999
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_5ac4a3281ca4f3::t_8b46236af8dadb 449
+tests/unit/electron/featureIpcCodecs.test.ts
+  s_5ac4a3281ca4f3::t_758d36f2eff004 148-169
+tests/unit/app/modules/workspace-shell/composables/createDocumentPersistence.test.ts
+  s_5ac4a3281ca4f3::t_758d36f2eff004 528-573
+packages/contracts/electronApiDocuments.ts
+  s_5ac4a3281ca4f3::t_8b46236af8dadb 675-681
+packages/contracts/documentsPlatformFeatureSchemas.ts
+  s_5ac4a3281ca4f3::t_8b46236af8dadb 400-403,418-420
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "82eeedfa0c6463d27b2242b21467cb61dd492741",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
