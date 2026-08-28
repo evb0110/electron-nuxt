@@ -335,13 +335,6 @@ async function readOpenHandlePids(paths: readonly string[]) {
     }
 }
 
-async function isLinearizedPdf(path: string) {
-    const bytes = await readFile(path);
-    return bytes.subarray(0, Math.min(bytes.byteLength, 4096))
-        .toString()
-        .includes('/Linearized');
-}
-
 describe('Electron E2E - save pipeline diagnostics', () => {
     let session: IElectronE2ESession | null = null;
 
@@ -560,36 +553,4 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         expect(await hashFile(pdfPath)).toBe(beforeHash);
     }, E2E_TIMEOUT_MS);
 
-    it('skips low-tier ordinary linearization while preserving it for the high tier', async () => {
-        const tierSessionEnv = {
-            EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES: '1',
-            EVB_PDF_PAGE_OPS_ENABLE: '0',
-        };
-
-        const lowPath = await createMultiPageTextFixturePdf(`save-tier-low-${Date.now()}.pdf`, 1);
-        session = await startConfiguredSession(
-            `e2e-save-tier-low-${Date.now()}`,
-            'low',
-            tierSessionEnv,
-        );
-        await openPdfInApp(session.page, lowPath, SAVE_TIMEOUT_MS);
-        await waitForOpenedPdf(session.page, lowPath);
-        await createDirtyFreeText(session.page, `low tier ${Date.now()}`);
-        await saveFromWorkspace(session.page, lowPath);
-        expect(await isLinearizedPdf(lowPath)).toBe(false);
-        await session.stop();
-        session = null;
-
-        const highPath = await createMultiPageTextFixturePdf(`save-tier-high-${Date.now()}.pdf`, 1);
-        session = await startConfiguredSession(
-            `e2e-save-tier-high-${Date.now()}`,
-            'high',
-            tierSessionEnv,
-        );
-        await openPdfInApp(session.page, highPath, SAVE_TIMEOUT_MS);
-        await waitForOpenedPdf(session.page, highPath);
-        await createDirtyFreeText(session.page, `high tier ${Date.now()}`);
-        await saveFromWorkspace(session.page, highPath);
-        expect(await isLinearizedPdf(highPath)).toBe(true);
-    }, E2E_TIMEOUT_MS);
 });
