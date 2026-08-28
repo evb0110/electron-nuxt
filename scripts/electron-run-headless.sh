@@ -188,11 +188,41 @@ cleanup_on_exit() {
   exit "$exit_code"
 }
 
+# A detached start runs in the background so an INT/TERM/HUP during the
+# readiness wait reaches this shell and can undo the partial start: the
+# runner is asked to stop the session, and an Xvfb started here is torn
+# down. A successful start keeps Xvfb alive for the persistent session.
+startd_pid=""
+
+interrupted_startd() {
+  local signal_name="$1" signal_number="$2"
+  trap - INT TERM HUP
+  echo "Headless $command for session '$session_name' interrupted by SIG$signal_name; stopping the session." >&2
+  if is_pid_alive "$startd_pid"; then
+    kill -TERM "$startd_pid" >/dev/null 2>&1 || true
+    wait "$startd_pid" >/dev/null 2>&1 || true
+  fi
+  if ! pnpm electron:run --session="$session_name" stop; then
+    echo "Session '$session_name' may still be running after the interrupted $command. Run: bash scripts/electron-run-headless.sh --session=$session_name stop" >&2
+  fi
+  if [ "$started_xvfb" -eq 1 ]; then
+    stop_xvfb_for_session
+  fi
+  exit "$((128 + signal_number))"
+}
+
 case "$command" in
   startd|restartd)
-    if pnpm electron:run "$@"; then
+    trap 'interrupted_startd INT 2' INT
+    trap 'interrupted_startd TERM 15' TERM
+    trap 'interrupted_startd HUP 1' HUP
+    pnpm electron:run "$@" &
+    startd_pid=$!
+    if wait "$startd_pid"; then
+      trap - INT TERM HUP
       exit 0
     fi
+    trap - INT TERM HUP
     if [ "$started_xvfb" -eq 1 ]; then
       stop_xvfb_for_session
     fi
