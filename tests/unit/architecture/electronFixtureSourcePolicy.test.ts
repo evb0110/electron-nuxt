@@ -10,6 +10,7 @@ import {
 } from 'vitest';
 
 const ELECTRON_E2E_SOURCE_ROOT = join(process.cwd(), 'tests/e2e/electron');
+const PROCESS_ENV_MUTATION_PATTERN = /(?:delete\s+process\.env\.[A-Z0-9_]+|process\.env\.[A-Z0-9_]+\s*=[^=])/gu;
 const MACHINE_HOME_PATH_PATTERN = /(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[A-Za-z0-9._-]+/u;
 
 async function collectFiles(directory: string): Promise<string[]> {
@@ -61,6 +62,22 @@ describe('Electron E2E fixture source policy', () => {
         expect(diagnosticStarterSource).toContain('real host-visible window');
         expect(facingDiagnosticSource).toContain('startHostVisiblePdfDiagnosticsElectronSession');
         expect(facingDiagnosticSource).not.toContain('createVisibleWindowElectronE2ESessionFixture');
+    });
+
+    it('passes session environment through session options instead of the test process', async () => {
+        const files = (await collectFiles(ELECTRON_E2E_SOURCE_ROOT))
+            .filter(file => file.endsWith('.e2e.test.ts'));
+        const processEnvMutations: string[] = [];
+
+        for (const file of files) {
+            const source = await readSource(file);
+            const mutations = source.match(PROCESS_ENV_MUTATION_PATTERN) ?? [];
+            for (const mutation of mutations) {
+                processEnvMutations.push(`${file.replace(`${process.cwd()}/`, '')}: ${mutation.trim()}`);
+            }
+        }
+
+        expect(processEnvMutations).toEqual([]);
     });
 
     it('keeps suite boot, diagnostics, and reset lifecycle ownership explicit', async () => {
