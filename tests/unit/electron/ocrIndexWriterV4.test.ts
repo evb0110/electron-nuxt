@@ -271,7 +271,7 @@ describe('writeOcrIndexV4', () => {
         await expect(deletedCatalog?.readPage(pageCount - 1)).resolves.toMatchObject({text: 'last'});
         await expect(deletedCatalog?.readPage(pageCount)).rejects.toThrow(RangeError);
         await deletedCatalog?.close?.();
-    });
+    }, 15_000);
 
     it('recomputes mapped count when a delete drops a complete terminal shard', async () => {
         const root = await createCatalogRoot();

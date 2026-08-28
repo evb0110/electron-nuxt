@@ -18,7 +18,7 @@ import {
     type IWorkingCopyOriginalEntry,
     type TWorkingCopyBackingErrorCode,
 } from '@electron/file-access/workingCopyStore';
-import { createOriginalFileContentFingerprintHash } from '@electron/file-access/workingCopyOriginalFileExpectation';
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { atomicReplace } from '@electron/utils/atomicReplace';
 import { createLogger } from '@electron/utils/createLogger';

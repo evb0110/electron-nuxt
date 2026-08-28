@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -191,6 +192,7 @@ const { enqueueWorkingCopyMutation } = await import('@electron/file-access/worki
 describe('fileOps path security', () => {
     const readContext = {senderId: 42};
     const writeContext = {senderId: 42};
+    let previousForcedCloneResult: string | undefined;
     const lazyOriginalEntry = () => ({
         admissionSnapshot: {
             size: 123n,
@@ -205,6 +207,8 @@ describe('fileOps path security', () => {
     });
 
     beforeEach(async () => {
+        previousForcedCloneResult = process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
         await clearCachedRangeReadHandlesForTests();
         vi.resetAllMocks();
 
@@ -299,6 +303,14 @@ describe('fileOps path security', () => {
                 buffer,
             })),
         }));
+    });
+
+    afterEach(() => {
+        if (previousForcedCloneResult === undefined) {
+            delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+        } else {
+            process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = previousForcedCloneResult;
+        }
     });
 
     it('rejects read when pathValidator blocks a symlink path', async () => {

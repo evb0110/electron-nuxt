@@ -69,15 +69,17 @@ vi.mock('@electron/search/searchIndexSidecar', () => ({
     persistCompactSearchIndexBestEffort: mocks.persistCompactSearchIndexBestEffort,
 }));
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: mocks.assertWorkingCopyRevisionCurrent}));
-vi.mock('@electron/ocr/documentTextCatalog', () => ({
-    resolveDocumentTextCatalogSnapshot: mocks.resolveDocumentTextCatalogSnapshot,
-    visitDocumentOcrCatalogPages: mocks.visitDocumentOcrCatalogPages,
-}));
-
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     warn: vi.fn(),
 })}));
+
+beforeEach(() => {
+    vi.doMock('@electron/ocr/documentTextCatalog', () => ({
+        resolveDocumentTextCatalogSnapshot: mocks.resolveDocumentTextCatalogSnapshot,
+        visitDocumentOcrCatalogPages: mocks.visitDocumentOcrCatalogPages,
+    }));
+});
 
 function createAbortError() {
     const error = new Error('The operation was aborted');
@@ -510,56 +512,53 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('strips oversized word geometry from legacy JSON while returning the in-memory geometry index', async () => {
-        vi.resetModules();
-        vi.stubEnv('EVB_SEARCH_LEGACY_JSON_MAX_GEOMETRY_WORDS', '1000');
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const { buildOcrTextLayerIndexText } = await import('@contracts/ocrText');
+        const words = Array.from({length: 1_000}, (_, index) => ({
+            text: index === 0 ? 'alpha' : `word-${index}`,
+            x: index,
+            y: index,
+            width: 3,
+            height: 4,
+        }));
+        const expectedText = buildOcrTextLayerIndexText(words);
+        const pageData = Array.from({length: 251}, (_value, index) => ({
+            pageNumber: index + 1,
+            words,
+            pageWidth: 100,
+            pageHeight: 200,
+        }));
 
-        try {
-            const { buildSearchIndex } = await import('@electron/search/indexBuilder');
-            const { buildOcrTextLayerIndexText } = await import('@contracts/ocrText');
-            const words = Array.from({length: 1001}, (_, index) => ({
-                text: index === 0 ? 'alpha' : `word-${index}`,
-                x: index,
-                y: index,
-                width: 3,
-                height: 4,
-            }));
-            const expectedText = buildOcrTextLayerIndexText(words);
+        const result = await buildSearchIndex('/tmp/file.pdf', pageData, {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: pageData.length,
+        });
 
-            const result = await buildSearchIndex('/tmp/file.pdf', [{
+        const legacyJsonPayload = mocks.writeFile.mock.calls.find(([path]) => path === '/tmp/file.pdf.index.json.tmp')?.[1];
+        const legacyPages = JSON.parse(String(legacyJsonPayload)).pages as Array<Record<string, unknown>>;
+
+        expect(result.pages[0]).toEqual(expect.objectContaining({
+            pageNumber: 1,
+            text: expectedText,
+            pageWidth: 100,
+            pageHeight: 200,
+            words: expect.arrayContaining([expect.objectContaining({ text: 'alpha' })]),
+        }));
+        expect(legacyPages).toHaveLength(pageData.length);
+        expect(legacyPages[0]).toEqual({
+            pageNumber: 1,
+            text: expectedText,
+        });
+        expect(legacyPages.every(page => !('words' in page))).toBe(true);
+        expect(mocks.persistCompactSearchIndex).toHaveBeenCalledWith('/tmp/file.pdf', expect.objectContaining({
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: pageData.length,
+            pages: expect.arrayContaining([expect.objectContaining({
                 pageNumber: 1,
+                text: expectedText,
                 words,
-                pageWidth: 100,
-                pageHeight: 200,
-            }], {
-                documentRevision: DOCUMENT_REVISION,
-                pageCount: 1,
-            });
-
-            const legacyJsonPayload = mocks.writeFile.mock.calls.find(([path]) => path === '/tmp/file.pdf.index.json.tmp')?.[1];
-
-            expect(result.pages[0]).toEqual(expect.objectContaining({
-                pageNumber: 1,
-                text: expectedText,
-                pageWidth: 100,
-                pageHeight: 200,
-                words: expect.arrayContaining([expect.objectContaining({ text: 'alpha' })]),
-            }));
-            expect(JSON.parse(String(legacyJsonPayload)).pages).toEqual([{
-                pageNumber: 1,
-                text: expectedText,
-            }]);
-            expect(mocks.persistCompactSearchIndex).toHaveBeenCalledWith('/tmp/file.pdf', {
-                documentRevision: DOCUMENT_REVISION,
-                pageCount: 1,
-                pages: [expect.objectContaining({
-                    pageNumber: 1,
-                    text: expectedText,
-                })],
-            }, undefined);
-        } finally {
-            vi.unstubAllEnvs();
-            vi.resetModules();
-        }
+            })]),
+        }), undefined);
     });
 
     it('retries legacy JSON persistence without geometry after an invalid string length error', async () => {

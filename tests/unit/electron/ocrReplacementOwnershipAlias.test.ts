@@ -108,9 +108,12 @@ describe('OCR replacement ownership path aliases', () => {
     const resultBytes = Buffer.from('verified OCR result bytes');
     const resultSha256 = createHash('sha256').update(resultBytes).digest('hex');
     const sourceRevisionToken = 'revision-before-ocr' as TDocumentRevisionToken;
+    let previousForcedCloneResult: string | undefined;
     let store: TPendingResultFileStore | null = null;
 
     beforeEach(() => {
+        previousForcedCloneResult = process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
         vi.clearAllMocks();
         mocks.copyFile.mockResolvedValue(undefined);
         mocks.cp.mockResolvedValue(undefined);
@@ -163,6 +166,11 @@ describe('OCR replacement ownership path aliases', () => {
     });
 
     afterEach(async () => {
+        if (previousForcedCloneResult === undefined) {
+            delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+        } else {
+            process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = previousForcedCloneResult;
+        }
         await store?.shutdown();
         store = null;
     });

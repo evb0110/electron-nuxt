@@ -57,12 +57,8 @@ describe('workingCopy', () => {
     it('publishes unsupported durable PDFs as lazy without copying or fingerprinting', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
-        const fingerprint = vi.fn(async () => 'unexpected-fingerprint');
-        vi.doMock('@electron/file-access/workingCopyOriginalFileExpectation', () => ({
-            createOriginalFileContentFingerprint: fingerprint,
-            createOriginalFileContentFingerprintHash: vi.fn(),
-            createOriginalFileContentFingerprintSync: vi.fn(() => 'sync-fingerprint'),
-        }));
+        const fingerprintHash = vi.fn();
+        vi.doMock('@electron/file-access/createOriginalFileContentFingerprintHash', () => ({createOriginalFileContentFingerprintHash: fingerprintHash}));
         try {
             const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
             const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
@@ -80,9 +76,9 @@ describe('workingCopy', () => {
                 backingState: 'lazy-original',
                 originalPath: realpathSync.native(originalPath),
             });
-            expect(fingerprint).not.toHaveBeenCalled();
+            expect(fingerprintHash).not.toHaveBeenCalled();
         } finally {
-            vi.doUnmock('@electron/file-access/workingCopyOriginalFileExpectation');
+            vi.doUnmock('@electron/file-access/createOriginalFileContentFingerprintHash');
         }
     });
 
@@ -305,11 +301,8 @@ describe('workingCopy', () => {
     });
 
     it('does not stack page-count or fingerprint work across repeated read-only opens', async () => {
-        const fingerprint = vi.fn(async () => 'fingerprint');
-        vi.doMock('@electron/file-access/workingCopyOriginalFileExpectation', () => ({
-            createOriginalFileContentFingerprint: fingerprint,
-            createOriginalFileContentFingerprintSync: vi.fn(() => 'sync-fingerprint'),
-        }));
+        const fingerprintHash = vi.fn();
+        vi.doMock('@electron/file-access/createOriginalFileContentFingerprintHash', () => ({createOriginalFileContentFingerprintHash: fingerprintHash}));
 
         try {
             const {getPdfPageCount} = await import('@electron/pdf/pdfPageCount');
@@ -331,10 +324,10 @@ describe('workingCopy', () => {
             }
 
             expect(getPdfPageCount).not.toHaveBeenCalled();
-            expect(fingerprint).not.toHaveBeenCalled();
+            expect(fingerprintHash).not.toHaveBeenCalled();
             await clearAllWorkingCopies();
         } finally {
-            vi.doUnmock('@electron/file-access/workingCopyOriginalFileExpectation');
+            vi.doUnmock('@electron/file-access/createOriginalFileContentFingerprintHash');
         }
     });
 

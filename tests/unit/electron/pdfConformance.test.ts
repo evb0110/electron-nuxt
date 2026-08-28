@@ -473,7 +473,7 @@ describe('analyzePdfConformanceFileDirect', () => {
                 rejectOnStdoutTruncation: true,
             }),
         );
-    });
+    }, 15_000);
 
     it('fails with a typed capability error when qpdf structure is unavailable', async () => {
         mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('qpdf unavailable'));

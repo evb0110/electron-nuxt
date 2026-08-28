@@ -6,7 +6,15 @@ import {
     vi,
 } from 'vitest';
 import type { PageViewport } from 'pdfjs-dist';
-import type * as FsPromises from 'node:fs/promises';
+import {loadDocumentTextCatalogPages} from '@app/utils/ocr/loadOcrText';
+import {useOcrTextContent} from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
+import {buildSearchIndex} from '@electron/search/indexBuilder';
+import {
+    resolveDocumentOcrAvailability,
+    resolveDocumentOcrPage,
+    resolveDocumentTextCatalogSnapshot,
+    resolveDocumentTextCatalogWindow,
+} from '@electron/ocr/documentTextCatalog';
 import {
     createOcrDocumentTextCatalogFixture,
     OCR_CATALOG_FIXTURE_PATH,
@@ -116,32 +124,47 @@ function virtualFileHandle(path: string) {
 
 vi.mock('fs', () => ({existsSync: (path: string) => state.artifacts.has(relativeArtifactPath(path))}));
 vi.mock('fs/promises', () => ({
+    access: vi.fn(async () => undefined),
+    copyFile: vi.fn(async () => undefined),
+    cp: vi.fn(async () => undefined),
     lstat: async (path: string) => virtualLstat(path),
+    mkdir: vi.fn(async () => undefined),
+    mkdtemp: vi.fn(async () => '/tmp/evb-ocr-catalog-test'),
     open: async (path: string) => virtualFileHandle(path),
     readFile: async (path: string) => {
         const value = state.artifacts.get(relativeArtifactPath(path));
         if (value === undefined) throw enoent(path);
         return JSON.stringify(value);
     },
+    readdir: vi.fn(async () => []),
+    realpath: async (path: string) => path,
+    rename: vi.fn(async () => undefined),
     rm: vi.fn(async () => undefined),
     stat: mocks.stat,
+    unlink: vi.fn(async () => undefined),
     writeFile: vi.fn(async () => undefined),
 }));
-vi.mock('node:fs/promises', async importActual => {
-    const actual = await importActual<typeof FsPromises>();
-    return {
-        ...actual,
-        lstat: async (path: string) => virtualLstat(path),
-        open: async (path: string) => virtualFileHandle(path),
-        readFile: async (path: string) => {
-            const value = state.artifacts.get(relativeArtifactPath(path));
-            if (value === undefined) throw enoent(path);
-            return JSON.stringify(value);
-        },
-        realpath: async (path: string) => path,
-        stat: mocks.stat,
-    };
-});
+vi.mock('node:fs/promises', () => ({
+    access: vi.fn(async () => undefined),
+    copyFile: vi.fn(async () => undefined),
+    cp: vi.fn(async () => undefined),
+    lstat: async (path: string) => virtualLstat(path),
+    mkdir: vi.fn(async () => undefined),
+    mkdtemp: vi.fn(async () => '/tmp/evb-ocr-catalog-test'),
+    open: async (path: string) => virtualFileHandle(path),
+    readFile: async (path: string) => {
+        const value = state.artifacts.get(relativeArtifactPath(path));
+        if (value === undefined) throw enoent(path);
+        return JSON.stringify(value);
+    },
+    readdir: vi.fn(async () => []),
+    realpath: async (path: string) => path,
+    rename: vi.fn(async () => undefined),
+    rm: vi.fn(async () => undefined),
+    stat: mocks.stat,
+    unlink: vi.fn(async () => undefined),
+    writeFile: vi.fn(async () => undefined),
+}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
 vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({
     resolveDocumentOcrAvailability: (...args: unknown[]) => mocks.resolveAvailabilityViaCapability(...args),
@@ -171,16 +194,6 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     warn: vi.fn(),
 })}));
-
-const {loadDocumentTextCatalogPages} = await import('@app/utils/ocr/loadOcrText');
-const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
-const {buildSearchIndex} = await import('@electron/search/indexBuilder');
-const {
-    resolveDocumentOcrAvailability,
-    resolveDocumentOcrPage,
-    resolveDocumentTextCatalogWindow,
-    resolveDocumentTextCatalogSnapshot,
-} = await import('@electron/ocr/documentTextCatalog');
 
 function createViewport(): PageViewport {
     return {
