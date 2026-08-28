@@ -1,0 +1,41 @@
+app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts
+  s_5ac4a3281ca4f3::t_170e68abb675fb 238
+  s_5ac4a3281ca4f3::t_94725398f4a19f 227-228
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_5ac4a3281ca4f3::t_a3152782e1d1b2 1808
+  s_5ac4a3281ca4f3::t_09987fedeab340 1815,1821,1841
+  s_5ac4a3281ca4f3::t_cadfd2e7ea17c9 77,299,303,312,316,325-327,337-338,340,344-348,1780-1781,1788-1791,1806,1846-1847,1864-1913,1923,1943-1945,1952,1961,2048,2056,2091-2093,2111,2119
+  s_5ac4a3281ca4f3::t_c3952ce9b02726 342
+  s_5ac4a3281ca4f3::t_764933db3a76cc 53
+  s_5ac4a3281ca4f3::t_1bad0787919d33 328-336,339,341,343
+  s_5ac4a3281ca4f3::t_e158be6992b122 1792-1795,1797-1798,1801,1816-1820,1822-1830,1832-1837,1839-1840,1842-1844
+  s_5ac4a3281ca4f3::t_7cb2a98dc2c5b8 1796,1799-1800,1802
+  s_5ac4a3281ca4f3::t_774b64eb167d43 1831,1838
+  s_5ac4a3281ca4f3::t_57fa945770858a 786-799
+electron/preload/createElectronApi.ts
+  s_5ac4a3281ca4f3::t_f70ec0cd4534ab 141-145
+tests/unit/electron/preloadCreateElectronApi.test.ts
+  s_5ac4a3281ca4f3::t_f70ec0cd4534ab 324,326-348
+  s_5ac4a3281ca4f3::t_783159bd67b41a 325
+tests/unit/app/modules/workspace-shell/composables/createDocumentPersistence.test.ts
+  s_5ac4a3281ca4f3::t_fcede86640654c 928,930-931
+  s_5ac4a3281ca4f3::t_d5122271b65037 929,932-973
+app/modules/workspace-shell/composables/document-session/createDocumentHistory.ts
+  s_5ac4a3281ca4f3::t_94725398f4a19f 244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0a8c63289a78ab1295f144a03697628ecd3ad438",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
