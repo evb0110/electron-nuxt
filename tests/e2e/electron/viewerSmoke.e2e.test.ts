@@ -3289,15 +3289,36 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         }, {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
         const djvu = await captureDocumentThumbnailParitySnapshot(session, 18);
 
-        for (const snapshot of [
-            pdf,
-            djvu,
-        ]) {
-            expect(snapshot.activeTab).toBe('Pages');
-            expect(snapshot.currentPage).toBe(18);
-            expect(snapshot.currentVisible).toBe(true);
-            expect(snapshot.observedCurrentPages.length).toBeGreaterThan(0);
-            expect(snapshot.observedCurrentPages.every(page => page === 18)).toBe(true);
+        for (const {
+            documentKind,
+            snapshot,
+        } of [
+                {
+                    documentKind: 'PDF',
+                    snapshot: pdf,
+                },
+                {
+                    documentKind: 'DjVu',
+                    snapshot: djvu,
+                },
+            ]) {
+            const firstBadFrameIndex = snapshot.observedCurrentPages.findIndex(page => page !== 18);
+            const firstBadFrame = firstBadFrameIndex < 0
+                ? null
+                : {
+                    frame: firstBadFrameIndex + 1,
+                    observedPage: snapshot.observedCurrentPages[firstBadFrameIndex],
+                };
+            const detail = JSON.stringify({
+                documentKind,
+                firstBadFrame,
+                observedCurrentPages: snapshot.observedCurrentPages,
+            });
+            expect(snapshot.activeTab, detail).toBe('Pages');
+            expect(snapshot.currentPage, detail).toBe(18);
+            expect(snapshot.currentVisible, detail).toBe(true);
+            expect(snapshot.observedCurrentPages.length, detail).toBeGreaterThan(0);
+            expect(snapshot.observedCurrentPages.every(page => page === 18), detail).toBe(true);
         }
         expect(djvu.rail).toEqual(pdf.rail);
         expect(djvu.item).toEqual(pdf.item);

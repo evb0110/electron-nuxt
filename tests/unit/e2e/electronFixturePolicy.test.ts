@@ -172,8 +172,8 @@ describe('Electron E2E fixture policy', () => {
             'utf8',
         );
 
-        expect(source).toContain('[\'PDF\', pdf]');
-        expect(source).toContain('[\'DjVu\', djvu]');
+        expect(source).toContain('documentKind: \'PDF\'');
+        expect(source).toContain('documentKind: \'DjVu\'');
         expect(source).toContain('firstBadFrame');
         expect(source).toContain('.every(page => page === 18)');
     });
