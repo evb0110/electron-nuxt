@@ -1,0 +1,21 @@
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_3f273936057f92::t_72849aca8bc074 468-469,495-503,518-520,541-542
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_3f273936057f92::t_45be7b15abcb23 76-83,614-665
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a021ddccdefab5b63725e6451b547528ba49e2fd",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
