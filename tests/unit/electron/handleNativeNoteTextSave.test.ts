@@ -26,6 +26,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 import {requireDocumentRevisionToken} from '@contracts';
+import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {createNativeIncrementalMutationSemanticScopeSha256} from '@electron/features/documents/main/documentSaveUtilityProtocol';
 
 const mocks = vi.hoisted(() => ({
@@ -215,6 +216,29 @@ function createNativePlacedImage() {
     };
 }
 
+function createOpaqueStagedArtifact(path: string): ITypedStagedArtifact {
+    return {
+        receiptVersion: 2,
+        artifactKind: 'pdf',
+        path,
+        size: 3,
+        fileIdentity: {
+            platform: 'posix',
+            deviceId: '1',
+            inode: '2',
+        },
+        validations: {
+            qpdfCheck: false,
+            tailCheck: true,
+            semanticCheck: true,
+            semanticScopeSha256: createNativeIncrementalMutationSemanticScopeSha256(),
+            fsynced: true,
+        },
+        leaseId: 'staged-native-output',
+        revision: null,
+    };
+}
+
 describe('handleNativeNoteTextSave', () => {
     let tempRoot = '';
     const context = {senderId: 42};
@@ -347,7 +371,9 @@ describe('handleNativeNoteTextSave', () => {
             assertOriginalCurrent?: () => Promise<boolean>;
             publishOriginal: () => Promise<void>;
             afterWorkingCopySync?: () => Promise<void>;
+            onPhase?: (phase: string, durationMs: number) => void;
         }) => {
+            input.onPhase?.('test-transition', 1);
             if (input.assertOriginalCurrent && !await input.assertOriginalCurrent()) {
                 return null;
             }
@@ -1042,6 +1068,58 @@ describe('handleNativeNoteTextSave', () => {
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledTimes(2);
         expect(mocks.releaseManagedTempFileHandle.mock.invocationCallOrder[0])
             .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[1]!);
+    });
+
+    it('reports a post-commit expectation refresh failure after releasing the staged artifact', async () => {
+        const {
+            requestedWorkingPath,
+            originalPath,
+        } = createOriginalMutationFixture();
+        const stagedPath = join(tempRoot, 'refresh-failure.pdf');
+        writeFileSync(stagedPath, 'staged-output');
+        const stagedArtifact = createOpaqueStagedArtifact(stagedPath);
+        mocks.refreshWorkingCopyOriginalFileExpectation
+            .mockReturnValueOnce(true)
+            .mockReturnValueOnce(false);
+        const {handleCommitStagedPdfNativeMutations} = await import(
+            '@electron/features/documents/main/nativePdfMutationSaveHandlers'
+        );
+
+        const result = await handleCommitStagedPdfNativeMutations(
+            context,
+            requestedWorkingPath,
+            stagedArtifact,
+            revisionOptions,
+        );
+
+        expect(result).toMatchObject({
+            applied: true,
+            syncError: 'Working copy registration changed after native mutation commit',
+        });
+        expect(readFileSyncUtf8(originalPath)).toBe('staged-output');
+        expect(mocks.releaseManagedTempFileHandle).toHaveBeenCalledOnce();
+        expect(() => statSync(stagedPath)).toThrow();
+    });
+
+    it('releases and removes the staged artifact when its queued commit rejects', async () => {
+        const {requestedWorkingPath} = createOriginalMutationFixture();
+        const stagedPath = join(tempRoot, 'rejected-commit.pdf');
+        writeFileSync(stagedPath, 'staged-output');
+        const stagedArtifact = createOpaqueStagedArtifact(stagedPath);
+        mocks.transitionOriginalAndWorkingCopyRevision.mockRejectedValueOnce(new Error('commit rejected'));
+        const {handleCommitStagedPdfNativeMutations} = await import(
+            '@electron/features/documents/main/nativePdfMutationSaveHandlers'
+        );
+
+        await expect(handleCommitStagedPdfNativeMutations(
+            context,
+            requestedWorkingPath,
+            stagedArtifact,
+            revisionOptions,
+        )).rejects.toThrow('commit rejected');
+
+        expect(mocks.releaseManagedTempFileHandle).toHaveBeenCalledOnce();
+        expect(() => statSync(stagedPath)).toThrow();
     });
 
     it('rejects shared native mutation limit violations before native execution', async () => {

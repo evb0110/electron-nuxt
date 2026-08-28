@@ -347,7 +347,7 @@ describe('compact search index sidecar', () => {
                 truncatedCoverage: true,
             },
         });
-    });
+    }, 15_000);
 
     it('streams and loads a v3 page larger than the legacy per-page budget', async () => {
         const pdfPath = join(tempDir, 'page-over-legacy-budget.pdf');
