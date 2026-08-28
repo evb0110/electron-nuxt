@@ -135,6 +135,17 @@ describe('Electron E2E fixture policy', () => {
         expect(source).toContain('root.scrollTop += centerDelta');
     });
 
+    it('serializes a complete settings payload for configured performance sessions', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/helpers/startConfiguredElectronE2ESession.ts'),
+            'utf8',
+        );
+
+        expect(source).toContain('serializeBrowserSettingsPayload({');
+        expect(source).toContain('...DEFAULT_SETTINGS');
+        expect(source).not.toContain('JSON.stringify({performanceMode: payload.performanceMode})');
+    });
+
     it('rejects OCR completion artifacts that do not contain the expected semantic text', async () => {
         const outputPath = await createMultiPageTextFixturePdf('unit-ocr-semantic-output.pdf', 1);
 
