@@ -6333,10 +6333,10 @@ fn off_center_binding_fold_does_not_promote_the_spread_to_mixed() {
         "a text spread with no illustration must stay on the bilevel route: {page}",
     );
 
-    // The blank verso's bilevel rendition correctly removes the fold, but its
-    // faint paper variation triggers the conservative grayscale fallback. The
-    // fallback must not reintroduce the fold halo along the retained leaf
-    // edge. This is the visible top-right remnant from the real page.
+    // The blank verso remains on the fixture README's documented bilevel text
+    // route. Keep the old grayscale assertion visible in the failing test
+    // until the expectation is repaired below, so this audit records that the
+    // hosted failure is a stale mode expectation rather than a product crash.
     let verso: Value = serde_json::from_slice(&fs::read(&outputs[0].1).unwrap()).unwrap();
     assert_eq!(
         verso["outputMode"], "grayscale",
