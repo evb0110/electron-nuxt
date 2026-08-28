@@ -49,6 +49,7 @@ import {
     resolvePagedAnchorFromViewport,
     resolvePagedScrollForAnchor,
 } from '@app/modules/pdf-viewer/runtime/navigation/pdfMountedPageViewportGeometry';
+import {yieldToBrowser} from '@app/utils/yieldToBrowser';
 
 interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePageScrollOptions {
     requestedCurrentPage: Ref<number | undefined>;
@@ -62,6 +63,7 @@ interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePage
     onUserViewportPageObserved?: ((pageNumber: number) => void) | undefined;
     requestSurfacePageNavigation?: ((pageNumber: number) => number) | undefined;
     onPageVisualReady?: ((pageNumber: number) => void) | undefined;
+    beginLayoutGeometryReplacement?: (() => () => void) | undefined;
 }
 
 interface IPdfSinglePageWheelEvent {
@@ -165,6 +167,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     const viewportAuthority = createViewportAuthorityService({
         getDocumentRevision: options.getDocumentRevision,
         getGeometryRevision: options.getGeometryRevision,
+        beginLayoutGeometryReplacement: options.beginLayoutGeometryReplacement,
         awaitMetrics: async (intent, signal) => {
             const resolved = intent.navigation
                 ? await resolvePdfNavigationTarget(intent.navigation.target, options.pdfDocument.value)
@@ -257,6 +260,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             await Promise.all(Array.from({length: end - start + 1}, (_, offset) => (
                 options.pageSlots.whenMounted(start + offset, signal)
             )));
+        },
+        awaitLayoutGeometrySettled: async (_intent, _signal) => {
+            await yieldToBrowser();
         },
         apply: (intent, commit) => {
             const container = options.viewerContainer.value;

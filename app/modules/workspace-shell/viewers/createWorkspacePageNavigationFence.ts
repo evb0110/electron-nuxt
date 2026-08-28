@@ -122,6 +122,22 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
                 navigationSource: null,
             };
         }
+        if (viewport && viewport.lifecycle !== 'ready') {
+            // A matching page projection can arrive before the physical
+            // viewport reaches the target. Keep the fence armed until the
+            // surface authoritatively reports a ready lifecycle.
+            logPdfRenderTrace('workspace-viewer-current-page-update-rejected', {
+                page,
+                targetPage: pendingTargetPage,
+                currentPage: options.currentPage.value,
+                lifecycle: viewport.lifecycle,
+                reason: 'surface-not-ready',
+            });
+            return {
+                accepted: false,
+                navigationSource: null,
+            };
+        }
         return accept(page, 'target-caught-up', targetNavigationSource.value);
     }
 

@@ -7,7 +7,7 @@ export interface IPdfViewportUserNavigationEpochs {
     readonly userPhysicalNavigationEpoch: Ref<number>;
     beginLayoutGeometryReplacement: () => () => void;
     markPhysicalNavigation: () => void;
-    markScrollInteraction: () => void;
+    markScrollInteraction: () => boolean;
 }
 
 /**
@@ -47,9 +47,11 @@ export function createPdfViewportUserNavigationEpochs(): IPdfViewportUserNavigat
         },
         markScrollInteraction() {
             userViewportInteractionEpoch.value += 1;
-            if (layoutGeometryReplacementDepth === 0) {
+            const isPhysicalNavigation = layoutGeometryReplacementDepth === 0;
+            if (isPhysicalNavigation) {
                 userPhysicalNavigationEpoch.value += 1;
             }
+            return isPhysicalNavigation;
         },
     };
 }
