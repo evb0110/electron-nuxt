@@ -89,10 +89,7 @@ interface ICanvasSample {
     settledInMs: number;
 }
 
-const sessionFixture = createElectronE2ESessionFixture({
-    sessionName: () => `e2e-scan-cleanup-matched-canvas-${Date.now()}`,
-    windowMode: 'hidden',
-});
+const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cleanup-matched-canvas-${Date.now()}`});
 
 // The sheet a page is presented on, which is what "one document canvas" means.
 // The content box on it is a per-page measurement, asserted separately.

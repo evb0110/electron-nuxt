@@ -4,27 +4,29 @@ import {
     beforeEach,
 } from 'vitest';
 import { stopSingleSession } from '@scripts/electron-run/stopSession';
-import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {
+    startElectronE2ESession,
+    startHostVisibleElectronE2ESession,
+} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import type { TElectronE2EWindowMode } from '@scripts/electron-run/electronRunLaunchConfig';
 import {
     formatElectronE2ESessionFailure,
     runElectronE2EInfrastructureStage,
 } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 
 type TSessionNameFactory = string | (() => string);
+type TElectronE2ESessionStarter = typeof startElectronE2ESession;
 
 interface IElectronE2ESessionRestartOptions {
     sessionName?: TSessionNameFactory;
     clean?: boolean;
     hard?: boolean;
     keepNuxt?: boolean;
-    windowMode?: TElectronE2EWindowMode;
 }
 
 interface IElectronE2ESessionFixtureControls {
     getSession: () => IElectronE2ESession | null;
-    start: (options?: Pick<IElectronE2ESessionRestartOptions, 'sessionName' | 'clean' | 'windowMode'>) => Promise<IElectronE2ESession | null>;
+    start: (options?: Pick<IElectronE2ESessionRestartOptions, 'sessionName' | 'clean'>) => Promise<IElectronE2ESession | null>;
     restart: (options?: IElectronE2ESessionRestartOptions) => Promise<IElectronE2ESession | null>;
     resetForE2E: () => Promise<IElectronE2ESession | null>;
     stop: (options?: { preserveArtifacts?: boolean }) => Promise<void>;
@@ -35,14 +37,16 @@ interface IElectronE2ESessionFixtureOptions {
     clean?: boolean;
     restartBeforeEach?: boolean;
     timeoutMs?: number;
-    windowMode?: TElectronE2EWindowMode;
 }
 
 function resolveSessionName(sessionName: TSessionNameFactory) {
     return typeof sessionName === 'function' ? sessionName() : sessionName;
 }
 
-export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixtureOptions) {
+function createElectronE2ESessionFixtureWithStarter(
+    options: IElectronE2ESessionFixtureOptions,
+    startSession: TElectronE2ESessionStarter,
+) {
     let session: IElectronE2ESession | null = null;
     let sessionName = resolveSessionName(options.sessionName);
     let bootFailure: Error | null = null;
@@ -59,17 +63,13 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
             }
             throw new Error('Electron E2E session is not initialized; the suite boot hook may not have completed.');
         },
-        start: async (startOptions: Pick<IElectronE2ESessionRestartOptions, 'sessionName' | 'clean' | 'windowMode'> = {}) => {
+        start: async (startOptions: Pick<IElectronE2ESessionRestartOptions, 'sessionName' | 'clean'> = {}) => {
             try {
                 await controls.stop();
                 sessionName = startOptions.sessionName
                     ? resolveSessionName(startOptions.sessionName)
                     : sessionName;
-                const windowMode = startOptions.windowMode ?? options.windowMode;
-                session = await startElectronE2ESession(sessionName, {
-                    clean: startOptions.clean ?? true,
-                    ...(windowMode ? {windowMode} : {}),
-                });
+                session = await startSession(sessionName, {clean: startOptions.clean ?? true});
                 bootFailure = null;
                 return session;
             } catch (error) {
@@ -121,11 +121,9 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
                 sessionName = restartOptions.sessionName
                     ? resolveSessionName(restartOptions.sessionName)
                     : previousSession.name;
-                const windowMode = restartOptions.windowMode ?? options.windowMode;
                 session = await controls.start({
                     sessionName,
                     clean,
-                    ...(windowMode ? {windowMode} : {}),
                 });
                 return session;
             } catch (error) {
@@ -150,11 +148,7 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
     beforeAll(async () => {
         try {
             sessionName = resolveSessionName(options.sessionName);
-            const windowMode = options.windowMode;
-            session = await startElectronE2ESession(sessionName, {
-                clean: options.clean ?? true,
-                ...(windowMode ? {windowMode} : {}),
-            });
+            session = await startSession(sessionName, {clean: options.clean ?? true});
             bootFailure = null;
         } catch (error) {
             bootFailure = formatElectronE2ESessionFailure('Electron E2E session boot failed.', error);
@@ -188,4 +182,14 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
     });
 
     return controls;
+}
+
+export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixtureOptions) {
+    return createElectronE2ESessionFixtureWithStarter(options, startElectronE2ESession);
+}
+
+export function createVisibleWindowElectronE2ESessionFixture(
+    options: IElectronE2ESessionFixtureOptions,
+) {
+    return createElectronE2ESessionFixtureWithStarter(options, startHostVisibleElectronE2ESession);
 }

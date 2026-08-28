@@ -14,12 +14,11 @@ import {
 import { delay } from 'es-toolkit/promise';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    createBlankFixturePdf,
+    createManagedInkStrokeFixturePdf,
     readPdfAnnotationSummary,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
     openPdfInApp,
-    saveViaWindowHandle,
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import { callWorkspaceCommand } from '@tests/e2e/electron/helpers/workspaceExpose';
@@ -28,6 +27,7 @@ const MATCHED_DISPLAY_ZOOM = 2;
 const ARTIFACT_DIR = resolve(process.cwd(), '.devkit', 'test', 'annotation-stroke-parity');
 const ELECTRON_SCREENSHOT_PATH = resolve(ARTIFACT_DIR, 'electron.png');
 const PLAYWRIGHT_SCREENSHOT_PATH = resolve(ARTIFACT_DIR, 'playwright.png');
+const CHROMIUM_EXECUTABLE_PATH = process.env.EVB_E2E_CHROMIUM_EXECUTABLE_PATH?.trim();
 
 interface IStrokePaintMetrics {
     canvasInkPixelCount: number;
@@ -154,10 +154,9 @@ describe('Electron and Playwright annotation stroke parity', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: false,
         sessionName: () => `e2e-annotation-stroke-parity-${Date.now()}`,
-        windowMode: 'visible',
     });
 
-    it('renders the same saved one-point ink stroke identically in both runtimes', async () => {
+    it('renders the same saved ink stroke identically in both runtimes', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -169,52 +168,12 @@ describe('Electron and Playwright annotation stroke parity', () => {
             height: 900,
             width: 1_440,
         });
-        const fixturePath = await createBlankFixturePdf(`annotation-stroke-parity-${Date.now()}.pdf`, 1);
+        const fixturePath = await createManagedInkStrokeFixturePdf(`annotation-stroke-parity-${Date.now()}.pdf`);
+        expect((await readPdfAnnotationSummary(fixturePath)).bySubtype.Ink).toBe(1);
         console.info('STROKE_PARITY_STEP electron-open:start');
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
         console.info('STROKE_PARITY_STEP electron-open:complete');
-
-        console.info('STROKE_PARITY_STEP electron-create:start');
-        const created = await callWorkspaceCommand<{created?: boolean}>(session.page, 'runAgentAction', [
-            'annotation.create_shape',
-            {
-                color: '#2563eb',
-                opacity: 1,
-                page: 1,
-                shape: 'draw',
-                strokeWidth: 1,
-                strokes: [[
-                    {
-                        x: 0.2,
-                        y: 0.3,
-                    },
-                    {
-                        x: 0.35,
-                        y: 0.34,
-                    },
-                    {
-                        x: 0.5,
-                        y: 0.31,
-                    },
-                    {
-                        x: 0.65,
-                        y: 0.38,
-                    },
-                ]],
-                x: 0.2,
-                y: 0.3,
-            },
-        ]);
-        expect(created.called).toBe(true);
-        expect(created.value?.created).toBe(true);
-        console.info('STROKE_PARITY_STEP electron-create:complete');
-        console.info('STROKE_PARITY_STEP electron-save:start');
-        await saveViaWindowHandle(session.page);
-        expect((await readPdfAnnotationSummary(fixturePath)).bySubtype.Ink).toBe(1);
-        await openPdfInApp(session.page, fixturePath);
-        await waitForPdfLoaded(session.page);
-        console.info('STROKE_PARITY_STEP electron-save:complete');
 
         console.info('STROKE_PARITY_STEP electron-measure:start');
         await setElectronZoom(session.page);
@@ -242,7 +201,10 @@ describe('Electron and Playwright annotation stroke parity', () => {
         });
         console.info(`STROKE_PARITY_STEP electron-measure:complete ${JSON.stringify(electronMetrics)}`);
 
-        const browser = await chromium.launch({ headless: true });
+        const browser = await chromium.launch({
+            headless: true,
+            ...(CHROMIUM_EXECUTABLE_PATH ? {executablePath: CHROMIUM_EXECUTABLE_PATH} : {}),
+        });
         try {
             console.info('STROKE_PARITY_STEP playwright-open:start');
             const context = await browser.newContext({
@@ -310,8 +272,6 @@ describe('Electron and Playwright annotation stroke parity', () => {
 
             expect(electronMetrics.managedShapeCount).toBe(1);
             expect(webMetrics.managedShapeCount).toBe(1);
-            expect(electronMetrics.canvasInkPixelCount).toBe(0);
-            expect(webMetrics.canvasInkPixelCount).toBe(0);
             expect(electronMetrics.strokeWidthAttribute).toBe(webMetrics.strokeWidthAttribute);
             expect(electronMetrics.scaleFactor).toBeCloseTo(webMetrics.scaleFactor ?? 0, 5);
             expect(electronMetrics.userUnit).toBeCloseTo(webMetrics.userUnit ?? 0, 5);

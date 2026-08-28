@@ -5,7 +5,7 @@ import {
 import {resolve} from 'node:path';
 import {delay} from 'es-toolkit/promise';
 import {readSessionLogTail} from '@scripts/electron-run/electronRunSessionArtifacts';
-import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {startHostVisiblePdfDiagnosticsElectronSession} from '@scripts/diagnostics/startPdfDiagnosticsElectronSession';
 import {openPdfInApp} from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
@@ -182,10 +182,9 @@ async function captureHorizontal(zoom: number) {
 
 mkdirSync(outputDir, {recursive: true});
 const consoleLines: string[] = [];
-const session = await startElectronE2ESession(`pdf-facing-${phase}-${Date.now()}`, {
-    clean: true,
-    windowMode: 'visible',
-});
+// This diagnostic measures a real, host-visible viewport. It is an explicit
+// operator opt-in and is not part of any Vitest Electron E2E project.
+const session = await startHostVisiblePdfDiagnosticsElectronSession(`pdf-facing-${phase}`);
 const {page} = session;
 await page.setViewport({
     deviceScaleFactor: 1,

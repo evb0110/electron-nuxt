@@ -144,7 +144,6 @@ const sessionFixture = uniformityEnabled
             clean: false,
             sessionName,
             timeoutMs: 4_500_000,
-            windowMode: 'hidden',
         });
     })()
     : null;

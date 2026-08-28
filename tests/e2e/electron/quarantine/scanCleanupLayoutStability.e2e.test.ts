@@ -80,10 +80,7 @@ interface IComparisonLayerSample {
     };
 }
 
-const sessionFixture = createElectronE2ESessionFixture({
-    sessionName: () => `e2e-scan-cleanup-layout-${Date.now()}`,
-    windowMode: 'hidden',
-});
+const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cleanup-layout-${Date.now()}`});
 
 describe('scan cleanup layout stability', () => {
     it('keeps the workspace vertical origin fixed when scan and PDF panes trade focus', async () => {

@@ -36,7 +36,6 @@ import {
     PDFString,
 } from 'pdf-lib';
 import type {Page} from 'puppeteer-core';
-import type {TElectronE2EWindowMode} from '@scripts/electron-run/electronRunLaunchConfig';
 import {
     PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES,
     type IPdfAnnotationIndexEntry,
@@ -92,23 +91,7 @@ const EXACT_ZALIZNYAK_BYTES = 722_178_517;
 const EXACT_ZALIZNYAK_PAGES = 882;
 const ANNOTATION_INDEX_CHUNK_BYTES = 512 * 1_024;
 const IPC_PAYLOAD_MAX_BYTES = 8 * 1_024 * 1_024;
-const LARGE_PDF_WINDOW_MODE_ENV = 'EVB_E2E_LARGE_PDF_WINDOW_MODE';
 const LARGE_PDF_ARTIFACT_ROOT_ENV = 'EVB_E2E_LARGE_PDF_ARTIFACT_ROOT';
-
-function resolveLargePdfWindowMode(env: NodeJS.ProcessEnv = process.env): TElectronE2EWindowMode {
-    const value = env[LARGE_PDF_WINDOW_MODE_ENV]?.trim().toLowerCase();
-    if (!value) {
-        return 'hidden';
-    }
-    if (value === 'visible' || value === 'hidden') {
-        return value;
-    }
-    throw new Error(
-        `${LARGE_PDF_WINDOW_MODE_ENV} must be either 'visible' or 'hidden', received ${JSON.stringify(value)}`,
-    );
-}
-
-const largePdfWindowMode = resolveLargePdfWindowMode();
 const largePdfFixture = resolveLargePdfFixtureAvailability();
 const largePdfDescribe = selectFixtureDescribe(describe, largePdfFixture);
 const qpdfAvailable = (() => {
@@ -1627,7 +1610,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         sessionName: () => `e2e-large-pdf-${Date.now()}`,
         timeoutMs: LARGE_PDF_TIMEOUT_MS,
-        windowMode: largePdfWindowMode,
     });
 
     it('saves a toolbar note with multiple ordinary FreeText editors on a large PDF', async () => {

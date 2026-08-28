@@ -57,7 +57,7 @@ import {
  * Opt in explicitly with:
  *
  * EVB_E2E_XLARGE_PDF_FIXTURE=.devkit/fixtures/zaliznyak-three-distinct-copy-2646-pages.pdf \
- *   pnpm exec vitest run --project e2e-large-pdf tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts --reporter verbose
+ *   bash scripts/test-electron-e2e-headless.sh --no-build e2e-large-pdf tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts --reporter verbose
  *
  * The fixture gate below uses filesystem metadata and qpdf page counting only.
  * Keep this lane path-backed. Do not add a whole-document JavaScript parser or

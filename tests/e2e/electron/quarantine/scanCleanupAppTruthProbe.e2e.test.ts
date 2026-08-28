@@ -20,10 +20,7 @@ import type {IWorkspaceExposeProbeWindow} from '@tests/e2e/electron/helpers/work
 const SOURCE_PATH = process.env.EVB_APP_TRUTH_SOURCE_PDF ?? '';
 const PAGE_COUNT = Number(process.env.EVB_APP_TRUTH_PAGE_COUNT ?? '0');
 
-const sessionFixture = createElectronE2ESessionFixture({
-    sessionName: () => `e2e-scan-cleanup-app-truth-${Date.now()}`,
-    windowMode: 'hidden',
-});
+const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cleanup-app-truth-${Date.now()}`});
 
 describe('scan cleanup app-truth probe', () => {
     // A diagnostic harness, not a regression test: it drives the product

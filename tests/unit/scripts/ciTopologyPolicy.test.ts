@@ -1517,13 +1517,29 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).toContain('run: pnpm run check:electron:install');
         expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).not.toContain('continue-on-error: true');
         expect(packageJson).toContain('"test:e2e:electron:large": "pnpm run build:pdf-page-ops');
-        expect(packageJson).toContain('EVB_PDF_PAGE_OPS_ENABLE=1 EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose');
+        expect(packageJson).toContain('EVB_PDF_PAGE_OPS_ENABLE=1 EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-large-pdf --reporter verbose');
         expect(workflow).toContain('name: Manual Electron E2E Quarantine');
         expect(workflowJob(workflow, 'nightly_electron_e2e_quarantine')).toContain('run: pnpm run check:electron:install');
         expect(workflow).toContain('run: pnpm run test:e2e:electron:quarantine');
         expect(workflow).toContain('name: Manual Electron E2E Visible Window');
         expect(workflowJob(workflow, 'nightly_electron_e2e_visible_window')).toContain('runs-on: macos-14');
         expect(workflowJob(workflow, 'nightly_electron_e2e_visible_window')).toContain('run: pnpm run test:e2e:electron:visible-window');
+        for (const jobName of [
+            'pr_electron_blocking_smoke',
+            'nightly_electron_e2e_regression',
+            'nightly_electron_e2e_save_pipeline',
+            'nightly_electron_e2e_rapid_navigation',
+            'nightly_electron_e2e_large_pdf',
+            'nightly_electron_e2e_quarantine',
+        ]) {
+            const ordinaryJob = workflowJob(workflow, jobName);
+            expect(ordinaryJob).not.toContain('test:e2e:electron:visible-window');
+            expect(ordinaryJob).not.toContain('e2e-visible-window');
+            expect(ordinaryJob).not.toContain('visibleWindowLifecycle.e2e.test.ts');
+        }
+        const validationGates = await readProjectFile('scripts/validation-gates.mjs');
+        expect(validationGates).not.toContain('test:e2e:electron:visible-window');
+        expect(validationGates).not.toContain('e2e-visible-window');
         for (const jobName of [
             'nightly_electron_e2e_regression',
             'nightly_electron_e2e_save_pipeline',
@@ -1587,13 +1603,13 @@ describe('CI topology policy', () => {
                 'pnpm run build:native:e2e',
                 'pnpm run build:electron',
                 'EVB_PDF_PAGE_OPS_ENABLE=1',
-                `--project ${project!}`,
+                `--no-build ${project!}`,
             ]) {
                 expect(command, `${script!} is missing ${required}`).toContain(required);
             }
         }
         expect(packageScripts['test:e2e:electron:quarantine']).toContain(
-            'vitest run --project e2e-quarantine --passWithNoTests',
+            'scripts/test-electron-e2e-headless.sh --no-build e2e-quarantine --passWithNoTests',
         );
         // The matched page canvas is a whole-app contract — geometry measured
         // in the main process, a rectangle presented by the renderer, and an

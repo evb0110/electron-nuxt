@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import { createVisibleWindowElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 
 interface IVisibleWindowState {
@@ -18,10 +18,9 @@ interface IVisibleWindowState {
 interface INavigationTimelineWindow extends Window {__navigationTimeline?: Array<{ event?: string }>;}
 
 describe('Electron E2E - Visible Window Lifecycle', () => {
-    const sessionFixture = createElectronE2ESessionFixture({
+    const sessionFixture = createVisibleWindowElectronE2ESessionFixture({
         sessionName: () => `e2e-visible-window-${Date.now()}`,
         timeoutMs: 90_000,
-        windowMode: 'visible',
     });
 
     it('shows and maximizes the real application window after renderer readiness', async () => {

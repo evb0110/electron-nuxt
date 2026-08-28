@@ -38,10 +38,7 @@ interface ICommittedSurfaceProbeFrame {
 
 interface ICommittedSurfaceProbeWindow extends Window {__committedSurfaceFrames?: ICommittedSurfaceProbeFrame[];}
 
-const sessionFixture = createElectronE2ESessionFixture({
-    sessionName: () => `e2e-scan-cleanup-journey-${Date.now()}`,
-    windowMode: 'hidden',
-});
+const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cleanup-journey-${Date.now()}`});
 
 describe('nightly scan cleanup journey', () => {
     it('detects and cleans a scanned page into a readable generated PDF', async () => {

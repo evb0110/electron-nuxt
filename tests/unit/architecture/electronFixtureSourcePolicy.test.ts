@@ -29,6 +29,40 @@ async function readSource(path: string) {
 }
 
 describe('Electron E2E fixture source policy', () => {
+    it('keeps host-visible execution behind the dedicated suite fixture', async () => {
+        const files = (await collectFiles(ELECTRON_E2E_SOURCE_ROOT))
+            .filter(file => file.endsWith('.e2e.test.ts'));
+        const visibleSuite = join(ELECTRON_E2E_SOURCE_ROOT, 'visibleWindowLifecycle.e2e.test.ts');
+        const ordinaryVisibleRequests: string[] = [];
+
+        for (const file of files.filter(file => file !== visibleSuite)) {
+            const source = await readSource(file);
+            if (
+                /windowMode\s*:\s*['"]visible['"]/u.test(source)
+                || source.includes('startHostVisibleElectronE2ESession')
+                || source.includes('createVisibleWindowElectronE2ESessionFixture')
+            ) {
+                ordinaryVisibleRequests.push(file.replace(`${process.cwd()}/`, ''));
+            }
+        }
+
+        const fixtureSource = await readSource('tests/e2e/electron/helpers/createElectronE2ESessionFixture.ts');
+        const largePdfSource = await readSource('tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts');
+        const visibleSuiteSource = await readSource(visibleSuite);
+        const diagnosticStarterSource = await readSource('scripts/diagnostics/startPdfDiagnosticsElectronSession.ts');
+        const facingDiagnosticSource = await readSource('scripts/diagnostics/pdfFacingContinuousRegression.ts');
+
+        expect(ordinaryVisibleRequests).toEqual([]);
+        expect(fixtureSource).not.toContain('windowMode');
+        expect(largePdfSource).not.toContain('EVB_E2E_LARGE_PDF_WINDOW_MODE');
+        expect(visibleSuiteSource).toContain('createVisibleWindowElectronE2ESessionFixture');
+        expect(visibleSuiteSource).not.toMatch(/\bcreateElectronE2ESessionFixture\s*\(/u);
+        expect(diagnosticStarterSource).toContain('startHostVisiblePdfDiagnosticsElectronSession');
+        expect(diagnosticStarterSource).toContain('real host-visible window');
+        expect(facingDiagnosticSource).toContain('startHostVisiblePdfDiagnosticsElectronSession');
+        expect(facingDiagnosticSource).not.toContain('createVisibleWindowElectronE2ESessionFixture');
+    });
+
     it('keeps suite boot, diagnostics, and reset lifecycle ownership explicit', async () => {
         const fixtureSource = await readSource('tests/e2e/electron/helpers/createElectronE2ESessionFixture.ts');
         const sessionSource = await readSource('tests/e2e/electron/helpers/startElectronE2ESession.ts');

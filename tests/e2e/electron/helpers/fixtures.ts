@@ -20,6 +20,8 @@ import {
 } from 'node:path';
 import {
     PDFDocument,
+    PDFHexString,
+    PDFName,
     StandardFonts,
     degrees,
     rgb,
@@ -1327,6 +1329,52 @@ export async function createBlankFixturePdf(filename: string, pageCount = 1) {
     const bytes = await doc.save();
     writeFileSync(filePath, bytes);
 
+    return filePath;
+}
+
+export async function createManagedInkStrokeFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([
+        612,
+        792,
+    ]);
+    const ink = doc.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Ink'),
+        Rect: [
+            122.4,
+            491.04,
+            397.8,
+            554.4,
+        ],
+        InkList: [[
+            122.4,
+            554.4,
+            214.2,
+            522.72,
+            306,
+            546.48,
+            397.8,
+            491.04,
+        ]],
+        C: [
+            37 / 255,
+            99 / 255,
+            235 / 255,
+        ],
+        CA: 1,
+        Border: [
+            0,
+            0,
+            1,
+        ],
+        EVBShapeKey: PDFHexString.fromText('evb-shape:annotation-stroke-parity'),
+    });
+    const inkRef = doc.context.register(ink);
+    page.node.set(PDFName.of('Annots'), doc.context.obj([inkRef]));
+    writeFileSync(filePath, await doc.save());
     return filePath;
 }
 

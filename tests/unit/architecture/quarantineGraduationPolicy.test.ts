@@ -212,7 +212,7 @@ describe('Electron E2E quarantine graduation policy', () => {
         expect(quarantineJob).toContain('run: pnpm run test:e2e:electron:quarantine');
         expect(vitestConfig).toMatch(/condition: \/\\\[INFRA\\\]\/u,[\s\S]*?count: 2,/u);
         expect(packageJson).toContain(
-            'vitest run --project e2e-quarantine --passWithNoTests',
+            'scripts/test-electron-e2e-headless.sh --no-build e2e-quarantine --passWithNoTests',
         );
         expect(readme).toContain('`graduation-policy.json`');
         expect(readme).toContain('`[INFRA]`');

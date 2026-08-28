@@ -14,7 +14,7 @@ import { sendCommand } from '@scripts/electron-run/sendCommand';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
 import {
     buildElectronE2EAutomationEnv,
-    type TElectronE2EWindowMode,
+    buildVisibleWindowElectronE2EAutomationEnv,
 } from '@scripts/electron-run/electronRunLaunchConfig';
 import { DEFAULT_NUXT_PORT } from '@scripts/electron-run/electronRunPortConfig';
 import { assertE2ESessionName } from '@scripts/electron-run/electronRunE2ESessionPrune';
@@ -408,12 +408,17 @@ async function connectToSessionPage(sessionName: string) {
     );
 }
 
-export async function startElectronE2ESession(sessionName: string, options?: {
+interface IElectronE2ESessionStartOptions {
     clean?: boolean;
     extraEnv?: Record<string, string>;
     initialOpenPaths?: string[];
-    windowMode?: TElectronE2EWindowMode;
-}): Promise<IElectronE2ESession> {
+}
+
+async function startElectronE2ESessionWithAutomationEnv(
+    sessionName: string,
+    options: IElectronE2ESessionStartOptions | undefined,
+    buildAutomationEnv: (env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv,
+): Promise<IElectronE2ESession> {
     const scopedSessionName = assertE2ESessionName(createE2ERunScopedSessionName(sessionName, process.env));
     const clean = options?.clean ?? true;
 
@@ -432,11 +437,14 @@ export async function startElectronE2ESession(sessionName: string, options?: {
     }
 
     setCurrentSessionName(scopedSessionName);
+    const requestedEnv = {
+        ...process.env,
+        ...(options?.extraEnv ?? {}),
+    };
     const startOptions = {
         env: {
-            ...buildElectronE2EAutomationEnv(process.env, options?.windowMode),
+            ...buildAutomationEnv(requestedEnv),
             ...buildStrictE2ERunEnv(process.env),
-            ...(options?.extraEnv ?? {}),
         },
         owner: 'e2e' as const,
         ...(options?.initialOpenPaths ? { initialOpenPaths: options.initialOpenPaths } : {}),
@@ -605,4 +613,31 @@ export async function startElectronE2ESession(sessionName: string, options?: {
         resetForE2E,
         stop,
     };
+}
+
+export async function startElectronE2ESession(
+    sessionName: string,
+    options?: IElectronE2ESessionStartOptions,
+) {
+    return startElectronE2ESessionWithAutomationEnv(
+        sessionName,
+        options,
+        buildElectronE2EAutomationEnv,
+    );
+}
+
+/**
+ * Starts a host-visible Electron window. Test suites may use this only through
+ * the dedicated visible-window lifecycle fixture. Raw diagnostics must name
+ * this capability at their call site so they cannot look like ordinary E2E.
+ */
+export async function startHostVisibleElectronE2ESession(
+    sessionName: string,
+    options?: IElectronE2ESessionStartOptions,
+) {
+    return startElectronE2ESessionWithAutomationEnv(
+        sessionName,
+        options,
+        buildVisibleWindowElectronE2EAutomationEnv,
+    );
 }

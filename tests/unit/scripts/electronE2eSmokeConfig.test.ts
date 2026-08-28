@@ -217,6 +217,41 @@ describe('unit Vitest project topology', () => {
 });
 
 describe('electron e2e Vitest project topology', () => {
+    it('gives every ordinary Electron E2E project a canonical headless package route', async () => {
+        const config = await loadVitestSharedConfig(undefined);
+        const packageJson = await readPackageJsonWithScripts();
+        const packageScripts = packageJson.scripts;
+        const electronProjects = config.vitestProjects
+            .map(project => project.test?.name)
+            .filter((name): name is string => name?.startsWith('e2e-') === true);
+        const ordinaryProjects = electronProjects.filter(name => name !== 'e2e-visible-window');
+
+        for (const projectName of ordinaryProjects) {
+            const routes = Object.entries(packageScripts)
+                .filter((entry): entry is [
+                    string,
+                    string,
+                ] => (
+                    typeof entry[1] === 'string'
+                    && entry[1].includes(`--no-build ${projectName}`)
+                ));
+
+            expect(routes, `missing shared headless runner route for ${projectName}`).not.toEqual([]);
+            expect(routes.every(entry => (
+                entry[1].includes('bash scripts/test-electron-e2e-headless.sh')
+            ))).toBe(true);
+        }
+
+        const visibleProject = projectByName(config, 'e2e-visible-window');
+        const visibleFile = 'tests/e2e/electron/visibleWindowLifecycle.e2e.test.ts';
+        expect(visibleProject.test?.include).toEqual([visibleFile]);
+        for (const projectName of ordinaryProjects) {
+            expect(projectByName(config, projectName).test?.include).not.toContain(visibleFile);
+        }
+        expect(packageScripts['test:e2e:electron:visible-window'])
+            .not.toContain('scripts/test-electron-e2e-headless.sh');
+    });
+
     it('keeps local iteration retry-free and retries only marked infrastructure failures in CI', async () => {
         const localConfig = await loadVitestSharedConfig(undefined);
         const ciConfig = await loadVitestSharedConfig('true');
@@ -290,28 +325,28 @@ describe('electron e2e Vitest project topology', () => {
             expect(largePdfSource).not.toContain(obsoleteEnvFlag);
         }
         expect(packageScripts['test:e2e:electron:draw-shapes'])
-            .toBe('pnpm run build:electron && vitest run --project e2e-draw-shapes --reporter verbose');
+            .toBe('pnpm run build:pdf-page-ops && pnpm run build:electron && EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-draw-shapes --reporter verbose');
         expect(packageScripts['test:e2e:electron:large']).toContain('pnpm run build:pdf-page-ops');
         expect(packageScripts['test:e2e:electron:large'])
-            .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose');
+            .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-large-pdf --reporter verbose');
         expect(packageScripts['test:e2e:electron:rapid-navigation'])
-            .toBe('pnpm run build:electron && vitest run --project e2e-rapid-navigation --reporter verbose');
+            .toBe('pnpm run build:electron && bash scripts/test-electron-e2e-headless.sh --no-build e2e-rapid-navigation --reporter verbose');
         expect(packageScripts['test:e2e:electron:visible-window'])
             .toBe('pnpm run build:electron && vitest run --project e2e-visible-window --reporter verbose');
         expect(packageScripts['test:e2e:electron'])
             .toContain('pnpm run build:native:e2e');
         expect(packageScripts['test:e2e:electron'])
-            .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 vitest run --project e2e-regression');
+            .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression');
         expect(packageScripts['test:e2e:electron:regression'])
             .toContain('pnpm run build:native:e2e');
         expect(packageScripts['test:e2e:electron:regression'])
-            .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 vitest run --project e2e-regression');
+            .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression');
         expect(packageScripts['test:e2e:electron:smoke:no-build']).toBeUndefined();
         expect(packageScripts['test:e2e:electron:watch'])
-            .toBe('vitest --project e2e-regression --reporter verbose');
+            .toBe('bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression --watch --reporter verbose');
     });
 
-    it('keeps the large-PDF acceptance interaction and window mode source-backed', async () => {
+    it('keeps the large-PDF acceptance interaction on the generic hidden fixture', async () => {
         const largePdfSource = await readFile('tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts', 'utf8');
         const viewerCoreSource = await readFile('tests/e2e/electron/helpers/viewerCore.ts', 'utf8');
         const activationStart = viewerCoreSource.indexOf('async function tryActivateAnnotationsTab');
@@ -323,8 +358,9 @@ describe('electron e2e Vitest project topology', () => {
         expect(activationEnd).toBeGreaterThan(activationStart);
         const activationSource = viewerCoreSource.slice(activationStart, activationEnd);
 
-        expect(largePdfSource).toContain('const LARGE_PDF_WINDOW_MODE_ENV = \'EVB_E2E_LARGE_PDF_WINDOW_MODE\';');
-        expect(largePdfSource).toContain('windowMode: largePdfWindowMode');
+        expect(largePdfSource).not.toContain('EVB_E2E_LARGE_PDF_WINDOW_MODE');
+        expect(largePdfSource).not.toContain('windowMode');
+        expect(largePdfSource).toContain('createElectronE2ESessionFixture({');
         expect(largePdfSource).toContain('dirty.pdfJsAnnotationStorage !== null');
         expect(largePdfSource).toContain('qpdfDictionaryContainsText(annotationObject, \'Contents\', expectedText)');
         expect(largePdfSource).not.toContain('qpdfObjectContainsText');
@@ -343,6 +379,6 @@ describe('electron e2e quarantine Vitest project', () => {
 
         expect(quarantineProject.test?.include).toEqual(electronE2EQuarantineTestFiles);
         expect(packageScripts['test:e2e:electron:quarantine'])
-            .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 vitest run --project e2e-quarantine --passWithNoTests');
+            .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-quarantine --passWithNoTests');
     });
 });

@@ -181,22 +181,64 @@ export function buildHeadlessAutomationEnv(env: NodeJS.ProcessEnv = process.env)
     } satisfies NodeJS.ProcessEnv;
 }
 
-export type TElectronE2EWindowMode = 'hidden' | 'visible';
-
 export function buildElectronE2EAutomationEnv(
     env: NodeJS.ProcessEnv = process.env,
-    windowMode: TElectronE2EWindowMode = 'hidden',
+    platform: NodeJS.Platform = process.platform,
 ) {
-    if (windowMode === 'hidden') {
-        return buildHeadlessAutomationEnv(env);
-    }
+    return {
+        ...env,
+        ...resolveElectronE2EHeadlessRunnerConfig(platform).environment,
+    } satisfies NodeJS.ProcessEnv;
+}
 
+export function buildVisibleWindowElectronE2EAutomationEnv(
+    env: NodeJS.ProcessEnv = process.env,
+) {
     return {
         ...env,
         EVB_AUTOMATION_NO_FOCUS: '0',
         EVB_AUTOMATION_HIDE_WINDOW: '0',
         EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
     } satisfies NodeJS.ProcessEnv;
+}
+
+interface IElectronE2EHeadlessRunnerConfig {
+    commandPrefix: string[];
+    environment: {
+        EVB_AUTOMATION_HIDE_WINDOW: '0' | '1';
+        EVB_AUTOMATION_NO_FOCUS: '1';
+        EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0' | '1';
+    };
+    hostDisplayIsolation: 'hidden-window' | 'xvfb';
+}
+
+export function resolveElectronE2EHeadlessRunnerConfig(
+    platform: NodeJS.Platform = process.platform,
+): IElectronE2EHeadlessRunnerConfig {
+    if (platform === 'linux') {
+        return {
+            commandPrefix: [
+                'xvfb-run',
+                '-a',
+            ],
+            environment: {
+                EVB_AUTOMATION_HIDE_WINDOW: '0',
+                EVB_AUTOMATION_NO_FOCUS: '1',
+                EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
+            },
+            hostDisplayIsolation: 'xvfb',
+        };
+    }
+
+    return {
+        commandPrefix: [],
+        environment: {
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_NO_FOCUS: '1',
+            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: platform === 'darwin' ? '1' : '0',
+        },
+        hostDisplayIsolation: 'hidden-window',
+    };
 }
 
 export function shouldUseMacOSHiddenAppLauncher(

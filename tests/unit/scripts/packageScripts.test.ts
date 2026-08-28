@@ -367,13 +367,16 @@ describe('package scripts', () => {
         for (const scriptName of [
             'test:e2e:electron',
             'test:e2e:electron:blocking-smoke',
+            'test:e2e:electron:draw-shapes',
+            'test:e2e:electron:large',
             'test:e2e:electron:quarantine',
             'test:e2e:electron:rapid-navigation',
             'test:e2e:electron:regression',
+            'test:e2e:electron:save-pipeline',
         ]) {
             const commands = scriptCommands(scripts, scriptName);
             const buildIndex = commands.findIndex(command => command.includes('build:electron'));
-            const testIndex = commands.findIndex(command => command.includes('vitest run --project'));
+            const testIndex = commands.findIndex(command => command.includes('scripts/test-electron-e2e-headless.sh --no-build'));
             expect(buildIndex).toBeGreaterThanOrEqual(0);
             expect(testIndex).toBeGreaterThan(buildIndex);
         }
@@ -390,32 +393,35 @@ describe('package scripts', () => {
         ]) {
             const commands = scriptCommands(scripts, scriptName);
             expect(commands).toContain('pnpm run build:native:e2e');
-            expect(commands.at(-1)).toContain('EVB_PDF_PAGE_OPS_ENABLE=1 vitest run --project');
+            expect(commands.at(-1)).toContain('EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build');
         }
         expect(scriptCommands(scripts, 'test:e2e:electron:blocking-smoke')).toEqual([
             'pnpm run build:scan-cleanup',
             'pnpm run build:pdf-page-ops',
             'pnpm run build:electron',
-            'EVB_PDF_PAGE_OPS_ENABLE=1 vitest run --project e2e-blocking-smoke --reporter verbose',
+            'EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-blocking-smoke --reporter verbose',
         ]);
         expect(scriptCommands(scripts, 'test:e2e:electron:draw-shapes')).toEqual([
+            'pnpm run build:pdf-page-ops',
             'pnpm run build:electron',
-            'vitest run --project e2e-draw-shapes --reporter verbose',
+            'EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-draw-shapes --reporter verbose',
         ]);
         expect(scriptCommands(scripts, 'test:e2e:electron:rapid-navigation')).toEqual([
             'pnpm run build:electron',
-            'vitest run --project e2e-rapid-navigation --reporter verbose',
+            'bash scripts/test-electron-e2e-headless.sh --no-build e2e-rapid-navigation --reporter verbose',
         ]);
         expect(scriptCommands(scripts, 'test:e2e:electron:visible-window')).toEqual([
             'pnpm run build:electron',
             'vitest run --project e2e-visible-window --reporter verbose',
         ]);
         expect(scripts['test:e2e:electron:watch']).toBe(
-            'vitest --project e2e-regression --reporter verbose',
+            'bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression --watch --reporter verbose',
         );
-        expect(scripts['test:e2e:electron:headless']).toBe('bash scripts/test-electron-e2e-headless.sh');
-        expect(scripts['test:e2e:electron:blocking-smoke:headless']).toBe(
-            'EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh test:e2e:electron:blocking-smoke',
+        expect(scripts['test:e2e:electron:headless']).toContain(
+            'bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression',
+        );
+        expect(scripts['test:e2e:electron:blocking-smoke:headless']).toContain(
+            'bash scripts/test-electron-e2e-headless.sh --no-build e2e-blocking-smoke',
         );
 
         const launcher = await readFile(
@@ -424,10 +430,31 @@ describe('package scripts', () => {
         );
         expect(launcher).toContain('--no-build');
         expect(launcher).toContain('vitest run --project "$target_project"');
-        expect(launcher).toContain('export EVB_AUTOMATION_NO_FOCUS=1');
-        expect(launcher).toContain('export EVB_AUTOMATION_HIDE_WINDOW=1');
-        expect(launcher).toContain('export EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE=1');
+        expect(launcher).toContain('printElectronE2EHeadlessRunnerConfig.ts');
+        expect(launcher).toContain('export EVB_AUTOMATION_NO_FOCUS="$no_focus"');
+        expect(launcher).toContain('export EVB_AUTOMATION_HIDE_WINDOW="$hide_window"');
+        expect(launcher).toContain('export EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE="$hidden_app_bundle"');
+        expect(launcher).toContain('xvfb-run -a "${test_command[@]}"');
+        expect(launcher).toContain('"$@"');
+        expect(launcher).toContain('The visible-window project cannot run through the headless runner.');
         expect(launcher).toContain('validation-gates.mjs heavy');
+
+        for (const [
+            scriptName,
+            command,
+        ] of Object.entries(scripts)) {
+            if (scriptName === 'test:e2e:electron:visible-window') {
+                continue;
+            }
+            if (scriptName.startsWith('test:e2e:electron')) {
+                expect(command, `${scriptName} bypasses the shared headless runner`)
+                    .toContain('bash scripts/test-electron-e2e-headless.sh');
+            }
+            if (/\bvitest(?:\s+run)?\b[^\n]*--project\s+e2e-(?!visible-window\b)/u.test(command)) {
+                expect(command, `${scriptName} invokes an ordinary Electron E2E project directly`)
+                    .toContain('bash scripts/test-electron-e2e-headless.sh');
+            }
+        }
     });
 
     it('keeps large-fixture and PDF-tab diagnostics opt-in', async () => {
@@ -437,7 +464,7 @@ describe('package scripts', () => {
 
         expect(largeFixtureScript).toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1');
         expect(largeFixtureScript).toContain('EVB_PDF_PAGE_OPS_ENABLE=1');
-        expect(largeFixtureScript).toContain('vitest run --project e2e-large-pdf');
+        expect(largeFixtureScript).toContain('scripts/test-electron-e2e-headless.sh --no-build e2e-large-pdf');
         expect(pdfTabsCiScript).toContain('pnpm diag:pdf-tabs --session pdf-tabs-ci');
         expect(pdfTabsCiScript).toContain('--max-inactive-canvas-pixels 0');
         expect(scripts['fallow:health:summary']).toBe('fallow health --summary || true');

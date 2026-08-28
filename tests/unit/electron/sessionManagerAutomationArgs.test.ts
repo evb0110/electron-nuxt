@@ -14,11 +14,13 @@ import {
     buildAutomationAppEntryPackage,
     buildAutomationAppEntryPaths,
     buildElectronE2EAutomationEnv,
+    buildVisibleWindowElectronE2EAutomationEnv,
     buildMacOSHiddenAppBundlePaths,
     buildNuxtDevServerEnv,
     resolveNuxtDevServerArtifactDirs,
     resolveAutomationRendererReadyEnv,
     resolveAutomationWindowEnv,
+    resolveElectronE2EHeadlessRunnerConfig,
     sanitizeElectronLaunchEnv,
     shouldBootstrapInteractiveDevProfile,
     shouldDisableAutomationSandbox,
@@ -331,18 +333,68 @@ describe('sessionManager automation launch args', () => {
         expect(buildHeadlessAutomationEnv({ EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0' }).EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE).toBe('0');
     });
 
-    it('gives the dedicated visible-window E2E lane the real show and focus lifecycle', () => {
-        expect(buildElectronE2EAutomationEnv({ PATH: '/bin' }, 'visible')).toEqual({
+    it('keeps ordinary macOS E2E automation hidden despite hostile environment overrides', () => {
+        expect(buildElectronE2EAutomationEnv({
             PATH: '/bin',
             EVB_AUTOMATION_NO_FOCUS: '0',
             EVB_AUTOMATION_HIDE_WINDOW: '0',
             EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
-        });
-        expect(buildElectronE2EAutomationEnv({ PATH: '/bin' }, 'hidden')).toEqual({
+            EVB_E2E_LARGE_PDF_WINDOW_MODE: 'visible',
+        }, 'darwin')).toEqual({
             PATH: '/bin',
             EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
+            EVB_E2E_LARGE_PDF_WINDOW_MODE: 'visible',
+        });
+    });
+
+    it('uses the host-isolated Linux runner policy despite hostile environment overrides', () => {
+        expect(buildElectronE2EAutomationEnv({
+            PATH: '/bin',
+            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
+            EVB_E2E_LARGE_PDF_WINDOW_MODE: 'visible',
+        }, 'linux')).toEqual({
+            PATH: '/bin',
+            EVB_AUTOMATION_NO_FOCUS: '1',
+            EVB_AUTOMATION_HIDE_WINDOW: '0',
+            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
+            EVB_E2E_LARGE_PDF_WINDOW_MODE: 'visible',
+        });
+    });
+
+    it('resolves host-isolated Linux and hidden macOS runner policies', () => {
+        expect(resolveElectronE2EHeadlessRunnerConfig('linux')).toEqual({
+            commandPrefix: [
+                'xvfb-run',
+                '-a',
+            ],
+            environment: {
+                EVB_AUTOMATION_HIDE_WINDOW: '0',
+                EVB_AUTOMATION_NO_FOCUS: '1',
+                EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
+            },
+            hostDisplayIsolation: 'xvfb',
+        });
+        expect(resolveElectronE2EHeadlessRunnerConfig('darwin')).toEqual({
+            commandPrefix: [],
+            environment: {
+                EVB_AUTOMATION_HIDE_WINDOW: '1',
+                EVB_AUTOMATION_NO_FOCUS: '1',
+                EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
+            },
+            hostDisplayIsolation: 'hidden-window',
+        });
+    });
+
+    it('keeps the dedicated visible-window capability explicit', () => {
+        expect(buildVisibleWindowElectronE2EAutomationEnv({ PATH: '/bin' })).toEqual({
+            PATH: '/bin',
+            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '0',
+            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
         });
     });
 

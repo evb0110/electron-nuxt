@@ -13,10 +13,7 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 
-const sessionFixture = createElectronE2ESessionFixture({
-    sessionName: () => `e2e-scan-cleanup-toolbar-contract-${Date.now()}`,
-    windowMode: 'hidden',
-});
+const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cleanup-toolbar-contract-${Date.now()}`});
 
 // The packaged release verifier (scripts/release/verifyPackagedScanCleanup.ts)
 // drives this exact toolbar contract over CDP, but it only executes at
