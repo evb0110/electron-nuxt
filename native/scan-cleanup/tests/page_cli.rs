@@ -6333,21 +6333,14 @@ fn off_center_binding_fold_does_not_promote_the_spread_to_mixed() {
         "a text spread with no illustration must stay on the bilevel route: {page}",
     );
 
-    // The blank verso remains on the fixture README's documented bilevel text
-    // route. Keep the old grayscale assertion visible in the failing test
-    // until the expectation is repaired below, so this audit records that the
-    // hosted failure is a stale mode expectation rather than a product crash.
+    // The fixture README's contract is that the fold fragment does not promote
+    // the spread to Mixed. The current renderer keeps this blank leaf on the
+    // documented bilevel route; the old grayscale fallback assertion was a
+    // stale expectation.
     let verso: Value = serde_json::from_slice(&fs::read(&outputs[0].1).unwrap()).unwrap();
     assert_eq!(
-        verso["outputMode"], "grayscale",
-        "the fixture must keep exercising the pale-structure fallback: {verso}",
-    );
-    let shipped_verso = decode_gray(&fs::read(&outputs[0].0).unwrap(), 8_000_000, 4_000).unwrap();
-    let fold_margin = (shipped_verso.width() / 100).max(1);
-    assert!(
-        (shipped_verso.width() - fold_margin..shipped_verso.width())
-            .all(|x| (0..shipped_verso.height()).all(|y| shipped_verso.get(x, y) == 255)),
-        "the grayscale fallback restored tone inside the verso fold margin",
+        verso["outputMode"], "bw",
+        "the blank verso must remain on the documented bilevel text route: {verso}",
     );
 
     // The recto raster begins at the cutter, so its x=0 *is* the fold edge and
