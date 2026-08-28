@@ -60,6 +60,16 @@ import {isTextMarkupSubtype} from '@app/services/pdf/annotationSubtype';
 import {BrowserLogger} from '@app/utils/browserLogger';
 
 const ANNOTATION_VERIFICATION_RANGE_BYTES = 1024 * 1024;
+const SLOW_ANNOTATION_PATH_VERIFICATION_MS = 1_000;
+
+interface IAnnotationPathVerificationTiming {
+    readonly phase: string;
+    readonly durationMs: number;
+}
+
+function roundAnnotationVerificationDuration(durationMs: number) {
+    return Math.round(durationMs * 10) / 10;
+}
 
 export interface IAnnotationReadModel {
     readonly annotationId: AnnotationId;
@@ -552,23 +562,70 @@ export class AnnotationApplication {
         knownSize: number,
         options: IAnnotationSaveVerificationOptions = {},
     ) {
+        const verificationStartedAt = performance.now();
+        const timings: IAnnotationPathVerificationTiming[] = [];
+        const measure = async <T>(phase: string, operation: () => Promise<T>) => {
+            const startedAt = performance.now();
+            try {
+                return await operation();
+            } finally {
+                timings.push({
+                    phase,
+                    durationMs: roundAnnotationVerificationDuration(performance.now() - startedAt),
+                });
+            }
+        };
+        let rangeReadCount = 0;
+        let rangeReadBytes = 0;
+        let rangeReadTotalMs = 0;
+        let rangeReadMaxMs = 0;
+        let outcome: 'success' | 'failure' = 'failure';
         if (!Number.isSafeInteger(knownSize) || knownSize <= 0) {
             throw new Error('Path-backed annotation verification requires a positive safe file size');
         }
-        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+        const pdfjs = await measure(
+            'import-pdfjs',
+            () => import('pdfjs-dist/legacy/build/pdf.mjs'),
+        );
         configurePdfjsWorkerSrc(pdfjs);
         const documentFiles = getDocumentFilesCapability();
-        const before = await documentFiles.statFile(path);
+        const before = await measure('stat-before', () => documentFiles.statFile(path));
         if (before.size !== knownSize) {
             throw new Error('Staged PDF changed before semantic verification');
         }
         const initialLength = Math.min(knownSize, ANNOTATION_VERIFICATION_RANGE_BYTES);
-        const initialData = await documentFiles.readFileRange(path, 0, initialLength);
+        const initialData = await measure(
+            'read-initial-range',
+            () => documentFiles.readFileRange(path, 0, initialLength),
+        );
         if (initialData.byteLength !== initialLength) {
             throw new Error('Staged PDF returned an incomplete initial verification range');
         }
         if (knownSize <= ANNOTATION_VERIFICATION_RANGE_BYTES) {
-            return this.verifySaveBytes(session, initialData, options);
+            try {
+                await measure(
+                    'verify-small-bytes',
+                    () => this.verifySaveBytes(session, initialData, options),
+                );
+                outcome = 'success';
+                return;
+            } finally {
+                const totalMs = roundAnnotationVerificationDuration(
+                    performance.now() - verificationStartedAt,
+                );
+                if (totalMs >= SLOW_ANNOTATION_PATH_VERIFICATION_MS) {
+                    BrowserLogger.warn('annotations', 'Slow staged annotation verification', {
+                        totalMs,
+                        knownSize,
+                        timings,
+                        rangeReadCount,
+                        rangeReadBytes,
+                        rangeReadTotalMs: roundAnnotationVerificationDuration(rangeReadTotalMs),
+                        rangeReadMaxMs: roundAnnotationVerificationDuration(rangeReadMaxMs),
+                        outcome,
+                    });
+                }
+            }
         }
 
         let rejectRangeRead: (error: Error) => void = () => undefined;
@@ -587,11 +644,18 @@ export class AnnotationApplication {
                 if (this.aborted || failed || end <= begin) {
                     return;
                 }
-                void documentFiles.readFileRange(path, begin, end - begin).then((chunk) => {
+                const startedAt = performance.now();
+                const requestedBytes = end - begin;
+                rangeReadCount += 1;
+                rangeReadBytes += requestedBytes;
+                void documentFiles.readFileRange(path, begin, requestedBytes).then((chunk) => {
+                    const durationMs = performance.now() - startedAt;
+                    rangeReadTotalMs += durationMs;
+                    rangeReadMaxMs = Math.max(rangeReadMaxMs, durationMs);
                     if (this.aborted || failed) {
                         return;
                     }
-                    if (chunk.byteLength !== end - begin) {
+                    if (chunk.byteLength !== requestedBytes) {
                         throw new Error('Staged PDF returned an incomplete semantic verification range');
                     }
                     this.onDataRange(begin, chunk);
@@ -620,24 +684,42 @@ export class AnnotationApplication {
         });
         let document: PDFDocumentProxy | null = null;
         try {
-            document = await Promise.race([
+            document = await measure('load-document', () => Promise.race([
                 loadingTask.promise,
                 rangeReadFailure,
-            ]);
-            await Promise.race([
-                this.#verifySaveDocument(session, document, initialData, options),
+            ]));
+            await measure('verify-expected-annotations', () => Promise.race([
+                this.#verifySaveDocument(session, document!, initialData, options),
                 rangeReadFailure,
-            ]);
-            const after = await documentFiles.statFile(path);
+            ]));
+            const after = await measure('stat-after', () => documentFiles.statFile(path));
             if (after.size !== knownSize) {
                 throw new Error('Staged PDF changed during semantic verification');
             }
+            outcome = 'success';
         } finally {
             range.abort();
-            if (document) {
-                await document.destroy();
-            } else {
-                await loadingTask.destroy();
+            await measure('destroy-document', async () => {
+                if (document) {
+                    await document.destroy();
+                } else {
+                    await loadingTask.destroy();
+                }
+            });
+            const totalMs = roundAnnotationVerificationDuration(
+                performance.now() - verificationStartedAt,
+            );
+            if (totalMs >= SLOW_ANNOTATION_PATH_VERIFICATION_MS) {
+                BrowserLogger.warn('annotations', 'Slow staged annotation verification', {
+                    totalMs,
+                    knownSize,
+                    timings,
+                    rangeReadCount,
+                    rangeReadBytes,
+                    rangeReadTotalMs: roundAnnotationVerificationDuration(rangeReadTotalMs),
+                    rangeReadMaxMs: roundAnnotationVerificationDuration(rangeReadMaxMs),
+                    outcome,
+                });
             }
         }
     }
