@@ -60,6 +60,9 @@ const SOFT_FOREGROUND_MAX_DPI: f64 = 300.0;
 /// A darker leaf lowers the bound to its measured 75th-percentile paper level;
 /// one sample below that leaf-specific bound stops the disposable run.
 const FOLD_TAIL_NEAR_PAPER_FLOOR: u8 = 250;
+// This bounds one serialized metadata batch. It is not a source-PDF byte or
+// page-count admission limit; ManifestV3 keeps raster and page-work budgets
+// separate from this input envelope.
 const MAX_MANIFEST_BYTES: usize = 256 * 1024 * 1024;
 const MAX_DETAIL_METADATA_BYTES: usize = 16 * 1024 * 1024;
 

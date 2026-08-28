@@ -59,6 +59,7 @@ async function run() {
                     data: await getPageGeometryLocal(
                         input.workingCopyPath,
                         input.pageNumber,
+                        abortController.signal,
                     ),
                 } satisfies TCropWorkerResult);
                 break;

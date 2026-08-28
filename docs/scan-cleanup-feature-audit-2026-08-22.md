@@ -41,8 +41,9 @@ The design is unusually disciplined for a feature this size:
 
 - One wire contract (`protocol v3`) generated from a single descriptor;
   `deny_unknown_fields` at every manifest level, bounded deserialization
-  (256 MiB manifest, 20k pages, 4 KiB paths), and a strict version handshake
-  (`lib.rs:26-31`) that fails stale parsers before Electron sends a request.
+  (256 MiB manifest, 20k page records per native batch, 4 KiB paths), and a
+  strict version handshake (`lib.rs:26-31`) that fails stale parsers before
+  Electron sends a request.
 - Transactional publication on both sides: the native side stages same-dir
   backups and rolls back on failure or panic (`batch_cli.rs:449-620`); the
   main process deletes the generated-output directory if the job fails after
