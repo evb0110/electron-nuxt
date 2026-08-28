@@ -20,7 +20,6 @@ import {
     createHash,
     randomUUID,
 } from 'node:crypto';
-import {createReadStream} from 'node:fs';
 import {
     mkdir,
     readFile,
@@ -79,6 +78,7 @@ import {
     iterateOcrPageRequestBatches,
 } from '@electron/ocr/contracts';
 import {selectOcrPagesForSupersession} from '@electron/ocr/worker/selectOcrPagesForSupersession';
+import {sha256OcrFile} from '@electron/ocr/worker/sha256OcrFile';
 import {
     readOcrPdfPageSizesInches,
     type IOcrPageSizeInches,
@@ -320,7 +320,7 @@ async function processOcrPage(
             checkpoint.version === 2
             && checkpointPdfStat.size > 0
             && checkpointPdfStat.size === checkpoint.pdfSize
-            && await sha256File(checkpointPdfPath) === checkpoint.pdfSha256
+            && await sha256OcrFile(checkpointPdfPath, context.signal) === checkpoint.pdfSha256
             && checkpoint.pageData?.pageNumber === page.pageNumber
             && checkpoint.pageData.imageWidth > 0
             && checkpoint.pageData.imageHeight > 0
@@ -486,7 +486,7 @@ async function processOcrPage(
                 diagnostics,
             },
             pageNumber: page.pageNumber,
-            sha256File,
+            sha256File: path => sha256OcrFile(path, context.signal),
             signal: context.signal,
             sourcePdfPath: ocrResult.pdfPath,
             storageBudget: context.storageBudget,
@@ -751,18 +751,6 @@ async function assembleMergedOcrPdf(
         });
         return null;
     }
-}
-
-async function sha256File(path: string) {
-    const hash = createHash('sha256');
-    for await (const rawChunk of createReadStream(path)) {
-        const chunk: unknown = rawChunk;
-        if (!(chunk instanceof Uint8Array)) {
-            throw new Error('OCR result stream returned a non-binary chunk');
-        }
-        hash.update(chunk);
-    }
-    return hash.digest('hex');
 }
 
 async function processOcrJob(
@@ -1054,7 +1042,7 @@ async function processOcrJob(
 
         const allLanguages = getOcrSelectionLanguages(requestedSelection);
         throwIfAborted(abortController.signal);
-        const resultSha256 = await sha256File(mergedPdfPath);
+        const resultSha256 = await sha256OcrFile(mergedPdfPath, abortController.signal);
         sendStageProgress(jobId, requestedSelection, 'indexing');
         await durableManifest.markNode('text-catalog', 'running');
         appendMessages(completionMessages, await writeOcrIndexes({
