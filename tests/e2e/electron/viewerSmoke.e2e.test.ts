@@ -16,6 +16,7 @@ import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/cre
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     clickVisibleToolbarButton,
+    dismissScanCleanupFirstRunGuidance,
     ensureSidebarOpen,
     goToPageViaToolbar,
     openDjvuInApp,
@@ -1097,6 +1098,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             timeout: 10_000,
             visible: true,
         });
+        await dismissScanCleanupFirstRunGuidance(session.page);
         const settingsScopeState = await session.page.evaluate(() => {
             const group = document.querySelector<HTMLElement>('[role="radiogroup"][aria-label="Settings scope"]');
             const active = group?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
@@ -1461,11 +1463,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             timeout: 10_000,
             visible: true,
         });
-        await session.page.evaluate(() => {
-            const dismiss = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-                .find(button => (button.textContent ?? '').trim() === 'Got it');
-            dismiss?.click();
-        });
+        await dismissScanCleanupFirstRunGuidance(session.page);
         await session.page.evaluate(() => {
             const bw = Array.from(document.querySelectorAll<HTMLButtonElement>('button[role="radio"]'))
                 .find(button => button.getAttribute('aria-label') === 'Black and white'
