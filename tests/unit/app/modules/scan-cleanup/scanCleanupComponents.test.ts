@@ -5643,14 +5643,11 @@ describe('Scan cleanup components', () => {
         });
         const harness = mount(defineComponent({setup: () => () => h(
             ScanCleanupSettingsPanel,
-            {
-                ...settingsPanelProps(settings, 'all', {margins: {
-                    empty: false,
-                    mixed: false,
-                    value: settings.marginsMm,
-                }}),
-                'onUpdate-margin': updateMargin,
-            },
+            Object.assign(settingsPanelProps(settings, 'all', {margins: {
+                empty: false,
+                mixed: false,
+                value: settings.marginsMm,
+            }}), {'onUpdate-margin': updateMargin}),
         )}));
 
         const top = harness.host.querySelector<HTMLInputElement>('[data-margin-side="topMm"]');
@@ -5660,6 +5657,19 @@ describe('Scan cleanup components', () => {
         await nextTick();
 
         expect(updateMargin).toHaveBeenCalledWith('topMm', 25);
+        expect(settings.marginsMm.topMm).toBe(25);
+
+        for (const invalidValue of [
+            '',
+            '-1',
+            '26',
+        ]) {
+            top!.value = invalidValue;
+            top!.dispatchEvent(new Event('change', {bubbles: true}));
+        }
+        await nextTick();
+
+        expect(updateMargin).toHaveBeenCalledTimes(1);
         expect(settings.marginsMm.topMm).toBe(25);
     });
 

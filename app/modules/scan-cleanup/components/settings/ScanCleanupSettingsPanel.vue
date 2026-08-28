@@ -634,7 +634,10 @@ import type {
     TScanCleanupSettingsScope,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import type {IScanCleanupMixedValue} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
-import type {TScanCleanupMarginTarget} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
+import type {
+    TScanCleanupMarginSide,
+    TScanCleanupMarginTarget,
+} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
 import {SCAN_CLEANUP_MARGIN_SIDES} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
 
 interface ISelectItem<TValue extends string = string> {
@@ -825,12 +828,21 @@ function emitMargin(target: TScanCleanupMarginTarget, value: number | null | und
     }
 }
 
-function handleMarginChange(target: TScanCleanupMarginTarget, value: unknown) {
-    const nextValue = typeof value === 'number'
-        ? value
-        : value instanceof Event && value.target instanceof HTMLInputElement
-            ? Number(value.target.value)
-            : Number(value);
+function handleMarginChange(target: TScanCleanupMarginSide, value: unknown) {
+    const rawValue = value instanceof Event && value.target instanceof HTMLInputElement
+        ? value.target.value
+        : value;
+    if (rawValue === null || rawValue === undefined || rawValue === '') {
+        return;
+    }
+    const nextValue = typeof rawValue === 'number' ? rawValue : Number(rawValue);
+    if (
+        !Number.isFinite(nextValue)
+        || nextValue < 0
+        || nextValue > SCAN_CLEANUP_MARGIN_MAX_MM
+    ) {
+        return;
+    }
     if (nextValue !== props.margins.value?.[target]) {
         emitMargin(target, nextValue);
     }
