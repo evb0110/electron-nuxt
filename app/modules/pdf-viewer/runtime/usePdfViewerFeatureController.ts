@@ -337,8 +337,10 @@ export const usePdfViewerFeatureController = (
         isPageRenderFailed: renderingSession.isPageRenderFailed,
         shouldShowSkeleton: pageNumber => shouldShowPdfNavigationSkeleton({
             pageNumber,
-            navigationAnchorPage: viewportSession.singlePageScroll.navigationAnchorPage.value
-                ?? viewportSession.currentPage.value,
+            navigationAnchorPage: viewportSession.singlePageScroll.isProgrammaticNavigationActive.value
+                ? viewportSession.singlePageScroll.navigationAnchorPage.value
+                    ?? viewportSession.currentPage.value
+                : null,
             totalPages: documentSession.numPages.value,
             viewMode: viewMode.value,
             isPageRendered: renderingSession.isPageVisualReady,
