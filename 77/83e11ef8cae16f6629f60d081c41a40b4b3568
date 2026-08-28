@@ -1,0 +1,89 @@
+tests/e2e/electron/helpers/createElectronE2ESessionFixture.ts
+  s_7c3fd040dea186::t_9454f7841cd5eb 7-10,18,29,46-49,66,186-194
+  s_7c3fd040dea186::t_e0b1bfc3759dbe 72,151
+tests/unit/architecture/quarantineGraduationPolicy.test.ts
+  s_7c3fd040dea186::t_689a96590f17ab 215
+tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts
+  s_7c3fd040dea186::t_e0b1bfc3759dbe 92
+tests/e2e/electron/quarantine/scanCleanupLayoutStability.e2e.test.ts
+  s_7c3fd040dea186::t_e0b1bfc3759dbe 83
+scripts/test-electron-e2e-headless.sh
+  s_7c3fd040dea186::t_f366996a36e517 25,27,29-30
+  s_7c3fd040dea186::t_fbb9e96bec1b5f 5-14,34-36,38
+  s_7c3fd040dea186::t_481a2406922d90 21-24
+tests/e2e/electron/visibleWindowLifecycle.e2e.test.ts
+  s_7c3fd040dea186::t_283100911ca798 6,21
+tests/unit/scripts/packageScripts.test.ts
+  s_7c3fd040dea186::t_a277da178ebe59 405,407
+  s_7c3fd040dea186::t_c7251a03f4e17d 433-438
+  s_7c3fd040dea186::t_0b1ef0ebfc0652 442-445
+  s_7c3fd040dea186::t_e5c312d7ad89fe 370-371,375,379,396,402,411,420-421,423-424,467
+  s_7c3fd040dea186::t_633335c8a84cf5 418-419,439,441,446-457
+tests/e2e/electron/quarantine/scanCleanupJourney.e2e.test.ts
+  s_7c3fd040dea186::t_e0b1bfc3759dbe 41
+tests/e2e/electron/quarantine/scanCleanupAppTruthProbe.e2e.test.ts
+  s_7c3fd040dea186::t_e0b1bfc3759dbe 23
+tests/unit/architecture/electronFixtureSourcePolicy.test.ts
+  s_7c3fd040dea186::t_ecaa39185dde63 59
+  s_7c3fd040dea186::t_0b32abde264ee7 39-44,52-53,60-63
+  s_7c3fd040dea186::t_bb9947ee46e785 32-38,45-51,54-58,64-65
+scripts/electron-run/printElectronE2EHeadlessRunnerConfig.ts
+  s_7c3fd040dea186::t_fbb9e96bec1b5f 14
+  s_7c3fd040dea186::t_dda9e1165ec6a6 1-13
+tests/unit/scripts/electronE2eSmokeConfig.test.ts
+  s_7c3fd040dea186::t_9ee94be8065275 240-241
+  s_7c3fd040dea186::t_c997d1233b0e5c 235-237
+  s_7c3fd040dea186::t_633335c8a84cf5 346
+  s_7c3fd040dea186::t_e0b1bfc3759dbe 231-234
+  s_7c3fd040dea186::t_4ddd26bdb9cdcb 220-230,238-239,242-254
+  s_7c3fd040dea186::t_ecaa39185dde63 331,333,339,343,349,361-363,382
+  s_7c3fd040dea186::t_a277da178ebe59 328
+scripts/diagnostics/startPdfDiagnosticsElectronSession.ts
+  s_7c3fd040dea186::t_0b32abde264ee7 4,14-22
+scripts/diagnostics/pdfFacingContinuousRegression.ts
+  s_7c3fd040dea186::t_0b32abde264ee7 8,187
+  s_7c3fd040dea186::t_66c003c8499b5b 185-186
+tests/e2e/electron/helpers/fixtures.ts
+  s_7c3fd040dea186::t_e4c8a3bf51f681 23-24,1335-1377
+package.json
+  s_7c3fd040dea186::t_e4c8a3bf51f681 74
+  s_7c3fd040dea186::t_481a2406922d90 83
+  s_7c3fd040dea186::t_f366996a36e517 70-72,75-78,80-82
+tests/e2e/electron/annotationStrokeParity.e2e.test.ts
+  s_7c3fd040dea186::t_e4c8a3bf51f681 17,159,171-172
+  s_7c3fd040dea186::t_790653be0f021e 30,204-207
+tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts
+  s_7c3fd040dea186::t_5fc617be50f8ff 60
+scripts/electron-run/electronRunLaunchConfig.ts
+  s_7c3fd040dea186::t_1ed34ed5956fc6 188-189,191-192,194-196
+  s_7c3fd040dea186::t_cfb97fb48228c2 186,190
+  s_7c3fd040dea186::t_dda9e1165ec6a6 205-243
+tests/e2e/electron/helpers/startElectronE2ESession.ts
+  s_7c3fd040dea186::t_8c11a790854ef1 17,411,415-421,440-443,446,617-642
+tests/unit/electron/sessionManagerAutomationArgs.test.ts
+  s_7c3fd040dea186::t_896bc028158755 337,342,364
+  s_7c3fd040dea186::t_7cfb5622915100 336,343,348-363
+  s_7c3fd040dea186::t_91c5b97feb41f0 17,23,365-397
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_7c3fd040dea186::t_b45fef4cdef148 1606
+  s_7c3fd040dea186::t_689a96590f17ab 1520,1612
+  s_7c3fd040dea186::t_69defd47888107 1528-1542
+tests/e2e/electron/scanCleanupToolbarContract.e2e.test.ts
+  s_7c3fd040dea186::t_e0b1bfc3759dbe 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7783e11ef8cae16f6629f60d081c41a40b4b3568",
+  "prompts": {},
+  "sessions": {
+    "s_7c3fd040dea186": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a047a1-aa86-7a51-84fc-2b46e8f62e55",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
