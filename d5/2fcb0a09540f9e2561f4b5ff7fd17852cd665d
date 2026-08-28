@@ -1,0 +1,19 @@
+app/modules/pdf-viewer/annotations/annotationApplication.ts
+  s_5ac4a3281ca4f3::t_aed1ac32b77c0e 63-72,565-582,586-589,592,597-600,605-628,647-654,658,687,690-692,694-695,699,702-722
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d52fcb0a09540f9e2561f4b5ff7fd17852cd665d",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
