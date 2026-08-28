@@ -1,0 +1,41 @@
+tests/unit/electron/ocrIndexWriterV4.test.ts
+  s_e893b8722e648d::t_1b101201eae2b2 274
+electron/file-access/createOriginalFileContentFingerprintHash.ts
+  s_e893b8722e648d::t_7da82896817737 1
+tests/unit/electron/ocrDocumentTextCatalogAgreement.test.ts
+  s_e893b8722e648d::t_c6cc8dbbb535a8 9-16
+  s_e893b8722e648d::t_ab8df6a80e6140 17
+  s_e893b8722e648d::t_13b86488d6845c 127-129,131-132,139-141,144-165
+tests/unit/electron/searchIndexBuilderCancellation.test.ts
+  s_e893b8722e648d::t_3ad49c09119c8f 77-83
+  s_e893b8722e648d::t_cc49b5ed81a7fc 515-535,537-538,540-556,559-561
+tests/unit/electron/workingCopy.test.ts
+  s_e893b8722e648d::t_7da82896817737 60,79,81,304,327,330
+  s_e893b8722e648d::t_6d228f146174b8 61,305
+electron/file-access/workingCopyMaterialization.ts
+  s_e893b8722e648d::t_7da82896817737 21
+tests/unit/electron/pdfConformance.test.ts
+  s_e893b8722e648d::t_49edfdc1a1c573 476
+tests/unit/electron/ocrReplacementOwnershipAlias.test.ts
+  s_e893b8722e648d::t_3abe6602dee4d0 111,115,169-173
+  s_e893b8722e648d::t_5a0700fa09512f 116
+tests/unit/electron/fileOpsPathSecurity.test.ts
+  s_e893b8722e648d::t_3abe6602dee4d0 195,210,309-313
+  s_e893b8722e648d::t_5a0700fa09512f 2,211,308
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "634ccc24d1e788c368a625b2d4f3fa742feb8da0",
+  "prompts": {},
+  "sessions": {
+    "s_e893b8722e648d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d1-0830-72c3-8fb1-8bc091c60010",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
