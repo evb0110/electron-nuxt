@@ -123,6 +123,8 @@ describe('Electron E2E fixture policy', () => {
 
         expect(source).toContain('const pressureTimer = window.setInterval(applyPressure, 200)');
         expect(source).toContain('window.clearInterval(pressureTimer)');
+        expect(source).toContain('tabs[1]?.getAttribute(\'aria-selected\') !== \'true\'');
+        expect(source).toContain('tabActivated:');
     });
 
     it('re-finds and centers a virtual thumbnail until the current item is ready', async () => {
