@@ -10,6 +10,7 @@ tests/e2e/electron/quarantine/assistantCompletionFinalization.e2e.test.ts
   s_3f273936057f92::t_b5a497fcd009f2 157
 tests/e2e/electron/savePipeline.e2e.test.ts
   s_3f273936057f92::t_61e9438f02ce92 315,376,436-439,445,459
+  s_b2ece6dfe48478::t_2ee25b0513726d 434-435,440-444,446-458,460-465
 tests/e2e/electron/savePipelineBenchmark.e2e.test.ts
   s_3f273936057f92::t_1c929f65e7e845 206-209
 tests/setup.ts
@@ -74,6 +75,14 @@ vitest.shared.config.ts
         "tool": "claude",
         "id": "86ca2b83-9801-469b-b8e4-73d106074538",
         "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
       },
       "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
     }
