@@ -119,6 +119,7 @@ function mergeSubtypeHints(existing: IMarkupSubtypeHint, incoming: IMarkupSubtyp
         color: existing.color ?? incoming.color ?? null,
         id: existing.id ?? incoming.id ?? null,
         pageMarkupIndex: existing.pageMarkupIndex ?? incoming.pageMarkupIndex ?? null,
+        markupGeometry: existing.markupGeometry ?? incoming.markupGeometry ?? null,
         consumed: false,
     };
 }

@@ -395,6 +395,10 @@ pub(crate) fn merge_subtype_hints(
         subtype: existing.subtype.clone(),
         page_index: existing.page_index,
         marker_rect: existing.marker_rect,
+        markup_geometry: existing
+            .markup_geometry
+            .clone()
+            .or_else(|| incoming.markup_geometry.clone()),
         annotation_id: existing
             .annotation_id
             .clone()

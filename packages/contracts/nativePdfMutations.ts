@@ -53,6 +53,7 @@ export const PDF_NATIVE_MUTATION_LIMITS = {
     shapePoints: 20_000,
     shapeTextLength: 2_048,
     markupItems: 4_096,
+    markupGeometryItems: 512,
     markupTextLength: 2_048,
     placedImages: 16,
     placedImageBytes: 128 * 1024 * 1024,
@@ -205,6 +206,34 @@ function normalizeMarkupMarkerRect(
     options: IPdfNativeValidationOptions,
 ): IPdfNativeMarkupMarkerRect {
     return normalizeNativeMarkerRect(value, label, options);
+}
+
+function normalizeMarkupGeometry(
+    value: unknown,
+    label: string,
+    options: IPdfNativeValidationOptions,
+): IPdfNativeMarkupMarkerRect[] | null {
+    if (value === undefined || value === null) {
+        return null;
+    }
+    if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems) {
+        fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems} rectangles`, options);
+    }
+    return Array.from(value, (rect, index) =>
+        normalizeMarkupMarkerRect(rect, `${label}[${index}]`, options));
+}
+
+function validateMarkupGeometryBudget(
+    count: number,
+    label: string,
+    options: IPdfNativeValidationOptions,
+) {
+    if (count > PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems) {
+        fail(
+            `${label} must contain at most ${PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems} rectangles in total`,
+            options,
+        );
+    }
 }
 
 function normalizeFreeTextNotes(
@@ -802,6 +831,7 @@ function normalizeMarkupHint(
         subtype: normalizeMarkupSubtype(value.subtype, `${label}.subtype`, options),
         pageIndex: requirePageIndex(pageIndex),
         markerRect: normalizeMarkupMarkerRect(value.markerRect, `${label}.markerRect`, options),
+        markupGeometry: normalizeMarkupGeometry(value.markupGeometry, `${label}.markupGeometry`, options),
         annotationId: normalizeMarkupOptionalString(value.annotationId, `${label}.annotationId`, options),
         color: normalizeMarkupOptionalString(value.color, `${label}.color`, options),
         id: normalizeMarkupOptionalString(value.id, `${label}.id`, options),
@@ -826,8 +856,13 @@ function normalizeMarkupMutation(
     }
     const overrides = Array.from(value.overrides, (override, index) =>
         normalizeMarkupOverride(override, `${label}.overrides[${index}]`, options));
-    const hints = Array.from(value.hints, (hint, index) =>
-        normalizeMarkupHint(hint, `${label}.hints[${index}]`, options));
+    let geometryCount = 0;
+    const hints = Array.from(value.hints, (hint, index) => {
+        const normalized = normalizeMarkupHint(hint, `${label}.hints[${index}]`, options);
+        geometryCount += normalized.markupGeometry?.length ?? 0;
+        validateMarkupGeometryBudget(geometryCount, `${label}.hints`, options);
+        return normalized;
+    });
     if (overrides.length + hints.length === 0) {
         fail(`${label} must include at least one text-markup rewrite`, options);
     }

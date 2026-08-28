@@ -156,6 +156,20 @@ describe('native PDF mutation contracts', () => {
                         width: 0.3,
                         height: 0.2,
                     },
+                    markupGeometry: [
+                        {
+                            left: 0.1,
+                            top: 0.2,
+                            width: 0.1,
+                            height: 0.2,
+                        },
+                        {
+                            left: 0.3,
+                            top: 0.2,
+                            width: 0.1,
+                            height: 0.2,
+                        },
+                    ],
                     annotationId: '44R',
                 }],
             },
@@ -248,6 +262,56 @@ describe('native PDF mutation contracts', () => {
             ]],
             hints: [],
         }}, 'mutations')).toThrow('bounded annotation id');
+
+        expect(() => normalizePdfNativeMutationSet({markup: {
+            overrides: [],
+            hints: [{
+                subtype: 'Highlight',
+                pageIndex: 0,
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.2,
+                },
+                markupGeometry: Array.from(
+                    {length: PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems + 1},
+                    () => ({
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.1,
+                        height: 0.2,
+                    }),
+                ),
+            }],
+        }}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems} rectangles`);
+
+        const markerRect = {
+            left: 0.1,
+            top: 0.2,
+            width: 0.1,
+            height: 0.2,
+        };
+        expect(() => normalizePdfNativeMutationSet({markup: {
+            overrides: [],
+            hints: [
+                {
+                    subtype: 'Highlight',
+                    pageIndex: 0,
+                    markerRect,
+                    markupGeometry: Array.from(
+                        {length: PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems},
+                        () => markerRect,
+                    ),
+                },
+                {
+                    subtype: 'Underline',
+                    pageIndex: 0,
+                    markerRect,
+                    markupGeometry: [markerRect],
+                },
+            ],
+        }}, 'mutations')).toThrow('rectangles in total');
 
         expect(() => normalizePdfNativeMutationSet({placedImages: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.placedImages + 1}, () => validImage)}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.placedImages} images`);
 

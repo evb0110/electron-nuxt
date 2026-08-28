@@ -10,6 +10,7 @@ import type { IPdfNativeMarkupSubtypeHint } from '@contracts/electronApiDocument
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { PDF_ANNOTATION_MARKUP_SUBTYPES } from '@contracts/annotations';
 import { isOneOf } from '@contracts/runtimeGuards';
+import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 
 function isNativeMarkupSubtype(value: unknown): value is TMarkupSubtype {
     return isOneOf(PDF_ANNOTATION_MARKUP_SUBTYPES, value);
@@ -65,10 +66,26 @@ export function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSu
     if (!markerRect) {
         return null;
     }
+    const markupGeometry = hint.markupGeometry?.length
+        ? hint.markupGeometry.map(normalizeMarkerRect)
+        : null;
+    if (markupGeometry?.some(rect => !rect)) {
+        return null;
+    }
+    const validMarkupGeometry = markupGeometry
+        ? markupGeometry.filter((rect): rect is NonNullable<typeof rect> => rect !== null)
+        : null;
+    const emittedMarkupGeometry = validMarkupGeometry
+        && validMarkupGeometry.length <= PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems
+        ? validMarkupGeometry
+        : null;
     return {
         subtype: hint.subtype,
         pageIndex: requirePageIndex(hint.pageIndex),
         markerRect,
+        ...(emittedMarkupGeometry
+            ? {markupGeometry: emittedMarkupGeometry}
+            : {}),
         annotationId: hint.annotationId ?? null,
         color: hint.color ?? null,
         id: hint.id ?? null,

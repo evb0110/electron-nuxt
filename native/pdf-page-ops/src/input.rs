@@ -376,6 +376,22 @@ pub(crate) fn validate_markup_mutation(markup: &MarkupMutation) -> Result<()> {
             "Too many text-markup mutations",
         ));
     }
+    let geometry_count = markup.hints.iter().try_fold(0usize, |total, hint| {
+        total
+            .checked_add(hint.markup_geometry.as_ref().map_or(0, Vec::len))
+            .ok_or_else(|| {
+                domain_error(
+                    NativeErrorCode::TooLarge,
+                    "Text-markup geometry item count overflowed",
+                )
+            })
+    })?;
+    if geometry_count > MAX_MARKUP_GEOMETRY_ITEMS {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Too many text-markup geometry rectangles",
+        ));
+    }
     if markup.overrides.is_empty() && markup.hints.is_empty() {
         return Err("Text-markup mutation must include at least one rewrite".into());
     }
@@ -392,6 +408,21 @@ pub(crate) fn validate_markup_mutation(markup: &MarkupMutation) -> Result<()> {
             return Err("Invalid text-markup hint subtype".into());
         }
         validate_marker_rect(hint.marker_rect)?;
+        if hint
+            .markup_geometry
+            .as_ref()
+            .is_some_and(|rects| rects.len() > MAX_MARKUP_GEOMETRY_ITEMS)
+        {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Too many text-markup geometry rectangles",
+            ));
+        }
+        if let Some(rects) = &hint.markup_geometry {
+            for rect in rects {
+                validate_marker_rect(*rect)?;
+            }
+        }
         for value in [
             hint.annotation_id.as_deref(),
             hint.color.as_deref(),

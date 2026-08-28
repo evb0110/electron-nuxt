@@ -253,6 +253,205 @@ pub(crate) fn quad_points_object(values: &[f64]) -> Object {
     Object::Array(values.iter().map(|value| number_object(*value)).collect())
 }
 
+/// Return the stable PDF name used for a newly authored markup annotation.
+///
+/// PDF.js editor ids are not indirect object references, so they cannot be
+/// used to find an annotation after a native append. Keeping the editor id in
+/// `/NM` gives the next save a bounded page-local upsert key.
+pub(crate) fn markup_annotation_name(hint: &MarkupSubtypeHint) -> Option<String> {
+    let identity = hint
+        .id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            hint.annotation_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| {
+                    !value.is_empty() && parse_pdfjs_annotation_object_id(value).is_none()
+                })
+        })?;
+    Some(if identity.starts_with("evb-markup:") {
+        identity.to_string()
+    } else {
+        format!("evb-markup:{identity}")
+    })
+}
+
+fn candidate_markup_name(
+    document: &impl PdfObjectSource,
+    candidate: &MarkupAnnotationCandidate,
+) -> Option<String> {
+    document
+        .dictionary(candidate.object_id)
+        .ok()
+        .and_then(|dict| dict.get(b"NM").ok())
+        .and_then(pdf_string_to_text)
+}
+
+fn find_named_markup_hint_for_candidate(
+    document: &impl PdfObjectSource,
+    candidate: &MarkupAnnotationCandidate,
+    page_hints: &[MarkupHintState],
+) -> Option<usize> {
+    let candidate_name = candidate_markup_name(document, candidate)?;
+    page_hints.iter().enumerate().find_map(|(index, state)| {
+        if state.consumed {
+            return None;
+        }
+        (markup_annotation_name(&state.hint).as_deref() == Some(candidate_name.as_str()))
+            .then_some(index)
+    })
+}
+
+pub(crate) fn is_new_markup_hint(state: &MarkupHintState) -> bool {
+    !state.consumed && is_new_markup_hint_data(&state.hint)
+}
+
+pub(crate) fn is_new_markup_hint_data(hint: &MarkupSubtypeHint) -> bool {
+    if markup_annotation_name(hint).is_none() {
+        return false;
+    }
+    if hint
+        .annotation_id
+        .as_deref()
+        .and_then(parse_pdfjs_annotation_object_id)
+        .is_some()
+    {
+        return false;
+    }
+    matches!(hint.source.as_deref(), Some("editor") | Some("editor-live"))
+}
+
+pub(crate) fn markup_hint_pdf_quads(
+    hint: &MarkupSubtypeHint,
+    page_view: PdfRect,
+    page_rotation: i64,
+) -> Result<(Vec<f64>, PdfRect)> {
+    let geometry = hint
+        .markup_geometry
+        .as_deref()
+        .filter(|rects| !rects.is_empty());
+    if geometry.is_some_and(|rects| rects.len() > MAX_MARKUP_GEOMETRY_ITEMS) {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Too many text-markup geometry rectangles",
+        ));
+    }
+
+    let mut values = Vec::new();
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    let mut append_rect = |marker_rect: MarkerRect| -> Result<()> {
+        validate_marker_rect(marker_rect)?;
+        let marker_right = marker_rect.left + marker_rect.width;
+        let marker_bottom = marker_rect.top + marker_rect.height;
+        let points = [
+            pdf_point_from_marker_point(
+                marker_rect.left,
+                marker_rect.top,
+                page_view,
+                page_rotation,
+            ),
+            pdf_point_from_marker_point(marker_right, marker_rect.top, page_view, page_rotation),
+            pdf_point_from_marker_point(marker_rect.left, marker_bottom, page_view, page_rotation),
+            pdf_point_from_marker_point(marker_right, marker_bottom, page_view, page_rotation),
+        ];
+        for (x, y) in points {
+            if !x.is_finite() || !y.is_finite() {
+                return Err("Text-markup geometry produced a non-finite point".into());
+            }
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+        values.extend([
+            points[0].0,
+            points[0].1,
+            points[1].0,
+            points[1].1,
+            points[2].0,
+            points[2].1,
+            points[3].0,
+            points[3].1,
+        ]);
+        Ok(())
+    };
+    if let Some(rects) = geometry {
+        for marker_rect in rects {
+            append_rect(*marker_rect)?;
+        }
+    } else {
+        append_rect(hint.marker_rect)?;
+    }
+    if values.is_empty() || max_x <= min_x || max_y <= min_y {
+        return Err("Text-markup hint has no usable geometry".into());
+    }
+    Ok((
+        values,
+        PdfRect {
+            x1: min_x,
+            y1: min_y,
+            x2: max_x,
+            y2: max_y,
+        },
+    ))
+}
+
+fn create_markup_annotation(
+    document: &mut Document,
+    page_id: ObjectId,
+    page_view: PdfRect,
+    page_rotation: i64,
+    hint: &MarkupSubtypeHint,
+) -> Result<ObjectId> {
+    let name = markup_annotation_name(hint)
+        .ok_or("New text-markup annotation is missing a stable identity")?;
+    let subtype_name = markup_subtype_pdf_name(&hint.subtype)
+        .ok_or("Invalid text-markup subtype for native creation")?;
+    let (quad_points, rect) = markup_hint_pdf_quads(hint, page_view, page_rotation)?;
+    let target_color = resolve_hint_target_color(&hint.subtype, hint.color.as_deref());
+    let appearance_ref = if hint.subtype == "Squiggly" {
+        let appearance_color = target_color.unwrap_or(RgbColor { r: 0, g: 0, b: 0 });
+        let stream = build_squiggly_appearance_stream(&quad_points, rect, appearance_color)
+            .ok_or("Squiggly text-markup geometry could not produce an appearance")?;
+        Some(document.add_object(stream))
+    } else {
+        None
+    };
+
+    let mut dict = Dictionary::new();
+    dict.set("Type", Object::Name(b"Annot".to_vec()));
+    dict.set("Subtype", Object::Name(subtype_name.as_bytes().to_vec()));
+    dict.set("F", Object::Integer(4));
+    dict.set("P", Object::Reference(page_id));
+    dict.set("Rect", rect_object(rect));
+    dict.set("QuadPoints", quad_points_object(&quad_points));
+    dict.set(
+        "NM",
+        Object::String(encode_pdf_text_string(&name), StringFormat::Hexadecimal),
+    );
+    if let Some(color) = target_color {
+        write_markup_color(&mut dict, color);
+    }
+    if hint.subtype == "Highlight" {
+        dict.set("CA", Object::Integer(1));
+    }
+    if let Some(appearance_ref) = appearance_ref {
+        let mut appearance = Dictionary::new();
+        appearance.set("N", Object::Reference(appearance_ref));
+        dict.set("AP", Object::Dictionary(appearance));
+    }
+
+    let object_id = document.new_object_id();
+    document.set_object(object_id, Object::Dictionary(dict));
+    Ok(object_id)
+}
+
 pub(crate) fn apply_markup_rewrite_to_object(
     document: &mut Document,
     candidate: &MarkupAnnotationCandidate,
@@ -430,6 +629,20 @@ pub(crate) fn rewrite_page_markup_subtypes(
 
     for candidate in candidates {
         if let Some(hint_index) =
+            find_named_markup_hint_for_candidate(document, candidate, page_hints)
+        {
+            page_hints[hint_index].consumed = true;
+            let hint = page_hints[hint_index].hint.clone();
+            rewritten = apply_markup_rewrite_to_object(
+                document,
+                candidate,
+                &hint.subtype,
+                hint.color.as_deref(),
+            )? || rewritten;
+            continue;
+        }
+
+        if let Some(hint_index) =
             find_exact_ref_highlight_preservation_hint(page_hints, candidate, &hints_by_ref)
         {
             let hint = page_hints[hint_index].hint.clone();
@@ -488,6 +701,30 @@ pub(crate) fn rewrite_page_markup_subtypes(
     Ok(rewritten)
 }
 
+fn create_new_markup_annotations(
+    document: &mut Document,
+    page_id: ObjectId,
+    page_view: PdfRect,
+    page_rotation: i64,
+    page_hints: &mut [MarkupHintState],
+) -> Result<bool> {
+    let mut created = Vec::new();
+    for state in page_hints.iter_mut() {
+        if !is_new_markup_hint(state) {
+            continue;
+        }
+        let object_id =
+            create_markup_annotation(document, page_id, page_view, page_rotation, &state.hint)?;
+        state.consumed = true;
+        created.push(object_id);
+    }
+    if created.is_empty() {
+        return Ok(false);
+    }
+    append_annots_to_page(document, page_id, &created)?;
+    Ok(true)
+}
+
 pub(crate) fn apply_markup_rewrite_to_incremental_object(
     incremental: &mut IncrementalDocument,
     candidate: &MarkupAnnotationCandidate,
@@ -514,6 +751,22 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
     let hints_by_ref = index_markup_hints_by_ref(page_hints);
 
     for candidate in candidates {
+        if let Some(hint_index) = find_named_markup_hint_for_candidate(
+            &AppendedRevision::new(incremental),
+            candidate,
+            page_hints,
+        ) {
+            page_hints[hint_index].consumed = true;
+            let hint = page_hints[hint_index].hint.clone();
+            rewritten = apply_markup_rewrite_to_incremental_object(
+                incremental,
+                candidate,
+                &hint.subtype,
+                hint.color.as_deref(),
+            )? || rewritten;
+            continue;
+        }
+
         if let Some(hint_index) =
             find_exact_ref_highlight_preservation_hint(page_hints, candidate, &hints_by_ref)
         {
@@ -576,6 +829,35 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
     Ok(rewritten)
 }
 
+fn create_new_markup_annotations_incremental(
+    incremental: &mut IncrementalDocument,
+    page_id: ObjectId,
+    page_view: PdfRect,
+    page_rotation: i64,
+    page_hints: &mut [MarkupHintState],
+) -> Result<bool> {
+    let mut created = Vec::new();
+    for state in page_hints.iter_mut() {
+        if !is_new_markup_hint(state) {
+            continue;
+        }
+        let object_id = create_markup_annotation(
+            &mut incremental.new_document,
+            page_id,
+            page_view,
+            page_rotation,
+            &state.hint,
+        )?;
+        state.consumed = true;
+        created.push(object_id);
+    }
+    if created.is_empty() {
+        return Ok(false);
+    }
+    append_annots_to_page_incremental(incremental, page_id, &created)?;
+    Ok(true)
+}
+
 pub(crate) fn apply_markup_mutations(
     document: &mut Document,
     markup: &MarkupMutation,
@@ -610,6 +892,13 @@ pub(crate) fn apply_markup_mutations(
         modified =
             rewrite_page_markup_subtypes(document, &candidates, &overrides, &mut page_hints)?
                 || modified;
+        modified = create_new_markup_annotations(
+            document,
+            page_id,
+            page_view,
+            page_rotation,
+            &mut page_hints,
+        )? || modified;
     }
 
     if !modified {
@@ -659,6 +948,16 @@ pub(crate) fn apply_markup_mutations_incremental(
             incremental,
             &candidates,
             &overrides,
+            &mut page_hints,
+        )? || modified;
+        let document = incremental.get_prev_documents();
+        let page_view = resolve_page_view(document, page_id)?;
+        let page_rotation = resolve_page_rotation(document, page_id)?;
+        modified = create_new_markup_annotations_incremental(
+            incremental,
+            page_id,
+            page_view,
+            page_rotation,
             &mut page_hints,
         )? || modified;
     }

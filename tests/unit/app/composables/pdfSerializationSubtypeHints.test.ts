@@ -38,6 +38,20 @@ describe('pdfSerializationSubtypeHints', () => {
                     width: 30,
                     height: 8,
                 },
+                markupGeometry: [
+                    {
+                        left: 10,
+                        top: 20,
+                        width: 12,
+                        height: 8,
+                    },
+                    {
+                        left: 28,
+                        top: 20,
+                        width: 12,
+                        height: 8,
+                    },
+                ],
             }),
             createComment({
                 subtype: 'StrikeOut',
@@ -84,6 +98,20 @@ describe('pdfSerializationSubtypeHints', () => {
             consumed: false,
             color: '#22c55e',
             pageMarkupIndex: 0,
+            markupGeometry: [
+                {
+                    left: 10,
+                    top: 20,
+                    width: 12,
+                    height: 8,
+                },
+                {
+                    left: 28,
+                    top: 20,
+                    width: 12,
+                    height: 8,
+                },
+            ],
         });
         expect(hints[1]).toMatchObject({
             subtype: 'StrikeOut',

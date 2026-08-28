@@ -24,6 +24,7 @@ import {
     buildNativeMarkupMutationForSave,
     toNativeMarkupHint,
 } from '@app/modules/pdf-viewer/runtime/save/nativeMarkupMutations';
+import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
@@ -265,6 +266,7 @@ describe('native markup builders', () => {
             subtype: 'Highlight',
             pageIndex: 0,
             markerRect,
+            markupGeometry: [markerRect],
             annotationId: '44R0',
             color: '#ffee00',
             id: 'hint-1',
@@ -275,6 +277,7 @@ describe('native markup builders', () => {
             subtype: 'Highlight',
             pageIndex: 0,
             markerRect,
+            markupGeometry: [markerRect],
             annotationId: '44R0',
             color: '#ffee00',
             id: 'hint-1',
@@ -291,6 +294,7 @@ describe('native markup builders', () => {
                     colorEdited: true,
                     annotationId: '44R0',
                     markerRect,
+                    markupGeometry: [markerRect],
                 }),
                 createComment({
                     stableKey: 'ann:0:45R0',
@@ -329,8 +333,36 @@ describe('native markup builders', () => {
             expect.objectContaining({
                 subtype: 'Highlight',
                 annotationId: '44R0',
+                markupGeometry: [markerRect],
             }),
         ]);
+    });
+
+    it('keeps the marker rectangle when detailed geometry exceeds the native bound', () => {
+        const markerRect = {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.4,
+        };
+        const nativeHint = toNativeMarkupHint({
+            subtype: 'Squiggly',
+            pageIndex: 0,
+            markerRect,
+            markupGeometry: Array.from(
+                {length: PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems + 1},
+                () => markerRect,
+            ),
+            annotationId: null,
+            color: '#336699',
+            id: 'bounded-fallback',
+            pageMarkupIndex: null,
+            source: 'editor',
+            consumed: false,
+        });
+
+        expect(nativeHint).toEqual(expect.objectContaining({markerRect}));
+        expect(nativeHint).not.toHaveProperty('markupGeometry');
     });
 
     it('drops stale markup hints and overrides that no longer match current markup comments', () => {

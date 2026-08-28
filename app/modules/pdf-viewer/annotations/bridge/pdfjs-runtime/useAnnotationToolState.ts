@@ -44,6 +44,7 @@ import {
 import { getAnnotationEditorPageSearchOrder } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/getAnnotationEditorPageSearchOrder';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { createAnnotationMarkupSubtypeDrawLayer } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer';
+import { markerRectsFromHighlightBoxes } from '@app/modules/pdf-viewer/engine/annotation-geometry/highlightBoxMarkerRects';
 import { findClosestHighlightDrawLayerSvg } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/findClosestHighlightDrawLayerSvg';
 import { resolveEditorHighlightClipPathId } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/resolveEditorHighlightClipPathId';
 import { toOpaqueHighlightDisplayColor } from '@app/modules/pdf-viewer/engine/text-markup-color/toOpaqueHighlightDisplayColor';
@@ -832,6 +833,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         }
         const markerRect = resolveEditorMarkupSubtypeHintRect(editor);
         if (markerRect) {
+            const editorMarkupBoxes = getPdfjsEditorFacadeState(editor).markupBoxes;
             markupSubtypeGeometryHints.set(identity, {
                 editor,
                 hint: {
@@ -841,6 +843,9 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
                     subtype,
                     pageIndex,
                     markerRect,
+                    ...(editorMarkupBoxes?.length
+                        ? {markupGeometry: markerRectsFromHighlightBoxes(editorMarkupBoxes)}
+                        : {}),
                     consumed: false,
                     pageMarkupIndex: resolveEditorPageMarkupIndex(editor, pageIndex, identity),
                     source: 'editor-live',
@@ -1044,6 +1049,9 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
             hints.push({
                 ...entry.hint,
                 markerRect: { ...entry.hint.markerRect },
+                ...(entry.hint.markupGeometry
+                    ? {markupGeometry: entry.hint.markupGeometry.map(rect => ({ ...rect }))}
+                    : {}),
                 consumed: false,
             });
         }

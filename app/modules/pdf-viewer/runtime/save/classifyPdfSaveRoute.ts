@@ -138,6 +138,7 @@ function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
             opacity: entity.opacity,
             hasNote: Boolean(entity.text),
             markerRect: structuredClone(entity.geometry[0] ?? null),
+            markupGeometry: structuredClone(entity.geometry),
         };
     }
     return {
@@ -463,6 +464,72 @@ function addCommentIdentityAliases(ids: Set<string>, comment: IAnnotationComment
     addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
 }
 
+function areAnnotationIdentityAliasesEqual(
+    left: string | null | undefined,
+    right: string | null | undefined,
+) {
+    const normalizedLeft = normalizePdfJsAnnotationId(left);
+    const normalizedRight = normalizePdfJsAnnotationId(right);
+    return normalizedLeft !== null && normalizedLeft === normalizedRight;
+}
+
+function isTextMarkupComment(comment: IAnnotationCommentSummary) {
+    return comment.subtype === 'Highlight'
+        || comment.subtype === 'Underline'
+        || comment.subtype === 'StrikeOut'
+        || comment.subtype === 'Strikethrough'
+        || comment.subtype === 'Squiggly';
+}
+
+function markupHintMatchesComment(
+    hint: Pick<IMarkupSubtypeHint, 'id' | 'annotationId' | 'subtype'>,
+    comment: IAnnotationCommentSummary,
+) {
+    if (
+        !isTextMarkupComment(comment)
+        || (
+            hint.subtype !== comment.subtype
+            && !(hint.subtype === 'StrikeOut' && comment.subtype === 'Strikethrough')
+        )
+    ) {
+        return false;
+    }
+    const hintIdentities = [
+        hint.id,
+        hint.annotationId,
+    ];
+    const commentIdentities = [
+        comment.appAnnotationId,
+        comment.annotationId,
+        comment.annotationName,
+        comment.id,
+        comment.uid,
+    ];
+    return hintIdentities.some(hintIdentity => (
+        commentIdentities.some(commentIdentity => (
+            areAnnotationIdentityAliasesEqual(hintIdentity, commentIdentity)
+        ))
+    ));
+}
+
+function markupOverrideMatchesComment(
+    annotationId: string,
+    comment: IAnnotationCommentSummary,
+) {
+    if (!isTextMarkupComment(comment)) {
+        return false;
+    }
+    return [
+        comment.appAnnotationId,
+        comment.annotationId,
+        comment.annotationName,
+        comment.id,
+        comment.uid,
+    ].some(commentIdentity => (
+        areAnnotationIdentityAliasesEqual(annotationId, commentIdentity)
+    ));
+}
+
 function collectProjectedNativeAnnotationIds(input: {
     changedComments: IAnnotationCommentSummary[];
     persistedComments: IAnnotationCommentSummary[];
@@ -473,6 +540,10 @@ function collectProjectedNativeAnnotationIds(input: {
     }>;
     freeTextNotes: Array<{ stableKey: string }>;
     nativeFreeTextEditors: ReadonlyMap<string, { stableKey: string }>;
+    markup: {
+        overrides: Array<readonly [string, TMarkupSubtype]>;
+        hints: Array<Pick<IMarkupSubtypeHint, 'id' | 'annotationId' | 'subtype'>>;
+    } | null;
 }) {
     const ids = new Set<string>();
     const updatedRefs = new Set(input.noteTextUpdates.map(update =>
@@ -492,7 +563,6 @@ function collectProjectedNativeAnnotationIds(input: {
         addReplayableAnnotationId(ids, id);
         addEditorRuntimeAnnotationIdFromStableKey(ids, editor.stableKey);
     });
-
     const persistedCommentAliases = new Set<string>();
     input.persistedComments.forEach(comment => addCommentIdentityAliases(persistedCommentAliases, comment));
     input.replayableEditorNoteIds.forEach((id) => {
@@ -501,6 +571,33 @@ function collectProjectedNativeAnnotationIds(input: {
             addReplayableAnnotationId(ids, normalized);
         }
     });
+
+    const markup = input.markup;
+    if (markup) {
+        // A native markup item is an acknowledgement only when it maps to a
+        // changed canonical markup comment. This keeps stale or unrelated
+        // live aliases fail-closed, even when the payload carries a valid
+        // hint for another annotation.
+        input.changedComments.forEach((comment) => {
+            const hasProjectedMarkup = markup.hints.some((hint) => {
+                if (!markupHintMatchesComment(hint, comment)) {
+                    return false;
+                }
+                addReplayableAnnotationId(ids, hint.annotationId);
+                addReplayableAnnotationId(ids, hint.id);
+                return true;
+            }) || markup.overrides.some(([annotationId]) => {
+                if (!markupOverrideMatchesComment(annotationId, comment)) {
+                    return false;
+                }
+                addReplayableAnnotationId(ids, annotationId);
+                return true;
+            });
+            if (hasProjectedMarkup) {
+                addCommentIdentityAliases(ids, comment);
+            }
+        });
+    }
     return ids;
 }
 
@@ -536,6 +633,14 @@ function buildClassifiedNativeMutationProjection(
         ? Array.from(canonical.liveAnnotationChanges.nativeFreeTextEditors.values())
         : [];
     const annotationDeletes = annotationDeletesResult?.value ?? [];
+    const annotationWorkDirty = hasNonShapeAnnotationWork(plan);
+    const markup = buildNativeMarkupMutationForSave({
+        canonicalComments: canonical.comments,
+        annotationWorkDirty,
+        markupSubtypeOverrides: capabilities.markupSubtypeOverrides,
+        markupSubtypeHints: capabilities.markupSubtypeHints,
+    });
+    const hasMarkupMutations = Boolean(markup);
     const projectedNativeAnnotationIds = collectProjectedNativeAnnotationIds({
         changedComments,
         persistedComments,
@@ -543,6 +648,7 @@ function buildClassifiedNativeMutationProjection(
         noteTextUpdates,
         freeTextNotes,
         nativeFreeTextEditors: canonical.liveAnnotationChanges.nativeFreeTextEditors,
+        markup,
     });
     const nativeNoteMutationCount = noteTextUpdates.length
         + freeTextNotes.length
@@ -557,6 +663,13 @@ function buildClassifiedNativeMutationProjection(
         && [...canonical.liveAnnotationChanges.ids].every(id =>
             projectedNativeAnnotationIds.has(id))
     );
+    const liveAnnotationWorkCoveredByNativeMutations = (
+        canonical.liveAnnotationChanges.hasChanges
+        && !canonical.liveAnnotationChanges.hasUnknownChanges
+        && canonical.liveAnnotationChanges.ids.size > 0
+        && [...canonical.liveAnnotationChanges.ids].every(id =>
+            projectedNativeAnnotationIds.has(id))
+    );
     if (
         admitted.dirtyState.savedPdfjsAnnotationBaselineDirty
         && !savedLiveAnnotationAliasesAreNativelyReplayable
@@ -564,14 +677,6 @@ function buildClassifiedNativeMutationProjection(
         return 'saved-pdfjs-baseline-dirty-requires-materialization';
     }
 
-    const annotationWorkDirty = hasNonShapeAnnotationWork(plan);
-    const markup = buildNativeMarkupMutationForSave({
-        canonicalComments: canonical.comments,
-        annotationWorkDirty,
-        markupSubtypeOverrides: capabilities.markupSubtypeOverrides,
-        markupSubtypeHints: capabilities.markupSubtypeHints,
-    });
-    const hasMarkupMutations = Boolean(markup);
     if (capabilities.forcePdfjsMaterialize && nativeNoteMutationCount === 0 && !hasMarkupMutations) {
         return 'pdfjs-materialize-required';
     }
@@ -585,7 +690,10 @@ function buildClassifiedNativeMutationProjection(
     if (canonical.pendingDeletes.length > 0 && annotationDeletes.length !== canonical.pendingDeletes.length) {
         return 'pending-deletes-not-covered-by-native-mutations';
     }
-    if (admitted.dirtyState.hasLivePdfJsAnnotationChanges && nativeNoteMutationCount === 0) {
+    if (
+        admitted.dirtyState.hasLivePdfJsAnnotationChanges
+        && !liveAnnotationWorkCoveredByNativeMutations
+    ) {
         return 'live-pdfjs-annotation-work-not-covered-by-native-mutations';
     }
     if (annotationWorkDirty && nativeNoteMutationCount === 0 && !hasMarkupMutations) {

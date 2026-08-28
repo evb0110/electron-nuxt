@@ -43,6 +43,92 @@ where
     deserialize_bounded_vec::<D, PlacedImage, 16>(deserializer)
 }
 
+pub(crate) const MAX_MARKUP_GEOMETRY_ITEMS: usize = 512;
+
+fn deserialize_optional_markup_geometry<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<Vec<MarkerRect>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct OptionalMarkupGeometryVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for OptionalMarkupGeometryVisitor {
+        type Value = Option<Vec<MarkerRect>>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("null or an array of text-markup geometry rectangles")
+        }
+
+        fn visit_none<E>(self) -> std::result::Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> std::result::Result<Self::Value, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            deserialize_bounded_vec::<D, MarkerRect, MAX_MARKUP_GEOMETRY_ITEMS>(deserializer)
+                .map(Some)
+        }
+    }
+
+    deserializer.deserialize_option(OptionalMarkupGeometryVisitor)
+}
+
+fn deserialize_markup_hints<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<MarkupSubtypeHint>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct MarkupHintsVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for MarkupHintsVisitor {
+        type Value = Vec<MarkupSubtypeHint>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("an array containing bounded text-markup hints")
+        }
+
+        fn visit_seq<A>(self, mut sequence: A) -> std::result::Result<Self::Value, A::Error>
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            let capacity = sequence
+                .size_hint()
+                .unwrap_or(0)
+                .min(MAX_MARKUP_SUBTYPE_HINTS);
+            let mut hints = Vec::with_capacity(capacity);
+            let mut geometry_count = 0usize;
+            while let Some(hint) = sequence.next_element::<MarkupSubtypeHint>()? {
+                if hints.len() == MAX_MARKUP_SUBTYPE_HINTS {
+                    return Err(serde::de::Error::custom(format!(
+                        "array exceeds the {MAX_MARKUP_SUBTYPE_HINTS}-item admission ceiling"
+                    )));
+                }
+                geometry_count = geometry_count
+                    .checked_add(hint.markup_geometry.as_ref().map_or(0, Vec::len))
+                    .ok_or_else(|| {
+                        serde::de::Error::custom("text-markup geometry item count overflowed")
+                    })?;
+                if geometry_count > MAX_MARKUP_GEOMETRY_ITEMS {
+                    return Err(serde::de::Error::custom(format!(
+                        "text-markup geometry exceeds the {MAX_MARKUP_GEOMETRY_ITEMS}-item admission ceiling"
+                    )));
+                }
+                hints.push(hint);
+            }
+            Ok(hints)
+        }
+    }
+
+    deserializer.deserialize_seq(MarkupHintsVisitor)
+}
+
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 pub(crate) fn domain_error(code: NativeErrorCode, message: impl Into<String>) -> Box<dyn Error> {
@@ -739,7 +825,7 @@ pub(crate) struct MarkupMutation {
     #[serde(deserialize_with = "deserialize_shape_items")]
     pub(crate) overrides: Vec<(String, String)>,
     #[serde(default)]
-    #[serde(deserialize_with = "deserialize_shape_items")]
+    #[serde(deserialize_with = "deserialize_markup_hints")]
     pub(crate) hints: Vec<MarkupSubtypeHint>,
 }
 
@@ -766,6 +852,9 @@ pub(crate) struct MarkupSubtypeHint {
     pub(crate) subtype: String,
     pub(crate) page_index: u32,
     pub(crate) marker_rect: MarkerRect,
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_optional_markup_geometry")]
+    pub(crate) markup_geometry: Option<Vec<MarkerRect>>,
     #[serde(default)]
     pub(crate) annotation_id: Option<String>,
     #[serde(default)]

@@ -827,6 +827,7 @@ pub(crate) fn validate_markup_document_postconditions(
     document: &impl PdfObjectSource,
     markup: &MarkupMutation,
 ) -> Result<()> {
+    let page_resolver = PageTreeResolver::new(document)?;
     for (annotation_id, subtype) in &markup.overrides {
         let Some(object_id) = parse_pdfjs_annotation_object_id(annotation_id) else {
             continue;
@@ -834,13 +835,78 @@ pub(crate) fn validate_markup_document_postconditions(
         validate_markup_target(document, object_id, subtype, None)?;
     }
     for hint in &markup.hints {
-        let Some(annotation_id) = hint.annotation_id.as_deref() else {
-            continue;
-        };
-        let Some(object_id) = parse_pdfjs_annotation_object_id(annotation_id) else {
-            continue;
-        };
-        validate_markup_target(document, object_id, &hint.subtype, hint.color.as_deref())?;
+        match hint
+            .annotation_id
+            .as_deref()
+            .and_then(parse_pdfjs_annotation_object_id)
+        {
+            Some(object_id) => {
+                validate_markup_target(document, object_id, &hint.subtype, hint.color.as_deref())?;
+            }
+            None => {
+                if is_new_markup_hint_data(hint) {
+                    validate_new_markup_target(document, &page_resolver, hint)?;
+                }
+            }
+        }
     }
+    Ok(())
+}
+
+fn validate_new_markup_target(
+    document: &impl PdfObjectSource,
+    page_resolver: &PageTreeResolver,
+    hint: &MarkupSubtypeHint,
+) -> Result<()> {
+    let page_number = hint
+        .page_index
+        .checked_add(1)
+        .ok_or("Invalid text-markup hint page index")?;
+    let page_id = page_resolver.page_id(document, page_number)?;
+    let expected_name = markup_annotation_name(hint)
+        .ok_or("New text-markup annotation is missing a stable identity")?;
+    let matching_refs: Vec<ObjectId> = get_page_annots(document, page_id)?
+        .iter()
+        .filter_map(|object| object.as_reference().ok())
+        .filter(|object_id| {
+            document
+                .dictionary(*object_id)
+                .ok()
+                .filter(|dict| canonical_markup_subtype(dict).as_deref() == Some(&hint.subtype))
+                .and_then(|dict| dict.get(b"NM").ok())
+                .and_then(pdf_string_to_text)
+                .as_deref()
+                == Some(expected_name.as_str())
+        })
+        .collect();
+    if matching_refs.len() != 1 {
+        return Err(format!(
+            "Expected exactly one text-markup annotation named {expected_name}, found {}",
+            matching_refs.len()
+        )
+        .into());
+    }
+
+    let object_id = matching_refs[0];
+    validate_markup_target(document, object_id, &hint.subtype, hint.color.as_deref())?;
+    let page_view = resolve_page_view(document, page_id)?;
+    let page_rotation = resolve_page_rotation(document, page_id)?;
+    let (expected_quads, expected_rect) = markup_hint_pdf_quads(hint, page_view, page_rotation)?;
+    let dict = document.dictionary(object_id)?;
+    let actual_quads = read_markup_quad_points(document, dict)
+        .ok_or("New text-markup annotation is missing QuadPoints")?;
+    if actual_quads.len() != expected_quads.len()
+        || actual_quads
+            .iter()
+            .zip(expected_quads.iter())
+            .any(|(actual, expected)| (actual - expected).abs() > 0.01)
+    {
+        return Err(
+            "New text-markup annotation QuadPoints did not match requested geometry".into(),
+        );
+    }
+    let actual_rect = read_pdf_rect_from_dict(document, dict)
+        .ok_or("New text-markup annotation is missing Rect")?;
+    validate_rect_approximately(actual_rect, expected_rect, "Text-markup annotation Rect")?;
     Ok(())
 }

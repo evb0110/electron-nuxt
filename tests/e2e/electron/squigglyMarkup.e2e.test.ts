@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
+import { copyFileSync } from 'node:fs';
 import type { Page } from 'puppeteer-core';
 import {
     createMultiPageTextFixturePdf,
@@ -72,7 +73,7 @@ async function dragOverFirstTwoSpans(page: Page) {
         };
     });
     if (!dragPoints) {
-        throw new Error('Unable to locate visible text spans for squiggly creation');
+        throw new Error('Unable to locate visible text spans for text-markup creation');
     }
     await page.mouse.move(dragPoints.x1, dragPoints.y1);
     await page.mouse.down();
@@ -96,6 +97,51 @@ async function waitForPdfAnnotationSubtypeCount(filePath: string, subtype: strin
     );
 }
 
+async function waitForDisplayedPdfAnnotationSubtype(page: Page, subtype: string) {
+    await page.waitForFunction((expectedSubtype: string) => {
+        const normalizedExpectedSubtype = expectedSubtype.trim().toLowerCase() === 'strikethrough'
+            ? 'strikeout'
+            : expectedSubtype.trim().toLowerCase();
+        const values = window.__evbTestApi?.readActiveWorkspaceStateValues?.(['annotationComments']) as { annotationComments?: unknown } | undefined;
+        const comments = Array.isArray(values?.annotationComments)
+            ? values.annotationComments
+            : [];
+        const hasMatchingComment = comments.some(comment => {
+            if (!comment || typeof comment !== 'object') {
+                return false;
+            }
+            const commentSubtype = (comment as Record<string, unknown>).subtype;
+            const normalizedCommentSubtype = typeof commentSubtype === 'string'
+                ? commentSubtype.trim().toLowerCase() === 'strikethrough'
+                    ? 'strikeout'
+                    : commentSubtype.trim().toLowerCase()
+                : '';
+            return normalizedCommentSubtype === normalizedExpectedSubtype;
+        });
+        const labelsBySubtype: Record<string, string[]> = {
+            highlight: ['highlight'],
+            underline: ['underline'],
+            strikeout: [
+                'strike out',
+                'strikethrough',
+                'strikeout',
+            ],
+            squiggly: [
+                'squiggle',
+                'squiggly',
+            ],
+        };
+        const expectedLabels = labelsBySubtype[normalizedExpectedSubtype] ?? [];
+        const hasMatchingListEntry = Array.from(document.querySelectorAll<HTMLElement>(
+            '.notes-list .note-item',
+        )).some(item => {
+            const label = item.querySelector<HTMLElement>('.note-item-type')?.textContent?.trim().toLowerCase() ?? '';
+            return expectedLabels.some(expectedLabel => label.includes(expectedLabel));
+        });
+        return hasMatchingComment && hasMatchingListEntry;
+    }, {timeout: 20_000}, subtype);
+}
+
 // The presentation controller owns every markup repaint, so a healthy surface has
 // one ready editor per markup, one draw visual set, and a single stroke colour.
 async function readMarkupPresentationState(page: Page) {
@@ -115,12 +161,12 @@ async function readMarkupPresentationState(page: Page) {
     });
 }
 
-async function createSquigglyOverFirstSpans(page: Page) {
+async function createTextMarkupOverFirstSpans(page: Page, subtype: string) {
     const before = await getHighlightEditorCount(page);
     // Entering markup mode before the first text layer has committed can leave
     // the layer intentionally unmaterialized for that interaction.
     await waitForVisibleTextSpans(page);
-    await clickAnnotationTool(page, 'Squiggly');
+    await clickAnnotationTool(page, subtype);
     await dragOverFirstTwoSpans(page);
     await page.waitForFunction((previousCount: number) => {
         const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
@@ -134,27 +180,68 @@ describe('Electron E2E - Squiggly text markup', () => {
         sessionName: () => `e2e-squiggly-${Date.now()}`,
     });
 
-    it('authors and persists a Squiggly annotation that survives save', async () => {
+    it.each([
+        [
+            'Highlight',
+            'Highlight',
+        ],
+        [
+            'Underline',
+            'Underline',
+        ],
+        [
+            'Strikethrough',
+            'StrikeOut',
+        ],
+        [
+            'Squiggly',
+            'Squiggly',
+        ],
+    ])('authors and persists a %s annotation through save and reopen', async (tool, subtype) => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
         }
         const { page } = session;
 
-        const fixturePath = await createMultiPageTextFixturePdf(`squiggly-${Date.now()}-squiggly.pdf`, 1);
+        const fixturePath = await createMultiPageTextFixturePdf(`text-markup-${Date.now()}-${subtype}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
         await openAnnotationsTab(page);
         await waitForViewerInteractive(page);
 
-        await createSquigglyOverFirstSpans(page);
+        await createTextMarkupOverFirstSpans(page, tool);
 
         await saveViaWindowHandle(page);
 
-        const summary = await waitForPdfAnnotationSubtypeCount(fixturePath, 'Squiggly', 1);
-        expect(summary.bySubtype.Squiggly ?? 0).toBe(1);
-        // The squiggly must be a genuine Squiggly subtype, not a fallback Highlight.
-        expect(summary.bySubtype.Highlight ?? 0).toBe(0);
+        const summary = await waitForPdfAnnotationSubtypeCount(fixturePath, subtype, 1);
+        expect(summary.bySubtype[subtype] ?? 0).toBe(1);
+        expect([
+            'Highlight',
+            'Underline',
+            'StrikeOut',
+            'Squiggly',
+        ]
+            .reduce((count, markupSubtype) => count + (summary.bySubtype[markupSubtype] ?? 0), 0))
+            .toBe(1);
+
+        const reopenedPath = await createMultiPageTextFixturePdf(`text-markup-reopen-${Date.now()}-${subtype}.pdf`, 1);
+        copyFileSync(fixturePath, reopenedPath);
+        await openPdfInApp(page, reopenedPath);
+        await waitForPdfLoaded(page);
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
+        await waitForDisplayedPdfAnnotationSubtype(page, subtype);
+        const reopened = await waitForPdfAnnotationSubtypeCount(reopenedPath, subtype, 1);
+        expect(reopened.bySubtype[subtype] ?? 0).toBe(1);
+        expect([
+            'Highlight',
+            'Underline',
+            'StrikeOut',
+            'Squiggly',
+        ]
+            .reduce((count, markupSubtype) => count + (reopened.bySubtype[markupSubtype] ?? 0), 0))
+            .toBe(1);
     });
 
     it('keeps markup visuals correct and unduplicated through rapid zoom changes', async () => {
@@ -169,7 +256,7 @@ describe('Electron E2E - Squiggly text markup', () => {
         await waitForPdfLoaded(page);
         await openAnnotationsTab(page);
         await waitForViewerInteractive(page);
-        await createSquigglyOverFirstSpans(page);
+        await createTextMarkupOverFirstSpans(page, 'Squiggly');
 
         await page.waitForFunction(() => {
             const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');

@@ -641,6 +641,8 @@ export interface IPdfNativeMarkupSubtypeHint {
     subtype: TPdfNativeMarkupSubtype;
     pageIndex: TPageIndex;
     markerRect: IPdfNativeMarkupMarkerRect;
+    /** One normalized marker rectangle per source text-markup quad. */
+    markupGeometry?: IPdfNativeMarkupMarkerRect[] | null;
     annotationId?: string | null;
     color?: string | null;
     id?: string | null;

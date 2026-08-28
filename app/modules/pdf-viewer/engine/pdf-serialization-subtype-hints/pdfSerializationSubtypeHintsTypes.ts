@@ -10,6 +10,8 @@ export interface IMarkupSubtypeHint {
     subtype: TMarkupSubtype;
     pageIndex: number;
     markerRect: IAnnotationMarkerRect;
+    /** One marker rectangle per source PDF text-markup quad. */
+    markupGeometry?: readonly IAnnotationMarkerRect[] | null;
     consumed: boolean;
     annotationId?: string | null;
     color?: string | null;

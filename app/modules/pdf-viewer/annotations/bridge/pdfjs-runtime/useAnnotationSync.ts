@@ -74,6 +74,7 @@ import type {
     TAnnotationEnrichmentSkipReason,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import { resolveEditorMarkerRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveEditorMarkerRect';
+import { markerRectsFromHighlightBoxes } from '@app/modules/pdf-viewer/engine/annotation-geometry/highlightBoxMarkerRects';
 import { resolveMarkupSubtypeOverrideRegistration } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveMarkupSubtypeOverrideRegistration';
 import { safeReadEditorData } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/safeReadEditorData';
 import type { IPdfCommentSummaryDeps } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
@@ -404,6 +405,10 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const id = identity.getEditorIdentity(editor, pageIndex);
         const hasNote = resolveEditorSummaryHasNote(editor);
         const rectResult = resolveEditorMarkerRect(editor);
+        const editorMarkupBoxes = getPdfjsEditorFacadeState(editor).markupBoxes;
+        const markupGeometry = isTextMarkupSubtype(resolvedSubtype) && editorMarkupBoxes?.length
+            ? markerRectsFromHighlightBoxes(editorMarkupBoxes)
+            : null;
         logPendingAnchorSummary(pageIndex, id, uid, annotationId, resolvedSubtype, hasNote, text, rectResult);
         const canonicalAnnotationId = getPdfjsEditorFacadeState(editor).canonicalAnnotationId;
         return {
@@ -433,6 +438,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             source: 'editor',
             hasNote,
             markerRect: rectResult.markerRect,
+            ...(markupGeometry ? {markupGeometry} : {}),
         };
     }
     async function collectPdfAnnotationSnapshot(
@@ -958,7 +964,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             isDeletedAnnotationElement,
         );
         const collectedLinks = collectVisiblePdfLinks(pdfSnapshot, isDeletedAnnotationElement);
-
         if (localToken !== syncToken) {
             return null;
         }

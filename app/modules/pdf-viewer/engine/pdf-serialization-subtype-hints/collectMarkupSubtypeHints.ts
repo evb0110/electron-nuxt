@@ -64,7 +64,7 @@ function shouldCollectMarkupSubtypeHint(comment: IAnnotationCommentSummary, subt
 }
 
 function shouldCollectMarkupSubtypeHintColor(comment: IAnnotationCommentSummary) {
-    return comment.colorEdited === true;
+    return comment.colorEdited === true || comment.source === 'editor';
 }
 
 export function collectMarkupSubtypeHints(comments: IAnnotationCommentSummary[]): IMarkupSubtypeHint[] {
@@ -90,6 +90,10 @@ export function collectMarkupSubtypeHints(comments: IAnnotationCommentSummary[])
             subtype,
             pageIndex: comment.pageIndex,
             markerRect: comment.markerRect,
+            ...(comment.markupGeometry?.length
+                && comment.markupGeometry.every(isValidMarkerRect)
+                ? {markupGeometry: comment.markupGeometry}
+                : {}),
             consumed: false,
             pageMarkupIndex,
             source: comment.source,

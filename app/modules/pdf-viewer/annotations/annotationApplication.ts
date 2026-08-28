@@ -400,6 +400,9 @@ export class AnnotationApplication {
                 annotationName: entity.identity.pdfName ?? null,
                 hasNote: entity.kind === 'sticky-note' || entity.text.length > 0,
                 markerRect,
+                ...(entity.kind === 'text-markup'
+                    ? {markupGeometry: structuredClone(entity.geometry)}
+                    : {}),
             } satisfies IAnnotationCommentSummary];
         });
     }
@@ -445,6 +448,7 @@ export class AnnotationApplication {
                     author: entity.author,
                     createdAt: entity.createdAt,
                     modifiedAt: entity.modifiedAt,
+                    markupGeometry: structuredClone(entity.geometry),
                 }];
             }
             return [{

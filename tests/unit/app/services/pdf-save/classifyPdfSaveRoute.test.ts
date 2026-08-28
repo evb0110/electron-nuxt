@@ -100,6 +100,16 @@ function editorMarkup(id: string): AnnotationEntity {
     };
 }
 
+function editorMarkupWithRuntimeIdentity(id: string): AnnotationEntity {
+    return {
+        ...editorMarkup(id),
+        identity: {
+            id: asAnnotationId(id),
+            elementId: 'pdfjs_internal_editor_0',
+        },
+    };
+}
+
 function deletedMarkup(id: string, pdfRef: string): AnnotationEntity {
     return {
         ...editorMarkup(id),
@@ -334,6 +344,67 @@ describe('classifyPdfSaveRoute annotation routes', () => {
 });
 
 describe('classifyPdfSaveRoute native-append grant', () => {
+    it('covers every live identity alias for a newly authored markup', () => {
+        const markup = editorMarkupWithRuntimeIdentity('anno_new_markup');
+        const decision = classifyPdfSaveRoute(
+            planOf([markup]),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_new_markup',
+                        'pdfjs_internal_editor_0',
+                    ]),
+                    hasChanges: true,
+                    fingerprint: 'new-markup',
+                }),
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.hasMarkupMutations).toBe(true);
+        expect(decision.nativeMutationProjection.mutations.markup?.hints).toEqual([expect.objectContaining({
+            id: 'pdfjs_internal_editor_0',
+            subtype: 'Highlight',
+        })]);
+    });
+
+    it('rejects a markup payload when an unrelated live identity is present', () => {
+        const markup = editorMarkupWithRuntimeIdentity('anno_new_markup');
+        const decision = classifyPdfSaveRoute(
+            planOf([markup]),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_new_markup',
+                        'pdfjs_internal_editor_0',
+                        'unrelated-runtime-id',
+                    ]),
+                    hasChanges: true,
+                    fingerprint: 'new-markup-plus-unrelated',
+                }),
+            }),
+        );
+
+        expect(decision.route).not.toBe('native-append');
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('live-pdfjs-annotation-work-not-covered-by-native-mutations');
+    });
+
     it('classifies one combined notes, metadata, shapes, and markup payload', () => {
         const deleted = deletedMarkup('anno_deleted', '20R');
         const decision = classifyPdfSaveRoute(
