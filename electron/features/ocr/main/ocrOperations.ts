@@ -31,6 +31,7 @@ import {
 } from '@electron/utils/pathValidator';
 import {requireManagedWorkingCopyPath} from '@electron/file-access/workingCopyCreation';
 import {getWorkingCopyBackingEntry} from '@electron/file-access/workingCopyStore';
+import {registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
 import {
     ensureWorkingCopyMaterialized,
@@ -61,16 +62,19 @@ export async function handleResolveDocumentTextCatalog(
     pageCount?: number,
 ) {
     const logicalPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
-    return runWithWorkingCopyReadBacking(
+    return runCancellableOcrCatalogRead(context, logicalPath, signal => runWithWorkingCopyReadBacking(
         logicalPath,
         physicalPath => resolveDocumentTextCatalogSnapshot(
             logicalPath,
             documentRevision,
             pageCount,
-            {sourcePdfPath: physicalPath},
+            {
+                sourcePdfPath: physicalPath,
+                signal,
+            },
         ),
         {ownerWebContentsId: context.senderId},
-    );
+    ));
 }
 
 export async function handleResolveDocumentTextCatalogWindow(
@@ -82,7 +86,7 @@ export async function handleResolveDocumentTextCatalogWindow(
     pageCount?: number,
 ) {
     const logicalPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
-    return runWithWorkingCopyReadBacking(
+    return runCancellableOcrCatalogRead(context, logicalPath, signal => runWithWorkingCopyReadBacking(
         logicalPath,
         physicalPath => resolveDocumentTextCatalogWindow(
             logicalPath,
@@ -90,10 +94,13 @@ export async function handleResolveDocumentTextCatalogWindow(
             firstPage,
             lastPage,
             pageCount,
-            {sourcePdfPath: physicalPath},
+            {
+                sourcePdfPath: physicalPath,
+                signal,
+            },
         ),
         {ownerWebContentsId: context.senderId},
-    );
+    ));
 }
 
 export async function handleResolveDocumentOcrAvailability(
@@ -102,7 +109,11 @@ export async function handleResolveDocumentOcrAvailability(
     documentRevision: TDocumentRevisionToken,
 ) {
     const logicalPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
-    return resolveDocumentOcrAvailability(logicalPath, documentRevision);
+    return runCancellableOcrCatalogRead(
+        context,
+        logicalPath,
+        signal => resolveDocumentOcrAvailability(logicalPath, documentRevision, {signal}),
+    );
 }
 
 export async function handleResolveDocumentOcrPage(
@@ -112,7 +123,32 @@ export async function handleResolveDocumentOcrPage(
     pageNumber: number,
 ) {
     const logicalPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
-    return resolveDocumentOcrPage(logicalPath, documentRevision, pageNumber);
+    return runCancellableOcrCatalogRead(
+        context,
+        logicalPath,
+        signal => resolveDocumentOcrPage(logicalPath, documentRevision, pageNumber, {signal}),
+    );
+}
+
+// Catalog reads join the main operation lifecycle so a working-copy close or
+// shutdown aborts them instead of racing the file deletion. The signal carries
+// the cancellation; the hook only makes the read eligible for close cancellation.
+async function runCancellableOcrCatalogRead<T>(
+    context: TOcrOperationContext,
+    logicalPath: string,
+    read: (signal: AbortSignal) => Promise<T>,
+) {
+    const operation = registerMainOperation({
+        kind: 'abortable-work',
+        ownerWebContentsId: context.senderId,
+        workingCopyPath: logicalPath,
+        cancel: reason => log.debug(`OCR catalog read cancelled: ${reason}`),
+    });
+    try {
+        return await read(operation.signal);
+    } finally {
+        operation.complete();
+    }
 }
 
 async function validateOcrSourcePdfPath(sourcePdfPath: string, senderWebContentsId: number) {

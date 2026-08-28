@@ -390,7 +390,7 @@ function appendPageToRanges(
     return true;
 }
 
-async function resolveCatalogAvailability(catalog: IOcrCatalogHandle): Promise<{
+async function resolveCatalogAvailability(catalog: IOcrCatalogHandle, signal?: AbortSignal): Promise<{
     mappedPageCount: number;
     pageRanges: IDocumentOcrPageRange[];
     rangesComplete: boolean;
@@ -413,6 +413,7 @@ async function resolveCatalogAvailability(catalog: IOcrCatalogHandle): Promise<{
     let rangesComplete = true;
     let readablePageCount = 0;
     for (let firstPage = 1; firstPage <= pageCount; firstPage += OCR_MAX_WINDOW_PAGES) {
+        throwIfAborted(signal);
         const count = Math.min(OCR_MAX_WINDOW_PAGES, pageCount - firstPage + 1);
         const availability = await catalog.windowAvailability(firstPage, count);
         for (let index = 0; index < availability.length; index += 1) {
@@ -436,10 +437,14 @@ async function resolveCatalogAvailability(catalog: IOcrCatalogHandle): Promise<{
     };
 }
 
+export interface IDocumentOcrReadOptions {signal?: AbortSignal;}
+
 export async function resolveDocumentOcrAvailability(
     workingCopyPath: string,
     documentRevision: TDocumentRevisionToken,
+    options: IDocumentOcrReadOptions = {},
 ): Promise<IDocumentOcrAvailability> {
+    throwIfAborted(options.signal);
     await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
     const catalog = await openCurrentOcrCatalog(workingCopyPath, documentRevision);
     if (!catalog) {
@@ -452,7 +457,7 @@ export async function resolveDocumentOcrAvailability(
         };
     }
     try {
-        const availability = await resolveCatalogAvailability(catalog);
+        const availability = await resolveCatalogAvailability(catalog, options.signal);
         return {
             documentRevision,
             pageCount: catalog.header.pageCount,
@@ -467,7 +472,9 @@ export async function resolveDocumentOcrPage(
     workingCopyPath: string,
     documentRevision: TDocumentRevisionToken,
     pageNumber: number,
+    options: IDocumentOcrReadOptions = {},
 ): Promise<IDocumentOcrPageSnapshot> {
+    throwIfAborted(options.signal);
     await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
     const catalog = await openCurrentOcrCatalog(workingCopyPath, documentRevision);
     if (!catalog) {
@@ -479,6 +486,7 @@ export async function resolveDocumentOcrPage(
     }
     try {
         const languages = await loadLegacyOcrLanguages(workingCopyPath, documentRevision, catalog);
+        throwIfAborted(options.signal);
         const page = Number.isSafeInteger(pageNumber)
             && pageNumber >= 1
             && pageNumber <= catalog.header.pageCount
@@ -492,6 +500,7 @@ export async function resolveDocumentOcrPage(
                 : createOcrCatalogPage(pageNumber, page, languages),
         };
     } catch {
+        throwIfAborted(options.signal);
         return {
             documentRevision,
             pageCount: catalog.header.pageCount,

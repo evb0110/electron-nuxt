@@ -356,7 +356,7 @@ describe('OCR raster admission before rendering (SRCH-006)', () => {
             workerPaths,
             log,
             1,
-            '/tmp/ocr/source.pdf',
+            {popplerSourcePdfPath: '/tmp/ocr/source.pdf'},
             '/tmp/ocr/page-1-size-probe.png',
         )).resolves.toEqual({
             width: 8.5,

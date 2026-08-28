@@ -66,7 +66,9 @@ import {
 import { resolveWorkerPaths } from '@electron/ocr/worker/resolveWorkerPaths';
 import {
     buildPopplerEnv,
+    createOcrRasterRenderLimits,
     preparePdfForPoppler,
+    probeOcrPageSizeInches,
     renderPdfPageToPng,
 } from '@electron/ocr/worker/popplerStage';
 import { isAbortError } from '@electron/utils/abort';
@@ -345,6 +347,7 @@ async function processOcrPage(
     log('debug', `Processing page ${page.pageNumber}`);
 
     const pageImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}.png`));
+    const pageSizeProbeImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-size-probe.png`));
     const preprocessedImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-clean.png`));
     const preprocessMetadataPath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-clean.json`));
     let ocrOutputPath: string | null = null;
@@ -352,11 +355,14 @@ async function processOcrPage(
     const diagnostics: IOcrDiagnostic[] = [];
 
     try {
+        // Without a native page size the governor and raster guard would guess.
+        const pageSize = context.pageSizeByNumber.get(page.pageNumber)
+            ?? await probeOcrPageSizeInches(paths, log, page.pageNumber, context, pageSizeProbeImagePath);
         const resourceLease = await acquireOcrResourceSlot(
             context.jobId,
             page.pageNumber,
             context.extractionDpi,
-            context.pageSizeByNumber.get(page.pageNumber),
+            pageSize,
             context.signal,
         );
         resourceToken = resourceLease.token;
@@ -384,6 +390,8 @@ async function processOcrPage(
             effectiveDpi,
             context.popplerEnv,
             context.signal,
+            undefined,
+            pageSize === undefined ? undefined : createOcrRasterRenderLimits(pageSize, effectiveDpi),
         );
         await context.storageBudget.assertWithinBudget();
 
@@ -732,6 +740,9 @@ async function assembleMergedOcrPdf(
             signal,
         );
     } catch (mergeErr) {
+        if (isAbortError(mergeErr) || signal.aborted) {
+            throw mergeErr;
+        }
         const errMsg = getErrorMessage(mergeErr);
         errors.push(`Failed to merge OCR'd pages with original PDF: ${errMsg}`);
         sendComplete(jobId, {
@@ -1018,6 +1029,7 @@ async function processOcrJob(
         const pageCount = pageCountResult.pageCount;
         appendMessages(completionMessages, pageCountResult.warnings);
 
+        throwIfAborted(abortController.signal);
         sendStageProgress(jobId, requestedSelection, 'merging');
         await durableManifest.markNode('assembled-document', 'running');
         const mergedPdfPath = await storageBudget.withReservation(
@@ -1041,6 +1053,7 @@ async function processOcrJob(
         await durableManifest.markNode('assembled-document', 'verified');
 
         const allLanguages = getOcrSelectionLanguages(requestedSelection);
+        throwIfAborted(abortController.signal);
         const resultSha256 = await sha256File(mergedPdfPath);
         sendStageProgress(jobId, requestedSelection, 'indexing');
         await durableManifest.markNode('text-catalog', 'running');
