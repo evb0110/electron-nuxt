@@ -5618,6 +5618,51 @@ describe('Scan cleanup components', () => {
         expect(applyHint()?.textContent?.trim()).toBe('');
     });
 
+    it('commits a manually entered margin through the settings control', async () => {
+        const settings = reactive({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto' as const,
+            outputMode: 'auto' as const,
+            readingOrder: 'ltr' as const,
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'center' as const,
+            marginsMm: {
+                leftMm: 5,
+                topMm: 5,
+                rightMm: 5,
+                bottomMm: 5,
+            },
+            despeckle: true,
+            skipBlankPages: false,
+            pageOverrides: {},
+        });
+        const updateMargin = vi.fn((target: keyof typeof settings.marginsMm, value: number) => {
+            settings.marginsMm[target] = value;
+        });
+        const harness = mount(defineComponent({setup: () => () => h(
+            ScanCleanupSettingsPanel,
+            {
+                ...settingsPanelProps(settings, 'all', {margins: {
+                    empty: false,
+                    mixed: false,
+                    value: settings.marginsMm,
+                }}),
+                'onUpdate-margin': updateMargin,
+            },
+        )}));
+
+        const top = harness.host.querySelector<HTMLInputElement>('[data-margin-side="topMm"]');
+        expect(top).not.toBeNull();
+        top!.value = '25';
+        top!.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+
+        expect(updateMargin).toHaveBeenCalledWith('topMm', 25);
+        expect(settings.marginsMm.topMm).toBe(25);
+    });
+
     it('starts the deskew stepper at the neutral angle and states the range it accepts', async () => {
         const settings = reactive({
             preserveOriginalQuality: false,
