@@ -1,0 +1,164 @@
+app/modules/pdf-viewer/engine/pdfPageDropdownModel.ts
+  s_a894d53b3b0855::t_74f2b65d31a3b6 3-6,16,56-57,70
+electron/features/agent/codexAssistantConfig.ts
+  s_a894d53b3b0855::t_cdd8c7f3c0896e 11,24-26
+  s_a894d53b3b0855::t_1bf14a28e889bd 22
+tests/unit/electron/agentAssistantConfig.test.ts
+  s_a894d53b3b0855::t_d1fc37f8dbfcad 15
+  s_a894d53b3b0855::t_4380fe60c3d1f5 79-80,94-95
+  s_b2ece6dfe48478::t_e4cac0da04a456 96-97
+app/modules/agent-panel/composables/useAssistantImageComposer.ts
+  s_a894d53b3b0855::t_d3c58f756c7dd6 96-97
+  s_a894d53b3b0855::t_afe68386ae140b 1
+  s_a894d53b3b0855::t_1bf14a28e889bd 72
+  s_a894d53b3b0855::t_b5ca42b69ebfa8 19-22,60-71,75-95,98-102,113,148,156-157,159
+tests/unit/app/modules/agent-panel/assistantSelectionLock.test.ts
+  s_a894d53b3b0855::t_03e115673f2f2f 76-79
+app/components/document-viewer/DocumentSearchResults.vue
+  s_a894d53b3b0855::t_99fdd919dd770c 115-118,127
+app/modules/agent-panel/utils/createAssistantSteering.ts
+  s_a894d53b3b0855::t_bc9de807f9a3b9 1-125
+electron/features/agent/createAssistantAppServerNotificationController.ts
+  s_a894d53b3b0855::t_1bf14a28e889bd 213
+app/modules/pdf-viewer/components/PdfSidebarPageNumbering.vue
+  s_a894d53b3b0855::t_5cf5ce1f743633 169,178,275
+electron/features/agent/assistantProviderStatus.ts
+  s_a894d53b3b0855::t_edffe42ae7c0e5 34,274
+electron/features/agent/buildAgentAssistantStateSnapshot.ts
+  s_a894d53b3b0855::t_e4a54af795f3f5 14,146
+app/modules/agent-panel/composables/useAgentAssistantPanelController.ts
+  s_a894d53b3b0855::t_473fe21f27c69b 66-68
+  s_a894d53b3b0855::t_9f4cb5c11663d1 147,977,980,982-986
+  s_a894d53b3b0855::t_f3255a83cb520e 832,834,851,854,865
+  s_a894d53b3b0855::t_78902693582478 956-961,973
+  s_a894d53b3b0855::t_1bf14a28e889bd 197
+  s_a894d53b3b0855::t_8b182c94efcac0 1110
+  s_a894d53b3b0855::t_e0222bff0ccd07 221-223
+  s_a894d53b3b0855::t_cec21101b94c2c 872-891
+  s_a894d53b3b0855::t_52717ac3d8191d 194-196,201-203,291,299,301
+  s_a894d53b3b0855::t_d3f8f871398257 923,938,947
+  s_a894d53b3b0855::t_d0f4bbe311db46 146,186-189,191
+  s_a894d53b3b0855::t_3f2bcd1b62848d 69
+  s_a894d53b3b0855::t_6904f9d028b59d 204
+  s_a894d53b3b0855::t_ba88afb5217620 931-934
+  s_a894d53b3b0855::t_a08b8e2db6769d 921
+  s_a894d53b3b0855::t_72ab3cf9760bf0 997,999,1027,1029
+  s_a894d53b3b0855::t_97cc688d0a5541 714,716
+app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue
+  s_a894d53b3b0855::t_52825f6276df2f 336
+  s_a894d53b3b0855::t_2279684a7cb899 276
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_a894d53b3b0855::t_b6cee3f14e52b6 664-689
+app/components/document-viewer/DocumentSearchPanel.vue
+  s_a894d53b3b0855::t_4f75e042281c41 34,47
+tests/unit/app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState.test.ts
+  s_a894d53b3b0855::t_121701914c8d61 8,60-101
+  s_a894d53b3b0855::t_d784009b31ba57 102-105
+  s_a894d53b3b0855::t_54488c1e5943f6 106
+app/components/document-viewer/DocumentSearchResultItem.vue
+  s_a894d53b3b0855::t_1b977e982e528c 30-33,40
+tests/unit/app/modules/agent-panel/assistantImageComposer.test.ts
+  s_a894d53b3b0855::t_5f99aac6902dbb 1-17,19,21,23,25-33,35-47,53-59,64-79,82-83,96-103,106-124,129-133,135-136,139-140,142-145,150-154,159-164,169-170,172-173,175-179,184-189,192-193
+  s_a894d53b3b0855::t_36ad7d2c4d2b66 22,134,137-138,141,171,174
+  s_a894d53b3b0855::t_a689b114de4f33 18,20,34,80-81,85-88,90-91
+  s_a894d53b3b0855::t_e49d4d3dac8f5e 104-105,190-191
+  s_a894d53b3b0855::t_39b3b791b479e5 24,48-52,60-63,84,89,92-95,125-128,146-149,155-158,165-168,180-183
+app/modules/pdf-viewer/components/PdfPageDropdown.vue
+  s_a894d53b3b0855::t_2a455202136456 105,120,164-170,172
+  s_a894d53b3b0855::t_17d7e54946fac7 171
+electron/features/agent/codexCli.ts
+  s_a894d53b3b0855::t_09cb209d448953 43-44
+  s_a894d53b3b0855::t_db18037676bd43 45
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_a894d53b3b0855::t_a79ca21f4595d6 115
+  s_a894d53b3b0855::t_61e773f0f0851c 745,1079,1363
+  s_a894d53b3b0855::t_f83562baa833cc 1364
+app/modules/workspace-shell/agent/createDocumentAgentPageLabels.ts
+  s_a894d53b3b0855::t_1d15cc6b983447 78-83,85,470-479
+  s_a894d53b3b0855::t_1bf14a28e889bd 862,887-889,892-893,896,898-901,904-905,916
+  s_a894d53b3b0855::t_d4e9e22118f48a 2
+  s_a894d53b3b0855::t_17d7e54946fac7 815
+  s_a894d53b3b0855::t_5f8b6c364e0327 84,816,827,857-859,876,878,895,897,902-903,906-915,1050,1058-1070
+  s_a894d53b3b0855::t_a5d1530c7a8300 860-861,867,869-875,877,879-886,890-891,894
+  s_a894d53b3b0855::t_82fc6d03a9908a 480-481
+app/modules/workspace-shell/agent/documentWorkspaceAgentTypes.ts
+  s_a894d53b3b0855::t_004bb10e685b66 89
+  s_a894d53b3b0855::t_d9c2d3c2ce41d9 21,88
+app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState.ts
+  s_a894d53b3b0855::t_b40280ccb69918 6-9,27,66,70,77-79
+  s_a894d53b3b0855::t_e4b2adf9949736 76
+  s_a894d53b3b0855::t_fd812067c43614 80
+tests/unit/app/modules/pdf-viewer/components/pdfPageDropdownModel.test.ts
+  s_a894d53b3b0855::t_afe68386ae140b 74-96,145-146
+  s_a894d53b3b0855::t_3e2026f5c934f4 12,97-144
+native/pdf-page-ops/src/incremental_document.rs
+  s_a894d53b3b0855::t_44cfb9e6521d30 807-811
+  s_a894d53b3b0855::t_afe68386ae140b 209
+  s_a894d53b3b0855::t_e0c931af79956f 801-804
+  s_a894d53b3b0855::t_bd5c273cbe32e7 205-208,759-800,805-806,812-827
+  s_a894d53b3b0855::t_339ab157348726 828
+app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract.ts
+  s_a894d53b3b0855::t_b890c3bce341a2 9,20
+electron/features/agent/codexCliReleaseManifest.ts
+  s_a894d53b3b0855::t_cdd8c7f3c0896e 1,30,38,46,54,62,70
+app/modules/pdf-viewer/components/PdfSidebar.vue
+  s_a894d53b3b0855::t_308d7e7bc5ca1e 152,163
+electron/features/agent/assistantRuntimeLifecycle.ts
+  s_a894d53b3b0855::t_08fd44a3c07e1c 66,301-305,308,392
+  s_a894d53b3b0855::t_ac5f68a507b616 309,314-316,347
+  s_a894d53b3b0855::t_ce7449408aada6 306
+tests/unit/app/modules/agent-panel/assistantPanelMountedLifecycle.test.ts
+  s_a894d53b3b0855::t_bc9de807f9a3b9 327,329-341
+  s_a894d53b3b0855::t_d7042c1a503afb 306-326,328,342-372
+  s_a894d53b3b0855::t_5d7e34b56793e6 58-66,163-175
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.test.ts
+  s_a894d53b3b0855::t_afe68386ae140b 365-366,381-390,447-449
+  s_a894d53b3b0855::t_f51b0feba3e94b 34,392-395,416-432,445
+  s_a894d53b3b0855::t_239285914af0a3 367-380,391,397-398,400-404,406-410,412-415,433-444,446,452-453,455-459,461-464,471-476
+  s_a894d53b3b0855::t_a689b114de4f33 10,396,399,405,411,451,454,460
+  s_a894d53b3b0855::t_74d2ce7f6906d2 450,465-470,477-478
+app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts
+  s_a894d53b3b0855::t_e2c0fab1083a66 200-201
+tests/unit/app/modules/pdf-viewer/composables/usePageLabelState.test.ts
+  s_a894d53b3b0855::t_afe68386ae140b 205-244
+app/modules/agent-panel/components/AgentAssistantPanel.vue
+  s_a894d53b3b0855::t_b9b9301aab74a7 464,481,740
+native/pdf-page-ops/tests/error_classification.rs
+  s_a894d53b3b0855::t_a886885fe83fb8 134
+  s_a894d53b3b0855::t_ba1d9d39687256 69-92,101-133,135-156
+  s_7f728abc5dd21b::t_604fd5f17ab4c9 157
+app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState.ts
+  s_a894d53b3b0855::t_1bf14a28e889bd 146-151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "adb0b43c9ce8a3ae370e75a9a69e24dcf4d86ec8",
+  "prompts": {},
+  "sessions": {
+    "s_7f728abc5dd21b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a5c-623e-7473-8c9c-c583d585e166",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_a894d53b3b0855": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a08-78c2-7052-bbff-16fdfa5dbe66",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
