@@ -1,0 +1,27 @@
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_b2ece6dfe48478::t_1cafe5d8e46e7d 663,697-702
+  s_b2ece6dfe48478::t_5998867a444715 425-604,616-656,658-662,664-682,694-696,703-704,707
+  s_b2ece6dfe48478::t_262d4c0a578ae7 605-615,683-693
+  s_b2ece6dfe48478::t_e257e9863ba1d8 113-129
+  s_b2ece6dfe48478::t_714150e9fd95e9 657
+  s_b2ece6dfe48478::t_fe286c5906c8ff 705-706,708-713
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_b2ece6dfe48478::t_91a10bc5f21864 594-595
+  s_b2ece6dfe48478::t_f9f85fcb777c6a 649-651
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "27baac1def31f654eb52a0b374ba437f8742c7c5",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
