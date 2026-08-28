@@ -104,6 +104,16 @@ describe('Electron E2E fixture policy', () => {
             .not.toThrow();
     });
 
+    it('opens an actionable Recent row from a sole empty tab without a close control', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/recentFiles.e2e.test.ts'),
+            'utf8',
+        );
+
+        expect(source).toContain('if (prewarmAtMs === null)');
+        expect(source).not.toContain('if (!currentTabCloseButton || prewarmAtMs === null)');
+    });
+
     it('rejects OCR completion artifacts that do not contain the expected semantic text', async () => {
         const outputPath = await createMultiPageTextFixturePdf('unit-ocr-semantic-output.pdf', 1);
 
