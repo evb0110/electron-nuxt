@@ -1,0 +1,25 @@
+app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts
+  s_01b20c0c2ba076::t_2aa710d886bb81 568
+  s_01b20c0c2ba076::t_6b23a2146fd98b 46
+app/modules/pdf-viewer/runtime/rendering/logPdfVisiblePresentationGap.ts
+  s_01b20c0c2ba076::t_2aa710d886bb81 3-9,11-12,20
+  s_01b20c0c2ba076::t_6b23a2146fd98b 1-2,10,13-19,21-22
+tests/unit/app/utils/pdfOutlineHelpers.test.ts
+  s_01b20c0c2ba076::t_420ad993b49b5d 147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2cd3a66028b2be99587e76bad5e37e17cc01a4b6",
+  "prompts": {},
+  "sessions": {
+    "s_01b20c0c2ba076": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d0-5c00-7ec3-bcd8-6640d2c492ca",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}
