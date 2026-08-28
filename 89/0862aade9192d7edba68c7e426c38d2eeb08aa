@@ -1,0 +1,19 @@
+tests/unit/app/platform/browserRecentFilesStore.test.ts
+  s_01b20c0c2ba076::t_cbc5899b5040a7 102-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "890862aade9192d7edba68c7e426c38d2eeb08aa",
+  "prompts": {},
+  "sessions": {
+    "s_01b20c0c2ba076": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d0-5c00-7ec3-bcd8-6640d2c492ca",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
