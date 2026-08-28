@@ -1,0 +1,20 @@
+electron/features/documents/main/documentFilePathResolution.ts
+  s_01b20c0c2ba076::t_da446fa573baa8 145-147,150-154,159-160
+  s_01b20c0c2ba076::t_91c4ee75abd0ac 109-120,126-132,148-149,155-158,161,279-282,295-302
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "baae3337720ee84e446d36d94c823750996c7fc9",
+  "prompts": {},
+  "sessions": {
+    "s_01b20c0c2ba076": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d0-5c00-7ec3-bcd8-6640d2c492ca",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
