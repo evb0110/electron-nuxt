@@ -1,0 +1,24 @@
+packages/contracts/imageExportPlatformFeature.ts
+  s_f464d4c848ac4b::t_d65e26986e2fc6 92-94
+electron/features/image-export/main/export.ts
+  s_f464d4c848ac4b::t_d65e26986e2fc6 114,813-817
+  s_f464d4c848ac4b::t_96ac3e65ac9894 113,525-528,531,540-552,554-555,557-558
+app/platform/browser-api/streamingImagePdfWriter.ts
+  s_f464d4c848ac4b::t_d65e26986e2fc6 27,158-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6b05155c95725302f1d88dba001a52dc3c2eb296",
+  "prompts": {},
+  "sessions": {
+    "s_f464d4c848ac4b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d0-a8bf-7f23-b6e8-df07c6b04b53",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
