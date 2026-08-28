@@ -399,7 +399,7 @@ export function resolveCatalogPath(
     return join(catalogRoot, relativePath);
 }
 
-async function assertCatalogRegularFile(
+export async function assertCatalogRegularFile(
     filePath: string,
     displayPath = filePath,
     catalogRoot?: string,
@@ -514,7 +514,7 @@ async function assertCatalogRegularFile(
     return true;
 }
 
-async function readBoundedFileContents(
+export async function readBoundedFileContents(
     file: FileHandle,
     displayPath: string,
     maxBytes = OCR_CATALOG_JSON_MAX_BYTES,
@@ -569,7 +569,7 @@ export async function readCatalogFile(
     }
 }
 
-async function readJsonFile(filePath: string, displayPath: string, catalogRoot?: string): Promise<unknown | null> {
+export async function readJsonFile(filePath: string, displayPath: string, catalogRoot?: string): Promise<unknown | null> {
     if (!await assertCatalogRegularFile(filePath, displayPath, catalogRoot)) {
         return null;
     }
@@ -591,7 +591,7 @@ async function readJsonFile(filePath: string, displayPath: string, catalogRoot?:
 }
 
 /** Reads only the bounded root prefix and rechecks its size on the same fd. */
-async function readRootPrefix(
+export async function readRootPrefix(
     filePath: string,
 ): Promise<{
     raw: Buffer;
@@ -638,7 +638,7 @@ async function readRootPrefix(
     }
 }
 
-function hasV4VersionMarker(rawText: string): boolean {
+export function hasV4VersionMarker(rawText: string): boolean {
     return /"version"\s*:\s*(?:4(?:\D|$)|"4"(?:\s*[,}]))/u.test(rawText);
 }
 
@@ -684,7 +684,7 @@ function validateIndexRecord(
     return record;
 }
 
-async function readExactly(
+export async function readExactly(
     file: FileHandle,
     buffer: Buffer,
     position: number,
@@ -707,7 +707,7 @@ async function readExactly(
     }
 }
 
-async function assertIndexByteLength(indexPath: string, expectedLength: number): Promise<void> {
+export async function assertIndexByteLength(indexPath: string, expectedLength: number): Promise<void> {
     let fileStat;
     try {
         fileStat = await stat(indexPath);
@@ -721,7 +721,7 @@ async function assertIndexByteLength(indexPath: string, expectedLength: number):
     }
 }
 
-async function assertOpenFileByteLength(
+export async function assertOpenFileByteLength(
     file: FileHandle,
     expectedLength: number,
     displayPath: string,
@@ -880,7 +880,7 @@ async function readIndexRecords(
     }
 }
 
-function canonicalPathParts(path: string) {
+export function canonicalPathParts(path: string) {
     const match = CANONICAL_PAGE_PATH.exec(path);
     if (!match) {
         return null;
@@ -1616,7 +1616,7 @@ class OcrCatalogV3Handle implements IOcrCatalogHandle {
     }
 }
 
-type TOcrCatalogRootProbe =
+export type TOcrCatalogRootProbe =
     | {
         kind: 'v4';
         value: unknown
@@ -1674,7 +1674,7 @@ async function openV4Catalog(
     });
 }
 
-async function readCatalogRoot(catalogRoot: string): Promise<TOcrCatalogRootProbe | null> {
+export async function readCatalogRoot(catalogRoot: string): Promise<TOcrCatalogRootProbe | null> {
     const rootPath = join(catalogRoot, OCR_CATALOG_MANIFEST_FILENAME);
     if (!await assertCatalogRegularFile(rootPath, OCR_CATALOG_MANIFEST_FILENAME, catalogRoot)) {
         return null;

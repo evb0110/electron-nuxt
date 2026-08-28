@@ -363,6 +363,19 @@ function setCanonicalPage(
     canonicalByPage.set(page.pageNumber, page);
 }
 
+function setCanonicalOcrCatalogPage(
+    canonicalByPage: Map<number, IDocumentTextCatalogPage>,
+    pageNumber: number,
+    artifact: TOcrPageArtifact,
+    languages: readonly string[] | undefined,
+    budget: ITextBudget,
+) {
+    const page = createOcrCatalogPage(pageNumber, artifact, languages);
+    if (page) {
+        setCanonicalPage(canonicalByPage, asTextOnlyCatalogPage(page), budget);
+    }
+}
+
 function asTextOnlyCatalogPage(page: IDocumentTextCatalogPage): IDocumentTextCatalogPage {
     const {
         words: _words,
@@ -642,10 +655,7 @@ async function visitDocumentTextCatalogPages(
                     if (!artifact) {
                         continue;
                     }
-                    const page = createOcrCatalogPage(pageNumber, artifact, languages);
-                    if (page) {
-                        setCanonicalPage(canonicalByPage, asTextOnlyCatalogPage(page), budget);
-                    }
+                    setCanonicalOcrCatalogPage(canonicalByPage, pageNumber, artifact, languages, budget);
                 }
             }
             await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
@@ -784,10 +794,7 @@ export async function resolveDocumentTextCatalogSnapshot(
                 pageNumber,
                 artifact,
             } of catalog.iterateMappedPages()) {
-                const page = createOcrCatalogPage(pageNumber, artifact, languages);
-                if (page) {
-                    setCanonicalPage(canonicalByPage, asTextOnlyCatalogPage(page), budget);
-                }
+                setCanonicalOcrCatalogPage(canonicalByPage, pageNumber, artifact, languages, budget);
             }
         }
         await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
