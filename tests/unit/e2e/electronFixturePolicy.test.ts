@@ -171,6 +171,7 @@ describe('Electron E2E fixture policy', () => {
 
         expect(source.match(/EVB_PDF_IMAGE_COMBINE_ENABLE/gu)).toHaveLength(1);
         expect(source).toContain('EVB_PDF_IMAGE_COMBINE_ENABLE: \'1\'');
+        expect(source).toContain('EVB_PDF_NATIVE_ASSEMBLER_ENABLE: \'1\'');
         expect(fixtureSource).toContain('if (clean && !hard && !restartOptions.extraEnv)');
         expect(fixtureSource).toContain('extraEnv: restartOptions.extraEnv');
     });

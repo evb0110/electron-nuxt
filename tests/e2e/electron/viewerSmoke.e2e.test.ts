@@ -3221,7 +3221,10 @@ describe('Electron E2E - Viewer Smoke', () => {
 
         session = await sessionFixture.restart({
             clean: true,
-            extraEnv: {EVB_PDF_IMAGE_COMBINE_ENABLE: '1'},
+            extraEnv: {
+                EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
+                EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1',
+            },
             sessionName: () => `e2e-viewer-smoke-image-${Date.now()}`,
         });
         if (!session) {
