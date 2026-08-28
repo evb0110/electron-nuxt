@@ -1,0 +1,25 @@
+docs/scan-cleanup-feature-audit-2026-08-22.md
+  s_5ac4a3281ca4f3::t_d3eeade3f1b56a 44-46
+tests/unit/electron/cropWorkerCancellation.test.ts
+  s_5ac4a3281ca4f3::t_b3634bebdd9cf8 1-69
+electron/features/page-ops/main/cropWorker.ts
+  s_5ac4a3281ca4f3::t_6110fcb542aaf3 62
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_5ac4a3281ca4f3::t_9abd11d259ef37 63-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "72a5df6af8f5512f2aa735746f2341f6e85dc8d3",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
