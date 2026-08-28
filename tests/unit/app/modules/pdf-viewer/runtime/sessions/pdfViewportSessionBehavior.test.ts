@@ -14,6 +14,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {yieldToBrowser} from '@app/utils/yieldToBrowser';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     IPdfDocumentTransition,
@@ -596,6 +597,10 @@ describe('PdfViewportSession behavior', () => {
             const physicalEpoch = fixture.viewport.userPhysicalNavigationEpoch.value;
 
             const endReplacement = fixture.viewport.beginLayoutGeometryReplacement();
+            const cancelProgrammaticNavigation = vi.spyOn(
+                fixture.viewport.singlePageScroll,
+                'cancelProgrammaticNavigation',
+            );
             fixture.container.scrollTop = 4_000;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
 
@@ -604,10 +609,12 @@ describe('PdfViewportSession behavior', () => {
             // advances, but it is not the user taking the viewport.
             expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(interactionEpoch + 1);
             expect(fixture.viewport.userPhysicalNavigationEpoch.value).toBe(physicalEpoch);
+            expect(cancelProgrammaticNavigation).not.toHaveBeenCalled();
 
             // Trusted wheel or pointer input is authoritative even mid-replacement.
             fixture.viewport.markUserViewportInteraction();
             expect(fixture.viewport.userPhysicalNavigationEpoch.value).toBe(physicalEpoch + 1);
+            expect(cancelProgrammaticNavigation).toHaveBeenCalledOnce();
 
             endReplacement();
             fixture.container.scrollTop = 6_000;
@@ -637,6 +644,8 @@ describe('PdfViewportSession behavior', () => {
             await vi.waitFor(() => {
                 expect(fixture.viewport.singlePageScroll.navigationAnchorPage.value).toBe(1);
             });
+            await yieldToBrowser();
+            await yieldToBrowser();
 
             fixture.container.scrollTop = 10_000;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);

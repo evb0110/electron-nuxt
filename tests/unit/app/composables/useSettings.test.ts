@@ -144,6 +144,7 @@ describe('useSettings', () => {
     });
 
     it('retries a failed settings save with the latest dirty payload', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         vi.useFakeTimers();
         mockSave
             .mockRejectedValueOnce(new Error('temporary failure'))

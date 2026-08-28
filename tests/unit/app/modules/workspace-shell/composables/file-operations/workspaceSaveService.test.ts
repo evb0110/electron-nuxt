@@ -137,6 +137,7 @@ describe('workspaceSaveService', () => {
     });
 
     it('stops stale revision save retries after the bounded retry budget', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const staleError = createStaleRevisionError({
             documentRef: '/tmp/work.pdf',
             expectedRevision: requireDocumentRevisionToken('drt1:test:before-save'),
@@ -215,6 +216,7 @@ describe('workspaceSaveService', () => {
     });
 
     it('restores pending embedded text updates when the original save target changes before persistence', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const notePersistence = createDeferred<boolean>();
         const pendingTexts = new Map<string, string>();
         pendingTexts.set('ann:0:3856R', 'Updated note');
@@ -336,6 +338,7 @@ describe('workspaceSaveService', () => {
     });
 
     it('skips native mutation persistence when the working copy target changes before the native write', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const notePersistence = createDeferred<boolean>();
         const pendingTexts = new Map<string, string>();
         pendingTexts.set('ann:0:3856R', 'Updated note');

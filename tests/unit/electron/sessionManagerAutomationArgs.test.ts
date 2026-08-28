@@ -69,9 +69,11 @@ import {
     setCurrentSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import {
+    classifyRendererBindingReadiness,
     isElectronAppPageUrl,
     isNuxtDevServerUrl,
     isRendererReadinessError,
+    selectNewestElectronAppPage,
 } from '@scripts/electron-run/rendererReadiness';
 const rootPackage = JSON.parse(await readFile('package.json', 'utf8')) as {version: string};
 
@@ -566,6 +568,48 @@ describe('sessionManager automation launch args', () => {
         expect(isRendererReadinessError(new Error('Renderer startup timed out after 30000ms'))).toBe(true);
         expect(isRendererReadinessError(new Error('frame was detached'))).toBe(false);
         expect(isRendererReadinessError(new Error('VITE_OPTIMIZE_DEP_504'))).toBe(false);
+    });
+
+    it('detects a hydrated renderer with missing preload bindings as retryable', () => {
+        expect(classifyRendererBindingReadiness({
+            bodyExists: true,
+            bodyTextLength: 12,
+            bodyTextSnippet: 'EVB Viewer',
+            electronAPI: 'undefined',
+            nuxtRootChildren: 1,
+            openFileDirect: 'undefined',
+            url: 'http://127.0.0.1:3235/electron',
+        })).toBe('retryable-preload-missing');
+    });
+
+    it('polls the newest Electron app target instead of serially waiting on a stale page', async () => {
+        const stalePage = {
+            isClosed: () => false,
+            url: () => 'http://127.0.0.1:3235/electron',
+        };
+        const unrelatedPage = {
+            isClosed: () => false,
+            url: () => 'http://127.0.0.1:3235/settings',
+        };
+        const newestPage = {
+            isClosed: () => false,
+            url: () => 'http://127.0.0.1:3235/electron',
+        };
+        const closedReplacement = {
+            isClosed: () => true,
+            url: () => 'http://127.0.0.1:3235/electron',
+        };
+
+        expect(selectNewestElectronAppPage([
+            stalePage,
+            unrelatedPage,
+            newestPage,
+            closedReplacement,
+        ])).toBe(newestPage);
+
+        const source = await readFile('scripts/electron-run/rendererReadiness.ts', 'utf8');
+        expect(source).not.toContain('waitForSelector(\'body\', { timeout: 30000 })');
+        expect(source).not.toContain('waitForSelector(\'body\', { timeout: 15000 })');
     });
 
     it('treats failed Nuxt HTTP readiness probes as not ready', async () => {

@@ -203,6 +203,7 @@ describe('useAppShellTabLifecycle', () => {
     });
 
     it('delegates workspace close commands to the document controller transaction', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const pane = {
             paneId: 'pane-1',
             activeTabId: 'tab-1',

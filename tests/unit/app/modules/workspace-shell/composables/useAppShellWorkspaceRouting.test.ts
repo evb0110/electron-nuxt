@@ -714,6 +714,7 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('removes a rejected pending tab and continues the drop batch in a fresh tab', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
@@ -1125,6 +1126,7 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('removes a title-only pending tab when its open rejects', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());

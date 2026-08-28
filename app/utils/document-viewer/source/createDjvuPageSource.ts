@@ -147,7 +147,18 @@ export async function createDjvuPageSource(
         if (!transientLease) {
             throw new RangeError('DjVu preview exceeds the available raster surface budget');
         }
-        const cancelPreview = () => previewSource.cancelPagePreview?.(request.pageNumber, previewRequestId);
+        let transientLeaseReleased = false;
+        const releaseTransientLease = () => {
+            if (transientLeaseReleased) {
+                return;
+            }
+            transientLeaseReleased = true;
+            transientLease.release();
+        };
+        const cancelPreview = () => {
+            releaseTransientLease();
+            previewSource.cancelPagePreview?.(request.pageNumber, previewRequestId);
+        };
         request.signal.addEventListener('abort', cancelPreview, {once: true});
         let rendered;
         try {
@@ -158,7 +169,7 @@ export async function createDjvuPageSource(
             });
         } finally {
             request.signal.removeEventListener('abort', cancelPreview);
-            transientLease.release();
+            releaseTransientLease();
         }
         if (request.signal.aborted) {
             releaseUrl(rendered.objectUrl);

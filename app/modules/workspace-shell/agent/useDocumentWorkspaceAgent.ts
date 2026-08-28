@@ -19,7 +19,6 @@ import {
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentActionRegistry';
 import { createDocumentWorkspaceAgentParsers } from '@app/modules/workspace-shell/agent/createDocumentWorkspaceAgentParsers';
 export type { IOcrPopupAgentExpose } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
-
 export const DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS = [
     'ui.open_sidebar_tab',
     'ui.toggle_sidebar',

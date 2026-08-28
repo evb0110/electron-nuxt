@@ -61,12 +61,12 @@ async function prepareThumbnailRail(
         const root = payload.documentKind === 'pdf'
             ? host?.querySelector<HTMLElement>('.pdf-sidebar-pages-thumbnails .pdf-thumbnails') ?? null
             : host?.querySelector<HTMLElement>('[data-testid="document-thumbnail-list"]') ?? null;
-        const item = payload.documentKind === 'pdf'
-            ? root?.querySelector<HTMLElement>(`.pdf-thumbnail[data-page="${String(payload.targetPageNumber)}"]`) ?? null
-            : root?.querySelector<HTMLElement>(`[data-thumbnail-page="${String(payload.targetPageNumber)}"]`) ?? null;
         if (!root || root.clientHeight <= 0) {
             return false;
         }
+        const item = payload.documentKind === 'pdf'
+            ? root.querySelector<HTMLElement>(`.pdf-thumbnail[data-page="${String(payload.targetPageNumber)}"]`)
+            : root.querySelector<HTMLElement>(`[data-thumbnail-page="${String(payload.targetPageNumber)}"]`);
         if (!item) {
             // A virtualized rail only mounts items near the scroll position, so
             // sweep until the target page mounts instead of waiting forever.
@@ -78,32 +78,17 @@ async function prepareThumbnailRail(
         }
         const rootRect = root.getBoundingClientRect();
         const itemRect = item.getBoundingClientRect();
-        root.scrollTop += itemRect.top + (itemRect.height / 2) - rootRect.top - (rootRect.height / 2);
-        root.dispatchEvent(new Event('scroll', {bubbles: true}));
-        return true;
-    }, {timeout: CONTINUITY_TIMEOUT_MS}, {
-        documentKind,
-        targetPageNumber,
-    });
-
-    await page.waitForFunction((payload: {
-        documentKind: TSplitPaneCloseDocumentKind;
-        targetPageNumber: number;
-    }) => {
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const root = payload.documentKind === 'pdf'
-            ? host?.querySelector<HTMLElement>('.pdf-sidebar-pages-thumbnails .pdf-thumbnails') ?? null
-            : host?.querySelector<HTMLElement>('[data-testid="document-thumbnail-list"]') ?? null;
-        const item = payload.documentKind === 'pdf'
-            ? root?.querySelector<HTMLElement>(`.pdf-thumbnail[data-page="${String(payload.targetPageNumber)}"]`) ?? null
-            : root?.querySelector<HTMLElement>(`[data-thumbnail-page="${String(payload.targetPageNumber)}"]`) ?? null;
-        const canvas = item?.querySelector<HTMLCanvasElement>('canvas') ?? null;
-        const image = item?.querySelector<HTMLImageElement>('img') ?? null;
-        if (!root || !item || root.clientHeight <= 0) {
+        const centerDelta = itemRect.top
+            + (itemRect.height / 2)
+            - rootRect.top
+            - (rootRect.height / 2);
+        if (Math.abs(centerDelta) > 1) {
+            root.scrollTop += centerDelta;
+            root.dispatchEvent(new Event('scroll', {bubbles: true}));
             return false;
         }
-        const rootRect = root.getBoundingClientRect();
-        const itemRect = item.getBoundingClientRect();
+        const canvas = item.querySelector<HTMLCanvasElement>('canvas');
+        const image = item.querySelector<HTMLImageElement>('img');
         const visible = Math.min(rootRect.bottom, itemRect.bottom) - Math.max(rootRect.top, itemRect.top) > 8;
         return visible && Boolean(
             (canvas && canvas.width > 0 && canvas.height > 0)

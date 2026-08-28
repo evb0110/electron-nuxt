@@ -53,6 +53,7 @@ describe('useWindowTabTransfers', () => {
     });
 
     it('cleans prepared payloads when platform transfer throws', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const payload = createPayload();
         const tab = {
             id: 'tab-1',
@@ -114,6 +115,7 @@ describe('useWindowTabTransfers', () => {
     });
 
     it('cleans a split snapshot that resolves after capture timeout relinquishes ownership', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         vi.useFakeTimers();
         try {
             const payload = createPayload();

@@ -312,6 +312,57 @@ describe('document page sources', () => {
         source.dispose();
     });
 
+    it('releases the transient DjVu reservation before canceled native work settles', async () => {
+        let resolveRender!: (value: {
+            objectUrl: string;
+            renderedPx: number;
+        }) => void;
+        const previewSource = {
+            cancelPagePreview: vi.fn(),
+            getPageSizes: vi.fn().mockResolvedValue([{
+                width: 1_200,
+                height: 1_800,
+                dpi: 300,
+            }]),
+            renderPageObjectUrl: vi.fn(() => new Promise<{
+                objectUrl: string;
+                renderedPx: number;
+            }>((resolve) => {
+                resolveRender = resolve;
+            })),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        } satisfies IPagePreviewSource;
+        const budget = createWorkspaceSurfaceBudgetController();
+        const source = await createDjvuPageSource('book.djvu', previewSource, budget);
+        const controller = new AbortController();
+        const render = source.renderPage({
+            pageNumber: 1,
+            widthPx: 200,
+            priority: 'visible',
+            signal: controller.signal,
+        });
+
+        await vi.waitFor(() => expect(previewSource.renderPageObjectUrl).toHaveBeenCalledOnce());
+        expect(budget.getSnapshot().reservedBytesByCategory['djvu-preview']).toBeGreaterThan(0);
+
+        controller.abort();
+
+        expect(previewSource.cancelPagePreview).toHaveBeenCalledWith(
+            1,
+            expect.stringMatching(/^djvu-page-source:\d+:1:1$/u),
+        );
+        expect(budget.getSnapshot().reservedBytesByCategory['djvu-preview']).toBe(0);
+
+        resolveRender({
+            objectUrl: 'blob:late-canceled-page',
+            renderedPx: 200,
+        });
+        await expect(render).rejects.toThrow();
+        expect(previewSource.revokeObjectURL).toHaveBeenCalledWith('blob:late-canceled-page');
+        source.dispose();
+    });
+
     it('revokes a late DjVu.js URL after abort without committing a retained lease', async () => {
         let resolveRender!: (value: {
             objectUrl: string;

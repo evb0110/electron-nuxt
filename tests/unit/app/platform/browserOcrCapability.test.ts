@@ -82,6 +82,7 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
     });
 
     it('wires the browser platform to the unavailable OCR capability', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const { browserPlatformApi } = await import('@app/platform/browserPlatformApi');
 
         await expect(browserPlatformApi.ocr.createSearchablePdf('/tmp/source.pdf', [], 'request-4'))

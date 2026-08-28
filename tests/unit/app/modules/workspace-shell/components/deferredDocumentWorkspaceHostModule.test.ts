@@ -54,6 +54,7 @@ afterEach(() => {
 
 describe('DeferredDocumentWorkspaceHost module', () => {
     it('executes the compiled host setup in the unit-app runtime', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const { default: DeferredDocumentWorkspaceHost } = await import(
             '@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue'
         );

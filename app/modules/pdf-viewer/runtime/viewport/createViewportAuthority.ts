@@ -51,9 +51,11 @@ interface IPdfViewportAppliedPosition {
 interface IViewportAuthorityDependencies {
     getDocumentRevision(): number;
     getGeometryRevision(): number;
+    beginLayoutGeometryReplacement?: (() => () => void) | undefined;
     resolve(intent: IPdfViewportIntent, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
     awaitMetrics(intent: IPdfViewportIntent, signal: AbortSignal): Promise<unknown>;
     awaitSlots(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
+    awaitLayoutGeometrySettled?(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
     refine?(intent: IPdfViewportIntent, commit: IPdfViewportResolvedCommit, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
     apply(
         intent: IPdfViewportIntent,
@@ -81,6 +83,53 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     let interactionEpoch = 0;
     let controller: AbortController | null = null;
     const terminal = new Map<string, 'settled' | 'cancelled'>();
+    const geometryReplacements = new Map<string, {
+        end: () => void;
+        token: symbol;
+    }>();
+
+    function endGeometryReplacement(intentId: string, token?: symbol) {
+        const replacement = geometryReplacements.get(intentId);
+        if (!replacement || (token && replacement.token !== token)) {
+            return;
+        }
+        geometryReplacements.delete(intentId);
+        replacement.end();
+    }
+
+    function beginGeometryReplacement(intentId: string) {
+        endGeometryReplacement(intentId);
+        if (!deps.beginLayoutGeometryReplacement) {
+            return null;
+        }
+        const token = Symbol(intentId);
+        geometryReplacements.set(intentId, {
+            end: deps.beginLayoutGeometryReplacement(),
+            token,
+        });
+        return token;
+    }
+
+    function scheduleGeometryReplacementEnd(
+        intent: IPdfViewportIntent,
+        signal: AbortSignal,
+        token: symbol | null,
+    ) {
+        if (!token || !deps.awaitLayoutGeometrySettled) {
+            return;
+        }
+        void deps.awaitLayoutGeometrySettled(intent, signal).then(
+            () => endGeometryReplacement(intent.id, token),
+            () => endGeometryReplacement(intent.id, token),
+        );
+    }
+
+    function rearmGeometryReplacement(intent: IPdfViewportIntent, signal: AbortSignal) {
+        if (!intent.navigation) {
+            return;
+        }
+        scheduleGeometryReplacementEnd(intent, signal, beginGeometryReplacement(intent.id));
+    }
 
     function isCurrent(
         intent: IPdfViewportIntent,
@@ -116,6 +165,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     }
 
     function finish(intent: IPdfViewportIntent, outcome: 'settled' | 'cancelled') {
+        endGeometryReplacement(intent.id);
         if (terminal.has(intent.id)) {
             return;
         }
@@ -153,9 +203,13 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             ...intent,
             interactionEpoch: intent.interactionEpoch ?? interactionEpoch,
         };
+        const initialGeometryReplacement = next.navigation
+            ? beginGeometryReplacement(next.id)
+            : null;
         activeIntent.value = next;
         controller = new AbortController();
         const {signal} = controller;
+        scheduleGeometryReplacementEnd(next, signal, initialGeometryReplacement);
         let expectedGeometryRevision = next.geometryRevision;
         try {
             phase.value = 'awaiting-metrics';
@@ -164,12 +218,14 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 expectedGeometryRevision = hydratedGeometryRevision;
             }
             assertCurrent(next, signal, expectedGeometryRevision);
+            rearmGeometryReplacement(next, signal);
             phase.value = 'resolving';
             let commit = await deps.resolve(next, signal);
             assertCurrent(next, signal, expectedGeometryRevision);
             phase.value = 'awaiting-slots';
             await deps.awaitSlots(next, signal);
             assertCurrentIntent(next, signal);
+            rearmGeometryReplacement(next, signal);
             expectedGeometryRevision = deps.getGeometryRevision();
             if (deps.refine) {
                 commit = await deps.refine(next, commit, signal);

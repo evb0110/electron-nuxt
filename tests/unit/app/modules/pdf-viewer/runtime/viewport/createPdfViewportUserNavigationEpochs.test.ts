@@ -9,8 +9,9 @@ describe('createPdfViewportUserNavigationEpochs', () => {
     it('treats an ordinary scroll as physical navigation', () => {
         const epochs = createPdfViewportUserNavigationEpochs();
 
-        epochs.markScrollInteraction();
+        const isPhysicalNavigation = epochs.markScrollInteraction();
 
+        expect(isPhysicalNavigation).toBe(true);
         expect(epochs.userViewportInteractionEpoch.value).toBe(1);
         expect(epochs.userPhysicalNavigationEpoch.value).toBe(1);
     });
@@ -19,14 +20,14 @@ describe('createPdfViewportUserNavigationEpochs', () => {
         const epochs = createPdfViewportUserNavigationEpochs();
         const endReplacement = epochs.beginLayoutGeometryReplacement();
 
-        epochs.markScrollInteraction();
-        epochs.markScrollInteraction();
+        expect(epochs.markScrollInteraction()).toBe(false);
+        expect(epochs.markScrollInteraction()).toBe(false);
 
         expect(epochs.userViewportInteractionEpoch.value).toBe(2);
         expect(epochs.userPhysicalNavigationEpoch.value).toBe(0);
 
         endReplacement();
-        epochs.markScrollInteraction();
+        expect(epochs.markScrollInteraction()).toBe(true);
 
         expect(epochs.userPhysicalNavigationEpoch.value).toBe(1);
     });

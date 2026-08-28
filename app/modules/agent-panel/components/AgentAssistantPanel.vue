@@ -538,7 +538,6 @@
                     </form>
                 </template>
             </template>
-
             <div
                 v-if="!hasComposer"
                 class="agent-assistant-composer agent-assistant-composer-reserve"
@@ -786,6 +785,5 @@ const {
     widthVar,
 } = useAgentAssistantPanelController(props);
 </script>
-
 <style scoped src="./AgentAssistantPanel.shell.css"></style>
 <style scoped src="./AgentAssistantPanel.composer.css"></style>

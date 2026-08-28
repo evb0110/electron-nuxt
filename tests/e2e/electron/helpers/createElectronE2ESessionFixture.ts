@@ -22,11 +22,12 @@ interface IElectronE2ESessionRestartOptions {
     clean?: boolean;
     hard?: boolean;
     keepNuxt?: boolean;
+    extraEnv?: Record<string, string>;
 }
 
 interface IElectronE2ESessionFixtureControls {
     getSession: () => IElectronE2ESession | null;
-    start: (options?: Pick<IElectronE2ESessionRestartOptions, 'sessionName' | 'clean'>) => Promise<IElectronE2ESession | null>;
+    start: (options?: Pick<IElectronE2ESessionRestartOptions, 'sessionName' | 'clean' | 'extraEnv'>) => Promise<IElectronE2ESession | null>;
     restart: (options?: IElectronE2ESessionRestartOptions) => Promise<IElectronE2ESession | null>;
     resetForE2E: () => Promise<IElectronE2ESession | null>;
     stop: (options?: { preserveArtifacts?: boolean }) => Promise<void>;
@@ -35,6 +36,7 @@ interface IElectronE2ESessionFixtureControls {
 interface IElectronE2ESessionFixtureOptions {
     sessionName: TSessionNameFactory;
     clean?: boolean;
+    extraEnv?: Record<string, string>;
     restartBeforeEach?: boolean;
     timeoutMs?: number;
 }
@@ -63,13 +65,17 @@ function createElectronE2ESessionFixtureWithStarter(
             }
             throw new Error('Electron E2E session is not initialized; the suite boot hook may not have completed.');
         },
-        start: async (startOptions: Pick<IElectronE2ESessionRestartOptions, 'sessionName' | 'clean'> = {}) => {
+        start: async (startOptions: Pick<IElectronE2ESessionRestartOptions, 'sessionName' | 'clean' | 'extraEnv'> = {}) => {
             try {
                 await controls.stop();
                 sessionName = startOptions.sessionName
                     ? resolveSessionName(startOptions.sessionName)
                     : sessionName;
-                session = await startSession(sessionName, {clean: startOptions.clean ?? true});
+                const extraEnv = startOptions.extraEnv ?? options.extraEnv;
+                session = await startSession(sessionName, {
+                    clean: startOptions.clean ?? true,
+                    ...(extraEnv ? {extraEnv} : {}),
+                });
                 bootFailure = null;
                 return session;
             } catch (error) {
@@ -86,7 +92,7 @@ function createElectronE2ESessionFixtureWithStarter(
             try {
                 const clean = restartOptions.clean ?? true;
                 const hard = restartOptions.hard ?? false;
-                if (clean && !hard) {
+                if (clean && !hard && !restartOptions.extraEnv) {
                     await previousSession.resetForE2E();
                     return previousSession;
                 }
@@ -124,6 +130,9 @@ function createElectronE2ESessionFixtureWithStarter(
                 session = await controls.start({
                     sessionName,
                     clean,
+                    ...(restartOptions.extraEnv
+                        ? {extraEnv: restartOptions.extraEnv}
+                        : {}),
                 });
                 return session;
             } catch (error) {
@@ -148,7 +157,10 @@ function createElectronE2ESessionFixtureWithStarter(
     beforeAll(async () => {
         try {
             sessionName = resolveSessionName(options.sessionName);
-            session = await startSession(sessionName, {clean: options.clean ?? true});
+            session = await startSession(sessionName, {
+                clean: options.clean ?? true,
+                ...(options.extraEnv ? {extraEnv: options.extraEnv} : {}),
+            });
             bootFailure = null;
         } catch (error) {
             bootFailure = formatElectronE2ESessionFailure('Electron E2E session boot failed.', error);

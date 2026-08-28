@@ -28,6 +28,7 @@ import {
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
+    waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     findCommittedSurfaceCausalOpenViolations,
@@ -998,11 +999,16 @@ describe('standard PDF.js fit-mode continuity', () => {
         // Sidebar closed: presentation must not change the fit contract.
         const toggleSidebar = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
         expect(toggleSidebar.called).toBe(true);
+        await waitForWorkspaceToolbarSnapshot(session.page, {showSidebar: false}, {timeoutMs: SETTLE_TIMEOUT_MS});
         await waitForFunctionInPage(session.page, () => {
             const activeHost = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
             ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            return activeHost?.querySelector('.sidebar-wrapper.is-closed') !== null;
+            const sidebar = activeHost?.querySelector<HTMLElement>('.sidebar-wrapper') ?? null;
+            return sidebar?.classList.contains('is-closed') === true
+                && sidebar.hasAttribute('inert')
+                && sidebar.getAttribute('aria-hidden') === 'true'
+                && sidebar.getBoundingClientRect().width <= 0.5;
         }, {timeout: SETTLE_TIMEOUT_MS});
         await waitForFitSettlement(session, DEEP_PAGE);
 

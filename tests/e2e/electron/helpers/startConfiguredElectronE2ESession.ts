@@ -1,5 +1,9 @@
 import type {TPerformanceMode} from '@contracts/hostResourceProfile';
-import {BROWSER_SETTINGS_COOKIE_KEY} from '@app/utils/browserSettingsPersistence';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
+import {
+    BROWSER_SETTINGS_COOKIE_KEY,
+    serializeBrowserSettingsPayload,
+} from '@app/utils/browserSettingsPersistence';
 import {
     stabilizeSharedRendererClient,
     startElectronE2ESession,
@@ -20,6 +24,7 @@ async function setReducedMotionPreference(page: Parameters<typeof stabilizeShare
 export async function startConfiguredElectronE2ESession(
     baseName: string,
     performanceMode: TPerformanceMode,
+    extraEnv: Record<string, string> = {},
 ) {
     // The env override drives the main-process profile; the settings cookie
     // drives the renderer fallback used by harness-adopted windows that carry
@@ -27,18 +32,22 @@ export async function startConfiguredElectronE2ESession(
     const session = await startElectronE2ESession(baseName, {
         clean: true,
         extraEnv: {
+            ...extraEnv,
             EVB_E2E_FORCE_NO_REDUCED_MOTION: '1',
             EVB_TEST_PERFORMANCE_MODE: performanceMode,
         },
     });
     await session.page.evaluate((payload: {
         cookieKey: string;
-        performanceMode: TPerformanceMode;
+        settingsPayload: string;
     }) => {
-        document.cookie = `${payload.cookieKey}=${encodeURIComponent(JSON.stringify({performanceMode: payload.performanceMode}))}; path=/`;
+        document.cookie = `${payload.cookieKey}=${encodeURIComponent(payload.settingsPayload)}; path=/`;
     }, {
         cookieKey: BROWSER_SETTINGS_COOKIE_KEY,
-        performanceMode,
+        settingsPayload: serializeBrowserSettingsPayload({
+            ...DEFAULT_SETTINGS,
+            performanceMode,
+        }),
     });
     // Apply the neutral media baseline before the configured reload. The
     // performance-profile plugin reads matchMedia during module startup, so

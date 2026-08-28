@@ -1204,6 +1204,27 @@ async function readActiveViewerCurrentPageState(page: Page) {
     return (await getWorkspaceToolbarSnapshot(page))?.currentPage ?? null;
 }
 
+export async function dismissScanCleanupFirstRunGuidance(
+    page: Page,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
+    const selector = '.scan-cleanup-first-run-guidance';
+    const guidance = await page.$(selector);
+    if (!guidance) {
+        return false;
+    }
+    const dismissButton = await guidance.$('button');
+    if (!dismissButton) {
+        throw new Error('Scan Cleanup first-run guidance has no dismiss button');
+    }
+    await dismissButton.click();
+    await page.waitForSelector(selector, {
+        hidden: true,
+        timeout: timeoutMs,
+    });
+    return true;
+}
+
 export async function goToPageViaToolbar(page: Page, pageNumber: number) {
     const deadline = Date.now() + DEFAULT_TIMEOUT_MS;
     let lastFailure = 'toolbar page control never became clickable';

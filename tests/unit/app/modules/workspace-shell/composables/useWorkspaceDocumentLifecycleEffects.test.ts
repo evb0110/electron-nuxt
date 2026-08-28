@@ -180,6 +180,7 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
     });
 
     it('reports a failed OCR replacement without acknowledging an unconsumed result', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         mocks.replaceWorkingCopyFromPath.mockRejectedValueOnce(new Error('copy failed'));
         const lifecycle = createLifecycle();
 
@@ -196,6 +197,7 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
     });
 
     it('does not replace the working copy when OCR history staging fails', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const lifecycle = createLifecycle({ensureHistoryBaselineForMutation: vi.fn(async () => false)});
 
         await lifecycle.handleOcrComplete(ocrPayload());

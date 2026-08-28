@@ -322,6 +322,7 @@ describe('useOcr', () => {
     });
 
     it('clears previous searchable PDF results when a later OCR run fails', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         interface IOcrCompleteTestResult {
             requestId: string;
             success: boolean;
@@ -640,6 +641,7 @@ describe('useOcr', () => {
     });
 
     it('cancels the active backend job when OCR times out', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         vi.useFakeTimers();
         vi.stubGlobal('crypto', { randomUUID: () => '00000000-0000-4000-8000-000000000001' });
         mockOcr.onComplete.mockReturnValue(vi.fn());
@@ -672,6 +674,7 @@ describe('useOcr', () => {
     });
 
     it('preserves searchable PDF start envelopes as start failures', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         mockOcr.createSearchablePdf.mockResolvedValueOnce({
             started: false,
             jobId: 'job-start-failure',
@@ -700,6 +703,7 @@ describe('useOcr', () => {
     });
 
     it('prefers terminal completion envelopes over plain OCR error strings', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         interface IOcrCompleteTestResult {
             requestId: string;
             success: boolean;

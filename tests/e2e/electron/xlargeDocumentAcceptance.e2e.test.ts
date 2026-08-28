@@ -30,6 +30,7 @@ import {
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
+import {runElectronE2ETeardown} from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 import {
     startElectronE2ESession,
     type IElectronE2ESession,
@@ -1158,15 +1159,14 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
     it('keeps embedded annotations across two sessions and a fresh renderer save/reopen', async () => {
         const telemetry = createTelemetry();
         const sourcePath = resolve(configuredFixture);
-        const previousNativePageOps = process.env.EVB_PDF_PAGE_OPS_ENABLE;
         let stagedFixture: IStagedFixture | null = null;
         let sessionA: IElectronE2ESession | null = null;
         let sessionB: IElectronE2ESession | null = null;
         let activeHeartbeat: (() => Promise<IHeartbeatSnapshot>) | null = null;
         let activeRssSampler: IRssSampler | null = null;
+        let bodyFailure: unknown = null;
 
         try {
-            process.env.EVB_PDF_PAGE_OPS_ENABLE = '1';
             stagedFixture = await timed(telemetry, 'fixture-stage-cow', () => stageFixture(sourcePath));
             telemetry.fixture.sourcePath = stagedFixture.sourcePath;
             telemetry.fixture.stagedPath = stagedFixture.stagedPath;
@@ -1485,49 +1485,64 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 message: error instanceof Error ? error.message : String(error),
                 stack: error instanceof Error ? error.stack ?? null : null,
             };
-            throw error;
-        } finally {
-            if (activeHeartbeat && sessionB) {
-                try {
+            bodyFailure = error;
+        }
+        await runElectronE2ETeardown(bodyFailure, [
+            {
+                label: 'session B heartbeat',
+                run: async () => {
+                    if (!activeHeartbeat || !sessionB) {
+                        return;
+                    }
                     const heartbeat = await activeHeartbeat();
                     telemetry.heartbeats.push({
                         session: 'B',
                         stage: 'failure-cleanup',
                         ...heartbeat,
                     });
-                } catch {
-                    // The renderer may already be gone after an assertion failure.
-                }
-            }
-            if (activeRssSampler) {
-                try {
+                },
+            },
+            {
+                label: 'RSS sampler',
+                run: async () => {
+                    if (!activeRssSampler) {
+                        return;
+                    }
                     const rss = await activeRssSampler.stop();
                     telemetry.rss.push({
                         session: sessionB ? 'B' : 'A',
                         ...rss,
                     });
-                } catch {
-                    // Preserve the original acceptance failure if telemetry collection fails.
-                }
-            }
-            if (sessionB) {
-                await sessionB.stop().catch(() => undefined);
-            }
-            if (sessionA) {
-                await sessionA.stop().catch(() => undefined);
-            }
-            if (stagedFixture) {
-                await rm(stagedFixture.stagingDirectory, {
-                    force: true,
-                    recursive: true,
-                });
-            }
-            await writeTelemetry(telemetry);
-            if (previousNativePageOps === undefined) {
-                delete process.env.EVB_PDF_PAGE_OPS_ENABLE;
-            } else {
-                process.env.EVB_PDF_PAGE_OPS_ENABLE = previousNativePageOps;
-            }
-        }
+                },
+            },
+            {
+                label: 'session B stop',
+                run: async () => {
+                    await sessionB?.stop();
+                },
+            },
+            {
+                label: 'session A stop',
+                run: async () => {
+                    await sessionA?.stop();
+                },
+            },
+            {
+                label: 'staged fixture removal',
+                run: async () => {
+                    if (!stagedFixture) {
+                        return;
+                    }
+                    await rm(stagedFixture.stagingDirectory, {
+                        force: true,
+                        recursive: true,
+                    });
+                },
+            },
+            {
+                label: 'telemetry write',
+                run: () => writeTelemetry(telemetry),
+            },
+        ]);
     }, XLARGE_TEST_TIMEOUT_MS);
 });

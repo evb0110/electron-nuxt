@@ -368,7 +368,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
 
     function buildDemand() {
         const source = options.source.value;
-        if (!source?.thumbnailProvider || !isVisible.value) {
+        if (!source?.thumbnailProvider || !isVisible.value || !options.isActive.value) {
             return [];
         }
         const visibleRange = resolveRange(0);
@@ -601,6 +601,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     }, {flush: 'post'});
     watch(options.isActive, async active => {
         if (!active) {
+            scheduler.reset();
             return;
         }
         await nextTick();

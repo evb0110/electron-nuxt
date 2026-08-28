@@ -4,6 +4,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     mkdtemp,
@@ -320,6 +321,7 @@ describe('compact search index sidecar', () => {
     });
 
     it('allows a sparse v3 directory beyond the legacy 320 MiB file budget', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const pdfPath = join(tempDir, 'directory-over-legacy-budget.pdf');
         const pageCount = 13_981_009;
         await persistCompactSearchIndexStreaming(

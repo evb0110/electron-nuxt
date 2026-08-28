@@ -1,4 +1,7 @@
-import { spawn } from 'node:child_process';
+import {
+    execFileSync,
+    spawn,
+} from 'node:child_process';
 import {
     existsSync,
     mkdirSync,
@@ -70,6 +73,47 @@ async function forceKillAndWait(child: ReturnType<typeof spawn>) {
 
 function readProjectSource(path: string) {
     return readFileSync(join(projectRoot, path), 'utf8');
+}
+
+function readPosixProcessState(pid: number) {
+    if (process.platform === 'linux') {
+        const procStat = readFileSync(`/proc/${String(pid)}/stat`, 'utf8');
+        return procStat.slice(procStat.lastIndexOf(')') + 1).trimStart().charAt(0);
+    }
+    return execFileSync('ps', [
+        '-p',
+        String(pid),
+        '-o',
+        'stat=',
+    ], {encoding: 'utf8'}).trim().charAt(0);
+}
+
+// A child that exited while its parent neither waits for it nor dies stays a
+// zombie: `kill(pid, 0)` still succeeds and `ps` reports `<defunct>`.
+async function spawnUnreapedZombie() {
+    const parent = spawn('python3', [
+        '-c',
+        'import os,time\npid=os.fork()\nif pid == 0: os._exit(0)\nprint(pid, flush=True)\ntime.sleep(30)',
+    ], {stdio: [
+        'ignore',
+        'pipe',
+        'ignore',
+    ]});
+    const zombiePid = await new Promise<number>((resolve, reject) => {
+        parent.stdout?.once('data', chunk => resolve(Number(String(chunk).trim())));
+        parent.once('error', reject);
+        parent.once('exit', (code, signal) => reject(new Error(
+            `zombie parent exited before reporting its child (code ${String(code)}, signal ${String(signal)})`,
+        )));
+    });
+    expect(zombiePid).toBeGreaterThan(0);
+    await vi.waitFor(() => {
+        expect(readPosixProcessState(zombiePid)).toBe('Z');
+    });
+    return {
+        parent,
+        zombiePid,
+    };
 }
 
 describe('Electron automation graceful shutdown policy', () => {
@@ -359,38 +403,71 @@ describe('Electron automation graceful shutdown policy', () => {
         }
     });
 
-    it.runIf(process.platform === 'linux')('treats an unreaped Linux zombie as exited', async () => {
+    it.runIf(process.platform !== 'win32')('treats an unreaped zombie as exited', async () => {
+        // The Linux branch reads /proc for this. macOS has no procfs, and
+        // `kill(pid, 0)` succeeds for a zombie there, so a session process that
+        // exited but has not been reaped yet reported as alive.
         const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>(
             '@scripts/electron-run/electronRunProcessTree',
         );
-        const parent = spawn('python3', [
-            '-c',
-            'import os,time\npid=os.fork()\nif pid == 0: os._exit(0)\nprint(pid, flush=True)\ntime.sleep(30)',
-        ], {stdio: [
-            'ignore',
-            'pipe',
-            'ignore',
-        ]});
+        const {
+            parent,
+            zombiePid,
+        } = await spawnUnreapedZombie();
         try {
-            const zombiePid = await new Promise<number>((resolve, reject) => {
-                parent.stdout?.once('data', chunk => resolve(Number(String(chunk).trim())));
-                parent.once('error', reject);
-                parent.once('exit', (code, signal) => reject(new Error(
-                    `zombie parent exited before reporting its child (code ${String(code)}, signal ${String(signal)})`,
-                )));
-            });
-            expect(zombiePid).toBeGreaterThan(0);
-            await vi.waitFor(() => {
-                const procStat = readFileSync(`/proc/${String(zombiePid)}/stat`, 'utf8');
-                expect(procStat.slice(procStat.lastIndexOf(')') + 1).trimStart().charAt(0)).toBe('Z');
-            });
-
             expect(
                 isProcessAlive(zombiePid),
                 'a zombie has exited and must not block Electron session restart',
             ).toBe(false);
         } finally {
             await forceKillAndWait(parent);
+        }
+    });
+
+    it.runIf(process.platform !== 'win32')('removes session artifacts when the controller is an unreaped zombie', async () => {
+        // The E2E controller is a detached child of the vitest worker, so it
+        // is reaped only when the worker's event loop turns. The non-clean
+        // hard-restart stop kills Electron and then probes the controller's
+        // identity in one synchronous stretch; a controller that exited on
+        // Electron's death inside that stretch is a zombie whose `ps` command
+        // is `<defunct>`. That failed ownership matching while liveness said
+        // alive, which the stop reported as a refusal and retained artifacts.
+        const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>(
+            '@scripts/electron-run/electronRunProcessTree',
+        );
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        processTree.isProcessAlive.mockReset();
+        processTree.isProcessAlive.mockImplementation(isProcessAlive);
+        const sessionName = `zombie-controller-policy-${String(process.pid)}-${String(Date.now())}`;
+        const {
+            parent,
+            zombiePid,
+        } = await spawnUnreapedZombie();
+        try {
+            mkdirSync(sessionDir(sessionName), {recursive: true});
+            writeFileSync(sessionFilePath(sessionName), JSON.stringify({
+                port: 45_001,
+                pid: zombiePid,
+                cdpPort: 45_002,
+                electronPid: null,
+                nuxtPid: null,
+                nuxtPort: 45_003,
+            }), 'utf8');
+
+            await expect(stopSingleSession(sessionName, {
+                keepNuxt: true,
+                preserveWorkspaceCheckpoint: true,
+                crashElectronBeforeStop: true,
+            })).resolves.toBeUndefined();
+            expect(existsSync(sessionFilePath(sessionName))).toBe(false);
+            expect(warn).not.toHaveBeenCalled();
+        } finally {
+            warn.mockRestore();
+            await forceKillAndWait(parent);
+            rmSync(sessionDir(sessionName), {
+                recursive: true,
+                force: true,
+            });
         }
     });
 

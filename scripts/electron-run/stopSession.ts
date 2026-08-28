@@ -93,7 +93,14 @@ async function stopSessionController(info: ISessionInfo, name: string, keepNuxt?
     })) {
         // A controller that exited during the identity probe is stopped, not
         // unverifiable, and must not retain the session artifacts.
-        return !isProcessAlive(info.pid);
+        if (!isProcessAlive(info.pid)) {
+            return true;
+        }
+        console.warn(
+            `[Session '${name}'] Refused to stop controller PID ${info.pid}: `
+            + 'process identity did not match session ownership.',
+        );
+        return false;
     }
 
     try {
@@ -192,12 +199,16 @@ function removeSessionStopFiles(name: string) {
     try { unlinkSync(sessionPreserveWorkspaceCheckpointMarkerPath(name)); } catch {}
 }
 
-async function killOrphanedSessionElectron(name: string) {
-    const expectation = {
+function sessionElectronExpectation(name: string) {
+    return {
         kind: 'electron',
         sessionName: name,
         electronUserDataDir: electronUserDataPath(name),
     } satisfies ISessionProcessIdentityExpectation;
+}
+
+async function killOrphanedSessionElectron(name: string) {
+    const expectation = sessionElectronExpectation(name);
     const pids = findSessionOwnedElectronPids(expectation);
     return killVerifiedSessionProcesses(pids, expectation, 800);
 }
@@ -244,18 +255,35 @@ export async function stopSingleSession(
         const electronStoppedByCrash = options.crashElectronBeforeStop === true
             ? await stopSessionElectron(info, name, true)
             : null;
-        const outcomes = [
-            electronStoppedByCrash ?? true,
-            await stopSessionController(info, name, options.keepNuxt),
-            electronStoppedByCrash === null
+        const stageOutcomes = {
+            'electron crash': electronStoppedByCrash ?? true,
+            controller: await stopSessionController(info, name, options.keepNuxt),
+            electron: electronStoppedByCrash === null
                 ? await stopSessionElectron(info, name)
                 : true,
-            await stopNuxtForSessionInfo(info, name, options.keepNuxt),
-        ];
+            nuxt: await stopNuxtForSessionInfo(info, name, options.keepNuxt),
+        };
+        const outcomes = Object.values(stageOutcomes);
         if (!shouldRemoveSessionStopArtifacts(outcomes)) {
             retainSessionStopArtifacts(name, info);
+            const refusedStages = Object.entries(stageOutcomes)
+                .filter(([
+                    , stopped,
+                ]) => !stopped)
+                .map(([stage]) => stage)
+                .join(', ');
             throw new Error(
-                `Session '${name}' stop was refused: a process identity did not match session ownership, or the process outlived termination; session artifacts were retained.`,
+                `Session '${name}' stop was refused at ${refusedStages}: a process identity did not match session ownership, or the process outlived termination; session artifacts were retained.`,
+            );
+        }
+        // The Electron stage only matches the recorded CDP port. An Electron
+        // that outlived a restart on another port still owns the session's
+        // user-data directory and would be reported as a clean stop.
+        const survivors = findSessionOwnedElectronPids(sessionElectronExpectation(name));
+        if (survivors.length > 0) {
+            retainSessionStopArtifacts(name, info);
+            throw new Error(
+                `Session '${name}' stop left ${String(survivors.length)} session-owned Electron process(es) alive (pid ${survivors.join(', ')}); session artifacts were retained, run stop again.`,
             );
         }
         if (!preserveWorkspaceCheckpoint) {

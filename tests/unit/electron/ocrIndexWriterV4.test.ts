@@ -220,6 +220,7 @@ describe('writeOcrIndexV4', () => {
     });
 
     it('remaps million-page sparse move and delete deltas by affected shards', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const root = await createCatalogRoot();
         const workingCopyPath = join(root, 'document.pdf');
         const catalogRoot = `${workingCopyPath}.ocr`;

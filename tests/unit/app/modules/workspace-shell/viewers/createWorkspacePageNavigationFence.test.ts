@@ -197,6 +197,68 @@ describe('createWorkspacePageNavigationFence', () => {
         expect(navigationFence.targetPage.value).toBeNull();
     });
 
+    it('does not settle a target from page projections while the surface is transitioning', () => {
+        const currentPage = ref(1);
+        const openSurface = createTrackedOpenSurface();
+        const generation = openSurface.begin({
+            documentId: 'document',
+            documentRevision: 'revision',
+        });
+        openSurface.metadataReady(500);
+        const openingFence = openSurface.createRenderFence({
+            documentRevision: 'revision',
+            generation,
+            pageNumber: 1,
+            renderVersion: 1,
+            requestId: 1,
+        })!;
+        openSurface.commitGeometry(generation, {
+            height: 100,
+            margin: 0,
+            width: 100,
+        });
+        openSurface.commitCanvas(openingFence);
+        openSurface.commitViewport({
+            documentGeometryRevision: 1,
+            documentRevision: 'revision',
+            generation,
+            interactionEpoch: 0,
+            left: 0,
+            pageNumber: 1,
+            top: 0,
+            viewportIntentId: openingFence.viewportIntentId,
+        });
+        openSurface.markReady(openingFence);
+        expect(openSurface.observeViewportPage(431)).toBe(431);
+        expect(openSurface.viewportSession.value).toMatchObject({
+            committedPage: 1,
+            lifecycle: 'ready',
+            observedPage: 431,
+            requestedPage: 1,
+        });
+
+        const navigationFence = createWorkspacePageNavigationFence({
+            currentPage,
+            openSurface,
+        });
+        navigationFence.begin(1);
+        openSurface.requestNavigation(1);
+
+        expect(openSurface.viewportSession.value.lifecycle).toBe('transitioning');
+        expect(navigationFence.consumePageUpdate(1)).toEqual({
+            accepted: false,
+            navigationSource: null,
+        });
+        expect(navigationFence.targetPage.value).toBe(1);
+        expect(currentPage.value).toBe(1);
+        expect(navigationFence.consumePageUpdate(431)).toEqual({
+            accepted: false,
+            navigationSource: null,
+        });
+        expect(navigationFence.targetPage.value).toBe(1);
+        expect(currentPage.value).toBe(1);
+    });
+
     it('retains strict stale-page rejection for a genuine target', () => {
         const navigationFence = createWorkspacePageNavigationFence({currentPage: ref(1)});
         navigationFence.begin(5);

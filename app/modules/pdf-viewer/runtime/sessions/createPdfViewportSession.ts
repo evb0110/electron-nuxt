@@ -317,6 +317,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         bindCurrentPageProjection: scroll.bindCurrentPageProjection,
         getDocumentRevision: () => documentSession.captureFence().loadToken,
         getGeometryRevision: () => pageMetricsVersion.value + 1,
+        beginLayoutGeometryReplacement: navigationEpochs.beginLayoutGeometryReplacement,
         pageSlots,
         requestedCurrentPage: options.requestedCurrentPage,
         cancelPendingSearchScroll: () => {
@@ -780,7 +781,12 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             options.emitCurrentPage(authority.currentPage.value);
             return;
         }
-        navigationEpochs.markScrollInteraction();
+        const isPhysicalNavigation = navigationEpochs.markScrollInteraction();
+        if (!isPhysicalNavigation) {
+            projectViewportVisibleRange(container, numPages.value);
+            options.emitCurrentPage(authority.currentPage.value);
+            return;
+        }
         // A direct scroll can arrive without a preceding wheel/pointer event
         // (scrollbar drags, accessibility input, or automation). Clear the
         // retained navigation row at the scroll boundary so virtualization

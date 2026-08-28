@@ -10,6 +10,7 @@ import {
 } from 'vitest';
 
 const ELECTRON_E2E_SOURCE_ROOT = join(process.cwd(), 'tests/e2e/electron');
+const PROCESS_ENV_MUTATION_PATTERN = /(?:delete\s+process\.env\.[A-Z0-9_]+|process\.env\.[A-Z0-9_]+\s*=[^=])/gu;
 const MACHINE_HOME_PATH_PATTERN = /(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[A-Za-z0-9._-]+/u;
 
 async function collectFiles(directory: string): Promise<string[]> {
@@ -63,6 +64,22 @@ describe('Electron E2E fixture source policy', () => {
         expect(facingDiagnosticSource).not.toContain('createVisibleWindowElectronE2ESessionFixture');
     });
 
+    it('passes session environment through session options instead of the test process', async () => {
+        const files = (await collectFiles(ELECTRON_E2E_SOURCE_ROOT))
+            .filter(file => file.endsWith('.e2e.test.ts'));
+        const processEnvMutations: string[] = [];
+
+        for (const file of files) {
+            const source = await readSource(file);
+            const mutations = source.match(PROCESS_ENV_MUTATION_PATTERN) ?? [];
+            for (const mutation of mutations) {
+                processEnvMutations.push(`${file.replace(`${process.cwd()}/`, '')}: ${mutation.trim()}`);
+            }
+        }
+
+        expect(processEnvMutations).toEqual([]);
+    });
+
     it('keeps suite boot, diagnostics, and reset lifecycle ownership explicit', async () => {
         const fixtureSource = await readSource('tests/e2e/electron/helpers/createElectronE2ESessionFixture.ts');
         const sessionSource = await readSource('tests/e2e/electron/helpers/startElectronE2ESession.ts');
@@ -97,7 +114,7 @@ describe('Electron E2E fixture source policy', () => {
         expect(fixtureSource).toContain('captureFailureArtifacts');
         expect(fixtureSource).toContain('preserveArtifacts: preserveFailureArtifacts');
         expect(fixtureSource).toContain('await previousSession.stop');
-        expect(fixtureSource).toContain('if (clean && !hard)');
+        expect(fixtureSource).toContain('if (clean && !hard && !restartOptions.extraEnv)');
         expect(fixtureSource).toContain('if (hard && clean)');
         expect(fixtureSource).toContain('A non-clean hard restart must retain Electron user data');
         expect(fixtureSource).toContain('preserveWorkspaceCheckpoint: hard && !clean');

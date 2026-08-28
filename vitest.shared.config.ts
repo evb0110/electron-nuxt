@@ -163,7 +163,7 @@ function createUnitTestProject(
             ],
             globals: false,
             ...(processCss ? {css: true} : {}),
-            ...(setupFiles ? { setupFiles } : {}),
+            setupFiles: setupFiles ?? unitTestSetupFiles,
         },
     } satisfies TestProjectConfiguration;
 }

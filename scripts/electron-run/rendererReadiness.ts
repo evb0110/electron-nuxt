@@ -16,6 +16,7 @@ const RENDERER_READY_TIMEOUT_MS = 30_000;
 const ELECTRON_APP_PAGE_APPEAR_TIMEOUT_MS = 20_000;
 const VITE_OPTIMIZE_DEP_ERROR_MARKER = 'VITE_OPTIMIZE_DEP_504';
 const RENDERER_READINESS_ERROR_NAME = 'RendererReadinessError';
+const RETRYABLE_RENDERER_BINDINGS_ERROR_NAME = 'RetryableRendererBindingsError';
 const RENDERER_DEAD_PAGE_RELOAD_INTERVAL_MS = 5_000;
 const RENDERER_DEAD_PAGE_MAX_RELOADS = 5;
 
@@ -79,7 +80,7 @@ async function checkHydration(page: Page) {
     }
 }
 
-interface IRendererState {
+export interface IRendererState {
     bodyExists: boolean;
     openFileDirect: string;
     electronAPI: string;
@@ -108,11 +109,39 @@ function readRendererState(page: Page): Promise<IRendererState> {
     });
 }
 
-function isRendererReady(state: IRendererState) {
-    return state.bodyExists
+export function classifyRendererBindingReadiness(state: IRendererState) {
+    if (
+        state.bodyExists
         && state.openFileDirect === 'function'
         && state.electronAPI === 'object'
-        && state.nuxtRootChildren > 0;
+        && state.nuxtRootChildren > 0
+    ) {
+        return 'ready' as const;
+    }
+    if (
+        state.bodyExists
+        && state.nuxtRootChildren > 0
+        && state.electronAPI !== 'object'
+    ) {
+        // Electron runs preload before page JavaScript. Once Nuxt has mounted,
+        // a missing bridge cannot recover inside this renderer. Treat it as a
+        // failed launch immediately so the outer launch owner can retry with a
+        // fresh process instead of spending the whole readiness allowance.
+        return 'retryable-preload-missing' as const;
+    }
+    return 'waiting' as const;
+}
+
+function isRendererReady(state: IRendererState) {
+    return classifyRendererBindingReadiness(state) === 'ready';
+}
+
+function createRetryableRendererBindingsError(state: IRendererState) {
+    const error = new Error(
+        `Renderer preload bindings are unavailable after hydration (openFileDirect=${state.openFileDirect}, electronAPI=${state.electronAPI}, nuxtChildren=${state.nuxtRootChildren}, url=${state.url})`,
+    );
+    error.name = RETRYABLE_RENDERER_BINDINGS_ERROR_NAME;
+    return error;
 }
 
 function hasRendererDeadDevServerBody(state: IRendererState) {
@@ -120,8 +149,17 @@ function hasRendererDeadDevServerBody(state: IRendererState) {
         || state.bodyTextSnippet.includes('500 Internal Server Error');
 }
 
-async function waitForRendererBindings(page: Page, timeoutMs = RENDERER_READY_TIMEOUT_MS): Promise<IRendererState> {
+async function waitForRendererBindings(
+    browser: Browser,
+    page: Page,
+    watcher: TOptimizeDepWatcher,
+    timeoutMs = RENDERER_READY_TIMEOUT_MS,
+): Promise<{
+    page: Page;
+    state: IRendererState;
+}> {
     const start = Date.now();
+    let currentPage = page;
     let reloadCount = 0;
     let lastReloadAt = 0;
     let lastState: IRendererState = {
@@ -131,17 +169,25 @@ async function waitForRendererBindings(page: Page, timeoutMs = RENDERER_READY_TI
         nuxtRootChildren: 0,
         bodyTextLength: 0,
         bodyTextSnippet: '',
-        url: page.url(),
+        url: currentPage.url(),
     };
     while (Date.now() - start < timeoutMs) {
+        currentPage = await reattachToAppPage(browser, currentPage, watcher.attach);
         try {
-            lastState = await readRendererState(page);
+            lastState = await readRendererState(currentPage);
         } catch {
             await delay(250);
             continue;
         }
-        if (isRendererReady(lastState)) {
-            return lastState;
+        const readiness = classifyRendererBindingReadiness(lastState);
+        if (readiness === 'ready') {
+            return {
+                page: currentPage,
+                state: lastState,
+            };
+        }
+        if (readiness === 'retryable-preload-missing') {
+            throw createRetryableRendererBindingsError(lastState);
         }
         const now = Date.now();
         if (
@@ -153,7 +199,7 @@ async function waitForRendererBindings(page: Page, timeoutMs = RENDERER_READY_TI
             lastReloadAt = now;
             console.log(`[Puppeteer] Renderer loaded transient dev-server error, reloading (${reloadCount}/${RENDERER_DEAD_PAGE_MAX_RELOADS})...`);
             try {
-                await page.reload({
+                await currentPage.reload({
                     waitUntil: 'domcontentloaded',
                     timeout: 10_000,
                 });
@@ -165,7 +211,10 @@ async function waitForRendererBindings(page: Page, timeoutMs = RENDERER_READY_TI
         }
         await delay(250);
     }
-    return lastState;
+    return {
+        page: currentPage,
+        state: lastState,
+    };
 }
 
 async function reattachToAppPage(
@@ -220,9 +269,21 @@ export function isNuxtDevServerUrl(url: string) {
     }
 }
 
+export function selectNewestElectronAppPage<TPage extends {
+    isClosed: () => boolean;
+    url: () => string;
+}>(pages: readonly TPage[]): TPage | null {
+    for (let index = pages.length - 1; index >= 0; index -= 1) {
+        const page = pages[index];
+        if (page && !page.isClosed() && isElectronAppPageUrl(page.url())) {
+            return page;
+        }
+    }
+    return null;
+}
+
 async function findAppPage(browser: Browser): Promise<Page | null> {
-    const pages = await browser.pages();
-    return pages.find(page => isElectronAppPageUrl(page.url())) ?? null;
+    return selectNewestElectronAppPage(await browser.pages());
 }
 
 async function waitForAppPage(browser: Browser, timeoutMs: number): Promise<Page | null> {
@@ -413,20 +474,29 @@ async function waitForBodyElement(
     page: Page,
     watcher: TOptimizeDepWatcher,
 ) {
-    try {
-        await page.waitForSelector('body', { timeout: 30000 });
-        return page;
-    } catch {
-        console.log('[Puppeteer] Page navigated during initial load, re-finding...');
-        await delay(2000);
+    const startedAt = Date.now();
+    let currentPage = page;
+    while (Date.now() - startedAt < RENDERER_READY_TIMEOUT_MS) {
         const nextPage = await findAppPage(browser);
-        if (!nextPage) {
-            throw new Error('Lost app page after navigation');
+        if (nextPage && nextPage !== currentPage) {
+            console.log('[Puppeteer] App target changed during initial load, re-attaching...');
+            currentPage = nextPage;
+            watcher.attach(currentPage);
         }
-        watcher.attach(nextPage);
-        await nextPage.waitForSelector('body', { timeout: 15000 });
-        return nextPage;
+        if (!currentPage.isClosed()) {
+            try {
+                if (await currentPage.$('body')) {
+                    return currentPage;
+                }
+            } catch (error) {
+                if (!isTransientPageContextError(error)) {
+                    throw error;
+                }
+            }
+        }
+        await delay(250);
     }
+    throw createRendererReadinessError(`Renderer startup timed out after ${String(RENDERER_READY_TIMEOUT_MS)}ms while waiting for body on the newest app target`);
 }
 
 async function waitForHydration(
@@ -543,16 +613,14 @@ async function waitForReadyRenderer(
     watcher: TOptimizeDepWatcher,
 ) {
     let currentPage = await reattachToAppPage(browser, page, watcher.attach);
-    let rendererState: IRendererState;
-    try {
-        rendererState = await waitForRendererBindings(currentPage, RENDERER_READY_TIMEOUT_MS);
-    } catch (error) {
-        if (!isTransientPageContextError(error)) {
-            throw error;
-        }
-        currentPage = await reattachToAppPage(browser, currentPage, watcher.attach);
-        rendererState = await waitForRendererBindings(currentPage, RENDERER_READY_TIMEOUT_MS);
-    }
+    const result = await waitForRendererBindings(
+        browser,
+        currentPage,
+        watcher,
+        RENDERER_READY_TIMEOUT_MS,
+    );
+    currentPage = result.page;
+    const rendererState = result.state;
     if (!isRendererReady(rendererState)) {
         if (watcher.sawOutdatedOptimizeDep()) {
             throw createViteOptimizeDepError(watcher.optimizeDepUrl() ?? 'Outdated Optimize Dep while waiting for renderer bindings');

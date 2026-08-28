@@ -14,6 +14,8 @@
                     :data-frame-width="output.placement.canvasWidthPx"
                     :data-frame-height="output.placement.canvasHeightPx"
                     :data-render-dpi="output.metadata.renderDpi"
+                    :data-matched-canvas-width-points="output.metadata.matchedCanvasTargetWidthPoints ?? undefined"
+                    :data-matched-canvas-height-points="output.metadata.matchedCanvasTargetHeightPoints ?? undefined"
                 >
                     <div
                         class="placed-image"

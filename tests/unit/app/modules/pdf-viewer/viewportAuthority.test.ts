@@ -176,6 +176,73 @@ describe('ViewportAuthority', () => {
         expect(authority.pendingTargetPage.value).toBeNull();
     });
 
+    it('re-arms one-frame geometry ownership when delayed target layout arrives', async () => {
+        const geometryFrames: Array<() => void> = [];
+        let releaseMetrics!: () => void;
+        let releaseSlots!: () => void;
+        let releaseVisual!: () => void;
+        const events: string[] = [];
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => 1,
+            beginLayoutGeometryReplacement: () => {
+                events.push('replacement-started');
+                return () => events.push('replacement-ended');
+            },
+            resolve: async () => ({
+                anchor,
+                left: 0,
+                top: 900,
+            }),
+            awaitMetrics: () => new Promise<void>((resolve) => {
+                events.push('metrics-requested');
+                releaseMetrics = resolve;
+            }),
+            awaitSlots: () => new Promise<void>((resolve) => {
+                events.push('slots-requested');
+                releaseSlots = resolve;
+            }),
+            awaitLayoutGeometrySettled: () => new Promise<void>((resolve) => {
+                geometryFrames.push(resolve);
+            }),
+            awaitVisual: () => new Promise<void>((resolve) => {
+                events.push('visual-requested');
+                releaseVisual = resolve;
+            }),
+            apply: () => { events.push('applied'); },
+        });
+
+        const pending = authority.submit(intent('geometry-owned', 2));
+        expect(events[0]).toBe('replacement-started');
+        await vi.waitFor(() => expect(geometryFrames).toHaveLength(1));
+        geometryFrames.shift()!();
+        await vi.waitFor(() => expect(events).toContain('replacement-ended'));
+
+        releaseMetrics();
+        await vi.waitFor(() => expect(events).toContain('slots-requested'));
+        expect(events.filter(event => event === 'replacement-started')).toHaveLength(2);
+        expect(geometryFrames).toHaveLength(1);
+        geometryFrames.shift()!();
+        await vi.waitFor(() => {
+            expect(events.filter(event => event === 'replacement-ended')).toHaveLength(2);
+        });
+
+        releaseSlots();
+        await vi.waitFor(() => expect(geometryFrames).toHaveLength(1));
+        expect(events.filter(event => event === 'replacement-started')).toHaveLength(3);
+        expect(events.filter(event => event === 'replacement-ended')).toHaveLength(2);
+        geometryFrames.shift()!();
+        await vi.waitFor(() => expect(events).toContain('visual-requested'));
+        await vi.waitFor(() => {
+            expect(events.filter(event => event === 'replacement-ended')).toHaveLength(3);
+        });
+        releaseVisual();
+        await expect(pending).resolves.toMatchObject({outcome: 'settled'});
+        expect(events.filter(event => event === 'replacement-started')).toHaveLength(3);
+        expect(events.filter(event => event === 'replacement-ended')).toHaveLength(3);
+        expect(events.at(-1)).toBe('applied');
+    });
+
     it('applies a current navigation target when staged raster readiness fails', async () => {
         const writes: string[] = [];
         const authority = createViewportAuthority({

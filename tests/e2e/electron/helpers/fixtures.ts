@@ -1286,8 +1286,8 @@ export function createPngFixture(filename: string) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const bytes = Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGElEQVR4nGP8z8Dw'
-        + 'n4GBgYmBgQEAOgoCEVxTeGsAAAAASUVORK5CYII=',
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4'
+        + 'z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC',
         'base64',
     );
     writeFileSync(filePath, bytes);

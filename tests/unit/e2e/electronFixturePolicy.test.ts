@@ -28,7 +28,11 @@ import {
     electronUserDataPath,
     sessionDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
-import { resolveDetachedSessionLaunch } from '@scripts/electron-run/startSessionDetached';
+import {
+    E2E_SESSION_START_TIMEOUT_MS,
+    resolveDetachedSessionLaunch,
+    resolveDetachedSessionReadyTimeoutMs,
+} from '@scripts/electron-run/startSessionDetached';
 import {
     E2E_RUN_ID_ENV,
     createE2ERunScopedSessionName,
@@ -55,7 +59,10 @@ import {
     resolvePathFixtureAvailability,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
-import { assertOcrPdfSemanticOutput } from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {
+    assertOcrPdfSemanticOutput,
+    assertOcrResultApplied,
+} from '@tests/e2e/electron/helpers/electronApiHelpers';
 
 const ELECTRON_FIXTURE_ROOT = join(process.cwd(), 'tests/fixtures/electron');
 const MAX_TRACKED_ELECTRON_BINARY_FIXTURE_BYTES = 2 * 1024 * 1024;
@@ -90,6 +97,112 @@ function createDescribeSelectorDouble() {
 }
 
 describe('Electron E2E fixture policy', () => {
+    it('rejects an OCR consume result when the working-copy revision did not change', () => {
+        expect(() => assertOcrResultApplied({token: 'revision-before'}, 'revision-before'))
+            .toThrow('OCR result was not applied to the active working copy');
+        expect(() => assertOcrResultApplied({token: 'revision-after'}, 'revision-before'))
+            .not.toThrow();
+    });
+
+    it('opens an actionable Recent row from a sole empty tab without a close control', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/recentFiles.e2e.test.ts'),
+            'utf8',
+        );
+
+        expect(source).toContain('const startWhenPrewarmed = () =>');
+        expect(source).not.toContain('if (prewarmAtMs === null) {\n            finish(null)');
+        expect(source).not.toContain('if (!currentTabCloseButton || prewarmAtMs === null)');
+    });
+
+    it('keeps the inactive-DjVu pressure override ahead of the live sampler', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/inactiveDjvuTabs.e2e.test.ts'),
+            'utf8',
+        );
+
+        expect(source).toContain('const pressureTimer = window.setInterval(applyPressure, 200)');
+        expect(source).toContain('window.clearInterval(pressureTimer)');
+        expect(source).toContain('tabs[1]?.getAttribute(\'aria-selected\') !== \'true\'');
+        expect(source).toContain('const tabActivated =');
+    });
+
+    it('re-finds and centers a virtual thumbnail until the current item is ready', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/helpers/splitPaneCloseContinuity.ts'),
+            'utf8',
+        );
+
+        expect(source).toContain('const centerDelta =');
+        expect(source).toContain('if (Math.abs(centerDelta) > 1)');
+        expect(source).toContain('root.scrollTop += centerDelta');
+    });
+
+    it('serializes a complete settings payload for configured performance sessions', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/helpers/startConfiguredElectronE2ESession.ts'),
+            'utf8',
+        );
+
+        expect(source).toContain('serializeBrowserSettingsPayload({');
+        expect(source).toContain('...DEFAULT_SETTINGS');
+        expect(source).not.toContain('JSON.stringify({performanceMode: payload.performanceMode})');
+    });
+
+    it('dismisses Viewer Smoke scan guidance through the shared helper', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/viewerSmoke.e2e.test.ts'),
+            'utf8',
+        );
+
+        expect(source.match(/dismissScanCleanupFirstRunGuidance\(session\.page\)/gu)).toHaveLength(2);
+        expect(source).not.toContain('=== \'Got it\'');
+    });
+
+    it('scopes the native image-combine override to the PNG-open restart', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/viewerSmoke.e2e.test.ts'),
+            'utf8',
+        );
+        const fixtureSource = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/helpers/createElectronE2ESessionFixture.ts'),
+            'utf8',
+        );
+
+        expect(source.match(/EVB_PDF_IMAGE_COMBINE_ENABLE/gu)).toHaveLength(1);
+        expect(source).toContain('EVB_PDF_IMAGE_COMBINE_ENABLE: \'1\'');
+        expect(source).toContain('EVB_PDF_NATIVE_ASSEMBLER_ENABLE: \'1\'');
+        expect(fixtureSource).toContain('if (clean && !hard && !restartOptions.extraEnv)');
+        expect(fixtureSource).toContain('extraEnv: restartOptions.extraEnv');
+    });
+
+    it('labels thumbnail observations and reports the first bad frame', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/viewerSmoke.e2e.test.ts'),
+            'utf8',
+        );
+
+        expect(source).toContain('documentKind: \'PDF\'');
+        expect(source).toContain('documentKind: \'DjVu\'');
+        expect(source).toContain('firstBadFrame');
+        expect(source).toContain('.every(page => page === 18)');
+    });
+
+    it('awaits the deferred highlight command before clearing selection', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/helpers/viewerAnnotations.ts'),
+            'utf8',
+        );
+        const start = source.indexOf('export async function createHighlightWithPdfjsManager');
+        const end = source.indexOf('export async function waitForNoOpenNoteWindows', start);
+        const helper = source.slice(start, end);
+
+        expect(helper).toContain('await clickAnnotationTool(page, \'Highlight\')');
+        expect(helper).toContain('await callWorkspaceCommand<boolean>(page, \'highlightSelection\')');
+        expect(helper.indexOf('await callWorkspaceCommand<boolean>(page, \'highlightSelection\')'))
+            .toBeLessThan(helper.lastIndexOf('document.getSelection()?.removeAllRanges()'));
+    });
+
     it('rejects OCR completion artifacts that do not contain the expected semantic text', async () => {
         const outputPath = await createMultiPageTextFixturePdf('unit-ocr-semantic-output.pdf', 1);
 
@@ -409,6 +522,14 @@ describe('Electron E2E fixture policy', () => {
 });
 
 describe('Electron E2E deterministic isolation policy', () => {
+    it('keeps detached E2E readiness inside the caller startup deadline', () => {
+        const innerTimeoutMs = resolveDetachedSessionReadyTimeoutMs('e2e');
+
+        expect(innerTimeoutMs).toBeLessThan(E2E_SESSION_START_TIMEOUT_MS);
+        expect(E2E_SESSION_START_TIMEOUT_MS - innerTimeoutMs).toBeGreaterThanOrEqual(10_000);
+        expect(resolveDetachedSessionReadyTimeoutMs('dev')).toBe(120_000);
+    });
+
     it('dispatches detached ownership through distinct executable commands', () => {
         const e2eLaunch = resolveDetachedSessionLaunch(
             'e2e',

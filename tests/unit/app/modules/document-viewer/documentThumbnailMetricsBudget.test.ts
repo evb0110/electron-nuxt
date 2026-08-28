@@ -59,6 +59,21 @@ beforeEach(() => {
 afterEach(restoreDocumentThumbnailListEnvironment);
 
 describe('document thumbnail page-metrics budget', () => {
+    it('releases thumbnail surfaces and stops rendering while the workspace is inactive', async () => {
+        const harness = createDocumentThumbnailSourceHarness();
+        const {setActive} = mountDocumentThumbnailList(harness.source);
+        await settleDocumentThumbnailList();
+        const callsBeforeDeactivation = harness.renderCalls.length;
+
+        setActive(false);
+        await settleDocumentThumbnailList();
+
+        expect(harness.renderCalls.length).toBe(callsBeforeDeactivation);
+        setActive(true);
+        await settleDocumentThumbnailList();
+        expect(harness.renderCalls.length).toBeGreaterThan(callsBeforeDeactivation);
+    });
+
     it('measures a hot page once no matter how often it is rendered', async () => {
         const harness = createDocumentThumbnailSourceHarness(5000, '/budget.pdf');
         const {host} = mountDocumentThumbnailList(harness.source);
