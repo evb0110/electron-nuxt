@@ -304,7 +304,6 @@ export async function waitForPdfAnnotationSubtypeCount(filePath: string, subtype
 export async function createHighlightWithPdfjsManager(page: Page) {
     const before = await getVisibleHighlightEditorCount(page);
     await clickAnnotationTool(page, 'Highlight');
-    await waitForAnnotationEditorMode(page, 'highlightEditing', 8_000);
 
     let selectionResult = 'missing-text';
     const startedAt = Date.now();

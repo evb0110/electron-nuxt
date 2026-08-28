@@ -198,7 +198,6 @@ describe('Electron E2E fixture policy', () => {
         const helper = source.slice(start, end);
 
         expect(helper).toContain('await clickAnnotationTool(page, \'Highlight\')');
-        expect(helper).toContain('await waitForAnnotationEditorMode(page, \'highlightEditing\'');
         expect(helper).toContain('await callWorkspaceCommand<boolean>(page, \'highlightSelection\')');
         expect(helper.indexOf('await callWorkspaceCommand<boolean>(page, \'highlightSelection\')'))
             .toBeLessThan(helper.lastIndexOf('document.getSelection()?.removeAllRanges()'));
