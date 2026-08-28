@@ -1,5 +1,6 @@
 import { createServer as createNetServer } from 'node:net';
 import {
+    execFileSync,
     execSync,
     type ChildProcess,
 } from 'node:child_process';
@@ -246,6 +247,32 @@ function isLinuxProcStatAlive(stat: string) {
     return state !== 'Z' && state !== 'X';
 }
 
+// `kill(pid, 0)` succeeds for a zombie on every POSIX platform, so an exited
+// child whose parent has not reaped it yet still looks alive. Session stops
+// hit this window routinely: the E2E controller is a detached child of the
+// test worker that kills Electron and then probes identity in one synchronous
+// stretch, during which the controller exits and cannot be reaped.
+function isPosixZombie(pid: number) {
+    try {
+        const state = execFileSync('ps', [
+            '-p',
+            String(pid),
+            '-o',
+            'stat=',
+        ], {
+            encoding: 'utf8',
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        }).trim();
+        return state.startsWith('Z');
+    } catch {
+        return false;
+    }
+}
+
 export function isProcessAlive(pid: number) {
     if (!Number.isFinite(pid) || pid <= 0) {
         return false;
@@ -255,8 +282,11 @@ export function isProcessAlive(pid: number) {
     } catch {
         return false;
     }
-    if (process.platform !== 'linux') {
+    if (process.platform === 'win32') {
         return true;
+    }
+    if (process.platform !== 'linux') {
+        return !isPosixZombie(pid);
     }
     try {
         return isLinuxProcStatAlive(readFileSync(`/proc/${String(pid)}/stat`, 'utf8'));
