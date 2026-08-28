@@ -164,9 +164,14 @@ describe('Electron E2E fixture policy', () => {
             join(process.cwd(), 'tests/e2e/electron/viewerSmoke.e2e.test.ts'),
             'utf8',
         );
+        const fixtureSource = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/helpers/createElectronE2ESessionFixture.ts'),
+            'utf8',
+        );
 
         expect(source.match(/EVB_PDF_IMAGE_COMBINE_ENABLE/gu)).toHaveLength(1);
         expect(source).toContain('EVB_PDF_IMAGE_COMBINE_ENABLE: \'1\'');
+        expect(fixtureSource).toContain('extraEnv: restartOptions.extraEnv');
     });
 
     it('labels thumbnail observations and reports the first bad frame', async () => {
