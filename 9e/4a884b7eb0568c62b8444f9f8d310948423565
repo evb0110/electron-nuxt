@@ -1,0 +1,20 @@
+tests/unit/e2e/electronFixturePolicy.test.ts
+  s_b2ece6dfe48478::t_4e825703136e09 32-35,416-423
+  s_b2ece6dfe48478::t_6e761e470cb475 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9e4a884b7eb0568c62b8444f9f8d310948423565",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
