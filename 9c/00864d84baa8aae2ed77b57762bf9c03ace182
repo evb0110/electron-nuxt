@@ -1,0 +1,19 @@
+tests/e2e/electron/standardPdfFitModeContinuity.e2e.test.ts
+  s_b2ece6dfe48478::t_c30c4e1e99f384 31,1002,1007-1011
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9c00864d84baa8aae2ed77b57762bf9c03ace182",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
