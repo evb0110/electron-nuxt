@@ -968,6 +968,23 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             expect(sample.stagedRenderPage, JSON.stringify(sample)).toBeNull();
             expect(sample.stagedViewportPage, JSON.stringify(sample)).toBeNull();
         };
+        const expectPagedStateOwned = (sample: Awaited<ReturnType<typeof collectPagedState>>) => {
+            const diagnostics = JSON.stringify(sample);
+            const isTargetOwnedSkeleton = !sample.canvasReady
+                && sample.visiblePage === sample.currentPage
+                && sample.requestedPage === sample.currentPage
+                && sample.committedPage !== sample.currentPage
+                && sample.lifecycle === 'transitioning'
+                && sample.visualPage === sample.currentPage
+                && sample.visualPresentation === 'skeleton'
+                && sample.stagedRenderPage === null
+                && sample.stagedViewportPage === null;
+            if (isTargetOwnedSkeleton) {
+                return;
+            }
+            expectPagedStateConverged(sample);
+            expect(sample.canvasReady, diagnostics).toBe(true);
+        };
         const collectConvergedPagedState = async () => {
             const deadline = Date.now() + 20_000;
             let sample = await collectPagedState();
@@ -1003,6 +1020,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         const forwardPage = forwardToolbar?.currentPage ?? 0;
         const forwardCanvasReady = forwardPage > 1
             && await waitForVisiblePageCanvas(session, forwardPage, 20_000);
+        const forwardFinalState = await collectPagedState();
 
         const reverseSamples: Array<Awaited<ReturnType<typeof collectPagedState>>> = [];
         for (let packet = 0; packet < 4; packet += 1) {
@@ -1014,6 +1032,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         const reversePage = reverseToolbar?.currentPage ?? 0;
         const reverseCanvasReady = reversePage > 0
             && await waitForVisiblePageCanvas(session, reversePage, 20_000);
+        const reverseFinalState = await collectPagedState();
 
         await clickPageNavigationButton(session, 'First Page');
         await waitForToolbarCurrentPage(session, 1);
@@ -1060,6 +1079,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             firstRecoveryCanvasReady,
             firstRecoveryState,
             forwardCanvasReady,
+            forwardFinalState,
             forwardToolbar,
             pageJumpPdfPath,
             postFastFirstCanvasReady,
@@ -1067,6 +1087,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             samePageRecoveryCanvasReady,
             samePageRecoveryState,
             reverseCanvasReady,
+            reverseFinalState,
             reverseSamples,
             reverseToolbar,
             samples,
@@ -1081,11 +1102,12 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             sample,
         ] of samples.entries()) {
             const previousPage = index === 0 ? 1 : samples[index - 1]!.currentPage;
-            expectPagedStateConverged(sample);
+            expectPagedStateOwned(sample);
             expect(sample.currentPage, JSON.stringify(sample)).toBeGreaterThanOrEqual(previousPage);
             expect(sample.currentPage, JSON.stringify(sample)).toBeLessThanOrEqual(previousPage + 1);
         }
         expect(samples.at(-1)?.visiblePage).toBe(forwardPage);
+        expectPagedStateConverged(forwardFinalState);
         expect(reversePage).toBeLessThanOrEqual(forwardPage - 4);
         expect(reverseCanvasReady).toBe(true);
         for (const [
@@ -1093,11 +1115,12 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             sample,
         ] of reverseSamples.entries()) {
             const previousPage = index === 0 ? forwardPage : reverseSamples[index - 1]!.currentPage;
-            expectPagedStateConverged(sample);
+            expectPagedStateOwned(sample);
             expect(sample.currentPage, JSON.stringify(sample)).toBeLessThanOrEqual(previousPage);
             expect(sample.currentPage, JSON.stringify(sample)).toBeGreaterThanOrEqual(previousPage - 1);
         }
         expect(reverseSamples.at(-1)?.visiblePage).toBe(reversePage);
+        expectPagedStateConverged(reverseFinalState);
         expect(firstRecoveryCanvasReady).toBe(true);
         expectPagedStateConverged(firstRecoveryState);
         expect(fastPage).toBeGreaterThanOrEqual(4);
