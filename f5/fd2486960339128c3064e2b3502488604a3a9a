@@ -1,0 +1,76 @@
+electron/file-access/workingCopyContentTransitionJournal.ts
+  s_5ac4a3281ca4f3::t_146ca21974cc84 29-32,342-346
+tests/unit/app/modules/workspace-shell/composables/workspaceAnnotationUtils.test.ts
+  s_5ac4a3281ca4f3::t_690e3fe71aab11 131-138,141,149
+electron/file-access/documentFileWriteAtomic.ts
+  s_5ac4a3281ca4f3::t_8c92f7e74e28fc 21-22,25-26,196-200
+app/modules/pdf-viewer/runtime/sessions/usePdfAnnotationEditorLifecycle.ts
+  s_5ac4a3281ca4f3::t_387fc98e8a4fe5 49-51
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_5ac4a3281ca4f3::t_432778e1a122ed 437
+tests/unit/electron/documentFileWriteAtomic.test.ts
+  s_5ac4a3281ca4f3::t_c78e4608ce8137 37-40
+  s_5ac4a3281ca4f3::t_8c92f7e74e28fc 1-36,41-43
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_5ac4a3281ca4f3::t_690e3fe71aab11 601-602,606,612-613,1264,1403
+  s_5ac4a3281ca4f3::t_33454dcd30fda3 1405
+  s_5ac4a3281ca4f3::t_0722830a01a11b 603-605,607-611,1404,1407-1408
+  s_5ac4a3281ca4f3::t_db99b5de59e751 1406
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_5ac4a3281ca4f3::t_6e3535325dce73 1432-1437,1479-1484
+  s_5ac4a3281ca4f3::t_ad9a9cb08fbd60 1446-1459
+  s_5ac4a3281ca4f3::t_7aec4a697e7dbb 1485
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_5ac4a3281ca4f3::t_03ef1d810e3dc5 62,941-953,962-963,1027,1033-1034,1065,1144-1149
+  s_5ac4a3281ca4f3::t_33454dcd30fda3 1028-1032
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceNativePersistence.test.ts
+  s_5ac4a3281ca4f3::t_3e3c39f9cf5e77 13,1136
+  s_5ac4a3281ca4f3::t_03ef1d810e3dc5 1121-1135,1137-1144
+tests/unit/electron/originalPathSaveBaseMatches.test.ts
+  s_5ac4a3281ca4f3::t_146ca21974cc84 98-103
+  s_5ac4a3281ca4f3::t_03ef1d810e3dc5 105,108,117-126
+  s_5ac4a3281ca4f3::t_40294efbe1e6a7 104,106-107,109
+app/modules/pdf-viewer/public.ts
+  s_5ac4a3281ca4f3::t_9ab99096dcc211 34
+tests/unit/electron/documentRevisionStore.test.ts
+  s_5ac4a3281ca4f3::t_8f72f64ba29d6f 190,201
+scripts/electron-run/electronRunProcessTree.ts
+  s_5ac4a3281ca4f3::t_a3ba25eae38f4c 6,241-248,258-273
+  s_5ac4a3281ca4f3::t_def0bb734b185d 240
+electron/features/documents/main/originalPathSaveBaseMatches.ts
+  s_5ac4a3281ca4f3::t_03ef1d810e3dc5 24-29
+  s_5ac4a3281ca4f3::t_146ca21974cc84 43
+electron/file-access/documentRevisionStore.ts
+  s_5ac4a3281ca4f3::t_146ca21974cc84 74-78
+tests/unit/scripts/electronRunGracefulShutdownPolicy.test.ts
+  s_5ac4a3281ca4f3::t_a3ba25eae38f4c 348-382
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfAnnotationEditorLifecycle.test.ts
+  s_5ac4a3281ca4f3::t_387fc98e8a4fe5 77
+app/modules/workspace-shell/annotations/workspaceAnnotationTypes.ts
+  s_5ac4a3281ca4f3::t_9ab99096dcc211 8-11
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_5ac4a3281ca4f3::t_6a54cd3064dc2b 1670,1673,1678-1679,1685
+  s_5ac4a3281ca4f3::t_0722830a01a11b 1665
+  s_5ac4a3281ca4f3::t_690e3fe71aab11 491-495,619,1820-1824
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_5ac4a3281ca4f3::t_432778e1a122ed 493
+native/pdf-page-ops/src/conformance.rs
+  s_5ac4a3281ca4f3::t_98ef354cdb47ed 29-46,94-95,109-136
+  s_5ac4a3281ca4f3::t_262f6d2e6ff732 137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f5fd2486960339128c3064e2b3502488604a3a9a",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
