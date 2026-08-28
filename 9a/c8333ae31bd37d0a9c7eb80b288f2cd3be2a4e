@@ -1,0 +1,19 @@
+tests/unit/contracts/search.test.ts
+  s_08917445274696::t_ea173b64960406 238-243
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9ac8333ae31bd37d0a9c7eb80b288f2cd3be2a4e",
+  "prompts": {},
+  "sessions": {
+    "s_08917445274696": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d0-811a-7aa2-b924-ef6f2f0be7c6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
