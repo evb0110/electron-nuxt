@@ -4,12 +4,10 @@ import {
     randomUUID,
 } from 'node:crypto';
 import {
-    lstat,
     mkdir,
     open,
     readFile,
     readdir,
-    realpath,
     rename,
     rm,
     stat,
@@ -20,9 +18,7 @@ import type {FileHandle} from 'node:fs/promises';
 import {
     dirname,
     join,
-    relative,
     resolve,
-    sep,
 } from 'node:path';
 import type {
     IDocumentRevisionInfo,
@@ -76,8 +72,16 @@ import {
     OcrCatalogFencedError,
     OcrCatalogPathError,
     OcrCatalogAbortedError,
+    assertCatalogRegularFile as assertRegularFile,
+    assertIndexByteLength,
+    assertOpenFileByteLength,
+    readBoundedFileContents,
+    canonicalPathParts as parseCanonicalPagePath,
     hasOcrCatalogV4ReaderLease,
     readCatalogFile,
+    readCatalogRoot,
+    readExactly,
+    readJsonFile,
     resolveCatalogPath,
 } from '@electron/ocr/ocrCatalogV4';
 import {assertWorkingCopyRevisionSidecarCurrent as assertWorkingCopyRevisionCurrent} from '@electron/file-access/documentRevisionSidecar';
@@ -165,8 +169,6 @@ const OCR_CATALOG_V4_PREPARED_DESCRIPTOR_SUFFIX = '.ocr-v4-prepared.json' as con
 const MAX_GENERATION_DIRECTORY_VALUE = OCR_MAX_GENERATION;
 const MAX_SHARD_FILE_VALUE = OCR_MAX_SHARD_NUMBER;
 const INDEX_COPY_CHUNK_RECORDS = 4096;
-/** JSON records are parsed only after a finite same-fd size check. */
-const OCR_CATALOG_JSON_MAX_BYTES = 64 * 1024 * 1024;
 /** Keep abandoned generations until their publication window has elapsed. */
 export const OCR_CATALOG_V4_ORPHAN_GRACE_MS = 30_000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -324,34 +326,6 @@ function canonicalPagePath(generation: number, pageNumber: number) {
     }
     return path;
 }
-function parseCanonicalPagePath(path: string) {
-    const match = CANONICAL_PAGE_PATH.exec(path);
-    if (!match) {
-        return null;
-    }
-    const generation = Number(match[1]);
-    const shard = Number(match[2]);
-    const pageNumber = Number(match[3]);
-    if (
-        !Number.isSafeInteger(generation)
-        || generation < 1
-        || generation > OCR_MAX_GENERATION
-        || !Number.isSafeInteger(shard)
-        || shard < 0
-        || shard > MAX_SHARD_FILE_VALUE
-        || !Number.isSafeInteger(pageNumber)
-        || pageNumber < 1
-        || pageNumber > OCR_MAX_PAGE_NUMBER
-        || Math.floor((pageNumber - 1) / OCR_SHARD_SIZE) !== shard
-    ) {
-        return null;
-    }
-    return {
-        generation,
-        shard,
-        pageNumber,
-    };
-}
 function expectedShardCount(pageCount: number) {
     const shardCount = Math.ceil(pageCount / OCR_SHARD_SIZE);
     if (!Number.isSafeInteger(shardCount) || shardCount > 0xFFFF_FFFF) {
@@ -394,24 +368,6 @@ function validateIndexRecord(record: IOcrShardIndexRecord, shard: number, pageCo
         throw new OcrCatalogCorruptError(`invalid shard-index record ${shard}`);
     }
     return record;
-}
-async function readExactly(file: FileHandle, buffer: Buffer, position: number) {
-    if (
-        !Number.isSafeInteger(position)
-        || position < 0
-        || !Number.isSafeInteger(buffer.byteLength)
-        || position > Number.MAX_SAFE_INTEGER - buffer.byteLength
-    ) {
-        throw new OcrCatalogCorruptError('shard-index read offset is unsafe');
-    }
-    let offset = 0;
-    while (offset < buffer.byteLength) {
-        const result = await file.read(buffer, offset, buffer.byteLength - offset, position + offset);
-        if (result.bytesRead <= 0) {
-            throw new OcrCatalogCorruptError('truncated shard index');
-        }
-        offset += result.bytesRead;
-    }
 }
 async function writeExactly(file: FileHandle, buffer: Buffer, position: number) {
     if (
@@ -502,248 +458,6 @@ async function openReadOnlyNoFollow(filePath: string): Promise<FileHandle> {
         throw error;
     }
 }
-
-async function readBoundedFileContents(
-    file: FileHandle,
-    displayPath: string,
-    maxBytes = OCR_CATALOG_JSON_MAX_BYTES,
-): Promise<Buffer> {
-    const before = await file.stat();
-    if (
-        !Number.isSafeInteger(before.size)
-        || before.size < 0
-        || before.size > maxBytes
-    ) {
-        throw new OcrCatalogCorruptError(
-            `${displayPath} exceeds the ${maxBytes}-byte read limit`,
-        );
-    }
-    const bytes = Buffer.alloc(before.size);
-    let offset = 0;
-    while (offset < bytes.byteLength) {
-        const result = await file.read(bytes, offset, bytes.byteLength - offset, offset);
-        if (
-            result.bytesRead <= 0
-            || result.bytesRead > bytes.byteLength - offset
-        ) {
-            throw new OcrCatalogCorruptError(`truncated ${displayPath}`);
-        }
-        offset += result.bytesRead;
-    }
-    const after = await file.stat();
-    if (
-        !Number.isSafeInteger(after.size)
-        || after.size !== before.size
-        || after.size > maxBytes
-    ) {
-        throw new OcrCatalogCorruptError(`${displayPath} changed while it was being read`);
-    }
-    return bytes;
-}
-
-async function assertRegularFile(
-    filePath: string,
-    displayPath = filePath,
-    catalogRoot?: string,
-) {
-    if (catalogRoot !== undefined) {
-        const rootPath = resolve(catalogRoot);
-        const targetPath = resolve(filePath);
-        const relativePath = relative(rootPath, targetPath);
-        if (
-            relativePath === ''
-            || relativePath === '..'
-            || relativePath.startsWith(`..${sep}`)
-        ) {
-            throw new OcrCatalogPathError(`path escapes catalog root: ${displayPath}`, displayPath);
-        }
-        let rootStat;
-        try {
-            rootStat = await lstat(rootPath);
-        } catch (error) {
-            if (isErrnoCode(error, 'ENOENT')) {
-                return false;
-            }
-            throw error;
-        }
-        if (rootStat.isSymbolicLink()) {
-            throw new OcrCatalogPathError(`symbolic links are not allowed: ${displayPath}`, displayPath);
-        }
-        if (!rootStat.isDirectory()) {
-            throw new OcrCatalogPathError(`catalog root is not a directory: ${displayPath}`, displayPath);
-        }
-        let canonicalRootPath: string;
-        try {
-            canonicalRootPath = await realpath(rootPath);
-        } catch (error) {
-            if (isErrnoCode(error, 'ENOENT')) {
-                return false;
-            }
-            throw error;
-        }
-        let cursor = canonicalRootPath;
-        const segments = relativePath.split(sep);
-        for (const [
-            index,
-            segment,
-        ] of segments.entries()) {
-            cursor = join(cursor, segment);
-            let ancestorStat;
-            try {
-                ancestorStat = await lstat(cursor);
-            } catch (error) {
-                if (isErrnoCode(error, 'ENOENT')) {
-                    return false;
-                }
-                throw error;
-            }
-            if (ancestorStat.isSymbolicLink()) {
-                throw new OcrCatalogPathError(`symbolic links are not allowed: ${displayPath}`, displayPath);
-            }
-            if (index < segments.length - 1 && !ancestorStat.isDirectory()) {
-                throw new OcrCatalogPathError(`catalog ancestor is not a directory: ${displayPath}`, displayPath);
-            }
-            if (index === segments.length - 1 && !ancestorStat.isFile()) {
-                throw new OcrCatalogPathError(`catalog entry is not a regular file: ${displayPath}`, displayPath);
-            }
-        }
-        let canonicalTargetPath: string;
-        try {
-            canonicalTargetPath = await realpath(join(canonicalRootPath, relativePath));
-        } catch (error) {
-            if (isErrnoCode(error, 'ENOENT')) {
-                return false;
-            }
-            throw error;
-        }
-        const canonicalRelativePath = relative(canonicalRootPath, canonicalTargetPath);
-        if (
-            canonicalRelativePath === ''
-            || canonicalRelativePath === '..'
-            || canonicalRelativePath.startsWith(`..${sep}`)
-        ) {
-            throw new OcrCatalogPathError(`path escapes catalog root: ${displayPath}`, displayPath);
-        }
-        return true;
-    }
-    let fileStat;
-    try {
-        fileStat = await lstat(filePath);
-    } catch (error) {
-        if (isErrnoCode(error, 'ENOENT')) {
-            return false;
-        }
-        throw error;
-    }
-    if (fileStat.isSymbolicLink()) {
-        throw new OcrCatalogPathError(`symbolic links are not allowed: ${displayPath}`, displayPath);
-    }
-    if (!fileStat.isFile()) {
-        throw new OcrCatalogPathError(`catalog entry is not a regular file: ${displayPath}`, displayPath);
-    }
-    return true;
-}
-async function readJsonFile(
-    filePath: string,
-    displayPath: string,
-    catalogRoot?: string,
-): Promise<unknown | null> {
-    if (!await assertRegularFile(filePath, displayPath, catalogRoot)) {
-        return null;
-    }
-    try {
-        const file = await openReadOnlyNoFollow(filePath);
-        try {
-            return JSON.parse(
-                (await readBoundedFileContents(file, displayPath)).toString('utf8'),
-            ) as unknown;
-        } finally {
-            await file.close();
-        }
-    } catch (error) {
-        if (error instanceof OcrCatalogPathError) {
-            throw error;
-        }
-        throw new OcrCatalogCorruptError(`invalid JSON in ${displayPath}`);
-    }
-}
-
-/** Reads only the fixed root prefix and rechecks its size on the same fd. */
-async function readRootPrefix(
-    filePath: string,
-): Promise<{
-    raw: Buffer;
-    size: number
-} | null> {
-    let file: FileHandle;
-    try {
-        file = await openReadOnlyNoFollow(filePath);
-    } catch (error) {
-        if (isErrnoCode(error, 'ENOENT')) {
-            return null;
-        }
-        throw error;
-    }
-    try {
-        const before = await file.stat();
-        if (!Number.isSafeInteger(before.size) || before.size < 0) {
-            return null;
-        }
-        const buffer = Buffer.alloc(OCR_CATALOG_ROOT_MAX_BYTES);
-        let bytesRead = 0;
-        while (bytesRead < buffer.byteLength) {
-            const result = await file.read(buffer, bytesRead, buffer.byteLength - bytesRead, bytesRead);
-            if (result.bytesRead <= 0) {
-                break;
-            }
-            bytesRead += result.bytesRead;
-        }
-        const after = await file.stat();
-        if (!Number.isSafeInteger(after.size) || after.size < 0) {
-            return null;
-        }
-        if (after.size !== before.size) {
-            throw new OcrCatalogCorruptError('root manifest changed while it was being read');
-        }
-        return {
-            raw: buffer.subarray(0, bytesRead),
-            size: after.size,
-        };
-    } finally {
-        await file.close();
-    }
-}
-
-function hasV4VersionMarker(rawText: string): boolean {
-    return /"version"\s*:\s*(?:4(?:\D|$)|"4"(?:\s*[,}]))/u.test(rawText);
-}
-
-async function assertIndexByteLength(indexPath: string, expectedLength: number): Promise<void> {
-    let fileStat;
-    try {
-        fileStat = await stat(indexPath);
-    } catch {
-        throw new OcrCatalogCorruptError(`cannot stat ${SHARD_INDEX_FILENAME}`);
-    }
-    if (!Number.isSafeInteger(fileStat.size) || fileStat.size !== expectedLength) {
-        throw new OcrCatalogCorruptError(
-            `shard index length ${fileStat.size} does not equal ${expectedLength}`,
-        );
-    }
-}
-
-async function assertOpenFileByteLength(
-    file: FileHandle,
-    expectedLength: number,
-    displayPath: string,
-): Promise<void> {
-    const fileStat = await file.stat();
-    if (!Number.isSafeInteger(fileStat.size) || fileStat.size !== expectedLength) {
-        throw new OcrCatalogCorruptError(
-            `${displayPath} length ${fileStat.size} does not equal ${expectedLength}`,
-        );
-    }
-}
 interface IStreamingV3RootValue {
     kind: 'v3-stream';
     metadata: IOcrIndexV3ManifestStreamMetadata;
@@ -757,53 +471,17 @@ function isStreamingV3RootValue(value: unknown): value is IStreamingV3RootValue 
         && 'metadata' in value;
 }
 async function readRootValue(catalogRoot: string): Promise<unknown | IStreamingV3RootValue | null> {
-    const rootPath = join(catalogRoot, ROOT_MANIFEST_FILENAME);
-    if (!await assertRegularFile(rootPath, ROOT_MANIFEST_FILENAME, catalogRoot)) {
+    const rootProbe = await readCatalogRoot(catalogRoot);
+    if (rootProbe === null) {
         return null;
     }
-    const prefix = await readRootPrefix(rootPath);
-    if (prefix === null) {
-        return null;
+    if (rootProbe.kind === 'v3') {
+        return {
+            kind: 'v3-stream',
+            metadata: rootProbe.metadata,
+        };
     }
-    const {raw} = prefix;
-    const fileSize = prefix.size;
-    const rawText = raw.toString('utf8');
-    const hasV4Marker = hasV4VersionMarker(rawText);
-    if (fileSize >= OCR_CATALOG_ROOT_MAX_BYTES) {
-        if (hasV4Marker) {
-            throw new OcrCatalogCorruptError(
-                `v4 root manifest must be smaller than ${OCR_CATALOG_ROOT_MAX_BYTES} bytes`,
-            );
-        }
-        const metadata = await readOcrIndexV3ManifestMetadata(rootPath);
-        if (metadata !== null) {
-            return {
-                kind: 'v3-stream',
-                metadata,
-            };
-        }
-        return null;
-    }
-    if (!hasV4Marker) {
-        const metadata = await readOcrIndexV3ManifestMetadata(rootPath);
-        return metadata === null
-            ? null
-            : {
-                kind: 'v3-stream',
-                metadata,
-            };
-    }
-    try {
-        return JSON.parse(rawText) as unknown;
-    } catch (error) {
-        if (error instanceof OcrCatalogCorruptError) {
-            throw error;
-        }
-        if (hasV4Marker) {
-            throw new OcrCatalogCorruptError('published v4 root manifest is invalid JSON');
-        }
-        return null;
-    }
+    return rootProbe.value;
 }
 async function readCurrentCatalog(catalogRoot: string): Promise<TCurrentCatalog> {
     const rootValue = await readRootValue(catalogRoot);
