@@ -33,6 +33,15 @@ import {
 } from '@scripts/electron-run/electronLaunch';
 
 const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+const DEV_DETACHED_SESSION_READY_TIMEOUT_MS = 120_000;
+const E2E_DETACHED_SESSION_READY_TIMEOUT_MS = 65_000;
+export const E2E_SESSION_START_TIMEOUT_MS = 75_000;
+
+export function resolveDetachedSessionReadyTimeoutMs(owner: 'dev' | 'e2e') {
+    return owner === 'e2e'
+        ? E2E_DETACHED_SESSION_READY_TIMEOUT_MS
+        : DEV_DETACHED_SESSION_READY_TIMEOUT_MS;
+}
 
 export function resolveDetachedSessionLaunch(
     owner: 'dev' | 'e2e',
@@ -101,6 +110,8 @@ export async function startSessionDetached(options: {
     owner?: 'dev' | 'e2e';
     initialOpenPaths?: string[];
 } = {}) {
+    const owner = options.owner ?? 'dev';
+    const readyTimeoutMs = resolveDetachedSessionReadyTimeoutMs(owner);
     await cleanupStaleSessionArtifacts();
 
     if (await isSessionRunning()) {
@@ -109,7 +120,7 @@ export async function startSessionDetached(options: {
     }
     if (isSessionStarting()) {
         console.log(`Session '${getCurrentSessionName()}' startup already in progress. Waiting for readiness...`);
-        const ready = await waitForSessionReady(90_000);
+        const ready = await waitForSessionReady(readyTimeoutMs);
         if (!ready) {
             throw new Error(`Startup is still pending. Check logs: ${sessionLogFilePath()}`);
         }
@@ -123,7 +134,7 @@ export async function startSessionDetached(options: {
         args,
         command,
     } = resolveDetachedSessionLaunch(
-        options.owner ?? 'dev',
+        owner,
         getCurrentSessionName(),
     );
     let child: ChildProcess;
@@ -156,10 +167,9 @@ export async function startSessionDetached(options: {
     await waitForDetachedChildSpawn(child);
     child.unref();
 
-    const timeoutMs = 120_000;
     const start = Date.now();
     let ready = false;
-    while (Date.now() - start < timeoutMs) {
+    while (Date.now() - start < readyTimeoutMs) {
         if (await isSessionRunning()) {
             ready = true;
             break;
@@ -186,7 +196,7 @@ export async function startSessionDetached(options: {
         const tail = readSessionLogTail();
         const details = tail ? `\n\n--- Recent session log ---\n${tail}` : '';
         throw createDetachedSessionReadinessFailure(
-            `Detached session failed to become ready in ${Math.round(timeoutMs / 1000)}s. Check logs: ${sessionLogFilePath()}${details}`,
+            `Detached session failed to become ready in ${Math.round(readyTimeoutMs / 1000)}s. Check logs: ${sessionLogFilePath()}${details}`,
             cleanupErrors,
         );
     }

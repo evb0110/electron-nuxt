@@ -42,7 +42,10 @@ import {
     pickSettingsSavePatch,
 } from '@contracts/settings';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
-import { startSessionDetached } from '@scripts/electron-run/startSessionDetached';
+import {
+    E2E_SESSION_START_TIMEOUT_MS,
+    startSessionDetached,
+} from '@scripts/electron-run/startSessionDetached';
 import { stopSingleSession } from '@scripts/electron-run/stopSession';
 import { cleanupSessionFixtures } from '@tests/e2e/electron/helpers/fixtures';
 import {
@@ -58,7 +61,7 @@ import {
     runWithElectronE2EDeadline,
 } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 
-const SESSION_READY_TIMEOUT_MS = 75_000;
+const SESSION_READY_TIMEOUT_MS = E2E_SESSION_START_TIMEOUT_MS;
 const RENDERER_READY_TIMEOUT_MS = 30_000;
 const SESSION_STOP_TIMEOUT_MS = 15_000;
 const PRESERVE_E2E_ARTIFACTS_ENV = 'EVB_E2E_PRESERVE_ARTIFACTS';
