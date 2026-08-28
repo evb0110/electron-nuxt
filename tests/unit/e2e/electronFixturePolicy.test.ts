@@ -146,6 +146,16 @@ describe('Electron E2E fixture policy', () => {
         expect(source).not.toContain('JSON.stringify({performanceMode: payload.performanceMode})');
     });
 
+    it('dismisses Viewer Smoke scan guidance through the shared helper', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/viewerSmoke.e2e.test.ts'),
+            'utf8',
+        );
+
+        expect(source.match(/dismissScanCleanupFirstRunGuidance\(session\.page\)/gu)).toHaveLength(2);
+        expect(source).not.toContain('=== \'Got it\'');
+    });
+
     it('rejects OCR completion artifacts that do not contain the expected semantic text', async () => {
         const outputPath = await createMultiPageTextFixturePdf('unit-ocr-semantic-output.pdf', 1);
 
