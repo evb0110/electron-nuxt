@@ -968,12 +968,33 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             expect(sample.stagedRenderPage, JSON.stringify(sample)).toBeNull();
             expect(sample.stagedViewportPage, JSON.stringify(sample)).toBeNull();
         };
+        const collectConvergedPagedState = async () => {
+            const deadline = Date.now() + 20_000;
+            let sample = await collectPagedState();
+            while (
+                Date.now() < deadline
+                && !(
+                    sample.canvasReady
+                    && sample.visiblePage === sample.currentPage
+                    && sample.requestedPage === sample.currentPage
+                    && sample.committedPage === sample.currentPage
+                    && sample.lifecycle === 'ready'
+                    && sample.visualPage === sample.currentPage
+                    && sample.visualPresentation === 'canvas'
+                    && sample.stagedRenderPage === null
+                    && sample.stagedViewportPage === null
+                )
+            ) {
+                await delay(50);
+                sample = await collectPagedState();
+            }
+            return sample;
+        };
         const samples: Array<Awaited<ReturnType<typeof collectPagedState>>> = [];
         await session.page.mouse.move(viewportPoint.x, viewportPoint.y);
         for (let packet = 0; packet < 12; packet += 1) {
             await session.page.mouse.wheel({deltaY: 180});
-            await delay(220);
-            samples.push(await collectPagedState());
+            samples.push(await collectConvergedPagedState());
         }
 
         await delay(1_000);
@@ -985,8 +1006,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         const reverseSamples: Array<Awaited<ReturnType<typeof collectPagedState>>> = [];
         for (let packet = 0; packet < 4; packet += 1) {
             await session.page.mouse.wheel({deltaY: -180});
-            await delay(220);
-            reverseSamples.push(await collectPagedState());
+            reverseSamples.push(await collectConvergedPagedState());
         }
         const reverseToolbar = await getWorkspaceToolbarSnapshot(session.page);
         const reversePage = reverseToolbar?.currentPage ?? 0;

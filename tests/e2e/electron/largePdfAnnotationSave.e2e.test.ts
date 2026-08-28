@@ -1632,11 +1632,24 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         });
 
         const placement = await placePageNote(page, firstText, {toolbarOnly: true});
+        await page.keyboard.press('Escape');
         await openAnnotationsTab(page, 30_000);
-        expect(await createFreeTextAnnotation(page, `first editor ${Date.now()}`)).toBeGreaterThan(0);
-        await page.keyboard.press('Escape');
-        expect(await createFreeTextAnnotation(page, `second editor ${Date.now()}`)).toBeGreaterThan(0);
-        await page.keyboard.press('Escape');
+        expect(await createFreeTextAnnotationWithPointer(
+            page,
+            `first editor ${Date.now()}`,
+            {
+                x: 0.3,
+                y: 0.3,
+            },
+        )).toBeGreaterThan(0);
+        expect(await createFreeTextAnnotationWithPointer(
+            page,
+            `second editor ${Date.now()}`,
+            {
+                x: 0.7,
+                y: 0.6,
+            },
+        )).toBeGreaterThan(0);
         const saveStartedAt = Date.now();
         try {
             await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);

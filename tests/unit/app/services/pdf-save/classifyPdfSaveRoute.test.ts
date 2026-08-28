@@ -603,6 +603,73 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         ]);
     });
 
+    it('ignores aliases for an acknowledged editor when projecting the next native editor save', () => {
+        const savedEntity = {
+            ...editorNote('anno_saved'),
+            revision: 1,
+            persistedRevision: 1,
+        };
+        const newEntity = {
+            ...editorNote('anno_new'),
+            identity: {
+                id: asAnnotationId('anno_new'),
+                elementId: 'new-runtime-id',
+            },
+        };
+        const newEditor: IPdfNativeFreeTextEditor = {
+            pageIndex: requirePageIndex(0),
+            stableKey: 'src:editor:0:new-runtime-id',
+            text: 'new text',
+            rect: [
+                10,
+                20,
+                110,
+                60,
+            ],
+            rotation: 0,
+            fontSize: 16,
+            color: [
+                245,
+                158,
+                11,
+            ],
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([newEntity], [
+                savedEntity,
+                newEntity,
+            ]),
+            capabilities({
+                forcePdfjsMaterialize: true,
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: true,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_saved',
+                        'pdfjs_internal_editor_0',
+                        'anno_new',
+                        'new-runtime-id',
+                    ]),
+                    nativeFreeTextEditors: new Map([[
+                        'new-runtime-id',
+                        newEditor,
+                    ]]),
+                    hasChanges: true,
+                    fingerprint: 'acknowledged-plus-new',
+                }),
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.freeTextEditors).toEqual([newEditor]);
+    });
+
     it('does not let a replayable alias without a projected mutation ride an unrelated editor save', () => {
         const editor: IPdfNativeFreeTextEditor = {
             pageIndex: requirePageIndex(0),

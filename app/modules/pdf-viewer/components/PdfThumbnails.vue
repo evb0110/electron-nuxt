@@ -74,7 +74,7 @@
           </AppTooltip>
         </template>
         <span class="pdf-thumbnail-skeleton" aria-hidden="true" />
-        <canvas class="pdf-thumbnail-canvas" />
+        <canvas v-if="isActive" class="pdf-thumbnail-canvas" />
         <template #label>{{ formatPageIndicatorWithOptions(page, pageLabels ?? null) }}</template>
       </DocumentThumbnailItem>
     </div>
