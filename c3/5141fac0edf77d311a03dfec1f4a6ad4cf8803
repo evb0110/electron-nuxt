@@ -1,0 +1,23 @@
+tests/unit/app/modules/pdf-viewer/composables/usePageOperations.test.ts
+  s_3f273936057f92::t_028427c49dde00 13,90-96,99,108,122,142,822,879,901,923,932-981
+tests/unit/contracts/pdfPageLabels.test.ts
+  s_3f273936057f92::t_23611aa4b14463 1-299
+tests/unit/electron/pageMetadataRemap.test.ts
+  s_3f273936057f92::t_0876e68b7281b7 194-268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c35141fac0edf77d311a03dfec1f4a6ad4cf8803",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
