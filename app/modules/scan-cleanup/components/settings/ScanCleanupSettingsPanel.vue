@@ -245,6 +245,7 @@
                             :min="0"
                             :max="SCAN_CLEANUP_MARGIN_MAX_MM"
                             :step="1"
+                            @change="handleMarginChange(side.key, $event)"
                             @update:model-value="emitMargin(side.key, $event)"
                         />
                     </UFormField>
@@ -821,6 +822,17 @@ function confirmReset() {
 function emitMargin(target: TScanCleanupMarginTarget, value: number | null | undefined) {
     if (typeof value === 'number' && Number.isFinite(value)) {
         emit('update-margin', target, value);
+    }
+}
+
+function handleMarginChange(target: TScanCleanupMarginTarget, value: unknown) {
+    const nextValue = typeof value === 'number'
+        ? value
+        : value instanceof Event && value.target instanceof HTMLInputElement
+            ? Number(value.target.value)
+            : Number(value);
+    if (nextValue !== props.margins.value?.[target]) {
+        emitMargin(target, nextValue);
     }
 }
 
