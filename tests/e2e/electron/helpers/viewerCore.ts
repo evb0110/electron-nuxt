@@ -1,4 +1,7 @@
-import type { Page } from 'puppeteer-core';
+import type {
+    ElementHandle,
+    Page,
+} from 'puppeteer-core';
 import {realpath} from 'node:fs/promises';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import { delay } from 'es-toolkit/promise';
@@ -1069,92 +1072,44 @@ async function isAnnotationsPanelVisible(page: Page) {
 }
 
 async function tryActivateAnnotationsTab(page: Page) {
-    return page.evaluate(() => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
+    const activeSelector = '.editor-pane.is-active .workspace-host [data-testid="document-sidebar"] [role="tab"]';
+    const fallbackSelector = '.workspace-host [data-testid="document-sidebar"] [role="tab"]';
+    let tabs = await page.$$(activeSelector);
+    if (tabs.length === 0) {
+        tabs = await page.$$(fallbackSelector);
+    }
+    if (tabs.length === 0) {
+        return 'missing-tabs';
+    }
 
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && isVisibleHost(activeHost))
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .find(isVisibleHost);
-        if (!host) {
-            return 'missing-host';
-        }
-
-        const panel = host.querySelector<HTMLElement>('.notes-panel');
-        if (panel) {
-            const panelStyle = window.getComputedStyle(panel);
-            const panelRect = panel.getBoundingClientRect();
-            if (
-                panelStyle.display !== 'none'
-                && panelStyle.visibility !== 'hidden'
-                && panelRect.width > 10
-                && panelRect.height > 10
-            ) {
-                return 'already-open';
-            }
-        }
-
-        const tabs = Array.from(host.querySelectorAll<HTMLElement>(
-            '[data-testid="document-sidebar"] [role="tab"]',
-        ));
-        if (tabs.length === 0) {
-            return 'missing-tabs';
-        }
-
-        const target = tabs.find((tab) => {
+    const tabStates = await Promise.all(tabs.map(async (tab) => ({
+        tab,
+        visible: await tab.boundingBox() !== null,
+        ...(await tab.evaluate((element) => {
             const text = [
-                tab.getAttribute('aria-label') ?? '',
-                tab.getAttribute('title') ?? '',
-                tab.textContent ?? '',
-                tab.className,
-                tab.querySelector('span')?.className ?? '',
-                tab.querySelector('svg')?.getAttribute('data-icon') ?? '',
+                element.getAttribute('aria-label') ?? '',
+                element.getAttribute('title') ?? '',
+                element.textContent ?? '',
+                element.className,
+                element.querySelector('span')?.className ?? '',
+                element.querySelector('svg')?.getAttribute('data-icon') ?? '',
             ]
                 .join(' ')
                 .toLowerCase();
-
-            return (
-                text.includes('notes')
+            return {isAnnotationTab: text.includes('notes')
                 || text.includes('annotation')
                 || text.includes('message-square')
-                || text.includes('sticky-note')
-            );
-        }) ?? tabs[0];
+                || text.includes('sticky-note')};
+        })),
+    })));
+    const target = tabStates.find(state => state.visible && state.isAnnotationTab)
+        ?? tabStates.find(state => state.visible);
+    if (!target) {
+        return 'missing-target';
+    }
 
-        if (!target) {
-            return 'missing-target';
-        }
-
-        target.scrollIntoView({
-            block: 'center',
-            inline: 'center',
-        });
-        target.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-        }));
-        target.dispatchEvent(new MouseEvent('mousedown', {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-        }));
-        target.click();
-        target.dispatchEvent(new MouseEvent('mouseup', {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-        }));
-        return target.getAttribute('aria-selected') === 'true'
-            || target.dataset.state === 'active'
-            ? 'activated'
-            : 'clicked';
-    });
+    await (target.tab as ElementHandle<Element>).click();
+    return 'clicked';
 }
 
 export async function openAnnotationsTab(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {

@@ -425,16 +425,19 @@ describe('managed temporary file handles', () => {
             mocks.path,
             validations,
         );
-        const authoritativeEcho = structuredClone(artifact);
+        const rendererArtifact = structuredClone(artifact);
+        expect(Object.isFrozen(artifact)).toBe(true);
+        expect(Object.isFrozen(artifact.validations)).toBe(true);
+        expect(Object.isFrozen(artifact.validations.qpdfResult)).toBe(true);
 
         validations.tailCheck = false;
         validations.qpdfResult.warnings.push('input mutation');
-        artifact.validations.fsynced = false;
-        artifact.validations.qpdfResult?.warnings.push('receipt mutation');
+        rendererArtifact.validations.fsynced = false;
+        rendererArtifact.validations.qpdfResult?.warnings.push('receipt mutation');
 
-        await expect(resolveTypedStagedArtifact({senderId: 42}, artifact))
+        await expect(resolveTypedStagedArtifact({senderId: 42}, rendererArtifact))
             .rejects.toThrow('altered');
-        await expect(resolveTypedStagedArtifact({senderId: 42}, authoritativeEcho))
+        await expect(resolveTypedStagedArtifact({senderId: 42}, artifact))
             .resolves.toMatchObject({validations: {
                 tailCheck: true,
                 fsynced: true,

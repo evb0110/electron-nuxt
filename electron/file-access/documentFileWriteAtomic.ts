@@ -16,12 +16,12 @@ import {
     resolve,
 } from 'path';
 import { randomUUID } from 'crypto';
-import {performance} from 'node:perf_hooks';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import {attemptWorkingCopyClone} from '@electron/file-access/workingCopyDirectory';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
+import {measureOperationPhase} from '@contracts/measureOperationPhase';
 
 const log = createLogger('documentFileWriteAtomic');
 
@@ -228,16 +228,10 @@ async function measureCopyPhase<T>(
     phase: string,
     operation: () => Promise<T>,
 ): Promise<T> {
-    const startedAt = performance.now();
-    try {
-        return await operation();
-    } finally {
-        try {
-            onPhase?.(phase, Math.round((performance.now() - startedAt) * 10) / 10);
-        } catch (error) {
-            log.warn(`Atomic copy phase reporter failed: ${getErrorMessage(error)}`);
-        }
-    }
+    return measureOperationPhase(operation, durationMs => {
+        try { onPhase?.(phase, durationMs); }
+        catch (error) { log.warn(`Atomic copy phase reporter failed: ${getErrorMessage(error)}`); }
+    });
 }
 
 export async function linkOrCopyFileDurably(

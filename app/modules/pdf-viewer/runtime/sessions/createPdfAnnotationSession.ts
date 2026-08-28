@@ -66,7 +66,6 @@ import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSe
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import { collectLivePdfJsAnnotationChangeIds } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import { useTextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
-import { usePdfAnnotationEditorLifecycle } from '@app/modules/pdf-viewer/runtime/sessions/usePdfAnnotationEditorLifecycle';
 
 
 export interface ICreatePdfAnnotationSessionOptions {
@@ -931,11 +930,41 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         options.emitAnnotationComments([]);
         options.emitAnnotationInventory(null);
     }
-    usePdfAnnotationEditorLifecycle({
-        pdfDocument: documentSession.pdfDocument,
-        viewerContainer: options.viewerContainer,
-        initialize: annotations.editor.initAnnotationEditor,
-        destroy: annotations.editor.destroyAnnotationEditor,
+    // Startup restoration can publish the PDF proxy before Vue commits the
+    // viewer element. The editor belongs to both. initAnnotationEditor owns
+    // replacement teardown; this watch destroys explicitly only while the
+    // owner pair is incomplete.
+    let initializedAnnotationEditorDocument: typeof documentSession.pdfDocument.value = null;
+    let initializedAnnotationEditorContainer: HTMLElement | null = null;
+    watch([
+        documentSession.pdfDocument,
+        options.viewerContainer,
+    ], ([
+        document,
+        container,
+    ]) => {
+        if (!document || !container) {
+            if (initializedAnnotationEditorDocument || initializedAnnotationEditorContainer) {
+                annotations.editor.destroyAnnotationEditor();
+                initializedAnnotationEditorDocument = null;
+                initializedAnnotationEditorContainer = null;
+            }
+            return;
+        }
+
+        if (
+            document === initializedAnnotationEditorDocument
+            && container === initializedAnnotationEditorContainer
+        ) {
+            return;
+        }
+
+        annotations.editor.initAnnotationEditor();
+        initializedAnnotationEditorDocument = document;
+        initializedAnnotationEditorContainer = container;
+    }, {
+        flush: 'sync',
+        immediate: true,
     });
     const unsubscribeDocumentTransitions = documentSession.subscribe((transition) => {
         if (!transition.isCurrent()) {

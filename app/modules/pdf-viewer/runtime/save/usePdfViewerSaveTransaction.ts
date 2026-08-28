@@ -49,6 +49,7 @@ import type {
 } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import { isNativeDocumentRef } from '@app/utils/documentRef';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
+import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
@@ -185,8 +186,7 @@ async function collectPreexistingPdfAnnotationRefs(
         .map(mutation => mutation.fields.pageIndex)
         .filter((value): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0));
     const refs = new Set<string>();
-    const startedAt = performance.now();
-    await Promise.all(Array.from(pageIndexes, async (pageIndex) => {
+    await measureOperationPhase(() => Promise.all(Array.from(pageIndexes, async (pageIndex) => {
         const page = await doc.getPage(pageIndex + 1);
         const annotations = await page.getAnnotations({intent: 'display'});
         annotations.forEach((annotation: {id?: unknown}) => {
@@ -195,16 +195,17 @@ async function collectPreexistingPdfAnnotationRefs(
                 : null;
             if (id) refs.add(id);
         });
-    }));
-    const durationMs = Math.round((performance.now() - startedAt) * 10) / 10;
-    if (durationMs >= SLOW_SAVE_PREPARATION_STEP_MS) {
+    })), durationMs => {
+        if (durationMs < SLOW_SAVE_PREPARATION_STEP_MS) {
+            return;
+        }
         BrowserLogger.warn('workspace', 'Slow PDF save preparation step', {
             phase: 'collect-preexisting-annotation-refs',
             durationMs,
             pageCount: pageIndexes.size,
             refCount: refs.size,
         });
-    }
+    });
     return Array.from(refs);
 }
 
@@ -596,18 +597,14 @@ export const usePdfViewerSaveTransaction = (
             assertSaveTargetCurrent();
         }
         const measurePreparationStep = async <T>(phase: string, operation: () => Promise<T> | T) => {
-            const startedAt = performance.now();
-            try {
-                return await operation();
-            } finally {
-                const durationMs = Math.round((performance.now() - startedAt) * 10) / 10;
+            return measureOperationPhase(async () => operation(), durationMs => {
                 if (durationMs >= SLOW_SAVE_PREPARATION_STEP_MS) {
                     BrowserLogger.warn('workspace', 'Slow PDF save preparation step', {
                         phase,
                         durationMs,
                     });
                 }
-            }
+            });
         };
         const pdfjsLiveChangesBeforeCommit = await measurePreparationStep(
             'collect-live-changes-before-commit',

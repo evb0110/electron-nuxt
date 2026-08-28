@@ -1,6 +1,5 @@
 import {randomUUID} from 'node:crypto';
 import {rm} from 'node:fs/promises';
-import {performance} from 'node:perf_hooks';
 import type {TDocumentRevisionChangeReason} from '@contracts/documentRevision';
 import {
     copyFileAtomic,
@@ -12,6 +11,7 @@ import {withOriginalPathMutationLock} from '@electron/features/documents/main/wi
 import {readWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
 import {rebindDocumentTextCatalogIfPresent} from '@electron/file-access/rebindDocumentTextCatalogIfPresent';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
+import {measureOperationPhase} from '@contracts/measureOperationPhase';
 
 function journalPath(workingCopyPath: string) {
     return `${workingCopyPath}.evb-two-target-transition.json`;
@@ -26,12 +26,7 @@ async function measureTransitionPhase<T>(
     onPhase: ((phase: string, durationMs: number) => void) | undefined,
     operation: () => Promise<T>,
 ): Promise<T> {
-    const startedAt = performance.now();
-    try {
-        return await operation();
-    } finally {
-        onPhase?.(phase, Math.round((performance.now() - startedAt) * 10) / 10);
-    }
+    return measureOperationPhase(operation, durationMs => onPhase?.(phase, durationMs));
 }
 
 export async function transitionOriginalAndWorkingCopyRevision(input: {

@@ -310,6 +310,28 @@ describe('electron e2e Vitest project topology', () => {
         expect(packageScripts['test:e2e:electron:watch'])
             .toBe('vitest --project e2e-regression --reporter verbose');
     });
+
+    it('keeps the large-PDF acceptance interaction and window mode source-backed', async () => {
+        const largePdfSource = await readFile('tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts', 'utf8');
+        const viewerCoreSource = await readFile('tests/e2e/electron/helpers/viewerCore.ts', 'utf8');
+        const activationStart = viewerCoreSource.indexOf('async function tryActivateAnnotationsTab');
+        const activationEnd = viewerCoreSource.indexOf(
+            'export async function openAnnotationsTab',
+            activationStart,
+        );
+        expect(activationStart).toBeGreaterThanOrEqual(0);
+        expect(activationEnd).toBeGreaterThan(activationStart);
+        const activationSource = viewerCoreSource.slice(activationStart, activationEnd);
+
+        expect(largePdfSource).toContain('const LARGE_PDF_WINDOW_MODE_ENV = \'EVB_E2E_LARGE_PDF_WINDOW_MODE\';');
+        expect(largePdfSource).toContain('windowMode: largePdfWindowMode');
+        expect(largePdfSource).toContain('dirty.pdfJsAnnotationStorage !== null');
+        expect(largePdfSource).toContain('qpdfDictionaryContainsText(annotationObject, \'Contents\', expectedText)');
+        expect(largePdfSource).not.toContain('qpdfObjectContainsText');
+        expect(activationSource).toContain('await (target.tab as ElementHandle<Element>).click();');
+        expect(activationSource).not.toContain('page.evaluate');
+        expect(activationSource).not.toContain('dispatchEvent');
+    });
 });
 
 describe('electron e2e quarantine Vitest project', () => {

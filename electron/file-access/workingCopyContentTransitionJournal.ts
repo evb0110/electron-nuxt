@@ -1,5 +1,4 @@
 import {randomUUID} from 'node:crypto';
-import {performance} from 'node:perf_hooks';
 import {
     cp,
     lstat,
@@ -28,6 +27,7 @@ import {
 } from '@contracts/ocrIndex';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
+import {measureOperationPhase} from '@contracts/measureOperationPhase';
 
 const log = createLogger('workingCopyContentTransitionJournal');
 
@@ -335,16 +335,10 @@ async function measureContentTransitionPhase<T>(
     onPhase: ((phase: string, durationMs: number) => void) | undefined,
     operation: () => Promise<T>,
 ): Promise<T> {
-    const startedAt = performance.now();
-    try {
-        return await operation();
-    } finally {
-        try {
-            onPhase?.(phase, Math.round((performance.now() - startedAt) * 10) / 10);
-        } catch (error) {
-            log.warn(`Content transition phase reporter failed: ${getErrorMessage(error)}`);
-        }
-    }
+    return measureOperationPhase(operation, durationMs => {
+        try { onPhase?.(phase, durationMs); }
+        catch (error) { log.warn(`Content transition phase reporter failed: ${getErrorMessage(error)}`); }
+    });
 }
 
 export async function rollbackWorkingCopyContentTransition(

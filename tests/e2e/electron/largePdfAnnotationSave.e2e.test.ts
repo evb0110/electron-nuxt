@@ -30,6 +30,7 @@ import {
     PDFString,
 } from 'pdf-lib';
 import type {Page} from 'puppeteer-core';
+import type {TElectronE2EWindowMode} from '@scripts/electron-run/electronRunLaunchConfig';
 import {
     PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES,
     type IPdfAnnotationIndexEntry,
@@ -83,6 +84,22 @@ const EXACT_ZALIZNYAK_BYTES = 722_178_517;
 const EXACT_ZALIZNYAK_PAGES = 882;
 const ANNOTATION_INDEX_CHUNK_BYTES = 512 * 1_024;
 const IPC_PAYLOAD_MAX_BYTES = 8 * 1_024 * 1_024;
+const LARGE_PDF_WINDOW_MODE_ENV = 'EVB_E2E_LARGE_PDF_WINDOW_MODE';
+
+function resolveLargePdfWindowMode(env: NodeJS.ProcessEnv = process.env): TElectronE2EWindowMode {
+    const value = env[LARGE_PDF_WINDOW_MODE_ENV]?.trim().toLowerCase();
+    if (!value) {
+        return 'hidden';
+    }
+    if (value === 'visible' || value === 'hidden') {
+        return value;
+    }
+    throw new Error(
+        `${LARGE_PDF_WINDOW_MODE_ENV} must be either 'visible' or 'hidden', received ${JSON.stringify(value)}`,
+    );
+}
+
+const largePdfWindowMode = resolveLargePdfWindowMode();
 const largePdfFixture = resolveLargePdfFixtureAvailability();
 const largePdfDescribe = selectFixtureDescribe(describe, largePdfFixture);
 
@@ -274,10 +291,11 @@ async function expectCleanAnnotationHydration(page: Page) {
             && dirty.hasAnnotationChanges === false
             && dirty.hasLivePdfJsAnnotationChanges === false
             && dirty.hasPendingUnsavedChanges === false
-            && (dirty.pdfJsAnnotationStorage === null || (
+            && dirty.pdfJsAnnotationStorage !== null
+            && (
                 dirty.pdfJsAnnotationStorage.hasChanges === false
                 && dirty.pdfJsAnnotationStorage.ids.length === 0
-            ));
+            );
     }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(true);
 }
 
@@ -474,9 +492,153 @@ function parseAppearanceRefFromQpdfObject(value: string) {
     };
 }
 
-function qpdfObjectContainsText(value: string, text: string) {
-    return value.includes(text)
-        || value.toLowerCase().replace(/\s+/gu, '').includes(toPdfUtf16BeHex(text));
+function findQpdfLiteralStringEnd(value: string, start: number) {
+    let depth = 0;
+    let escaped = false;
+    for (let index = start; index < value.length; index += 1) {
+        const character = value[index];
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (character === '\\') {
+            escaped = true;
+            continue;
+        }
+        if (character === '(') {
+            depth += 1;
+        } else if (character === ')') {
+            depth -= 1;
+            if (depth === 0) {
+                return index;
+            }
+        }
+    }
+    return -1;
+}
+
+function readQpdfDictionaryString(value: string, key: string) {
+    let dictionaryDepth = 0;
+    for (let index = 0; index < value.length; index += 1) {
+        const character = value[index];
+        const nextCharacter = value[index + 1];
+        if (character === '<' && nextCharacter === '<') {
+            dictionaryDepth += 1;
+            index += 1;
+            continue;
+        }
+        if (character === '>' && nextCharacter === '>') {
+            dictionaryDepth = Math.max(0, dictionaryDepth - 1);
+            index += 1;
+            continue;
+        }
+        if (character === '(') {
+            const end = findQpdfLiteralStringEnd(value, index);
+            if (end < 0) {
+                return null;
+            }
+            index = end;
+            continue;
+        }
+        if (character === '<') {
+            const end = value.indexOf('>', index + 1);
+            if (end < 0) {
+                return null;
+            }
+            index = end;
+            continue;
+        }
+        if (character !== '/' || dictionaryDepth !== 1) {
+            continue;
+        }
+
+        let nameEnd = index + 1;
+        while (nameEnd < value.length) {
+            const nameCharacter = value[nameEnd] ?? '';
+            if (/\s/u.test(nameCharacter) || '[]()<>/{}/'.includes(nameCharacter)) {
+                break;
+            }
+            nameEnd += 1;
+        }
+        if (value.slice(index + 1, nameEnd) !== key) {
+            index = nameEnd - 1;
+            continue;
+        }
+
+        let tokenStart = nameEnd;
+        while (/\s/u.test(value[tokenStart] ?? '')) {
+            tokenStart += 1;
+        }
+        const tokenStartCharacter = value[tokenStart];
+        if (tokenStartCharacter === '(') {
+            const tokenEnd = findQpdfLiteralStringEnd(value, tokenStart);
+            return tokenEnd < 0 ? null : value.slice(tokenStart, tokenEnd + 1);
+        }
+        if (tokenStartCharacter === '<' && value[tokenStart + 1] !== '<') {
+            const tokenEnd = value.indexOf('>', tokenStart + 1);
+            return tokenEnd < 0 ? null : value.slice(tokenStart, tokenEnd + 1);
+        }
+        return null;
+    }
+    return null;
+}
+
+function decodeQpdfLiteralString(value: string) {
+    let decoded = '';
+    for (let index = 1; index < value.length - 1; index += 1) {
+        const character = value[index];
+        if (character !== '\\') {
+            decoded += character;
+            continue;
+        }
+        const escaped = value[index + 1];
+        if (escaped === undefined) {
+            break;
+        }
+        index += 1;
+        const simpleEscape = {
+            b: '\b',
+            f: '\f',
+            n: '\n',
+            r: '\r',
+            t: '\t',
+            '(': '(',
+            ')': ')',
+            '\\': '\\',
+        }[escaped];
+        if (simpleEscape !== undefined) {
+            decoded += simpleEscape;
+            continue;
+        }
+        if (/[0-7]/u.test(escaped)) {
+            let octal = escaped;
+            while (octal.length < 3 && /[0-7]/u.test(value[index + 1] ?? '')) {
+                index += 1;
+                octal += value[index];
+            }
+            decoded += String.fromCharCode(Number.parseInt(octal, 8));
+            continue;
+        }
+        decoded += escaped;
+    }
+    return decoded;
+}
+
+function qpdfStringTokenContainsText(value: string, text: string) {
+    if (value.startsWith('(')) {
+        return decodeQpdfLiteralString(value).includes(text);
+    }
+    if (!value.startsWith('<')) {
+        return false;
+    }
+    const normalized = value.slice(1, -1).replace(/\s+/gu, '').toLowerCase();
+    return normalized.includes(toPdfUtf16BeHex(text))
+        || normalized.includes(Buffer.from(text, 'utf8').toString('hex'));
+}
+
+function qpdfDictionaryContainsText(value: string, key: string, text: string) {
+    const stringValue = readQpdfDictionaryString(value, key);
+    return stringValue !== null && qpdfStringTokenContainsText(stringValue, text);
 }
 
 async function verifyStickyNoteStructure(
@@ -518,7 +680,7 @@ async function verifyStickyNoteStructure(
             annotation,
             annotationObject,
         });
-        if (qpdfObjectContainsText(annotationObject, expectedText)) {
+        if (qpdfDictionaryContainsText(annotationObject, 'Contents', expectedText)) {
             matches.push({
                 annotation,
                 annotationObject,
@@ -547,7 +709,7 @@ async function verifyStickyNoteStructure(
         generationNumber: match.annotation.generationNumber,
     });
     const popupObject = await readQpdfObject(filePath, popup);
-    expect(qpdfObjectContainsText(popupObject, expectedText)).toBe(true);
+    expect(qpdfDictionaryContainsText(popupObject, 'Contents', expectedText)).toBe(true);
     expect(popupObject).toMatch(new RegExp(`/Parent\\s+${match.annotation.objectNumber}\\s+${match.annotation.generationNumber}\\s+R`, 'u'));
 
     const rect = parseRectFromQpdfObject(match.annotationObject);
@@ -560,7 +722,7 @@ async function verifyStickyNoteStructure(
     // Sticky-note FreeText annotations deliberately use a shared blank form.
     // The visible marker is rendered by the comment UI, not by this PDF form.
     expect(appearanceStream).toBe('');
-    expect(match.annotationObject).toMatch(/\/Contents\s*(?:\(|<)/u);
+    expect(qpdfDictionaryContainsText(match.annotationObject, 'Contents', expectedText)).toBe(true);
     expect(match.annotationObject).toMatch(/\/NM\s*(?:\(|<)/u);
     return {
         annotation: match.annotation,
@@ -1413,6 +1575,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         sessionName: () => `e2e-large-pdf-${Date.now()}`,
         timeoutMs: LARGE_PDF_TIMEOUT_MS,
+        windowMode: largePdfWindowMode,
     });
 
     it('saves a toolbar note with multiple ordinary FreeText editors on a large PDF', async () => {
@@ -1713,15 +1876,15 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             workingCopyFirstObject,
         };
         expect(
-            qpdfObjectContainsText(stagedFirstObject, editedFirstText),
+            qpdfDictionaryContainsText(stagedFirstObject, 'Contents', editedFirstText),
             JSON.stringify(publicationProbe),
         ).toBe(true);
         expect(
-            qpdfObjectContainsText(publishedFirstObject, editedFirstText),
+            qpdfDictionaryContainsText(publishedFirstObject, 'Contents', editedFirstText),
             JSON.stringify(publicationProbe),
         ).toBe(true);
         expect(
-            qpdfObjectContainsText(workingCopyFirstObject, editedFirstText),
+            qpdfDictionaryContainsText(workingCopyFirstObject, 'Contents', editedFirstText),
             JSON.stringify(publicationProbe),
         ).toBe(true);
         const secondStructure = await verifyStickyNoteStructure(

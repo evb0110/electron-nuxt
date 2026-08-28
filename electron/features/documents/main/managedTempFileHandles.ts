@@ -105,6 +105,19 @@ function createArtifactStatWitness(fileStat: BigIntStats): IArtifactStatWitness 
     };
 }
 
+/** Keeps the lease authority immutable without another in-process copy. */
+function freezeTypedStagedArtifact(artifact: ITypedStagedArtifact): ITypedStagedArtifact {
+    const qpdfResult = artifact.validations.qpdfResult;
+    if (qpdfResult) {
+        Object.freeze(qpdfResult.errors);
+        Object.freeze(qpdfResult.warnings);
+        Object.freeze(qpdfResult);
+    }
+    Object.freeze(artifact.validations);
+    Object.freeze(artifact.fileIdentity);
+    return Object.freeze(artifact);
+}
+
 function isSameArtifactStatWitness(
     left: IArtifactStatWitness,
     right: IArtifactStatWitness,
@@ -223,6 +236,37 @@ interface ICreateTypedStagedArtifactOptions {
     };
 }
 
+interface IRegisterTypedStagedArtifactOptions {
+    cleanupOnRelease: boolean;
+    invalidReceiptMessage: string;
+}
+
+function registerTypedStagedArtifact(
+    context: IDocumentsSenderIdContext,
+    candidate: unknown,
+    fileStat: BigIntStats,
+    options: IRegisterTypedStagedArtifactOptions,
+): ITypedStagedArtifact {
+    // Decode once at the contract boundary. The canonical value is both the
+    // lease authority and the return value; IPC provides renderer isolation.
+    const artifact = decodeTypedStagedArtifact(candidate);
+    if (artifact === null) {
+        throw new Error(options.invalidReceiptMessage);
+    }
+    const authoritativeArtifact = freezeTypedStagedArtifact(artifact);
+    leases.set(authoritativeArtifact.leaseId, {
+        ownerId: context.senderId,
+        path: authoritativeArtifact.path,
+        expiresAt: Date.now() + MANAGED_HANDLE_TTL_MS,
+        cleanupOnRelease: options.cleanupOnRelease === true,
+        artifact: authoritativeArtifact,
+        statWitness: createArtifactStatWitness(fileStat),
+        immutable: true,
+    });
+    ensureLeaseSweep();
+    return authoritativeArtifact;
+}
+
 async function createTypedStagedArtifactAtPath(
     context: IDocumentsSenderIdContext,
     path: string,
@@ -275,43 +319,22 @@ async function createTypedStagedArtifactAtPath(
     ) {
         throw new Error('Staged artifact changed while its receipt was being created');
     }
+    const fileIdentity = createArtifactFileIdentity(fileStat);
     const leaseId = randomUUID();
-    const artifact: ITypedStagedArtifact = {
+    return registerTypedStagedArtifact(context, {
         receiptVersion: 1,
         artifactKind: 'pdf',
         path,
         size: inspection.bytes,
         sha256: inspection.sha256,
-        fileIdentity: createArtifactFileIdentity(fileStat),
-        validations: {
-            ...validations,
-            ...(validations.qpdfResult === undefined
-                ? {}
-                : {qpdfResult: {
-                    ...validations.qpdfResult,
-                    errors: [...validations.qpdfResult.errors],
-                    warnings: [...validations.qpdfResult.warnings],
-                }}),
-        },
+        fileIdentity,
+        validations,
         leaseId,
         revision: revisionSidecar?.token ?? null,
-    };
-    const decodedArtifact = decodeTypedStagedArtifact(artifact);
-    if (decodedArtifact === null) {
-        throw new Error('Invalid staged artifact validation receipt');
-    }
-    const authoritativeArtifact = cloneTypedStagedArtifact(decodedArtifact);
-    leases.set(leaseId, {
-        ownerId: context.senderId,
-        path,
-        expiresAt: Date.now() + MANAGED_HANDLE_TTL_MS,
+    }, fileStat, {
         cleanupOnRelease: options.cleanupOnRelease === true,
-        artifact: authoritativeArtifact,
-        statWitness: createArtifactStatWitness(fileStat),
-        immutable: true,
+        invalidReceiptMessage: 'Invalid staged artifact validation receipt',
     });
-    ensureLeaseSweep();
-    return cloneTypedStagedArtifact(authoritativeArtifact);
 }
 
 export async function createTypedStagedArtifact(
@@ -359,45 +382,24 @@ export async function createOpaqueNativePdfStagedArtifact(
     if (fileIdentity.platform !== 'posix') {
         throw new Error('Opaque native staged artifacts require POSIX file identity');
     }
+    const size = Number(fileStat.size);
+    if (!Number.isSafeInteger(size) || size < 0) {
+        throw new Error('Native staged artifact size exceeds the supported integer range');
+    }
     const leaseId = randomUUID();
-    const artifact: ITypedStagedArtifact = {
+    return registerTypedStagedArtifact(context, {
         receiptVersion: 2,
         artifactKind: 'pdf',
         path,
-        size: Number(fileStat.size),
+        size,
         fileIdentity,
-        validations: cloneTypedStagedArtifact({
-            receiptVersion: 2,
-            artifactKind: 'pdf',
-            path,
-            size: Number(fileStat.size),
-            fileIdentity,
-            validations,
-            leaseId,
-            revision: revisionSidecar?.token ?? null,
-        }).validations,
+        validations,
         leaseId,
         revision: revisionSidecar?.token ?? null,
-    };
-    if (!Number.isSafeInteger(artifact.size) || artifact.size < 0) {
-        throw new Error('Native staged artifact size exceeds the supported integer range');
-    }
-    const decodedArtifact = decodeTypedStagedArtifact(artifact);
-    if (decodedArtifact === null) {
-        throw new Error('Invalid opaque native staged artifact receipt');
-    }
-    const authoritativeArtifact = cloneTypedStagedArtifact(decodedArtifact);
-    leases.set(leaseId, {
-        ownerId: context.senderId,
-        path,
-        expiresAt: Date.now() + MANAGED_HANDLE_TTL_MS,
+    }, fileStat, {
         cleanupOnRelease: options.cleanupOnRelease === true,
-        artifact: authoritativeArtifact,
-        statWitness: createArtifactStatWitness(fileStat),
-        immutable: true,
+        invalidReceiptMessage: 'Invalid opaque native staged artifact receipt',
     });
-    ensureLeaseSweep();
-    return cloneTypedStagedArtifact(authoritativeArtifact);
 }
 
 export async function createTypedStagedArtifactForTrustedSiblingCopy(
@@ -579,7 +581,7 @@ export async function rebindTypedStagedArtifactPath(
         path: nextPath,
     });
     lease.path = nextPath;
-    lease.artifact = cloneTypedStagedArtifact(reboundArtifact);
+    lease.artifact = freezeTypedStagedArtifact(cloneTypedStagedArtifact(reboundArtifact));
     lease.statWitness = statWitness;
     lease.expiresAt = Date.now() + MANAGED_HANDLE_TTL_MS;
     return reboundArtifact;

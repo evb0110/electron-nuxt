@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import {performance} from 'node:perf_hooks';
 import {
     existsSync,
     statSync,
@@ -52,6 +51,7 @@ import {
     rollbackWorkingCopyContentTransition,
 } from '@electron/file-access/workingCopyContentTransitionJournal';
 import {recoverTwoTargetDocumentTransition} from '@electron/file-access/recoverTwoTargetDocumentTransition';
+import {measureOperationPhase} from '@contracts/measureOperationPhase';
 
 const log = createLogger('documentRevisionStore');
 const revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
@@ -67,16 +67,10 @@ async function measureRevisionTransitionPhase<T>(
     onPhase: ((phase: string, durationMs: number) => void) | undefined,
     operation: () => Promise<T>,
 ): Promise<T> {
-    const startedAt = performance.now();
-    try {
-        return await operation();
-    } finally {
-        try {
-            onPhase?.(phase, Math.round((performance.now() - startedAt) * 10) / 10);
-        } catch (error) {
-            log.warn(`Document revision phase reporter failed: ${getErrorMessage(error)}`);
-        }
-    }
+    return measureOperationPhase(operation, durationMs => {
+        try { onPhase?.(phase, durationMs); }
+        catch (error) { log.warn(`Document revision phase reporter failed: ${getErrorMessage(error)}`); }
+    });
 }
 
 function getRevisionQueueKey(workingCopyPath: string) {

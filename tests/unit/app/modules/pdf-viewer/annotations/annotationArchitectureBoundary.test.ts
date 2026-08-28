@@ -434,6 +434,7 @@ describe('annotation architecture boundaries', () => {
             'app/modules/pdf-viewer/annotations/public.ts',
             'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/annotationHighlightBridge.types.ts',
             'app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi.ts',
+            'app/modules/pdf-viewer/runtime/sessions/usePdfAnnotationEditorLifecycle.ts',
         ].forEach(path => expect(existsSync(join(process.cwd(), path))).toBe(false));
     });
 });
