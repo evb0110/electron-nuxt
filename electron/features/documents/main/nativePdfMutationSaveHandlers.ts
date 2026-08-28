@@ -482,6 +482,7 @@ export async function handleCommitStagedPdfNativeMutations(
     const phaseTimings: INativeNotePhaseTiming[] = [];
     const operationStart = performance.now();
     let result: IPdfNativeNoteTextSaveResult | null = null;
+    let stagedArtifactCleaned = false;
     try {
         result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
             await assertQueuedWorkingCopyMutationPreconditions(
@@ -517,34 +518,42 @@ export async function handleCommitStagedPdfNativeMutations(
                     durationMs,
                 }),
             });
-            return transition
+            let queuedResult: IPdfNativeNoteTextSaveResult = transition
                 ? {
                     applied: true,
                     validation: createNativeValidationResult(),
                 }
                 : createNotAppliedResult();
+
+            releaseManagedTempFileHandle(context, stagedOutput.leaseId);
+            await measureNativeNotePhase(phaseTimings, 'release-staged-artifact', () =>
+                cleanupTempPath(stagedOutput.path));
+            stagedArtifactCleaned = true;
+
+            if (queuedResult.applied) {
+                try {
+                    const refreshed = await measureNativeNotePhase(
+                        phaseTimings,
+                        'refresh-original-expectation-after-release',
+                        () => refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId),
+                    );
+                    if (!refreshed) {
+                        throw new Error('Working copy registration changed after native mutation commit');
+                    }
+                } catch (error) {
+                    queuedResult = {
+                        ...queuedResult,
+                        syncError: getErrorMessage(error),
+                    };
+                }
+            }
+            return queuedResult;
         }, {kind: 'native-pdf-mutation-staged-commit'});
     } finally {
-        releaseManagedTempFileHandle(context, stagedOutput.leaseId);
-        await measureNativeNotePhase(phaseTimings, 'release-staged-artifact', () =>
-            cleanupTempPath(stagedOutput.path));
-    }
-
-    if (result.applied) {
-        try {
-            const refreshed = await measureNativeNotePhase(
-                phaseTimings,
-                'refresh-original-expectation-after-release',
-                () => refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId),
-            );
-            if (!refreshed) {
-                throw new Error('Working copy registration changed after native mutation commit');
-            }
-        } catch (error) {
-            result = {
-                ...result,
-                syncError: getErrorMessage(error),
-            };
+        if (!stagedArtifactCleaned) {
+            releaseManagedTempFileHandle(context, stagedOutput.leaseId);
+            await measureNativeNotePhase(phaseTimings, 'release-staged-artifact', () =>
+                cleanupTempPath(stagedOutput.path));
         }
     }
     const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;

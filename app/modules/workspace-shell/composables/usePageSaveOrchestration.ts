@@ -46,6 +46,7 @@ interface IPageSaveOrchestrationDeps {
     pdfViewerRef: Ref<TPageSaveViewer | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
+    documentSessionKey: Ref<string | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     totalPages: Ref<number>;
     pageLabelsDirty: Ref<boolean>;
@@ -101,6 +102,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         pdfViewerRef,
         workingCopyPath,
         originalPath,
+        documentSessionKey,
         documentRevisionToken,
         totalPages,
         pageLabelsDirty,
@@ -175,6 +177,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             isSavingAs,
         },
         document: {
+            sessionKey: documentSessionKey,
             workingCopyPath,
             originalPath,
             revisionToken: documentRevisionToken,

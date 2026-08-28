@@ -711,7 +711,7 @@ async function clickPageAtRatio(
 ) {
     await waitForViewerInteractive(page);
 
-    const point = await page.evaluate(({
+    const point = await page.evaluate(async ({
         xRatio,
         yRatio,
         targetPageNumber,
@@ -1294,9 +1294,13 @@ export async function createFreeTextAnnotationWithPointer(
     }) => {
         const selector = targetPageNumber
             ? `.page_container[data-page="${targetPageNumber}"]`
-            : '.page_container--rendered, .page_container';
+            : '.page_container';
         const host = globalThis.__evbE2E.getActiveWorkspaceHost(selector);
-        const pageContainer = host?.querySelector<HTMLElement>(selector) ?? null;
+        const pageContainer = targetPageNumber
+            ? host?.querySelector<HTMLElement>(selector) ?? null
+            : host?.querySelector<HTMLElement>('.page_container--rendered')
+                ?? host?.querySelector<HTMLElement>('.page_container')
+                ?? null;
         if (!host || !pageContainer) {
             return null;
         }
@@ -1406,7 +1410,7 @@ export async function createStickyNoteWithPointer(
             .__evbFindWorkspaceExpose?.({requiredMethods: ['getToolbarSnapshot']}) as {getToolbarSnapshot?: () => {isPlacingPageNote?: boolean};} | null;
         return workspace?.getToolbarSnapshot?.().isPlacingPageNote === true;
     }, {timeout: 10_000});
-    const point = await page.evaluate(({
+    const point = await page.evaluate(async ({
         targetPageNumber,
         xRatio,
         yRatio,
@@ -1433,6 +1437,12 @@ export async function createStickyNoteWithPointer(
         if (!host || !pageContainer) {
             return null;
         }
+        pageContainer.scrollIntoView({
+            block: 'center',
+            inline: 'center',
+        });
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
         const rect = pageContainer.getBoundingClientRect();
         const hostRect = host.getBoundingClientRect();
         const left = Math.max(rect.left, hostRect.left, 0) + 24;

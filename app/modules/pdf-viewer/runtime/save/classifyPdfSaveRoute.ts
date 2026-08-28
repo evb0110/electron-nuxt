@@ -9,7 +9,10 @@ import {
     assertAnnotationBackendSemanticConformance,
     projectAnnotationBackendMutations,
 } from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
-import { getPdfAnnotationIdFromStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
+import {
+    getPdfAnnotationIdFromStableKey,
+    parsePdfAnnotationStableKeyRef,
+} from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type {
     ISerializationPlan,
@@ -174,12 +177,10 @@ function summarizeCanonicalLiveChanges(plan: ISerializationPlan): IPdfLiveAnnota
             entity.identity.pdfjsUid,
             entity.identity.pdfRef,
         ].forEach((candidate) => {
-            const normalized = normalizePdfJsAnnotationId(candidate);
-            if (!normalized) {
-                return;
+            addReplayableAnnotationId(ids, candidate);
+            if (entity.kind === 'sticky-note') {
+                addReplayableAnnotationId(replayableEditorNoteIds, candidate);
             }
-            ids.add(normalized);
-            if (entity.kind === 'sticky-note') replayableEditorNoteIds.add(normalized);
         });
     });
     return {
@@ -451,6 +452,47 @@ function hasNonShapeAnnotationWork(plan: ISerializationPlan) {
     return plan.expected.some(entity => isActuallyChangedEntity(entity) && entity.kind !== 'shape');
 }
 
+function addCommentIdentityAliases(ids: Set<string>, comment: IAnnotationCommentSummary) {
+    [
+        comment.appAnnotationId,
+        comment.annotationId,
+        comment.id,
+        comment.uid,
+    ].forEach(id => addReplayableAnnotationId(ids, id));
+    addEmbeddedAnnotationIdFromStableKey(ids, comment.stableKey);
+    addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
+}
+
+function collectProjectedNativeAnnotationIds(input: {
+    changedComments: IAnnotationCommentSummary[];
+    noteTextUpdates: Array<{
+        objectNumber: number;
+        generationNumber: number;
+    }>;
+    freeTextNotes: Array<{ stableKey: string }>;
+    nativeFreeTextEditors: ReadonlyMap<string, { stableKey: string }>;
+}) {
+    const ids = new Set<string>();
+    const updatedRefs = new Set(input.noteTextUpdates.map(update =>
+        `${update.objectNumber}R${update.generationNumber}`));
+    const freeTextStableKeys = new Set(input.freeTextNotes.map(note => note.stableKey));
+
+    input.changedComments.forEach((comment) => {
+        const targetRef = parsePdfAnnotationStableKeyRef(comment.stableKey)?.ref
+            ?? parsePdfJsAnnotationRef(comment.annotationId);
+        const hasProjectedTextUpdate = targetRef !== null
+            && updatedRefs.has(`${targetRef.objectNumber}R${targetRef.generationNumber}`);
+        if (hasProjectedTextUpdate || freeTextStableKeys.has(comment.stableKey)) {
+            addCommentIdentityAliases(ids, comment);
+        }
+    });
+    input.nativeFreeTextEditors.forEach((editor, id) => {
+        addReplayableAnnotationId(ids, id);
+        addEditorRuntimeAnnotationIdFromStableKey(ids, editor.stableKey);
+    });
+    return ids;
+}
+
 function buildClassifiedNativeMutationProjection(
     plan: ISerializationPlan,
     canonical: IPdfSaveCanonicalInputs,
@@ -480,25 +522,12 @@ function buildClassifiedNativeMutationProjection(
         ? Array.from(canonical.liveAnnotationChanges.nativeFreeTextEditors.values())
         : [];
     const annotationDeletes = annotationDeletesResult?.value ?? [];
-    const nativeFreeTextNoteStableKeys = new Set(
-        (freeTextNotesResult?.value ?? []).map(note => note.stableKey),
-    );
-    const nativelyReplayableFreeTextNoteIds = new Set<string>();
-    for (const comment of changedComments) {
-        if (!comment.stableKey || !nativeFreeTextNoteStableKeys.has(comment.stableKey)) {
-            continue;
-        }
-        for (const value of [
-            comment.appAnnotationId,
-            comment.annotationId,
-            comment.id,
-            comment.uid,
-        ]) {
-            if (typeof value === 'string' && value.length > 0) {
-                nativelyReplayableFreeTextNoteIds.add(value);
-            }
-        }
-    }
+    const projectedNativeAnnotationIds = collectProjectedNativeAnnotationIds({
+        changedComments,
+        noteTextUpdates,
+        freeTextNotes,
+        nativeFreeTextEditors: canonical.liveAnnotationChanges.nativeFreeTextEditors,
+    });
     const nativeNoteMutationCount = noteTextUpdates.length
         + freeTextNotes.length
         + freeTextEditors.length
@@ -508,16 +537,9 @@ function buildClassifiedNativeMutationProjection(
         && !canonical.liveAnnotationChanges.hasUnknownChanges
         && canonical.pendingDeletes.length === 0
         && annotationDeletes.length === 0
-        && (
-            noteTextUpdates.length > 0
-            || nativelyReplayableFreeTextNoteIds.size > 0
-            || canonical.liveAnnotationChanges.nativeFreeTextEditors.size > 0
-        )
-        && [...canonical.liveAnnotationChanges.ids].every(id => (
-            canonical.liveAnnotationChanges.nativeFreeTextEditors.has(id)
-            || canonical.liveAnnotationChanges.replayableEditorNoteIds.has(id)
-            || nativelyReplayableFreeTextNoteIds.has(id)
-        ))
+        && projectedNativeAnnotationIds.size > 0
+        && [...canonical.liveAnnotationChanges.ids].every(id =>
+            projectedNativeAnnotationIds.has(id))
     );
     if (
         admitted.dirtyState.savedPdfjsAnnotationBaselineDirty

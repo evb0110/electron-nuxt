@@ -12,6 +12,7 @@ import {
 import {join} from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { getAppTempDir } from '@electron/utils/appTempDir';
+import {createLogger} from '@electron/utils/createLogger';
 
 const COPY_ON_WRITE_FALLBACK_CODES = new Set([
     'ENOTSUP',
@@ -21,6 +22,9 @@ const COPY_ON_WRITE_FALLBACK_CODES = new Set([
     'EXDEV',
 ]);
 const MAC_CLONE_TIMEOUT_MS = 30_000;
+const MAC_CLONE_MAX_STDERR_BYTES = 16 * 1024;
+const MAC_CLONE_UNSUPPORTED_PATTERN = /(?:operation not supported|not supported|invalid argument|cross-device|function not implemented)/iu;
+const logger = createLogger('working-copy-directory');
 
 export type TWorkingCopyCloneAttemptOutcome =
     | 'cloned'
@@ -34,40 +38,84 @@ function isCopyOnWriteUnavailable(error: unknown) {
 }
 
 function shouldUseMacCloneHelper() {
-    if (process.env.EVB_TEST_FORCE_MAC_CLONE_HELPER === '1') {
+    if (
+        process.env.NODE_ENV === 'test'
+        && process.env.EVB_TEST_FORCE_MAC_CLONE_HELPER === '1'
+    ) {
         return true;
     }
     return process.platform === 'darwin'
         && process.env.EVB_TEST_DISABLE_MAC_CLONE_HELPER !== '1';
 }
 
+interface IMacCloneAttemptResult {
+    outcome: 'cloned' | 'known-unsupported' | 'failed';
+    details: string;
+}
+
 async function copyFileWithMacClone(sourcePath: string, targetPath: string) {
-    return new Promise<boolean>((resolveClone) => {
+    return new Promise<IMacCloneAttemptResult>((resolveClone) => {
         const child = spawn('/bin/cp', [
             '-c',
             '--',
             sourcePath,
             targetPath,
         ], {
-            stdio: 'ignore',
+            stdio: [
+                'ignore',
+                'ignore',
+                'pipe',
+            ],
             windowsHide: true,
         });
         let settled = false;
-        const finish = (cloned: boolean) => {
+        let stderr = '';
+        child.stderr?.setEncoding('utf8');
+        child.stderr?.on('data', (chunk: string) => {
+            if (Buffer.byteLength(stderr, 'utf8') >= MAC_CLONE_MAX_STDERR_BYTES) {
+                return;
+            }
+            stderr += chunk;
+            if (Buffer.byteLength(stderr, 'utf8') > MAC_CLONE_MAX_STDERR_BYTES) {
+                stderr = Buffer.from(stderr, 'utf8').subarray(0, MAC_CLONE_MAX_STDERR_BYTES).toString('utf8');
+            }
+        });
+        const finish = (result: IMacCloneAttemptResult) => {
             if (settled) {
                 return;
             }
             settled = true;
             clearTimeout(timeout);
-            resolveClone(cloned);
+            resolveClone(result);
         };
         const timeout = setTimeout(() => {
             child.kill('SIGKILL');
-            finish(false);
+            finish({
+                outcome: 'failed',
+                details: `timed out after ${MAC_CLONE_TIMEOUT_MS} ms`,
+            });
         }, MAC_CLONE_TIMEOUT_MS);
         timeout.unref();
-        child.once('error', () => finish(false));
-        child.once('exit', code => finish(code === 0));
+        child.once('error', error => finish({
+            outcome: 'failed',
+            details: error.message,
+        }));
+        child.once('exit', (code, signal) => {
+            if (code === 0) {
+                finish({
+                    outcome: 'cloned',
+                    details: '',
+                });
+                return;
+            }
+            const details = stderr.trim() || `exited with code ${String(code)} signal ${String(signal)}`;
+            finish({
+                outcome: MAC_CLONE_UNSUPPORTED_PATTERN.test(details)
+                    ? 'known-unsupported'
+                    : 'failed',
+                details,
+            });
+        });
     });
 }
 
@@ -122,11 +170,18 @@ export async function attemptWorkingCopyClone(
     }
 
     if (shouldUseMacCloneHelper()) {
-        if (await copyFileWithMacClone(sourcePath, targetPath)) {
+        const result = await copyFileWithMacClone(sourcePath, targetPath);
+        if (result.outcome === 'cloned') {
             return 'cloned';
         }
         await rm(targetPath, {force: true}).catch(() => undefined);
-        return 'known-unsupported';
+        if (result.outcome === 'known-unsupported') {
+            logger.debug(`macOS clone helper is unavailable: ${result.details}`);
+            return 'known-unsupported';
+        }
+        logger.warn(`macOS clone helper failed; using eager copy: ${result.details}`);
+        await copyFile(sourcePath, targetPath);
+        return 'unknown-error-eager-fallback';
     }
 
     try {

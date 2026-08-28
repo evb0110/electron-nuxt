@@ -80,6 +80,7 @@ export interface IWorkspaceSaveDependencies {
         isSavingAs: Ref<boolean>;
     };
     document: {
+        sessionKey: Ref<string | null>;
         workingCopyPath: Ref<TDocumentRef | null>;
         originalPath: Ref<TDocumentRef | null>;
         revisionToken: Ref<TDocumentRevisionToken | null>;
@@ -257,7 +258,8 @@ async function timedSavePhase<T>(
 }
 
 function isTargetCurrent(plan: TWorkspaceSavePlan, deps: IWorkspaceSaveDependencies) {
-    return deps.document.originalPath.value === plan.target.expectedOriginalPath
+    return deps.document.sessionKey.value === plan.target.expectedDocumentSessionKey
+        && deps.document.originalPath.value === plan.target.expectedOriginalPath
         && deps.document.workingCopyPath.value === plan.target.expectedWorkingPath;
 }
 
@@ -940,12 +942,12 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
 
     async function executeSave(
         request: TWorkspaceSaveRequest,
-        queuedTarget: IWorkspaceSaveTarget,
+        queuedTarget: Omit<IWorkspaceSaveTarget, 'expectedRevisionToken'>,
     ) {
         const queuedTargetIsCurrent = () => (
-            deps.document.originalPath.value === queuedTarget.expectedOriginalPath
+            deps.document.sessionKey.value === queuedTarget.expectedDocumentSessionKey
+            && deps.document.originalPath.value === queuedTarget.expectedOriginalPath
             && deps.document.workingCopyPath.value === queuedTarget.expectedWorkingPath
-            && deps.document.revisionToken.value === queuedTarget.expectedRevisionToken
         );
         if (!queuedTargetIsCurrent()) {
             BrowserLogger.debug('workspace', 'Dropped a queued save for a replaced document');
@@ -974,7 +976,8 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
          */
         function ownsCurrentDocument(expectedRevisionToken?: TDocumentRevisionToken | null) {
             if (
-                deps.document.originalPath.value !== expectedOriginalPath
+                deps.document.sessionKey.value !== queuedTarget.expectedDocumentSessionKey
+                || deps.document.originalPath.value !== expectedOriginalPath
                 || deps.document.workingCopyPath.value !== expectedWorkingPath
             ) {
                 return false;
@@ -1059,10 +1062,14 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     // whose captured dirty state still describes a clean file.
                     await deps.pdf.commitEditorsForSave?.();
 
+                    const target: IWorkspaceSaveTarget = {
+                        ...queuedTarget,
+                        expectedRevisionToken: deps.document.revisionToken.value,
+                    };
                     const baseline = captureBaseline(deps);
                     lastPlan = createWorkspaceSavePlan({
                         request,
-                        target: queuedTarget,
+                        target,
                         baseline,
                         dirtyState: collectDirtyState(deps),
                         hasManagedShapes: deps.shapes.hasManagedShapes(),
@@ -1141,10 +1148,10 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
     }
 
     function save(request: TWorkspaceSaveRequest) {
-        const queuedTarget: IWorkspaceSaveTarget = {
+        const queuedTarget: Omit<IWorkspaceSaveTarget, 'expectedRevisionToken'> = {
+            expectedDocumentSessionKey: deps.document.sessionKey.value,
             expectedOriginalPath: deps.document.originalPath.value,
             expectedWorkingPath: deps.document.workingCopyPath.value,
-            expectedRevisionToken: deps.document.revisionToken.value,
         };
         const execute = () => executeSave(request, queuedTarget);
         const result = saveQueueTail.then(execute, execute);

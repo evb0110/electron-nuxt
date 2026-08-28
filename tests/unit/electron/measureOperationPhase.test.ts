@@ -20,4 +20,13 @@ describe('measureOperationPhase', () => {
             .rejects.toThrow('failure');
         expect(report).toHaveBeenCalledOnce();
     });
+
+    it('does not let measurement reporting replace the operation outcome', async () => {
+        const report = vi.fn(() => { throw new Error('report failed'); });
+
+        await expect(measureOperationPhase(async () => 'done', report)).resolves.toBe('done');
+        await expect(measureOperationPhase(async () => { throw new Error('operation failed'); }, report))
+            .rejects.toThrow('operation failed');
+        expect(report).toHaveBeenCalledTimes(2);
+    });
 });

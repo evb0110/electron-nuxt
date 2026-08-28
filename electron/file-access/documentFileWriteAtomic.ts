@@ -42,6 +42,13 @@ const ALLOWED_SYSTEM_SYMLINK_TARGETS = new Map([
         '/private/var',
     ],
 ]);
+const RECOVERABLE_IMMUTABLE_LINK_CODES = new Set([
+    'EXDEV',
+    'ENOTSUP',
+    'EOPNOTSUPP',
+    'EPERM',
+    'EMLINK',
+]);
 
 function assertWithinIpcWriteBudget(byteLength: number) {
     if (byteLength > MAX_IPC_WRITE_BYTES) {
@@ -185,13 +192,7 @@ export async function copyFileAtomic(
                     const code = isErrnoException(error) && typeof error.code === 'string'
                         ? error.code
                         : undefined;
-                    if (![
-                        'EXDEV',
-                        'ENOTSUP',
-                        'EOPNOTSUPP',
-                        'EPERM',
-                        'EMLINK',
-                    ].includes(code ?? '')) {
+                    if (!RECOVERABLE_IMMUTABLE_LINK_CODES.has(code ?? '')) {
                         throw error;
                     }
                 }
@@ -234,6 +235,11 @@ async function measureCopyPhase<T>(
     });
 }
 
+/**
+ * Publishes a fresh immutable target. Callers must fsync the source first.
+ * The hard-link path deliberately refuses an existing target with EEXIST;
+ * only unsupported-link errors fall back to a durable atomic copy.
+ */
 export async function linkOrCopyFileDurably(
     resolvedSourcePath: string,
     resolvedTargetPath: string,
@@ -247,12 +253,7 @@ export async function linkOrCopyFileDurably(
         const code = isErrnoException(error) && typeof error.code === 'string'
             ? error.code
             : undefined;
-        if (![
-            'EXDEV',
-            'ENOTSUP',
-            'EOPNOTSUPP',
-            'EPERM',
-        ].includes(code ?? '')) {
+        if (!RECOVERABLE_IMMUTABLE_LINK_CODES.has(code ?? '')) {
             throw error;
         }
         await copyFileAtomic(resolvedSourcePath, resolvedTargetPath);
@@ -281,12 +282,7 @@ export async function publishImmutableFileAtomic(
         const code = isErrnoException(error) && typeof error.code === 'string'
             ? error.code
             : undefined;
-        if (![
-            'EXDEV',
-            'ENOTSUP',
-            'EOPNOTSUPP',
-            'EPERM',
-        ].includes(code ?? '')) {
+        if (!RECOVERABLE_IMMUTABLE_LINK_CODES.has(code ?? '')) {
             throw error;
         }
         return copyFileAtomic(resolvedSourcePath, resolvedTargetPath);

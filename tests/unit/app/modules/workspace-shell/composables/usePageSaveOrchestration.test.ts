@@ -65,6 +65,7 @@ function createDeps(overrides: Record<string, unknown> = {}) {
         }),
         workingCopyPath: ref('/tmp/document.pdf'),
         originalPath: ref('/tmp/source.pdf'),
+        documentSessionKey: ref('document-session-1'),
         documentRevisionToken: ref(null),
         totalPages: ref(1),
         pageLabelsDirty: ref(false),

@@ -1,5 +1,6 @@
 import { constants as fsConstants } from 'fs';
 import {EventEmitter} from 'node:events';
+import {PassThrough} from 'node:stream';
 import {
     afterEach,
     describe,
@@ -19,7 +20,10 @@ describe('workingCopyDirectory', () => {
 
     it('uses the native macOS clone helper without reading the file through Node', async () => {
         process.env.EVB_TEST_FORCE_MAC_CLONE_HELPER = '1';
-        const child = Object.assign(new EventEmitter(), {kill: vi.fn()});
+        const child = Object.assign(new EventEmitter(), {
+            kill: vi.fn(),
+            stderr: new PassThrough(),
+        });
         const spawn = vi.fn(() => child);
         const copyFile = vi.fn();
         vi.doMock('node:child_process', () => ({spawn}));
@@ -39,10 +43,61 @@ describe('workingCopyDirectory', () => {
             '/source.pdf',
             '/target.pdf',
         ], {
-            stdio: 'ignore',
+            stdio: [
+                'ignore',
+                'ignore',
+                'pipe',
+            ],
             windowsHide: true,
         });
         expect(copyFile).not.toHaveBeenCalled();
+    });
+
+    it('keeps genuine macOS clone incompatibility on the lazy-compatible path', async () => {
+        process.env.EVB_TEST_FORCE_MAC_CLONE_HELPER = '1';
+        const child = Object.assign(new EventEmitter(), {
+            kill: vi.fn(),
+            stderr: new PassThrough(),
+        });
+        const spawn = vi.fn(() => child);
+        const copyFile = vi.fn();
+        vi.doMock('node:child_process', () => ({spawn}));
+        vi.doMock('fs/promises', async (importOriginal) => ({
+            ...await importOriginal(),
+            copyFile,
+        }));
+
+        const {attemptWorkingCopyClone} = await import('@electron/file-access/workingCopyDirectory');
+        const result = attemptWorkingCopyClone('/source.pdf', '/target.pdf');
+        child.stderr.write('clonefile failed: Operation not supported\n');
+        child.emit('exit', 1, null);
+
+        await expect(result).resolves.toBe('known-unsupported');
+        expect(copyFile).not.toHaveBeenCalled();
+    });
+
+    it('does not turn a macOS clone capacity failure into lazy-original admission', async () => {
+        process.env.EVB_TEST_FORCE_MAC_CLONE_HELPER = '1';
+        const child = Object.assign(new EventEmitter(), {
+            kill: vi.fn(),
+            stderr: new PassThrough(),
+        });
+        const spawn = vi.fn(() => child);
+        const error = Object.assign(new Error('No space left on device'), {code: 'ENOSPC'});
+        const copyFile = vi.fn().mockRejectedValue(error);
+        vi.doMock('node:child_process', () => ({spawn}));
+        vi.doMock('fs/promises', async (importOriginal) => ({
+            ...await importOriginal(),
+            copyFile,
+        }));
+
+        const {attemptWorkingCopyClone} = await import('@electron/file-access/workingCopyDirectory');
+        const result = attemptWorkingCopyClone('/source.pdf', '/target.pdf');
+        child.stderr.write('cp: /target.pdf: No space left on device\n');
+        child.emit('exit', 1, null);
+
+        await expect(result).rejects.toMatchObject({code: 'ENOSPC'});
+        expect(copyFile).toHaveBeenCalledWith('/source.pdf', '/target.pdf');
     });
 
     it('reports a successful forced copy-on-write clone', async () => {

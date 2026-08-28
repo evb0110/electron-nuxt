@@ -1482,7 +1482,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(secondSaveDebug.annotationStorage.modifiedIds).toEqual([]);
         expect(secondSaveStickyNotes).toHaveLength(1);
         expect(secondSaveStickyNotes[0]?.text).toBe(secondText);
-        expect(await getFreeTextEditorCount(page)).toBeLessThanOrEqual(firstSaveEditorCount);
+        expect(await getFreeTextEditorCount(page)).toBe(firstSaveEditorCount);
     }, 90_000);
 
     it('dismisses the marker tooltip when opening the sticky note window', async () => {

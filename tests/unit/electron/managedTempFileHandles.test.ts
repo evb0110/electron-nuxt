@@ -203,6 +203,7 @@ describe('managed temporary file handles', () => {
         if (process.platform === 'win32') {
             expect(artifact.receiptVersion).toBe(1);
             expect(mocks.inspect).toHaveBeenCalledOnce();
+            await expect(resolveTypedStagedArtifact({senderId: 42}, artifact)).resolves.toEqual(artifact);
             return;
         }
         expect(artifact).toMatchObject({

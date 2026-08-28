@@ -17,16 +17,28 @@ import {
 
 describe('documentFileWriteAtomic immutable-source fallback', () => {
     let tempRoot = '';
+    let previousCloneResult: string | undefined;
+    let previousImmutableLinkResult: string | undefined;
 
     beforeEach(async () => {
         tempRoot = await mkdtemp(join(tmpdir(), 'evb-atomic-copy-fallback-'));
+        previousCloneResult = process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+        previousImmutableLinkResult = process.env.EVB_TEST_FORCE_IMMUTABLE_LINK_RESULT;
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         process.env.EVB_TEST_FORCE_IMMUTABLE_LINK_RESULT = 'cross-device';
     });
 
     afterEach(async () => {
-        delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
-        delete process.env.EVB_TEST_FORCE_IMMUTABLE_LINK_RESULT;
+        if (previousCloneResult === undefined) {
+            delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+        } else {
+            process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = previousCloneResult;
+        }
+        if (previousImmutableLinkResult === undefined) {
+            delete process.env.EVB_TEST_FORCE_IMMUTABLE_LINK_RESULT;
+        } else {
+            process.env.EVB_TEST_FORCE_IMMUTABLE_LINK_RESULT = previousImmutableLinkResult;
+        }
         await rm(tempRoot, {
             force: true,
             recursive: true,

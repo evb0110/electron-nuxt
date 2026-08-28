@@ -41,6 +41,7 @@ function buildPlan(options: {
     return createWorkspaceSavePlan({
         request: options.request ?? {kind: 'save'},
         target: {
+            expectedDocumentSessionKey: 'document-session-1',
             expectedOriginalPath: '/tmp/source.pdf',
             expectedWorkingPath: '/tmp/work.pdf',
             expectedRevisionToken: requireDocumentRevisionToken('rev-1'),
@@ -79,6 +80,7 @@ describe('workspaceSavePlan', () => {
             body: {source: 'working-copy'},
         });
         expect(saveAs.target).toEqual({
+            expectedDocumentSessionKey: 'document-session-1',
             expectedOriginalPath: '/tmp/source.pdf',
             expectedWorkingPath: '/tmp/work.pdf',
             expectedRevisionToken: requireDocumentRevisionToken('rev-1'),

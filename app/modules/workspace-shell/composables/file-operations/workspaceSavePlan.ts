@@ -17,6 +17,7 @@ export type TWorkspaceSaveRequest =
     };
 
 export interface IWorkspaceSaveTarget {
+    expectedDocumentSessionKey: string | null;
     expectedOriginalPath: TDocumentRef | null;
     expectedWorkingPath: TDocumentRef | null;
     expectedRevisionToken: TDocumentRevisionToken | null;

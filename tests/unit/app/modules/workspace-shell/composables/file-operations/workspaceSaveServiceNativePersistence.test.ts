@@ -1118,6 +1118,29 @@ describe('workspaceSaveService native persistence', () => {
         expect(deps.persistAllAnnotationNotes).toHaveBeenCalledTimes(2);
     });
 
+    it('keeps a queued save for the same document after the first save advances its revision', async () => {
+        const { deps } = createDeps();
+        const saveWorkingCopy = vi.mocked(deps.saveWorkingCopy);
+        saveWorkingCopy.mockImplementation(async () => {
+            deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-2');
+            return {
+                success: true,
+                outPath: '/tmp/work.pdf',
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            };
+        });
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
+
+        const firstSave = handleSave();
+        const queuedSave = handleSave();
+
+        await expect(firstSave).resolves.toBe(true);
+        await expect(queuedSave).resolves.toBe(true);
+        expect(saveWorkingCopy).toHaveBeenCalledTimes(2);
+        expect(saveWorkingCopy.mock.calls[1]?.[0]).toMatchObject({expectedDocumentRevisionToken: 'rev-2'});
+    });
+
     it('rejects a queued save when its document identity changes before execution', async () => {
         const deferredNotes = createDeferred<boolean>();
         const { deps } = createDeps({

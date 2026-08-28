@@ -5,6 +5,7 @@ import type {
 } from '@app/types/annotations';
 import type {PDFDocumentProxy} from '@app/types/pdfContracts';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type {
     AnnotationEntity,
@@ -564,17 +565,11 @@ export class AnnotationApplication {
     ) {
         const verificationStartedAt = performance.now();
         const timings: IAnnotationPathVerificationTiming[] = [];
-        const measure = async <T>(phase: string, operation: () => Promise<T>) => {
-            const startedAt = performance.now();
-            try {
-                return await operation();
-            } finally {
-                timings.push({
-                    phase,
-                    durationMs: roundAnnotationVerificationDuration(performance.now() - startedAt),
-                });
-            }
-        };
+        const measure = <T>(phase: string, operation: () => Promise<T>) =>
+            measureOperationPhase(operation, durationMs => timings.push({
+                phase,
+                durationMs,
+            }));
         let rangeReadCount = 0;
         let rangeReadBytes = 0;
         let rangeReadTotalMs = 0;

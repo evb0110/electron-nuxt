@@ -1102,8 +1102,7 @@ async function tryActivateAnnotationsTab(page: Page) {
                 || text.includes('sticky-note')};
         })),
     })));
-    const target = tabStates.find(state => state.visible && state.isAnnotationTab)
-        ?? tabStates.find(state => state.visible);
+    const target = tabStates.find(state => state.visible && state.isAnnotationTab);
     if (!target) {
         return 'missing-target';
     }
@@ -1346,7 +1345,7 @@ export async function saveViaVisibleToolbar(
 ) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-        const buttons = await page.$$('button[aria-label="Save"]');
+        const buttons = await page.$$('button[aria-label="Save"], button[aria-label^="Save ("]');
         for (const button of buttons) {
             const enabled = await button.evaluate((candidate) => {
                 const rect = candidate.getBoundingClientRect();
@@ -1370,7 +1369,7 @@ export async function saveViaVisibleToolbar(
             const event = await waitForAutomationEvent(page, 'save-committed', {
                 afterEventId: baselineEventId,
                 ...(expectedPath ? {path: expectedPath} : {}),
-                timeoutMs: Math.max(1, deadline - Date.now()),
+                timeoutMs,
             });
             if (!event) {
                 throw new Error('Visible Save completed without a save-committed event');

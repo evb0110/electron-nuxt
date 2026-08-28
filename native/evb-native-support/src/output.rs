@@ -9,9 +9,28 @@ use std::{
 
 use serde::Serialize;
 
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
 use crate::{NativeError, NativeErrorCode};
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn create_exclusive_temporary_file(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    options.open(path)
+}
+
+fn open_existing_temporary_file(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    options.open(path)
+}
 
 /// Owns an unpublished sibling file until it is durably replaced into place.
 pub struct AtomicOutput {
@@ -60,11 +79,7 @@ impl AtomicOutput {
                 ".{file_name}.evb-tmp-{}-{timestamp}-{sequence}",
                 std::process::id()
             ));
-            match OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&temporary_path)
-            {
+            match create_exclusive_temporary_file(&temporary_path) {
                 Ok(file) => {
                     return Ok(Self {
                         file: Some(file),
@@ -102,6 +117,12 @@ impl AtomicOutput {
     /// can fall back to a regular streamed copy.
     pub fn seed_from_path_copy_on_write(&mut self, source: &Path) -> io::Result<bool> {
         drop(self.file.take());
+        match fs::remove_file(&self.temporary_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        let source_length = fs::metadata(source)?.len();
 
         #[cfg(target_os = "macos")]
         let clone_status = std::process::Command::new("/bin/cp")
@@ -130,16 +151,38 @@ impl AtomicOutput {
         ));
 
         let cloned = clone_status.is_ok_and(|status| status.success());
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .truncate(!cloned)
-            .open(&self.temporary_path)?;
-        if cloned {
-            file.seek(SeekFrom::End(0))?;
+        if !cloned {
+            let _ = fs::remove_file(&self.temporary_path);
+            self.file = Some(create_exclusive_temporary_file(&self.temporary_path)?);
+            return Ok(false);
         }
+
+        let mut metadata = fs::symlink_metadata(&self.temporary_path)?;
+        if !metadata.file_type().is_file() || metadata.len() != source_length {
+            fs::remove_file(&self.temporary_path)?;
+            self.file = Some(create_exclusive_temporary_file(&self.temporary_path)?);
+            return Ok(false);
+        }
+        #[cfg(unix)]
+        {
+            let mut permissions = metadata.permissions();
+            permissions.set_mode(permissions.mode() | 0o600);
+            fs::set_permissions(&self.temporary_path, permissions)?;
+            metadata = fs::symlink_metadata(&self.temporary_path)?;
+        }
+        let mut file = open_existing_temporary_file(&self.temporary_path)?;
+        let opened_metadata = file.metadata()?;
+        if !opened_metadata.is_file()
+            || opened_metadata.len() != source_length
+            || opened_metadata.len() != metadata.len()
+        {
+            return Err(io::Error::other(
+                "Copy-on-write output changed before it could be opened",
+            ));
+        }
+        file.seek(SeekFrom::End(0))?;
         self.file = Some(file);
-        Ok(cloned)
+        Ok(true)
     }
 
     pub fn temporary_path(&self) -> &Path {
@@ -472,6 +515,32 @@ mod tests {
 
         assert!(!temporary_path.exists());
         assert!(!destination.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_on_write_seed_replaces_a_substituted_symlink_without_following_it() {
+        use std::os::unix::fs::symlink;
+
+        let source = test_path("clone-source");
+        let destination = test_path("clone-destination");
+        let victim = test_path("clone-victim");
+        fs::write(&source, b"source-bytes").unwrap();
+        fs::write(&victim, b"victim-bytes").unwrap();
+        let mut output = AtomicOutput::create(&destination).unwrap();
+        fs::remove_file(output.temporary_path()).unwrap();
+        symlink(&victim, output.temporary_path()).unwrap();
+
+        let _ = output.seed_from_path_copy_on_write(&source).unwrap();
+
+        assert_eq!(fs::read(&victim).unwrap(), b"victim-bytes");
+        assert!(fs::symlink_metadata(output.temporary_path())
+            .unwrap()
+            .file_type()
+            .is_file());
+        drop(output);
+        fs::remove_file(source).unwrap();
+        fs::remove_file(victim).unwrap();
     }
 
     #[cfg(unix)]

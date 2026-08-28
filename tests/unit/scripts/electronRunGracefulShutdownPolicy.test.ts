@@ -54,6 +54,20 @@ const projectRoot = process.cwd();
 // Above Linux's default pid_max, so it can never name a live host process.
 const UNUSED_PID = 4_194_305;
 
+async function forceKillAndWait(child: ReturnType<typeof spawn>) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+        return;
+    }
+    await new Promise<void>((resolve) => {
+        const onExit = () => resolve();
+        child.once('exit', onExit);
+        if (!child.kill('SIGKILL')) {
+            child.off('exit', onExit);
+            resolve();
+        }
+    });
+}
+
 function readProjectSource(path: string) {
     return readFileSync(join(projectRoot, path), 'utf8');
 }
@@ -290,7 +304,7 @@ describe('Electron automation graceful shutdown policy', () => {
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('Refused to terminate'));
         } finally {
             warn.mockRestore();
-            unrelated.kill('SIGKILL');
+            await forceKillAndWait(unrelated);
         }
     });
 
@@ -341,7 +355,7 @@ describe('Electron automation graceful shutdown policy', () => {
                 'a force-killed process must be observed gone before termination reports its result',
             ).toBe(false);
         } finally {
-            stubborn.kill('SIGKILL');
+            await forceKillAndWait(stubborn);
         }
     });
 
@@ -376,7 +390,7 @@ describe('Electron automation graceful shutdown policy', () => {
                 'a zombie has exited and must not block Electron session restart',
             ).toBe(false);
         } finally {
-            parent.kill('SIGKILL');
+            await forceKillAndWait(parent);
         }
     });
 

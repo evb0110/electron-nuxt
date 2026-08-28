@@ -443,6 +443,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfViewerRef,
         workingCopyPath,
         originalPath,
+        documentSessionKey: computed(() => (
+            deps.documentSession.snapshot.value.identity.documentSessionKey
+        )),
         documentRevisionToken,
         totalPages,
         pageLabelsDirty,

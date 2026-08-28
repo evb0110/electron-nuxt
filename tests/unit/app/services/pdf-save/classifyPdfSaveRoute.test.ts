@@ -450,6 +450,23 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         })]);
     });
 
+    it('normalizes nested editor aliases captured from the canonical frontier', () => {
+        const note: AnnotationEntity = {
+            ...editorNote('anno_nested_editor'),
+            identity: {
+                id: asAnnotationId('anno_nested_editor'),
+                elementId: 'editor:0:pdfjs_internal_editor_0',
+            },
+        };
+
+        const decision = classifyPdfSaveRoute(planOf([note]), capabilities());
+
+        expect(decision.canonical.liveAnnotationChanges.ids).toContain('editor:0:pdfjs_internal_editor_0');
+        expect(decision.canonical.liveAnnotationChanges.ids).toContain('pdfjs_internal_editor_0');
+        expect(decision.canonical.liveAnnotationChanges.replayableEditorNoteIds)
+            .toContain('pdfjs_internal_editor_0');
+    });
+
     it('does not let a sticky-note text update cover an unrelated live PDF.js identity', () => {
         const decision = classifyPdfSaveRoute(
             planOf([embeddedNote('anno_saved_note', '12R')]),
@@ -584,6 +601,58 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             savedEditor,
             newEditor,
         ]);
+    });
+
+    it('does not let a replayable alias without a projected mutation ride an unrelated editor save', () => {
+        const editor: IPdfNativeFreeTextEditor = {
+            pageIndex: requirePageIndex(0),
+            stableKey: 'new-editor',
+            text: 'new text',
+            rect: [
+                10,
+                20,
+                110,
+                60,
+            ],
+            rotation: 0,
+            fontSize: 16,
+            color: [
+                245,
+                158,
+                11,
+            ],
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([editorNote('anno_app')]),
+            capabilities({
+                forcePdfjsMaterialize: true,
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: true,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_app',
+                        'pdfjs_internal_editor_0',
+                        '12R',
+                    ]),
+                    replayableEditorNoteIds: new Set(['12R']),
+                    nativeFreeTextEditors: new Map([[
+                        'pdfjs_internal_editor_0',
+                        editor,
+                    ]]),
+                    hasChanges: true,
+                    fingerprint: 'unprojected-alias-plus-editor',
+                }),
+            }),
+        );
+
+        expect(decision.route).not.toBe('native-append');
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('saved-pdfjs-baseline-dirty-requires-materialization');
     });
 
     it('keeps an unknown saved PDF.js baseline change on the materializing route', () => {

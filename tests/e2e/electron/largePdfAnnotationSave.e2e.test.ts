@@ -14,10 +14,16 @@ import {
     rmSync,
     statSync,
 } from 'node:fs';
-import {execFile} from 'node:child_process';
+import {
+    execFile,
+    execFileSync,
+} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import {promisify} from 'node:util';
 import { delay } from 'es-toolkit/promise';
 import {
@@ -85,6 +91,7 @@ const EXACT_ZALIZNYAK_PAGES = 882;
 const ANNOTATION_INDEX_CHUNK_BYTES = 512 * 1_024;
 const IPC_PAYLOAD_MAX_BYTES = 8 * 1_024 * 1_024;
 const LARGE_PDF_WINDOW_MODE_ENV = 'EVB_E2E_LARGE_PDF_WINDOW_MODE';
+const LARGE_PDF_ARTIFACT_ROOT_ENV = 'EVB_E2E_LARGE_PDF_ARTIFACT_ROOT';
 
 function resolveLargePdfWindowMode(env: NodeJS.ProcessEnv = process.env): TElectronE2EWindowMode {
     const value = env[LARGE_PDF_WINDOW_MODE_ENV]?.trim().toLowerCase();
@@ -102,6 +109,16 @@ function resolveLargePdfWindowMode(env: NodeJS.ProcessEnv = process.env): TElect
 const largePdfWindowMode = resolveLargePdfWindowMode();
 const largePdfFixture = resolveLargePdfFixtureAvailability();
 const largePdfDescribe = selectFixtureDescribe(describe, largePdfFixture);
+const qpdfAvailable = (() => {
+    try {
+        execFileSync('qpdf', ['--version'], {stdio: 'ignore'});
+        return true;
+    } catch {
+        return false;
+    }
+})();
+const runStickyRestartScenario = qpdfAvailable
+    || process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] === '1';
 
 interface ICommentAtPointViewer {commentAtPoint?: (
     pageNumber: number,
@@ -1369,15 +1386,6 @@ async function placePageNote(
         await page.waitForSelector('textarea.note-window__textarea', { timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS });
     } catch (error) {
         const debugState = await collectLargePdfAnnotationDebugState(page);
-        const commentTextApplied = Array.isArray(debugState.annotationComments)
-            && debugState.annotationComments.some(comment => comment.text === text);
-        if (commentTextApplied) {
-            return {
-                ...point,
-                branch: `${point.branch}-comment-state`,
-                textApplied: true,
-            };
-        }
         throw new Error(`Large PDF note editor did not open: ${JSON.stringify({
             point,
             debugState,
@@ -1685,7 +1693,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         })).toEqual(expect.arrayContaining(existingFixtureNotes));
     }, LARGE_PDF_TIMEOUT_MS);
 
-    it('reopens a saved sticky note cleanly after a hard restart', async () => {
+    it.runIf(runStickyRestartScenario)('reopens a saved sticky note cleanly after a hard restart', async () => {
         const initialSession = sessionFixture.getSession();
         if (!initialSession) {
             return;
@@ -1708,7 +1716,9 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const freshProcesses = readSessionProcessSnapshot(freshSession.name);
         expect(freshProcesses.rootPid).not.toBe(initialProcesses.rootPid);
 
-        const restartArtifactDir = mkdtempSync(join(tmpdir(), 'evb-large-pdf-sticky-restart-'));
+        const artifactRoot = process.env[LARGE_PDF_ARTIFACT_ROOT_ENV]?.trim()
+            || dirname(fixtureSourcePath);
+        const restartArtifactDir = mkdtempSync(join(artifactRoot, '.evb-large-pdf-sticky-restart-'));
         onTestFinished(() => rmSync(restartArtifactDir, {
             force: true,
             recursive: true,
@@ -1875,6 +1885,8 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             publishedFirstObject,
             workingCopyFirstObject,
         };
+        expect(publicationProbe.workingCopyHash, JSON.stringify(publicationProbe))
+            .toBe(publicationProbe.originalHash);
         expect(
             qpdfDictionaryContainsText(stagedFirstObject, 'Contents', editedFirstText),
             JSON.stringify(publicationProbe),
@@ -2070,17 +2082,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 : null,
             JSON.stringify(liveDocumentState),
         ).toBe(expectedFixtureRealPath);
-        await expect.poll(() => {
-            try {
-                const stored = JSON.parse(readFileSync(workspaceCrashCheckpointPath(session.name), 'utf8')) as {checkpoint?: {tabs?: Array<{sourceRef?: string | null;}>;};};
-                return stored.checkpoint?.tabs?.some(tab => (
-                    typeof tab.sourceRef === 'string'
-                    && realpathSync(tab.sourceRef) === expectedFixtureRealPath
-                )) ?? false;
-            } catch {
-                return false;
-            }
-        }, {timeout: 10_000}).toBe(true);
+        await waitForCrashCheckpointPath(session.name, expectedFixtureRealPath);
 
         const restartedSession = await sessionFixture.restart({
             clean: false,

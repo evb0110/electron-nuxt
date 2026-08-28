@@ -32,6 +32,7 @@ type TFileOperationsSaveControllerTestDeps =
     & {
         workingCopyPath: IWorkspaceSaveDependencies['document']['workingCopyPath'];
         originalPath: IWorkspaceSaveDependencies['document']['originalPath'];
+        documentSessionKey: IWorkspaceSaveDependencies['document']['sessionKey'];
         documentRevisionToken: IWorkspaceSaveDependencies['document']['revisionToken'];
         annotationDirty: IWorkspaceSaveDependencies['annotations']['dirty'];
         markAnnotationSaved: IWorkspaceSaveDependencies['annotations']['markSaved'];
@@ -116,6 +117,7 @@ function createSaveDependencies(
     return {
         status: deps,
         document: {
+            sessionKey: deps.documentSessionKey,
             workingCopyPath: deps.workingCopyPath,
             originalPath: deps.originalPath,
             revisionToken: deps.documentRevisionToken,
@@ -333,6 +335,7 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         // visible in their setup.
         originalPath: ref(TEST_BROWSER_SOURCE_REF),
         workingCopyPath: ref(TEST_BROWSER_WORKING_COPY_REF),
+        documentSessionKey: ref('document-session-1'),
         documentRevisionToken: ref('rev-1'),
         annotationDirty: ref(false),
         canonicalAnnotationComments: ref([]),
