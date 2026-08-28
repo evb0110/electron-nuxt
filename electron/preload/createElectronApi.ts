@@ -138,8 +138,11 @@ function readSystemMemoryInfo() {
     if (typeof process.getSystemMemoryInfo !== 'function') {
         return null;
     }
-
-    return decodeSystemMemoryInfo(process.getSystemMemoryInfo());
+    try {
+        return decodeSystemMemoryInfo(process.getSystemMemoryInfo());
+    } catch {
+        return null;
+    }
 }
 
 interface ICreateElectronApiOptions {

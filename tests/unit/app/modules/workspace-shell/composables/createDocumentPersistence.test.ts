@@ -929,6 +929,52 @@ describe('createDocumentPersistence', () => {
         });
     });
 
+    it('keeps the active native path source mounted when a native mutation preserves the live session', async () => {
+        const {
+            deps,
+            persistence,
+            state,
+        } = createPersistenceHarness(true);
+        const liveSource = {
+            kind: 'path' as const,
+            path: '/tmp/old-working.pdf',
+            size: 3,
+            revision: TEST_DOCUMENT_REVISION_TOKEN,
+        };
+        state.pdfSrc.value = liveSource;
+        state.pdfReloadSrc.value = liveSource;
+        const nextRevision = requireDocumentRevisionToken('drt1:test:persistence-after-save');
+
+        const result = await persistence.trySavePdfNativeMutations({updates: [{
+            objectNumber: 10,
+            generationNumber: 0,
+            text: 'Updated note text',
+        }]}, {
+            saveMode: 'rewrite',
+            preserveLoadedSource: true,
+            expectedWorkingPath: '/tmp/old-working.pdf',
+            modifiedAt: 'D:20260628123456+03\'00\'',
+        });
+
+        expect(result?.success).toBe(true);
+        expect(state.pdfSrc.value).toBe(liveSource);
+        expect(state.pdfReloadSrc.value).toEqual({
+            ...liveSource,
+            revision: nextRevision,
+        });
+        expect(state.documentRevisionToken.value).toBe(nextRevision);
+        expect(mocks.readDocumentBytes).not.toHaveBeenCalled();
+        expect(deps.readPdfStateFromPath).not.toHaveBeenCalled();
+        expect(deps.markCurrentHistoryEntryClean).toHaveBeenCalledWith(null, {
+            lazyBaseline: {
+                workingPath: '/tmp/old-working.pdf',
+                revision: nextRevision,
+                size: 3,
+            },
+            recordSnapshotChange: false,
+        });
+    });
+
     it('adopts a 2+ GiB desktop path save without reading renderer bytes', async () => {
         const {
             deps,

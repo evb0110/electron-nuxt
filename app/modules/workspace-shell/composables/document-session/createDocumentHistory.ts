@@ -240,8 +240,8 @@ export function createDocumentHistory(
 
     function getNativePathHistorySource(path: TDocumentRef) {
         const sources = [
-            state.pdfSrc.value,
             state.pdfReloadSrc.value,
+            state.pdfSrc.value,
         ];
         return sources.find(source => (
             isPathPdfSource(source)

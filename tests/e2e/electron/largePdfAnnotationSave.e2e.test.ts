@@ -50,6 +50,7 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
+    goToPageViaToolbar,
     openAnnotationsTab,
     openPdfInApp,
     saveViaVisibleToolbar,
@@ -73,6 +74,7 @@ import {
 import {
     callWorkspaceCommand,
     collectWorkspaceExposeDebugState,
+    getWorkspaceToolbarSnapshot,
     installWorkspaceExposeProbe,
     readWorkspaceStateValues,
     waitForSaveFrontierReady,
@@ -294,9 +296,11 @@ async function expectCleanAnnotationHydration(page: Page) {
     await expect.poll(async () => {
         const state = await readWorkspaceStateValues<{dirtyState?: {
             annotationDirty: boolean;
+            fileDirty: boolean;
             hasAnnotationChanges: boolean;
             hasLivePdfJsAnnotationChanges: boolean;
             hasPendingUnsavedChanges: boolean;
+            hasSavedPdfJsAnnotationBaselineChanges: boolean;
             pdfJsAnnotationStorage: {
                 hasChanges: boolean;
                 ids: string[];
@@ -305,15 +309,41 @@ async function expectCleanAnnotationHydration(page: Page) {
         const dirty = state.dirtyState;
         return Boolean(dirty)
             && dirty?.annotationDirty === false
+            && dirty.fileDirty === false
             && dirty.hasAnnotationChanges === false
             && dirty.hasLivePdfJsAnnotationChanges === false
             && dirty.hasPendingUnsavedChanges === false
+            && dirty.hasSavedPdfJsAnnotationBaselineChanges === false
             && dirty.pdfJsAnnotationStorage !== null
             && (
                 dirty.pdfJsAnnotationStorage.hasChanges === false
                 && dirty.pdfJsAnnotationStorage.ids.length === 0
             );
     }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(true);
+}
+
+async function readVisibleStickyNoteSession(page: Page, expectedText: string) {
+    return page.evaluate((text) => {
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const isVisible = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0;
+        };
+        const textarea = Array.from(
+            host?.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea') ?? [],
+        ).find(candidate => candidate.value === text && isVisible(candidate)) ?? null;
+        return {
+            markerCount: Array.from(host?.querySelectorAll<HTMLElement>(
+                '.pdf-comment-marker-button',
+            ) ?? []).filter(isVisible).length,
+            text: textarea?.value ?? null,
+        };
+    }, expectedText);
 }
 
 async function readDocumentSaveIdentity(page: Page) {
@@ -753,6 +783,20 @@ async function verifyStickyNoteStructure(
 
 async function editVisibleStickyNote(page: Page, currentText: string, nextText: string) {
     await openAnnotationsTab(page, 30_000);
+    await page.waitForFunction((text: string) => (
+        Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .workspace-host .notes-list .note-item',
+        )).some((candidate) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return candidate.textContent?.includes(text) === true
+                && style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0;
+        })
+    ), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, currentText);
     const items = await page.$$('.editor-pane.is-active .workspace-host .notes-list .note-item');
     let matchingItem: (typeof items)[number] | null = null;
     for (const item of items) {
@@ -1733,29 +1777,74 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const firstText = `large pdf sticky note ${Date.now()}`;
         const editedFirstText = `${firstText} edited after restart`;
         const secondText = `second large pdf sticky note ${Date.now()}`;
+        const stickyPageNumber = 16;
+        const stickyPageIndex = stickyPageNumber - 1;
         const sourceBytes = exactFixtureIdentity?.bytes ?? statSync(fixtureSourcePath).size;
         const sourceHash = exactFixtureIdentity?.sha256 ?? await hashFileSha256(fixtureSourcePath);
 
         await openPdfInApp(freshSession.page, fixtureRealPath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(freshSession.page, LARGE_PDF_TIMEOUT_MS);
         await waitForViewerInteractive(freshSession.page, LARGE_PDF_TIMEOUT_MS);
+        await goToPageViaToolbar(freshSession.page, stickyPageNumber);
+        await expect.poll(async () => (
+            await getWorkspaceToolbarSnapshot(freshSession.page)
+        )?.currentPage, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(stickyPageNumber);
+        await freshSession.page.waitForFunction((pageNumber: number) => {
+            const pageContainer = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .workspace-host .page_container[data-page="${String(pageNumber)}"]`,
+            );
+            if (!pageContainer?.classList.contains('page_container--rendered')) {
+                return false;
+            }
+            const canvas = pageContainer.querySelector<HTMLCanvasElement>('canvas');
+            return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+        }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, stickyPageNumber);
+        await openAnnotationsTab(freshSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
         await createStickyNoteWithPointer(freshSession.page, firstText, {
             x: 0.72,
             y: 0.24,
-        });
+        }, stickyPageNumber);
         await waitForSaveFrontierReady(freshSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
-        const firstDirtyState = await readWorkspaceStateValues<{dirtyState?: {
+        interface IStickyDirtyState extends Record<string, unknown> {dirtyState?: {
             annotationDirty: boolean;
             hasLivePdfJsAnnotationChanges: boolean;
             pdfJsAnnotationStorage: {
                 hasChanges: boolean;
                 ids: string[]
             } | null;
-        };}>(freshSession.page, ['dirtyState']);
-        expect(firstDirtyState.dirtyState?.annotationDirty).toBe(true);
-        expect(firstDirtyState.dirtyState?.hasLivePdfJsAnnotationChanges).toBe(true);
-        expect(firstDirtyState.dirtyState?.pdfJsAnnotationStorage?.hasChanges).toBe(true);
+        };}
+        await expect.poll(async () => {
+            const [
+                state,
+                creationFailureVisible,
+            ] = await Promise.all([
+                readWorkspaceStateValues<IStickyDirtyState>(freshSession.page, ['dirtyState']),
+                freshSession.page.evaluate(() => (
+                    document.body.innerText.includes('Unable to create this annotation.')
+                )),
+            ]);
+            return {
+                annotationDirty: state.dirtyState?.annotationDirty ?? null,
+                creationFailureVisible,
+                hasLivePdfJsAnnotationChanges:
+                    state.dirtyState?.hasLivePdfJsAnnotationChanges ?? null,
+                storageEntryPresent: (state.dirtyState?.pdfJsAnnotationStorage?.ids.length ?? 0) > 0,
+                storageHasChanges: state.dirtyState?.pdfJsAnnotationStorage?.hasChanges ?? null,
+            };
+        }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
+            annotationDirty: true,
+            creationFailureVisible: false,
+            hasLivePdfJsAnnotationChanges: true,
+            storageEntryPresent: true,
+            storageHasChanges: true,
+        });
+        const firstDirtyState = await readWorkspaceStateValues<IStickyDirtyState>(
+            freshSession.page,
+            ['dirtyState'],
+        );
         expect(firstDirtyState.dirtyState?.pdfJsAnnotationStorage?.ids.length ?? 0).toBeGreaterThan(0);
+        const firstLiveSession = await readVisibleStickyNoteSession(freshSession.page, firstText);
+        expect(firstLiveSession.markerCount).toBeGreaterThan(0);
 
         const firstSaveStartedAt = Date.now();
         const firstSaveEvent = await saveViaVisibleToolbar(
@@ -1772,6 +1861,56 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const firstSaveIdentity = await readDocumentSaveIdentity(freshSession.page);
         expect(firstSaveIdentity.revision.token).toBe(firstRevisionToken);
 
+        await expect.poll(async () => {
+            const [
+                toolbar,
+                liveSession,
+                workspace,
+            ] = await Promise.all([
+                getWorkspaceToolbarSnapshot(freshSession.page),
+                readVisibleStickyNoteSession(freshSession.page, firstText),
+                readWorkspaceStateValues<{dirtyState?: {
+                    annotationDirty: boolean;
+                    fileDirty: boolean;
+                    hasAnnotationChanges: boolean;
+                    hasLivePdfJsAnnotationChanges: boolean;
+                    hasPendingUnsavedChanges: boolean;
+                    hasSavedPdfJsAnnotationBaselineChanges: boolean;
+                    pdfJsAnnotationStorage: {
+                        hasChanges: boolean;
+                        ids: string[];
+                    } | null;
+                };}>(freshSession.page, ['dirtyState']),
+            ]);
+            const dirty = workspace.dirtyState;
+            return {
+                annotationDirty: dirty?.annotationDirty ?? null,
+                currentPage: toolbar?.currentPage ?? null,
+                fileDirty: dirty?.fileDirty ?? null,
+                hasAnnotationChanges: dirty?.hasAnnotationChanges ?? null,
+                hasLivePdfJsAnnotationChanges: dirty?.hasLivePdfJsAnnotationChanges ?? null,
+                hasPendingUnsavedChanges: dirty?.hasPendingUnsavedChanges ?? null,
+                hasSavedPdfJsAnnotationBaselineChanges:
+                    dirty?.hasSavedPdfJsAnnotationBaselineChanges ?? null,
+                markerPresent: liveSession.markerCount > 0,
+                storageEntryPreserved: dirty?.pdfJsAnnotationStorage?.ids.some(
+                    id => firstDirtyState.dirtyState?.pdfJsAnnotationStorage?.ids.includes(id) === true,
+                ) ?? false,
+                textPreserved: liveSession.text === firstText,
+            };
+        }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
+            annotationDirty: false,
+            currentPage: stickyPageNumber,
+            fileDirty: false,
+            hasAnnotationChanges: false,
+            hasLivePdfJsAnnotationChanges: false,
+            hasPendingUnsavedChanges: false,
+            hasSavedPdfJsAnnotationBaselineChanges: false,
+            markerPresent: true,
+            storageEntryPreserved: true,
+            textPreserved: true,
+        });
+
         await qpdfCheck(fixtureRealPath);
         expect(statSync(fixtureRealPath).size).toBeGreaterThan(sourceBytes);
         expect(await hashFileSha256(fixtureRealPath, sourceBytes)).toBe(sourceHash);
@@ -1781,7 +1920,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             freshSession.page,
             fixtureRealPath,
             firstText,
-            0,
+            stickyPageIndex,
             String(firstRevisionToken),
             firstSaveIdentity.workingCopyPath,
         );
@@ -1801,13 +1940,16 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(restartedProcesses.rootPid).not.toBe(firstProcesses.rootPid);
         await waitForRestoredDocument(restartedSession.page, fixtureRealPath);
         await expectCleanAnnotationHydration(restartedSession.page);
+        await expect.poll(async () => (
+            await getWorkspaceToolbarSnapshot(restartedSession.page)
+        )?.currentPage, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(stickyPageNumber);
         const restoredFirstIdentity = await readDocumentSaveIdentity(restartedSession.page);
         expect(restoredFirstIdentity.revision.token).toBe(firstRevisionToken);
         await verifyStickyNoteStructure(
             restartedSession.page,
             fixtureRealPath,
             firstText,
-            0,
+            stickyPageIndex,
             String(firstRevisionToken),
             restoredFirstIdentity.workingCopyPath,
         );
@@ -1816,7 +1958,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         await createStickyNoteWithPointer(restartedSession.page, secondText, {
             x: 0.45,
             y: 0.4,
-        });
+        }, stickyPageNumber);
         await waitForSaveFrontierReady(restartedSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
         const secondDirtyState = await readWorkspaceStateValues<{dirtyState?: {
             annotationDirty: boolean;
@@ -1903,7 +2045,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             restartedSession.page,
             fixtureRealPath,
             editedFirstText,
-            0,
+            stickyPageIndex,
             String(secondRevisionToken),
             secondSaveIdentity.workingCopyPath,
         );
@@ -1911,7 +2053,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             restartedSession.page,
             fixtureRealPath,
             secondText,
-            0,
+            stickyPageIndex,
             String(secondRevisionToken),
             secondSaveIdentity.workingCopyPath,
         );
@@ -1946,6 +2088,9 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(twiceRestartedProcesses.rootPid).not.toBe(secondProcesses.rootPid);
         await waitForRestoredDocument(twiceRestartedSession.page, fixtureRealPath);
         await expectCleanAnnotationHydration(twiceRestartedSession.page);
+        await expect.poll(async () => (
+            await getWorkspaceToolbarSnapshot(twiceRestartedSession.page)
+        )?.currentPage, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(stickyPageNumber);
         await openAnnotationsTab(twiceRestartedSession.page, 30_000);
         await expect.poll(() => twiceRestartedSession.page.evaluate((expectedText: string) => (
             Array.from(document.querySelectorAll<HTMLElement>(
@@ -1963,7 +2108,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             twiceRestartedSession.page,
             fixtureRealPath,
             editedFirstText,
-            0,
+            stickyPageIndex,
             String(secondRevisionToken),
             restoredSecondIdentity.workingCopyPath,
         );
@@ -1971,7 +2116,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             twiceRestartedSession.page,
             fixtureRealPath,
             secondText,
-            0,
+            stickyPageIndex,
             String(secondRevisionToken),
             restoredSecondIdentity.workingCopyPath,
         );

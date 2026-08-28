@@ -321,6 +321,31 @@ describe('createElectronApi', () => {
         });
     });
 
+    it('falls back when a sandboxed preload cannot read system memory', async () => {
+        const runtimeProcess = process as typeof process & {getSystemMemoryInfo?: () => never;};
+        const originalDescriptor = Object.getOwnPropertyDescriptor(
+            runtimeProcess,
+            'getSystemMemoryInfo',
+        );
+        Object.defineProperty(runtimeProcess, 'getSystemMemoryInfo', {
+            configurable: true,
+            value: vi.fn(() => {
+                throw new Error('Unable to retrieve system memory information');
+            }),
+        });
+        try {
+            const {api} = await createApiHarness();
+
+            expect(api.system.getMemoryInfo()).toBeNull();
+        } finally {
+            if (originalDescriptor) {
+                Object.defineProperty(runtimeProcess, 'getSystemMemoryInfo', originalDescriptor);
+            } else {
+                Reflect.deleteProperty(runtimeProcess, 'getSystemMemoryInfo');
+            }
+        }
+    });
+
     it('reads one valid host resource profile argument and rejects absent or malformed inputs', async () => {
         const { readHostResourceProfileArgument } = await import(
             '@electron/preload/readHostResourceProfileArgument'

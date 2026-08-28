@@ -224,7 +224,8 @@ export function createDocumentPersistence(
         // A save may still hand us a renderer byte hint, but that hint must not
         // become a history/recovery snapshot. Keep the path and revision token
         // instead, so a 2+ GiB working copy never crosses into renderer memory.
-        if (hasNativePathBackedSource(state, path)) {
+        const hasNativePathSource = hasNativePathBackedSource(state, path);
+        if (hasNativePathSource && !opts?.preserveLoadedSource) {
             if (!await adoptStablePathBackedPersistedState({
                 state,
                 path,
@@ -234,7 +235,7 @@ export function createDocumentPersistence(
                 return false;
             }
         } else if (opts?.preserveLoadedSource) {
-            if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
+            if (!hasNativePathSource && snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
                 const snapshot = snapshotHint.slice();
                 if (!state.isActiveWorkingCopy(path)) {
                     return false;
