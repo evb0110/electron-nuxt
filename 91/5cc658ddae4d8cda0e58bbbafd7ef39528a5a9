@@ -1,0 +1,86 @@
+tests/unit/electron/measureOperationPhase.test.ts
+  s_5ac4a3281ca4f3::t_7aa4147d00f2b0 23-31
+tests/e2e/electron/helpers/viewerCore.ts
+  s_5ac4a3281ca4f3::t_5605b77e1828fe 1105
+  s_5ac4a3281ca4f3::t_10dc58aa479ecb 1348,1372
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_5ac4a3281ca4f3::t_898a3c1596836a 606-657
+  s_5ac4a3281ca4f3::t_9d7a0ace16b27f 453-469
+tests/unit/electron/documentFileWriteAtomicFallback.test.ts
+  s_5ac4a3281ca4f3::t_307287ec03c7ce 20-21,25-26,32-41
+app/modules/pdf-viewer/annotations/annotationApplication.ts
+  s_5ac4a3281ca4f3::t_fe89491438a78a 8,568-572
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_5ac4a3281ca4f3::t_d6ccd992c17a01 446-448
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_5ac4a3281ca4f3::t_d6ccd992c17a01 83,261-262,945,948-949,979-980,1065-1068,1072,1151-1152
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSavePlan.test.ts
+  s_5ac4a3281ca4f3::t_d6ccd992c17a01 44,83
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_5ac4a3281ca4f3::t_5605b77e1828fe 1485
+tests/unit/app/modules/workspace-shell/composables/usePageSaveOrchestration.test.ts
+  s_5ac4a3281ca4f3::t_d6ccd992c17a01 68
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture.ts
+  s_5ac4a3281ca4f3::t_d6ccd992c17a01 35,120,338
+tests/unit/scripts/electronRunGracefulShutdownPolicy.test.ts
+  s_5ac4a3281ca4f3::t_ea82934c9d39a2 57,61-70,307,358,393
+  s_5ac4a3281ca4f3::t_079ff3b29e5b81 58-60
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceNativePersistence.test.ts
+  s_5ac4a3281ca4f3::t_9d7a0ace16b27f 1121-1125,1132-1140,1142-1143
+  s_5ac4a3281ca4f3::t_78a68727bca174 1126-1131,1141
+app/modules/workspace-shell/composables/usePageSaveOrchestration.ts
+  s_5ac4a3281ca4f3::t_d6ccd992c17a01 49,105,180
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_5ac4a3281ca4f3::t_d6ccd992c17a01 180-182
+  s_5ac4a3281ca4f3::t_a548daeaa164d3 468-473
+  s_5ac4a3281ca4f3::t_c10dea9bf1ae98 12-15,455-467,474-495,525-530,540-542
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_5ac4a3281ca4f3::t_5605b77e1828fe 23-26,94,1719-1721,1888-1889
+  s_5ac4a3281ca4f3::t_10dc58aa479ecb 17-20,112-121,1696,2085
+tests/unit/electron/managedTempFileHandles.test.ts
+  s_5ac4a3281ca4f3::t_307287ec03c7ce 206
+native/evb-native-support/src/output.rs
+  s_5ac4a3281ca4f3::t_ef4c22ee9a82d8 522-545
+  s_5ac4a3281ca4f3::t_f5c00bba181ed5 12-14,19-34,82,120-125,154-164,166-183,185,520
+  s_5ac4a3281ca4f3::t_cfa28bdaa8393e 521
+electron/file-access/documentFileWriteAtomic.ts
+  s_5ac4a3281ca4f3::t_66eb938b5a97d0 45-51,195,256,285
+  s_5ac4a3281ca4f3::t_e4bc99584e40c6 238-242
+native/evb-native-support/Cargo.toml
+  s_5ac4a3281ca4f3::t_f5c00bba181ed5 9
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_5ac4a3281ca4f3::t_10dc58aa479ecb 1297,1299-1303
+  s_5ac4a3281ca4f3::t_b40bd741f7856b 1413
+  s_5ac4a3281ca4f3::t_5605b77e1828fe 714,1440-1445
+packages/contracts/measureOperationPhase.ts
+  s_5ac4a3281ca4f3::t_7aa4147d00f2b0 4-13
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_5ac4a3281ca4f3::t_accafa67d98254 485,521,528-548,550-556
+tests/unit/electron/workingCopyDirectory.test.ts
+  s_5ac4a3281ca4f3::t_582b205f5ac5d1 3,23-26,46-50,56-101
+  s_5ac4a3281ca4f3::t_92c57092b59f28 102
+electron/file-access/workingCopyDirectory.ts
+  s_5ac4a3281ca4f3::t_66eb938b5a97d0 41-44
+  s_5ac4a3281ca4f3::t_a548daeaa164d3 105-108
+  s_5ac4a3281ca4f3::t_850e246f057c44 15,25-27,51-55,57,64-68,72-83,89,93-96,99-104,109-118,173-174,178-184
+app/modules/workspace-shell/composables/file-operations/workspaceSavePlan.ts
+  s_5ac4a3281ca4f3::t_d6ccd992c17a01 20
+native/Cargo.lock
+  s_5ac4a3281ca4f3::t_44ded3c403f4b9 197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "915cc658ddae4d8cda0e58bbbafd7ef39528a5a9",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
