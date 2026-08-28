@@ -295,6 +295,28 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }));
     });
 
+    it('commits custom zoom geometry before queueing the replacement raster', async () => {
+        const zoom = ref(1);
+        const setupPagePlaceholders = vi.fn();
+        const enqueueZoomSync = vi.fn();
+
+        usePdfViewerRerenderCoordinator(createDeps({
+            zoom: computed(() => zoom.value),
+            zoomMode: computed(() => 'custom' as const),
+            fitMode: computed(() => 'width' as const),
+            setupPagePlaceholders,
+            enqueueZoomSync,
+        }));
+
+        zoom.value = 1.25;
+        await flushZoomOrchestrationHostTask();
+
+        expect(setupPagePlaceholders).toHaveBeenCalledOnce();
+        expect(setupPagePlaceholders.mock.invocationCallOrder[0]!).toBeLessThan(
+            enqueueZoomSync.mock.invocationCallOrder[0]!,
+        );
+    });
+
     it('keeps the visible page owner while gesture geometry changes', async () => {
         const zoom = ref(1);
         const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({}));
