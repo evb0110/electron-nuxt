@@ -199,12 +199,16 @@ function removeSessionStopFiles(name: string) {
     try { unlinkSync(sessionPreserveWorkspaceCheckpointMarkerPath(name)); } catch {}
 }
 
-async function killOrphanedSessionElectron(name: string) {
-    const expectation = {
+function sessionElectronExpectation(name: string) {
+    return {
         kind: 'electron',
         sessionName: name,
         electronUserDataDir: electronUserDataPath(name),
     } satisfies ISessionProcessIdentityExpectation;
+}
+
+async function killOrphanedSessionElectron(name: string) {
+    const expectation = sessionElectronExpectation(name);
     const pids = findSessionOwnedElectronPids(expectation);
     return killVerifiedSessionProcesses(pids, expectation, 800);
 }
@@ -270,6 +274,16 @@ export async function stopSingleSession(
                 .join(', ');
             throw new Error(
                 `Session '${name}' stop was refused at ${refusedStages}: a process identity did not match session ownership, or the process outlived termination; session artifacts were retained.`,
+            );
+        }
+        // The Electron stage only matches the recorded CDP port. An Electron
+        // that outlived a restart on another port still owns the session's
+        // user-data directory and would be reported as a clean stop.
+        const survivors = findSessionOwnedElectronPids(sessionElectronExpectation(name));
+        if (survivors.length > 0) {
+            retainSessionStopArtifacts(name, info);
+            throw new Error(
+                `Session '${name}' stop left ${String(survivors.length)} session-owned Electron process(es) alive (pid ${survivors.join(', ')}); session artifacts were retained, run stop again.`,
             );
         }
         if (!preserveWorkspaceCheckpoint) {

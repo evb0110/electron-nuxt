@@ -54,6 +54,8 @@ import {
     ElectronE2EInfrastructureError,
     runElectronE2EInfrastructureStage,
     runElectronE2EProcessLaunchStage,
+    runElectronE2ETeardown,
+    runWithElectronE2EDeadline,
 } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 
 const SESSION_READY_TIMEOUT_MS = 75_000;
@@ -197,29 +199,15 @@ async function withSessionTimeout<T>(
     sessionName: string,
     label: string,
     timeoutMs: number,
-    task: Promise<T>,
+    task: (signal: AbortSignal) => Promise<T>,
     options: { cleanupOnTimeout?: boolean } = {},
 ): Promise<T> {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => {
-            if (options.cleanupOnTimeout) {
-                void stopSingleSession(sessionName).catch(() => {});
-            }
-            reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s.\n${createSessionDiagnostics(sessionName)}`));
-        }, timeoutMs);
+    return runWithElectronE2EDeadline(label, timeoutMs, task, {
+        diagnostics: () => createSessionDiagnostics(sessionName),
+        ...(options.cleanupOnTimeout
+            ? {onTimeout: () => stopSingleSession(sessionName)}
+            : {}),
     });
-
-    try {
-        return await Promise.race([
-            task,
-            timeoutPromise,
-        ]);
-    } finally {
-        if (timeout) {
-            clearTimeout(timeout);
-        }
-    }
 }
 
 async function waitForRendererReady(page: Page, timeoutMs = RENDERER_READY_TIMEOUT_MS) {
@@ -291,13 +279,13 @@ export async function stabilizeSharedRendererClient(page: Page) {
     }
 }
 
-async function waitForHealthReady(sessionName: string, timeoutMs = SESSION_READY_TIMEOUT_MS) {
+async function waitForHealthReady(sessionName: string, timeoutMs: number, signal: AbortSignal) {
     const start = Date.now();
     let successfulResponseCount = 0;
     let lastTransportError: unknown;
     let lastApplicationError: unknown;
 
-    while (Date.now() - start < timeoutMs) {
+    while (!signal.aborted && Date.now() - start < timeoutMs) {
         try {
             setCurrentSessionName(sessionName);
             const health = await sendCommand('health') as {ready?: boolean;};
@@ -319,6 +307,9 @@ async function waitForHealthReady(sessionName: string, timeoutMs = SESSION_READY
         await delay(250);
     }
 
+    if (signal.aborted) {
+        throw signal.reason;
+    }
     throw createElectronE2EHealthReadinessFailure(
         sessionName,
         successfulResponseCount,
@@ -327,9 +318,9 @@ async function waitForHealthReady(sessionName: string, timeoutMs = SESSION_READY
     );
 }
 
-async function waitForPageTarget(cdpPort: number, timeoutMs = 15_000) {
+async function waitForPageTarget(cdpPort: number, signal: AbortSignal, timeoutMs = 15_000) {
     const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
+    while (!signal.aborted && Date.now() - start < timeoutMs) {
         try {
             const res = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
             if (res.ok) {
@@ -346,6 +337,9 @@ async function waitForPageTarget(cdpPort: number, timeoutMs = 15_000) {
         }
         await delay(500);
     }
+    if (signal.aborted) {
+        throw signal.reason;
+    }
     throw new Error(`No page target found via /json/list within ${Math.round(timeoutMs / 1000)}s`);
 }
 
@@ -361,7 +355,7 @@ async function getBrowserWsEndpoint(cdpPort: number) {
     return data.webSocketDebuggerUrl;
 }
 
-async function connectToSessionPage(sessionName: string) {
+async function connectToSessionPage(sessionName: string, signal: AbortSignal) {
     setCurrentSessionName(sessionName);
     const info = getSessionInfo(sessionName);
     if (!info) {
@@ -375,13 +369,17 @@ async function connectToSessionPage(sessionName: string) {
         'cdp-connection',
         `Connecting to Electron session '${sessionName}' over CDP`,
         async () => {
-            await waitForPageTarget(info.cdpPort);
+            await waitForPageTarget(info.cdpPort, signal);
             const browserWsUrl = await getBrowserWsEndpoint(info.cdpPort);
             const browser = await puppeteer.connect({
                 browserWSEndpoint: browserWsUrl,
                 defaultViewport: null,
                 protocolTimeout: 420_000,
             });
+            if (signal.aborted) {
+                await browser.disconnect();
+                throw signal.reason;
+            }
 
             const nuxtPort = info.nuxtPort || DEFAULT_NUXT_PORT;
             const pages = await browser.pages();
@@ -440,7 +438,7 @@ async function startElectronE2ESessionWithAutomationEnv(
             scopedSessionName,
             `Stopping stale Electron E2E session '${scopedSessionName}'`,
             SESSION_STOP_TIMEOUT_MS,
-            stopSingleSession(scopedSessionName, {preserveWorkspaceCheckpoint: !clean}),
+            () => stopSingleSession(scopedSessionName, {preserveWorkspaceCheckpoint: !clean}),
         ),
     );
     if (clean) {
@@ -466,7 +464,7 @@ async function startElectronE2ESessionWithAutomationEnv(
             scopedSessionName,
             `Starting Electron E2E session '${scopedSessionName}'`,
             SESSION_READY_TIMEOUT_MS,
-            startSessionDetached(startOptions),
+            () => startSessionDetached(startOptions),
             { cleanupOnTimeout: true },
         ),
     );
@@ -479,7 +477,7 @@ async function startElectronE2ESessionWithAutomationEnv(
                 scopedSessionName,
                 `Waiting for Electron E2E session '${scopedSessionName}' metadata`,
                 SESSION_READY_TIMEOUT_MS,
-                waitForSessionReady(SESSION_READY_TIMEOUT_MS),
+                () => waitForSessionReady(SESSION_READY_TIMEOUT_MS),
                 { cleanupOnTimeout: true },
             );
             if (!ready) {
@@ -492,7 +490,7 @@ async function startElectronE2ESessionWithAutomationEnv(
         scopedSessionName,
         `Waiting for Electron E2E session '${scopedSessionName}' health`,
         SESSION_READY_TIMEOUT_MS + 5_000,
-        waitForHealthReady(scopedSessionName, SESSION_READY_TIMEOUT_MS),
+        signal => waitForHealthReady(scopedSessionName, SESSION_READY_TIMEOUT_MS, signal),
         { cleanupOnTimeout: true },
     );
     const {
@@ -505,7 +503,7 @@ async function startElectronE2ESessionWithAutomationEnv(
             scopedSessionName,
             `Connecting to Electron E2E session '${scopedSessionName}' renderer`,
             RENDERER_READY_TIMEOUT_MS + 20_000,
-            connectToSessionPage(scopedSessionName),
+            signal => connectToSessionPage(scopedSessionName, signal),
             { cleanupOnTimeout: true },
         ),
     );
@@ -517,12 +515,14 @@ async function startElectronE2ESessionWithAutomationEnv(
                 scopedSessionName,
                 `Stabilizing shared Electron renderer client '${scopedSessionName}'`,
                 SHARED_RENDERER_CLIENT_STABILIZE_TIMEOUT_MS,
-                stabilizeSharedRendererClient(page),
+                () => stabilizeSharedRendererClient(page),
                 {cleanupOnTimeout: true},
             );
         } catch (error) {
-            await stopSingleSession(scopedSessionName).catch(() => undefined);
-            throw error;
+            await runElectronE2ETeardown(error, [{
+                label: `stop session '${scopedSessionName}'`,
+                run: () => stopSingleSession(scopedSessionName),
+            }]);
         }
     }
 
@@ -544,7 +544,7 @@ async function startElectronE2ESessionWithAutomationEnv(
                     scopedSessionName,
                     `Stopping Electron E2E session '${scopedSessionName}'`,
                     SESSION_STOP_TIMEOUT_MS,
-                    stopSingleSession(scopedSessionName, {keepNuxt: stopOptions.keepNuxt ?? false}),
+                    () => stopSingleSession(scopedSessionName, {keepNuxt: stopOptions.keepNuxt ?? false}),
                 ),
             );
             if (stopOptions.preserveArtifacts || shouldPreserveE2EArtifacts()) {
