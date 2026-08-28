@@ -1,0 +1,37 @@
+tests/unit/app/modules/workspace-shell/composables/createWorkspaceExpose.test.ts
+  s_b2ece6dfe48478::t_59ebd150821b9b 385
+tests/unit/app/modules/pdf-viewer/composables/usePageOperations.test.ts
+  s_b2ece6dfe48478::t_aabdd0652c2e95 910
+tests/unit/electron/pageMetadataRemap.test.ts
+  s_b2ece6dfe48478::t_aabdd0652c2e95 66-81
+tests/unit/electron/pageOpsIpcHandlers.test.ts
+  s_b2ece6dfe48478::t_59ebd150821b9b 553-556
+packages/contracts/pageNumbers.ts
+  s_b2ece6dfe48478::t_aabdd0652c2e95 904-912
+app/modules/pdf-viewer/components/PdfPageContextMenu.vue
+  s_b2ece6dfe48478::t_d262db6e7ca200 165,167
+  s_b2ece6dfe48478::t_59ebd150821b9b 110-113,164
+  s_b2ece6dfe48478::t_2b27602ac6d24f 156-162,166
+packages/pdf-core/pdfCombineCatalog.ts
+  s_b2ece6dfe48478::t_aabdd0652c2e95 152-156
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_b2ece6dfe48478::t_59ebd150821b9b 43,181-186,338
+electron/features/page-ops/main/pageMetadataRemap.ts
+  s_b2ece6dfe48478::t_59ebd150821b9b 42,45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b9789446ab47127a7005e5ca3c45f7d6223ff917",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
