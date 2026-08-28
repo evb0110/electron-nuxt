@@ -92,7 +92,7 @@ function createElectronE2ESessionFixtureWithStarter(
             try {
                 const clean = restartOptions.clean ?? true;
                 const hard = restartOptions.hard ?? false;
-                if (clean && !hard) {
+                if (clean && !hard && !restartOptions.extraEnv) {
                     await previousSession.resetForE2E();
                     return previousSession;
                 }
