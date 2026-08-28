@@ -1429,6 +1429,12 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForActiveTabDirtyState(page, false);
         const cleanState = await readWorkspaceStateValues<IAnnotationDirtyStateSnapshot>(page, ['dirtyState']);
         expect(cleanState.dirtyState?.hasLivePdfJsAnnotationChanges).toBe(false);
+        const firstSaveDebug = await collectStickyNoteDebugState(page);
+        const firstSaveStickyNotes = (firstSaveDebug.annotationComments ?? [])
+            .filter(comment => comment.hasNote === true);
+        expect(firstSaveStickyNotes).toHaveLength(1);
+        expect(firstSaveStickyNotes[0]?.text).toBe(firstText);
+        const firstSaveEditorCount = await getFreeTextEditorCount(page);
 
         const textarea = await page.waitForSelector('textarea.note-window__textarea', {
             timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS,
@@ -1437,14 +1443,20 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         if (!textarea) {
             throw new Error('Saved sticky note did not retain its visible editor');
         }
-        await textarea.click();
-        const selectAllModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-        await page.keyboard.down(selectAllModifier);
-        try {
-            await page.keyboard.press('A');
-        } finally {
-            await page.keyboard.up(selectAllModifier);
-        }
+        await textarea.click({
+            count: 3,
+            delay: 80,
+        });
+        const selectedText = await textarea.evaluate(input => ({
+            end: input.selectionEnd,
+            length: input.value.length,
+            start: input.selectionStart,
+        }));
+        expect(selectedText).toEqual({
+            end: firstText.length,
+            length: firstText.length,
+            start: 0,
+        });
         await page.keyboard.type(secondText, {delay: 10});
         await page.keyboard.press('Tab');
         await waitForActiveTabDirtyState(page, true);
@@ -1464,6 +1476,13 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForActiveTabDirtyState(page, false);
         const secondCleanState = await readWorkspaceStateValues<IAnnotationDirtyStateSnapshot>(page, ['dirtyState']);
         expect(secondCleanState.dirtyState?.hasLivePdfJsAnnotationChanges).toBe(false);
+        const secondSaveDebug = await collectStickyNoteDebugState(page);
+        const secondSaveStickyNotes = (secondSaveDebug.annotationComments ?? [])
+            .filter(comment => comment.hasNote === true);
+        expect(secondSaveDebug.annotationStorage.modifiedIds).toEqual([]);
+        expect(secondSaveStickyNotes).toHaveLength(1);
+        expect(secondSaveStickyNotes[0]?.text).toBe(secondText);
+        expect(await getFreeTextEditorCount(page)).toBeLessThanOrEqual(firstSaveEditorCount);
     }, 90_000);
 
     it('dismisses the marker tooltip when opening the sticky note window', async () => {

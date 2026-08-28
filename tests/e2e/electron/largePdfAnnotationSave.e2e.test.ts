@@ -488,9 +488,11 @@ async function verifyStickyNoteStructure(
     indexPath = filePath,
 ): Promise<IVerifiedStickyNote> {
     const index = await readBoundedAnnotationIndex(page, indexPath, expectedRevisionToken);
-    expect(index.session.pageCount).toBe(process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] === '1'
-        ? EXACT_ZALIZNYAK_PAGES
-        : index.session.pageCount);
+    if (process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] === '1') {
+        expect(index.session.pageCount).toBe(EXACT_ZALIZNYAK_PAGES);
+    } else {
+        expect(index.session.pageCount).toBeGreaterThan(0);
+    }
     expect(ANNOTATION_INDEX_CHUNK_BYTES).toBeLessThanOrEqual(PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES);
     expect(index.chunkByteLengths.length).toBeGreaterThan(0);
     expect(index.transportPayloadByteLengths.every(bytes => bytes > 0 && bytes <= IPC_PAYLOAD_MAX_BYTES)).toBe(true);
@@ -614,7 +616,7 @@ async function editVisibleStickyNote(page: Page, currentText: string, nextText: 
         start: input.selectionStart,
     }));
     expect(selectedText).toEqual({
-        end: selectedText.length,
+        end: currentText.length,
         length: currentText.length,
         start: 0,
     });
@@ -1660,23 +1662,27 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const secondSaveStartedAt = Date.now();
         const secondSavePromise = saveViaVisibleToolbar(
             restartedSession.page,
-            LARGE_PDF_SAVE_TIMEOUT_MS,
+            LARGE_PDF_TIMEOUT_MS,
             fixtureRealPath,
         );
         const stagedClonePath = join(restartArtifactDir, 'second-save-staged.pdf');
         let stagedArtifact: ITypedStagedArtifact | null = null;
+        let stagedInspectionElapsedMs = 0;
         try {
             stagedArtifact = await waitForStagedArtifact(restartedSession.page);
+            const stagedInspectionStartedAt = Date.now();
             try {
                 copyFileSync(stagedArtifact.path, stagedClonePath, constants.COPYFILE_FICLONE);
             } catch {
                 copyFileSync(stagedArtifact.path, stagedClonePath);
+            } finally {
+                stagedInspectionElapsedMs = Date.now() - stagedInspectionStartedAt;
             }
         } finally {
             await resumeStagedArtifactCommit(restartedSession.page);
         }
         const secondSaveEvent = await secondSavePromise;
-        const secondSaveElapsedMs = Date.now() - secondSaveStartedAt;
+        const secondSaveElapsedMs = Date.now() - secondSaveStartedAt - stagedInspectionElapsedMs;
         expect(secondSaveElapsedMs).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
         expect(realpathSync(String(secondSaveEvent.detail.path))).toBe(fixtureRealPath);
         const secondRevisionToken = secondSaveEvent.detail.documentRevisionToken;
@@ -1811,7 +1817,11 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             recursive: true,
         }));
         const fixturePath = join(restartArtifactDir, 'saved.pdf');
-        copyFileSync(fixtureSourcePath, fixturePath, constants.COPYFILE_FICLONE);
+        try {
+            copyFileSync(fixtureSourcePath, fixturePath, constants.COPYFILE_FICLONE);
+        } catch {
+            copyFileSync(fixtureSourcePath, fixturePath);
+        }
         const textSentinel = Date.now().toString();
         const text = `large pdf free text ${textSentinel}`;
 

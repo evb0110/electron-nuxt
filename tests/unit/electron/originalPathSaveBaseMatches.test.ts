@@ -95,10 +95,32 @@ describe('originalPathSaveBaseMatches', () => {
         await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
     });
 
+    it('accepts sub-millisecond rounding in a legacy mtime witness', async () => {
+        const originalPath = join(tempDir, 'original.pdf');
+        await writeFile(originalPath, Buffer.from('base'));
+        const fileStat = await stat(originalPath);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            mtimeMs: fileStat.mtimeMs + 0.5,
+            size: fileStat.size,
+        });
+
+        await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
+    });
+
     it('fails closed when no original expectation exists', async () => {
         const originalPath = join(tempDir, 'original.pdf');
         await writeFile(originalPath, Buffer.from('base'));
         mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(null);
+
+        await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
+    });
+
+    it('fails closed when the original path no longer exists', async () => {
+        const originalPath = join(tempDir, 'missing.pdf');
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            mtimeMs: 0,
+            size: 4,
+        });
 
         await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
     });

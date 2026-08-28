@@ -3,6 +3,7 @@ import {
     execSync,
     type ChildProcess,
 } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { uniq } from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
 
@@ -236,14 +237,38 @@ export async function waitForProcessExit(pid: number, timeoutMs: number) {
     return waitForProcessesExit([pid], timeoutMs);
 }
 
+function isLinuxProcStatAlive(stat: string) {
+    const commandEnd = stat.lastIndexOf(')');
+    if (commandEnd < 0) {
+        return true;
+    }
+    const state = stat.slice(commandEnd + 1).trimStart().charAt(0);
+    return state !== 'Z' && state !== 'X';
+}
+
 export function isProcessAlive(pid: number) {
     if (!Number.isFinite(pid) || pid <= 0) {
         return false;
     }
     try {
         process.kill(pid, 0);
-        return true;
     } catch {
         return false;
+    }
+    if (process.platform !== 'linux') {
+        return true;
+    }
+    try {
+        return isLinuxProcStatAlive(readFileSync(`/proc/${String(pid)}/stat`, 'utf8'));
+    } catch {
+        // The process may have exited between kill(0) and the procfs read. A
+        // second liveness probe distinguishes that race from an unusual procfs
+        // access failure, where refusing to kill remains the safe behavior.
+        try {
+            process.kill(pid, 0);
+            return true;
+        } catch {
+            return false;
+        }
     }
 }

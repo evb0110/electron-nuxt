@@ -26,6 +26,10 @@ import {
     OCR_CATALOG_VERSION,
     parseOcrCatalogRootV4,
 } from '@contracts/ocrIndex';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+
+const log = createLogger('workingCopyContentTransitionJournal');
 
 /**
  * V3 catalogs are retained only for old documents and old journals. A v4
@@ -335,7 +339,11 @@ async function measureContentTransitionPhase<T>(
     try {
         return await operation();
     } finally {
-        onPhase?.(phase, Math.round((performance.now() - startedAt) * 10) / 10);
+        try {
+            onPhase?.(phase, Math.round((performance.now() - startedAt) * 10) / 10);
+        } catch (error) {
+            log.warn(`Content transition phase reporter failed: ${getErrorMessage(error)}`);
+        }
     }
 }
 

@@ -18,7 +18,11 @@ import { randomUUID } from 'crypto';
 import {performance} from 'node:perf_hooks';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import {copyFileCopyOnWrite} from '@electron/file-access/workingCopyDirectory';
+import { createLogger } from '@electron/utils/createLogger';
+import { getErrorMessage } from '@electron/utils/error';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
+
+const log = createLogger('documentFileWriteAtomic');
 
 const MAX_IPC_WRITE_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_MAX_IPC_WRITE_BYTES ?? `${16 * 1024 * 1024}`, 10);
@@ -189,7 +193,11 @@ async function measureCopyPhase<T>(
     try {
         return await operation();
     } finally {
-        onPhase?.(phase, Math.round((performance.now() - startedAt) * 10) / 10);
+        try {
+            onPhase?.(phase, Math.round((performance.now() - startedAt) * 10) / 10);
+        } catch (error) {
+            log.warn(`Atomic copy phase reporter failed: ${getErrorMessage(error)}`);
+        }
     }
 }
 

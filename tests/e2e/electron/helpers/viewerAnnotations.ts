@@ -598,7 +598,19 @@ export async function collectStickyNoteDebugState(page: Page) {
                         value,
                     ]) => ({
                         key: String(key),
-                        value,
+                        value: value && typeof value === 'object'
+                            ? Object.fromEntries(Object.entries(value as Record<string, unknown>)
+                                .filter(([
+                                    , entryValue,
+                                ]) => (
+                                    entryValue === null
+                                    || [
+                                        'string',
+                                        'number',
+                                        'boolean',
+                                    ].includes(typeof entryValue)
+                                )))
+                            : String(value),
                     }))
                     : [],
             },
@@ -1249,7 +1261,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     // a visible annotation with a clean document frontier.
     await page.keyboard.press('Tab');
 
-    return getFreeTextEditorCount(page);
+    return getOrdinaryFreeTextEditorCount(page);
 }
 
 /**
@@ -1388,6 +1400,12 @@ export async function createStickyNoteWithPointer(
         throw new Error('Visible Place note control was not available');
     }
 
+    await placeNoteButton.click();
+    await page.waitForFunction(() => {
+        const workspace = (window as IWorkspaceExposeProbeWindow)
+            .__evbFindWorkspaceExpose?.({requiredMethods: ['getToolbarSnapshot']}) as {getToolbarSnapshot?: () => {isPlacingPageNote?: boolean};} | null;
+        return workspace?.getToolbarSnapshot?.().isPlacingPageNote === true;
+    }, {timeout: 10_000});
     const point = await page.evaluate(({
         targetPageNumber,
         xRatio,
@@ -1439,7 +1457,6 @@ export async function createStickyNoteWithPointer(
     if (!point) {
         throw new Error('Sticky-note creation could not resolve a visible page point');
     }
-    await placeNoteButton.click();
     await page.mouse.click(point.x, point.y);
 
     const textarea = await page.waitForSelector(

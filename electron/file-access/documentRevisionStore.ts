@@ -71,7 +71,11 @@ async function measureRevisionTransitionPhase<T>(
     try {
         return await operation();
     } finally {
-        onPhase?.(phase, Math.round((performance.now() - startedAt) * 10) / 10);
+        try {
+            onPhase?.(phase, Math.round((performance.now() - startedAt) * 10) / 10);
+        } catch (error) {
+            log.warn(`Document revision phase reporter failed: ${getErrorMessage(error)}`);
+        }
     }
 }
 

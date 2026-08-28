@@ -434,7 +434,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                         'pdfjs_internal_editor_0',
                         '12R',
                     ]),
-                    replayableEditorNoteIds: new Set(['12R']),
+                    replayableEditorNoteIds: new Set(),
                     hasChanges: true,
                     fingerprint: 'saved-sticky-note-aliases',
                 }),

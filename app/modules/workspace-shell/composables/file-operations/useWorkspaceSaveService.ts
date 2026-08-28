@@ -59,6 +59,7 @@ import {
     createWorkspaceSavePlan,
     type IWorkspaceSaveBaseline,
     type IWorkspaceSaveDirtyState,
+    type IWorkspaceSaveTarget,
     type IWorkspaceSerializedSaveBody,
     type TWorkspaceSavePlan,
     type TWorkspaceSaveRequest,
@@ -937,7 +938,19 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         {flush: 'sync'},
     );
 
-    async function executeSave(request: TWorkspaceSaveRequest) {
+    async function executeSave(
+        request: TWorkspaceSaveRequest,
+        queuedTarget: IWorkspaceSaveTarget,
+    ) {
+        const queuedTargetIsCurrent = () => (
+            deps.document.originalPath.value === queuedTarget.expectedOriginalPath
+            && deps.document.workingCopyPath.value === queuedTarget.expectedWorkingPath
+            && deps.document.revisionToken.value === queuedTarget.expectedRevisionToken
+        );
+        if (!queuedTargetIsCurrent()) {
+            BrowserLogger.debug('workspace', 'Dropped a queued save for a replaced document');
+            return false;
+        }
         saveOperations += 1;
         const operationId = `save-${saveOperations}`;
         failureSurface.clearSaveFailure();
@@ -946,8 +959,8 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         const indicator = saveAs
             ? deps.status.isSavingAs
             : deps.status.isSaving;
-        const expectedOriginalPath = deps.document.originalPath.value;
-        const expectedWorkingPath = deps.document.workingCopyPath.value;
+        const expectedOriginalPath = queuedTarget.expectedOriginalPath;
+        const expectedWorkingPath = queuedTarget.expectedWorkingPath;
         let saveSucceeded = false;
         indicator.value = true;
 
@@ -1011,6 +1024,14 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         }
 
         return runWithDocumentOperationLease(resolveOperationKind(request), async () => {
+            if (!queuedTargetIsCurrent()) {
+                BrowserLogger.debug(
+                    'workspace',
+                    'Dropped a queued save after its document lease became stale',
+                    {operationId},
+                );
+                return false;
+            }
             let lastPlan: TWorkspaceSavePlan | null = null;
             try {
                 for (let attempt = 0; attempt <= MAX_STALE_REVISION_SAVE_RETRIES; attempt += 1) {
@@ -1041,11 +1062,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     const baseline = captureBaseline(deps);
                     lastPlan = createWorkspaceSavePlan({
                         request,
-                        target: {
-                            expectedOriginalPath,
-                            expectedWorkingPath,
-                            expectedRevisionToken: deps.document.revisionToken.value,
-                        },
+                        target: queuedTarget,
                         baseline,
                         dirtyState: collectDirtyState(deps),
                         hasManagedShapes: deps.shapes.hasManagedShapes(),
@@ -1124,7 +1141,12 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
     }
 
     function save(request: TWorkspaceSaveRequest) {
-        const execute = () => executeSave(request);
+        const queuedTarget: IWorkspaceSaveTarget = {
+            expectedOriginalPath: deps.document.originalPath.value,
+            expectedWorkingPath: deps.document.workingCopyPath.value,
+            expectedRevisionToken: deps.document.revisionToken.value,
+        };
+        const execute = () => executeSave(request, queuedTarget);
         const result = saveQueueTail.then(execute, execute);
         saveQueueTail = result.then(() => undefined, () => undefined);
         return result;

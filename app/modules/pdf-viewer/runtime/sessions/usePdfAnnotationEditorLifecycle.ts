@@ -46,6 +46,9 @@ export const usePdfAnnotationEditorLifecycle = <TDocument extends object>(
             return;
         }
 
+        if (initializedDocument || initializedContainer) {
+            options.destroy();
+        }
         options.initialize();
         initializedDocument = document;
         initializedContainer = container;

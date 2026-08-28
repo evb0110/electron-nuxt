@@ -10,6 +10,7 @@ import {
     shallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { cast } from '@tests/helpers/cast';
@@ -1115,6 +1116,30 @@ describe('workspaceSaveService native persistence', () => {
 
         expect(deps.isSaving.value).toBe(false);
         expect(deps.persistAllAnnotationNotes).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects a queued save when its document identity changes before execution', async () => {
+        const deferredNotes = createDeferred<boolean>();
+        const { deps } = createDeps({
+            annotationNoteWindowsCount: ref(1),
+            persistAllAnnotationNotes: vi.fn(() => deferredNotes.promise),
+        });
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
+
+        const firstSave = handleSave();
+        const queuedSave = handleSave();
+        await Promise.resolve();
+        expect(deps.persistAllAnnotationNotes).toHaveBeenCalledOnce();
+
+        deps.originalPath.value = cast('/tmp/replacement.pdf');
+        deps.workingCopyPath.value = cast('/tmp/replacement-working.pdf');
+        deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-2');
+        deferredNotes.resolve(true);
+
+        await expect(firstSave).resolves.toBe(false);
+        await expect(queuedSave).resolves.toBe(false);
+        expect(deps.persistAllAnnotationNotes).toHaveBeenCalledOnce();
+        expect(deps.saveFile).not.toHaveBeenCalled();
     });
 
     it('surfaces a toast when PDF.js saveDocument returns no data repeatedly', async () => {

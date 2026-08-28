@@ -21,7 +21,12 @@ export async function originalPathSaveBaseMatches(
         return false;
     }
 
-    const actual = await stat(originalPath, {bigint: true});
+    let actual;
+    try {
+        actual = await stat(originalPath, {bigint: true});
+    } catch {
+        return false;
+    }
     const matches = {
         ctime: expected.ctimeNs === undefined || actual.ctimeNs.toString() === expected.ctimeNs,
         device: expected.deviceId === undefined || actual.dev.toString() === expected.deviceId,
@@ -35,5 +40,5 @@ export async function originalPathSaveBaseMatches(
     }
 
     return expected.mtimeNs !== undefined
-        || Number(actual.mtimeNs) / 1_000_000 === expected.mtimeMs;
+        || Math.abs(Number(actual.mtimeNs) / 1_000_000 - expected.mtimeMs) < 1;
 }

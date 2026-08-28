@@ -5,8 +5,10 @@ import type {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IShapeAnnotation } from '@app/types/annotations';
-import type { IPdfViewerSaveExpose } from '@app/modules/pdf-viewer/public';
-import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+import type {
+    IPdfLiveAnnotationChangeSummary,
+    IPdfViewerSaveExpose,
+} from '@app/modules/pdf-viewer/public';
 
 export interface IWorkspacePdfViewerForAnnotationUtils {
     runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];

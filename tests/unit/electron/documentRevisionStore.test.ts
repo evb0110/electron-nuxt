@@ -187,6 +187,7 @@ describe('documentRevisionStore', () => {
             'ocr-apply',
             async () => { throw new Error('catalog commit failed'); },
             7,
+            () => { throw new Error('phase reporter failed'); },
         )).rejects.toThrow('catalog commit failed');
         await expect(getWorkingCopyRevision(workingPath, 7)).resolves.toMatchObject({token: initial.token});
 
@@ -197,6 +198,7 @@ describe('documentRevisionStore', () => {
                 expect(nextRevision.contentRevision).toBe(2);
             },
             7,
+            () => { throw new Error('phase reporter failed'); },
         );
         expect(committed.previousToken).toBe(initial.token);
         expect(committed.contentRevision).toBe(2);

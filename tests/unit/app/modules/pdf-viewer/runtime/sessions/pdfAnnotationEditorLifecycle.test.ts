@@ -74,6 +74,7 @@ describe('PDF annotation editor lifecycle', () => {
         expect(harness.initialize).toHaveBeenCalledTimes(2);
 
         harness.pdfDocument.value = {};
+        expect(harness.destroy).toHaveBeenCalledTimes(2);
         expect(harness.initialize).toHaveBeenCalledTimes(3);
         harness.stop();
     });

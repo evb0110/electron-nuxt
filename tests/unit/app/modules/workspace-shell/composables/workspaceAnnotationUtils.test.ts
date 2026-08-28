@@ -128,16 +128,17 @@ describe('hasAnnotationChanges', () => {
             ]])},
         }} as Partial<PDFDocumentProxy> as PDFDocumentProxy;
 
+        const collectLiveAnnotationChanges = vi.fn(() => ({
+            ids: new Set<string>(),
+            replayableEditorNoteIds: new Set<string>(),
+            nativeFreeTextEditors: new Map(),
+            hasChanges: false,
+            hasUnknownChanges: false,
+            fingerprint: 'empty',
+        }));
         const result = hasAnnotationChanges({
             pdfViewerRef: ref({
-                collectLiveAnnotationChanges: () => ({
-                    ids: new Set<string>(),
-                    replayableEditorNoteIds: new Set<string>(),
-                    nativeFreeTextEditors: new Map(),
-                    hasChanges: false,
-                    hasUnknownChanges: false,
-                    fingerprint: 'empty',
-                }),
+                collectLiveAnnotationChanges,
                 getAllShapes: () => [],
                 runSaveTransaction: vi.fn(),
             }),
@@ -145,6 +146,7 @@ describe('hasAnnotationChanges', () => {
         });
 
         expect(result).toBe(false);
+        expect(collectLiveAnnotationChanges).toHaveBeenCalled();
     });
 
     it('returns true when annotation storage access fails', () => {

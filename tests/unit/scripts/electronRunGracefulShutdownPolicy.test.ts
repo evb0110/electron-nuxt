@@ -117,10 +117,6 @@ describe('Electron automation graceful shutdown policy', () => {
             await stopSingleSession(sessionName, {preserveWorkspaceCheckpoint: true});
 
             expect(existsSync(checkpointPath)).toBe(true);
-            const stopSource = readProjectSource('scripts/electron-run/stopSession.ts');
-            const controllerSource = readProjectSource('scripts/electron-run/sessionController.ts');
-            expect(stopSource).toContain('sessionPreserveWorkspaceCheckpointMarkerPath(name)');
-            expect(controllerSource).toContain('if (!preserveWorkspaceCheckpoint)');
         } finally {
             rmSync(sessionDir(sessionName), {
                 recursive: true,
@@ -346,6 +342,41 @@ describe('Electron automation graceful shutdown policy', () => {
             ).toBe(false);
         } finally {
             stubborn.kill('SIGKILL');
+        }
+    });
+
+    it.runIf(process.platform === 'linux')('treats an unreaped Linux zombie as exited', async () => {
+        const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>(
+            '@scripts/electron-run/electronRunProcessTree',
+        );
+        const parent = spawn('python3', [
+            '-c',
+            'import os,time\npid=os.fork()\nif pid == 0: os._exit(0)\nprint(pid, flush=True)\ntime.sleep(30)',
+        ], {stdio: [
+            'ignore',
+            'pipe',
+            'ignore',
+        ]});
+        try {
+            const zombiePid = await new Promise<number>((resolve, reject) => {
+                parent.stdout?.once('data', chunk => resolve(Number(String(chunk).trim())));
+                parent.once('error', reject);
+                parent.once('exit', (code, signal) => reject(new Error(
+                    `zombie parent exited before reporting its child (code ${String(code)}, signal ${String(signal)})`,
+                )));
+            });
+            expect(zombiePid).toBeGreaterThan(0);
+            await vi.waitFor(() => {
+                const procStat = readFileSync(`/proc/${String(zombiePid)}/stat`, 'utf8');
+                expect(procStat.slice(procStat.lastIndexOf(')') + 1).trimStart().charAt(0)).toBe('Z');
+            });
+
+            expect(
+                isProcessAlive(zombiePid),
+                'a zombie has exited and must not block Electron session restart',
+            ).toBe(false);
+        } finally {
+            parent.kill('SIGKILL');
         }
     });
 

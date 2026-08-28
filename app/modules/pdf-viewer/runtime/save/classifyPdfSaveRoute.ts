@@ -490,6 +490,7 @@ function buildClassifiedNativeMutationProjection(
         }
         for (const value of [
             comment.appAnnotationId,
+            comment.annotationId,
             comment.id,
             comment.uid,
         ]) {

@@ -13,20 +13,6 @@ struct PdfConformanceFacts {
     has_xfa: bool,
 }
 
-fn dictionary_is_signature(dictionary: &Dictionary) -> bool {
-    dictionary
-        .get(b"Type")
-        .ok()
-        .and_then(|value| value.as_name().ok())
-        .is_some_and(|value| value == b"Sig")
-        || dictionary
-            .get(b"FT")
-            .ok()
-            .and_then(|value| value.as_name().ok())
-            .is_some_and(|value| value == b"Sig")
-        || (dictionary.has(b"ByteRange") && dictionary.has(b"Contents"))
-}
-
 fn resolved_object<'a>(document: &'a Document, object: &'a Object) -> Result<&'a Object> {
     let mut current = object;
     for _ in 0..PDF_REFERENCE_LIMIT {
@@ -38,6 +24,24 @@ fn resolved_object<'a>(document: &'a Document, object: &'a Object) -> Result<&'a
             .map_err(|error| format!("Failed to resolve PDF object {object_id:?}: {error}"))?;
     }
     Err("PDF reference chain exceeded the conformance dereference limit".into())
+}
+
+fn dictionary_is_signature(document: &Document, dictionary: &Dictionary) -> bool {
+    let is_signature_dictionary = |candidate: &Dictionary| {
+        candidate
+            .get(b"Type")
+            .ok()
+            .and_then(|value| value.as_name().ok())
+            .is_some_and(|value| value == b"Sig")
+            || (candidate.has(b"ByteRange") && candidate.has(b"Contents"))
+    };
+    is_signature_dictionary(dictionary)
+        || dictionary
+            .get(b"V")
+            .ok()
+            .and_then(|value| resolved_object(document, value).ok())
+            .and_then(|value| value.as_dict().ok())
+            .is_some_and(is_signature_dictionary)
 }
 
 fn optional_dictionary<'a>(
@@ -87,8 +91,8 @@ pub(crate) fn write_pdf_conformance_path(
     )?;
     let facts = PdfConformanceFacts {
         is_signed: document.objects.values().any(|object| match object {
-            Object::Dictionary(dictionary) => dictionary_is_signature(dictionary),
-            Object::Stream(stream) => dictionary_is_signature(&stream.dict),
+            Object::Dictionary(dictionary) => dictionary_is_signature(document, dictionary),
+            Object::Stream(stream) => dictionary_is_signature(document, &stream.dict),
             _ => false,
         }),
         is_encrypted: document
@@ -101,4 +105,33 @@ pub(crate) fn write_pdf_conformance_path(
     };
     fs::write(output_path, serde_json::to_vec(&facts)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsigned_signature_field_is_not_a_signed_document() {
+        let document = Document::with_version("1.7");
+        let mut field = Dictionary::new();
+        field.set("FT", Object::Name(b"Sig".to_vec()));
+
+        assert!(!dictionary_is_signature(&document, &field));
+    }
+
+    #[test]
+    fn populated_signature_field_is_a_signed_document() {
+        let mut document = Document::with_version("1.7");
+        let signature_id = document.add_object(dictionary! {
+            "Type" => "Sig",
+            "ByteRange" => vec![0.into(), 10.into(), 20.into(), 30.into()],
+            "Contents" => Object::String(Vec::new(), StringFormat::Hexadecimal),
+        });
+        let mut field = Dictionary::new();
+        field.set("FT", Object::Name(b"Sig".to_vec()));
+        field.set("V", Object::Reference(signature_id));
+
+        assert!(dictionary_is_signature(&document, &field));
+    }
 }
