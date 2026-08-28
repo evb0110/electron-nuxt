@@ -560,6 +560,7 @@ async function verifyStickyNoteStructure(
     // Sticky-note FreeText annotations deliberately use a shared blank form.
     // The visible marker is rendered by the comment UI, not by this PDF form.
     expect(appearanceStream).toBe('');
+    expect(match.annotationObject).toMatch(/\/Contents\s*(?:\(|<)/u);
     expect(match.annotationObject).toMatch(/\/NM\s*(?:\(|<)/u);
     return {
         annotation: match.annotation,
