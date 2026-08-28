@@ -1,0 +1,29 @@
+tests/unit/electron/pageIdentitySidecarStreaming.test.ts
+  s_b2ece6dfe48478::t_2e4e39753b7e89 102,146-154,157-158
+  s_b2ece6dfe48478::t_d3a871cf32121b 47-58,92-101
+  s_b2ece6dfe48478::t_2d0d4145a22881 122-127
+  s_b2ece6dfe48478::t_324793dd63b85a 155-156
+  s_b2ece6dfe48478::t_be54fea82b2643 140
+  s_b2ece6dfe48478::t_e894dcd9aa573f 103
+electron/file-access/pageIdentitySidecarStreaming.ts
+  s_b2ece6dfe48478::t_672c713191fb29 116,148
+  s_b2ece6dfe48478::t_66d816d865c445 157,196,215,224,226,233-237,240-241,273
+  s_b2ece6dfe48478::t_a8fe4c123328a7 7,22,92-115,117-132,290,301-304
+  s_b2ece6dfe48478::t_dd94d4a03e22fa 149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a388d9c868607be5d877853bdfc2c7bee44d2277",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
