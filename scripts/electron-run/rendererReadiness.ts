@@ -16,6 +16,7 @@ const RENDERER_READY_TIMEOUT_MS = 30_000;
 const ELECTRON_APP_PAGE_APPEAR_TIMEOUT_MS = 20_000;
 const VITE_OPTIMIZE_DEP_ERROR_MARKER = 'VITE_OPTIMIZE_DEP_504';
 const RENDERER_READINESS_ERROR_NAME = 'RendererReadinessError';
+const RETRYABLE_RENDERER_BINDINGS_ERROR_NAME = 'RetryableRendererBindingsError';
 const RENDERER_DEAD_PAGE_RELOAD_INTERVAL_MS = 5_000;
 const RENDERER_DEAD_PAGE_MAX_RELOADS = 5;
 
@@ -79,7 +80,7 @@ async function checkHydration(page: Page) {
     }
 }
 
-interface IRendererState {
+export interface IRendererState {
     bodyExists: boolean;
     openFileDirect: string;
     electronAPI: string;
@@ -108,11 +109,39 @@ function readRendererState(page: Page): Promise<IRendererState> {
     });
 }
 
-function isRendererReady(state: IRendererState) {
-    return state.bodyExists
+export function classifyRendererBindingReadiness(state: IRendererState) {
+    if (
+        state.bodyExists
         && state.openFileDirect === 'function'
         && state.electronAPI === 'object'
-        && state.nuxtRootChildren > 0;
+        && state.nuxtRootChildren > 0
+    ) {
+        return 'ready' as const;
+    }
+    if (
+        state.bodyExists
+        && state.nuxtRootChildren > 0
+        && state.electronAPI !== 'object'
+    ) {
+        // Electron runs preload before page JavaScript. Once Nuxt has mounted,
+        // a missing bridge cannot recover inside this renderer. Treat it as a
+        // failed launch immediately so the outer launch owner can retry with a
+        // fresh process instead of spending the whole readiness allowance.
+        return 'retryable-preload-missing' as const;
+    }
+    return 'waiting' as const;
+}
+
+function isRendererReady(state: IRendererState) {
+    return classifyRendererBindingReadiness(state) === 'ready';
+}
+
+function createRetryableRendererBindingsError(state: IRendererState) {
+    const error = new Error(
+        `Renderer preload bindings are unavailable after hydration (openFileDirect=${state.openFileDirect}, electronAPI=${state.electronAPI}, nuxtChildren=${state.nuxtRootChildren}, url=${state.url})`,
+    );
+    error.name = RETRYABLE_RENDERER_BINDINGS_ERROR_NAME;
+    return error;
 }
 
 function hasRendererDeadDevServerBody(state: IRendererState) {
@@ -140,8 +169,12 @@ async function waitForRendererBindings(page: Page, timeoutMs = RENDERER_READY_TI
             await delay(250);
             continue;
         }
-        if (isRendererReady(lastState)) {
+        const readiness = classifyRendererBindingReadiness(lastState);
+        if (readiness === 'ready') {
             return lastState;
+        }
+        if (readiness === 'retryable-preload-missing') {
+            throw createRetryableRendererBindingsError(lastState);
         }
         const now = Date.now();
         if (
