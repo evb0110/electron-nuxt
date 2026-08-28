@@ -188,3 +188,30 @@ describe('DocumentTextCatalog v4 consumers', () => {
         expect(state.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
     });
 });
+
+describe('DocumentTextCatalog availability validation (SRCH-004)', () => {
+    it('does not trust a complete header over per-page artifact availability', async () => {
+        const header = state.handle.header;
+        const originalMappedPageCount = header.mappedPageCount;
+        header.complete = true;
+        header.mappedPageCount = header.pageCount;
+        try {
+            const availability = await resolveDocumentOcrAvailability('/tmp/large.pdf', DOCUMENT_REVISION);
+
+            expect(availability).toEqual({
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 1_000_001,
+                mappedPageCount: 1,
+                pageRanges: [{
+                    firstPage: 900_000,
+                    lastPage: 900_000,
+                }],
+                rangesComplete: true,
+            });
+            expect(state.handle.windowAvailability).toHaveBeenCalled();
+        } finally {
+            header.complete = false;
+            header.mappedPageCount = originalMappedPageCount;
+        }
+    });
+});

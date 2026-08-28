@@ -657,3 +657,69 @@ describe('migrateOcrIndexV3ToV4', () => {
         await handle?.close?.();
     });
 });
+
+describe('migrateOcrIndexV3ToV4 artifact validation (SRCH-004)', () => {
+    it('drops v3 pages whose artifacts are corrupt instead of publishing them', async () => {
+        const root = await createCatalogRoot();
+        const goodPath = 'legacy/good.json';
+        const truncatedPath = 'legacy/truncated.json';
+        const wrongShapePath = 'legacy/wrong-shape.json';
+        await mkdir(join(root, 'legacy'), {recursive: true});
+        await writeFile(join(root, goodPath), JSON.stringify({
+            rotation: 0,
+            render: {
+                dpi: 300,
+                imagePx: {
+                    w: 1200,
+                    h: 1600,
+                },
+            },
+            text: 'good',
+            words: [],
+        }));
+        await writeFile(join(root, truncatedPath), '{"text":');
+        await writeFile(join(root, wrongShapePath), JSON.stringify({text: 5}));
+        const manifest: IOcrIndexV3Manifest = {
+            version: 3,
+            documentRevision: {token: revision},
+            createdAt: Date.now(),
+            source: {pdfPath: join(root, 'document.pdf')},
+            pageCount: 3,
+            pageBox: 'crop',
+            ocr: {
+                engine: 'tesseract',
+                languages: ['eng'],
+                renderDpi: 300,
+            },
+            pages: {
+                1: {path: goodPath},
+                2: {path: truncatedPath},
+                3: {path: wrongShapePath},
+            },
+        };
+        await writeFile(join(root, 'manifest.json'), JSON.stringify(manifest));
+
+        const result = await migrateOcrIndexV3ToV4({
+            catalogRoot: root,
+            documentRevision: revision,
+            sourcePdfPath: manifest.source.pdfPath,
+            assertRevisionCurrent: async () => {},
+        });
+
+        expect(result).toMatchObject({
+            migrated: true,
+            mappedPageCount: 1,
+        });
+        const shard = JSON.parse(await readFile(join(root, 'gen-00000001', 'shards', 'shard-000000.json'), 'utf8')) as {pages: Record<string, unknown>};
+        expect(Object.keys(shard.pages)).toEqual(['1']);
+        const handle = await openCatalog(root);
+        expect(handle?.header.mappedPageCount).toBe(1);
+        await expect(handle?.readPage(2)).resolves.toBeNull();
+        await expect(handle?.windowAvailability(1, 3)).resolves.toEqual(new Uint8Array([
+            1,
+            0,
+            0,
+        ]));
+        await handle?.close?.();
+    });
+});

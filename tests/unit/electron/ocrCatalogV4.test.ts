@@ -394,3 +394,75 @@ describe('OCR catalog v3 compatibility adapter', () => {
         await handle?.close?.();
     });
 });
+
+describe('OCR catalog artifact validation (SRCH-004)', () => {
+    it('reports a v4 page whose artifact is not JSON as unavailable', async () => {
+        const root = await createRoot(2, [1]);
+        await writeFile(join(root, mapping(1).path), 'not json');
+        const handle = await openCatalog(root);
+
+        await expect(handle?.windowAvailability(1, 2)).resolves.toEqual(new Uint8Array([
+            0,
+            0,
+        ]));
+        await expect(handle?.readWindow(1, 2)).resolves.toEqual([
+            {
+                pageNumber: 1,
+                artifact: null,
+            },
+            {
+                pageNumber: 2,
+                artifact: null,
+            },
+        ]);
+        await handle?.close?.();
+    });
+
+    it('reports a v4 page whose artifact fails the page schema as unavailable', async () => {
+        const root = await createRoot(2, [1]);
+        await writeFile(join(root, mapping(1).path), JSON.stringify({text: 5}));
+        const handle = await openCatalog(root);
+
+        await expect(handle?.windowAvailability(1, 2)).resolves.toEqual(new Uint8Array([
+            0,
+            0,
+        ]));
+        await handle?.close?.();
+    });
+
+    it('reports a v3 page whose artifact is corrupt as unavailable', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'evb-ocr-catalog-v3-corrupt-'));
+        roots.push(root);
+        const goodPath = 'legacy/good.json';
+        const badPath = 'legacy/bad.json';
+        await mkdir(join(root, 'legacy'), {recursive: true});
+        await writeFile(join(root, goodPath), JSON.stringify(page));
+        await writeFile(join(root, badPath), '{"text":');
+        const manifest: IOcrIndexV3Manifest = {
+            version: 3,
+            documentRevision: {token: revision},
+            createdAt: Date.now(),
+            source: {pdfPath: join(root, 'document.pdf')},
+            pageCount: 3,
+            pageBox: 'crop',
+            ocr: {
+                engine: 'tesseract',
+                languages: ['eng'],
+                renderDpi: 300,
+            },
+            pages: {
+                1: {path: goodPath},
+                2: {path: badPath},
+            },
+        };
+        await writeFile(join(root, 'manifest.json'), JSON.stringify(manifest));
+        const handle = await openCatalog(root);
+
+        await expect(handle?.windowAvailability(1, 3)).resolves.toEqual(new Uint8Array([
+            1,
+            0,
+            0,
+        ]));
+        await handle?.close?.();
+    });
+});
