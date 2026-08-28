@@ -11,6 +11,7 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
+    callWorkspaceCommand,
     collectWorkspaceExposeDebugState,
     installWorkspaceExposeProbe,
     type IWorkspaceExposeProbeWindow,
@@ -302,11 +303,13 @@ export async function waitForPdfAnnotationSubtypeCount(filePath: string, subtype
 
 export async function createHighlightWithPdfjsManager(page: Page) {
     const before = await getVisibleHighlightEditorCount(page);
-    let result = 'missing-ui-manager';
+    await clickAnnotationTool(page, 'Highlight');
+    await waitForAnnotationEditorMode(page, 'highlightEditing', 8_000);
+
+    let selectionResult = 'missing-text';
     const startedAt = Date.now();
-    await installWorkspaceExposeProbe(page);
-    while (Date.now() - startedAt < 8_000 && result !== 'ok' && result !== 'issued-highlight') {
-        result = await page.evaluate(async (previousCount: number) => {
+    while (Date.now() - startedAt < 8_000 && selectionResult !== 'ok') {
+        selectionResult = await page.evaluate(() => {
             const isVisible = (candidate: HTMLElement) => {
                 const rect = candidate.getBoundingClientRect();
                 const style = window.getComputedStyle(candidate);
@@ -328,18 +331,6 @@ export async function createHighlightWithPdfjsManager(page: Page) {
             if (!host) {
                 return 'missing-host';
             }
-            if (host.querySelectorAll('.highlightEditor').length > previousCount) {
-                return 'ok';
-            }
-
-            const manager = (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({ requiredMethods: ['highlightSelection'] }) as {
-                highlightSelection?: (methodOfCreation?: string) => void;
-                updateMode?: (mode: number) => Promise<void>;
-                waitForEditorsRendered?: (pageNumber: number) => Promise<void>;
-            } | null;
-            if (typeof manager?.highlightSelection !== 'function') {
-                return 'missing-ui-manager';
-            }
 
             const textNodes = Array.from(host.querySelectorAll<HTMLElement>(
                 '.page_container--rendered .text-layer span, .page_container--rendered .textLayer span',
@@ -360,15 +351,6 @@ export async function createHighlightWithPdfjsManager(page: Page) {
             if (!first?.node) {
                 return 'missing-text';
             }
-            const pageElement = (first.node.parentElement ?? null)
-                ?.closest<HTMLElement>('.page_container');
-            const pageNumber = Number(pageElement?.dataset.page ?? '1');
-            if (typeof manager.updateMode === 'function') {
-                await manager.updateMode(9);
-            }
-            if (Number.isFinite(pageNumber) && typeof manager.waitForEditorsRendered === 'function') {
-                await manager.waitForEditorsRendered(pageNumber);
-            }
 
             const range = document.createRange();
             range.setStart(first.node, 0);
@@ -376,21 +358,25 @@ export async function createHighlightWithPdfjsManager(page: Page) {
             const selection = document.getSelection();
             selection?.removeAllRanges();
             selection?.addRange(range);
-            manager.highlightSelection('e2e');
-            selection?.removeAllRanges();
-            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-            if ((host.querySelectorAll('.highlightEditor').length ?? 0) > previousCount) {
-                return 'ok';
-            }
-            return 'issued-highlight';
-        }, before);
-        if (result !== 'ok' && result !== 'issued-highlight') {
+            return selection?.toString().trim() ? 'ok' : 'empty-selection';
+        });
+        if (selectionResult !== 'ok') {
             await delay(150);
         }
     }
 
-    if (result !== 'ok' && result !== 'issued-highlight') {
-        throw new Error(`Unable to create highlight: ${result}`);
+    if (selectionResult !== 'ok') {
+        throw new Error(`Unable to select text for highlight: ${selectionResult}`);
+    }
+
+    let commandResult;
+    try {
+        commandResult = await callWorkspaceCommand<boolean>(page, 'highlightSelection');
+    } finally {
+        await page.evaluate(() => document.getSelection()?.removeAllRanges());
+    }
+    if (!commandResult.called || commandResult.value !== true) {
+        throw new Error(`Unable to create highlight through workspace command: ${JSON.stringify(commandResult)}`);
     }
     await waitForHighlightEditorCount(page, before + 1);
     return getVisibleHighlightEditorCount(page);
