@@ -59,7 +59,10 @@ import {
     resolvePathFixtureAvailability,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
-import { assertOcrPdfSemanticOutput } from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {
+    assertOcrPdfSemanticOutput,
+    assertOcrResultApplied,
+} from '@tests/e2e/electron/helpers/electronApiHelpers';
 
 const ELECTRON_FIXTURE_ROOT = join(process.cwd(), 'tests/fixtures/electron');
 const MAX_TRACKED_ELECTRON_BINARY_FIXTURE_BYTES = 2 * 1024 * 1024;
@@ -94,6 +97,13 @@ function createDescribeSelectorDouble() {
 }
 
 describe('Electron E2E fixture policy', () => {
+    it('rejects an OCR consume result when the working-copy revision did not change', () => {
+        expect(() => assertOcrResultApplied({token: 'revision-before'}, 'revision-before'))
+            .toThrow('OCR result was not applied to the active working copy');
+        expect(() => assertOcrResultApplied({token: 'revision-after'}, 'revision-before'))
+            .not.toThrow();
+    });
+
     it('rejects OCR completion artifacts that do not contain the expected semantic text', async () => {
         const outputPath = await createMultiPageTextFixturePdf('unit-ocr-semantic-output.pdf', 1);
 
