@@ -1,0 +1,33 @@
+tests/unit/electron/workingCopySave.test.ts
+  s_5ac4a3281ca4f3::t_feaa0f21656969 80-86
+tests/unit/electron/documentFileWriteAtomicFallback.test.ts
+  s_5ac4a3281ca4f3::t_2b67075962704e 10,23
+  s_5ac4a3281ca4f3::t_8aae99ad3f3454 1-9,11-22,24-83
+electron/features/documents/main/transitionOriginalAndWorkingCopyRevision.ts
+  s_5ac4a3281ca4f3::t_7b6fe171274671 95-97
+tests/unit/electron/pageMetadataRemap.test.ts
+  s_5ac4a3281ca4f3::t_2b79471c6956a7 161
+  s_5ac4a3281ca4f3::t_fba15cff0f8588 2,9-16,45-46,49,58-64,113-114,116,139-160
+electron/features/page-ops/main/pageMetadataRemap.ts
+  s_5ac4a3281ca4f3::t_7b6fe171274671 5,119-122
+tests/unit/electron/transitionOriginalAndWorkingCopyRevision.test.ts
+  s_5ac4a3281ca4f3::t_585bd2896adf50 1-137
+electron/file-access/documentFileWriteAtomic.ts
+  s_5ac4a3281ca4f3::t_7b6fe171274671 6,21,151,165-193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "276352e4dc0e6338f2c654e90f9820433702113f",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
