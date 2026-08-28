@@ -124,6 +124,17 @@ describe('Electron E2E fixture policy', () => {
         expect(source).toContain('window.clearInterval(pressureTimer)');
     });
 
+    it('re-finds and centers a virtual thumbnail until the current item is ready', async () => {
+        const source = await readFile(
+            join(process.cwd(), 'tests/e2e/electron/helpers/splitPaneCloseContinuity.ts'),
+            'utf8',
+        );
+
+        expect(source).toContain('const centerDelta =');
+        expect(source).toContain('if (Math.abs(centerDelta) > 1)');
+        expect(source).toContain('root.scrollTop += centerDelta');
+    });
+
     it('rejects OCR completion artifacts that do not contain the expected semantic text', async () => {
         const outputPath = await createMultiPageTextFixturePdf('unit-ocr-semantic-output.pdf', 1);
 
