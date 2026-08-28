@@ -72,7 +72,7 @@ function createElectronE2ESessionFixtureWithStarter(
                     : sessionName;
                 session = await startSession(sessionName, {
                     clean: startOptions.clean ?? true,
-                    extraEnv: options.extraEnv,
+                    ...(options.extraEnv ? {extraEnv: options.extraEnv} : {}),
                 });
                 bootFailure = null;
                 return session;
@@ -154,7 +154,7 @@ function createElectronE2ESessionFixtureWithStarter(
             sessionName = resolveSessionName(options.sessionName);
             session = await startSession(sessionName, {
                 clean: options.clean ?? true,
-                extraEnv: options.extraEnv,
+                ...(options.extraEnv ? {extraEnv: options.extraEnv} : {}),
             });
             bootFailure = null;
         } catch (error) {
