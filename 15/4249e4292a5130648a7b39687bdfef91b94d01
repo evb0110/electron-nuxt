@@ -1,0 +1,21 @@
+electron/file-access/pageIdentitySidecarStreaming.ts
+  s_b2ece6dfe48478::t_90684797ad3e5b 91
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_b2ece6dfe48478::t_1cb0421336118c 237-240
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "154249e4292a5130648a7b39687bdfef91b94d01",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
