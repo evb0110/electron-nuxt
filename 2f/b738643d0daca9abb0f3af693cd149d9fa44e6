@@ -1,0 +1,20 @@
+tests/unit/scripts/electronRunHeadlessStartdInterrupt.test.ts
+  s_3f273936057f92::t_1a9e724942a2a2 1-178
+  s_3f273936057f92::t_99a8cfa1c7a88c 179-184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "2fb738643d0daca9abb0f3af693cd149d9fa44e6",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
