@@ -327,10 +327,7 @@ function deriveCanonicalSaveInputs(
     };
 }
 
-function planAnnotationRoute(
-    canonical: IPdfSaveCanonicalInputs,
-    plan: ISerializationPlan,
-): IPdfViewerAnnotationSavePlan {
+function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnnotationSavePlan {
     const live = canonical.liveAnnotationChanges;
     const hasPendingReplayableEmbeddedChanges = canonical.pendingTexts.size > 0
         || canonical.pendingDeletes.length > 0
@@ -362,12 +359,8 @@ function planAnnotationRoute(
             };
         }
 
-        const acknowledgedAnnotationIds = collectAcknowledgedAnnotationIds(plan);
         const unreplayableLiveAnnotationIds = Array.from(live.ids)
-            .filter(id => (
-                !canonical.replayableEmbeddedAnnotationIds.has(id)
-                && !acknowledgedAnnotationIds.has(id)
-            ));
+            .filter(id => !canonical.replayableEmbeddedAnnotationIds.has(id));
         if (unreplayableLiveAnnotationIds.length === 0 && live.ids.size > 0) {
             return {
                 route: 'source-replay',
@@ -472,6 +465,8 @@ function addCommentIdentityAliases(ids: Set<string>, comment: IAnnotationComment
 
 function collectProjectedNativeAnnotationIds(input: {
     changedComments: IAnnotationCommentSummary[];
+    persistedComments: IAnnotationCommentSummary[];
+    replayableEditorNoteIds: ReadonlySet<string>;
     noteTextUpdates: Array<{
         objectNumber: number;
         generationNumber: number;
@@ -497,21 +492,15 @@ function collectProjectedNativeAnnotationIds(input: {
         addReplayableAnnotationId(ids, id);
         addEditorRuntimeAnnotationIdFromStableKey(ids, editor.stableKey);
     });
-    return ids;
-}
 
-function collectAcknowledgedAnnotationIds(plan: ISerializationPlan) {
-    const ids = new Set<string>();
-    plan.entities
-        .filter(entity => !entity.deleted && !isActuallyChangedEntity(entity))
-        .forEach((entity) => {
-            [
-                entity.identity.id,
-                entity.identity.elementId,
-                entity.identity.pdfjsUid,
-                entity.identity.pdfRef,
-            ].forEach(id => addReplayableAnnotationId(ids, id));
-        });
+    const persistedCommentAliases = new Set<string>();
+    input.persistedComments.forEach(comment => addCommentIdentityAliases(persistedCommentAliases, comment));
+    input.replayableEditorNoteIds.forEach((id) => {
+        const normalized = normalizePdfJsAnnotationId(id);
+        if (normalized && persistedCommentAliases.has(normalized)) {
+            addReplayableAnnotationId(ids, normalized);
+        }
+    });
     return ids;
 }
 
@@ -525,6 +514,9 @@ function buildClassifiedNativeMutationProjection(
     const replayAllowed = annotationRoute.route === 'source-replay';
     const changedComments = plan.entities
         .filter(entity => !entity.deleted && isActuallyChangedEntity(entity))
+        .map(entitySummary);
+    const persistedComments = plan.entities
+        .filter(entity => entity.kind === 'sticky-note' && !entity.deleted && !isActuallyChangedEntity(entity))
         .map(entitySummary);
     const noteTextUpdatesResult = replayAllowed && canonical.pendingTexts.size > 0
         ? buildNativeNoteTextUpdatesForSave({
@@ -546,11 +538,12 @@ function buildClassifiedNativeMutationProjection(
     const annotationDeletes = annotationDeletesResult?.value ?? [];
     const projectedNativeAnnotationIds = collectProjectedNativeAnnotationIds({
         changedComments,
+        persistedComments,
+        replayableEditorNoteIds: canonical.liveAnnotationChanges.replayableEditorNoteIds,
         noteTextUpdates,
         freeTextNotes,
         nativeFreeTextEditors: canonical.liveAnnotationChanges.nativeFreeTextEditors,
     });
-    const acknowledgedAnnotationIds = collectAcknowledgedAnnotationIds(plan);
     const nativeNoteMutationCount = noteTextUpdates.length
         + freeTextNotes.length
         + freeTextEditors.length
@@ -562,7 +555,7 @@ function buildClassifiedNativeMutationProjection(
         && annotationDeletes.length === 0
         && projectedNativeAnnotationIds.size > 0
         && [...canonical.liveAnnotationChanges.ids].every(id =>
-            projectedNativeAnnotationIds.has(id) || acknowledgedAnnotationIds.has(id))
+            projectedNativeAnnotationIds.has(id))
     );
     if (
         admitted.dirtyState.savedPdfjsAnnotationBaselineDirty
@@ -681,7 +674,7 @@ export function classifyPdfSaveRoute(
     const canonical = deriveCanonicalSaveInputs(plan, capabilities);
     // Forced materialization overrides the byte source but never the native-append
     // grant: bounded native mutations still beat a full PDF.js rewrite.
-    const replayPlan = planAnnotationRoute(canonical, plan);
+    const replayPlan = planAnnotationRoute(canonical);
     const annotationPlan: IPdfViewerAnnotationSavePlan = capabilities.forcePdfjsMaterialize
         ? {
             route: 'pdfjs-materialize',

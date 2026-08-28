@@ -73,6 +73,14 @@ function editorNote(id: string): AnnotationEntity {
     };
 }
 
+function cleanEditorNote(id: string): AnnotationEntity {
+    return {
+        ...editorNote(id),
+        revision: 0,
+        persistedRevision: 0,
+    };
+}
+
 function editorMarkup(id: string): AnnotationEntity {
     return {
         kind: 'text-markup',
@@ -496,6 +504,73 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         expect(decision.nativeRejection).toBe('saved-pdfjs-baseline-dirty-requires-materialization');
     });
 
+    it('materializes a non-replayable live id that only aliases a clean persisted sticky note', () => {
+        const savedEntity = {
+            ...cleanEmbeddedFreeTextNote('anno_saved', '50R'),
+            identity: {
+                id: asAnnotationId('anno_saved'),
+                elementId: 'pdfjs_internal_editor_0',
+                pdfRef: '50R',
+            },
+        };
+        const newEntity = embeddedNote('anno_new', '60R');
+        const newEditor: IPdfNativeFreeTextEditor = {
+            pageIndex: requirePageIndex(0),
+            stableKey: 'new-ordinary-editor',
+            text: 'ordinary editor text',
+            rect: [
+                10,
+                20,
+                110,
+                60,
+            ],
+            rotation: 0,
+            fontSize: 16,
+            color: [
+                245,
+                158,
+                11,
+            ],
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([newEntity], [
+                savedEntity,
+                newEntity,
+            ]),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: true,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'pdfjs_internal_editor_0',
+                        'pdfjs_internal_editor_1',
+                        '60R',
+                    ]),
+                    nativeFreeTextEditors: new Map([[
+                        'pdfjs_internal_editor_1',
+                        newEditor,
+                    ]]),
+                    hasChanges: true,
+                    fingerprint: 'non-replayable-clean-alias',
+                }),
+            }),
+        );
+
+        expect(decision.annotationPlan).toMatchObject({
+            route: 'pdfjs-materialize',
+            reason: 'unreplayable-live-pdfjs-annotation-ids',
+            unreplayableLiveAnnotationIds: expect.arrayContaining(['pdfjs_internal_editor_0']),
+        });
+        expect(decision.route).not.toBe('native-append');
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('saved-pdfjs-baseline-dirty-requires-materialization');
+    });
+
     it('keeps a clean embedded FreeText out of native pending texts beside a new editor', () => {
         const editor: IPdfNativeFreeTextEditor = {
             pageIndex: requirePageIndex(0),
@@ -603,7 +678,59 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         ]);
     });
 
-    it('ignores aliases for an acknowledged editor when projecting the next native editor save', () => {
+    it('keeps a saved Inline Note anchor on the native route beside a new FreeText editor', () => {
+        const newEditor: IPdfNativeFreeTextEditor = {
+            pageIndex: requirePageIndex(0),
+            stableKey: 'new-editor',
+            text: 'new text',
+            rect: [
+                10,
+                20,
+                110,
+                60,
+            ],
+            rotation: 0,
+            fontSize: 16,
+            color: [
+                17,
+                24,
+                39,
+            ],
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([], [cleanEditorNote('anno_saved_inline_note')]),
+            capabilities({
+                forcePdfjsMaterialize: true,
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: true,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'pdfjs_internal_editor_0',
+                        'pdfjs_internal_editor_1',
+                    ]),
+                    replayableEditorNoteIds: new Set(['pdfjs_internal_editor_0']),
+                    nativeFreeTextEditors: new Map([[
+                        'pdfjs_internal_editor_1',
+                        newEditor,
+                    ]]),
+                    hasChanges: true,
+                    fingerprint: 'saved-inline-note-plus-new-editor',
+                }),
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.freeTextEditors).toEqual([newEditor]);
+        expect(decision.nativeMutationProjection.freeTextNotes).toEqual([]);
+    });
+
+    it('keeps a changed Inline Note and a new FreeText editor on the native route', () => {
         const savedEntity = {
             ...editorNote('anno_saved'),
             revision: 1,
@@ -650,11 +777,10 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                 },
                 liveAnnotationChanges: liveChanges({
                     ids: new Set([
-                        'anno_saved',
                         'pdfjs_internal_editor_0',
-                        'anno_new',
                         'new-runtime-id',
                     ]),
+                    replayableEditorNoteIds: new Set(['pdfjs_internal_editor_0']),
                     nativeFreeTextEditors: new Map([[
                         'new-runtime-id',
                         newEditor,
