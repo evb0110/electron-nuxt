@@ -976,6 +976,72 @@ describe('scan cleanup workspace session detection guidance', () => {
         }
     });
 
+    it('reports when the detail bridge returns null after bounded retries', async () => {
+        const harness = capabilityHarness();
+        vi.mocked(harness.value.preview).mockImplementation(async request => (
+            request.detail ? null : previewResult(request.pageNumber, 'single-uncut-page')
+        ));
+        capability.value = harness.value;
+        const mounted = mountSession(`detail-null-diagnostic-${Date.now()}`);
+        mounted.session.settings.values.outputMode = 'bw';
+        await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
+        vi.useFakeTimers();
+        try {
+            await mounted.session.preview.requestDetail({full: {
+                xNormalized: 0,
+                yNormalized: 0,
+                widthNormalized: 1,
+                heightNormalized: 1,
+                rotationDegrees: 0,
+            }});
+            await vi.advanceTimersByTimeAsync(2_000);
+
+            expect(vi.mocked(harness.value.preview).mock.calls.filter(([request]) => request?.detail))
+                .toHaveLength(3);
+            expect(mounted.session.preview.detailDiagnostic.value).toEqual({
+                kind: 'bridge-null',
+                attempts: 3,
+            });
+        } finally {
+            vi.useRealTimers();
+            mounted.unmount();
+        }
+    });
+
+    it('reports a detail service failure after bounded retries', async () => {
+        const harness = capabilityHarness();
+        vi.mocked(harness.value.preview).mockImplementation(async request => {
+            if (request.detail) throw new Error('detail service failed');
+            return previewResult(request.pageNumber, 'single-uncut-page');
+        });
+        capability.value = harness.value;
+        const mounted = mountSession(`detail-service-diagnostic-${Date.now()}`);
+        mounted.session.settings.values.outputMode = 'bw';
+        await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
+        vi.useFakeTimers();
+        try {
+            await mounted.session.preview.requestDetail({full: {
+                xNormalized: 0,
+                yNormalized: 0,
+                widthNormalized: 1,
+                heightNormalized: 1,
+                rotationDegrees: 0,
+            }});
+            await vi.advanceTimersByTimeAsync(2_000);
+
+            expect(vi.mocked(harness.value.preview).mock.calls.filter(([request]) => request?.detail))
+                .toHaveLength(3);
+            expect(mounted.session.preview.detailDiagnostic.value).toEqual({
+                kind: 'service-failure',
+                attempts: 3,
+                message: 'detail service failed',
+            });
+        } finally {
+            vi.useRealTimers();
+            mounted.unmount();
+        }
+    });
+
     it('accumulates the classifications a detection streams one progress event at a time', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
