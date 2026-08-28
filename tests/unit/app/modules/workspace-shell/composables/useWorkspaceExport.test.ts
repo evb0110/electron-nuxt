@@ -400,6 +400,7 @@ describe('useWorkspaceExport', () => {
     });
 
     it('shows a toast when TIFF export fails', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         exportTiffMock.mockRejectedValueOnce(new Error('Multi-page TIFF export exceeds the Classic TIFF 4GB limit'));
 
         const {

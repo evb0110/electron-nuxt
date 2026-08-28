@@ -40,32 +40,16 @@ const smokeDir = resolve(process.cwd(), '.devkit', 'tmp', `djvu-print-handoff-${
 const capturedPdfPath = join(smokeDir, 'captured-print.pdf');
 const renderedFirstPagePrefix = join(smokeDir, 'captured-first-page');
 const renderedFirstPagePath = `${renderedFirstPagePrefix}.png`;
-const previousPrintDialogTestMode = process.env.EVB_PRINT_DIALOG_TEST_MODE;
-const previousPrintDialogOutputPath = process.env.EVB_PRINT_DIALOG_TEST_OUTPUT_PATH;
-const previousPrintRasterDpi = process.env.EVB_PRINT_RASTER_DPI;
 const djvuFixture = resolveDjvuFixturePath();
 const runDjvuPrintHandoffOrSkip = selectFixtureDescribe(describe, djvuFixture);
 
-process.env.EVB_PRINT_DIALOG_TEST_MODE = 'print-to-pdf';
-process.env.EVB_PRINT_DIALOG_TEST_OUTPUT_PATH = capturedPdfPath;
-process.env.EVB_PRINT_RASTER_DPI = '96';
+const printHandoffSessionEnv = {
+    EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+    EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: capturedPdfPath,
+    EVB_PRINT_RASTER_DPI: String(PRINT_VALIDATION_DPI),
+};
 
 afterAll(() => {
-    if (previousPrintDialogTestMode === undefined) {
-        delete process.env.EVB_PRINT_DIALOG_TEST_MODE;
-    } else {
-        process.env.EVB_PRINT_DIALOG_TEST_MODE = previousPrintDialogTestMode;
-    }
-    if (previousPrintDialogOutputPath === undefined) {
-        delete process.env.EVB_PRINT_DIALOG_TEST_OUTPUT_PATH;
-    } else {
-        process.env.EVB_PRINT_DIALOG_TEST_OUTPUT_PATH = previousPrintDialogOutputPath;
-    }
-    if (previousPrintRasterDpi === undefined) {
-        delete process.env.EVB_PRINT_RASTER_DPI;
-    } else {
-        process.env.EVB_PRINT_RASTER_DPI = previousPrintRasterDpi;
-    }
     rmSync(smokeDir, {
         force: true,
         recursive: true,
@@ -127,7 +111,10 @@ function countNonWhitePixels(pngPath: string) {
 }
 
 runDjvuPrintHandoffOrSkip('Electron E2E - DjVu Print Handoff', () => {
-    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-print-handoff-${Date.now()}`});
+    const sessionFixture = createElectronE2ESessionFixture({
+        sessionName: () => `e2e-djvu-print-handoff-${Date.now()}`,
+        extraEnv: printHandoffSessionEnv,
+    });
 
     it('prints selected DjVu pages to a multi-page nonblank PDF surface', async () => {
         const session = sessionFixture.getSession();

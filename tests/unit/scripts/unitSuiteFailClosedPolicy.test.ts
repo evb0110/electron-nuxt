@@ -13,7 +13,7 @@ import {
 } from 'vitest';
 
 const REPO_ROOT = process.cwd();
-const UNIT_SETUP_FILE = join(REPO_ROOT, 'tests', 'setup.ts');
+const UNIT_PROJECT_NAME = 'unit-scripts';
 const VITEST_ENTRY = join(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs');
 
 interface IJsonReporterOutput {
@@ -31,18 +31,28 @@ function isJsonReporterOutput(value: unknown): value is IJsonReporterOutput {
         && Array.isArray((value as {testResults?: unknown}).testResults);
 }
 
-// Runs a throwaway vitest suite under the repository's unit setup file so the
-// policy is checked against the real runner rather than a re-implementation.
+// Runs a throwaway vitest suite under the repository's own unit project
+// configuration so the policy is checked against the real runner and setup
+// file rather than a re-implementation.
 function runProbeSuite(files: Record<string, string>) {
     const root = mkdtempSync(join(REPO_ROOT, '.devkit', 'tmp', 'unit-fail-closed-'));
     try {
         writeFileSync(join(root, 'vitest.config.mts'), [
             'import {defineConfig} from \'vitest/config\';',
-            'export default defineConfig({test: {',
-            '    include: [\'*.probe.test.ts\'],',
-            '    globals: false,',
-            `    setupFiles: [${JSON.stringify(UNIT_SETUP_FILE)}],`,
-            '}});',
+            `import {vitestProjects} from ${JSON.stringify(join(REPO_ROOT, 'vitest.shared.config'))};`,
+            `const unitProject = vitestProjects.find(project => project.test.name === ${JSON.stringify(UNIT_PROJECT_NAME)});`,
+            'if (!unitProject) {',
+            `    throw new Error('Missing unit project ${UNIT_PROJECT_NAME}');`,
+            '}',
+            'export default defineConfig({',
+            '    ...unitProject,',
+            '    test: {',
+            '        ...unitProject.test,',
+            '        include: [\'*.probe.test.ts\'],',
+            '        exclude: [],',
+            `        setupFiles: unitProject.test.setupFiles.map(file => ${JSON.stringify(`${REPO_ROOT}/`)} + file),`,
+            '    },',
+            '});',
             '',
         ].join('\n'));
         for (const [
@@ -63,8 +73,9 @@ function runProbeSuite(files: Record<string, string>) {
             join(root, 'vitest.config.mts'),
             '--reporter',
             'json',
-            '--outputFile',
-            outputFile,
+            '--reporter',
+            'default',
+            `--outputFile.json=${outputFile}`,
         ], {
             cwd: root,
             encoding: 'utf8',
@@ -73,7 +84,7 @@ function runProbeSuite(files: Record<string, string>) {
         });
         const parsed: unknown = JSON.parse(readFileSync(outputFile, 'utf8'));
         if (!isJsonReporterOutput(parsed)) {
-            throw new Error(`Unexpected vitest JSON reporter output: ${run.stderr}`);
+            throw new Error(`Unexpected vitest JSON reporter output: ${run.stdout}\n${run.stderr}`);
         }
         const statuses = new Map(parsed.testResults
             .flatMap(result => result.assertionResults)
@@ -84,7 +95,7 @@ function runProbeSuite(files: Record<string, string>) {
         return {
             exitCode: run.status,
             statuses,
-            stderr: run.stderr,
+            output: `${run.stdout}\n${run.stderr}`,
             success: parsed.success,
         };
     } finally {
@@ -122,9 +133,9 @@ describe('unit suite fail-closed policy', () => {
             ].join('\n'),
         });
 
-        expect(run.statuses.get('passes quietly')).toBe('passed');
+        expect(run.statuses.get('passes quietly'), run.output).toBe('passed');
         expect(run.statuses.get('passes while logging an unexpected error')).toBe('failed');
-        expect(run.stderr).toMatch(/unhandled (?:error|rejection)/iu);
+        expect(run.output).toMatch(/unhandled (?:error|rejection)/iu);
         expect(run.success).toBe(false);
         expect(run.exitCode).not.toBe(0);
     }, 120_000);

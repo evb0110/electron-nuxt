@@ -125,6 +125,7 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('says nothing about a replaced document when the save of the old one threw', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const { deps } = createDeps({annotationDirty: ref(true)});
         deps.saveFile = vi.fn(async () => {
             replaceOpenDocument(deps);
@@ -470,6 +471,7 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('keeps the thrown-save toast unchanged', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const { deps } = createDeps({
             annotationDirty: ref(true),
             saveFile: vi.fn(() => {

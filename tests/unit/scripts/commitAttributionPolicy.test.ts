@@ -15,6 +15,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {removeTemporaryDirectory} from '@tests/helpers/removeTemporaryDirectory';
 
@@ -215,6 +216,7 @@ describe('commit attribution policy', () => {
     });
 
     it('validates commit message files before a commit is created', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const directory = await mkdtemp(join(tmpdir(), 'evb-attribution-message-'));
         try {
             const messageFile = join(directory, 'COMMIT_EDITMSG');
@@ -433,6 +435,7 @@ describe('forbidden artifact detection in history', () => {
     });
 
     it('rejects staged artifacts before the commit exists', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const repository = await createRepository('evb-artifact-staged-');
         try {
             await commit(repository, 'Clean base', {'app/index.ts': 'export const app = true;\n'});
@@ -465,6 +468,7 @@ describe('forbidden artifact detection in history', () => {
     // forced add. The gate has to reject it deterministically anyway, and must not
     // catch similarly named product paths.
     it('rejects a forced add of local working material', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const repository = await createRepository('evb-artifact-devkit-');
         try {
             await commit(repository, 'Clean base', {'app/index.ts': 'export const app = true;\n'});
@@ -489,6 +493,7 @@ describe('forbidden artifact detection in history', () => {
     // The first commit of a repository has no HEAD to diff against; `git diff
     // --cached` compares with the empty tree there, so the gate still applies.
     it('rejects staged artifacts in a repository with no commits yet', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const repository = await createRepository('evb-artifact-unborn-');
         try {
             await writeFiles(repository, {
@@ -888,6 +893,7 @@ describe('pushed range resolution for CI', () => {
             '',
         ],
     ])('falls back to the complete head history for %s', async (_label, beforeOid) => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const repository = await createRepository('evb-pushed-range-rewrite-');
         try {
             const root = await commit(repository, 'Rewritten root', {'AGENTS.md': '# local rules\n'});
@@ -908,6 +914,7 @@ describe('pushed range resolution for CI', () => {
     });
 
     it('falls back to the complete head history when the before SHA is an unrelated root', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const repository = await createRepository('evb-pushed-range-unrelated-');
         try {
             await commit(repository, 'Old root', {'app/old.ts': 'export const old = true;\n'});

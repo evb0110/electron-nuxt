@@ -1158,7 +1158,6 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
     it('keeps embedded annotations across two sessions and a fresh renderer save/reopen', async () => {
         const telemetry = createTelemetry();
         const sourcePath = resolve(configuredFixture);
-        const previousNativePageOps = process.env.EVB_PDF_PAGE_OPS_ENABLE;
         let stagedFixture: IStagedFixture | null = null;
         let sessionA: IElectronE2ESession | null = null;
         let sessionB: IElectronE2ESession | null = null;
@@ -1166,7 +1165,6 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
         let activeRssSampler: IRssSampler | null = null;
 
         try {
-            process.env.EVB_PDF_PAGE_OPS_ENABLE = '1';
             stagedFixture = await timed(telemetry, 'fixture-stage-cow', () => stageFixture(sourcePath));
             telemetry.fixture.sourcePath = stagedFixture.sourcePath;
             telemetry.fixture.stagedPath = stagedFixture.stagedPath;
@@ -1523,11 +1521,6 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 });
             }
             await writeTelemetry(telemetry);
-            if (previousNativePageOps === undefined) {
-                delete process.env.EVB_PDF_PAGE_OPS_ENABLE;
-            } else {
-                process.env.EVB_PDF_PAGE_OPS_ENABLE = previousNativePageOps;
-            }
         }
     }, XLARGE_TEST_TIMEOUT_MS);
 });

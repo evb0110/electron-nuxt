@@ -200,12 +200,13 @@ benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
         await mkdir(dirname(outputPath), {recursive: true});
         const inputBytes = (await stat(fixturePath)).size;
         const sourceSemanticReopen = await readPdfAnnotationSummary(fixturePath);
-        process.env.EVB_PDF_PAGE_OPS_ENABLE = mode === 'native-freetext' ? '1' : '0';
-        process.env.EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES = '1';
-
         const session = await startConfiguredSession(
             `e2e-save-benchmark-${mode}-${tier}-${Date.now()}`,
             tier,
+            {
+                EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES: '1',
+                EVB_PDF_PAGE_OPS_ENABLE: mode === 'native-freetext' ? '1' : '0',
+            },
         );
         try {
             await session.page.evaluate((allowLargeSerializedSave: boolean) => {

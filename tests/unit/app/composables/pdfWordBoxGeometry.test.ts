@@ -41,6 +41,7 @@ describe('transformWordBox', () => {
     });
 
     it('fails loudly for rotated OCR artifacts because this legacy transform is rotation-blind', () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         expect(() => transformWordBox(baseWord, 1000, 500, 2000, 1000, 90))
             .toThrow('transformOcrWordToViewport');
     });

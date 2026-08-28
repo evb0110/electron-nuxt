@@ -20,6 +20,7 @@ async function setReducedMotionPreference(page: Parameters<typeof stabilizeShare
 export async function startConfiguredElectronE2ESession(
     baseName: string,
     performanceMode: TPerformanceMode,
+    extraEnv: Record<string, string> = {},
 ) {
     // The env override drives the main-process profile; the settings cookie
     // drives the renderer fallback used by harness-adopted windows that carry
@@ -27,6 +28,7 @@ export async function startConfiguredElectronE2ESession(
     const session = await startElectronE2ESession(baseName, {
         clean: true,
         extraEnv: {
+            ...extraEnv,
             EVB_E2E_FORCE_NO_REDUCED_MOTION: '1',
             EVB_TEST_PERFORMANCE_MODE: performanceMode,
         },

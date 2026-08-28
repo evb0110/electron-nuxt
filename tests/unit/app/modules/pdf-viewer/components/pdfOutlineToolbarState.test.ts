@@ -123,6 +123,7 @@ describe('PdfOutline bookmark toolbar state', () => {
     });
 
     it('hides the toolbar and exposes an error state when loading fails', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const outline = await mountOutline(() => Promise.reject(new Error('outline stream is corrupt')));
 
         await outline.settle();
@@ -145,6 +146,7 @@ describe('PdfOutline bookmark toolbar state', () => {
     });
 
     it('recovers from a load error when external bookmarks arrive', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const outline = await mountOutline(() => Promise.reject(new Error('outline stream is corrupt')));
 
         await outline.settle();

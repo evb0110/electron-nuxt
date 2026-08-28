@@ -580,6 +580,7 @@ describe('workspaceSaveService native persistence', () => {
     });
 
     it('fails the save instead of falling back when native staged commit persistence rejects', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const trySavePdfNativeMutations = vi.fn(async () => {
             throw new Error('Staged artifact content changed after staging');
         });
@@ -1061,6 +1062,7 @@ describe('workspaceSaveService native persistence', () => {
     });
 
     it('surfaces a toast and stops the saving state when PDF.js saveDocument stalls', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         vi.useFakeTimers();
         const stalledSave = new Promise<Uint8Array | null>(() => undefined);
         const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
@@ -1166,6 +1168,7 @@ describe('workspaceSaveService native persistence', () => {
     });
 
     it('surfaces a toast when PDF.js saveDocument returns no data repeatedly', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
             resetModified: vi.fn(),
             modifiedIds: { ids: new Set(['3856R']) },

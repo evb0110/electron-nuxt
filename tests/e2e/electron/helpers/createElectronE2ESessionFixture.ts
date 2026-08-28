@@ -35,6 +35,7 @@ interface IElectronE2ESessionFixtureControls {
 interface IElectronE2ESessionFixtureOptions {
     sessionName: TSessionNameFactory;
     clean?: boolean;
+    extraEnv?: Record<string, string>;
     restartBeforeEach?: boolean;
     timeoutMs?: number;
 }
@@ -69,7 +70,10 @@ function createElectronE2ESessionFixtureWithStarter(
                 sessionName = startOptions.sessionName
                     ? resolveSessionName(startOptions.sessionName)
                     : sessionName;
-                session = await startSession(sessionName, {clean: startOptions.clean ?? true});
+                session = await startSession(sessionName, {
+                    clean: startOptions.clean ?? true,
+                    extraEnv: options.extraEnv,
+                });
                 bootFailure = null;
                 return session;
             } catch (error) {
@@ -148,7 +152,10 @@ function createElectronE2ESessionFixtureWithStarter(
     beforeAll(async () => {
         try {
             sessionName = resolveSessionName(options.sessionName);
-            session = await startSession(sessionName, {clean: options.clean ?? true});
+            session = await startSession(sessionName, {
+                clean: options.clean ?? true,
+                extraEnv: options.extraEnv,
+            });
             bootFailure = null;
         } catch (error) {
             bootFailure = formatElectronE2ESessionFailure('Electron E2E session boot failed.', error);

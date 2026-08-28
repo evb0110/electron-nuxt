@@ -288,6 +288,7 @@ describe('combinePdfFiles', () => {
     });
 
     it('routes renderer cancellation to the active Electron combine request', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const controller = new AbortController();
         mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf']);
         let rejectOpen: ((error: Error) => void) | null = null;

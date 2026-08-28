@@ -1,5 +1,4 @@
 import {
-    afterAll,
     describe,
     expect,
     it,
@@ -33,7 +32,6 @@ const ASSISTANT_COMPLETION_E2E_TIMEOUT_MS = 90_000;
 const SESSION_NAME = 'assistant-completion-finalization';
 const SCOPED_SESSION_NAME = createE2ERunScopedSessionName(SESSION_NAME);
 const fakeCodexPath = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fake-codex', SESSION_NAME, 'codex');
-const previousCodexCliPath = process.env.CODEX_CLI_PATH;
 
 function installFakeCodexCli() {
     mkdirSync(dirname(fakeCodexPath), {recursive: true});
@@ -140,7 +138,6 @@ rl.on('line', (line) => {
 }
 
 installFakeCodexCli();
-process.env.CODEX_CLI_PATH = fakeCodexPath;
 rmSync(sessionDir(SCOPED_SESSION_NAME), {
     recursive: true,
     force: true,
@@ -157,15 +154,8 @@ writeFileSync(
 const sessionFixture = createElectronE2ESessionFixture({
     sessionName: SCOPED_SESSION_NAME,
     clean: false,
+    extraEnv: {CODEX_CLI_PATH: fakeCodexPath},
     timeoutMs: ASSISTANT_COMPLETION_E2E_TIMEOUT_MS,
-});
-
-afterAll(() => {
-    if (previousCodexCliPath === undefined) {
-        delete process.env.CODEX_CLI_PATH;
-    } else {
-        process.env.CODEX_CLI_PATH = previousCodexCliPath;
-    }
 });
 
 async function openAssistantPanel() {

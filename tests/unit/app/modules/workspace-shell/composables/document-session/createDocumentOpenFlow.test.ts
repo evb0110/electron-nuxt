@@ -1098,6 +1098,7 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('consumes a raster display profile handoff even when the target open fails', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const {
             openFlow,
             state,

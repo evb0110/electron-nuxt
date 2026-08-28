@@ -263,6 +263,7 @@ describe('usePdfViewerInitialRenderRecovery', () => {
     });
 
     it('surfaces failure only when the current bounded recovery explicitly rejects', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const initialRenderError = new Error('initial render failed');
         const recoveryError = new Error('recovery render failed');
         const harness = createHarness({
@@ -279,6 +280,7 @@ describe('usePdfViewerInitialRenderRecovery', () => {
     });
 
     it('lets a current-generation canvas commit win over a late recovery rejection', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         let committed = false;
         let rejectRecovery!: (error: Error) => void;
         const harness = createHarness({

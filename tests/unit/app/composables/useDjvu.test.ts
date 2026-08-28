@@ -243,6 +243,7 @@ describe('useDjvu', () => {
         });
 
         it('throws when the durable open job fails', async () => {
+            vi.spyOn(console, 'error').mockImplementation(() => undefined);
             mockOpenJobResult.mockResolvedValue({
                 success: false,
                 error: 'File corrupted',
@@ -321,6 +322,7 @@ describe('useDjvu', () => {
         });
 
         it('does not close the active PDF when the DjVu candidate is rejected', async () => {
+            vi.spyOn(console, 'error').mockImplementation(() => undefined);
             mockOpenJobResult.mockResolvedValue({
                 success: false,
                 error: 'DjVu directory is corrupt',
@@ -442,6 +444,7 @@ describe('useDjvu', () => {
         });
 
         it('shows a conversion toast without poisoning the DjVu viewing error', async () => {
+            vi.spyOn(console, 'error').mockImplementation(() => undefined);
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
@@ -496,6 +499,7 @@ describe('useDjvu', () => {
         });
 
         it('does not let a stale conversion completion clear a newer conversion', async () => {
+            vi.spyOn(console, 'error').mockImplementation(() => undefined);
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
@@ -544,6 +548,7 @@ describe('useDjvu', () => {
         });
 
         it('cleans up browser conversion output refs after conversion errors', async () => {
+            vi.spyOn(console, 'error').mockImplementation(() => undefined);
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,

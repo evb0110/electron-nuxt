@@ -197,6 +197,7 @@ afterEach(() => {
 
 describe('NativePdfViewer revision lifecycle', () => {
     it('fails and releases a native source whose page-size request never settles', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         vi.useFakeTimers();
         const documentPath = '/managed/wedged.pdf';
         const source = createSource('wedged', []);
@@ -268,6 +269,7 @@ describe('NativePdfViewer revision lifecycle', () => {
     });
 
     it('fails an empty native PDF immediately instead of waiting for the host timeout', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         vi.useFakeTimers();
         const documentPath = '/managed/empty.pdf';
         const source = createSource('empty', []);
