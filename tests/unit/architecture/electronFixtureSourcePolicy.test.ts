@@ -114,7 +114,7 @@ describe('Electron E2E fixture source policy', () => {
         expect(fixtureSource).toContain('captureFailureArtifacts');
         expect(fixtureSource).toContain('preserveArtifacts: preserveFailureArtifacts');
         expect(fixtureSource).toContain('await previousSession.stop');
-        expect(fixtureSource).toContain('if (clean && !hard)');
+        expect(fixtureSource).toContain('if (clean && !hard && !restartOptions.extraEnv)');
         expect(fixtureSource).toContain('if (hard && clean)');
         expect(fixtureSource).toContain('A non-clean hard restart must retain Electron user data');
         expect(fixtureSource).toContain('preserveWorkspaceCheckpoint: hard && !clean');
