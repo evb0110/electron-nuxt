@@ -88,6 +88,7 @@ interface IPageIdentityIdScanResult {
 }
 
 export class PageIdentitySidecarCorruptError extends Error {
+    // fallow-ignore-next-line unused-class-member -- callers inspect this stable corruption code across process boundaries.
     readonly code = 'PAGE_IDENTITY_SIDECAR_CORRUPT';
 
     constructor(detail: string, options?: ErrorOptions) {
