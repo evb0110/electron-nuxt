@@ -317,6 +317,31 @@ describe('usePdfViewerRerenderCoordinator', () => {
         );
     });
 
+    it('commits custom zoom geometry when the mode changes before queueing the replacement raster', async () => {
+        const zoom = ref(1);
+        const zoomMode = ref<'fit-width' | 'custom'>('fit-width');
+        const setupPagePlaceholders = vi.fn();
+        const enqueueZoomSync = vi.fn();
+
+        usePdfViewerRerenderCoordinator(createDeps({
+            zoom: computed(() => zoom.value),
+            zoomMode: computed(() => zoomMode.value),
+            fitMode: computed(() => 'width' as const),
+            setupPagePlaceholders,
+            enqueueZoomSync,
+        }));
+
+        zoomMode.value = 'custom';
+        await flushZoomOrchestrationHostTask();
+
+        expect(zoom.value).toBe(1);
+        expect(setupPagePlaceholders).toHaveBeenCalledOnce();
+        expect(enqueueZoomSync).toHaveBeenCalledWith(expect.objectContaining({source: PDF_RERENDER_SOURCE.ZoomModeChange}));
+        expect(setupPagePlaceholders.mock.invocationCallOrder[0]!).toBeLessThan(
+            enqueueZoomSync.mock.invocationCallOrder[0]!,
+        );
+    });
+
     it('keeps the visible page owner while gesture geometry changes', async () => {
         const zoom = ref(1);
         const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({}));
