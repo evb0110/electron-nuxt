@@ -477,11 +477,11 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             window.requestAnimationFrame(sample);
         };
 
-        if (!currentTabCloseButton || prewarmAtMs === null) {
+        if (prewarmAtMs === null) {
             finish(null);
             return;
         }
-        currentTabCloseButton.click();
+        currentTabCloseButton?.click();
         emptyTabCreatedAtMs = performance.now();
         window.requestAnimationFrame(sample);
     }), sourcePath, RECENT_OPEN_TIMEOUT_MS);
