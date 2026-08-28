@@ -58,7 +58,7 @@ const SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS = 600;
 const PREVIEW_CANCELLATION_RETRY_LIMIT = 2;
 const PREVIEW_METADATA_PAGE_CACHE_LIMIT = 256;
 
-export type TScanCleanupDetailDiagnostic =
+type TScanCleanupDetailDiagnostic =
     | {
         kind: 'not-requested';
         reason: 'ineligible' | 'missing-capability' | 'unsupported-output-mode'

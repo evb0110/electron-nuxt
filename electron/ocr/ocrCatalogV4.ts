@@ -591,7 +591,7 @@ export async function readJsonFile(filePath: string, displayPath: string, catalo
 }
 
 /** Reads only the bounded root prefix and rechecks its size on the same fd. */
-export async function readRootPrefix(
+async function readRootPrefix(
     filePath: string,
 ): Promise<{
     raw: Buffer;
@@ -638,7 +638,7 @@ export async function readRootPrefix(
     }
 }
 
-export function hasV4VersionMarker(rawText: string): boolean {
+function hasV4VersionMarker(rawText: string): boolean {
     return /"version"\s*:\s*(?:4(?:\D|$)|"4"(?:\s*[,}]))/u.test(rawText);
 }
 
