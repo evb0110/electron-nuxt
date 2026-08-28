@@ -1,0 +1,38 @@
+tests/e2e/electron/rapidPdfNavigation.e2e.test.ts
+  s_e893b8722e648d::t_dc24a1a32f213b 971-992,997,1009
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_e893b8722e648d::t_7fe2f48f3fca68 330-333,365,367-370,684
+  s_e893b8722e648d::t_feb3c93c124df5 503-517,553,565
+app/modules/pdf-viewer/components/PdfThumbnails.vue
+  s_e893b8722e648d::t_a941a2f92e4469 77
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_e893b8722e648d::t_0163d4de520ae8 1638-1639,1644,1646-1647,1652
+  s_e893b8722e648d::t_240c11aa3edb05 1637,1645
+  s_e893b8722e648d::t_20efc24754f980 1640-1643,1648-1651
+tests/e2e/electron/nativePdfSplitPaneLifecycle.e2e.test.ts
+  s_e893b8722e648d::t_d7164aff987704 12
+  s_e893b8722e648d::t_91f7368a6072e5 23,62,67,85,95
+  s_e893b8722e648d::t_fcfd9c84d8fe81 15-16,19,24,26-28,33,35,42,48,51,53-54,63-64,68,71-84,88-94,96
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_e893b8722e648d::t_4eaac888aa6edf 668
+  s_e893b8722e648d::t_b495775f358a72 606-620,622-667,669-672
+  s_e893b8722e648d::t_b112c3d8a284c7 621
+tests/unit/app/modules/pdf-viewer/components/pdfThumbnailsInactiveCancellation.test.ts
+  s_e893b8722e648d::t_bcb0fbfeed38b1 17,24,33-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5edfd758d7c75496f47972f1fc88f9c10a5e9e44",
+  "prompts": {},
+  "sessions": {
+    "s_e893b8722e648d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d1-0830-72c3-8fb1-8bc091c60010",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

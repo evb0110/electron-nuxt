@@ -1,0 +1,19 @@
+native/scan-cleanup/tests/page_cli.rs
+  s_08917445274696::t_b3a8989841eb8e 6336-6339
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "054387a379646103d496bbcc26868a1042232ce3",
+  "prompts": {},
+  "sessions": {
+    "s_08917445274696": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d0-811a-7aa2-b924-ef6f2f0be7c6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

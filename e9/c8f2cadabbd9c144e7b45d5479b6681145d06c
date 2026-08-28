@@ -1,0 +1,22 @@
+tests/unit/electron/handleNativeNoteTextSave.test.ts
+  s_e893b8722e648d::t_dd90eec73f3a1f 29,219-241,1073,1078-1122
+  s_e893b8722e648d::t_5d09ae3c8a2db8 374,376,1074-1077
+tests/unit/electron/searchIndexSidecar.test.ts
+  s_e893b8722e648d::t_5c2d3e3e31c78f 350
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e9c8f2cadabbd9c144e7b45d5479b6681145d06c",
+  "prompts": {},
+  "sessions": {
+    "s_e893b8722e648d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d1-0830-72c3-8fb1-8bc091c60010",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
