@@ -1,0 +1,20 @@
+app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts
+  s_01b20c0c2ba076::t_52ce93b477de54 569-600
+  s_01b20c0c2ba076::t_e302ca084504e9 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "241427bd756e0d45cdee43c99564924a548513c4",
+  "prompts": {},
+  "sessions": {
+    "s_01b20c0c2ba076": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d0-5c00-7ec3-bcd8-6640d2c492ca",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
