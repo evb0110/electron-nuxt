@@ -14,7 +14,7 @@
             <DocumentThumbnailList
                 :source="source"
                 :current-page="currentPage"
-                :is-active="effectiveTab === 'thumbnails'"
+                :is-active="isActive && effectiveTab === 'thumbnails'"
                 :is-resizing="isResizing"
                 @go-to-page="forwardThumbnailActivation"
             />
@@ -77,6 +77,7 @@ const { t } = useTypedI18n();
 const props = defineProps<{
     source: IDocumentPageSource | null;
     currentPage: number;
+    isActive?: boolean;
     searchSession: IDocumentSearchSession;
     isResizing?: boolean;
     searchFocusRequest?: number;
@@ -104,6 +105,7 @@ const {
     capabilitiesReady: computed(() => props.source !== null),
     preferredTab: activeTab,
 });
+const isActive = computed(() => props.isActive ?? true);
 watch(
     availableTabs,
     tabs => emit('update:availableTabs', [...tabs]),

@@ -176,6 +176,7 @@
                 <DocumentSourceSidebar
                     v-else
                     v-model:active-tab="sidebarTab"
+                    :is-active="isActive"
                     :source="documentSourceSidebar.source.value"
                     :current-page="toolbarCurrentPage"
                     :is-resizing="isResizingSidebar"

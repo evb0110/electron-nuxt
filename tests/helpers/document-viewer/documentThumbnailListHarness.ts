@@ -56,6 +56,7 @@ export interface IMountedDocumentThumbnailList {
      * keys instead of rebuilding one.
      */
     navigationEvents: MouseEvent[];
+    setActive: (active: boolean) => void;
     setSource: (source: IDocumentPageSource | null) => void;
     unmount: () => void;
 }
@@ -269,8 +270,12 @@ export function createDocumentThumbnailSourceHarness(
     };
 }
 
-export function mountDocumentThumbnailList(source: IDocumentPageSource | null): IMountedDocumentThumbnailList {
+export function mountDocumentThumbnailList(
+    source: IDocumentPageSource | null,
+    isActive = true,
+): IMountedDocumentThumbnailList {
     const activeSource = ref<IDocumentPageSource | null>(source);
+    const active = ref(isActive);
     const navigations: number[] = [];
     const navigationEvents: MouseEvent[] = [];
     const host = document.createElement('div');
@@ -278,6 +283,7 @@ export function mountDocumentThumbnailList(source: IDocumentPageSource | null): 
     const app = createApp({render: () => h(DocumentThumbnailList, {
         source: activeSource.value,
         currentPage: 1,
+        isActive: active.value,
         onGoToPage: (pageNumber: number, event: MouseEvent) => {
             navigations.push(pageNumber);
             navigationEvents.push(event);
@@ -295,6 +301,9 @@ export function mountDocumentThumbnailList(source: IDocumentPageSource | null): 
         host,
         navigations,
         navigationEvents,
+        setActive: (nextActive: boolean) => {
+            active.value = nextActive;
+        },
         setSource: (next: IDocumentPageSource | null) => {
             activeSource.value = next;
         },
