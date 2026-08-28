@@ -994,6 +994,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         await session.page.mouse.move(viewportPoint.x, viewportPoint.y);
         for (let packet = 0; packet < 12; packet += 1) {
             await session.page.mouse.wheel({deltaY: 180});
+            await delay(220);
             samples.push(await collectConvergedPagedState());
         }
 
@@ -1006,6 +1007,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         const reverseSamples: Array<Awaited<ReturnType<typeof collectPagedState>>> = [];
         for (let packet = 0; packet < 4; packet += 1) {
             await session.page.mouse.wheel({deltaY: -180});
+            await delay(220);
             reverseSamples.push(await collectConvergedPagedState());
         }
         const reverseToolbar = await getWorkspaceToolbarSnapshot(session.page);
