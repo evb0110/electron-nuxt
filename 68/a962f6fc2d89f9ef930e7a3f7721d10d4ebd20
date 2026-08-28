@@ -1,0 +1,25 @@
+app/modules/pdf-viewer/annotations/annotationApplication.ts
+  s_3f273936057f92::t_af2feb2237a98b 248,393
+app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary.ts
+  s_3f273936057f92::t_fe6505ab81a5c8 26,86-90
+app/modules/pdf-viewer/engine/annotations/domain/annotationEntity.ts
+  s_3f273936057f92::t_cfa08c8656cfd5 47-48
+app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel.ts
+  s_3f273936057f92::t_56f4415ec218e4 79-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "68a962f6fc2d89f9ef930e7a3f7721d10d4ebd20",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
