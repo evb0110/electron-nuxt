@@ -110,6 +110,23 @@ function editorMarkupWithRuntimeIdentity(id: string): AnnotationEntity {
     };
 }
 
+function editorMarkupWithPdfAliases(
+    id: string,
+    runtimeId = 'pdfjs_internal_editor_2',
+    pdfjsUid = 'pdfjs_markup_uid_2',
+    pdfRef = '30R',
+): AnnotationEntity {
+    return {
+        ...editorMarkup(id),
+        identity: {
+            id: asAnnotationId(id),
+            elementId: runtimeId,
+            pdfjsUid,
+            pdfRef,
+        },
+    };
+}
+
 function deletedMarkup(id: string, pdfRef: string): AnnotationEntity {
     return {
         ...editorMarkup(id),
@@ -400,6 +417,295 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             }),
         );
 
+        expect(decision.route).not.toBe('native-append');
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('live-pdfjs-annotation-work-not-covered-by-native-mutations');
+    });
+
+    it.each([
+        [
+            'ordinary',
+            'pdfjs_internal_editor_ordinary',
+        ],
+        [
+            'Unicode',
+            'pdfjs_internal_editor_unicode',
+        ],
+    ])('materializes newly authored markup beside an unsupported %s FreeText editor', (_label, freeTextId) => {
+        const markup = editorMarkupWithRuntimeIdentity('anno_new_markup');
+        const decision = classifyPdfSaveRoute(
+            planOf([markup]),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_new_markup',
+                        'pdfjs_internal_editor_0',
+                        freeTextId,
+                    ]),
+                    hasChanges: true,
+                    fingerprint: `${_label}-freetext-plus-markup`,
+                }),
+            }),
+        );
+
+        expect(decision.annotationPlan.route).toBe('pdfjs-materialize');
+        expect(decision.route).not.toBe('native-append');
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('live-pdfjs-annotation-work-not-covered-by-native-mutations');
+    });
+
+    it('does not let a native FreeText editor map cover live work on the materialization route', () => {
+        const markup = editorMarkupWithRuntimeIdentity('anno_new_markup');
+        const editor: IPdfNativeFreeTextEditor = {
+            pageIndex: requirePageIndex(0),
+            stableKey: 'unsupported-editor-map-entry',
+            text: 'ordinary editor text',
+            rect: [
+                10,
+                20,
+                110,
+                60,
+            ],
+            rotation: 0,
+            fontSize: 16,
+            color: [
+                245,
+                158,
+                11,
+            ],
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([markup]),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_new_markup',
+                        'pdfjs_internal_editor_0',
+                        'pdfjs_internal_editor_1',
+                    ]),
+                    nativeFreeTextEditors: new Map([[
+                        'pdfjs_internal_editor_1',
+                        editor,
+                    ]]),
+                    hasChanges: true,
+                    fingerprint: 'materialize-with-native-freetext-map',
+                }),
+            }),
+        );
+
+        expect(decision.annotationPlan.route).toBe('pdfjs-materialize');
+        expect(decision.route).not.toBe('native-append');
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('live-pdfjs-annotation-work-not-covered-by-native-mutations');
+    });
+
+    it('rejects a valid markup alias paired with a stale raw hint alias', () => {
+        const markup = editorMarkupWithRuntimeIdentity('anno_new_markup');
+        const decision = classifyPdfSaveRoute(
+            planOf([markup]),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_new_markup',
+                        'pdfjs_internal_editor_0',
+                        'stale-markup-alias',
+                    ]),
+                    hasChanges: true,
+                    fingerprint: 'valid-and-stale-markup-aliases',
+                }),
+                markupSubtypeHints: [{
+                    subtype: 'Highlight',
+                    pageIndex: 0,
+                    markerRect: MARKER_RECT,
+                    consumed: false,
+                    id: 'pdfjs_internal_editor_0',
+                    annotationId: 'stale-markup-alias',
+                    color: '#ffff00',
+                    pageMarkupIndex: 0,
+                    source: 'editor-live',
+                }],
+            }),
+        );
+
+        expect(decision.route).not.toBe('native-append');
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('live-pdfjs-annotation-work-not-covered-by-native-mutations');
+    });
+
+    it('rejects a valid markup override when another live alias is not covered', () => {
+        const markup = editorMarkupWithRuntimeIdentity('anno_new_markup');
+        const decision = classifyPdfSaveRoute(
+            planOf([markup]),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_new_markup',
+                        'pdfjs_internal_editor_0',
+                        'stale-markup-alias',
+                    ]),
+                    hasChanges: true,
+                    fingerprint: 'valid-override-plus-stale-alias',
+                }),
+                markupSubtypeOverrides: new Map([[
+                    'pdfjs_internal_editor_0',
+                    'Underline',
+                ]]),
+            }),
+        );
+
+        expect(decision.route).not.toBe('native-append');
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('live-pdfjs-annotation-work-not-covered-by-native-mutations');
+    });
+
+    it('covers all app, runtime, and PDF.js aliases for newly authored markup', () => {
+        const markup = editorMarkupWithPdfAliases('anno_new_markup');
+        const decision = classifyPdfSaveRoute(
+            planOf([markup]),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_new_markup',
+                        'pdfjs_internal_editor_2',
+                        'pdfjs_markup_uid_2',
+                        '30R',
+                    ]),
+                    hasChanges: true,
+                    fingerprint: 'all-new-markup-aliases',
+                }),
+                markupSubtypeHints: [{
+                    subtype: 'Highlight',
+                    pageIndex: 0,
+                    markerRect: MARKER_RECT,
+                    consumed: false,
+                    id: 'pdfjs_internal_editor_2',
+                    annotationId: '30R',
+                    color: '#ffff00',
+                    pageMarkupIndex: 0,
+                    source: 'editor-live',
+                }],
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.hasMarkupMutations).toBe(true);
+    });
+
+    it('keeps narrow sticky replayability beside native FreeText and new markup', () => {
+        const savedInlineNote = {
+            ...cleanEditorNote('anno_saved_inline_note'),
+            identity: {
+                id: asAnnotationId('anno_saved_inline_note'),
+                elementId: 'pdfjs_internal_editor_0',
+            },
+        };
+        const markup = editorMarkupWithPdfAliases(
+            'anno_new_markup',
+            'pdfjs_internal_editor_2',
+            'pdfjs_markup_uid_2',
+            '30R',
+        );
+        const newEditor: IPdfNativeFreeTextEditor = {
+            pageIndex: requirePageIndex(0),
+            stableKey: 'new-editor',
+            text: 'new text',
+            rect: [
+                10,
+                20,
+                110,
+                60,
+            ],
+            rotation: 0,
+            fontSize: 16,
+            color: [
+                245,
+                158,
+                11,
+            ],
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([markup], [
+                savedInlineNote,
+                markup,
+            ]),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'pdfjs_internal_editor_0',
+                        'pdfjs_internal_editor_1',
+                        'anno_new_markup',
+                        'pdfjs_internal_editor_2',
+                        'pdfjs_markup_uid_2',
+                        '30R',
+                    ]),
+                    replayableEditorNoteIds: new Set(['pdfjs_internal_editor_0']),
+                    nativeFreeTextEditors: new Map([[
+                        'pdfjs_internal_editor_1',
+                        newEditor,
+                    ]]),
+                    hasChanges: true,
+                    fingerprint: 'saved-inline-native-freetext-new-markup',
+                }),
+                markupSubtypeHints: [{
+                    subtype: 'Highlight',
+                    pageIndex: 0,
+                    markerRect: MARKER_RECT,
+                    consumed: false,
+                    id: 'pdfjs_internal_editor_2',
+                    annotationId: '30R',
+                    color: '#ffff00',
+                    pageMarkupIndex: 0,
+                    source: 'editor-live',
+                }],
+            }),
+        );
+
+        expect(decision.annotationPlan.route).toBe('pdfjs-materialize');
+        expect(decision.annotationPlan.unreplayableLiveAnnotationIds)
+            .not.toContain('pdfjs_internal_editor_0');
         expect(decision.route).not.toBe('native-append');
         if (decision.route === 'native-append') throw new Error('expected a byte route');
         expect(decision.nativeRejection).toBe('live-pdfjs-annotation-work-not-covered-by-native-mutations');

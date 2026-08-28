@@ -583,17 +583,16 @@ function collectProjectedNativeAnnotationIds(input: {
                 if (!markupHintMatchesComment(hint, comment)) {
                     return false;
                 }
-                addReplayableAnnotationId(ids, hint.annotationId);
-                addReplayableAnnotationId(ids, hint.id);
                 return true;
             }) || markup.overrides.some(([annotationId]) => {
                 if (!markupOverrideMatchesComment(annotationId, comment)) {
                     return false;
                 }
-                addReplayableAnnotationId(ids, annotationId);
                 return true;
             });
             if (hasProjectedMarkup) {
+                // The emitted hint may carry a stale secondary alias. Only the
+                // canonical comment aliases have proved the identity mapping.
                 addCommentIdentityAliases(ids, comment);
             }
         });
@@ -647,7 +646,9 @@ function buildClassifiedNativeMutationProjection(
         replayableEditorNoteIds: canonical.liveAnnotationChanges.replayableEditorNoteIds,
         noteTextUpdates,
         freeTextNotes,
-        nativeFreeTextEditors: canonical.liveAnnotationChanges.nativeFreeTextEditors,
+        nativeFreeTextEditors: replayAllowed
+            ? canonical.liveAnnotationChanges.nativeFreeTextEditors
+            : new Map(),
         markup,
     });
     const nativeNoteMutationCount = noteTextUpdates.length
