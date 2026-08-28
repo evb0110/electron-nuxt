@@ -198,7 +198,6 @@ const pageLayoutMetrics = computed(() => getPageIndicatorLayoutMetrics(
     totalPages,
     effectivePageLabels.value,
     showTotalInDisplay.value,
-    { compactPhysicalPage: true },
 ));
 
 const pageDisplayStyle = computed(() => ({
@@ -350,7 +349,7 @@ onClickOutside(pageControlsRef, () => {
     display: inline-flex;
     align-items: baseline;
     justify-content: flex-end;
-    gap: 0;
+    gap: 1ch;
     text-align: right;
     min-width: var(--page-current-width-ch);
 }
