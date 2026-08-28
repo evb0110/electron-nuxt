@@ -152,6 +152,12 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             builtZoomAnchor: zoomAnchor,
             viewer: summarizeViewerMetricsForLog(viewerContainer.value),
         });
+        // The render queue replaces pixels asynchronously. Commit the page
+        // shell geometry in the same zoom turn so the DOM reflects the new
+        // scale before the replacement canvas is requested.
+        if (zoomChanged || pending.modeChangedToCustom) {
+            setupPagePlaceholders();
+        }
         enqueueZoomSync({
             source: zoomRerenderSource,
             stabilize: true,
