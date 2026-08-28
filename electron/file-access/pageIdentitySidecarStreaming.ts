@@ -4,6 +4,7 @@ import {
     mkdtemp,
     open,
     rm,
+    stat,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -18,6 +19,7 @@ import {atomicReplace} from '@electron/utils/atomicReplace';
 const STREAM_CHUNK_BYTES = 64 * 1_024;
 const MAX_STRING_BYTES = 4 * 1_024 * 1_024;
 const SOURCE_CHUNK_COUNT = PAGE_IDENTITY_INLINE_PAGE_COUNT;
+const MAX_VALIDATED_SIDECAR_PATHS = 64;
 
 export interface IPageIdentitySidecarSource {
     format: 'v1' | 'v2';
@@ -87,6 +89,47 @@ interface IPageIdentityIdScanResult {
     foundPageIds: boolean;
 }
 
+const validatedSidecarFingerprints = new Map<string, string>();
+
+async function getSidecarFingerprint(path: string) {
+    const fileStat = await stat(path, {bigint: true});
+    return [
+        fileStat.dev,
+        fileStat.ino,
+        fileStat.size,
+        fileStat.mtimeNs,
+        fileStat.ctimeNs,
+    ].join(':');
+}
+
+function rememberValidatedSidecar(path: string, fingerprint: string) {
+    validatedSidecarFingerprints.delete(path);
+    validatedSidecarFingerprints.set(path, fingerprint);
+    while (validatedSidecarFingerprints.size > MAX_VALIDATED_SIDECAR_PATHS) {
+        const oldestPath = validatedSidecarFingerprints.keys().next().value;
+        if (oldestPath === undefined) {
+            break;
+        }
+        validatedSidecarFingerprints.delete(oldestPath);
+    }
+}
+
+async function ensureSidecarFullyValidated(path: string) {
+    const fingerprintBefore = await getSidecarFingerprint(path);
+    if (validatedSidecarFingerprints.get(path) === fingerprintBefore) {
+        rememberValidatedSidecar(path, fingerprintBefore);
+        return fingerprintBefore;
+    }
+    validatedSidecarFingerprints.delete(path);
+    await streamPageIdentityIds(path);
+    const fingerprintAfter = await getSidecarFingerprint(path);
+    if (fingerprintAfter !== fingerprintBefore) {
+        throw new PageIdentitySidecarCorruptError('changed while it was being validated');
+    }
+    rememberValidatedSidecar(path, fingerprintAfter);
+    return fingerprintAfter;
+}
+
 export class PageIdentitySidecarCorruptError extends Error {
     // fallow-ignore-next-line unused-class-member -- callers inspect this stable corruption code across process boundaries.
     readonly code = 'PAGE_IDENTITY_SIDECAR_CORRUPT';
@@ -102,7 +145,8 @@ export class PageIdentitySidecarCorruptError extends Error {
  * The whole input must be one JSON object: bytes after it close, unbalanced
  * brackets, or a non-object top-level value reject with a typed corruption
  * error. A callback that returns false stops the scan early and skips the
- * tail check; the full scan at open time is the one that vets the tail.
+ * tail check, so callers may stop only after a full scan has validated their
+ * source path fingerprint.
  */
 export async function streamPageIdentityIds(
     path: string,
@@ -110,7 +154,7 @@ export async function streamPageIdentityIds(
 ): Promise<IPageIdentityIdScanResult> {
     const stream = createReadStream(path, {highWaterMark: STREAM_CHUNK_BYTES});
     const decoder = new StringDecoder('utf8');
-    let depth = 0;
+    const delimiterStack: Array<'{' | '['> = [];
     let topLevelClosed = false;
     let inString = false;
     let escaped = false;
@@ -149,7 +193,7 @@ export async function streamPageIdentityIds(
                     throw new PageIdentitySidecarCorruptError('contains an invalid JSON string', {cause: error});
                 }
                 rawString = '';
-                if (pageIdsArrayDepth === depth) {
+                if (pageIdsArrayDepth === delimiterStack.length) {
                     if (typeof decoded !== 'string' || decoded.length === 0) {
                         throw new PageIdentitySidecarCorruptError('contains an invalid page identity');
                     }
@@ -168,7 +212,7 @@ export async function streamPageIdentityIds(
             if (topLevelClosed) {
                 throw new PageIdentitySidecarCorruptError('has trailing bytes after its JSON object');
             }
-            if (depth === 0 && character !== '{') {
+            if (delimiterStack.length === 0 && character !== '{') {
                 throw new PageIdentitySidecarCorruptError('must be a single JSON object');
             }
             if (character === '"') {
@@ -177,20 +221,24 @@ export async function streamPageIdentityIds(
                 continue;
             }
             if (character === '{' || character === '[') {
-                depth += 1;
+                delimiterStack.push(character);
                 if (character === '[' && expectingPageIdsArray) {
-                    pageIdsArrayDepth = depth;
+                    pageIdsArrayDepth = delimiterStack.length;
                     foundPageIds = true;
                 }
                 expectingPageIdsArray = false;
                 continue;
             }
             if (character === '}' || character === ']') {
-                if (character === ']' && pageIdsArrayDepth === depth) {
+                const expectedOpening = character === '}' ? '{' : '[';
+                if (delimiterStack.at(-1) !== expectedOpening) {
+                    throw new PageIdentitySidecarCorruptError('contains mismatched JSON delimiters');
+                }
+                if (character === ']' && pageIdsArrayDepth === delimiterStack.length) {
                     pageIdsArrayDepth = 0;
                 }
-                depth -= 1;
-                if (depth === 0) {
+                delimiterStack.pop();
+                if (delimiterStack.length === 0) {
                     topLevelClosed = true;
                 }
                 continue;
@@ -222,7 +270,7 @@ export async function streamPageIdentityIds(
     }
     if (!stopped) {
         await scan(decoder.end());
-        if (inString || pageIdsArrayDepth !== 0 || depth !== 0 || !topLevelClosed) {
+        if (inString || pageIdsArrayDepth !== 0 || delimiterStack.length !== 0 || !topLevelClosed) {
             throw new PageIdentitySidecarCorruptError('contains incomplete JSON');
         }
     }
@@ -239,6 +287,7 @@ export async function readIdentityAtFromSidecar(
     if (!Number.isSafeInteger(pageIndex) || pageIndex < 0) {
         return undefined;
     }
+    const validatedFingerprint = await ensureSidecarFullyValidated(source.path);
     let currentPage = 0;
     let result: string | undefined;
     await streamPageIdentityIds(source.path, id => {
@@ -249,6 +298,10 @@ export async function readIdentityAtFromSidecar(
         currentPage += 1;
         return undefined;
     });
+    if (await getSidecarFingerprint(source.path) !== validatedFingerprint) {
+        validatedSidecarFingerprints.delete(source.path);
+        throw new PageIdentitySidecarCorruptError('changed during identity lookup');
+    }
     return result;
 }
 
