@@ -329,9 +329,8 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
         const currentTabCloseButton = document.querySelector<HTMLButtonElement>(
             '.tab-list .tab.is-active .tab-close',
         );
-        const prewarmAtMs = performance
-            .getEntriesByName('evb:recent-pdf-geometry-prewarmed', 'mark')
-            .at(-1)?.startTime ?? null;
+        let prewarmAtMs: number | null = null;
+        const prewarmDeadlineAtMs = performance.now() + shellBudgetMs;
         const shellInteractiveAtMs = performance
             .getEntriesByName('evb:shell-interactive', 'mark')
             .at(-1)?.startTime ?? null;
@@ -477,13 +476,23 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             window.requestAnimationFrame(sample);
         };
 
-        if (prewarmAtMs === null) {
-            finish(null);
-            return;
-        }
-        currentTabCloseButton?.click();
-        emptyTabCreatedAtMs = performance.now();
-        window.requestAnimationFrame(sample);
+        const startWhenPrewarmed = () => {
+            prewarmAtMs = performance
+                .getEntriesByName('evb:recent-pdf-geometry-prewarmed', 'mark')
+                .at(-1)?.startTime ?? null;
+            if (prewarmAtMs === null) {
+                if (performance.now() > prewarmDeadlineAtMs) {
+                    finish(null);
+                    return;
+                }
+                window.requestAnimationFrame(startWhenPrewarmed);
+                return;
+            }
+            currentTabCloseButton?.click();
+            emptyTabCreatedAtMs = performance.now();
+            window.requestAnimationFrame(sample);
+        };
+        startWhenPrewarmed();
     }), sourcePath, RECENT_OPEN_TIMEOUT_MS);
 }
 
