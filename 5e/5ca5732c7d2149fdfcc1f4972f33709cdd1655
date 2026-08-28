@@ -1,0 +1,19 @@
+tests/e2e/electron/helpers/startConfiguredElectronE2ESession.ts
+  s_b2ece6dfe48478::t_ff0649c2e88d0d 2-6,42,44,47-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5e5ca5732c7d2149fdfcc1f4972f33709cdd1655",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
