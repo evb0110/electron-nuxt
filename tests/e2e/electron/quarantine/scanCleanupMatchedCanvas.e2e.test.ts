@@ -75,6 +75,8 @@ interface IPreviewFrame {
     width: number;
     height: number;
     renderDpi: number;
+    matchedCanvasWidthPoints: number;
+    matchedCanvasHeightPoints: number;
     contentWidth: number;
     contentHeight: number;
     sourceRegionWidth: number;
@@ -230,6 +232,8 @@ const readFrames = (page: Page) => evaluateInPage(page, () => Array.from(
         width: Number(element.dataset.frameWidth),
         height: Number(element.dataset.frameHeight),
         renderDpi: Number(element.dataset.renderDpi),
+        matchedCanvasWidthPoints: Number(element.dataset.matchedCanvasWidthPoints),
+        matchedCanvasHeightPoints: Number(element.dataset.matchedCanvasHeightPoints),
         contentWidth: Number(placed?.dataset.contentWidth ?? 0),
         contentHeight: Number(placed?.dataset.contentHeight ?? 0),
         sourceRegionWidth: Number(placed?.dataset.sourceRegionWidth ?? 0),
@@ -264,6 +268,21 @@ async function waitForPreview(
             && document.querySelectorAll(
                 '.cleaned-outputs.is-visible .uniform-canvas[data-frame-width]:not(.preview-skeleton-page)',
             ).length > 0;
+    }, {timeout: timeoutMs}, expectedPage);
+}
+
+async function waitForFinalPreview(
+    page: Page,
+    expectedPage: number,
+    timeoutMs = PAGE_SETTLE_TIMEOUT_MS,
+) {
+    await waitForPreview(page, expectedPage, timeoutMs);
+    await waitForFunctionInPage(page, (target: number) => {
+        const label = document.querySelector(
+            '.page-navigation .page-label .scan-cleanup-stable-width-value',
+        )?.textContent ?? '';
+        return label.trim().startsWith(`Page ${target} of`)
+            && document.querySelector('.preview-viewport-caption[data-canvas-notice=""]') !== null;
     }, {timeout: timeoutMs}, expectedPage);
 }
 
@@ -313,13 +332,18 @@ const readPageNumber = (page: Page) => evaluateInPage(page, () => Number(/Page (
     document.querySelector('.page-navigation .page-label .scan-cleanup-stable-width-value')?.textContent ?? '',
 )?.[1] ?? 0)) as Promise<number>;
 
-async function sampleWalk(page: Page, startPage: number, steps: number) {
+async function sampleWalk(
+    page: Page,
+    startPage: number,
+    steps: number,
+    waitForPage = waitForPreview,
+) {
     const samples: ICanvasSample[] = [];
     for (let current = await readPageNumber(page); current < startPage; current += 1) await nextPage(page);
     for (let index = 0; index < steps; index += 1) {
         const pageNumber = startPage + index;
         const startedAtMs = Date.now();
-        await waitForPreview(page, pageNumber);
+        await waitForPage(page, pageNumber);
         samples.push({
             page: pageNumber,
             detecting: await readDetecting(page),
@@ -693,7 +717,7 @@ describe('scan cleanup matched page canvas', () => {
         await waitForFunctionInPage(page, () => document.querySelector(
             '.scan-cleanup-toolbar-cancel-detection',
         ) === null, {timeout: 900_000});
-        const afterDetection = await sampleWalk(page, 23, 6);
+        const afterDetection = await sampleWalk(page, 23, 6, waitForFinalPreview);
 
         expect(await toggleCheckbox(page, 'Match page size')).toBe(true);
         const unmatched = await sampleWalk(page, 29, 6);
@@ -701,7 +725,7 @@ describe('scan cleanup matched page canvas', () => {
         // Put the shared preference back before anything else runs against it,
         // and prove that turning matching on again restores the one canvas.
         expect(await toggleCheckbox(page, 'Match page size')).toBe(true);
-        const rematched = await sampleWalk(page, 35, 2);
+        const rematched = await sampleWalk(page, 35, 2, waitForFinalPreview);
 
         const logFailures = scanCleanupLogFailures(session.name);
         writeEvidence('u53-matched-canvas-walk.json', {
@@ -723,17 +747,18 @@ describe('scan cleanup matched page canvas', () => {
         // intrinsic page frame rather than guessing whether an unknown sheet
         // is whole or split. Once detection settles, every matched page uses
         // the one document canvas measured from that evidence.
-        const settledMatched = matched.filter(sample => !sample.detecting);
+        const settledMatched = afterDetection;
+        expect(settledMatched.every(sample => !sample.detecting)).toBe(true);
         expect(new Set(settledMatched.map(sample => frameKey(sample.frames))).size).toBe(1);
         // And it is the document canvas plan, which is what the run writes:
         // the page rectangle the document carries, not one grown by margins.
         expect(settledMatched[0]!.frames).toHaveLength(1);
         expect(Math.abs(
-            settledMatched[0]!.frames[0]!.width / settledMatched[0]!.frames[0]!.renderDpi * 72
+            settledMatched[0]!.frames[0]!.matchedCanvasWidthPoints
             - CANVAS_WIDTH_POINTS,
         )).toBeLessThanOrEqual(1);
         expect(Math.abs(
-            settledMatched[0]!.frames[0]!.height / settledMatched[0]!.frames[0]!.renderDpi * 72
+            settledMatched[0]!.frames[0]!.matchedCanvasHeightPoints
             - CANVAS_HEIGHT_POINTS,
         )).toBeLessThanOrEqual(1);
         // No page waits on work that cannot be admitted while detection runs.
@@ -772,11 +797,11 @@ describe('scan cleanup matched page canvas', () => {
         await openScanCleanup(page, sourcePath);
         await ensureChecked(page, 'Match page size');
         await waitForUniformAnalysis(page, sourcePath);
-        await waitForPreview(page, 1);
+        await waitForFinalPreview(page, 1);
         const previewFrames = await readFrames(page);
         const previewCanvasPoints = {
-            widthPoints: (previewFrames[0]?.width ?? 0) / (previewFrames[0]?.renderDpi ?? 1) * 72,
-            heightPoints: (previewFrames[0]?.height ?? 0) / (previewFrames[0]?.renderDpi ?? 1) * 72,
+            widthPoints: previewFrames[0]?.matchedCanvasWidthPoints ?? 0,
+            heightPoints: previewFrames[0]?.matchedCanvasHeightPoints ?? 0,
         };
 
         await startCleanupRun(page, sourcePath);
@@ -844,7 +869,7 @@ describe('scan cleanup matched page canvas', () => {
 
         // Page 1 is the 288 DPI Letter scan, page 2 the same Letter paper at
         // 144, and page 3 the same original at 144 carried as a half-size page.
-        const sampled = await sampleWalk(page, 1, 3);
+        const sampled = await sampleWalk(page, 1, 3, waitForFinalPreview);
         const [
             full,
             coarse,
@@ -942,7 +967,7 @@ describe('scan cleanup matched page canvas', () => {
         await openScanCleanup(page, sourcePath);
         await ensureChecked(page, 'Match page size');
         await waitForUniformAnalysis(page, sourcePath);
-        await waitForPreview(page, 1);
+        await waitForFinalPreview(page, 1);
         const previewFrames = await readFrames(page);
 
         await startCleanupRun(page, sourcePath);
@@ -969,7 +994,7 @@ describe('scan cleanup matched page canvas', () => {
         // holding rather than the sheet it was scanned on.
         expect(previewFrames[1]!.width).toBe(previewFrames[0]!.width);
         expect(previewFrames[1]!.height).toBe(previewFrames[0]!.height);
-        expect(Math.abs(previewFrames[0]!.width / previewFrames[0]!.renderDpi * 72 - SOURCE_PAGE_WIDTH_POINTS))
+        expect(Math.abs(previewFrames[0]!.matchedCanvasWidthPoints - SOURCE_PAGE_WIDTH_POINTS))
             .toBeLessThanOrEqual(2);
         // And each half's ink covers a page's worth of the sheet it was
         // normalized onto: this fixture's text spans a little over half its
@@ -996,9 +1021,9 @@ describe('scan cleanup matched page canvas', () => {
         expect(Math.abs(first.widthPoints - SOURCE_PAGE_WIDTH_POINTS)).toBeLessThanOrEqual(2);
         expect(Math.abs(first.heightPoints - SOURCE_PAGE_HEIGHT_POINTS)).toBeLessThanOrEqual(2);
         // The page the preview presented, to within a point.
-        expect(Math.abs(previewFrames[0]!.width / previewFrames[0]!.renderDpi * 72 - first.widthPoints))
+        expect(Math.abs(previewFrames[0]!.matchedCanvasWidthPoints - first.widthPoints))
             .toBeLessThanOrEqual(1);
-        expect(Math.abs(previewFrames[0]!.height / previewFrames[0]!.renderDpi * 72 - first.heightPoints))
+        expect(Math.abs(previewFrames[0]!.matchedCanvasHeightPoints - first.heightPoints))
             .toBeLessThanOrEqual(1);
         expect(viewer.preparing).toBe(false);
         expect(viewer.renderedCanvases).toBeGreaterThan(0);
@@ -1025,7 +1050,7 @@ describe('scan cleanup matched page canvas', () => {
         await waitForUniformAnalysis(page, sourcePath);
         // Turn to the low-resolution page and clean that page alone.
         expect(await nextPage(page)).toBe(true);
-        await waitForPreview(page, 2);
+        await waitForFinalPreview(page, 2);
         const previewFrames = await readFrames(page);
         expect(await evaluateInPage(page, () => {
             const scope = document.querySelector<HTMLElement>('[data-settings-scope="page"]');
@@ -1056,7 +1081,7 @@ describe('scan cleanup matched page canvas', () => {
         expect(Math.abs(outputPages[0]!.heightPoints - CANVAS_HEIGHT_POINTS)).toBeLessThanOrEqual(1);
         // Which is the rectangle its preview presented.
         expect(Math.abs(
-            previewFrames[0]!.width / previewFrames[0]!.renderDpi * 72
+            previewFrames[0]!.matchedCanvasWidthPoints
             - outputPages[0]!.widthPoints,
         ))
             .toBeLessThanOrEqual(1);
@@ -1117,11 +1142,13 @@ describe('scan cleanup matched page canvas', () => {
         expect((await readRunState(page)).originalPath).toBe(sourcePath);
 
         // The source is still the open document and its preview still renders.
-        await waitForPreview(page, 1);
+        const detectionStatusAfterCancel = await readDetectionStatus(page);
+        await (detectionStatusAfterCancel === 'completed'
+            ? waitForFinalPreview(page, 1)
+            : waitForPreview(page, 1));
         const frames = await readFrames(page);
         const previewPage = await readPageNumber(page);
         const canceledState = await readRunState(page);
-        const detectionStatusAfterCancel = await readDetectionStatus(page);
         // The source file itself is still readable: a canceled run cleans up
         // its own artifacts and leaves the document it read alone.
         const sourceBytes = readFileSync(sourcePath).byteLength;
@@ -1174,10 +1201,10 @@ describe('scan cleanup matched page canvas', () => {
         expect(frames[0]!.contentHeight).toBeLessThanOrEqual(frames[0]!.height);
         if (detectionStatusAfterCancel === 'completed') {
             expect(Math.abs(
-                frames[0]!.width / frames[0]!.renderDpi * 72 - CANVAS_WIDTH_POINTS,
+                frames[0]!.matchedCanvasWidthPoints - CANVAS_WIDTH_POINTS,
             )).toBeLessThanOrEqual(1);
             expect(Math.abs(
-                frames[0]!.height / frames[0]!.renderDpi * 72 - CANVAS_HEIGHT_POINTS,
+                frames[0]!.matchedCanvasHeightPoints - CANVAS_HEIGHT_POINTS,
             )).toBeLessThanOrEqual(1);
         }
         expect(canceledState.error).toBe('');
