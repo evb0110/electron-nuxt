@@ -1,0 +1,69 @@
+tests/unit/scripts/electronE2eSmokeConfig.test.ts
+  s_5ac4a3281ca4f3::t_5dbe51c98c12e4 313-325,327-328,330-334
+  s_5ac4a3281ca4f3::t_b487aa8ebaa482 326,329
+tests/e2e/electron/helpers/viewerCore.ts
+  s_5ac4a3281ca4f3::t_b487aa8ebaa482 1-4
+  s_5ac4a3281ca4f3::t_f3a65f5080dfd3 1087
+  s_5ac4a3281ca4f3::t_3a7eb1047b4b84 1099,1102
+  s_5ac4a3281ca4f3::t_ff5489bb8e9812 1075-1083,1085-1086,1088,1090-1095,1103-1109,1111-1112
+electron/file-access/workingCopyContentTransitionJournal.ts
+  s_5ac4a3281ca4f3::t_eadebb862ccfd2 30,338-341
+tests/unit/electron/managedTempFileHandles.test.ts
+  s_5ac4a3281ca4f3::t_e608f85386d7b1 428,435-436,438,440
+  s_5ac4a3281ca4f3::t_7956a3a47cf611 429-431
+app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.ts
+  s_5ac4a3281ca4f3::t_8ef164d677b49b 199-201
+  s_5ac4a3281ca4f3::t_5ae3ef68d9186b 189,198,208
+  s_5ac4a3281ca4f3::t_7e56fffddcc3e0 52,600,607
+packages/contracts/measureOperationPhase.ts
+  s_5ac4a3281ca4f3::t_aefd0a1513f50c 1,3,5
+  s_5ac4a3281ca4f3::t_7e56fffddcc3e0 2,4
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_5ac4a3281ca4f3::t_4dc3d7027771e1 495-555,561-641,683,712,725
+  s_5ac4a3281ca4f3::t_b487aa8ebaa482 556-560
+  s_5ac4a3281ca4f3::t_a64a1f04e23770 294-295,298
+  s_5ac4a3281ca4f3::t_dbeacb1c86d325 33,87-102,1578
+  s_5ac4a3281ca4f3::t_f107396038edbc 1879,1883,1887
+electron/file-access/documentFileWriteAtomic.ts
+  s_5ac4a3281ca4f3::t_eadebb862ccfd2 24,231-234
+tests/unit/app/modules/pdf-viewer/annotations/annotationArchitectureBoundary.test.ts
+  s_5ac4a3281ca4f3::t_43602544a3f284 437
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_5ac4a3281ca4f3::t_f93f4b2ec7d24f 934-936
+  s_5ac4a3281ca4f3::t_085014a1742626 933,937-967
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfAnnotationEditorLifecycle.test.ts
+  s_5ac4a3281ca4f3::t_7da4db954d8aa6 4,12-16,21-25,29-33,35-60,64-132,148,150,154,159,164,170,179,184
+  s_5ac4a3281ca4f3::t_f93f4b2ec7d24f 140-146,155,165,176,180,183
+  s_5ac4a3281ca4f3::t_8e21f2b8136d14 5
+  s_5ac4a3281ca4f3::t_78d756479917b4 26-28,34
+  s_5ac4a3281ca4f3::t_67b6980329fb65 19
+electron/features/documents/main/managedTempFileHandles.ts
+  s_5ac4a3281ca4f3::t_78a7b7fc87720a 240
+  s_5ac4a3281ca4f3::t_5b32b7e4dda960 109-120,239,241-249,252-269,322,324,330-331,334,336,385-388,390,394,396,399,401
+  s_5ac4a3281ca4f3::t_7956a3a47cf611 108,250-251
+  s_5ac4a3281ca4f3::t_a70cfc28aba90e 584
+tests/unit/electron/measureOperationPhase.test.ts
+  s_5ac4a3281ca4f3::t_e78389b3d31d5b 1-18
+  s_5ac4a3281ca4f3::t_f76544b200039e 19-23
+electron/file-access/documentRevisionStore.ts
+  s_5ac4a3281ca4f3::t_aefd0a1513f50c 54
+  s_5ac4a3281ca4f3::t_9ab2560485075f 70-73
+electron/features/documents/main/transitionOriginalAndWorkingCopyRevision.ts
+  s_5ac4a3281ca4f3::t_7285dd8bd7c16b 14,29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "942b3b7365a7732b840ae29a602ede56248a3a4c",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
