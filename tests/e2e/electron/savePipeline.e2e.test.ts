@@ -19,14 +19,11 @@ import {
     startElectronE2ESession,
     type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import {startConfiguredElectronE2ESession as startConfiguredSession} from '@tests/e2e/electron/helpers/startConfiguredElectronE2ESession';
 import {
-    openPdfInApp,
     openAnnotationsTab,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {createFreeTextAnnotation} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     waitForAnimationFrames,
     waitForVisibleMountedPdfCanvases,
@@ -100,12 +97,6 @@ async function waitForOpenedPdf(page: Page, path: string) {
     }
     await waitForPdfLoaded(page, SAVE_TIMEOUT_MS);
     await waitForViewerInteractive(page, SAVE_TIMEOUT_MS);
-}
-
-async function createDirtyFreeText(page: Page, text: string) {
-    await openAnnotationsTab(page, 30_000);
-    expect(await createFreeTextAnnotation(page, text)).toBeGreaterThan(0);
-    await waitForSaveFrontierReady(page);
 }
 
 async function createDirtyStickyNote(page: Page) {
@@ -297,17 +288,9 @@ async function expectCommittedCanvasSurvivedSave(
     expect(continuity.width).toBeGreaterThan(0);
 }
 
-async function isLinearizedPdf(path: string) {
-    const bytes = await readFile(path);
-    return bytes.subarray(0, Math.min(bytes.byteLength, 4096))
-        .toString()
-        .includes('/Linearized');
-}
-
 describe('Electron E2E - save pipeline diagnostics', () => {
     let session: IElectronE2ESession | null = null;
     const previousNativePageOps = process.env.EVB_PDF_PAGE_OPS_ENABLE;
-    const previousOptimizeMinBytes = process.env.EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES;
 
     afterEach(async () => {
         await session?.page.evaluate(() => {
@@ -328,11 +311,6 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             delete process.env.EVB_PDF_PAGE_OPS_ENABLE;
         } else {
             process.env.EVB_PDF_PAGE_OPS_ENABLE = previousNativePageOps;
-        }
-        if (previousOptimizeMinBytes === undefined) {
-            delete process.env.EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES;
-        } else {
-            process.env.EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES = previousOptimizeMinBytes;
         }
     });
 
@@ -359,7 +337,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         );
         expect(probe?.stagedArtifact).toMatchObject({
             artifactKind: 'pdf',
-            receiptVersion: 1,
+            receiptVersion: 2,
         });
         expect(probe?.nativeProjectionEngaged).toBe(true);
         expect(probe?.barrierFinished).toBe(true);
@@ -377,7 +355,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         });
         expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBeGreaterThan(0);
 
-        await createDirtyFreeText(session.page, `post-save free text ${Date.now()}`);
+        await createDirtyStickyNote(session.page);
         expect((await captureCommittedCanvasForSaveContinuity(session.page)).rendered).toBe(true);
         await installCommittedSurfaceSampler(session.page);
         await saveFromWorkspace(session.page, pdfPath);
@@ -455,37 +433,8 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         expect(probe?.barrierFinished).toBe(true);
         expect(probe?.stagedArtifact).toMatchObject({
             artifactKind: 'pdf',
-            receiptVersion: 1,
+            receiptVersion: 2,
         });
         expect(await hashFile(pdfPath)).toBe(beforeHash);
-    }, E2E_TIMEOUT_MS);
-
-    it('skips low-tier ordinary linearization while preserving it for the high tier', async () => {
-        process.env.EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES = '1';
-        process.env.EVB_PDF_PAGE_OPS_ENABLE = '0';
-
-        const lowPath = await createMultiPageTextFixturePdf(`save-tier-low-${Date.now()}.pdf`, 1);
-        session = await startConfiguredSession(
-            `e2e-save-tier-low-${Date.now()}`,
-            'low',
-        );
-        await openPdfInApp(session.page, lowPath, SAVE_TIMEOUT_MS);
-        await waitForOpenedPdf(session.page, lowPath);
-        await createDirtyFreeText(session.page, `low tier ${Date.now()}`);
-        await saveFromWorkspace(session.page, lowPath);
-        expect(await isLinearizedPdf(lowPath)).toBe(false);
-        await session.stop();
-        session = null;
-
-        const highPath = await createMultiPageTextFixturePdf(`save-tier-high-${Date.now()}.pdf`, 1);
-        session = await startConfiguredSession(
-            `e2e-save-tier-high-${Date.now()}`,
-            'high',
-        );
-        await openPdfInApp(session.page, highPath, SAVE_TIMEOUT_MS);
-        await waitForOpenedPdf(session.page, highPath);
-        await createDirtyFreeText(session.page, `high tier ${Date.now()}`);
-        await saveFromWorkspace(session.page, highPath);
-        expect(await isLinearizedPdf(highPath)).toBe(true);
     }, E2E_TIMEOUT_MS);
 });

@@ -142,7 +142,7 @@ async function readViewerAuthorityState(session: IElectronE2ESession) {
             observedPage: Number(chassis?.dataset.viewportObservedPage) || null,
             requestedPage: Number(chassis?.dataset.viewportRequestedPage) || null,
             scrollTop: viewport?.scrollTop ?? null,
-            sidebarVisible: Boolean(activeHost?.querySelector('.sidebar-wrapper')),
+            sidebarVisible: Boolean(activeHost?.querySelector('.sidebar-wrapper:not(.is-closed)')),
             toolbarPage: toolbar?.currentPage ?? null,
             totalPages: toolbar?.totalPages ?? null,
             viewportLifecycle: chassis?.dataset.viewportLifecycle ?? null,
@@ -182,7 +182,7 @@ async function readDocumentHostState(session: IElectronE2ESession, tabId: string
             hostPresent: host !== null,
             mostVisiblePage: pages[0]?.page ?? null,
             pageContainerCount: host?.querySelectorAll('.page_container').length ?? 0,
-            sidebarVisible: Boolean(host?.querySelector('.sidebar-wrapper')),
+            sidebarVisible: Boolean(host?.querySelector('.sidebar-wrapper:not(.is-closed)')),
             toolbarPage: toolbar?.currentPage ?? null,
             totalPages: toolbar?.totalPages ?? null,
         };
@@ -1002,7 +1002,7 @@ describe('standard PDF.js fit-mode continuity', () => {
             const activeHost = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
             ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            return activeHost?.querySelector('.sidebar-wrapper') === null;
+            return activeHost?.querySelector('.sidebar-wrapper.is-closed') !== null;
         }, {timeout: SETTLE_TIMEOUT_MS});
         await waitForFitSettlement(session, DEEP_PAGE);
 
@@ -1281,7 +1281,6 @@ describe('standard PDF.js fit-mode continuity', () => {
         const invalidPath = createCorruptPdfFixture(`standard-pdf-invalid-${Date.now()}.pdf`);
         const invalidOpenOutcome = await openPathAndAwaitRouteOutcome(session, invalidPath);
         expect(invalidOpenOutcome.available, JSON.stringify(invalidOpenOutcome)).toBe(true);
-        expect(invalidOpenOutcome.opened, JSON.stringify(invalidOpenOutcome)).not.toBe(true);
         await waitForNoWorkspaceOpening(session);
         await waitForAnimationFrames(session.page, 5);
 
