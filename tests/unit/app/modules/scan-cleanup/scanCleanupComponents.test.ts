@@ -34,6 +34,7 @@ import {
 } from '@contracts/scanCleanupPageOverrides';
 import {updateScanCleanupPageOverrides} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview/PreviewShell.vue';
+import CleanedCanvas from '@app/modules/scan-cleanup/components/preview/CleanedCanvas.vue';
 import ZoneEditorOverlay from '@app/modules/scan-cleanup/components/preview/ZoneEditorOverlay.vue';
 import ScanCleanupToolbar from '@app/modules/scan-cleanup/components/ScanCleanupToolbar.vue';
 import ScanCleanupWorkspace from '@app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue';
@@ -1167,6 +1168,77 @@ afterEach(() => {
 });
 
 describe('Scan cleanup components', () => {
+    it('publishes matched-canvas point dimensions for spread and mixed-scale outputs', () => {
+        const renderOutput = (output: IScanCleanupPreviewResult['outputs'][number]) => ({
+            canvasStyle: {},
+            contentRect: output.metadata.contentBox,
+            contentStyle: null,
+            imageStyle: {},
+            marginBoundaryStyle: {},
+            metadata: output.metadata,
+            pixelSwap: {
+                currentUrl: '',
+                entering: false,
+                incomingUrl: '',
+                outgoingUrl: '',
+            },
+            placement: {
+                canvasWidthPx: output.metadata.canvasWidthPx,
+                canvasHeightPx: output.metadata.canvasHeightPx,
+                contentWidthPx: output.metadata.outputWidthPx,
+                contentHeightPx: output.metadata.outputHeightPx,
+                left: 0,
+                top: 0,
+                scaleX: 1,
+                scaleY: 1,
+            },
+            sourceCropStyle: {},
+        });
+        const spread = spreadPreviewResult();
+        spread.outputs = spread.outputs.map(output => ({
+            ...output,
+            metadata: {
+                ...output.metadata,
+                matchedCanvasTargetWidthPoints: 612,
+                matchedCanvasTargetHeightPoints: 792,
+            },
+        }));
+        const mixedScale = spreadPreviewResult();
+        mixedScale.outputs = [{
+            ...mixedScale.outputs[0]!,
+            metadata: {
+                ...mixedScale.outputs[0]!.metadata,
+                half: 'full',
+                renderDpi: 300,
+                matchedCanvasTargetWidthPoints: 612,
+                matchedCanvasTargetHeightPoints: 792,
+            },
+        }];
+
+        for (const outputs of [
+            spread.outputs,
+            mixedScale.outputs,
+        ]) {
+            const harness = mount(defineComponent(() => () => h(CleanedCanvas, {
+                activePlacementHalf: null,
+                altByHalf: {},
+                detailUrls: {},
+                matchPageSize: true,
+                outputs: outputs.map(renderOutput),
+            })));
+
+            expect([...harness.host.querySelectorAll<HTMLElement>('.uniform-canvas')]
+                .map(element => [
+                    element.getAttribute('data-matched-canvas-width-points'),
+                    element.getAttribute('data-matched-canvas-height-points'),
+                ])).toEqual(outputs.map(() => [
+                '612',
+                '792',
+            ]));
+            harness.unmount();
+        }
+    });
+
     it('drives workspace activity from tab visibility without changing source identity', async () => {
         const toolbarActive = ref(true);
         const sourceSha256 = 'a'.repeat(64);
