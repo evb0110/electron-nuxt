@@ -1,0 +1,19 @@
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_5ac4a3281ca4f3::t_f258fcef9d10d3 563
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5ef250df6869c53221d795fdc4c33427aaaeabed",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
