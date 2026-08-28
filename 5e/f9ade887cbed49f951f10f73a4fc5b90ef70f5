@@ -2,6 +2,7 @@ tests/e2e/electron/inactiveDjvuTabs.e2e.test.ts
   s_b2ece6dfe48478::t_72d6d047bfb558 737-746,759-760,769
 tests/unit/e2e/electronFixturePolicy.test.ts
   s_b2ece6dfe48478::t_f8874d42c7eb59 102
+  s_b2ece6dfe48478::t_f0a1af991b15ab 101
 ---
 {
   "schema_version": "authorship/3.0.0",
