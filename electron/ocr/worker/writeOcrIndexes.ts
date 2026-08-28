@@ -49,6 +49,10 @@ async function writeOcrIndexesWithValidatedPath(options: Parameters<typeof write
     let prepared: Awaited<ReturnType<typeof prepareOcrCatalogV4Generation>> | null = null;
     try {
         await options.storageBudget?.assertWithinBudget();
+        const validatedResultPath = await resolveSafeOcrIndexBasePath(
+            options.stagedResultPdfPath,
+            options.tempDir,
+        );
         prepared = await prepareOcrCatalogV4Generation({
             catalogRoot: `${validatedWorkingCopyPath}.ocr`,
             sourcePdfPath: validatedWorkingCopyPath,
@@ -56,7 +60,7 @@ async function writeOcrIndexesWithValidatedPath(options: Parameters<typeof write
             pageCount: options.pageCount,
             pageBatches: toOcrIndexPageBatches(options.ocrPageData, options.signal),
             workingCopyPath: validatedWorkingCopyPath,
-            resultPath: options.stagedResultPdfPath,
+            resultPath: validatedResultPath,
             resultIdentity: options.resultIdentity,
             signal: options.signal,
             log: options.log,

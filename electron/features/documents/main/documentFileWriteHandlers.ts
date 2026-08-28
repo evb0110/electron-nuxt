@@ -51,6 +51,7 @@ import {validatePdfFile} from '@electron/features/documents/main/pdfConformance'
 import { normalizeNonEmptyPath } from '@electron/features/documents/main/documentFilePathResolution';
 import {
     getWorkingCopyOriginalPath,
+    normalizePathForLookup,
     refreshWorkingCopyOriginalFileExpectation,
 } from '@electron/file-access/workingCopyStore';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
@@ -329,14 +330,22 @@ export async function handleReplaceWorkingCopyFromPath(
     const normalizedSourcePath = normalizeNonEmptyPath(sourcePath);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const resolvedWorkingCopyPath = await resolveAllowedWritePath(normalizedWorkingCopyPath);
-    if (!resolvedWorkingCopyPath) {
+    const allowedWorkingCopyPath = await resolveAllowedWritePath(normalizedWorkingCopyPath);
+    if (!allowedWorkingCopyPath) {
         throw new Error('Invalid file path: writes only allowed within temp directory');
     }
-    const resolvedSourcePath = await resolveAllowedReadPath(normalizedSourcePath);
-    if (!resolvedSourcePath) {
+    const allowedSourcePath = await resolveAllowedReadPath(normalizedSourcePath);
+    if (!allowedSourcePath) {
         throw new Error('Invalid source path: OCR result must be within temp directory');
     }
+    const canonicalWorkingCopyPath = normalizePathForLookup(allowedWorkingCopyPath);
+    const resolvedWorkingCopyPath = await resolveAllowedWritePath(canonicalWorkingCopyPath);
+    if (resolvedWorkingCopyPath !== canonicalWorkingCopyPath) {
+        throw new Error('Invalid file path: writes only allowed within temp directory');
+    }
+    // Read validation already returns a canonical real path. Reuse that form
+    // for the prepared descriptor binding and every later source operation.
+    const resolvedSourcePath = allowedSourcePath;
     const pendingResult = assertOcrPdfResultSourcePath(resolvedSourcePath, senderId);
 
     return enqueueWorkingCopyMutation(resolvedWorkingCopyPath, async () => {

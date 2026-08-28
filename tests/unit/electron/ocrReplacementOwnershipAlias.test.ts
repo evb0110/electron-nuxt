@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import {createHash} from 'node:crypto';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type * as WorkingCopyStore from '@electron/file-access/workingCopyStore';
 
 const mocks = vi.hoisted(() => ({
     clearWorkingCopySearchArtifacts: vi.fn(),
@@ -20,6 +21,9 @@ const mocks = vi.hoisted(() => ({
     lstatSync: vi.fn<(path: string) => { isSymbolicLink: () => boolean; }>(),
     open: vi.fn(),
     originalPathSaveBaseMatches: vi.fn(),
+    prepareOcrCatalogV4Generation: vi.fn(),
+    publishPreparedOcrCatalogV4: vi.fn(),
+    realpath: vi.fn<(path: string) => Promise<string>>(),
     realpathSync: vi.fn<(path: string) => string>(),
     readFile: vi.fn(),
     rebindDocumentTextCatalogRevision: vi.fn(),
@@ -29,27 +33,35 @@ const mocks = vi.hoisted(() => ({
     rename: vi.fn(),
     resolveAllowedReadPath: vi.fn<(path: string) => Promise<string | null>>(),
     resolveAllowedWritePath: vi.fn<(path: string) => Promise<string | null>>(),
+    rollbackPreparedOcrCatalogV4: vi.fn(),
     rm: vi.fn(),
     transitionWorkingCopyContentRevision: vi.fn(),
     unlink: vi.fn(),
     writeFile: vi.fn(),
 }));
 
-vi.mock('fs', () => ({
-    constants: {
-        COPYFILE_FICLONE: 2,
-        COPYFILE_FICLONE_FORCE: 4,
-    },
-    createReadStream: (...args: unknown[]) => mocks.createReadStream(...args),
-    lstatSync: (path: string) => mocks.lstatSync(path),
-    realpathSync: (path: string) => mocks.realpathSync(path),
-}));
+vi.mock('fs', () => {
+    const realpathSync = Object.assign(
+        (path: string) => mocks.realpathSync(path),
+        {native: (path: string) => mocks.realpathSync(path)},
+    );
+    return {
+        constants: {
+            COPYFILE_FICLONE: 2,
+            COPYFILE_FICLONE_FORCE: 4,
+        },
+        createReadStream: (...args: unknown[]) => mocks.createReadStream(...args),
+        lstatSync: (path: string) => mocks.lstatSync(path),
+        realpathSync,
+    };
+});
 
 vi.mock('fs/promises', () => ({
     copyFile: mocks.copyFile,
     cp: mocks.cp,
     lstat: mocks.lstat,
     open: mocks.open,
+    realpath: mocks.realpath,
     readFile: mocks.readFile,
     rename: mocks.rename,
     rm: mocks.rm,
@@ -62,12 +74,19 @@ vi.mock('@electron/utils/pathValidator', () => ({
     resolveAllowedWritePath: mocks.resolveAllowedWritePath,
 }));
 
+vi.mock('@electron/ocr/worker/indexWriterV4', () => ({
+    getOcrCatalogV4PreparedDescriptorPath: (resultPath: string) => `${resultPath}.ocr-v4-prepared.json`,
+    prepareOcrCatalogV4Generation: mocks.prepareOcrCatalogV4Generation,
+    publishPreparedOcrCatalogV4: mocks.publishPreparedOcrCatalogV4,
+    rollbackPreparedOcrCatalogV4: mocks.rollbackPreparedOcrCatalogV4,
+}));
+
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
 
-vi.mock('@electron/file-access/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', async importOriginal => ({
+    ...await importOriginal<typeof WorkingCopyStore>(),
     getWorkingCopyBackingEntry: () => ({backing: 'materialized'}),
     getWorkingCopyOriginalPath: mocks.getWorkingCopyOriginalPath,
-    normalizePathForLookup: (path: string) => path.trim(),
     refreshWorkingCopyOriginalFileExpectation: mocks.refreshWorkingCopyOriginalFileExpectation,
 }));
 vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: async (path: string) => ({physicalWorkingCopyPath: path})}));
@@ -95,6 +114,7 @@ vi.mock('@electron/file-access/docxExportPaths', () => ({consumeAllowedDocxWrite
 
 const { createPendingResultFileStore } = await import('@electron/ocr/createPendingResultFileStore');
 const { handleReplaceWorkingCopyFromPath } = await import('@electron/features/documents/main/documentFileWriteHandlers');
+const { writeOcrIndexes } = await import('@electron/ocr/worker/writeOcrIndexes');
 
 type TPendingResultFileStore = ReturnType<typeof createPendingResultFileStore>;
 
@@ -129,6 +149,12 @@ describe('OCR replacement ownership path aliases', () => {
             sync: vi.fn(async () => undefined),
         });
         mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
+        mocks.prepareOcrCatalogV4Generation.mockResolvedValue({});
+        mocks.publishPreparedOcrCatalogV4.mockResolvedValue({});
+        mocks.realpath.mockImplementation(async (path: string) => path.replace(
+            /^\/var\/folders\//u,
+            '/private/var/folders/',
+        ));
         mocks.realpathSync.mockImplementation((path: string) => path.replace(
             /^\/var\/folders\//u,
             '/private/var/folders/',
@@ -142,6 +168,7 @@ describe('OCR replacement ownership path aliases', () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(canonicalOcrPath);
         mocks.resolveAllowedWritePath.mockResolvedValue(resolvedWorkingCopyPath);
         mocks.rm.mockResolvedValue(undefined);
+        mocks.rollbackPreparedOcrCatalogV4.mockResolvedValue(false);
         mocks.transitionWorkingCopyContentRevision.mockImplementation(async (
             _path: string,
             _reason: string,
@@ -173,6 +200,91 @@ describe('OCR replacement ownership path aliases', () => {
         }
         await store?.shutdown();
         store = null;
+    });
+
+    it('stages the prepared v4 descriptor with canonical worker paths', async () => {
+        mocks.lstat.mockResolvedValue({isSymbolicLink: () => false});
+        await expect(writeOcrIndexes({
+            sourcePdfPath: workingCopyPath,
+            stagedResultPdfPath: rendererOcrPath,
+            resultIdentity: resultSha256,
+            documentRevision: {
+                version: 1,
+                token: sourceRevisionToken,
+                documentRef: workingCopyPath,
+                authority: 'electron-working-copy',
+                contentRevision: 1,
+                mintedAt: 1,
+            },
+            ocrPageData: [{
+                pageNumber: 1,
+                text: 'recognized page',
+                words: [],
+                imageWidth: 1_200,
+                imageHeight: 1_600,
+            }],
+            successfulPageCount: 1,
+            pageCount: 1,
+            allLanguages: ['eng'],
+            effectiveRenderDpi: 300,
+            signal: new AbortController().signal,
+            tempDir: '/var/folders/app/T',
+            log: vi.fn(),
+        })).resolves.toEqual([]);
+
+        expect(mocks.realpath).toHaveBeenCalledWith(workingCopyPath);
+        expect(mocks.realpath).toHaveBeenCalledWith(rendererOcrPath);
+        expect(mocks.prepareOcrCatalogV4Generation).toHaveBeenCalledWith(expect.objectContaining({
+            catalogRoot: `${resolvedWorkingCopyPath}.ocr`,
+            resultPath: canonicalOcrPath,
+        }));
+    });
+
+    it('applies a prepared v4 result when the allowed working path uses the macOS /var alias', async () => {
+        const descriptorPath = `${canonicalOcrPath}.ocr-v4-prepared.json`;
+        const descriptor = {
+            version: 1,
+            catalogId: '00000000-0000-4000-8000-000000000001',
+            catalogRoot: `${resolvedWorkingCopyPath}.ocr`,
+            sourceRootGeneration: null,
+            sourceRootRevisionToken: null,
+            stagedGeneration: 1,
+            pageCount: 1,
+            resultPath: canonicalOcrPath,
+            resultIdentity: resultSha256,
+            createdAt: '2026-08-28T00:00:00.000Z',
+        };
+        mocks.resolveAllowedWritePath.mockImplementation(async (path: string) => path);
+        mocks.lstat.mockImplementation(async (path: string) => {
+            if (path === descriptorPath) {
+                return {
+                    isFile: () => true,
+                    isSymbolicLink: () => false,
+                };
+            }
+            throw Object.assign(new Error('missing'), {code: 'ENOENT'});
+        });
+        mocks.readFile.mockImplementation(async (path: string) => {
+            if (path === descriptorPath) {
+                return JSON.stringify(descriptor);
+            }
+            throw Object.assign(new Error('missing'), {code: 'ENOENT'});
+        });
+        store?.track('42:ocr-1', 'ocr-1', 42, rendererOcrPath, resultSha256, true);
+
+        await expect(handleReplaceWorkingCopyFromPath(
+            ownerContext,
+            workingCopyPath,
+            rendererOcrPath,
+            {expectedDocumentRevisionToken: sourceRevisionToken},
+        )).resolves.toBe(true);
+
+        expect(mocks.resolveAllowedWritePath).toHaveBeenNthCalledWith(1, workingCopyPath);
+        expect(mocks.resolveAllowedWritePath).toHaveBeenNthCalledWith(2, resolvedWorkingCopyPath);
+        expect(mocks.publishPreparedOcrCatalogV4).toHaveBeenCalledWith(expect.objectContaining({
+            catalogRoot: `${resolvedWorkingCopyPath}.ocr`,
+            resultPath: canonicalOcrPath,
+        }));
     });
 
     it('allows the owning renderer to replace from a macOS /var alias but rejects other renderers', async () => {
