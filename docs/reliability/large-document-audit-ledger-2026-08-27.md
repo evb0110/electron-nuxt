@@ -4,9 +4,10 @@ Date: 2026-08-27
 
 Audit baseline: `0e24ed9c4cd589da32defd545551088dd29e2553`
 
-The primary checkout is dirty beyond this baseline. No audit item below is
-closed solely by baseline evidence. The current save work is also uncommitted,
-so a reported active patch is not a fix SHA or a passing gate.
+No audit item below is closed solely by baseline evidence. The verified
+large-PDF annotation-save repair is published on remote `main` at
+`915cc658ddae4d8cda0e58bbbafd7ef39528a5a9`. The ledger rows closed by that
+repair name the source commit, final verification commit, and matching gates.
 
 The four Markdown reports were read in full. The telemetry JSON was read only
 for the fixture object and scalar or summary fields needed for fixture evidence.
@@ -15,11 +16,11 @@ Report references below are relative to
 
 ## Fixture identity
 
-| Fixture | Role or path | Bytes | Pages | SHA-256 | Provenance and admission |
+| Fixture | Role or artifact | Bytes | Pages | SHA-256 | Provenance and admission |
 | --- | --- | ---: | ---: | --- | --- |
-| Local artifact | `/Users/evb/Desktop/pdf/Зализняк А.А. Грамматический словарь русского языка. Словоизменение. 1980.pdf` | 722178517 | 882 | `1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6` | Primary-checkout evidence; qpdf page count and `qpdf --check` passed; filesystem birth/modified around 2026-08-27 19:37 |
-| Audited VPS 882-page artifact | `/home/ubuntu/services-infra/data/cloud/zaliznyak-722176299-882p-4f5c6a43.pdf` | 722176299 | 882 | `4f5c6a438f19a0b19faff37882be6f0bc9199fbf6ba5d0694ab25d4d32ce897b` | Supplied VPS source; `stat`, qpdf page count, SHA-256, and source `qpdf --check` passed |
-| Xlarge artifact | `/home/ubuntu/services-infra/data/cloud/zaliznyak-2168527413-2646p-5609c151.pdf` | 2168527413 | 2646 | `5609c151c1cec881da4b97ec7028250574f8f0ee67540dcdc8808cc7b8ab0aea` | Supplied VPS source; source `stat`, qpdf page count, SHA-256, and `qpdf --check` passed; telemetry staged the same byte count and page count |
+| Local artifact | Exact local Zaliznyak fixture admitted on the primary Mac | 722178517 | 882 | `1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6` | Primary-checkout evidence; qpdf page count and `qpdf --check` passed; filesystem birth/modified around 2026-08-27 19:37 |
+| Audited VPS 882-page artifact | Retired audit upload identified by hash | 722176299 | 882 | `4f5c6a438f19a0b19faff37882be6f0bc9199fbf6ba5d0694ab25d4d32ce897b` | Supplied VPS source; `stat`, qpdf page count, SHA-256, and source `qpdf --check` passed |
+| Xlarge artifact | Retired audit upload identified by hash | 2168527413 | 2646 | `5609c151c1cec881da4b97ec7028250574f8f0ee67540dcdc8808cc7b8ab0aea` | Supplied VPS source; source `stat`, qpdf page count, SHA-256, and `qpdf --check` passed; telemetry staged the same byte count and page count |
 
 Fixture evidence is in `full-audit.md:124-130`, `linux-flow-audit.md:16,43-46,95-101`,
 and `xlarge-followup-telemetry.json:2-12`. The xlarge scalar summary records a
@@ -39,8 +40,7 @@ file is 722176299 bytes with SHA-256
 Each entry includes a stable ID, severity, classification, finding, exact
 evidence, the required red regression test or probe, owner/status, fix SHA,
 gates, and remaining acceptance. `parent-triage` means the parent task must
-assign and sequence the work. `active-save-patch` means the item is in the
-scope of the uncommitted save work and must be reconciled against that diff.
+assign and sequence the work.
 
 Distinct finding count: **102**.
 
@@ -62,25 +62,53 @@ Ambiguous deduplication decisions:
   same gate. Rejected hypotheses and confirmed bounded paths are listed after
   the ledger and are not counted as findings.
 
-All rows currently have `Fix SHA: pending` and `Gates: pending`. The reports
-contain no committed implementation SHA that proves a current fix.
+Rows remain open unless they name a fix SHA and matching acceptance evidence.
+The original audit reports contain no implementation SHA that proves a fix.
 
-Parent active-save-patch evidence is recorded without closing any row. The
-current original-file-witness regression passes 43/43 across working-copy and
-original-path matching tests. Exact local session
-`e2e-run-mtc4slgp-fe40cf-large-pdf-1787871961357` completed the strict macOS
-acceptance flow against the admitted local fixture. Real visible pointer and
-keyboard input created and edited sticky notes. Live PDF.js annotation storage
-and dirty state were asserted. Both saves observed the exact committed event
-and native route. Two hard Electron restarts restored clean state and both
-commits. The staged artifact, original, and working copy shared SHA-256
-`ab5bdc589ec6ea2aac646d6959834a6746a5dbad0a58b29b7e50a39d8016db63`.
-Bounded qpdf object checks and `qpdf --check`, the runtime IPC probe, and strict
-process teardown passed. The test passed in 134.240 s, with 169.41 s total
-runner time. Linux visible-Xvfb and hidden acceptance remain required before a
-row receives a fix SHA or closes.
+The published save series is `c50c0aaa9`, `f5fd24869`, `5ef250df6`,
+`e1ff8e8a0`, `7cb46ad96`, `942b3b736`, `d52fcb0a0`, `82eeedfa0`, and
+`915cc658d`. Final macOS session
+`e2e-run-mtci2ep2-4d0947-large-pdf-1787894253889` passed the strict sticky-note
+scenario at `915cc658d` in 124.139 s, with 158.49 s total runner time. It used
+fresh Electron processes, visible pointer and keyboard input, live PDF.js
+annotation storage, exact committed events, two hard restarts, clean hydration,
+bounded structural probes, the runtime IPC probe, and strict teardown. Both
+saves met the unchanged 8 s limit. The preserved second-save telemetry records
+1,978.6 ms renderer total, 1,870.5 ms native IPC, 511.5 ms native apply, and
+89.9 ms native commit.
 
-The latest exact local-fixture run reproduced `SAV-001` after the real macOS
+Linux visible session `e2e-run-mtci4rdz-92df9d-large-pdf-1787894366683`
+passed at the same commit with renderer saves of 3,843.3 ms and 4,681.5 ms,
+native mutation phases of 2,929.1 ms and 2,940 ms, and staged commits of
+278.4 ms and 163.4 ms. Linux hidden session
+`e2e-run-mtciac46-c5fa9d-large-pdf-1787894626641` passed with renderer saves
+of 3,243 ms and 5,259.3 ms, native mutation phases of 2,740.6 ms and 2,479.6
+ms, and staged commits of 285.6 ms and 133.2 ms. The visible run recorded
+`hasShownWindow:true`, live Electron and Xvfb process identities, `DISPLAY=:118`,
+and a retained X11 screenshot. Both modes passed fixture admission, both hard
+restarts, both native commits, Contents, NM, AP, Rect, Popup-parent, qpdf,
+revision, target-path, runtime IPC, and survivor checks. Evidence is retained
+under `.devkit/analysis/zaliznyak-save-linux-acceptance/final-915cc658d/`.
+
+Final gates on `915cc658d` passed: typecheck, lint, 9,660 unit tests across
+1,136 files with one skip, the full native workspace tests, strict native
+clippy, native formatting, focused save and working-copy suites, and diff
+checks. CodeRabbit ran twice. Its save-scope findings were fixed or rejected
+with evidence, and the final pass found no unresolved defect in this repair.
+Independent specification and standards reviews passed after the duplicate
+timing wrapper was removed.
+
+A second read-only Fable review acknowledged the verified phase telemetry
+before inspecting the publication code. It found that Linux repeated a full
+722 MB physical working-copy sync after native publication. It recommended a
+clone-first immutable-source link fallback, limited to original-to-working-copy
+sync, plus an exclusive-inode guard on the only same-path metadata appender.
+`e1ff8e8a0` implements that design. Real-filesystem regressions prove inode
+sharing, rollback to distinct old inodes, external-source expectation
+invalidation, cross-device copy fallback, and refusal to append through a
+shared inode. CodeRabbit's final review found no issue in the performance diff.
+
+An earlier exact local-fixture run reproduced `SAV-001` after the real macOS
 clone path was enabled in the E2E app. Session
 `e2e-run-mtbvb63n-0e8893-large-pdf-1787856031691` reached the native staged
 commit in 1.018 s, then failed closed. Instrumentation recorded
@@ -90,21 +118,21 @@ out native mutation failure for that run and confirms that the normal
 unencrypted clone path omitted the original-file witness required by commit.
 The source fix removes deferred original-file expectations from the three
 normal mapped working-copy creation routes. Its real-store regression and the
-strict macOS acceptance are green. The row remains open and has no fix SHA
-because the required Linux visible and hidden acceptance has not passed yet.
+strict macOS, Linux visible-Xvfb, and Linux hidden acceptance cases are green
+on `915cc658d`, which is an ancestor of remote `main`.
 
 ## Save and working-copy correctness
 
 | ID | Severity | Class | Finding | Evidence | Required red regression test or probe | Owner/status | Fix SHA | Gates | Remaining acceptance |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| SAV-001 | High | product | Normal clone or eager working-copy paths can omit the original-path expectation, so native save reports a false source mismatch. | `full-audit.md:15` cites `originalPathSaveBaseMatches.ts:19-22`, working-copy creation and materialization, native save handlers, and a 20-iteration loop failing on iteration 4. Exact local session `e2e-run-mtbvb63n-0e8893-large-pdf-1787856031691` independently reproduced the missing expectation after native staging completed. | Repeat the focused routes across normal clone and eager working-copy creation; assert native save accepts the matching original and working-copy revision. | active-save-patch/macos-acceptance-green | pending | 43/43 focused tests passed; strict macOS session `e2e-run-mtc4slgp-fe40cf-large-pdf-1787871961357` passed two saves and two hard restarts with committed-event, hash, qpdf, runtime IPC, and teardown checks | Pass the same exact source tree and fixture through separate Linux visible-Xvfb and hidden cases. |
-| SAV-002 | Critical | product | An original can be committed while sidecar or cleanup failure leaves the working copy, sidecar, or journal at a different revision. | `full-audit.md:16` cites `transitionOriginalAndWorkingCopyRevision.ts:46-92` and `documentRevisionStore.ts:318-331`; rollback does not restore sidecar or journal. | Inject a sidecar or cleanup failure after replacement; assert original bytes, working-copy bytes, sidecar, and journal all return to one revision. | active-save-patch | pending | pending | Prove rollback restores every durable record and no committed state diverges after each failure point. |
-| SAV-003 | High | product | Transition copies into the working copy with `durable:false` before writing the durable sidecar, so a crash can split file bytes from the trusted revision token. | `full-audit.md:17`. | Stop the process between the non-durable copy and sidecar write; reopen and assert the file bytes and trusted revision token agree. | active-save-patch | pending | pending | Add crash-boundary coverage and prove recovery rejects or repairs an out-of-sync pair. |
-| SAV-004 | High | product | Save As can commit the target, then report failure when a later step rejects the result, while the renderer keeps the old original path. | `full-audit.md:18` cites `documentSave.service.ts:150-160,251-268`, `serializedPdfPersistence.ts:647-706`, and `createDocumentPersistence.ts:1103-1113,1167-1173`. | Force the post-commit rejection; assert the returned result, renderer path, target bytes, and subsequent save all describe the same target. | active-save-patch | pending | pending | Prove Save As state changes are committed or rolled back as one externally visible transaction. |
-| SAV-005 | High | product | The native mutation handler captures the original path before queue entry, so a queued request can use a path remapped by a preceding Save As. | `full-audit.md:19` cites `nativePdfMutationSaveHandlers.ts:287-295,472-480`, `workingCopySave.ts:258-270,298-307,437-450`, and `documentSave.service.ts:131-157`. | Queue a native mutation, perform Save As before it runs, then assert the mutation writes only to the remapped target and its receipt. | active-save-patch | pending | pending | Resolve path and revision at the serialized execution point and prove queued Save As ordering. |
-| SAV-006 | Medium | product | Rust incremental copy-on-write cloning can inherit mode `0444`, fail to reopen read/write, and abort without its streaming fallback. | `full-audit.md:20` cites `native/evb-native-support/src/output.rs:103-142` and `native/pdf-page-ops/src/incremental.rs:169-189`. | Create a read-only clone destination and run incremental save; assert the tested streaming fallback completes or returns a typed refusal without aborting. | active-save-patch | pending | pending | Cover permission-preserving clone, reopen, fallback, and exact large-file save behavior on macOS and Linux. |
-| SAV-007 | High | product | The second save in the audited exact-file interaction chose the serialized fallback and was rejected as `native-save-required`. | `full-audit.md:21`. The strict macOS acceptance now proves the actual restored sticky-note case, rather than ordinary clean FreeText hydration. | In a fresh process, save an annotation, hard-restart Electron, reopen the committed file, make a second annotation edit, and assert the second save uses the native path and commits. | active-save-patch/macos-acceptance-green | pending | strict macOS session `e2e-run-mtc4slgp-fe40cf-large-pdf-1787871961357` completed the second native save after restart, then restarted and verified both commits | Repeat the same second-save and second-restart flow on Linux visible-Xvfb and hidden modes. |
-| SAV-008 | High | product | Original-path save is a check-then-rename race. An external editor or sync client can change the original after the base check and before unconditional replacement. | `full-audit.md:32`; `native-crosscut-audit.md:14-54` cites `workingCopySave.ts:181-195`, `transitionOriginalAndWorkingCopyRevision.ts:35-65`, `originalPathSaveBaseMatches.ts:95-109`, and `atomicReplace.ts:133-138`. | Pause after a successful base comparison, replace the original from a second process with same-size content, release the save, and assert the external bytes remain. | active-save-patch | pending | pending | Add an OS-level identity or compare-and-swap publication proof, including concurrent external edits. |
+| SAV-001 | High | product | Normal clone or eager working-copy paths can omit the original-path expectation, so native save reports a false source mismatch. | `full-audit.md:15` cites `originalPathSaveBaseMatches.ts:19-22`, working-copy creation and materialization, native save handlers, and a 20-iteration loop failing on iteration 4. Exact local session `e2e-run-mtbvb63n-0e8893-large-pdf-1787856031691` independently reproduced the missing expectation after native staging completed. | Repeat the focused routes across normal clone and eager working-copy creation; assert native save accepts the matching original and working-copy revision. | fixed/published | `c50c0aaa9`; verified at `915cc658d` | Final typecheck, lint, 9,660-unit-test, native workspace, clippy, formatting, CodeRabbit, spec-review, and standards-review gates passed. Exact macOS session `e2e-run-mtci2ep2-4d0947-large-pdf-1787894253889` and Linux visible and hidden sessions `e2e-run-mtci4rdz-92df9d-large-pdf-1787894366683` and `e2e-run-mtciac46-c5fa9d-large-pdf-1787894626641` passed at `915cc658d`. | Complete. The verified commit is published on remote `main`. |
+| SAV-002 | Critical | product | An original can be committed while sidecar or cleanup failure leaves the working copy, sidecar, or journal at a different revision. | `full-audit.md:16` cites `transitionOriginalAndWorkingCopyRevision.ts:46-92` and `documentRevisionStore.ts:318-331`; rollback does not restore sidecar or journal. | Inject a sidecar or cleanup failure after replacement; assert original bytes, working-copy bytes, sidecar, and journal all return to one revision. | parent-triage | pending | pending | Prove rollback restores every durable record and no committed state diverges after each failure point. |
+| SAV-003 | High | product | Transition copies into the working copy with `durable:false` before writing the durable sidecar, so a crash can split file bytes from the trusted revision token. | `full-audit.md:17`. | Stop the process between the non-durable copy and sidecar write; reopen and assert the file bytes and trusted revision token agree. | parent-triage | pending | pending | Add crash-boundary coverage and prove recovery rejects or repairs an out-of-sync pair. |
+| SAV-004 | High | product | Save As can commit the target, then report failure when a later step rejects the result, while the renderer keeps the old original path. | `full-audit.md:18` cites `documentSave.service.ts:150-160,251-268`, `serializedPdfPersistence.ts:647-706`, and `createDocumentPersistence.ts:1103-1113,1167-1173`. | Force the post-commit rejection; assert the returned result, renderer path, target bytes, and subsequent save all describe the same target. | parent-triage | pending | pending | Prove Save As state changes are committed or rolled back as one externally visible transaction. |
+| SAV-005 | High | product | The native mutation handler captures the original path before queue entry, so a queued request can use a path remapped by a preceding Save As. | `full-audit.md:19` cites `nativePdfMutationSaveHandlers.ts:287-295,472-480`, `workingCopySave.ts:258-270,298-307,437-450`, and `documentSave.service.ts:131-157`. | Queue a native mutation, perform Save As before it runs, then assert the mutation writes only to the remapped target and its receipt. | parent-triage | pending | pending | Resolve path and revision at the serialized execution point and prove queued Save As ordering. |
+| SAV-006 | Medium | product | Rust incremental copy-on-write cloning can inherit mode `0444`, fail to reopen read/write, and abort without its streaming fallback. | `full-audit.md:20` cites `native/evb-native-support/src/output.rs:103-142` and `native/pdf-page-ops/src/incremental.rs:169-189`. | Create a read-only clone destination and run incremental save; assert the tested streaming fallback completes or returns a typed refusal without aborting. | parent-triage | pending | pending | Cover permission-preserving clone, reopen, fallback, and exact large-file save behavior on macOS and Linux. |
+| SAV-007 | High | product | The second save in the audited exact-file interaction chose the serialized fallback and was rejected as `native-save-required`. | `full-audit.md:21`. The strict acceptance proves the actual restored sticky-note case, rather than ordinary clean FreeText hydration. | In a fresh process, save an annotation, hard-restart Electron, reopen the committed file, make a second annotation edit, and assert the second save uses the native path and commits. | fixed/published | `f5fd24869`; verified at `915cc658d` | The final macOS and both Linux sessions completed the second native save after restart, then restarted again and verified both commits. Full gates are recorded above. | Complete. The verified commit is published on remote `main`. |
+| SAV-008 | High | product | Original-path save is a check-then-rename race. An external editor or sync client can change the original after the base check and before unconditional replacement. | `full-audit.md:32`; `native-crosscut-audit.md:14-54` cites `workingCopySave.ts:181-195`, `transitionOriginalAndWorkingCopyRevision.ts:35-65`, `originalPathSaveBaseMatches.ts:95-109`, and `atomicReplace.ts:133-138`. | Pause after a successful base comparison, replace the original from a second process with same-size content, release the save, and assert the external bytes remain. | parent-triage | pending | pending | Add an OS-level identity or compare-and-swap publication proof, including concurrent external edits. |
 | SAV-009 | Medium | product | Eager `copyFile` fallback can create a mixed working-copy snapshot while the source changes, without post-copy handle, stat, or hash proof. | `full-audit.md:93`; `native-crosscut-audit.md:56-88` cites `workingCopyCreation.ts:112-153` and contrasts the safer lazy path. | Force an unsupported clone, replace the source from a second process during copy, and assert the working copy matches one complete source revision. | parent-triage | pending | pending | Add source admission and post-copy verification or a safe open-handle copy path. |
 | SAV-010 | High | product | Native incremental save can parse one source state with qpdf, then copy a newer source before append. | `full-audit.md:94`. | Change the source between qpdf structural admission and the copy; assert the append aborts or re-admits the same source revision. | parent-triage | pending | pending | Tie qpdf admission, source copy, and append to one revision witness. |
 | SAV-011 | High | product | `AtomicOutput` checks metadata and renames later, sharing the external-edit race; replacing a symlink also changes the link into a regular file. | `full-audit.md:98`. | Exercise external replacement between witness and rename, then exercise a symlink destination; assert external bytes survive and link semantics follow the intended contract. | parent-triage | pending | pending | Specify and test compare-and-swap semantics and symlink policy for every atomic output caller. |
@@ -208,21 +236,21 @@ because the required Linux visible and hidden acceptance has not passed yet.
 | TEST-008 | Medium | test/process | Rendered-page assertions check only CSS class, canvas dimensions, and minimal viewport intersection, so blank or stale canvases can pass. | `full-audit.md:115`. | Present a blank or stale canvas with matching dimensions and assert the rendered-page probe fails. | parent-triage | pending | pending | Verify current page identity and sampled rendered pixels or an equivalent semantic render result. |
 | TEST-009 | Medium | test/process | Unit save tests mock native commands, staged artifacts, working-copy store, atomic replace, and file copy; no tiny-PDF integration test exercises the native binary, qpdf, and `copyFileAtomic`. | `full-audit.md:116`. | Run a tiny real PDF through the native binary, qpdf, and `copyFileAtomic`, including failure and reopen paths. | parent-triage | pending | pending | Add a real integration gate while retaining focused unit tests for boundary cases. |
 | TEST-010 | High | test/process | Quarantine uses `--passWithNoTests`, `continue-on-error`, and environment-gated skips, allowing green results with zero cases or known failures. | `full-audit.md:117`. | Run quarantine with zero discovered tests and a known failing case; assert the job fails closed. | parent-triage | pending | pending | Remove zero-execution and known-failure green paths or require explicit, checked ownership. |
-| TEST-011 | High | test/process | The xlarge renderer IPC probe is optional, and semantic assertions load the whole file while checking only limited object fields, missing page identity, appearance blankness, marker rectangle, Popup parent, and visible result. | `full-audit.md:118`; `linux-flow-audit.md:169-173`. | Disable the optional probe and corrupt each omitted field; assert the acceptance test fails with independent structural and visible checks. | parent-triage | pending | pending | Require bounded IPC evidence and complete page, appearance, parent, marker, and visible-result assertions. |
+| TEST-011 | High | test/process | The xlarge renderer IPC probe is optional, and semantic assertions load the whole file while checking only limited object fields, missing page identity, appearance blankness, marker rectangle, Popup parent, and visible result. | `full-audit.md:118`; `linux-flow-audit.md:169-173`. | Disable the optional probe and corrupt each omitted field; assert the acceptance test fails with independent structural and visible checks. | fixed/published | `f5fd24869`, `5ef250df6`; verified at `915cc658d` | Final macOS and Linux runs required the runtime IPC probe and independently checked page, Contents, NM, AP, Rect, Popup parent, restored visible note text, and revision after both saves. | Complete. The strict exact-fixture lane fails closed on a missing probe or structural mismatch. |
 | TEST-012 | High | test/process | The annotation-save SLO is 8 seconds while exact-fixture evidence records 30 to 47 seconds; other helpers allow 360-second work without cancellation. | `full-audit.md:119`. | Run the exact fixture with the stated SLO and cancellation deadline; assert timeout cancels all work and reports the actual phase. | parent-triage | pending | pending | Set a justified large-file budget and enforce cancellation at every longer helper boundary. |
 | TEST-013 | Medium | test/process | The save benchmark leaks process environment into another test, `vi.clearAllMocks()` leaves implementations installed, and generic console or unhandled errors do not fail the unit suite. | `full-audit.md:120`. | Run the benchmark before and after a test with different environment and mocks, plus injected console and unhandled errors; assert isolation and failure. | parent-triage | pending | pending | Restore process state and mock implementations and make unexpected errors fail the suite. |
-| TEST-014 | High | test/process | Xlarge fixture admission checks regular-file status, byte size, staged size, and qpdf page count but no SHA-256 or content identity. | `cap-audit.md:84-101`; `linux-flow-audit.md:23,86-99`; `full-audit.md:127`. | Replace the configured source with a same-size, same-page-count different PDF; assert admission rejects it by hash or immutable content identity. | parent-triage | pending | pending | Require the supplied SHA, byte size, and qpdf page count before staging or running. |
-| TEST-015 | High | test/process | No saved-output `qpdf --check` is required by the xlarge flow. | `full-audit.md:127`; `linux-flow-audit.md:169-173,220`. | Corrupt a committed output after save and before reopen; assert the acceptance test runs `qpdf --check` and fails. | parent-triage | pending | pending | Check every committed and reopened output independently of PDF.js. |
+| TEST-014 | High | test/process | Xlarge fixture admission checks regular-file status, byte size, staged size, and qpdf page count but no SHA-256 or content identity. | `cap-audit.md:84-101`; `linux-flow-audit.md:23,86-99`; `full-audit.md:127`. | Replace the configured source with a same-size, same-page-count different PDF; assert admission rejects it by hash or immutable content identity. | fixed/published | `f5fd24869`; verified at `915cc658d` | The final Mac and both Linux modes admitted exactly 722178517 bytes, 882 qpdf pages, and SHA-256 `1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6` before interaction. | Complete for the exact Zaliznyak lane. |
+| TEST-015 | High | test/process | No saved-output `qpdf --check` is required by the xlarge flow. | `full-audit.md:127`; `linux-flow-audit.md:169-173,220`. | Corrupt a committed output after save and before reopen; assert the acceptance test runs `qpdf --check` and fails. | fixed/published | `f5fd24869`; verified at `915cc658d` | The strict test runs `qpdf --check` after each committed save and repeats bounded object validation after both hard restarts. All three final platform modes passed. | Complete for the exact Zaliznyak lane. |
 | TEST-016 | Medium | test/process | The persistent `startd` path has no shell EXIT cleanup trap, so interruption can leave Xvfb and session children for the stale-session pruner. | `full-audit.md:114`; `linux-flow-audit.md:195,221`. | Interrupt a `startd` run and assert Xvfb, Electron, and session children are cleaned or retained with an explicit failure. | parent-triage | pending | pending | Install cleanup for daemon startup and prove no unowned child survives interruption. |
 | TEST-017 | Medium | test/process | The verified xlarge run exceeded the renderer heartbeat limit, reaching 3,350 ms against a 3,000 ms policy. | `full-audit.md:127`; `linux-flow-audit.md:27,55,132-143,223`; telemetry scalar summary records `maxGapMs: 3350`. | Repeat the exact xlarge run and assert the measured heartbeat, save phase, and policy decision are recorded without hiding the failure. | parent-triage | pending | pending | Decide and document the large-file heartbeat budget, then meet it or change the policy with evidence. |
 | TEST-018 | Medium | test/process | Linux xlarge staging with `COPYFILE_FICLONE_FORCE` returned `ENOTSUP`; the run needed a temporary preload that stripped the flag. | `full-audit.md:128`; `linux-flow-audit.md:54,101,122-132`. | Run exact-fixture staging on Linux filesystems with and without clone support; assert a supported clone or tested streaming fallback is selected without source edits. | parent-triage | pending | pending | Make clone-mode selection portable and fail closed on unsupported staging. |
-| TEST-019 | High | test/process | The verified 882-page Linux annotation flow left `annotationDirty: true`, returned `saveSucceeded: false`, and omitted the new FreeText, but helper and cleanup failures prevent a clean product diagnosis. | `full-audit.md:126`; `linux-flow-audit.md:115-120,222,227`. | Reproduce with strict visible interaction, live storage proof, committed-event observation, and independent output checks; classify product failure only after harness errors are absent. | parent-triage | pending | pending | Resolve the candidate in a clean exact-fixture run and retain the failing artifact if the product still rejects the save. |
+| TEST-019 | High | test/process | The verified 882-page Linux annotation flow left `annotationDirty: true`, returned `saveSucceeded: false`, and omitted the new FreeText, but helper and cleanup failures prevent a clean product diagnosis. | `full-audit.md:126`; `linux-flow-audit.md:115-120,222,227`. | Reproduce with strict visible interaction, live storage proof, committed-event observation, and independent output checks; classify product failure only after harness errors are absent. | fixed/published | `f5fd24869`, `5ef250df6`; verified at `915cc658d` | Linux visible and hidden sessions `e2e-run-mtci4rdz-92df9d-large-pdf-1787894366683` and `e2e-run-mtciac46-c5fa9d-large-pdf-1787894626641` passed real sticky-note interaction, live storage and dirty proof, exact commits, bounded object checks, both hard restarts, runtime IPC, and strict teardown. | Complete. Both Linux modes passed the 8 s save limit without fallback. |
 | TEST-020 | Medium | test/process | The native split-pane test hung for more than six minutes after opening a one-page document; no child residue remained after interruption. | `linux-flow-audit.md:52-53,115-120`. | Run the isolated split-pane test with a bounded timeout and process-tree probe; assert it completes or fails with a typed timeout and no residue. | parent-triage | pending | pending | Determine whether the hang is harness or product behavior and keep teardown fail-closed. |
-| TEST-021 | High | test/process | The xlarge flow does not require or observe the exact `save-committed` automation event. | `linux-flow-audit.md:20,157-165`; `full-audit.md:127,130`. | Remove the event and let other save barriers complete; assert the acceptance test fails instead of passing. | parent-triage | pending | pending | Wait for the target-path event ID captured before the click and fail on missing, late, or rejected observation. |
-| TEST-022 | High | test/process | The xlarge flow uses renderer `page.reload()` after save rather than a hard Electron process restart. | `linux-flow-audit.md:21,159-165`; `full-audit.md:127,130`. | Stop Session B after save, start a fresh Session C, reopen the committed path, and assert annotations and revision survive process death. | parent-triage | pending | pending | Use the real hard-restart fixture mechanism after persistence, not renderer reload. |
-| TEST-023 | High | test/process | The xlarge flow performs one save only and has no second save after reopen. | `linux-flow-audit.md:22,165`; `full-audit.md:127,130`. | After hard restart and reopen, make a second visible annotation edit, save, stop, reopen again, and assert both commits. | parent-triage | pending | pending | Prove the full save, restart, reopen, second-save, and subsequent-reopen sequence. |
-| TEST-024 | Medium | product | Native projection correctness on the exact Zaliznyak file remains unproven. | `linux-flow-audit.md:229-236`, especially line 231; `full-audit.md:127,130`. | Run the exact hash-admitted file through native annotation projection and independent object and visible-result checks. | parent-triage | pending | pending | Record a clean native projection result on the exact fixture, not only injected callbacks. |
-| TEST-025 | High | product | Save durability across actual Electron process death and restart remains unproven. | `linux-flow-audit.md:232`; `full-audit.md:130`; xlarge telemetry only records renderer reload at `xlarge-followup-telemetry.json:72-82`. | Save, kill the Electron process, start a fresh process, reopen the committed file, and assert the persisted annotation and revision. | parent-triage | pending | pending | Demonstrate durable bytes and metadata after process death with target hash and qpdf checks. |
+| TEST-021 | High | test/process | The xlarge flow does not require or observe the exact `save-committed` automation event. | `linux-flow-audit.md:20,157-165`; `full-audit.md:127,130`. | Remove the event and let other save barriers complete; assert the acceptance test fails instead of passing. | fixed/published | `f5fd24869`; verified at `915cc658d` | The strict test captures the target-specific event before each visible save action, checks its path and revision, and fails on timeout or mismatch. All final modes passed. | Complete for the exact Zaliznyak lane. |
+| TEST-022 | High | test/process | The xlarge flow uses renderer `page.reload()` after save rather than a hard Electron process restart. | `linux-flow-audit.md:21,159-165`; `full-audit.md:127,130`. | Stop Session B after save, start a fresh Session C, reopen the committed path, and assert annotations and revision survive process death. | fixed/published | `f5fd24869`; verified at `915cc658d` | Each final mode killed Electron after the first save, required a different process identity, restored through the product checkpoint path, and repeated the process after the second save. | Complete for the exact Zaliznyak lane. |
+| TEST-023 | High | test/process | The xlarge flow performs one save only and has no second save after reopen. | `linux-flow-audit.md:22,165`; `full-audit.md:127,130`. | After hard restart and reopen, make a second visible annotation edit, save, stop, reopen again, and assert both commits. | fixed/published | `f5fd24869`; verified at `915cc658d` | Each final mode edited the restored sticky note, created a second note, saved natively, hard-restarted again, and verified both commits. | Complete for the exact Zaliznyak lane. |
+| TEST-024 | Medium | product | Native projection correctness on the exact Zaliznyak file remains unproven. | `linux-flow-audit.md:229-236`, especially line 231; `full-audit.md:127,130`. | Run the exact hash-admitted file through native annotation projection and independent object and visible-result checks. | fixed/published | `5ef250df6`; verified at `915cc658d` | Final Mac and both Linux modes independently verified Contents, stable NM, AP, Rect, Popup parent, qpdf structure, restored visible text, revision, and runtime IPC after each native commit. | Complete for this sticky-note projection. Other annotation defects remain separate ledger rows. |
+| TEST-025 | High | product | Save durability across actual Electron process death and restart remains unproven. | `linux-flow-audit.md:232`; `full-audit.md:130`; xlarge telemetry only records renderer reload at `xlarge-followup-telemetry.json:72-82`. | Save, kill the Electron process, start a fresh process, reopen the committed file, and assert the persisted annotation and revision. | fixed/published | `f5fd24869`; verified at `915cc658d` | Final Mac and both Linux modes killed and restarted Electron twice, matched revision tokens, checked hashes and qpdf structure, and restored both notes cleanly. | Complete for the exact Zaliznyak lane. |
 | TEST-026 | Medium | process | Absence of leaked PDF.js or native work after forced or timed-out save remains unproven. | `linux-flow-audit.md:236`; `full-audit.md:114,130`. | Force save timeout and process stop, then inspect child processes, leases, pending tasks, and artifact handles before declaring completion. | parent-triage | pending | pending | Fail on surviving child, task, lease, or handle and retain teardown diagnostics. |
 | TEST-027 | High | test/process | The xlarge flow does not compare a pre-save and post-save structural object table, so its qpdf checks are incomplete. | `linux-flow-audit.md:171-173`; `full-audit.md:127`. | Capture bounded pre-save and post-save object identity and appearance summaries, then assert only intended objects changed. | parent-triage | pending | pending | Add independent structural comparison alongside `qpdf --check` and semantic reopen checks. |
 
@@ -240,15 +268,27 @@ because the required Linux visible and hidden acceptance has not passed yet.
 This checklist matches the next acceptance lane required by the exhaustive
 report at `full-audit.md:130`.
 
-- [ ] Fail closed unless the fixture SHA, byte size, and qpdf page count match.
-- [ ] Use visible controls and real pointer and keyboard input.
-- [ ] Prove live PDF.js storage.
-- [ ] Wait for the exact `save-committed` path and revision.
-- [ ] Verify the target hash and qpdf structure.
-- [ ] Hard-restart Electron.
-- [ ] Reopen the committed file.
-- [ ] Save a second time.
-- [ ] Fail if any helper fallback, missing probe, teardown error, or surviving child occurs.
+- [x] Fail closed unless the fixture SHA, byte size, and qpdf page count match.
+- [x] Start a fresh Electron process and use visible controls with real pointer
+  and keyboard input.
+- [x] Prove live PDF.js annotation storage and the intended dirty state.
+- [x] Wait for each exact `save-committed` path and revision.
+- [x] Verify the target hash, `qpdf --check`, Contents, NM, AP, Rect, and Popup
+  parent through bounded independent probes.
+- [x] Kill and hard-restart Electron after the first save.
+- [x] Restore or reopen through the genuine product path and prove clean
+  hydration.
+- [x] Make a second real annotation edit and save it through the native path.
+- [x] Hard-restart a second time and prove both commits.
+- [x] Require the runtime IPC probe.
+- [x] Fail on helper fallback, missing probe, teardown error, or surviving
+  Electron, Nuxt, qpdf, utility, lease, or CDP work.
+- [x] Pass the exact macOS fixture and separate Linux visible-Xvfb and hidden
+  cases on the same code commit.
+- [x] Pass focused tests, the full unit gate, lint, typecheck, CodeRabbit, and
+  independent spec and standards review on the final reviewed code commit.
+- [x] Publish the final reviewed and re-verified code commit to remote `main`
+  and record its ancestry.
 
 The Linux report's lower-cost red-test order is retained as implementation
 guidance: a committed-event blocking smoke, a small-fixture hard restart with
@@ -270,52 +310,3 @@ in those paths at the audited baseline.
 | OCR, search, scan cleanup, DjVu, image, and TIFF continuation paths | The native and sidecar paths have bounded windows, shards, batches, or explicit format limits. Their separate defects are listed above where the reports found them. | `native-crosscut-audit.md:150-163` |
 | Browser platform routing | Electron routing requires the bridge, desktop runtime, or explicit Electron route; an Electron-shaped user agent alone does not select missing IPC. | `native-crosscut-audit.md:164-167` |
 | Page identity, metrics, and compatibility labels | Sparse identity and metrics paths are bounded; the label compatibility null-to-empty rewrite is the separate `PDF-002` defect. | `cap-audit.md:100-106` |
-
-## Audit gate record
-
-- Cap audit native tests passed 16/16; page-ops tests passed 169/169, error
-  classification 4/4, and multi-GiB tests 4/6. The two 10 GB tests failed with
-  `ENOSPC`, not a corruption result (`cap-audit.md:184-203`).
-- The cap audit's JavaScript static test could not start because `vitest` was
-  absent (`cap-audit.md:205-212`).
-- Linux policy tests passed 46 tests after Nuxt preparation, but the exact
-  882-page run had two annotation-save failures and a split-pane hang, while
-  the xlarge run was red on the heartbeat budget (`linux-flow-audit.md:50-55,
-  115-143`).
-- The xlarge telemetry scalar evidence records source and staged bytes of
-  2,168,527,413, page count 2,646, clone mode `COPYFILE_FICLONE_FORCE`, a
-  67,025.1 ms Session B save phase, and the `expected 3350 to be less than
-  3000` failure (`xlarge-followup-telemetry.json:2-12,68-82`; `linux-flow-audit.md:132-143`).
-- Exact local macOS session
-  `e2e-run-mtbvb63n-0e8893-large-pdf-1787856031691` admitted the
-  722,178,517-byte, 882-page fixture with SHA-256
-  `1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6`.
-  Native staging completed, but publication failed because the working-copy
-  registry had no original-file expectation. Save timing to that failure was
-  1.018 s. This is a red `SAV-001` probe, not acceptance.
-- After registering the original-file witness on every normal mapped
-  working-copy creation route and rebuilding Electron, exact local session
-  `e2e-run-mtbvnvwn-5f834e-large-pdf-1787856624984` admitted the same
-  722,178,517-byte fixture and completed two native saves in one process. The
-  first save took 1.4008 s and the second 1.0519 s. Focused working-copy and
-  original-path tests passed 43/43. This is strong latency and source-fence
-  evidence, but it is not final acceptance because the current E2E still uses
-  an automation helper, does not hard-restart Electron between saves, and
-  inspects the full file with pdf-lib.
-- A read-only Fable review ranked an xref-resolution defect in the qpdf
-  structural loader as the top hypothesis. The new focused
-  `qpdf_structural_loader_resolves_repeated_native_mutations` regression passed
-  on a sparse 513 MiB PDF, falsifying that isolated theory. A staged-publication
-  barrier then proved the staged artifact, original, and working copy were
-  byte-identical and exposed the actual acceptance-driver defect: focus repair
-  moved the textarea selection to the end after the driver tried to select all.
-- The corrected strict macOS session
-  `e2e-run-mtc4slgp-fe40cf-large-pdf-1787871961357` used only visible controls,
-  pointer input, and keyboard input for annotation edits. It asserted live
-  annotation storage and dirty state, observed each exact committed event,
-  validated bounded annotation objects and `qpdf --check`, killed and restarted
-  Electron twice, verified clean hydration and both commits, ran the runtime IPC
-  probe, and left no tested child process alive. The test passed in 134.240 s,
-  with 169.41 s total runner time.
-- These audit results are evidence for triage and red tests. They are not
-  implementation gates, fix SHAs, or closure of any row in this dirty checkout.
