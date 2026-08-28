@@ -1,0 +1,34 @@
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_5ac4a3281ca4f3::t_cadfd2e7ea17c9 77,299,303,312,316,325-339,1771-1772,1779-1782,1798,1838-1839,1856-1905,1915,1935-1937,1944,1953,2040,2048,2083-2085,2103,2111
+  s_5ac4a3281ca4f3::t_764933db3a76cc 53
+  s_5ac4a3281ca4f3::t_09987fedeab340 1807,1813,1833
+  s_5ac4a3281ca4f3::t_7cb2a98dc2c5b8 1787,1790-1791,1793-1794
+  s_5ac4a3281ca4f3::t_57fa945770858a 777-790
+  s_5ac4a3281ca4f3::t_774b64eb167d43 1823,1830
+  s_5ac4a3281ca4f3::t_e158be6992b122 1783-1786,1788-1789,1792,1808-1812,1814-1822,1824-1829,1831-1832,1834-1836
+  s_5ac4a3281ca4f3::t_a3152782e1d1b2 1800
+app/modules/workspace-shell/composables/document-session/createDocumentHistory.ts
+  s_5ac4a3281ca4f3::t_94725398f4a19f 244
+tests/unit/app/modules/workspace-shell/composables/createDocumentPersistence.test.ts
+  s_5ac4a3281ca4f3::t_d5122271b65037 929,932-973
+  s_5ac4a3281ca4f3::t_fcede86640654c 928,930-931
+app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts
+  s_5ac4a3281ca4f3::t_170e68abb675fb 238
+  s_5ac4a3281ca4f3::t_94725398f4a19f 227-228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "74870f64ef8ca1a3176f5b1d6137a4121f52f2da",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
