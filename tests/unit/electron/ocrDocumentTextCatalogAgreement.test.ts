@@ -172,6 +172,11 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: vi.fn(),
 })}));
 
+// Other Electron tests exercise dynamic fs mocks. Rebuild this reader graph
+// once after our hoisted mocks are registered so collection order cannot
+// replace the bounded catalog file handles used below.
+vi.resetModules();
+
 const {loadDocumentTextCatalogPages} = await import('@app/utils/ocr/loadOcrText');
 const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
 const {buildSearchIndex} = await import('@electron/search/indexBuilder');
