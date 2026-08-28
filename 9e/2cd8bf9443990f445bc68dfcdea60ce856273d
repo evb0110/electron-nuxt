@@ -1,0 +1,23 @@
+electron/ocr/documentTextCatalog.ts
+  s_3f273936057f92::t_e10aefb007eed1 388-389,392,400,411
+electron/ocr/ocrCatalogV4.ts
+  s_3f273936057f92::t_4c27c65e4c1d6b 1286,1344-1356,1589-1600
+electron/ocr/worker/indexWriterV4.ts
+  s_3f273936057f92::t_703a44c9a81735 63,80,2006-2030,2075
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9e2cd8bf9443990f445bc68dfcdea60ce856273d",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
