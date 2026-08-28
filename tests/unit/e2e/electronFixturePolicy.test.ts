@@ -28,7 +28,11 @@ import {
     electronUserDataPath,
     sessionDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
-import { resolveDetachedSessionLaunch } from '@scripts/electron-run/startSessionDetached';
+import {
+    E2E_SESSION_START_TIMEOUT_MS,
+    resolveDetachedSessionLaunch,
+    resolveDetachedSessionReadyTimeoutMs,
+} from '@scripts/electron-run/startSessionDetached';
 import {
     E2E_RUN_ID_ENV,
     createE2ERunScopedSessionName,
@@ -409,6 +413,14 @@ describe('Electron E2E fixture policy', () => {
 });
 
 describe('Electron E2E deterministic isolation policy', () => {
+    it('keeps detached E2E readiness inside the caller startup deadline', () => {
+        const innerTimeoutMs = resolveDetachedSessionReadyTimeoutMs('e2e');
+
+        expect(innerTimeoutMs).toBeLessThan(E2E_SESSION_START_TIMEOUT_MS);
+        expect(E2E_SESSION_START_TIMEOUT_MS - innerTimeoutMs).toBeGreaterThanOrEqual(10_000);
+        expect(resolveDetachedSessionReadyTimeoutMs('dev')).toBe(120_000);
+    });
+
     it('dispatches detached ownership through distinct executable commands', () => {
         const e2eLaunch = resolveDetachedSessionLaunch(
             'e2e',
