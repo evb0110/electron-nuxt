@@ -1,0 +1,19 @@
+tests/unit/app/utils/pdfOutlineHelpers.test.ts
+  s_01b20c0c2ba076::t_023d4decc94a6d 145-164
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fb0c3fd9bef799f4d1753ba692ed439de88ea665",
+  "prompts": {},
+  "sessions": {
+    "s_01b20c0c2ba076": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d0-5c00-7ec3-bcd8-6640d2c492ca",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
