@@ -1,0 +1,19 @@
+app/platform/browser-api/tryCombineImageInputsWithWasm.ts
+  s_f464d4c848ac4b::t_2b63427a8822de 21,513
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "12468e94b15f17233259e78d1da63fce06215eac",
+  "prompts": {},
+  "sessions": {
+    "s_f464d4c848ac4b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d0-a8bf-7f23-b6e8-df07c6b04b53",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
