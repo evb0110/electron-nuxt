@@ -11,6 +11,7 @@ import {
     CODEX_STANDALONE_INSTALL_URL,
     type ICodexCliInfo,
 } from '@electron/features/agent/codexCli';
+import { PINNED_CODEX_CLI_VERSION } from '@electron/features/agent/codexCliReleaseManifest';
 import type { TCodexAssistantModelOption } from '@electron/features/agent/assistantModelCatalog';
 import { createAssistantErrorEnvelope } from '@electron/features/agent/assistantErrorEnvelope';
 import type {IAssistantChatSession} from '@electron/features/agent/assistantChatSessionStore';
@@ -142,7 +143,7 @@ function buildAgentAssistantStatusSnapshot(options: IBuildAgentAssistantStateSna
         codexInstalled: installed,
         codexPath: options.codexInfo?.path ?? null,
         codexVersion: options.codexInfo?.version ?? null,
-        minimumCodexVersion: options.codexInfo?.minimumVersion ?? '0.133.0',
+        minimumCodexVersion: options.codexInfo?.minimumVersion ?? PINNED_CODEX_CLI_VERSION,
         codexVersionSupported: versionSupported,
         installUrl: CODEX_APP_INSTALL_URL,
         installScriptUrl: CODEX_STANDALONE_INSTALL_URL,

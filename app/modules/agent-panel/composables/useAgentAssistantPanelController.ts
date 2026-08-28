@@ -63,6 +63,10 @@ import {
     createAssistantEventFence,
     isAssistantStateCurrent,
 } from '@app/modules/agent-panel/utils/assistantEventFence';
+import {
+    createAssistantSteering,
+    type IAssistantSubmitPayload,
+} from '@app/modules/agent-panel/utils/createAssistantSteering';
 import { useAssistantImageComposer } from '@app/modules/agent-panel/composables/useAssistantImageComposer';
 import {
     ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS,
@@ -138,13 +142,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         log?: boolean;
     }
 
-    interface IAssistantSubmitPayload {
-        text: string;
-        attachments?: IAgentAssistantImageAttachment[];
-        presetId?: TAgentAssistantPresetId;
-    }
-
     const queuedSteer = ref<IAssistantSubmitPayload | null>(null);
+    const queuedSteerSendInFlight = ref(false);
+    const interruptInFlight = ref(false);
     const emptyState = computed<IAgentAssistantState>(() => createEmptyAssistantState({
         chatScope: chatScope.value,
         selectedProvider: selectedProvider.value,
@@ -183,17 +183,25 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const canFocusComposerInput = computed(() => hasComposer.value);
     const hasMessages = computed(() => messages.value.length > 0 || isTurnActive.value);
     const trimmedDraft = computed(() => draft.value.trim());
-    const isBtwDraft = computed(() => isAssistantBtwCommand(trimmedDraft.value));
+    const isBtwDraft = computed(() => (
+        composerImages.value.length === 0
+        && isAssistantBtwCommand(trimmedDraft.value)
+    ));
     const hasComposerPayload = computed(() => trimmedDraft.value.length > 0 || composerImages.value.length > 0);
+    const hasQueuedSteer = computed(() => queuedSteer.value !== null);
     const canQueueSteer = computed(() => (
         isTurnActive.value
-        && trimmedDraft.value.length > 0
-        && composerImages.value.length === 0
+        && !hasQueuedSteer.value
+        && !queuedSteerSendInFlight.value
+        && !isImageIngestionPending.value
+        && hasComposerPayload.value
     ));
     const canSend = computed(() => (
         Boolean(chatScope.value)
-        &&
-        hasComposerPayload.value
+        && !hasQueuedSteer.value
+        && !queuedSteerSendInFlight.value
+        && !isImageIngestionPending.value
+        && hasComposerPayload.value
         && (
             !isSending.value
             || isBtwDraft.value
@@ -210,9 +218,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             || status.value.runtimeState === 'busy'
         )
     ));
-    const canRetryAssistantError = computed(() => status.value.errorEnvelope?.retryable === true && (
-        !isTurnActive.value || isTurnStalled.value
-    ));
+    const canRetryAssistantError = computed(() => status.value.errorEnvelope?.retryable === true
+        && !hasQueuedSteer.value && !queuedSteerSendInFlight.value
+        && (!isTurnActive.value || isTurnStalled.value));
     const installButtonLabel = computed(() => isInstalling.value
         ? t('assistant.installingCodex')
         : t('assistant.installCodex'));
@@ -280,6 +288,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
     }, ASSISTANT_STATUS_HEARTBEAT_MS);
     const {
+        clearComposerImages,
         closeExpandedImage,
         expandImage,
         expandedImage,
@@ -287,13 +296,13 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         expandedImageItem,
         handleComposerPaste,
         handleExpandedImageKeydown,
+        isImageIngestionPending,
         navigateExpandedImage,
+        replaceComposerImages,
         removeComposerImage,
     } = useAssistantImageComposer({
         composerError,
         composerImages,
-        isSending,
-        isTurnActive,
         t,
     });
     function setTurnActivity(activity: string) {
@@ -702,9 +711,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         sendGeneration += 1;
         applyOptimisticSelection(nextProvider, selectedModel.value, selectedEffort.value, selectedSpeedMode.value, false);
         draft.value = '';
-        composerImages.value = [];
-        composerError.value = '';
+        clearComposerImages();
         queuedSteer.value = null;
+        queuedSteerSendInFlight.value = false;
         isSending.value = false;
         isSwitchingAssistant.value = true;
         guardAsync(refreshState().finally(() => {
@@ -820,9 +829,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         payload: IAssistantSubmitPayload,
         errorTitle: string,
         onSendError?: () => void,
-    ) {
+    ): Promise<boolean> {
         if (!chatScope.value) {
-            return;
+            return false;
         }
         const generation = sendGeneration;
         const attachments = payload.attachments ?? [];
@@ -839,9 +848,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
                 ...(payload.presetId ? { presetId: payload.presetId } : {}),
             });
             if (generation !== sendGeneration) {
-                return;
+                return false;
             }
             applyState(result.state);
+            return true;
         } catch (error) {
             if (generation === sendGeneration) {
                 onSendError?.();
@@ -852,12 +862,33 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             } else {
                 reportAssistantActionError(error, { title: 'Stale assistant message request failed' });
             }
+            return false;
         } finally {
             if (generation === sendGeneration) {
                 isSending.value = isTurnActive.value;
             }
         }
     }
+    const {
+        flushQueuedSteerIfReady,
+        queueSteer,
+    } = createAssistantSteering({
+        chatScope,
+        clearComposerImages,
+        composerError,
+        draft,
+        handleInterrupt,
+        isSending,
+        isTurnActive,
+        queuedSteer,
+        queuedSteerSendInFlight,
+        replaceComposerImages,
+        sendGeneration: () => sendGeneration,
+        setTurnActivity,
+        submitAssistantPayload,
+        scopeFingerprint: () => buildAgentAssistantScopeFingerprint(selectedProvider.value, chatScope.value),
+        t,
+    });
     function presetLabel(presetId: TAgentAssistantPresetId) {
         if (presetId === 'add-bookmarks') {
             return t('assistant.presetAddBookmarks');
@@ -879,35 +910,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             'Failed to send assistant preset',
         );
     }
-    function queueSteer(payload: IAssistantSubmitPayload) {
-        queuedSteer.value = payload;
-        draft.value = '';
-        composerImages.value = [];
-        composerError.value = '';
-        setTurnActivity(t('assistant.steerQueued'));
-        if (status.value.turn.phase !== 'interrupting') {
-            handleInterrupt();
-        }
-    }
-
-    function flushQueuedSteerIfReady() {
-        if (!queuedSteer.value || isTurnActive.value || isSending.value || !chatScope.value) {
-            return;
-        }
-
-        const payload = queuedSteer.value;
-        queuedSteer.value = null;
-        setTurnActivity(t('assistant.steerSending'));
-        void submitAssistantPayload(
-            payload,
-            'Failed to send queued assistant steer',
-            () => {
-                draft.value = payload.text;
-                composerImages.value = payload.attachments ?? [];
-            },
-        );
-    }
-
     async function sendMessage() {
         if (!canSend.value) {
             return;
@@ -916,9 +918,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             return;
         }
         const text = trimmedDraft.value;
-        if (isAssistantBtwCommand(text)) {
+        if (isBtwDraft.value) {
             draft.value = '';
-            composerError.value = '';
+            clearComposerImages();
             addLocalAssistantStatusMessage(buildAssistantBtwMessage());
             return;
         }
@@ -926,16 +928,14 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             image: IAgentAssistantImageAttachment,
         ) => ({ ...image }));
         if (isTurnActive.value) {
-            if (attachments.length > 0) {
-                composerError.value = t('assistant.steerImagesUnsupported');
-                return;
-            }
-            queueSteer({text});
+            queueSteer({
+                text,
+                attachments,
+            });
             return;
         }
         draft.value = '';
-        composerImages.value = [];
-        composerError.value = '';
+        clearComposerImages();
         await submitAssistantPayload(
             {
                 text,
@@ -944,18 +944,21 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             'Failed to send assistant message',
             () => {
                 draft.value = text;
-                composerImages.value = attachments;
+                replaceComposerImages(attachments);
             },
         );
     }
-
     function handleSendMessage() {
         void sendMessage();
     }
-
     async function retryLastAssistantMessage() {
         const lastUserMessage = [...messages.value].reverse().find(message => message.role === 'user');
-        if (!lastUserMessage || isTurnActive.value && !isTurnStalled.value) {
+        if (
+            !lastUserMessage
+            || hasQueuedSteer.value
+            || queuedSteerSendInFlight.value
+            || isTurnActive.value && !isTurnStalled.value
+        ) {
             return;
         }
         const attachments = lastUserMessage.attachments?.map(attachment => ({...attachment})) ?? [];
@@ -967,31 +970,33 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             attachments,
         }, 'Failed to retry assistant message', () => {
             draft.value = lastUserMessage.text;
-            composerImages.value = attachments;
+            replaceComposerImages(attachments);
         });
     }
-
     async function interrupt() {
-        if (!chatScope.value) {
+        if (!chatScope.value || interruptInFlight.value || status.value.turn.phase === 'interrupting') {
             return;
         }
+        interruptInFlight.value = true;
         sendGeneration += 1;
-        applyState(await getAgentCapability().interruptAssistant(createAssistantStateRequest()));
+        try {
+            applyState(await getAgentCapability().interruptAssistant(createAssistantStateRequest()));
+        } finally {
+            interruptInFlight.value = false;
+        }
     }
-
     function handleInterrupt() {
         runAssistantUiAction(interrupt, { title: 'Failed to interrupt assistant turn' });
     }
-
     async function resetChat() {
         if (!chatScope.value) {
             return;
         }
         sendGeneration += 1;
         draft.value = '';
-        composerImages.value = [];
-        composerError.value = '';
+        clearComposerImages();
         queuedSteer.value = null;
+        queuedSteerSendInFlight.value = false;
         isResetting.value = true;
         try {
             applyState(await getAgentCapability().resetAssistantChat(createAssistantStateRequest()));
@@ -1000,11 +1005,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             isSending.value = isTurnActive.value;
         }
     }
-
     function handleResetChat() {
         runAssistantUiAction(resetChat, { title: 'Failed to reset assistant chat' });
     }
-
     function roleLabel(role: TAgentAssistantMessageRole) {
         if (role === 'user') {
             return t('assistant.roleUser');
@@ -1014,7 +1017,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
         return t('assistant.roleAssistant');
     }
-
     watch(() => buildAgentAssistantScopeFingerprint(selectedProvider.value, chatScope.value), () => {
         interruptAssistantStateBestEffort(state.value, 'Failed to interrupt assistant turn before switching scope');
         stateGeneration += 1;
@@ -1022,9 +1024,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         state.value = null;
         hasLoadedState.value = false;
         draft.value = '';
-        composerImages.value = [];
-        composerError.value = '';
+        clearComposerImages();
         queuedSteer.value = null;
+        queuedSteerSendInFlight.value = false;
         isSending.value = false;
         guardAsync(refreshState(), {
             category: 'user-visible-operation',
@@ -1036,10 +1038,8 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             }),
         });
     });
-
     let unsubscribe: (() => void) | null = null;
     useAssistantComposerAutofocus(composerInputRef, canFocusComposerInput);
-
     watch([
         isTurnActive,
         isSending,
@@ -1047,7 +1047,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     ], () => {
         flushQueuedSteerIfReady();
     }, { flush: 'post' });
-
     onMounted(() => {
         unsubscribe = getAgentCapability().onAssistantEvent(handleAssistantEvent);
         guardAsync(refreshState(), {
@@ -1108,6 +1107,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         hasActiveDocument,
         hasAnyDocument,
         hasComposer,
+        hasQueuedSteer,
         hasLoadedState,
         hasMessages,
         headerIcon,

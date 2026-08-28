@@ -461,6 +461,7 @@
                                         variant="solid"
                                         size="xs"
                                         type="button"
+                                        :disabled="hasQueuedSteer"
                                         @click="removeComposerImage(image.id)"
                                     />
                                 </div>
@@ -477,7 +478,7 @@
                                 class="agent-assistant-input app-scrollbar app-scroll-region--balanced"
                                 :placeholder="placeholderText"
                                 rows="3"
-                                :disabled="!hasComposer"
+                                :disabled="!hasComposer || hasQueuedSteer"
                                 @keydown.enter.exact.prevent="handleSendMessage"
                                 @paste="handleComposerPaste"
                             />
@@ -736,6 +737,7 @@ const {
     handleSendMessage,
     handleStartLogin,
     hasComposer,
+    hasQueuedSteer,
     hasLoadedState,
     hasMessages,
     headerIcon,

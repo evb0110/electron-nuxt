@@ -112,7 +112,7 @@
                     :raster-scheduler="pdfRasterScheduler"
                     :current-page="currentPage"
                     :total-pages="totalPages"
-                    :page-labels="pageLabels"
+                    :page-labels="toolbarPageLabels"
                     :page-label-ranges="pageLabelRanges"
                     :search-results="results"
                     :current-result-index="currentResultIndex"
@@ -742,6 +742,7 @@ const {
 } = exportWorkflow;
 const {
     pageLabels,
+    pageLabelModel,
     pageLabelRanges,
     pageLabelsDirty,
     pageLabelsResolved,
@@ -1075,6 +1076,7 @@ const {
     statusZoomLabel,
     totalPages: toolbarTotalPages,
     pageLabels,
+    pageLabelModel,
     pageLabelsResolved,
     isAnySaving,
     t,
@@ -1358,6 +1360,8 @@ const {
     originalPath,
     pageLabelRanges,
     pageLabels,
+    pageLabelModel,
+    pageLabelsResolved,
     pageLabelsDirty,
     pageOpsDelete: documentControls.pageOpsDelete,
     pageOpsExtract: documentControls.pageOpsExtract,

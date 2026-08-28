@@ -149,6 +149,7 @@ import {useDocumentSidebarCapabilitySession} from '@app/utils/document-viewer/si
 import { createPdfDocumentSearchSession } from '@app/modules/pdf-viewer/search/createPdfDocumentSearchSession';
 import { SIDEBAR } from '@app/constants/pdfLayout';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+import type { TDocumentPageLabelLookup } from '@app/utils/document-viewer/pageLabels';
 
 type TPageSelectionInput = number[] | TPageSelection;
 
@@ -159,7 +160,7 @@ interface IProps {
     rasterScheduler: IPdfPageRasterScheduler | null;
     currentPage: number;
     totalPages: number;
-    pageLabels?: string[] | null | undefined;
+    pageLabels?: TDocumentPageLabelLookup | undefined;
     pageLabelRanges?: IPdfPageLabelRange[] | undefined;
     searchResults: IPdfSearchMatch[];
     currentResultIndex: number;

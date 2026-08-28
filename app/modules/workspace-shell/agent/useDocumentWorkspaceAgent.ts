@@ -197,6 +197,8 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
 
     const pageLabelsAgent = createDocumentAgentPageLabels({
         handlePageLabelRangesUpdate,
+        pageLabelModel: options.pageLabelModel,
+        pageLabelsResolved: options.pageLabelsResolved,
         pageLabelRanges,
         pageLabels,
         pageLabelsDirty,

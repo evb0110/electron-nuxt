@@ -63,6 +63,7 @@ interface IAssistantRuntime {
     client: CodexAppServerClient;
     generation: number;
     codexPath: string;
+    codexVersion: string;
     codeHome: string;
     cwd: string;
     mcpToken: string;
@@ -297,13 +298,22 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         }
 
         if (runtime) {
+            const runtimeUsesCurrentCodex = codexInfoCache === null
+                || (
+                    codexInfoCache.isVersionSupported
+                    && codexInfoCache.path === runtime.codexPath
+                    && codexInfoCache.version === runtime.codexVersion
+                );
             if (
-                runtime.mcpServerName === ASSISTANT_MCP_SERVER_NAME
+                runtimeUsesCurrentCodex
+                && runtime.mcpServerName === ASSISTANT_MCP_SERVER_NAME
                 && runtime.mcpContractVersion === ASSISTANT_MCP_CONTRACT_VERSION
             ) {
                 return runtime;
             }
-            options.logger.info('Restarting Codex assistant runtime for updated embedded MCP contract.');
+            options.logger.info(runtimeUsesCurrentCodex
+                ? 'Restarting Codex assistant runtime for updated embedded MCP contract.'
+                : 'Restarting Codex assistant runtime for the installed Codex version.');
             await shutdownCodexRuntime();
         }
 
@@ -334,7 +344,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             options.publishCodexState();
             throw new Error('Codex is not installed.');
         }
-        if (!codexInfo.isVersionSupported) {
+        if (!codexInfo.isVersionSupported || !codexInfo.version) {
             options.providerRuntime.runtimeState = 'error';
             options.providerRuntime.lastError = `Codex ${codexInfo.version ?? ''} is too old. EVB Assistant requires Codex ${codexInfo.minimumVersion} or newer.`;
             options.publishCodexState();
@@ -379,6 +389,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             client,
             generation,
             codexPath: codexInfo.path,
+            codexVersion: codexInfo.version,
             codeHome,
             cwd,
             mcpToken,

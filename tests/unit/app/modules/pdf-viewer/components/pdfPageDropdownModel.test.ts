@@ -9,6 +9,7 @@ import {
     resolvePdfPageDropdownDisplayPage,
     stepPdfPageDropdownCommand,
 } from '@app/modules/pdf-viewer/engine/pdfPageDropdownModel';
+import { createPageLabelModel } from '@app/utils/document-viewer/pageLabels';
 
 function createPageLabels() {
     return Array.from({length: 584}, (_, index) => {
@@ -69,5 +70,78 @@ describe('pdfPageDropdownModel', () => {
 
         expect(page).toBe(1);
         expect(getPdfPageDropdownInputLabel(page, createPageLabels())).toBe('Cover');
+    });
+
+    it('keeps logical and physical page numbers visible together', () => {
+        const labels = [
+            'Cover',
+            ...Array.from({length: 271}, (_, index) => String(index + 1)),
+            'Back Cover',
+        ];
+
+        expect(getPdfPageDropdownIndicatorParts({
+            page: 1,
+            pageLabels: labels,
+            totalPages: 273,
+        })).toEqual({
+            primary: 'Cover',
+            secondary: '(1)',
+        });
+        expect(getPdfPageDropdownIndicatorParts({
+            page: 272,
+            pageLabels: labels,
+            totalPages: 273,
+        })).toEqual({
+            primary: '271',
+            secondary: '(272)',
+        });
+    });
+
+    it('uses the compact range model when a whole-document labels array is unavailable', () => {
+        const pageLabelModel = createPageLabelModel(273, [
+            {
+                startPage: 1,
+                style: null,
+                prefix: 'Cover',
+                startNumber: 1,
+            },
+            {
+                startPage: 2,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: 273,
+                style: null,
+                prefix: 'Back Cover',
+                startNumber: 1,
+            },
+        ]);
+
+        expect(getPdfPageDropdownIndicatorParts({
+            page: 1,
+            pageLabels: pageLabelModel,
+            totalPages: 273,
+        })).toEqual({
+            primary: 'Cover',
+            secondary: '(1)',
+        });
+        expect(getPdfPageDropdownIndicatorParts({
+            page: 272,
+            pageLabels: pageLabelModel,
+            totalPages: 273,
+        })).toEqual({
+            primary: '271',
+            secondary: '(272)',
+        });
+        expect(getPdfPageDropdownIndicatorParts({
+            page: 273,
+            pageLabels: pageLabelModel,
+            totalPages: 273,
+        })).toEqual({
+            primary: 'Back Cover',
+            secondary: '(273)',
+        });
     });
 });

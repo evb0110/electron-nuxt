@@ -40,7 +40,9 @@ import {
 export const CODEX_APP_INSTALL_URL = 'https://developers.openai.com/codex/app';
 export const CODEX_STANDALONE_INSTALL_URL = resolvePinnedCodexCliArtifact()?.url
     ?? CODEX_APP_INSTALL_URL;
-const MIN_CODEX_APP_SERVER_VERSION = '0.133.0';
+// Codex 0.150.1 keeps sampling after intermediate assistant/commentary chunks.
+// Older app-server builds can stop the turn after a progress update.
+const MIN_CODEX_APP_SERVER_VERSION = PINNED_CODEX_CLI_VERSION;
 
 const CODEX_COMMAND_TIMEOUT_MS = 15_000;
 const CODEX_INSTALL_TIMEOUT_MS = 5 * 60_000;

@@ -31,6 +31,7 @@
 <script setup lang="ts">
 import type { IResolvedSearchMatchOptions } from '@contracts/search';
 import type { IDocumentSearchSession } from '@app/utils/document-viewer/search/documentSearch';
+import type { TDocumentPageLabelLookup } from '@app/utils/document-viewer/pageLabels';
 import DocumentSearchBar from '@app/components/document-viewer/DocumentSearchBar.vue';
 import DocumentSearchResults from '@app/components/document-viewer/DocumentSearchResults.vue';
 
@@ -43,7 +44,7 @@ const {
     session: IDocumentSearchSession;
     isActive?: boolean;
     focusRequest?: number;
-    pageLabels?: string[] | null;
+    pageLabels?: TDocumentPageLabelLookup;
 }>();
 
 const searchBarRef = ref<{focus: () => void} | null>(null);

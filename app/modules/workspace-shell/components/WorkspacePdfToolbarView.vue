@@ -273,6 +273,7 @@ import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 import type {IOcrPopupAgentExpose} from '@app/types/ocrPopupAgentExpose';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IReaderCommandSurface } from '@app/utils/readerCommandSurface';
+import type { TDocumentPageLabelLookup } from '@app/utils/document-viewer/pageLabels';
 import {
     formatScanCleanupProgress,
     isScanCleanupRunning,
@@ -332,7 +333,7 @@ const {
     viewingReady?: boolean | undefined;
     controlsDisabled?: boolean | undefined;
     pageDropdownTotalPages?: number | undefined;
-    pageLabels?: string[] | null | undefined;
+    pageLabels?: TDocumentPageLabelLookup | undefined;
     navigationFeedbackPage?: number | null | undefined;
     navigationCommand?: {
         page: number;

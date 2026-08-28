@@ -54,10 +54,6 @@ describe('assistantSelectionLock', () => {
             patch: {isSending: true},
         },
         {
-            name: 'backend runtime is busy',
-            patch: {runtimeState: 'busy' as const},
-        },
-        {
             name: 'turn is starting',
             patch: {turn: startingTurn},
         },
@@ -77,6 +73,10 @@ describe('assistantSelectionLock', () => {
     });
 
     it('does not lock selection for stopped or errored idle states', () => {
+        expect(isAssistantSelectionLocked({
+            ...idleState,
+            runtimeState: 'busy',
+        })).toBe(false);
         expect(isAssistantSelectionLocked({
             ...idleState,
             runtimeState: 'stopped',

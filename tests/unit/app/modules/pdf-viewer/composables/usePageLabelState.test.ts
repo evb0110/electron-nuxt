@@ -202,6 +202,46 @@ describe('usePageLabelState', () => {
         expect(onPageLabelsDirty).not.toHaveBeenCalled();
     });
 
+    it('repairs missing visible labels when the canonical ranges are unchanged', () => {
+        const onPageLabelsDirty = vi.fn();
+        const state = usePageLabelState({
+            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
+            totalPages: ref(4),
+            markDirty: vi.fn(),
+            onPageLabelsDirty,
+        });
+        const ranges: IPdfPageLabelRange[] = [
+            {
+                startPage: 1,
+                style: null,
+                prefix: 'Cover',
+                startNumber: 1,
+            },
+            {
+                startPage: 2,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        ];
+
+        state.handlePageLabelRangesUpdate(ranges);
+        state.markPageLabelsSaved();
+        state.pageLabels.value = null;
+        onPageLabelsDirty.mockClear();
+
+        state.handlePageLabelRangesUpdate(ranges);
+
+        expect(state.pageLabels.value).toEqual([
+            'Cover',
+            '1',
+            '2',
+            '3',
+        ]);
+        expect(state.pageLabelsDirty.value).toBe(false);
+        expect(onPageLabelsDirty).not.toHaveBeenCalled();
+    });
+
     it('collapses default numbering edits back to null labels', () => {
         const state = usePageLabelState({
             pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),

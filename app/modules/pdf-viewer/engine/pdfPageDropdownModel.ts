@@ -1,5 +1,9 @@
 import type { TPdfViewMode } from '@contracts/shared';
 import { stepBySpread } from '@app/utils/pdfViewMode';
+import {
+    getVisiblePageLabel,
+    type TDocumentPageLabelLookup,
+} from '@app/utils/document-viewer/pageLabels';
 
 export interface IPdfPageDropdownDisplayPageOptions {
     currentPage: number;
@@ -9,7 +13,7 @@ export interface IPdfPageDropdownDisplayPageOptions {
 
 export interface IPdfPageDropdownIndicatorOptions {
     page: number;
-    pageLabels: string[] | null;
+    pageLabels: TDocumentPageLabelLookup;
     totalPages: number;
 }
 
@@ -49,8 +53,8 @@ export function resolvePdfPageDropdownDisplayPage(options: IPdfPageDropdownDispl
     return normalizePdfPageDropdownPage(page, options.totalPages);
 }
 
-export function getPdfPageDropdownInputLabel(page: number, pageLabels: string[] | null) {
-    const label = pageLabels?.[page - 1] ?? '';
+export function getPdfPageDropdownInputLabel(page: number, pageLabels: TDocumentPageLabelLookup) {
+    const label = getVisiblePageLabel(page, pageLabels) ?? '';
     return label.trim() || page.toString();
 }
 
@@ -63,7 +67,7 @@ export function getPdfPageDropdownIndicatorParts(options: IPdfPageDropdownIndica
     }
 
     const page = normalizePdfPageDropdownPage(options.page, options.totalPages);
-    const logical = options.pageLabels?.[page - 1]?.trim() ?? '';
+    const logical = getVisiblePageLabel(page, options.pageLabels) ?? '';
     if (!logical || logical === String(page)) {
         return {
             primary: String(page),

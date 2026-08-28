@@ -143,6 +143,12 @@ export const usePageLabelState = (deps: {
         );
         const unchanged = isEqual(normalized, currentNormalized);
         if (unchanged) {
+            const expectedLabels = totalPages.value <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
+                ? materializePageLabelsForCompatibility(totalPages.value, normalized)
+                : null;
+            if (!isEqual(pageLabels.value, expectedLabels)) {
+                updatePageLabelModel(totalPages.value, normalized);
+            }
             return;
         }
         updatePageLabelModel(totalPages.value, normalized);

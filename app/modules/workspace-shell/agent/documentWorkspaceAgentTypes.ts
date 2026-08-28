@@ -18,6 +18,7 @@ import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWi
 import type { IOcrPopupAgentExpose } from '@app/types/ocrPopupAgentExpose';
 import type { IWorkspacePdfViewerAgentPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
+import type { IDocumentPageLabelModel } from '@app/utils/document-viewer/pageLabels';
 
 export type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 export type {IOcrPopupAgentExpose} from '@app/types/ocrPopupAgentExpose';
@@ -84,6 +85,8 @@ export interface IUseDocumentWorkspaceAgentOptions {
     originalPath: Ref<TDocumentRef | null>;
     pageLabelRanges: Ref<IPdfPageLabelRange[]>;
     pageLabels: Ref<string[] | null>;
+    pageLabelModel?: Ref<IDocumentPageLabelModel | null> | undefined;
+    pageLabelsResolved?: Ref<boolean> | undefined;
     pageLabelsDirty: Ref<boolean>;
     pageOpsDelete: (pages: number[], totalPages: number) => Promise<unknown>;
     pageOpsExtract: (pages: number[]) => Promise<unknown>;

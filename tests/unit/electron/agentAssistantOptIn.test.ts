@@ -661,6 +661,32 @@ describe('agent assistant opt-in gating', () => {
         expect(mocks.spawn).toHaveBeenCalledTimes(2);
     });
 
+    it('restarts a running assistant after installing a newer Codex runtime', async () => {
+        const oldProcess = enableAssistantRuntime();
+        const newProcess = new FakeCodexAppServerProcess();
+        const {
+            getAgentAssistantState,
+            installAgentAssistantCodex,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        await getAgentAssistantState();
+        expect(mocks.spawn).toHaveBeenCalledOnce();
+
+        mocks.installManagedCodex.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.150.1',
+            minimumVersion: '0.150.1',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.spawn.mockImplementation(() => newProcess);
+
+        await expect(installAgentAssistantCodex()).resolves.toMatchObject({ok: true});
+        expect(oldProcess.kill).toHaveBeenCalledOnce();
+        expect(mocks.spawn).toHaveBeenCalledTimes(2);
+        expect(newProcess.requestMethods).toContain('initialize');
+    });
+
     it('runs every shutdown cleanup request when shutdowns overlap', async () => {
         const process = enableAssistantRuntime();
         const {

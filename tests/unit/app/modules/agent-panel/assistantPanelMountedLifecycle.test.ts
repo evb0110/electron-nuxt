@@ -55,6 +55,15 @@ const scope = {
     tabId: 'tab-a',
 } as const;
 
+const steerImage = {
+    type: 'image' as const,
+    id: 'steer-image',
+    name: 'page.png',
+    mimeType: 'image/png',
+    sizeBytes: 100,
+    dataUrl: 'data:image/png;base64,c3RlZXI=',
+};
+
 function createReadyState(phase: IAgentAssistantState['status']['turn']['phase'] = 'streaming') {
     const state = createEmptyAssistantState({
         chatScope: scope,
@@ -151,6 +160,19 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
                     controller.draft.value = 'Continue';
                 },
             }, 'Set draft'),
+            h('button', {
+                class: 'set-image',
+                onClick: () => {
+                    controller.composerImages.value = [{...steerImage}];
+                },
+            }, 'Set image'),
+            h('button', {
+                class: 'send',
+                onClick: controller.handleSendMessage,
+            }, 'Send'),
+            h('output', {class: 'draft'}, controller.draft.value),
+            h('output', {class: 'queued'}, String(controller.hasQueuedSteer.value)),
+            h('output', {class: 'image-count'}, String(controller.composerImages.value.length)),
             h('button', {
                 class: 'set-retired-model',
                 onClick: () => controller.updateModel('gpt-5.5'),
@@ -277,6 +299,73 @@ describe('mounted assistant panel lifecycle', () => {
         expect(mocks.sendAssistantMessage).toHaveBeenCalledWith(expect.objectContaining({
             text: 'Summarize this document',
             scope,
+        }));
+        harness.unmount();
+    });
+
+    it('interrupts once and sends one image-only steer after the turn stops', async () => {
+        const harness = await mountHarness(createReadyState());
+        const setImage = harness.host.querySelector('.set-image') as HTMLButtonElement;
+        const send = harness.host.querySelector('.send') as HTMLButtonElement;
+
+        setImage.click();
+        await nextTick();
+        send.click();
+        send.click();
+
+        await vi.waitFor(() => {
+            expect(mocks.sendAssistantMessage).toHaveBeenCalledOnce();
+        });
+
+        expect(mocks.interruptAssistant).toHaveBeenCalledOnce();
+        expect(mocks.sendAssistantMessage).toHaveBeenCalledWith(expect.objectContaining({
+            text: '',
+            attachments: [steerImage],
+            scope,
+        }));
+        expect(harness.host.querySelector('.queued')?.textContent).toBe('false');
+        expect(harness.host.querySelector('.draft')?.textContent).toBe('');
+        expect(harness.host.querySelector('.image-count')?.textContent).toBe('0');
+        harness.unmount();
+    });
+
+    it('hides retry while a stalled turn has a queued steer', async () => {
+        mocks.interruptAssistant.mockReturnValueOnce(new Promise(() => undefined));
+        const harness = await mountHarness(createReadyState('stalled'));
+
+        (harness.host.querySelector('.set-draft') as HTMLButtonElement).click();
+        (harness.host.querySelector('.send') as HTMLButtonElement).click();
+        await nextTick();
+
+        expect(harness.host.querySelector('.queued')?.textContent).toBe('true');
+        expect(harness.host.querySelector('.retry')).toBeNull();
+        harness.unmount();
+    });
+
+    it('keeps a queued text-and-image steer visible and does not replace it', async () => {
+        const harness = await mountHarness(createReadyState());
+        const setImage = harness.host.querySelector('.set-image') as HTMLButtonElement;
+        const setDraft = harness.host.querySelector('.set-draft') as HTMLButtonElement;
+        const send = harness.host.querySelector('.send') as HTMLButtonElement;
+
+        setImage.click();
+        setDraft.click();
+        await nextTick();
+        send.click();
+        await nextTick();
+
+        expect(harness.host.querySelector('.queued')?.textContent).toBe('true');
+        expect(harness.host.querySelector('.draft')?.textContent).toBe('Continue');
+        expect(harness.host.querySelector('.image-count')?.textContent).toBe('1');
+        send.click();
+        expect(mocks.interruptAssistant).toHaveBeenCalledOnce();
+
+        await vi.waitFor(() => {
+            expect(mocks.sendAssistantMessage).toHaveBeenCalledOnce();
+        });
+        expect(mocks.sendAssistantMessage).toHaveBeenCalledWith(expect.objectContaining({
+            text: 'Continue',
+            attachments: [steerImage],
         }));
         harness.unmount();
     });

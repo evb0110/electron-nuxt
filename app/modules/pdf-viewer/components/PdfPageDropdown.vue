@@ -102,6 +102,7 @@ import ToolbarButton from '@app/components/ToolbarButton.vue';
 import {
     findPageByPageLabelInput,
     getPageIndicatorLayoutMetrics,
+    type TDocumentPageLabelLookup,
 } from '@app/utils/pdfPageLabels';
 import {
     getPdfPageDropdownIndicatorParts,
@@ -116,7 +117,7 @@ interface IProps {
     modelValue: number;
     totalPages: number;
     open: boolean;
-    pageLabels?: string[] | null;
+    pageLabels?: TDocumentPageLabelLookup;
     navigationPage?: number;
     disabled?: boolean;
     compactLevel?: number;
@@ -160,11 +161,15 @@ const commandPage = computed(() => resolvePdfPageDropdownDisplayPage({
 }));
 const displayPage = computed(() => commandPage.value);
 
-const effectivePageLabels = computed(() =>
-    pageLabels && pageLabels.length === totalPages
-        ? pageLabels
-        : null,
-);
+const effectivePageLabels = computed<TDocumentPageLabelLookup>(() => {
+    if (!pageLabels) {
+        return null;
+    }
+    if (Array.isArray(pageLabels)) {
+        return pageLabels.length === totalPages ? pageLabels : null;
+    }
+    return 'totalPages' in pageLabels && pageLabels.totalPages === totalPages ? pageLabels : null;
+});
 
 function getInputLabelForPage(page: number) {
     return getPdfPageDropdownInputLabel(page, effectivePageLabels.value);

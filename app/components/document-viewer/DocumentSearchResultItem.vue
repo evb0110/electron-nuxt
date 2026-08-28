@@ -27,14 +27,17 @@
 
 <script setup lang="ts">
 import type { IDocumentSearchMatch } from '@app/utils/document-viewer/providers/documentSearch';
-import { formatPageIndicatorWithOptions } from '@app/utils/document-viewer/pageLabels';
+import {
+    formatPageIndicatorWithOptions,
+    type TDocumentPageLabelLookup,
+} from '@app/utils/document-viewer/pageLabels';
 
 const { t } = useTypedI18n();
 
 interface IProps {
     result: IDocumentSearchMatch;
     isActive: boolean;
-    pageLabels?: string[] | null | undefined;
+    pageLabels?: TDocumentPageLabelLookup | undefined;
     showPageLabel?: boolean | undefined;
 }
 

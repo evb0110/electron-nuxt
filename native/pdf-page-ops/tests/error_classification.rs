@@ -66,12 +66,93 @@ fn run_crop(input: &Path, output: &Path, pages: &Path) -> Output {
         .unwrap()
 }
 
+#[cfg(unix)]
+fn run_pdf_conformance(input: &Path, output: &Path, qpdf: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["pdf-conformance", "--input"])
+        .arg(input)
+        .arg("--output")
+        .arg(output)
+        .arg("--qpdf")
+        .arg(qpdf)
+        .output()
+        .unwrap()
+}
+
+#[cfg(unix)]
+fn write_fake_qpdf(qpdf: &Path, status: i32, structure: &str) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let script = format!("#!/bin/sh\nprintf '%s' '{structure}'\nexit {status}\n");
+    write(qpdf, script).unwrap();
+    let mut permissions = qpdf.metadata().unwrap().permissions();
+    permissions.set_mode(0o700);
+    std::fs::set_permissions(qpdf, permissions).unwrap();
+}
+
 fn error_code(output: &Output) -> String {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     let envelope: Value = serde_json::from_str(stderr.trim())
         .unwrap_or_else(|error| panic!("invalid native error envelope ({error}): {stderr}"));
     envelope["code"].as_str().unwrap().to_string()
+}
+
+#[cfg(unix)]
+#[test]
+fn pdf_conformance_accepts_only_valid_qpdf_warning_output() {
+    const VALID_STRUCTURE: &str = r#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.4","maxobjectid":1},{"trailer":{"value":{"/Root":"1 0 R"}},"obj:1 0 R":{"value":{"/Type":"/Catalog"}}}]}"#;
+    const TRUNCATED_STRUCTURE: &str =
+        r#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.4","maxobjectid":1},{"trailer":{"value":{"#;
+    let input = path("qpdf-status-input", "pdf");
+    let mut document = Document::with_version("1.4");
+    let catalog_id = document.add_object(dictionary! { "Type" => "Catalog" });
+    document.trailer.set("Root", catalog_id);
+    document.save(&input).unwrap();
+
+    let warning_qpdf = path("qpdf-warning", "sh");
+    let warning_output = path("qpdf-warning-output", "json");
+    write_fake_qpdf(&warning_qpdf, 3, VALID_STRUCTURE);
+    let warning_result = run_pdf_conformance(&input, &warning_output, &warning_qpdf);
+    assert!(
+        warning_result.status.success(),
+        "valid warning-only qpdf output failed: {}",
+        String::from_utf8_lossy(&warning_result.stderr)
+    );
+    let facts: Value = serde_json::from_slice(&read(&warning_output).unwrap()).unwrap();
+    assert_eq!(facts["isSigned"], false);
+
+    let truncated_qpdf = path("qpdf-truncated-warning", "sh");
+    let truncated_output = path("qpdf-truncated-output", "json");
+    write_fake_qpdf(&truncated_qpdf, 3, TRUNCATED_STRUCTURE);
+    assert_eq!(
+        error_code(&run_pdf_conformance(
+            &input,
+            &truncated_output,
+            &truncated_qpdf,
+        )),
+        "native-failure"
+    );
+
+    let error_qpdf = path("qpdf-error", "sh");
+    let error_output = path("qpdf-error-output", "json");
+    write_fake_qpdf(&error_qpdf, 2, VALID_STRUCTURE);
+    assert_eq!(
+        error_code(&run_pdf_conformance(&input, &error_output, &error_qpdf)),
+        "corrupt-xref"
+    );
+
+    for candidate in [
+        input,
+        warning_qpdf,
+        warning_output,
+        truncated_qpdf,
+        truncated_output,
+        error_qpdf,
+        error_output,
+    ] {
+        let _ = remove_file(candidate);
+    }
 }
 
 #[test]

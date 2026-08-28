@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import type { TPdfViewMode } from '@contracts/shared';
 import { AGENT_CAPABILITY_TEMPLATES } from '@electron/features/agent/mcp/agentCapabilityTemplates';
 import { validateJsonObjectAgainstSchema } from '@electron/features/agent/mcp/mcpToolDefinitions';
@@ -30,6 +31,7 @@ import type {
     TWorkspaceAgentFitMode,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
+import { createPageLabelModel } from '@app/utils/document-viewer/pageLabels';
 import { cast } from '@tests/helpers/cast';
 import {
     requireDocumentInstanceId,
@@ -358,6 +360,120 @@ describe('useDocumentWorkspaceAgent', () => {
                 lastLabel: '5',
             },
         });
+    });
+
+    it('reports when page-label metadata is missing from the viewer controls', async () => {
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            pageLabelRanges: ref([
+                {
+                    startPage: 1,
+                    style: null,
+                    prefix: 'Cover',
+                    startNumber: 1,
+                },
+                {
+                    startPage: 2,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 1,
+                },
+            ]),
+            pageLabels: ref(null),
+        }));
+
+        await expect(agent.runAgentAction('page_labels.read', {})).resolves.toMatchObject({
+            viewerState: {
+                displayMode: 'physical-pages',
+                expectedDisplayMode: 'pdf-labels',
+                labelsMaterialized: false,
+                matchesMetadata: false,
+            },
+            issues: expect.arrayContaining([expect.objectContaining({code: 'viewer_page_labels_out_of_sync'})]),
+        });
+    });
+
+    it('reports the compact page-label lookup used by the viewer controls', async () => {
+        const ranges: IPdfPageLabelRange[] = [
+            {
+                startPage: 1,
+                style: null,
+                prefix: 'Cover',
+                startNumber: 1,
+            },
+            {
+                startPage: 2,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: 273,
+                style: null,
+                prefix: 'Back Cover',
+                startNumber: 1,
+            },
+        ];
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            pageLabelRanges: ref(ranges),
+            pageLabelModel: ref(createPageLabelModel(273, ranges)),
+            pageLabels: ref(null),
+            totalPages: ref(273),
+        }));
+
+        await expect(agent.runAgentAction('page_labels.read', {})).resolves.toMatchObject({
+            viewerState: {
+                displayMode: 'pdf-labels',
+                expectedDisplayMode: 'pdf-labels',
+                labelsMaterialized: false,
+                matchesMetadata: true,
+                lookup: 'range-model',
+                resolved: true,
+            },
+            samples: expect.arrayContaining([
+                {
+                    page: 1,
+                    label: 'Cover',
+                },
+                {
+                    page: 272,
+                    label: '271',
+                },
+                {
+                    page: 273,
+                    label: 'Back Cover',
+                },
+            ]),
+            issues: expect.not.arrayContaining([expect.objectContaining({code: 'viewer_page_labels_out_of_sync'})]),
+        });
+    });
+
+    it('includes the current viewer lookup state in a page-label preview', async () => {
+        const ranges: IPdfPageLabelRange[] = [
+            {
+                startPage: 1,
+                style: null,
+                prefix: 'Cover',
+                startNumber: 1,
+            },
+            {
+                startPage: 2,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        ];
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            pageLabelRanges: ref(ranges),
+            pageLabelModel: ref(createPageLabelModel(3, ranges)),
+            pageLabels: ref(null),
+        }));
+
+        await expect(agent.runAgentAction('page_labels.preview', {ranges})).resolves.toMatchObject({currentViewerState: {
+            displayMode: 'pdf-labels',
+            matchesMetadata: true,
+            lookup: 'range-model',
+            resolved: true,
+        }});
     });
 
     it('waits for document open to settle before validating bookmark plan page numbers', async () => {

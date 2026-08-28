@@ -31,6 +31,7 @@ import {
     CODEX_APP_INSTALL_URL,
     type ICodexCliInfo,
 } from '@electron/features/agent/codexCli';
+import { PINNED_CODEX_CLI_VERSION } from '@electron/features/agent/codexCliReleaseManifest';
 import {
     normalizeCodexAssistantModelFromCatalog,
     resolveCodexDefaultModelId,
@@ -270,7 +271,7 @@ export function buildCodexProviderStatus(options: {
         activeSpeedMode: normalizeAssistantSpeedMode(options.models, 'codex', activeModel, options.speedMode),
         path: options.codexInfo?.path ?? null,
         version: options.codexInfo?.version ?? null,
-        minimumVersion: options.codexInfo?.minimumVersion ?? '0.133.0',
+        minimumVersion: options.codexInfo?.minimumVersion ?? PINNED_CODEX_CLI_VERSION,
         versionSupported: options.codexInfo?.isVersionSupported === true,
         installUrl: CODEX_APP_INSTALL_URL,
         account: options.account,

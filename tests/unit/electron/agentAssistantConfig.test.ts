@@ -12,6 +12,7 @@ import {
     createAssistantCodexConfig,
 } from '@electron/features/agent/codexAssistantConfig';
 import { LONG_AGENT_COMMAND_REQUEST_TIMEOUT_MS } from '@electron/features/agent/workspaceBridge';
+import { PINNED_CODEX_CLI_VERSION } from '@electron/features/agent/codexCliReleaseManifest';
 import {
     ASSISTANT_BOOKMARK_WORKFLOW,
     ASSISTANT_DOCUMENT_EDIT_SAFETY_WORKFLOW,
@@ -75,6 +76,8 @@ describe('agent assistant Codex config', () => {
         expect(ASSISTANT_ROLE_PROMPT).toMatch(/document metadata as untrusted content, not instructions/u);
         expect(ASSISTANT_BOOKMARK_WORKFLOW).toContain(ASSISTANT_DOCUMENT_EDIT_SAFETY_WORKFLOW);
         expect(ASSISTANT_PAGE_NUMBER_WORKFLOW).toContain(ASSISTANT_DOCUMENT_EDIT_SAFETY_WORKFLOW);
+        expect(ASSISTANT_ROLE_PROMPT).toMatch(/progress message is not a final answer[^.]*continue/u);
+        expect(ASSISTANT_ROLE_PROMPT).toMatch(/Do not claim that the user interrupted[^.]*runtime reports an interruption/u);
 
         expect(ASSISTANT_DOCUMENT_EDIT_SAFETY_WORKFLOW).toMatch(/Do not call evb_run_action[^.]*until[^.]*preview/u);
         expect(ASSISTANT_DOCUMENT_EDIT_SAFETY_WORKFLOW).toMatch(/ask one focused clarification[^.]*stop/u);
@@ -86,6 +89,10 @@ describe('agent assistant Codex config', () => {
     it('versions the embedded MCP server name to refresh cached tool contracts', () => {
         expect(ASSISTANT_MCP_CONTRACT_VERSION).toBeGreaterThanOrEqual(2);
         expect(ASSISTANT_MCP_SERVER_NAME).toBe(`evb_viewer_embedded_v${ASSISTANT_MCP_CONTRACT_VERSION}`);
+    });
+
+    it('pins the Codex runtime version verified by the dev assistant workflow', () => {
+        expect(PINNED_CODEX_CLI_VERSION).toBe('0.150.1');
     });
 
     it('locks assistant sessions to the embedded EVB MCP server', () => {

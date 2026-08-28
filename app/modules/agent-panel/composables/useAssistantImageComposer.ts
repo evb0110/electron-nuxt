@@ -1,7 +1,4 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import type { IAgentAssistantImageAttachment } from '@contracts/agent';
 import type { TTranslateFn } from '@i18n-app';
 import {
@@ -17,10 +14,12 @@ import {
 export const useAssistantImageComposer = (options: {
     composerError: Ref<string>;
     composerImages: Ref<IAgentAssistantImageAttachment[]>;
-    isSending: Ref<boolean>;
-    isTurnActive: ComputedRef<boolean>;
     t: TTranslateFn;
 }) => {
+    let imageIngestionGeneration = 0;
+    let imageIngestionQueue: Promise<void> = Promise.resolve();
+    const pendingImageIngestions = ref(0);
+    const isImageIngestionPending = computed(() => pendingImageIngestions.value > 0);
     const expandedImage = ref<IExpandedImagePreview | null>(null);
     const expandedImageItem = computed(() => {
         const preview = expandedImage.value;
@@ -58,17 +57,49 @@ export const useAssistantImageComposer = (options: {
         }
         return options.t('assistant.imageReadFailed', { name: error.name });
     };
-    const addImages = async (files: File[]) => {
-        if (files.length === 0 || options.isSending.value) {
+    const invalidatePendingImageIngestion = () => {
+        imageIngestionGeneration += 1;
+    };
+    const replaceComposerImages = (images: readonly IAgentAssistantImageAttachment[]) => {
+        invalidatePendingImageIngestion();
+        options.composerImages.value = images.map(image => ({...image}));
+    };
+    const clearComposerImages = () => {
+        replaceComposerImages([]);
+        options.composerError.value = '';
+    };
+    const addImages = (files: File[]) => {
+        if (files.length === 0) {
             return;
         }
-        const result = await buildComposerImageAttachments({
-            files,
-            existingImages: options.composerImages.value,
-            fallbackName: index => options.t('assistant.imageAttachmentFallbackName', { count: index + 1 }),
-        });
-        options.composerImages.value = result.images;
-        options.composerError.value = formatError(result.error);
+        const generation = imageIngestionGeneration;
+        pendingImageIngestions.value += 1;
+        imageIngestionQueue = imageIngestionQueue
+            .catch(() => undefined)
+            .then(async () => {
+                if (generation !== imageIngestionGeneration) {
+                    return;
+                }
+                const result = await buildComposerImageAttachments({
+                    files,
+                    existingImages: options.composerImages.value,
+                    fallbackName: index => options.t('assistant.imageAttachmentFallbackName', { count: index + 1 }),
+                });
+                if (generation !== imageIngestionGeneration) {
+                    return;
+                }
+                options.composerImages.value = result.images;
+                options.composerError.value = formatError(result.error);
+            })
+            .catch(() => {
+                if (generation === imageIngestionGeneration) {
+                    const name = files[0]?.name ?? options.t('assistant.imageAttachmentFallbackName', {count: 1});
+                    options.composerError.value = options.t('assistant.imageReadFailed', {name});
+                }
+            })
+            .finally(() => {
+                pendingImageIngestions.value = Math.max(0, pendingImageIngestions.value - 1);
+            });
     };
     const handleComposerPaste = (event: ClipboardEvent) => {
         const imageFiles = getClipboardImageFiles(event.clipboardData);
@@ -76,13 +107,10 @@ export const useAssistantImageComposer = (options: {
             return;
         }
         event.preventDefault();
-        if (options.isTurnActive.value) {
-            options.composerError.value = options.t('assistant.imagePasteBusy');
-            return;
-        }
         void addImages(imageFiles);
     };
     const removeComposerImage = (imageId: string) => {
+        invalidatePendingImageIngestion();
         options.composerImages.value = options.composerImages.value.filter(image => image.id !== imageId);
         options.composerError.value = '';
     };
@@ -117,6 +145,7 @@ export const useAssistantImageComposer = (options: {
         }
     };
     return {
+        clearComposerImages,
         closeExpandedImage,
         expandImage,
         expandedImage,
@@ -124,7 +153,10 @@ export const useAssistantImageComposer = (options: {
         expandedImageItem,
         handleComposerPaste,
         handleExpandedImageKeydown,
+        invalidatePendingImageIngestion,
+        isImageIngestionPending,
         navigateExpandedImage,
+        replaceComposerImages,
         removeComposerImage,
     };
 };

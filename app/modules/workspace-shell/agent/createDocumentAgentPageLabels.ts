@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { isEqual } from 'es-toolkit/predicate';
 import {
     getAgentNumberInput,
     getAgentRawStringInput,
@@ -74,6 +75,14 @@ interface IAgentPageLabelSnapshot {
     segments: IAgentPageLabelSegment[];
     samples: IAgentPageLabelSample[];
     labels: string[] | null;
+    viewerState?: {
+        displayMode: 'pdf-labels' | 'physical-pages';
+        expectedDisplayMode: 'pdf-labels' | 'physical-pages';
+        labelsMaterialized: boolean;
+        matchesMetadata: boolean;
+        lookup: 'range-model' | 'array' | 'none';
+        resolved: boolean;
+    };
 }
 
 interface IAgentPageLabelPlan {
@@ -458,6 +467,18 @@ function lookupLabel(lookup: TDocumentPageLabelLookup, page: number) {
     return lookup?.labelAt(page) ?? '';
 }
 
+function lookupMatchesModel(
+    lookup: TDocumentPageLabelLookup,
+    model: IDocumentPageLabelModel,
+    totalPages: number,
+) {
+    if (isPageLabelArray(lookup)) {
+        return lookup.length === totalPages
+            && lookup.every((label, index) => label === model.labelAt(index + 1));
+    }
+    return lookup?.totalPages === totalPages && isEqual(lookup.ranges, model.ranges);
+}
+
 function isPageLabelArray(
     lookup: TDocumentPageLabelLookup,
 ): lookup is readonly string[] {
@@ -791,7 +812,8 @@ interface ICreateDocumentAgentPageLabelsOptions {
     handlePageLabelRangesUpdate: (ranges: IPdfPageLabelRange[]) => void;
     pageLabelRanges: Ref<IPdfPageLabelRange[]>;
     pageLabels: Ref<string[] | null>;
-    pageLabelModel?: Ref<IDocumentPageLabelModel | null>;
+    pageLabelModel?: Ref<IDocumentPageLabelModel | null> | undefined;
+    pageLabelsResolved?: Ref<boolean> | undefined;
     pageLabelsDirty: Ref<boolean>;
     totalPages: Ref<number>;
 }
@@ -802,6 +824,7 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
         pageLabelModel,
         pageLabelRanges,
         pageLabels,
+        pageLabelsResolved,
         pageLabelsDirty,
         totalPages,
     } = options;
@@ -831,13 +854,66 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
     }
 
     function createAgentPageLabelSnapshot() {
-        return createAgentPageLabelPlanSnapshot({
+        const viewerLabelsResolved = pageLabelsResolved?.value ?? true;
+        const viewerModel = viewerLabelsResolved
+            && pageLabelModel?.value?.totalPages === totalPages.value
+            ? pageLabelModel.value
+            : null;
+        const snapshot = createAgentPageLabelPlanSnapshot({
             totalPages: totalPages.value,
             dirty: pageLabelsDirty.value,
             pageLabelRanges: pageLabelRanges.value,
             pageLabels: pageLabels.value,
-            pageLabelModel: getEffectiveAgentPageLabelModel(),
+            pageLabelModel: viewerModel ?? getEffectiveAgentPageLabelModel(),
         });
+        const expectedModel = getEffectiveAgentPageLabelModel();
+        const expectedIsDefault = isImplicitDefaultPageLabels(
+            pageLabelRanges.value,
+            totalPages.value,
+        );
+        const viewerLookup: TDocumentPageLabelLookup = viewerModel
+            ?? (pageLabels.value?.length === totalPages.value ? pageLabels.value : null);
+        const viewerMatchesMetadata = viewerLabelsResolved && (viewerLookup === null
+            ? expectedIsDefault
+            : lookupMatchesModel(viewerLookup, expectedModel, totalPages.value));
+        const viewerLabelsMaterialized = Array.isArray(viewerLookup);
+        const viewerDisplayMode = viewerLookup === null ? 'physical-pages' : 'pdf-labels';
+        const expectedDisplayMode = expectedIsDefault ? 'physical-pages' : 'pdf-labels';
+        const viewerLookupKind = viewerModel
+            ? 'range-model' as const
+            : pageLabels.value?.length === totalPages.value
+                ? 'array' as const
+                : 'none' as const;
+        return {
+            ...snapshot,
+            viewerState: {
+                displayMode: viewerDisplayMode,
+                expectedDisplayMode,
+                labelsMaterialized: viewerLabelsMaterialized,
+                matchesMetadata: viewerMatchesMetadata,
+                lookup: viewerLookupKind,
+                resolved: viewerLabelsResolved,
+            },
+            issues: !viewerLabelsResolved
+                ? [
+                    ...snapshot.issues,
+                    {
+                        severity: 'warning' as const,
+                        code: 'viewer_page_labels_unresolved',
+                        message: 'The viewer page-label lookup is still resolving; do not claim the visible page indicator is verified.',
+                    },
+                ]
+                : viewerMatchesMetadata === false
+                    ? [
+                        ...snapshot.issues,
+                        {
+                            severity: 'warning' as const,
+                            code: 'viewer_page_labels_out_of_sync',
+                            message: 'The viewer page indicator is not using the current PDF page-label metadata.',
+                        },
+                    ]
+                    : snapshot.issues,
+        };
     }
 
     function updateAgentPageLabelRanges(ranges: IPdfPageLabelRange[]) {
@@ -971,7 +1047,7 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
     }
 
     function previewAgentPageLabelPlan(input: Record<string, unknown>, actionId: string) {
-        return createAgentPageLabelPlan({
+        const plan = createAgentPageLabelPlan({
             input,
             totalPages: totalPages.value,
             currentRanges: pageLabelRanges.value,
@@ -979,6 +1055,19 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
             dirty: pageLabelsDirty.value,
             actionId,
         });
+        const currentSnapshot = createAgentPageLabelSnapshot();
+        const viewerIssues = currentSnapshot.issues.filter(issue => (
+            issue.code === 'viewer_page_labels_unresolved'
+            || issue.code === 'viewer_page_labels_out_of_sync'
+        ));
+        return {
+            ...plan,
+            currentViewerState: currentSnapshot.viewerState,
+            issues: [
+                ...plan.issues,
+                ...viewerIssues,
+            ],
+        };
     }
 
     function applyAgentPageLabelPlan(input: Record<string, unknown>, actionId: string) {

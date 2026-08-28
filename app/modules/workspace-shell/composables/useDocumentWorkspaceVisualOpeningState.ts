@@ -3,6 +3,10 @@ import type {
     Ref,
 } from 'vue';
 import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/public';
+import type {
+    IDocumentPageLabelModel,
+    TDocumentPageLabelLookup,
+} from '@app/utils/document-viewer/pageLabels';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
@@ -20,6 +24,7 @@ interface IDocumentWorkspaceVisualOpeningStateOptions {
     statusZoomLabel: TReadableRef<string>;
     totalPages: TReadableRef<number>;
     pageLabels: TReadableRef<string[] | null>;
+    pageLabelModel?: TReadableRef<IDocumentPageLabelModel | null> | undefined;
     pageLabelsResolved: TReadableRef<boolean>;
     isAnySaving: TReadableRef<boolean>;
     t: (key: 'status.zoomUnknown') => string;
@@ -58,16 +63,21 @@ export const useDocumentWorkspaceVisualOpeningState = (options: IDocumentWorkspa
             || options.openingPreviewReady.value
         )
     ));
-    const toolbarPageLabels = computed(() => {
+    const toolbarPageLabels = computed<TDocumentPageLabelLookup>(() => {
         if (!documentMetadataReady.value) {
             return null;
         }
-        return resolveVisiblePageLabelsDuringMetadataRefresh({
+        const visiblePageLabels = resolveVisiblePageLabelsDuringMetadataRefresh({
             pageLabels: options.pageLabels.value,
             pageLabelsResolved: options.pageLabelsResolved.value,
             isSaving: options.isAnySaving.value,
             totalPages: options.totalPages.value,
         });
+        if (!options.pageLabelsResolved.value && !options.isAnySaving.value) {
+            return visiblePageLabels;
+        }
+        const model = options.pageLabelModel?.value;
+        return model?.totalPages === options.totalPages.value ? model : visiblePageLabels;
     });
     const toolbarControlsDisabled = computed(() => (
         !documentMetadataReady.value

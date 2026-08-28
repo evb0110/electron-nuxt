@@ -202,7 +202,11 @@ pub(crate) fn load_qpdf_structural_incremental_pdf(
         }
         thread::sleep(Duration::from_millis(25));
     };
-    if !status.success() {
+    // qpdf uses exit code 3 for warnings that did not prevent JSON generation.
+    // Keep that output on the normal bounded parse and structural-validation
+    // path. Any malformed or incomplete JSON still fails below; only a clean
+    // exit or qpdf's warning-only exit may reach the structural loader.
+    if !status.success() && status.code() != Some(3) {
         let diagnostics = read_file_bounded(
             &temp.diagnostics,
             MAX_QPDF_DIAGNOSTIC_BYTES,
@@ -750,6 +754,76 @@ mod tests {
         assert!(unrelated.exists());
 
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn load_with_fake_qpdf(status: i32, structure: &str) -> Result<IncrementalDocument> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let input_path = std::env::temp_dir().join(format!("evb-qpdf-status-input-{nonce}.pdf"));
+        let qpdf_path = std::env::temp_dir().join(format!("evb-qpdf-status-command-{nonce}"));
+
+        let mut input = Document::with_version("1.4");
+        let catalog_id = input.add_object(dictionary! { "Type" => "Catalog" });
+        input.trailer.set("Root", catalog_id);
+        input.save(&input_path)?;
+
+        let script = format!("#!/bin/sh\nprintf '%s' '{structure}'\nexit {status}\n");
+        fs::write(&qpdf_path, script)?;
+        fs::set_permissions(&qpdf_path, fs::Permissions::from_mode(0o700))?;
+
+        let result = load_qpdf_structural_incremental_pdf(&input_path, &qpdf_path);
+        let _ = fs::remove_file(&input_path);
+        let _ = fs::remove_file(&qpdf_path);
+        result
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn qpdf_warning_exit_with_valid_json_loads_the_structural_document() {
+        let result = load_with_fake_qpdf(
+            3,
+            r#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.4","maxobjectid":1},{"trailer":{"value":{"/Root":"1 0 R"}},"obj:1 0 R":{"value":{"/Type":"/Catalog"}}}]}"#,
+        )
+        .expect("qpdf warning-only output with valid JSON should load");
+
+        assert_eq!(result.previous_document.max_id, 1);
+        assert_eq!(result.previous_document.root_id().unwrap(), (1, 0));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn qpdf_warning_exit_with_truncated_json_fails_closed() {
+        let error = load_with_fake_qpdf(
+            3,
+            r#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.4","maxobjectid":1},{"trailer":{"value":{"#,
+        )
+            .expect_err("truncated qpdf JSON must fail closed");
+
+        let message = error.to_string();
+        assert!(
+            message.contains("EOF") || message.contains("expected"),
+            "unexpected qpdf JSON parse error: {message}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn qpdf_error_exit_fails_before_accepting_valid_json() {
+        let error = load_with_fake_qpdf(
+            2,
+            r#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.4","maxobjectid":1},{"trailer":{"value":{"/Root":"1 0 R"}},"obj:1 0 R":{"value":{"/Type":"/Catalog"}}}]}"#,
+        )
+        .expect_err("qpdf error exit must fail closed");
+
+        let native_error = error
+            .downcast_ref::<NativeError>()
+            .expect("qpdf process failures should carry a native error");
+        assert_eq!(native_error.code, NativeErrorCode::CorruptXref);
     }
 
     #[test]

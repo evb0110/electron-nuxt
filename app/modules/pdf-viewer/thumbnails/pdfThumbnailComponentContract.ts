@@ -6,6 +6,7 @@ import type {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+import type { TDocumentPageLabelLookup } from '@app/utils/document-viewer/pageLabels';
 import type {
     TPageMoveOperation,
     TPageSelection,
@@ -16,7 +17,7 @@ export interface IPdfThumbnailsProps {
     rasterScheduler: IPdfPageRasterScheduler | null;
     currentPage: number;
     totalPages: number;
-    pageLabels?: string[] | null | undefined;
+    pageLabels?: TDocumentPageLabelLookup | undefined;
     selectedPages?: number[] | undefined;
     selectedPageSelection?: TPageSelection | null | undefined;
     invalidationRequest?: {

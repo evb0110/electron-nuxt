@@ -112,7 +112,10 @@ import AppProgressBar from '@app/components/AppProgressBar.vue';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
 import DocumentSearchResultItem from '@app/components/document-viewer/DocumentSearchResultItem.vue';
 import { formatDocumentSearchResultsSummary } from '@app/utils/document-viewer/providers/formatDocumentSearchResultsSummary';
-import { formatPageIndicatorWithOptions } from '@app/utils/document-viewer/pageLabels';
+import {
+    formatPageIndicatorWithOptions,
+    type TDocumentPageLabelLookup,
+} from '@app/utils/document-viewer/pageLabels';
 
 const { t } = useTypedI18n();
 
@@ -121,7 +124,7 @@ interface IProps {
     currentResultIndex: number;
     currentResultNavigationId: number;
     searchQuery: string;
-    pageLabels?: string[] | null | undefined;
+    pageLabels?: TDocumentPageLabelLookup | undefined;
     isSearching?: boolean | undefined;
     searchError?: string | null | undefined;
     searchProgress?: {

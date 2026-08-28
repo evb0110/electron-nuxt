@@ -166,6 +166,7 @@ import {
     normalizePageLabelRanges,
     PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
     parsePageRangeInput,
+    type TDocumentPageLabelLookup,
 } from '@app/utils/document-viewer/pageLabels';
 import { arePageNumberListsEqual } from '@app/utils/pdfPageSelection';
 
@@ -174,7 +175,7 @@ type TNumberingScope = 'all' | 'range' | 'selection';
 interface IProps {
     totalPages: number;
     selectedPages: number[];
-    pageLabels?: string[] | null | undefined;
+    pageLabels?: TDocumentPageLabelLookup | undefined;
     pageLabelRanges?: IPdfPageLabelRange[] | undefined;
 }
 
@@ -271,7 +272,7 @@ const pageLabelStyleSelectValue = computed({
 const normalizedPageLabelRanges = computed(() => normalizePageLabelRanges(
     pageLabelRanges
         ?? (
-            pageLabels
+            Array.isArray(pageLabels)
             && totalPages <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
             && pageLabels.length === totalPages
                 ? derivePageLabelRangesFromLabels(pageLabels, totalPages)

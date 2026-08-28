@@ -210,7 +210,7 @@ function getSafeAssistantTurnProgress(method: string, params: unknown) {
     if (normalizedType.includes('mcp')) {
         return formatAssistantToolActivity(getThreadItemToolName(item), completed);
     }
-    return completed ? 'Assistant step completed' : 'Assistant is still working';
+    return completed ? 'Assistant is continuing' : 'Assistant is still working';
 }
 
 export function createAssistantAppServerNotificationController(options: IAssistantAppServerNotificationsOptions) {
