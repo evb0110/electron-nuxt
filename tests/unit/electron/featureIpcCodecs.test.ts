@@ -145,6 +145,28 @@ describe('feature IPC codec maps', () => {
         })).toThrow('invalid native PDF save result');
     });
 
+    it('preserves only an affirmative native mutation postcondition proof', () => {
+        const codec = DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
+            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy
+        ];
+        const verified = {
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native',
+                errors: [],
+                warnings: [],
+            },
+            nativeMutationPostconditionsVerified: true,
+        } as const;
+
+        expect(codec?.decodeResult(verified)).toEqual(verified);
+        expect(() => codec?.decodeResult({
+            ...verified,
+            nativeMutationPostconditionsVerified: false,
+        })).toThrow('invalid native PDF save result');
+    });
+
     it('canonically validates native mutation requests at the feature boundary', () => {
         const saveCodec = DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
             DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfNativeMutations

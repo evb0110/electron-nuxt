@@ -672,6 +672,13 @@ export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
 export interface IPdfNativeNoteTextSaveResult {
     applied: boolean;
     validation: IPdfValidationResult | null;
+    /**
+     * The native mutation writer checked every projected mutation against the
+     * staged appended revision before returning it. An affirmative proof lets
+     * the renderer avoid reopening a multi-gigabyte PDF in PDF.js merely to
+     * repeat the same semantic checks.
+     */
+    nativeMutationPostconditionsVerified?: true;
     error?: INativeErrorEnvelope;
     syncError?: string;
     /** Immutable native output. It is not visible as document state until committed. */

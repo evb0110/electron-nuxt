@@ -397,6 +397,10 @@ function decodeNativeSaveResult(value: unknown): IPdfNativeSaveResult {
     if (
         !isRecord(value)
         || typeof value.applied !== 'boolean'
+        || (
+            value.nativeMutationPostconditionsVerified !== undefined
+            && value.nativeMutationPostconditionsVerified !== true
+        )
         || (value.error !== undefined && !isNativeErrorEnvelope(value.error))
         || (value.syncError !== undefined && typeof value.syncError !== 'string')
     ) {
@@ -411,6 +415,9 @@ function decodeNativeSaveResult(value: unknown): IPdfNativeSaveResult {
     return {
         applied: value.applied,
         validation: decodeNullablePdfValidation(value.validation),
+        ...(value.nativeMutationPostconditionsVerified === true
+            ? {nativeMutationPostconditionsVerified: true as const}
+            : {}),
         ...(value.error === undefined ? {} : {error: value.error}),
         ...(value.syncError === undefined ? {} : {syncError: value.syncError}),
         ...(stagedOutput ? {stagedOutput} : {}),

@@ -446,6 +446,7 @@ async function runNativeWorkingCopyCommand(
             return {
                 applied: true,
                 validation,
+                nativeMutationPostconditionsVerified: true,
                 stagedOutput,
             };
         } catch (error) {

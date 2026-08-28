@@ -933,7 +933,15 @@ export function createDocumentPersistence(
                             throw new NativeMutationPreExposeError('Native mutation did not return an immutable staged output');
                         }
                         try {
-                            if (opts.verifyPathBeforeExpose) {
+                            // The native writer validates the projected mutation set against
+                            // the staged appended revision before it returns. Reopening a large
+                            // staged PDF in renderer PDF.js repeats those checks and can add
+                            // seconds of visible save latency. Older/native-adjacent callers
+                            // without the explicit proof retain the renderer verification.
+                            if (
+                                opts.verifyPathBeforeExpose
+                                && applied.nativeMutationPostconditionsVerified !== true
+                            ) {
                                 await measurePdfPersistPhase(
                                     phaseTimings,
                                     'native-verify-staged-path',

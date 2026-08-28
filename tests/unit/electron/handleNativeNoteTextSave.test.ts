@@ -996,6 +996,7 @@ describe('handleNativeNoteTextSave', () => {
         expect(staged).toMatchObject({
             applied: true,
             validation: {isValid: true},
+            nativeMutationPostconditionsVerified: true,
             stagedOutput: {
                 leaseId: 'staged-native-output',
                 validations: {

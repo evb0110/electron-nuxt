@@ -525,6 +525,52 @@ describe('createDocumentPersistence', () => {
         ]);
     });
 
+    it('uses native mutation postconditions instead of reopening a large staged PDF in PDF.js', async () => {
+        const { persistence } = createPersistenceHarness();
+        const verifyPathBeforeExpose = vi.fn(async () => undefined);
+        const assertBeforeExpose = vi.fn(async () => undefined);
+        mocks.documentFilesCapability.applyPdfNativeMutationsToWorkingCopy.mockResolvedValueOnce({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native',
+                errors: [],
+                warnings: [],
+            },
+            nativeMutationPostconditionsVerified: true,
+            stagedOutput: {
+                path: '/tmp/large-staged-native.pdf',
+                size: (2 * 1024 * 1024 * 1024) + 1,
+                sha256: 'b'.repeat(64),
+                leaseId: 'large-staged-native-lease',
+                revision: TEST_DOCUMENT_REVISION_TOKEN,
+            },
+        });
+
+        const result = await persistence.trySavePdfNativeMutations({freeTextNotes: [{
+            pageIndex: requirePageIndex(0),
+            stableKey: 'ann:0:verified-native-note',
+            text: 'Verified by native postconditions',
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.03,
+                height: 0.03,
+            },
+        }]}, {
+            saveMode: 'rewrite',
+            expectedWorkingPath: '/tmp/old-working.pdf',
+            modifiedAt: 'D:20260628123456+03\'00\'',
+            verifyPathBeforeExpose,
+            assertBeforeExpose,
+        });
+
+        expect(result?.success).toBe(true);
+        expect(verifyPathBeforeExpose).not.toHaveBeenCalled();
+        expect(assertBeforeExpose).toHaveBeenCalledOnce();
+        expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledOnce();
+    });
+
     it('propagates staged commit failures instead of returning the serialized-save fallback signal', async () => {
         const { persistence } = createPersistenceHarness();
         mocks.documentFilesCapability.commitStagedPdfNativeMutations.mockRejectedValueOnce(
