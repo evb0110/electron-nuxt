@@ -110,7 +110,8 @@ describe('Electron E2E fixture policy', () => {
             'utf8',
         );
 
-        expect(source).toContain('if (prewarmAtMs === null)');
+        expect(source).toContain('const startWhenPrewarmed = () =>');
+        expect(source).not.toContain('if (prewarmAtMs === null) {\n            finish(null)');
         expect(source).not.toContain('if (!currentTabCloseButton || prewarmAtMs === null)');
     });
 
