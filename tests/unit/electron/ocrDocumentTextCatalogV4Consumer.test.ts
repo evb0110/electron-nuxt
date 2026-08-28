@@ -63,10 +63,6 @@ const state = vi.hoisted(() => {
             };
         }),
         findFirstUnmapped: vi.fn(async () => 1),
-        readSnapshot: vi.fn(async () => ({
-            header: handle.header,
-            pages: [],
-        })),
         close: vi.fn(async () => undefined),
     };
     const openCatalog = vi.fn<() => Promise<typeof handle | null>>(async () => handle);
@@ -88,6 +84,19 @@ vi.mock('@electron/ocr/ocrCatalogV4', async () => {
     };
 });
 vi.mock('@electron/search/extractTextFromPdf', () => ({extractTextFromPdf: state.extractTextFromPdf}));
+// assembleSearchablePageText spreads per-character offset arrays and overflows
+// the stack for pages above roughly 128 KiB, so budget tests bypass it.
+vi.mock('@contracts/search', async () => {
+    const actual = await vi.importActual('@contracts/search') as Record<string, unknown>;
+    return {
+        ...actual,
+        assembleSearchablePageText: (items: ReadonlyArray<{text: string}>) => ({
+            text: items.map(item => item.text).join(' '),
+            itemOffsets: [],
+            sourceOffsets: [],
+        }),
+    };
+});
 vi.mock('@electron/search/loadPdfjsTextExtractor', () => ({loadPdfjsTextExtractor: async () => ({extractTextWithPdfjsWordBoxes: state.extractTextWithPdfjsWordBoxes})}));
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: state.assertWorkingCopyRevisionSidecarCurrent}));
 
@@ -151,7 +160,6 @@ describe('DocumentTextCatalog v4 consumers', () => {
         });
         expect(state.handle.readPage).toHaveBeenCalledWith(900_000);
         expect(state.handle.readWindow).toHaveBeenCalledWith(900_000, 1);
-        expect(state.handle.readSnapshot).not.toHaveBeenCalled();
     });
 
     it('rejects an oversized text window before traversing an xlarge catalog', async () => {
@@ -177,7 +185,6 @@ describe('DocumentTextCatalog v4 consumers', () => {
         });
         expect(state.extractTextFromPdf).not.toHaveBeenCalled();
         expect(state.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
-        expect(state.handle.readSnapshot).not.toHaveBeenCalled();
     });
 
     it('rejects an unbounded snapshot when no catalog supplies a page count', async () => {
@@ -221,6 +228,10 @@ describe('DocumentTextCatalog availability validation (SRCH-004)', () => {
 
 describe('DocumentTextCatalog bounded, revision-safe reads (SRCH-005)', () => {
     const MIB = 1024 * 1024;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
 
     afterEach(() => {
         state.assertWorkingCopyRevisionSidecarCurrent.mockReset();
@@ -316,7 +327,6 @@ describe('DocumentTextCatalog bounded, revision-safe reads (SRCH-005)', () => {
             10,
         )).rejects.toThrow('aggregate text budget');
         expect(pulled).toBe(3);
-        expect(state.handle.readSnapshot).not.toHaveBeenCalled();
     });
 
     it('does not return a snapshot across a working-copy revision change', async () => {

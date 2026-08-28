@@ -216,7 +216,6 @@ describe('writeOcrIndexV4', () => {
         expect(result.mappedPageCount).toBe(1);
         const handle = await openCatalog(root);
         await expect(handle?.readPage(5_000_000)).resolves.toMatchObject({text: 'page 5000000'});
-        await expect(handle?.readSnapshot()).rejects.toThrow('limited to 2048 pages');
         await handle?.close?.();
     });
 

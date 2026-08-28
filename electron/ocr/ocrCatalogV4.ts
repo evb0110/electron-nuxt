@@ -119,21 +119,6 @@ export interface IOcrCatalogWindowMapping {
     mapping: IOcrPageMappingV4 | null;
 }
 
-export interface IOcrCatalogSnapshotPage {
-    pageNumber: number;
-    mapping: IOcrPageMappingV4;
-    artifact: TOcrPageArtifact;
-}
-
-/**
- * Whole-catalog compatibility data. New large-document callers must use the
- * window and streaming methods on IOcrCatalogHandle instead.
- */
-export interface IOcrCatalogSnapshot {
-    header: IOcrCatalogHeader;
-    pages: IOcrCatalogSnapshotPage[];
-}
-
 export interface IOcrCatalogOpenOptions {
     mode?: 'readonly' | 'readwrite';
     expectedDocumentRevision?: TDocumentRevisionToken | IDocumentRevisionStamp;
@@ -144,7 +129,8 @@ export interface IOcrCatalogOpenOptions {
 export interface IOcrCatalogHandle {
     readonly header: IOcrCatalogHeader;
     readPage(pageNumber: number): Promise<TOcrPageArtifact | null>;
-    readWindow(start: number, count: number): Promise<IOcrCatalogWindowPage[]>;
+    /** Yields one page at a time so callers can stop pulling once a budget is spent. */
+    readWindow(start: number, count: number): AsyncIterable<IOcrCatalogWindowPage>;
     readWindowMappings(start: number, count: number): Promise<IOcrCatalogWindowMapping[]>;
     windowAvailability(start: number, count: number): Promise<Uint8Array>;
     iterateMappedPages(fromPage?: number): AsyncIterable<{
@@ -152,7 +138,6 @@ export interface IOcrCatalogHandle {
         artifact: TOcrPageArtifact
     }>;
     findFirstUnmapped(fromPage?: number): Promise<number | null>;
-    readSnapshot(): Promise<IOcrCatalogSnapshot>;
     close(): Promise<void>;
 }
 
@@ -1250,22 +1235,21 @@ class OcrCatalogV4Handle implements IOcrCatalogHandle {
         );
     }
 
-    async readWindow(start: number, count: number): Promise<IOcrCatalogWindowPage[]> {
+    async *readWindow(start: number, count: number): AsyncIterable<IOcrCatalogWindowPage> {
         assertWindowInRange(start, count, this.state.root.pageCount);
         const firstShard = shardForPage(start);
         const lastShard = shardForPage(start + count - 1);
         const records = await readIndexRecords(this.state, firstShard, lastShard);
         const shardData = new Map<number, IOcrShardV4>();
-        const result: IOcrCatalogWindowPage[] = [];
         for (let index = 0; index < count; index += 1) {
             const pageNumber = start + index;
             const shard = shardForPage(pageNumber);
             const record = records[shard - firstShard];
             if (!record || record.generation === 0 || record.mappedCount === 0) {
-                result.push({
+                yield {
                     pageNumber,
                     artifact: null,
-                });
+                };
                 continue;
             }
             let shardDataForPage = shardData.get(shard);
@@ -1274,7 +1258,7 @@ class OcrCatalogV4Handle implements IOcrCatalogHandle {
                 shardData.set(shard, shardDataForPage);
             }
             const mapping = shardDataForPage.pages[String(pageNumber)];
-            result.push({
+            yield {
                 pageNumber,
                 artifact: mapping
                     ? await loadPageArtifact(
@@ -1286,9 +1270,8 @@ class OcrCatalogV4Handle implements IOcrCatalogHandle {
                         false,
                     )
                     : null,
-            });
+            };
         }
-        return result;
     }
 
     async readWindowMappings(start: number, count: number): Promise<IOcrCatalogWindowMapping[]> {
@@ -1428,30 +1411,6 @@ class OcrCatalogV4Handle implements IOcrCatalogHandle {
         return null;
     }
 
-    async readSnapshot(): Promise<IOcrCatalogSnapshot> {
-        if (this.state.root.pageCount > OCR_SCALAR_PAGE_LIMIT) {
-            throw new OcrCatalogTooLargeError(this.state.root.pageCount);
-        }
-        const pages: IOcrCatalogSnapshotPage[] = [];
-        for await (const page of this.iterateMappedPages()) {
-            const shard = shardForPage(page.pageNumber);
-            const record = await readIndexRecord(this.state, shard);
-            const shardData = await this.readShard(shard, record);
-            const mapping = shardData.pages[String(page.pageNumber)];
-            if (mapping) {
-                pages.push({
-                    pageNumber: page.pageNumber,
-                    mapping,
-                    artifact: page.artifact,
-                });
-            }
-        }
-        return {
-            header: this.header,
-            pages,
-        };
-    }
-
     private async readShard(shard: number, record: IOcrShardIndexRecord): Promise<IOcrShardV4> {
         const relativePath = `${generationDirectoryName(record.generation)}/shards/${shardFileName(shard)}`;
         const shardPath = join(this.state.catalogRoot, relativePath);
@@ -1529,14 +1488,13 @@ class OcrCatalogV3Handle implements IOcrCatalogHandle {
         );
     }
 
-    async readWindow(start: number, count: number): Promise<IOcrCatalogWindowPage[]> {
+    async *readWindow(start: number, count: number): AsyncIterable<IOcrCatalogWindowPage> {
         assertWindowInRange(start, count, this.metadata.pageCount);
         const mappings = await readV3WindowMappings(this.catalogRoot, this.manifestPath, this.metadata, start, count);
-        const result: IOcrCatalogWindowPage[] = [];
         for (let index = 0; index < count; index += 1) {
             const pageNumber = start + index;
             const mapping = mappings.get(pageNumber);
-            result.push({
+            yield {
                 pageNumber,
                 artifact: mapping === undefined
                     ? null
@@ -1551,9 +1509,8 @@ class OcrCatalogV3Handle implements IOcrCatalogHandle {
                         0,
                         false,
                     ),
-            });
+            };
         }
-        return result;
     }
 
     async readWindowMappings(start: number, count: number): Promise<IOcrCatalogWindowMapping[]> {
@@ -1656,41 +1613,6 @@ class OcrCatalogV3Handle implements IOcrCatalogHandle {
             this.metadata,
             fromPage,
         );
-    }
-
-    async readSnapshot(): Promise<IOcrCatalogSnapshot> {
-        if (this.metadata.pageCount > OCR_SCALAR_PAGE_LIMIT) {
-            throw new OcrCatalogTooLargeError(this.metadata.pageCount);
-        }
-        const pages: IOcrCatalogSnapshotPage[] = [];
-        for (let first = 1; first <= this.metadata.pageCount; first += OCR_MAX_WINDOW_PAGES) {
-            const count = Math.min(OCR_MAX_WINDOW_PAGES, this.metadata.pageCount - first + 1);
-            const mappings = await this.readWindowMappings(first, count);
-            for (const item of mappings) {
-                if (item.mapping === null) {
-                    continue;
-                }
-                const artifact = await loadPageArtifact(
-                    this.catalogRoot,
-                    item.mapping,
-                    item.pageNumber,
-                    shardForPage(item.pageNumber),
-                    0,
-                    false,
-                );
-                if (artifact) {
-                    pages.push({
-                        pageNumber: item.pageNumber,
-                        mapping: item.mapping,
-                        artifact,
-                    });
-                }
-            }
-        }
-        return {
-            header: this.header,
-            pages,
-        };
     }
 }
 

@@ -28,10 +28,10 @@ import {
     OcrCatalogCorruptError,
     OcrCatalogFencedError,
     OcrCatalogPathError,
-    OcrCatalogTooLargeError,
     openCatalog,
     readCatalogFile,
     resolveCatalogPath,
+    type IOcrCatalogHandle,
 } from '@electron/ocr/ocrCatalogV4';
 
 const revision = requireDocumentRevisionToken('drt1:ocr-catalog-v4-test');
@@ -58,6 +58,14 @@ function mapping(pageNumber: number, pageGeneration = generation): IOcrPageMappi
         path: `${generationDirectory}/pages/${String(Math.floor((pageNumber - 1) / 256)).padStart(6, '0')}/p${String(pageNumber).padStart(8, '0')}.json`,
         generation: pageGeneration,
     };
+}
+
+async function collectWindow(handle: IOcrCatalogHandle, start: number, count: number) {
+    const pages = [];
+    for await (const page of handle.readWindow(start, count)) {
+        pages.push(page);
+    }
+    return pages;
 }
 
 async function createRoot(pageCount = 2, mappedPages = [1]) {
@@ -232,7 +240,7 @@ describe('OCR catalog v4 reader', () => {
         });
         await expect(handle?.readPage(1)).resolves.toEqual(page);
         await expect(handle?.readPage(2)).resolves.toBeNull();
-        await expect(handle?.readWindow(255, 3)).resolves.toEqual([
+        await expect(collectWindow(handle!, 255, 3)).resolves.toEqual([
             {
                 pageNumber: 255,
                 artifact: null,
@@ -282,7 +290,6 @@ describe('OCR catalog v4 reader', () => {
         const largeRoot = await createRoot(5_000_000, []);
         const largeHandle = await openCatalog(largeRoot);
         expect(largeHandle).toBeTruthy();
-        await expect(largeHandle?.readSnapshot()).rejects.toThrow(OcrCatalogTooLargeError);
         await largeHandle?.close?.();
     });
 
@@ -367,7 +374,6 @@ describe('OCR catalog v3 compatibility adapter', () => {
                 generation: 0,
             },
         });
-        await expect(handle?.readSnapshot()).rejects.toThrow(OcrCatalogTooLargeError);
         await handle?.close?.();
     });
 
@@ -405,7 +411,7 @@ describe('OCR catalog artifact validation (SRCH-004)', () => {
             0,
             0,
         ]));
-        await expect(handle?.readWindow(1, 2)).resolves.toEqual([
+        await expect(collectWindow(handle!, 1, 2)).resolves.toEqual([
             {
                 pageNumber: 1,
                 artifact: null,

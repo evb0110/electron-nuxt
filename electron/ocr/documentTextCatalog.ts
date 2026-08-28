@@ -341,6 +341,28 @@ function createEmbeddedCatalogPage(embedded: TEmbeddedTextPage): IDocumentTextCa
     return page;
 }
 
+interface ITextBudget {
+    limit: number;
+    used: number;
+    message: string;
+}
+
+/**
+ * Replaces the canonical page and charges only the net text growth, so a
+ * caller can stop pulling pages the moment the running total passes the limit.
+ */
+function setCanonicalPage(
+    canonicalByPage: Map<number, IDocumentTextCatalogPage>,
+    page: IDocumentTextCatalogPage,
+    budget: ITextBudget,
+) {
+    budget.used += page.text.length - (canonicalByPage.get(page.pageNumber)?.text.length ?? 0);
+    if (budget.used > budget.limit) {
+        throw new RangeError(budget.message);
+    }
+    canonicalByPage.set(page.pageNumber, page);
+}
+
 function asTextOnlyCatalogPage(page: IDocumentTextCatalogPage): IDocumentTextCatalogPage {
     const {
         words: _words,
@@ -527,7 +549,10 @@ export async function visitDocumentOcrCatalogPages(
 /**
  * Visits canonical text pages in bounded PDF windows. Each window is released
  * before the next one starts, so desktop exports do not build an all-document
- * page array or apply the snapshot aggregate text budget.
+ * page array or apply the snapshot aggregate text budget. Argument checks run
+ * before the catalog opens, the window budget is charged page by page while
+ * the catalog is still being pulled, and the revision fence is re-read after
+ * each window's reads so a mid-read rewrite is never emitted as current text.
  */
 async function visitDocumentTextCatalogPages(
     workingCopyPath: string,
@@ -535,37 +560,40 @@ async function visitDocumentTextCatalogPages(
     options: IVisitDocumentTextCatalogPagesOptions,
 ) {
     throwIfAborted(options.signal);
-    await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
-    const catalog = await openCurrentOcrCatalog(workingCopyPath, documentRevision);
-    const catalogPageCount = catalog?.header.pageCount;
-    const resolvedPageCount = options.pageCount ?? catalogPageCount;
-    if (!resolvedPageCount || !Number.isSafeInteger(resolvedPageCount) || resolvedPageCount < 1) {
-        await closeOcrCatalog(catalog);
+    if (
+        options.pageCount !== undefined
+        && (!Number.isSafeInteger(options.pageCount) || options.pageCount < 1)
+    ) {
         throw new Error('Document text catalog window traversal requires a positive page count');
     }
-    if (catalogPageCount !== undefined && resolvedPageCount > catalogPageCount) {
-        await closeOcrCatalog(catalog);
-        throw new RangeError('Document text catalog page count exceeds the OCR catalog page count');
-    }
     const firstPage = options.firstPage ?? 1;
-    const lastPage = options.lastPage ?? resolvedPageCount;
     const pageWindow = options.pageWindow ?? DOCUMENT_TEXT_EXPORT_PAGE_WINDOW;
+    const requestedLastPage = options.lastPage ?? options.pageCount;
     if (
         !Number.isSafeInteger(firstPage)
         || firstPage < 1
-        || !Number.isSafeInteger(lastPage)
-        || lastPage < firstPage
-        || lastPage > resolvedPageCount
-        || lastPage - firstPage + 1 > DOCUMENT_TEXT_EXPORT_PAGE_WINDOW
+        || (requestedLastPage !== undefined && !isValidWindowEnd(firstPage, requestedLastPage))
         || !Number.isSafeInteger(pageWindow)
         || pageWindow < 1
         || pageWindow > DOCUMENT_TEXT_EXPORT_PAGE_WINDOW
     ) {
-        await closeOcrCatalog(catalog);
         throw new RangeError('Invalid document text catalog window');
     }
-
+    await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
+    const catalog = await openCurrentOcrCatalog(workingCopyPath, documentRevision);
     try {
+        const catalogPageCount = catalog?.header.pageCount;
+        const resolvedPageCount = options.pageCount ?? catalogPageCount;
+        if (!resolvedPageCount || !Number.isSafeInteger(resolvedPageCount) || resolvedPageCount < 1) {
+            throw new Error('Document text catalog window traversal requires a positive page count');
+        }
+        if (catalogPageCount !== undefined && resolvedPageCount > catalogPageCount) {
+            throw new RangeError('Document text catalog page count exceeds the OCR catalog page count');
+        }
+        const lastPage = requestedLastPage ?? resolvedPageCount;
+        if (!isValidWindowEnd(firstPage, lastPage) || lastPage > resolvedPageCount) {
+            throw new RangeError('Invalid document text catalog window');
+        }
         const languages = await loadLegacyOcrLanguages(workingCopyPath, documentRevision, catalog);
         let visitedPages = 0;
         for (let windowFirst = firstPage; windowFirst <= lastPage; windowFirst += pageWindow) {
@@ -580,6 +608,11 @@ async function visitDocumentTextCatalogPages(
                 ...(options.signal === undefined ? {} : {signal: options.signal}),
             });
             const canonicalByPage = new Map<number, IDocumentTextCatalogPage>();
+            const budget: ITextBudget = {
+                limit: MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH,
+                used: 0,
+                message: 'Document text catalog window exceeds its bounded text budget',
+            };
             for (const embedded of embeddedPages) {
                 const page = createEmbeddedCatalogPage(embedded);
                 if (
@@ -587,37 +620,30 @@ async function visitDocumentTextCatalogPages(
                     && page.pageNumber >= windowFirst
                     && page.pageNumber <= windowLast
                 ) {
-                    canonicalByPage.set(page.pageNumber, page);
+                    setCanonicalPage(canonicalByPage, page, budget);
                 }
             }
 
             if (catalog) {
-                const ocrPages = await catalog.readWindow(
-                    windowFirst,
-                    windowLast - windowFirst + 1,
-                );
-                for (const {
+                for await (const {
                     pageNumber,
                     artifact,
-                } of ocrPages) {
+                } of catalog.readWindow(windowFirst, windowLast - windowFirst + 1)) {
+                    throwIfAborted(options.signal);
                     if (!artifact) {
                         continue;
                     }
                     const page = createOcrCatalogPage(pageNumber, artifact, languages);
                     if (page) {
-                        canonicalByPage.set(pageNumber, asTextOnlyCatalogPage(page));
+                        setCanonicalPage(canonicalByPage, asTextOnlyCatalogPage(page), budget);
                     }
                 }
             }
+            await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
 
             const pages = Array.from(canonicalByPage.values())
                 .sort((left, right) => left.pageNumber - right.pageNumber);
-            let windowTextLength = 0;
             for (const page of pages) {
-                windowTextLength += page.text.length;
-                if (windowTextLength > MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH) {
-                    throw new RangeError('Document text catalog window exceeds its bounded text budget');
-                }
                 throwIfAborted(options.signal);
                 await options.onPage(page);
                 visitedPages += 1;
@@ -633,6 +659,12 @@ async function visitDocumentTextCatalogPages(
     } finally {
         await closeOcrCatalog(catalog);
     }
+}
+
+function isValidWindowEnd(firstPage: number, lastPage: number) {
+    return Number.isSafeInteger(lastPage)
+        && lastPage >= firstPage
+        && lastPage - firstPage + 1 <= DOCUMENT_TEXT_EXPORT_PAGE_WINDOW;
 }
 
 export async function resolveDocumentTextCatalogWindow(
@@ -681,23 +713,20 @@ export async function resolveDocumentTextCatalogSnapshot(
     pageCount?: number,
     options: IResolveDocumentTextCatalogOptions = {},
 ): Promise<IDocumentTextSnapshot> {
-    await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
-    const catalog = await openCurrentOcrCatalog(workingCopyPath, documentRevision);
-    const catalogPageCount = catalog?.header.pageCount;
-    if (catalogPageCount !== undefined && catalogPageCount > OCR_SCALAR_PAGE_LIMIT) {
-        await closeOcrCatalog(catalog);
-        throw new OcrCatalogTooLargeError(catalogPageCount);
-    }
     if (pageCount !== undefined && pageCount > OCR_SCALAR_PAGE_LIMIT) {
-        await closeOcrCatalog(catalog);
         throw new OcrCatalogTooLargeError(pageCount);
     }
-    if (catalogPageCount === undefined && pageCount === undefined) {
-        await closeOcrCatalog(catalog);
-        throw new RangeError('Document text catalog snapshot requires a bounded page count');
-    }
+    await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
+    const catalog = await openCurrentOcrCatalog(workingCopyPath, documentRevision);
     const sourcePdfPath = options.sourcePdfPath ?? workingCopyPath;
     try {
+        const catalogPageCount = catalog?.header.pageCount;
+        if (catalogPageCount !== undefined && catalogPageCount > OCR_SCALAR_PAGE_LIMIT) {
+            throw new OcrCatalogTooLargeError(catalogPageCount);
+        }
+        if (catalogPageCount === undefined && pageCount === undefined) {
+            throw new RangeError('Document text catalog snapshot requires a bounded page count');
+        }
         const shouldUseBoundedTextOnlyExtraction = Boolean(
             pageCount && pageCount > DOCUMENT_TEXT_EXPORT_PDFJS_MAX_PAGES,
         ) || await stat(sourcePdfPath).then(
@@ -725,6 +754,11 @@ export async function resolveDocumentTextCatalogSnapshot(
         const languages = await loadLegacyOcrLanguages(workingCopyPath, documentRevision, catalog);
         const resolvedPageCount = pageCount ?? Math.max(embeddedPages.length, catalogPageCount ?? 0);
         const canonicalByPage = new Map<number, IDocumentTextCatalogPage>();
+        const budget: ITextBudget = {
+            limit: MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH,
+            used: 0,
+            message: 'Document text export exceeds the 8 MiB aggregate text budget',
+        };
 
         for (const embedded of embeddedPages) {
             if (embedded.pageNumber > resolvedPageCount || !embedded.text.trim()) {
@@ -732,31 +766,24 @@ export async function resolveDocumentTextCatalogSnapshot(
             }
             const page = createEmbeddedCatalogPage(embedded);
             if (page) {
-                canonicalByPage.set(page.pageNumber, page);
+                setCanonicalPage(canonicalByPage, page, budget);
             }
         }
 
         if (catalog) {
-            const snapshot = await catalog.readSnapshot();
-            for (const {
+            for await (const {
                 pageNumber,
                 artifact,
-            } of snapshot.pages) {
+            } of catalog.iterateMappedPages()) {
                 const page = createOcrCatalogPage(pageNumber, artifact, languages);
                 if (page) {
-                    canonicalByPage.set(pageNumber, asTextOnlyCatalogPage(page));
+                    setCanonicalPage(canonicalByPage, asTextOnlyCatalogPage(page), budget);
                 }
             }
         }
+        await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
 
         const pages = Array.from(canonicalByPage.values()).sort((left, right) => left.pageNumber - right.pageNumber);
-        let totalTextLength = 0;
-        for (const page of pages) {
-            totalTextLength += page.text.length;
-            if (totalTextLength > MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH) {
-                throw new RangeError('Document text export exceeds the 8 MiB aggregate text budget');
-            }
-        }
         return {
             documentRevision,
             pageCount: resolvedPageCount,
