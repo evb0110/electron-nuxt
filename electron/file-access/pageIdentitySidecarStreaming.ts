@@ -87,7 +87,22 @@ interface IPageIdentityIdScanResult {
     foundPageIds: boolean;
 }
 
-/** Streams pageIds arrays from either sidecar format without retaining them. */
+export class PageIdentitySidecarCorruptError extends Error {
+    readonly code = 'PAGE_IDENTITY_SIDECAR_CORRUPT';
+
+    constructor(detail: string, options?: ErrorOptions) {
+        super(`Page identity sidecar ${detail}`, options);
+        this.name = 'PageIdentitySidecarCorruptError';
+    }
+}
+
+/**
+ * Streams pageIds arrays from either sidecar format without retaining them.
+ * The whole input must be one JSON object: bytes after it close, unbalanced
+ * brackets, or a non-object top-level value reject with a typed corruption
+ * error. A callback that returns false stops the scan early and skips the
+ * tail check; the full scan at open time is the one that vets the tail.
+ */
 export async function streamPageIdentityIds(
     path: string,
     onId?: TPageIdentityIdCallback,
@@ -95,6 +110,7 @@ export async function streamPageIdentityIds(
     const stream = createReadStream(path, {highWaterMark: STREAM_CHUNK_BYTES});
     const decoder = new StringDecoder('utf8');
     let depth = 0;
+    let topLevelClosed = false;
     let inString = false;
     let escaped = false;
     let rawString = '';
@@ -111,7 +127,7 @@ export async function streamPageIdentityIds(
             if (inString) {
                 rawString += character;
                 if (rawString.length > MAX_STRING_BYTES) {
-                    throw new Error('Page identity string exceeds the bounded sidecar limit');
+                    throw new PageIdentitySidecarCorruptError('string exceeds the bounded sidecar limit');
                 }
                 if (escaped) {
                     escaped = false;
@@ -129,12 +145,12 @@ export async function streamPageIdentityIds(
                 try {
                     decoded = JSON.parse(rawString) as unknown;
                 } catch (error) {
-                    throw new Error('Page identity sidecar contains an invalid JSON string', {cause: error});
+                    throw new PageIdentitySidecarCorruptError('contains an invalid JSON string', {cause: error});
                 }
                 rawString = '';
                 if (pageIdsArrayDepth === depth) {
                     if (typeof decoded !== 'string' || decoded.length === 0) {
-                        throw new Error('Page identity sidecar contains an invalid page identity');
+                        throw new PageIdentitySidecarCorruptError('contains an invalid page identity');
                     }
                     count += 1;
                     if (onId && await onId(decoded) === false) {
@@ -144,6 +160,15 @@ export async function streamPageIdentityIds(
                 }
                 lastString = typeof decoded === 'string' ? decoded : undefined;
                 continue;
+            }
+            if (/\s/u.test(character)) {
+                continue;
+            }
+            if (topLevelClosed) {
+                throw new PageIdentitySidecarCorruptError('has trailing bytes after its JSON object');
+            }
+            if (depth === 0 && character !== '{') {
+                throw new PageIdentitySidecarCorruptError('must be a single JSON object');
             }
             if (character === '"') {
                 inString = true;
@@ -163,7 +188,10 @@ export async function streamPageIdentityIds(
                 if (character === ']' && pageIdsArrayDepth === depth) {
                     pageIdsArrayDepth = 0;
                 }
-                depth = Math.max(0, depth - 1);
+                depth -= 1;
+                if (depth === 0) {
+                    topLevelClosed = true;
+                }
                 continue;
             }
             if (character === ':') {
@@ -173,9 +201,6 @@ export async function streamPageIdentityIds(
             }
             if (character === ',') {
                 lastString = undefined;
-                continue;
-            }
-            if (/\s/u.test(character)) {
                 continue;
             }
             lastString = undefined;
@@ -196,8 +221,8 @@ export async function streamPageIdentityIds(
     }
     if (!stopped) {
         await scan(decoder.end());
-        if (inString || pageIdsArrayDepth !== 0 || depth !== 0) {
-            throw new Error('Page identity sidecar contains incomplete JSON');
+        if (inString || pageIdsArrayDepth !== 0 || depth !== 0 || !topLevelClosed) {
+            throw new PageIdentitySidecarCorruptError('contains incomplete JSON');
         }
     }
     return {

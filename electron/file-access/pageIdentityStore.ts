@@ -54,6 +54,7 @@ import {
     PAGE_IDENTITY_MAX_RANGE_OPERATIONS,
 } from '@electron/file-access/pageIdentityDelta';
 import {
+    PageIdentitySidecarCorruptError,
     readIdentityAtFromSidecar,
     readPageIdentitySidecarHeader,
     streamPageIdentityIds,
@@ -488,8 +489,8 @@ async function readPageIdentityState(
             && typeof header.documentRevisionToken === 'string'
             && header.documentRevisionToken.length > 0
         ) {
-            const scan = await streamPageIdentityIds(path).catch(() => null);
-            if (scan?.foundPageIds) {
+            const scan = await streamPageIdentityIds(path);
+            if (scan.foundPageIds) {
                 return {
                     pageCount: expectedPageCount,
                     segments: [],
@@ -502,9 +503,16 @@ async function readPageIdentityState(
             }
         }
     }
-    const value: unknown = await readFile(path, 'utf8')
-        .then(raw => JSON.parse(raw) as unknown)
-        .catch(() => null);
+    const raw = await readFile(path, 'utf8').catch(() => null);
+    if (raw === null) {
+        return null;
+    }
+    let value: unknown;
+    try {
+        value = JSON.parse(raw) as unknown;
+    } catch (error) {
+        throw new PageIdentitySidecarCorruptError('contains invalid JSON', {cause: error});
+    }
     return parsePageIdentitySidecar(value, expectedPageCount);
 }
 
