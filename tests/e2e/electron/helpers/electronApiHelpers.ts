@@ -29,6 +29,19 @@ export async function assertOcrPdfSemanticOutput(pdfPath: string, expectedText: 
     return recognizedText;
 }
 
+export function assertOcrResultApplied(
+    workingCopyRevision: {token: string},
+    sourceDocumentRevisionToken: string,
+) {
+    if (workingCopyRevision.token === sourceDocumentRevisionToken) {
+        throw new Error(`OCR result was not applied to the active working copy: ${JSON.stringify({
+            sourceDocumentRevisionToken,
+            workingCopyRevisionToken: workingCopyRevision.token,
+        })}`);
+    }
+    return workingCopyRevision;
+}
+
 
 export async function getActiveWorkspaceWorkingCopyPath(page: Page) {
     const { workingCopyPath } = await readWorkspaceStateValues<{workingCopyPath?: string | null}>(page, ['workingCopyPath']);
@@ -188,9 +201,18 @@ export async function consumeOcrResultIntoActiveWorkspace(
     if (!result.called) {
         throw new Error('handleOcrComplete is unavailable on the active workspace');
     }
+    const workingCopyRevision = await evaluateInPage(page, async (path) => {
+        const getDocumentRevision = (window as IE2EWindow).electronAPI?.documentFiles?.getDocumentRevision;
+        if (!getDocumentRevision) {
+            throw new Error('electronAPI.documentFiles.getDocumentRevision is unavailable');
+        }
+        return getDocumentRevision(path);
+    }, workingCopyPath);
+    assertOcrResultApplied(workingCopyRevision, sourceDocumentRevisionToken);
     return {
         applied: true,
         cleaned: true,
+        workingCopyRevisionToken: workingCopyRevision.token,
     };
 }
 
