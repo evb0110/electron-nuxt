@@ -7,6 +7,12 @@ import {
     vi,
 } from 'vitest';
 import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
+import {
+    cancelMainOperationsForClosingWorkingCopy,
+    resetMainOperationLifecycleForTests,
+    snapshotCancellableWorkingCopyDependents,
+    snapshotMainOperations,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 import { cast } from '@tests/helpers/cast';
 
@@ -112,6 +118,7 @@ describe('OCR platform feature main bindings', () => {
     beforeEach(() => {
         mocks.handlers.clear();
         vi.clearAllMocks();
+        resetMainOperationLifecycleForTests();
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/working-copy.pdf');
         mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/working-copy.pdf');
         mocks.getWorkingCopyBackingEntry.mockReturnValue(null);
@@ -175,7 +182,10 @@ describe('OCR platform feature main bindings', () => {
             logicalPath,
             revision,
             1,
-            {sourcePdfPath: physicalPath},
+            {
+                sourcePdfPath: physicalPath,
+                signal: expect.any(AbortSignal),
+            },
         );
 
         const availabilityHandler = getHandler('ocr:resolveDocumentOcrAvailability');
@@ -184,7 +194,11 @@ describe('OCR platform feature main bindings', () => {
             logicalPath,
             revision,
         );
-        expect(mocks.resolveDocumentOcrAvailability).toHaveBeenCalledWith(logicalPath, revision);
+        expect(mocks.resolveDocumentOcrAvailability).toHaveBeenCalledWith(
+            logicalPath,
+            revision,
+            {signal: expect.any(AbortSignal)},
+        );
     });
 
     it('rejects unmanaged OCR catalog paths', async () => {
@@ -511,4 +525,63 @@ describe('OCR platform feature main bindings', () => {
         expect(mocks.handleOcrCancel).not.toHaveBeenCalled();
     });
 
+    it.each([
+        {
+            channel: 'ocr:resolveDocumentTextCatalog',
+            resolver: 'resolveDocumentTextCatalogSnapshot',
+            args: [1],
+            optionsIndex: 3,
+        },
+        {
+            channel: 'ocr:resolveDocumentTextCatalogWindow',
+            resolver: 'resolveDocumentTextCatalogWindow',
+            args: [
+                1,
+                1,
+                1,
+            ],
+            optionsIndex: 5,
+        },
+        {
+            channel: 'ocr:resolveDocumentOcrAvailability',
+            resolver: 'resolveDocumentOcrAvailability',
+            args: [],
+            optionsIndex: 2,
+        },
+        {
+            channel: 'ocr:resolveDocumentOcrPage',
+            resolver: 'resolveDocumentOcrPage',
+            args: [1],
+            optionsIndex: 3,
+        },
+    ] as const)('aborts $channel when its working copy closes mid-read (SRCH-006)', async ({
+        channel,
+        resolver,
+        args,
+        optionsIndex,
+    }) => {
+        const logicalPath = '/tmp/working-copy.pdf';
+        let observedSignal: AbortSignal | undefined;
+        mocks[resolver].mockImplementation(async (...resolverArgs: unknown[]) => {
+            const options = resolverArgs[optionsIndex] as {signal?: AbortSignal} | undefined;
+            observedSignal = options?.signal;
+            expect(snapshotCancellableWorkingCopyDependents(logicalPath)).toHaveLength(1);
+            expect(cancelMainOperationsForClosingWorkingCopy(
+                logicalPath,
+                'working copy closed',
+                {isRegistrationCurrent: () => true},
+            )).toHaveLength(1);
+            observedSignal?.throwIfAborted();
+            return {pages: []};
+        });
+
+        await expect(getHandler(channel)(
+            {sender: createMockSender(41)},
+            logicalPath,
+            'ocr-revision',
+            ...args,
+        )).rejects.toThrow('working copy closed');
+        expect(observedSignal?.aborted).toBe(true);
+        expect(snapshotMainOperations()).toEqual([]);
+    });
 });

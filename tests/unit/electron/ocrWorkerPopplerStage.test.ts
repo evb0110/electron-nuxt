@@ -7,7 +7,9 @@ import {
 } from 'vitest';
 import {
     buildPopplerEnv,
+    createOcrRasterRenderLimits,
     preparePdfForPoppler,
+    probeOcrPageSizeInches,
     renderPdfPageToPng,
     renderPdfPageToPpm,
 } from '@electron/ocr/worker/popplerStage';
@@ -297,5 +299,74 @@ describe('renderPdfPageToPng', () => {
             } safe integer`,
         );
         expect(mocks.runOcrCommand).not.toHaveBeenCalled();
+    });
+});
+
+describe('OCR raster admission before rendering (SRCH-006)', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('derives pre-render raster limits from the page size and target DPI', () => {
+        expect(createOcrRasterRenderLimits({
+            width: 8.5,
+            height: 11,
+        }, 300)).toEqual({
+            expectedWidthPx: 2550,
+            expectedHeightPx: 3300,
+            maxPixels: 45_000_000,
+            maxDimensionPx: 40_000,
+        });
+    });
+
+    it('rejects an oversize page raster before spawning pdftoppm', async () => {
+        const log = vi.fn();
+
+        await expect(renderPdfPageToPng(
+            workerPaths,
+            log,
+            1,
+            '/tmp/ocr/source.pdf',
+            '/tmp/ocr/page-1.png',
+            300,
+            undefined,
+            undefined,
+            undefined,
+            createOcrRasterRenderLimits({
+                width: 200,
+                height: 200,
+            }, 300),
+        )).rejects.toThrow('Poppler raster 60000x60000 exceeds limits');
+        expect(mocks.runOcrCommand).not.toHaveBeenCalled();
+    });
+
+    it('recovers the page size from a low-resolution render when the native probe is degraded', async () => {
+        const log = vi.fn();
+        mocks.runOcrCommand.mockResolvedValue({
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        });
+        mocks.readPngDimensions.mockResolvedValue({
+            width: 68,
+            height: 88,
+        });
+
+        await expect(probeOcrPageSizeInches(
+            workerPaths,
+            log,
+            1,
+            '/tmp/ocr/source.pdf',
+            '/tmp/ocr/page-1-size-probe.png',
+        )).resolves.toEqual({
+            width: 8.5,
+            height: 11,
+        });
+        expect(mocks.runOcrCommand).toHaveBeenCalledTimes(1);
+        expect(mocks.runOcrCommand.mock.calls[0]?.[1]).toEqual(expect.arrayContaining([
+            '-r',
+            '8',
+        ]));
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/ocr/page-1-size-probe.png', {force: true});
     });
 });
