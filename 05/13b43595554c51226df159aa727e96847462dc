@@ -1,0 +1,21 @@
+tests/unit/electron/imageExport.test.ts
+  s_f464d4c848ac4b::t_1ac069e75d3e19 624-643
+electron/features/image-export/main/export.ts
+  s_f464d4c848ac4b::t_1ac069e75d3e19 553-556
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0513b43595554c51226df159aa727e96847462dc",
+  "prompts": {},
+  "sessions": {
+    "s_f464d4c848ac4b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d0-a8bf-7f23-b6e8-df07c6b04b53",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
