@@ -1,0 +1,29 @@
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_5ac4a3281ca4f3::t_70ee2e1a80c007 100-109
+  s_5ac4a3281ca4f3::t_e8c62a71bfc90f 65-66
+  s_5ac4a3281ca4f3::t_c17b70345ba91c 271-287,291
+  s_5ac4a3281ca4f3::t_235316fb305255 7-10,43,68-99,111,121-122
+  s_5ac4a3281ca4f3::t_018955e788c70b 239,242-243,247,249-253
+  s_5ac4a3281ca4f3::t_146ca21974cc84 19,21-23
+  s_5ac4a3281ca4f3::t_573e50dcac2e2a 288,290
+  s_5ac4a3281ca4f3::t_2ba4c0fd1a4744 289
+  s_5ac4a3281ca4f3::t_d9adb8828b58dc 128-135
+  s_5ac4a3281ca4f3::t_dd3163ba17e0e1 67
+  s_5ac4a3281ca4f3::t_b571a840956980 110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fb620eaea52c1f1c41b26cd4d119109f1699646a",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
