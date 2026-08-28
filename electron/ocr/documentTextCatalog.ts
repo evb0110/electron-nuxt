@@ -376,8 +376,6 @@ async function resolveCatalogAvailability(catalog: IOcrCatalogHandle): Promise<{
     const {
         pageCount,
         mappedPageCount,
-        version,
-        complete,
     } = catalog.header;
     if (pageCount === 0 || mappedPageCount === 0) {
         return {
@@ -386,19 +384,12 @@ async function resolveCatalogAvailability(catalog: IOcrCatalogHandle): Promise<{
             rangesComplete: true,
         };
     }
-    if (version === 4 && complete) {
-        return {
-            mappedPageCount,
-            pageRanges: [{
-                firstPage: 1,
-                lastPage: pageCount,
-            }],
-            rangesComplete: true,
-        };
-    }
 
+    // Header counts and the v4 `complete` flag describe what the writer
+    // published, not what still decodes on disk, so every page is checked.
     const pageRanges: IDocumentOcrPageRange[] = [];
     let rangesComplete = true;
+    let readablePageCount = 0;
     for (let firstPage = 1; firstPage <= pageCount; firstPage += OCR_MAX_WINDOW_PAGES) {
         const count = Math.min(OCR_MAX_WINDOW_PAGES, pageCount - firstPage + 1);
         const availability = await catalog.windowAvailability(firstPage, count);
@@ -406,6 +397,7 @@ async function resolveCatalogAvailability(catalog: IOcrCatalogHandle): Promise<{
             if (availability[index] === 0) {
                 continue;
             }
+            readablePageCount += 1;
             if (!appendPageToRanges(pageRanges, firstPage + index)) {
                 rangesComplete = false;
                 break;
@@ -416,7 +408,7 @@ async function resolveCatalogAvailability(catalog: IOcrCatalogHandle): Promise<{
         }
     }
     return {
-        mappedPageCount,
+        mappedPageCount: rangesComplete ? readablePageCount : mappedPageCount,
         pageRanges,
         rangesComplete,
     };

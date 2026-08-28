@@ -60,6 +60,7 @@ import {
     OCR_SHARD_INDEX_MAGIC,
     OCR_SHARD_INDEX_RECORD_BYTES,
     OCR_SHARD_SIZE,
+    decodeOcrPage,
     parseOcrCatalogRootV4,
     parseOcrCatalogV4PreparedDescriptor,
     parseOcrGenerationV4,
@@ -76,6 +77,7 @@ import {
     OcrCatalogPathError,
     OcrCatalogAbortedError,
     hasOcrCatalogV4ReaderLease,
+    readCatalogFile,
     resolveCatalogPath,
 } from '@electron/ocr/ocrCatalogV4';
 import {assertWorkingCopyRevisionSidecarCurrent as assertWorkingCopyRevisionCurrent} from '@electron/file-access/documentRevisionSidecar';
@@ -2002,6 +2004,31 @@ async function createGenerationDirectory(catalogRoot: string, generation: number
 }
 
 /**
+ * Migration publishes only v3 artifacts that still decode as pages; a missing,
+ * truncated, oversized, or malformed artifact is dropped instead of being
+ * advertised as mapped. Path escapes keep failing the whole migration.
+ */
+async function isReadableLegacyPageArtifact(catalogRoot: string, relativePath: string): Promise<boolean> {
+    let contents: Buffer | null;
+    try {
+        contents = await readCatalogFile(catalogRoot, relativePath, {kind: 'legacy'});
+    } catch (error) {
+        if (error instanceof OcrCatalogPathError) {
+            throw error;
+        }
+        return false;
+    }
+    if (contents === null) {
+        return false;
+    }
+    try {
+        return decodeOcrPage(JSON.parse(contents.toString('utf8')) as unknown, 'strict') !== null;
+    } catch {
+        return false;
+    }
+}
+
+/**
  * Streams a legacy page map into one bounded temporary spool per shard. V3
  * object property order is not part of the format, so migration cannot assume
  * that page numbers arrive in shard order. The spool keeps that compatibility
@@ -2045,8 +2072,7 @@ async function streamLegacyManifestShards(
             if (mapping.pageNumber > pageCount) {
                 throw new OcrCatalogCorruptError('v3 page mapping exceeds the document page count');
             }
-            const resolvedPagePath = resolveCatalogPath(catalogRoot, mapping.path, {kind: 'legacy'});
-            if (!await assertRegularFile(resolvedPagePath, mapping.path, catalogRoot)) {
+            if (!await isReadableLegacyPageArtifact(catalogRoot, mapping.path)) {
                 return;
             }
             const shard = Math.floor((mapping.pageNumber - 1) / OCR_SHARD_SIZE);

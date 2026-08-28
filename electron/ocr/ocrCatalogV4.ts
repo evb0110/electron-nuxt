@@ -1283,7 +1283,7 @@ class OcrCatalogV4Handle implements IOcrCatalogHandle {
                         pageNumber,
                         shard,
                         this.state.root.generation,
-                        true,
+                        false,
                     )
                     : null,
             });
@@ -1341,7 +1341,19 @@ class OcrCatalogV4Handle implements IOcrCatalogHandle {
                 shardDataForPage = await this.readShard(shard, record);
                 shardData.set(shard, shardDataForPage);
             }
-            result[index] = shardDataForPage.pages[String(pageNumber)] ? 1 : 0;
+            const mapping = shardDataForPage.pages[String(pageNumber)];
+            if (!mapping) {
+                continue;
+            }
+            const artifact = await loadPageArtifact(
+                this.state.catalogRoot,
+                mapping,
+                pageNumber,
+                shard,
+                this.state.root.generation,
+                false,
+            );
+            result[index] = artifact === null ? 0 : 1;
         }
         return result;
     }
@@ -1574,16 +1586,18 @@ class OcrCatalogV3Handle implements IOcrCatalogHandle {
             if (!mapping) {
                 continue;
             }
-            try {
-                const path = resolveCatalogPath(this.catalogRoot, mapping.path, {kind: 'legacy'});
-                if (await assertCatalogRegularFile(path, mapping.path, this.catalogRoot)) {
-                    result[index] = 1;
-                }
-            } catch (error) {
-                if (!(error instanceof OcrCatalogPathError)) {
-                    throw error;
-                }
-            }
+            const artifact = await loadPageArtifact(
+                this.catalogRoot,
+                {
+                    path: mapping.path,
+                    generation: 0,
+                },
+                pageNumber,
+                shardForPage(pageNumber),
+                0,
+                false,
+            );
+            result[index] = artifact === null ? 0 : 1;
         }
         return result;
     }
