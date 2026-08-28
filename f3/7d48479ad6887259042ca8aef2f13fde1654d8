@@ -1,0 +1,20 @@
+app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts
+  s_01b20c0c2ba076::t_e302ca084504e9 13
+  s_01b20c0c2ba076::t_2b3fe491b56880 569
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f37d48479ad6887259042ca8aef2f13fde1654d8",
+  "prompts": {},
+  "sessions": {
+    "s_01b20c0c2ba076": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a048d0-5c00-7ec3-bcd8-6640d2c492ca",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}
