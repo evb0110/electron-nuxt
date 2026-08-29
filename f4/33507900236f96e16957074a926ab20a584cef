@@ -283,6 +283,7 @@ tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts
 tests/unit/electron/fileOpsPathSecurity.test.ts
   s_b2ece6dfe48478::t_28f9a7d46b4ac5 92
   s_b2ece6dfe48478::t_2e2e405f120641 113
+  s_b2ece6dfe48478::t_94553996eddcbf 93
 tests/unit/contracts/ocrPlatformFeature.test.ts
   s_b2ece6dfe48478::t_aca0a9c50e62d3 8,16-75
 tests/unit/scripts/changedAreaClassifier.test.ts
@@ -510,6 +511,7 @@ app/modules/ocr-panel/runtime/useOcrPopupPresenter.ts
 tests/unit/electron/documentsPrint.test.ts
   s_b2ece6dfe48478::t_28f9a7d46b4ac5 130-132,134
   s_b2ece6dfe48478::t_2e2e405f120641 139
+  s_b2ece6dfe48478::t_94553996eddcbf 133
 native/pdf-image-combine/src/lib.rs
   s_b2ece6dfe48478::t_73917621c7d8f5 62-63,269,310-313
 app/modules/pdf-viewer/engine/annotations/domain/annotationEntity.ts
@@ -1165,6 +1167,7 @@ scripts/diagnostics/scan-cleanup-preview-harness.mjs
   s_b2ece6dfe48478::t_85e196bef93e63 16-18,116,433,462,473-474,482,489-507,510-512,514-515
 tests/unit/electron/documentsSavePdfAs.test.ts
   s_b2ece6dfe48478::t_28f9a7d46b4ac5 93,95-97
+  s_b2ece6dfe48478::t_94553996eddcbf 94
 app/modules/pdf-viewer/engine/serialization/pdf-serialization-shape-annotations/applyShapeAnnotations.ts
   s_b2ece6dfe48478::t_d1520ceca5f0bb 391-415,417-451,456-489,494-532,567-568,590
   s_b2ece6dfe48478::t_40806b83680dec 5,41-42
