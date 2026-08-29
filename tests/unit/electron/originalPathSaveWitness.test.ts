@@ -5,6 +5,7 @@ import {
     utimes,
     writeFile,
 } from 'fs/promises';
+import type {BigIntStats} from 'node:fs';
 import {tmpdir} from 'os';
 import {join} from 'path';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
@@ -16,8 +17,40 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as FsPromises from 'node:fs/promises';
 
-const mocks = vi.hoisted(() => ({getWorkingCopyOriginalFileExpectation: vi.fn()}));
+const mocks = vi.hoisted(() => ({
+    getWorkingCopyOriginalFileExpectation: vi.fn(),
+    mutatePostHashStatPath: '',
+}));
+
+vi.mock('node:fs/promises', async importOriginal => {
+    const original = await importOriginal<typeof FsPromises>();
+    return {
+        ...original,
+        open: async (...args: Parameters<typeof original.open>) => {
+            const handle = await original.open(...args);
+            if (String(args[0]) !== mocks.mutatePostHashStatPath) {
+                return handle;
+            }
+            const originalStat = handle.stat.bind(handle);
+            let statCallCount = 0;
+            handle.stat = (async (...statArgs: Parameters<typeof handle.stat>) => {
+                const fileStat = await originalStat(...statArgs) as BigIntStats;
+                statCallCount += 1;
+                if (statCallCount === 2) {
+                    return {
+                        ...fileStat,
+                        ctimeNs: fileStat.ctimeNs + 1n,
+                        mtimeNs: fileStat.mtimeNs + 1n,
+                    };
+                }
+                return fileStat;
+            }) as typeof handle.stat;
+            return handle;
+        },
+    };
+});
 
 vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyOriginalFileExpectation: mocks.getWorkingCopyOriginalFileExpectation}));
 
@@ -43,6 +76,7 @@ describe('originalPathSaveBaseMatches', () => {
 
     beforeEach(async () => {
         vi.clearAllMocks();
+        mocks.mutatePostHashStatPath = '';
         tempDir = await mkdtemp(join(tmpdir(), 'save-base-matches-test-'));
     });
 
@@ -146,6 +180,37 @@ describe('originalPathSaveBaseMatches', () => {
 
             await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
         } finally {
+            Object.defineProperty(process, 'platform', {
+                configurable: true,
+                value: originalPlatform,
+            });
+        }
+    });
+
+    it('rejects a Windows content fingerprint when metadata changes after hashing', async () => {
+        const originalPlatform = process.platform;
+        Object.defineProperty(process, 'platform', {
+            configurable: true,
+            value: 'win32',
+        });
+        try {
+            const originalPath = join(tempDir, 'original.pdf');
+            const bytes = Buffer.alloc(256 * 1024, 7);
+            const originalHash = createOriginalFileContentFingerprintHash(bytes.byteLength);
+            originalHash.update(bytes);
+            const originalFingerprint = `sha256-full-v1:${originalHash.digest('hex')}`;
+            await writeFile(originalPath, bytes);
+            const originalStat = await stat(originalPath, {bigint: true});
+            mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+                contentFingerprint: originalFingerprint,
+                mtimeMs: Number(originalStat.mtimeNs) / 1_000_000,
+                size: Number(originalStat.size),
+            });
+            mocks.mutatePostHashStatPath = originalPath;
+
+            await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
+        } finally {
+            mocks.mutatePostHashStatPath = '';
             Object.defineProperty(process, 'platform', {
                 configurable: true,
                 value: originalPlatform,

@@ -137,11 +137,9 @@ describe('workingCopy', () => {
                 captureWorkingCopyAdmissionSnapshot: async (...args: Parameters<typeof original.captureWorkingCopyAdmissionSnapshot>) => {
                     const snapshot = await original.captureWorkingCopyAdmissionSnapshot(...args);
                     admissionProbeCount += 1;
-                    if (admissionProbeCount === 2) {
-                        setImmediate(() => {
-                            renameSync(sourcePath, join(tempRoot, 'replacement-source-old.djvu'));
-                            renameSync(replacementPath, sourcePath);
-                        });
+                    if (admissionProbeCount === 1) {
+                        renameSync(sourcePath, join(tempRoot, 'replacement-source-old.djvu'));
+                        renameSync(replacementPath, sourcePath);
                     }
                     return snapshot;
                 },

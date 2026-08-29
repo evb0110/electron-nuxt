@@ -198,6 +198,8 @@ async function matchesExpectedContentFingerprint(
             after.size !== before.size
             || after.dev !== before.dev
             || after.ino !== before.ino
+            || after.mtimeNs !== before.mtimeNs
+            || after.ctimeNs !== before.ctimeNs
         ) {
             return false;
         }
