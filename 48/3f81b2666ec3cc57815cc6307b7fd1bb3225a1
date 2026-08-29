@@ -1,0 +1,25 @@
+electron/file-access/assertNoSymlinkPathSegments.ts
+  s_a2c78f8fbcffdf::t_6705f824bcbe73 1-66
+electron/file-access/documentFileWriteAtomic.ts
+  s_a2c78f8fbcffdf::t_6705f824bcbe73 22
+electron/features/documents/main/docxExportStream.ts
+  s_a2c78f8fbcffdf::t_6705f824bcbe73 15
+electron/utils/atomicReplace.ts
+  s_a2c78f8fbcffdf::t_6705f824bcbe73 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "483f81b2666ec3cc57815cc6307b7fd1bb3225a1",
+  "prompts": {},
+  "sessions": {
+    "s_a2c78f8fbcffdf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0f1be617-b6dc-4fea-8165-c9c64cadc457",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
