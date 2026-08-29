@@ -37,6 +37,8 @@ import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
+import { applyCombinedPdfPageLabels } from '@pdf-core/pdfCombineCatalog';
+import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
 const RUN_FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-run-fixtures');
@@ -564,6 +566,74 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     const bytes = await doc.save();
     writeFileSync(filePath, bytes);
 
+    return filePath;
+}
+
+export async function createOutlinePageLabelFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+
+    for (let pageNumber = 1; pageNumber <= 4; pageNumber += 1) {
+        const page = doc.addPage([
+            612,
+            792,
+        ]);
+        page.drawText(`Metadata matrix page ${pageNumber}`, {
+            x: 70,
+            y: 710,
+            size: 24,
+            font,
+        });
+    }
+
+    applyCombinedPdfPageLabels(doc, [
+        {
+            pageIndex: 0,
+            style: 'r',
+            prefix: 'front-',
+            start: 1,
+        },
+        {
+            pageIndex: 2,
+            style: 'D',
+            prefix: 'chapter-',
+            start: 1,
+        },
+    ]);
+    writePdfBookmarkOutlines(doc, [
+        {
+            title: 'Parent',
+            pageIndex: 0,
+            pageYRatio: null,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [{
+                title: 'Child',
+                pageIndex: 2,
+                pageYRatio: null,
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            }],
+        },
+        {
+            title: 'Appendix',
+            pageIndex: 3,
+            pageYRatio: null,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        },
+    ]);
+    writeFileSync(filePath, await doc.save());
     return filePath;
 }
 
@@ -1462,6 +1532,60 @@ export async function readPdfPageSnapshots(filePath: string): Promise<IPdfPageSn
     }
 
     return pages;
+}
+
+export async function readPdfMetadataWithQpdf(filePath: string) {
+    const qpdf = resolveNativeToolPath({
+        binaryName: process.platform === 'win32' ? 'qpdf.exe' : 'qpdf',
+        binaryRelativePath: [
+            'bin',
+            process.platform === 'win32' ? 'qpdf.exe' : 'qpdf',
+        ],
+        crateName: 'qpdf',
+        currentDir: process.cwd(),
+        includeRustTargetCandidates: false,
+        isPackaged: false,
+        platformArch: resolvePlatformArchTag(),
+        projectRoot: process.cwd(),
+        resourcesBase: resolve(process.cwd(), 'resources'),
+    });
+    if (!qpdf) {
+        throw new Error('qpdf is unavailable for PDF metadata verification');
+    }
+
+    await runNativeCommand(qpdf, [
+        '--check',
+        filePath,
+    ], {
+        commandLabel: 'qpdf metadata matrix check',
+        defaultCwdToCommandDir: true,
+        maxStderrBytes: 32 * 1024,
+        maxStdoutBytes: 32 * 1024,
+        prependCommandDirToPath: true,
+        timeoutMs: 30_000,
+        windowsHide: true,
+    });
+    const result = await runNativeCommand(qpdf, [
+        '--json',
+        filePath,
+    ], {
+        commandLabel: 'qpdf metadata matrix JSON',
+        defaultCwdToCommandDir: true,
+        maxStderrBytes: 64 * 1024,
+        maxStdoutBytes: 512 * 1024,
+        prependCommandDirToPath: true,
+        timeoutMs: 30_000,
+        windowsHide: true,
+    });
+    interface IQpdfMetadataOutline {
+        title?: string;
+        destpageposfrom1?: number;
+        kids?: IQpdfMetadataOutline[];
+    }
+    return JSON.parse(result.stdout) as {
+        outlines: IQpdfMetadataOutline[];
+        pagelabels: Array<Record<string, unknown>>;
+    };
 }
 
 
