@@ -365,6 +365,33 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         canSyncCurrentPageFromViewport: () => singlePageScroll.currentPageAuthority.canSyncFromViewport(),
         commitCurrentPageFromViewport: page => singlePageScroll.currentPageAuthority.commitViewportPage(page),
     });
+    watch(
+        () => {
+            const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
+            return [
+                viewportSession?.lifecycle ?? null,
+                viewportSession?.requestedPage ?? null,
+                viewportSession?.committedPage ?? null,
+                viewportSession?.viewportIntent?.id ?? null,
+            ] as const;
+        },
+        (viewportSession, previousViewportSession) => {
+            // A navigation projection can arrive before its render and viewport
+            // fences make the shared surface ready. Replay the local viewport
+            // authority at that lifecycle edge so the workspace fence can accept
+            // the page that already settled physically.
+            if (
+                viewportSession[0] === 'ready'
+                && previousViewportSession?.[0] !== 'ready'
+            ) {
+                options.emitCurrentPage(currentPage.value);
+            }
+        },
+        {
+            flush: 'sync',
+            immediate: true,
+        },
+    );
     const viewModel = usePdfViewportViewModel({
         performancePolicy: options.performancePolicy,
         viewerContainer: options.viewerContainer,

@@ -23,6 +23,7 @@ import type {
 import { createPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
@@ -125,6 +126,7 @@ function createViewportFixture(input: {
     fitMode?: Ref<'width' | 'height'>;
     isActive?: Ref<boolean>;
     isPageFreshlyRenderedForNavigation?: (pageNumber: number) => boolean;
+    onEmitCurrentPage?: (page: number) => void;
     pageCount?: number;
     viewMode?: 'single' | 'facing' | 'facing-first-single';
     zoom?: Ref<number>;
@@ -185,6 +187,7 @@ function createViewportFixture(input: {
                 },
                 emitCurrentPage: page => {
                     emittedPages.push(page);
+                    input.onEmitCurrentPage?.(page);
                 },
                 emitNavigationFeedbackPage: vi.fn(),
                 emitZoom: value => {
@@ -843,6 +846,76 @@ describe('PdfViewportSession behavior', () => {
                 viewportIntentId: renderFence!.viewportIntentId,
             }));
             expect(fixture.container.scrollTop).toBe(0);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('replays the settled PDF page when the shared opening surface becomes ready', async () => {
+        const currentPage = ref(1);
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: 'ready-reprojection.pdf',
+            documentRevision: 'revision-1',
+        });
+        surface.metadataReady(10);
+        expect(surface.commitGeometry(generation, {
+            width: 600,
+            height: 900,
+            margin: 20,
+        })).toBe(true);
+        expect(surface.requestNavigation(6, 0)).toBe(6);
+        const navigationFence = createWorkspacePageNavigationFence({
+            currentPage,
+            openSurface: surface,
+        });
+        navigationFence.begin(6);
+        const outcomes: boolean[] = [];
+        const fixture = createViewportFixture({
+            chassisAuthority: cast<IDocumentViewerChassisAuthority>({openSurface: surface}),
+            onEmitCurrentPage: page => {
+                outcomes.push(navigationFence.consumePageUpdate(page).accepted);
+            },
+            pageCount: 10,
+        });
+        try {
+            setCurrentPage(fixture.viewport, 6);
+            await nextTick();
+            expect(outcomes).toEqual([false]);
+            expect(currentPage.value).toBe(1);
+            const renderFence = surface.createRenderFence({
+                generation,
+                documentRevision: 'revision-1',
+                renderVersion: 1,
+                requestId: 1,
+                pageNumber: 6,
+            });
+            expect(renderFence).not.toBeNull();
+            expect(surface.commitCanvas(renderFence!)).toBe(true);
+            expect(surface.commitViewport({
+                generation,
+                documentRevision: 'revision-1',
+                viewportIntentId: renderFence!.viewportIntentId,
+                documentGeometryRevision: 1,
+                interactionEpoch: 0,
+                pageNumber: 6,
+                left: 0,
+                top: 0,
+            })).toBe(true);
+            expect(surface.viewportSession.value.lifecycle).toBe('opening');
+
+            expect(surface.markReady(renderFence!)).toBe(true);
+
+            expect(outcomes).toEqual([
+                false,
+                true,
+            ]);
+            expect(fixture.emittedPages).toEqual([
+                6,
+                6,
+            ]);
+            expect(currentPage.value).toBe(6);
+            expect(navigationFence.targetPage.value).toBeNull();
         } finally {
             fixture.app.unmount();
         }
