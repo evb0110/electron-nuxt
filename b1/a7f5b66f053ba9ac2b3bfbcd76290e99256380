@@ -1,0 +1,63 @@
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 61,371-377,559,564,566
+electron/features/documents/main/commitPdfTempFile.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 28,58-62,77-79,94,97-100
+tests/unit/electron/transitionOriginalAndWorkingCopyRevision.test.ts
+  s_577dcdb620cf63::t_9aa36a35b296f6 153-155,157-166,168-175
+  s_577dcdb620cf63::t_565b6adc95904c 205-213
+  s_577dcdb620cf63::t_7c44d65ae3833e 5,156,167
+  s_577dcdb620cf63::t_0102ba1623a78c 10,13,24-35,152,176-204,214-270
+tests/unit/electron/documentSaveUtilityProtocol.test.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 93-115
+tests/unit/electron/atomicReplace.test.ts
+  s_577dcdb620cf63::t_00475699eeaf3b 114-115
+  s_577dcdb620cf63::t_0213b28f1a4a46 116-129
+  s_577dcdb620cf63::t_565b6adc95904c 130-153
+  s_577dcdb620cf63::t_0102ba1623a78c 12,37,103-113
+electron/utils/atomicReplace.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 109,138,140-141
+  s_577dcdb620cf63::t_565b6adc95904c 114-116,120,139,151-154
+tests/unit/electron/workingCopySave.test.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 10,25,28-29,32-37,63,236-240,266-305
+electron/features/documents/main/serializedPdfPersistence.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 75,675,680,686
+electron/file-access/documentFileWriteAtomic.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 167,216,273,283,291-293,298
+electron/features/documents/main/transitionOriginalAndWorkingCopyRevision.ts
+  s_577dcdb620cf63::t_565b6adc95904c 102,148
+  s_577dcdb620cf63::t_0102ba1623a78c 15-18,41-42,52-59,64,66,68-82,97-101,103-132,140,146-147,149-151,153,155-156,162
+tests/unit/electron/documentFileWriteAtomicFallback.test.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 16,78-94
+electron/features/documents/main/workingCopySave.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 49,186,191
+electron/features/documents/main/documentSaveUtilityProtocol.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 20,80,118
+electron/features/documents/main/originalPathSaveBaseMatches.ts
+  s_577dcdb620cf63::t_565b6adc95904c 12,136-145,173,194
+  s_577dcdb620cf63::t_0102ba1623a78c 1-11,14-135,146-172,174-193,195-236,264
+tests/unit/electron/handleNativeNoteTextSave.test.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 90,94,336-341,402-406,411-412,418,427-428,439-444,510-513,579-583,701-705,929-933,1004-1008,1170-1174
+  s_577dcdb620cf63::t_51784392279883 514
+electron/features/documents/main/documentSaveUtilityProcess.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 176-178
+tests/unit/electron/commitPdfTempFile.test.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 2,13,27,30,33-38,152-171
+tests/unit/electron/serializedPdfPersistence.test.ts
+  s_577dcdb620cf63::t_0102ba1623a78c 199-203,206-207,213,222-223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b1a7f5b66f053ba9ac2b3bfbcd76290e99256380",
+  "prompts": {},
+  "sessions": {
+    "s_577dcdb620cf63": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d35-ee82-74c3-ac84-b56d027eecc0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
