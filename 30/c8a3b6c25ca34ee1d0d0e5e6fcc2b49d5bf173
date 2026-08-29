@@ -1,0 +1,35 @@
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_b2ece6dfe48478::t_cd92af7819a200 1673-1682,1712-1721
+  s_b2ece6dfe48478::t_2f0ab2753bdd46 186-190,192-203,2028-2029,2040-2042,2046,2048-2049
+  s_b2ece6dfe48478::t_2154d3ba592e14 54
+  s_b2ece6dfe48478::t_dfaa19191f9e58 1881,1885-1889
+  s_b2ece6dfe48478::t_94398b04b96fff 2017
+  s_b2ece6dfe48478::t_e0cd4f61b4586e 2047
+  s_b2ece6dfe48478::t_1aef8b4b29170c 2015,2019-2023
+tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts
+  s_b2ece6dfe48478::t_948e7b406391dc 47,1392-1401
+tests/unit/e2e/electronE2ETeardown.test.ts
+  s_b2ece6dfe48478::t_e1ff7ed62afd6d 75-79
+  s_b2ece6dfe48478::t_3a8a4b2cfd86c7 8,10,17,57-74,80-100
+  s_b2ece6dfe48478::t_b8261be5124e14 101-102
+tests/e2e/electron/helpers/viewerCore.ts
+  s_b2ece6dfe48478::t_bb805743f340fa 1350,1370-1373,1434
+  s_b2ece6dfe48478::t_df936b82c35ecb 1452
+  s_b2ece6dfe48478::t_95990af6575d0e 25-28,1351-1369,1374-1380,1385,1387-1388,1391,1394,1412,1415-1422,1433,1435-1451
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "30c8a3b6c25ca34ee1d0d0e5e6fcc2b49d5bf173",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
