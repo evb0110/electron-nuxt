@@ -55,6 +55,7 @@ export const PDF_NATIVE_MUTATION_LIMITS = {
     shapes: 4_096,
     shapeDeletedItems: 4_096,
     shapePoints: 20_000,
+    shapeStrokes: 4_096,
     shapeTextLength: 2_048,
     markupItems: 4_096,
     markupGeometryItems: 512,
@@ -678,6 +679,7 @@ function normalizeShapePoints(
     label: string,
     state: IPdfNativeShapePointState,
     options: IPdfNativeValidationOptions,
+    shapeState: IPdfNativeShapePointState,
 ) {
     if (value === undefined) {
         return undefined;
@@ -687,6 +689,13 @@ function normalizeShapePoints(
     }
     if (value.length > PDF_NATIVE_MUTATION_LIMITS.shapePoints) {
         fail(`${label} must include at most ${PDF_NATIVE_MUTATION_LIMITS.shapePoints} points`, options);
+    }
+    shapeState.count += value.length;
+    if (shapeState.count > PDF_NATIVE_MUTATION_LIMITS.shapePoints) {
+        fail(
+            `${label} must contain at most ${PDF_NATIVE_MUTATION_LIMITS.shapePoints} points per shape`,
+            options,
+        );
     }
     state.count += value.length;
     if (state.count > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
@@ -700,6 +709,7 @@ function normalizeShapeStrokes(
     label: string,
     state: IPdfNativeShapePointState,
     options: IPdfNativeValidationOptions,
+    shapeState: IPdfNativeShapePointState,
 ) {
     if (value === undefined) {
         return undefined;
@@ -707,7 +717,16 @@ function normalizeShapeStrokes(
     if (!Array.isArray(value)) {
         fail(`${label} must be an array`, options);
     }
-    return Array.from(value, (points, index) => normalizeShapePoints(points, `${label}[${index}]`, state, options) ?? []);
+    if (value.length > PDF_NATIVE_MUTATION_LIMITS.shapeStrokes) {
+        fail(`${label} must contain at most ${PDF_NATIVE_MUTATION_LIMITS.shapeStrokes} strokes`, options);
+    }
+    return Array.from(value, (points, index) => normalizeShapePoints(
+        points,
+        `${label}[${index}]`,
+        state,
+        options,
+        shapeState,
+    ) ?? []);
 }
 
 function normalizeShapeEnum<T extends string>(
@@ -763,8 +782,9 @@ function normalizeShapeAnnotation(
         fail(`${label}.opacity must be a finite number from 0 to 1`, options);
     }
     const id = normalizeNativeShapeOptionalString(value.id, `${label}.id`, options);
-    const points = normalizeShapePoints(value.points, `${label}.points`, state, options);
-    const strokes = normalizeShapeStrokes(value.strokes, `${label}.strokes`, state, options);
+    const shapeState = {count: 0};
+    const points = normalizeShapePoints(value.points, `${label}.points`, state, options, shapeState);
+    const strokes = normalizeShapeStrokes(value.strokes, `${label}.strokes`, state, options, shapeState);
     const shape: IPdfNativeShapeAnnotation = {
         type,
         pageIndex: requirePageIndex(pageIndex),
@@ -1176,12 +1196,14 @@ export function normalizePdfNativeNoteChanges(
     if (updates.length + geometryUpdates.length + freeTextNotes.length + deletes.length === 0) {
         fail(`${label} must include at least one note change`, options);
     }
-    return {
+    const normalized: IPdfNativeNoteChanges = {
         ...(updates.length > 0 ? {updates} : {}),
         ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
         ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
         ...(deletes.length > 0 ? {deletes} : {}),
     };
+    validateNativeMutationCollectionBudget(normalized, label, options);
+    return normalized;
 }
 
 export function normalizePdfNativeMutationSet(
@@ -1220,7 +1242,7 @@ export function normalizePdfNativeMutationSet(
     ) {
         fail(`${label} must include at least one native PDF mutation`, options);
     }
-    return {
+    const normalized: IPdfNativeMutationSet = {
         ...(updates.length > 0 ? {updates} : {}),
         ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
         ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
@@ -1232,6 +1254,8 @@ export function normalizePdfNativeMutationSet(
         ...(markup ? {markup} : {}),
         ...(placedImages.length > 0 ? {placedImages} : {}),
     };
+    validateNativeMutationCollectionBudget(normalized, label, options);
+    return normalized;
 }
 
 export type TPdfNativeMutationChunk = IPdfNativeMutationSet & {continuation?: IPdfNativeMutationContinuation;};
@@ -1249,6 +1273,53 @@ function sliceIntoChunks<T>(value: readonly T[], chunkSize: number): T[][] {
 
 function countBookmarkItems(items: readonly IPdfBookmarkEntry[]): number {
     return items.reduce((total, item) => total + 1 + countBookmarkItems(item.items), 0);
+}
+
+function countNativeMutationItems(mutations: IPdfNativeMutationSet): number {
+    let total = 0;
+    const add = (count: number) => {
+        total = Math.min(
+            PDF_NATIVE_MUTATION_LIMITS.collectionItems + 1,
+            total + count,
+        );
+    };
+    add(mutations.updates?.length ?? 0);
+    add(mutations.geometryUpdates?.length ?? 0);
+    add(mutations.freeTextNotes?.length ?? 0);
+    add(mutations.freeTextEditors?.length ?? 0);
+    add(mutations.deletes?.length ?? 0);
+    add(mutations.pageLabels?.ranges.length ?? 0);
+    add(mutations.bookmarks ? countBookmarkItems(mutations.bookmarks.items) : 0);
+    if (mutations.shapes) {
+        add(mutations.shapes.shapes.length);
+        add(mutations.shapes.deletedAnnotationIds.length);
+        add(mutations.shapes.deletedStableKeys.length);
+        for (const shape of mutations.shapes.shapes) {
+            add((shape.strokes?.length ?? 0) + shapePointCount(shape));
+        }
+    }
+    if (mutations.markup) {
+        add(mutations.markup.overrides.length);
+        add(mutations.markup.hints.length);
+        for (const hint of mutations.markup.hints) {
+            add(hint.markupGeometry?.length ?? 0);
+        }
+    }
+    add(mutations.placedImages?.length ?? 0);
+    return total;
+}
+
+function validateNativeMutationCollectionBudget(
+    mutations: IPdfNativeMutationSet,
+    label: string,
+    options: IPdfNativeValidationOptions,
+) {
+    if (countNativeMutationItems(mutations) > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
+        fail(
+            `${label} exceed the ${PDF_NATIVE_MUTATION_LIMITS.collectionItems}-item aggregate admission ceiling`,
+            options,
+        );
+    }
 }
 
 interface IBookmarkMutationChunk {

@@ -366,6 +366,61 @@ describe('native PDF mutation contracts', () => {
         }]}, 'mutations')).toThrow('valid managed binary handle');
     });
 
+    it('rejects a native mutation request that exceeds the aggregate collection budget', () => {
+        const updates = Array.from(
+            {length: PDF_NATIVE_MUTATION_LIMITS.collectionItems},
+            (_, index) => ({
+                ...validNoteTextUpdate,
+                objectNumber: index + 1,
+            }),
+        );
+
+        expect(() => normalizePdfNativeMutationSet({
+            updates,
+            geometryUpdates: [validNoteGeometryUpdate],
+        }, 'mutations')).toThrow(
+            `mutations exceed the ${PDF_NATIVE_MUTATION_LIMITS.collectionItems}-item aggregate admission ceiling`,
+        );
+    });
+
+    it('rejects nested ink stroke collections beyond their bounded shape budget', () => {
+        expect(() => normalizePdfNativeMutationSet({shapes: {
+            totalPages: 3,
+            rewriteShapeState: true,
+            shapes: [{
+                ...validShape,
+                strokes: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.shapeStrokes + 1}, () => []),
+            }],
+            deletedAnnotationIds: [],
+            deletedStableKeys: [],
+        }}, 'mutations')).toThrow(
+            `at most ${PDF_NATIVE_MUTATION_LIMITS.shapeStrokes} strokes`,
+        );
+
+        const halfPointCount = Math.floor(PDF_NATIVE_MUTATION_LIMITS.shapePoints / 2) + 1;
+        expect(() => normalizePdfNativeMutationSet({shapes: {
+            totalPages: 3,
+            rewriteShapeState: true,
+            shapes: [{
+                ...validShape,
+                strokes: [
+                    Array.from({length: halfPointCount}, () => ({
+                        x: 0.1,
+                        y: 0.2,
+                    })),
+                    Array.from({length: halfPointCount}, () => ({
+                        x: 0.1,
+                        y: 0.2,
+                    })),
+                ],
+            }],
+            deletedAnnotationIds: [],
+            deletedStableKeys: [],
+        }}, 'mutations')).toThrow(
+            `at most ${PDF_NATIVE_MUTATION_LIMITS.shapePoints} points per shape`,
+        );
+    });
+
     it('continues valid cap-plus-one mutation families in bounded chunks', () => {
         const mutations = normalizePdfNativeMutationSet({
             updates: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.noteTextUpdates + 1}, (_, index) => ({
