@@ -1,6 +1,4 @@
 import {
-    lstatSync,
-    realpathSync,
 } from 'fs';
 import {
     copyFile,
@@ -13,7 +11,6 @@ import {
     basename,
     dirname,
     join,
-    resolve,
 } from 'path';
 import { randomUUID } from 'crypto';
 import { isErrnoException } from '@contracts/runtimeGuards';
@@ -22,6 +19,7 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
+import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
 
 const log = createLogger('documentFileWriteAtomic');
 
@@ -32,16 +30,6 @@ const MAX_IPC_WRITE_BYTES = (() => {
     }
     return parsed;
 })();
-const ALLOWED_SYSTEM_SYMLINK_TARGETS = new Map([
-    [
-        '/tmp',
-        '/private/tmp',
-    ],
-    [
-        '/var',
-        '/private/var',
-    ],
-]);
 const RECOVERABLE_IMMUTABLE_LINK_CODES = new Set([
     'EXDEV',
     'ENOTSUP',
@@ -72,50 +60,6 @@ export function normalizeIpcWritePayload(data: unknown) {
     }
     assertWithinIpcWriteBudget(data.byteLength);
     return data;
-}
-
-export function assertNoSymlinkPathSegments(resolvedPath: string) {
-    const segments: string[] = [];
-    let currentPath = resolve(resolvedPath);
-
-    while (true) {
-        segments.push(currentPath);
-        const parentPath = dirname(currentPath);
-        if (parentPath === currentPath) {
-            break;
-        }
-        currentPath = parentPath;
-    }
-
-    for (const segment of segments) {
-        try {
-            if (lstatSync(segment).isSymbolicLink()) {
-                if (isAllowedSystemSymlinkPathSegment(segment)) {
-                    continue;
-                }
-                throw new Error(`Invalid file path: symlink path segment is not allowed (${segment})`);
-            }
-        } catch (error) {
-            const code = isErrnoException(error) ? error.code : undefined;
-            if (code === 'ENOENT') {
-                continue;
-            }
-            throw error;
-        }
-    }
-}
-
-function isAllowedSystemSymlinkPathSegment(segment: string) {
-    const allowedTarget = ALLOWED_SYSTEM_SYMLINK_TARGETS.get(segment);
-    if (!allowedTarget) {
-        return false;
-    }
-
-    try {
-        return realpathSync(segment) === allowedTarget;
-    } catch {
-        return false;
-    }
 }
 
 async function fsyncDirectoryBestEffort(directoryPath: string) {

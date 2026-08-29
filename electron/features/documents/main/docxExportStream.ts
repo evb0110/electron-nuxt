@@ -12,7 +12,7 @@ import {
     type IDocxExportStreamBeginResult,
 } from '@contracts/docxExport';
 import { consumeAllowedDocxWritePath } from '@electron/file-access/docxExportPaths';
-import { assertNoSymlinkPathSegments } from '@electron/file-access/documentFileWriteAtomic';
+import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
 import { normalizeNonEmptyPath } from '@electron/features/documents/main/documentFilePathResolution';
 import {
     atomicReplace,

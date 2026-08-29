@@ -12,7 +12,7 @@ import {
     join,
 } from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
-import { assertNoSymlinkPathSegments } from '@electron/file-access/documentFileWriteAtomic';
+import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
