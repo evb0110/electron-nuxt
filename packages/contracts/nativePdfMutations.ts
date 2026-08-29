@@ -20,6 +20,7 @@ import type {
     IPdfNativeShapeAnnotation,
     IPdfNativeShapePoint,
     IPdfNativeShapesMutation,
+    IPdfNoteGeometryUpdate,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
 import {decodeManagedTempFileHandle} from '@contracts/electronApiDocuments';
@@ -44,6 +45,7 @@ import {
 export const PDF_NATIVE_MUTATION_LIMITS = {
     collectionItems: 100_000,
     noteTextUpdates: 256,
+    noteGeometryUpdates: 256,
     noteChanges: 256,
     freeTextEditors: 256,
     noteTextLength: 64 * 1024,
@@ -457,6 +459,48 @@ function normalizeOptionalPdfNativeNoteTextUpdates(
     return normalizePdfNativeNoteTextUpdates(value, label, {
         ...options,
         allowEmpty: true,
+    });
+}
+
+function normalizePdfNativeNoteGeometryUpdates(
+    value: unknown,
+    label: string,
+    options: IPdfNativeValidationOptions,
+): IPdfNoteGeometryUpdate[] {
+    if (value === undefined) {
+        return [];
+    }
+    if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
+        fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} geometry updates`, options);
+    }
+
+    return Array.from(value, (update, index): IPdfNoteGeometryUpdate => {
+        if (!isRecord(update)) {
+            fail(`${label}[${index}] must be an object`, options);
+        }
+        const objectNumber = update.objectNumber;
+        const generationNumber = update.generationNumber;
+        const pageIndex = update.pageIndex;
+        if (typeof objectNumber !== 'number' || !Number.isSafeInteger(objectNumber) || objectNumber < 1) {
+            fail(`${label}[${index}].objectNumber must be a positive safe integer`, options);
+        }
+        if (
+            typeof generationNumber !== 'number'
+            || !Number.isSafeInteger(generationNumber)
+            || generationNumber < 0
+            || generationNumber > 65_535
+        ) {
+            fail(`${label}[${index}].generationNumber must be an integer from 0 to 65535`, options);
+        }
+        if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
+            fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
+        }
+        return {
+            objectNumber,
+            generationNumber,
+            pageIndex: requirePageIndex(pageIndex),
+            markerRect: normalizeNativeMarkerRect(update.markerRect, `${label}[${index}].markerRect`, options),
+        };
     });
 }
 
@@ -1126,13 +1170,15 @@ export function normalizePdfNativeNoteChanges(
         fail(`${label} must be an object`, options);
     }
     const updates = normalizeOptionalPdfNativeNoteTextUpdates(value.updates, `${label}.updates`, options);
+    const geometryUpdates = normalizePdfNativeNoteGeometryUpdates(value.geometryUpdates, `${label}.geometryUpdates`, options);
     const freeTextNotes = normalizeFreeTextNotes(value.freeTextNotes, `${label}.freeTextNotes`, options);
     const deletes = normalizeAnnotationDeletes(value.deletes, `${label}.deletes`, options);
-    if (updates.length + freeTextNotes.length + deletes.length === 0) {
+    if (updates.length + geometryUpdates.length + freeTextNotes.length + deletes.length === 0) {
         fail(`${label} must include at least one note change`, options);
     }
     return {
         ...(updates.length > 0 ? {updates} : {}),
+        ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
         ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
         ...(deletes.length > 0 ? {deletes} : {}),
     };
@@ -1147,6 +1193,7 @@ export function normalizePdfNativeMutationSet(
         fail(`${label} must be an object`, options);
     }
     const updates = normalizeOptionalPdfNativeNoteTextUpdates(value.updates, `${label}.updates`, options);
+    const geometryUpdates = normalizePdfNativeNoteGeometryUpdates(value.geometryUpdates, `${label}.geometryUpdates`, options);
     const freeTextNotes = normalizeFreeTextNotes(value.freeTextNotes, `${label}.freeTextNotes`, options);
     const freeTextEditors = normalizeFreeTextEditors(value.freeTextEditors, `${label}.freeTextEditors`, options);
     const deletes = normalizeAnnotationDeletes(value.deletes, `${label}.deletes`, options);
@@ -1164,7 +1211,7 @@ export function normalizePdfNativeMutationSet(
         : normalizeMarkupMutation(value.markup, `${label}.markup`, options);
     const placedImages = normalizePlacedImages(value.placedImages, `${label}.placedImages`, options);
     if (
-        updates.length + freeTextNotes.length + deletes.length + freeTextEditors.length === 0
+        updates.length + geometryUpdates.length + freeTextNotes.length + deletes.length + freeTextEditors.length === 0
         && !pageLabels
         && !bookmarks
         && !shapes
@@ -1175,6 +1222,7 @@ export function normalizePdfNativeMutationSet(
     }
     return {
         ...(updates.length > 0 ? {updates} : {}),
+        ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
         ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
         ...(freeTextEditors.length > 0 ? {freeTextEditors} : {}),
         ...(deletes.length > 0 ? {deletes} : {}),
@@ -1376,33 +1424,41 @@ function splitMarkupMutation(markup: NonNullable<IPdfNativeMutationSet['markup']
 export function splitPdfNativeMutationSetIntoBoundedChunks(
     mutations: IPdfNativeMutationSet,
 ): TPdfNativeMutationChunk[] {
-    const noteChunks: Array<Pick<TPdfNativeMutationChunk, 'updates' | 'freeTextNotes' | 'deletes'>> = [];
+    const noteChunks: Array<Pick<TPdfNativeMutationChunk, 'updates' | 'geometryUpdates' | 'freeTextNotes' | 'deletes'>> = [];
     let updateIndex = 0;
+    let geometryUpdateIndex = 0;
     let noteIndex = 0;
     let deleteIndex = 0;
     while (
         updateIndex < (mutations.updates?.length ?? 0)
+        || geometryUpdateIndex < (mutations.geometryUpdates?.length ?? 0)
         || noteIndex < (mutations.freeTextNotes?.length ?? 0)
         || deleteIndex < (mutations.deletes?.length ?? 0)
         || noteChunks.length === 0
     ) {
         const updates = (mutations.updates ?? []).slice(updateIndex, updateIndex + PDF_NATIVE_MUTATION_LIMITS.noteChanges);
         updateIndex += updates.length;
-        const freeTextNotes = (mutations.freeTextNotes ?? []).slice(noteIndex, noteIndex + Math.max(
+        const geometryUpdates = (mutations.geometryUpdates ?? []).slice(geometryUpdateIndex, geometryUpdateIndex + Math.max(
             0,
             PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length,
+        ));
+        geometryUpdateIndex += geometryUpdates.length;
+        const freeTextNotes = (mutations.freeTextNotes ?? []).slice(noteIndex, noteIndex + Math.max(
+            0,
+            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length,
         ));
         noteIndex += freeTextNotes.length;
         const deletes = (mutations.deletes ?? []).slice(deleteIndex, deleteIndex + Math.max(
             0,
-            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - freeTextNotes.length,
+            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length - freeTextNotes.length,
         ));
         deleteIndex += deletes.length;
-        if (updates.length + freeTextNotes.length + deletes.length === 0) {
+        if (updates.length + geometryUpdates.length + freeTextNotes.length + deletes.length === 0) {
             break;
         }
         noteChunks.push({
             ...(updates.length > 0 ? {updates} : {}),
+            ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
             ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
             ...(deletes.length > 0 ? {deletes} : {}),
         });

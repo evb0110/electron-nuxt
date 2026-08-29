@@ -59,6 +59,7 @@ import {
     arePendingTextsCoveredByNativeChanges,
     buildNativeNoteTextUpdatesForSave,
 } from '@app/modules/pdf-viewer/runtime/save/nativeNoteTextUpdates';
+import {buildNativeNoteGeometryUpdatesForSave} from '@app/modules/pdf-viewer/runtime/save/buildNativeNoteGeometryUpdatesForSave';
 import {buildNativeShapesMutationForSave} from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
 
 export type {
@@ -557,6 +558,10 @@ function collectProjectedNativeAnnotationIds(input: {
         objectNumber: number;
         generationNumber: number;
     }>;
+    noteGeometryUpdates: Array<{
+        objectNumber: number;
+        generationNumber: number;
+    }>;
     freeTextNotes: Array<{ stableKey: string }>;
     nativeFreeTextEditors: ReadonlyMap<string, { stableKey: string }>;
     markup: {
@@ -567,6 +572,8 @@ function collectProjectedNativeAnnotationIds(input: {
     const ids = new Set<string>();
     const updatedRefs = new Set(input.noteTextUpdates.map(update =>
         `${update.objectNumber}R${update.generationNumber}`));
+    const geometryUpdatedRefs = new Set(input.noteGeometryUpdates.map(update =>
+        `${update.objectNumber}R${update.generationNumber}`));
     const freeTextStableKeys = new Set(input.freeTextNotes.map(note => note.stableKey));
 
     input.changedComments.forEach((comment) => {
@@ -574,7 +581,9 @@ function collectProjectedNativeAnnotationIds(input: {
             ?? parsePdfJsAnnotationRef(comment.annotationId);
         const hasProjectedTextUpdate = targetRef !== null
             && updatedRefs.has(`${targetRef.objectNumber}R${targetRef.generationNumber}`);
-        if (hasProjectedTextUpdate || freeTextStableKeys.has(comment.stableKey)) {
+        const hasProjectedGeometryUpdate = targetRef !== null
+            && geometryUpdatedRefs.has(`${targetRef.objectNumber}R${targetRef.generationNumber}`);
+        if (hasProjectedTextUpdate || hasProjectedGeometryUpdate || freeTextStableKeys.has(comment.stableKey)) {
             addCommentIdentityAliases(ids, comment);
         }
     });
@@ -647,6 +656,13 @@ function buildClassifiedNativeMutationProjection(
         ? buildNativeAnnotationDeletesForSave({pendingDeletes: canonical.pendingDeletes})
         : null;
     const noteTextUpdates = noteTextUpdatesResult?.value ?? [];
+    const noteGeometryUpdatesResult = replayAllowed
+        ? buildNativeNoteGeometryUpdatesForSave(changedComments)
+        : null;
+    if (noteGeometryUpdatesResult?.skipEvents.length) {
+        return 'annotation-work-not-covered-by-native-mutations';
+    }
+    const noteGeometryUpdates = noteGeometryUpdatesResult?.value ?? [];
     const freeTextNotes = freeTextNotesResult?.value ?? [];
     const freeTextEditors = replayAllowed
         ? Array.from(canonical.liveAnnotationChanges.nativeFreeTextEditors.values())
@@ -686,6 +702,7 @@ function buildClassifiedNativeMutationProjection(
         persistedComments,
         replayableEditorNoteIds: canonical.liveAnnotationChanges.replayableEditorNoteIds,
         noteTextUpdates,
+        noteGeometryUpdates,
         freeTextNotes,
         nativeFreeTextEditors: replayAllowed
             ? canonical.liveAnnotationChanges.nativeFreeTextEditors
@@ -695,7 +712,8 @@ function buildClassifiedNativeMutationProjection(
     const nativeNoteMutationCount = noteTextUpdates.length
         + freeTextNotes.length
         + freeTextEditors.length
-        + annotationDeletes.length;
+        + annotationDeletes.length
+        + noteGeometryUpdates.length;
     const savedLiveAnnotationAliasesAreNativelyReplayable = (
         canonical.liveAnnotationChanges.hasChanges
         && !canonical.liveAnnotationChanges.hasUnknownChanges
@@ -784,6 +802,7 @@ function buildClassifiedNativeMutationProjection(
         canonicalAnnotationProgram: projectAnnotationBackendMutations(plan, 'native-append'),
         mutations: {
             ...(noteTextUpdates.length > 0 ? {updates: noteTextUpdates} : {}),
+            ...(noteGeometryUpdates.length > 0 ? {geometryUpdates: noteGeometryUpdates} : {}),
             ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
             ...(freeTextEditors.length > 0 ? {freeTextEditors} : {}),
             ...(annotationDeletes.length > 0 ? {deletes: annotationDeletes} : {}),
@@ -793,6 +812,7 @@ function buildClassifiedNativeMutationProjection(
             ...(markup ? {markup} : {}),
         },
         noteTextUpdates,
+        noteGeometryUpdates,
         freeTextNotes,
         freeTextEditors,
         annotationDeletes,

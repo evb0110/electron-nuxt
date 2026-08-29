@@ -59,6 +59,133 @@ fn updates_popup_parent_when_target_is_popup() {
 }
 
 #[test]
+fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_one_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+    });
+    let page_two_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+    });
+    document.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_one_id), Object::Reference(page_two_id)],
+            "Count" => 2,
+        },
+    );
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    document.trailer.set("Root", catalog_id);
+
+    let popup_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Popup",
+        "P" => page_one_id,
+        "Rect" => vec![10.into(), 60.into(), 40.into(), 90.into()],
+    });
+    let target_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "P" => page_one_id,
+        "Rect" => vec![10.into(), 60.into(), 40.into(), 90.into()],
+        "Popup" => popup_id,
+        "Contents" => Object::string_literal("note"),
+    });
+    document
+        .get_dictionary_mut(popup_id)
+        .unwrap()
+        .set("Parent", Object::Reference(target_id));
+    document.get_dictionary_mut(page_one_id).unwrap().set(
+        "Annots",
+        vec![Object::Reference(target_id), Object::Reference(popup_id)],
+    );
+
+    let input_path = temp_pdf_path("append-note-geometry-input");
+    let output_path = temp_pdf_path("append-note-geometry-output");
+    let mut original_bytes = Vec::new();
+    document.save_to(&mut original_bytes).unwrap();
+    write(&input_path, &original_bytes).unwrap();
+    write(&output_path, &original_bytes).unwrap();
+
+    append_native_mutations(
+        &input_path,
+        &output_path,
+        &NativeMutationsFile {
+            geometry_updates: vec![NoteGeometryUpdate {
+                object_number: target_id.0,
+                generation_number: target_id.1,
+                page_index: 1,
+                marker_rect: MarkerRect {
+                    left: 0.6,
+                    top: 0.25,
+                    width: 0.15,
+                    height: 0.12,
+                },
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260609123456Z",
+    )
+    .unwrap();
+
+    let loaded = Document::load(&output_path).unwrap();
+    let page_one_annots = get_page_annots(&loaded, page_one_id).unwrap();
+    let page_two_annots = get_page_annots(&loaded, page_two_id).unwrap();
+    assert!(!page_one_annots.iter().any(|object| {
+        object.as_reference().ok() == Some(target_id)
+            || object.as_reference().ok() == Some(popup_id)
+    }));
+    assert!(page_two_annots
+        .iter()
+        .any(|object| object.as_reference().ok() == Some(target_id)));
+    assert!(page_two_annots
+        .iter()
+        .any(|object| object.as_reference().ok() == Some(popup_id)));
+
+    let expected_rect = PdfRect {
+        x1: 120.0,
+        y1: 63.0,
+        x2: 150.0,
+        y2: 75.0,
+    };
+    let target = loaded.get_dictionary(target_id).unwrap();
+    assert_eq!(
+        target.get(b"P").unwrap().as_reference().unwrap(),
+        page_two_id
+    );
+    assert_approximately(
+        parse_rect(target.get(b"Rect").unwrap()).unwrap().x1,
+        expected_rect.x1,
+    );
+    assert_approximately(
+        parse_rect(target.get(b"Rect").unwrap()).unwrap().y1,
+        expected_rect.y1,
+    );
+    let popup = loaded.get_dictionary(popup_id).unwrap();
+    assert_eq!(
+        popup.get(b"P").unwrap().as_reference().unwrap(),
+        page_two_id
+    );
+    let popup_rect = parse_rect(popup.get(b"Rect").unwrap()).unwrap();
+    assert_approximately(popup_rect.x1, expected_rect.x1);
+    assert_approximately(popup_rect.y1, expected_rect.y1);
+    assert_approximately(popup_rect.x2, expected_rect.x2);
+    assert_approximately(popup_rect.y2, expected_rect.y2);
+
+    let _ = remove_file(input_path);
+    let _ = remove_file(output_path);
+}
+
+#[test]
 fn reports_missing_note_text_update_targets() {
     let mut document = Document::with_version("1.7");
     let updates = vec![NoteTextUpdate {

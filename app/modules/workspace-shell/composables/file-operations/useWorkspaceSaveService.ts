@@ -18,6 +18,7 @@ import type {
     IPdfNativeAnnotationDelete,
     IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
+    IPdfNoteGeometryUpdate,
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
     IPdfSerializedCommitCallbacks,
@@ -201,6 +202,7 @@ export interface IWorkspaceSaveDependencies {
                 expectedWorkingPath?: TDocumentRef | null;
                 expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
                 modifiedAt: string;
+                geometryUpdates?: IPdfNoteGeometryUpdate[];
                 freeTextNotes?: IPdfNativeFreeTextNote[];
                 deletes?: IPdfNativeAnnotationDelete[];
             },
@@ -547,6 +549,9 @@ async function persistNativeMutationProjection(
             projection.noteTextUpdates,
             {
                 ...opts,
+                ...(projection.noteGeometryUpdates?.length
+                    ? {geometryUpdates: projection.noteGeometryUpdates}
+                    : {}),
                 ...(projection.freeTextNotes.length
                     ? {freeTextNotes: projection.freeTextNotes}
                     : {}),
@@ -700,6 +705,7 @@ async function executeNativeMutationSave(
         ...(preparedShapeState === null ? {} : {preparedShapeState}),
         completion: {
             allowAnnotationSaveStateRefresh: projection.noteTextUpdates.length > 0
+                || (projection.noteGeometryUpdates?.length ?? 0) > 0
                 || projection.freeTextNotes.length > 0
                 || projection.freeTextEditors.length > 0
                 || projection.annotationDeletes.length > 0

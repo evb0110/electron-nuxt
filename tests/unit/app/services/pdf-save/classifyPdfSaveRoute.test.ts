@@ -11,6 +11,7 @@ import {
 import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import type {
     AnnotationEntity,
+    IStickyNoteEntity,
     ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {IShapeAnnotation} from '@app/types/annotations';
@@ -28,7 +29,7 @@ const MARKER_RECT = {
     height: 0.1,
 };
 
-function embeddedNote(id: string, pdfRef: string): AnnotationEntity {
+function embeddedNote(id: string, pdfRef: string): IStickyNoteEntity {
     return {
         kind: 'sticky-note',
         identity: {
@@ -906,6 +907,32 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             generationNumber: 0,
             text: 'text-anno_note',
         })]});
+    });
+
+    it('projects an imported sticky-note move to a native geometry update', () => {
+        const moved: IStickyNoteEntity = {
+            ...embeddedNote('anno_moved_text', '12R'),
+            pageIndex: 1,
+            anchor: {
+                left: 0.6,
+                top: 0.25,
+                width: 0.15,
+                height: 0.12,
+            },
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([moved]),
+            capabilities({totalPageCount: 2}),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.mutations).toMatchObject({geometryUpdates: [{
+            objectNumber: 12,
+            generationNumber: 0,
+            pageIndex: 1,
+            markerRect: moved.anchor,
+        }]});
     });
 
     it('projects imported FreeText geometry and style edits through the native editor route', () => {

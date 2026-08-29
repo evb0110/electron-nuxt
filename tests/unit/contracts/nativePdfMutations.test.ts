@@ -16,6 +16,18 @@ const validNoteTextUpdate = {
     text: 'Updated note',
 };
 
+const validNoteGeometryUpdate = {
+    objectNumber: 42,
+    generationNumber: 0,
+    pageIndex: 1,
+    markerRect: {
+        left: 0.6,
+        top: 0.25,
+        width: 0.15,
+        height: 0.12,
+    },
+};
+
 const validFreeTextNote = {
     pageIndex: 0,
     stableKey: 'uid:0:pdfjs_internal_editor_0',
@@ -198,6 +210,7 @@ describe('native PDF mutation contracts', () => {
     it('normalizes every native mutation family for preload and native-tool payloads', () => {
         const rawMutations = {
             updates: [validNoteTextUpdate],
+            geometryUpdates: [validNoteGeometryUpdate],
             freeTextNotes: [validFreeTextNote],
             freeTextEditors: [validFreeTextEditor],
             pageLabels: {
@@ -261,6 +274,7 @@ describe('native PDF mutation contracts', () => {
             pageYRatio: 0.25,
         });
         expect(preloadPayload.freeTextEditors).toEqual([validFreeTextEditor]);
+        expect(preloadPayload.geometryUpdates).toEqual([validNoteGeometryUpdate]);
         expect(preloadPayload.markup?.hints[0]?.appAnnotationId).toBe('app-markup-1');
     });
 
@@ -358,6 +372,10 @@ describe('native PDF mutation contracts', () => {
                 ...validNoteTextUpdate,
                 objectNumber: index + 1,
             })),
+            geometryUpdates: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.noteGeometryUpdates + 1}, (_, index) => ({
+                ...validNoteGeometryUpdate,
+                objectNumber: index + 1,
+            })),
             freeTextEditors: Array.from(
                 {length: PDF_NATIVE_MUTATION_LIMITS.freeTextEditors + 1},
                 (_, index) => ({
@@ -420,6 +438,8 @@ describe('native PDF mutation contracts', () => {
         expect(chunks.length).toBeGreaterThan(1);
         expect(chunks.reduce((total, chunk) => total + (chunk.updates?.length ?? 0), 0))
             .toBe(PDF_NATIVE_MUTATION_LIMITS.noteTextUpdates + 1);
+        expect(chunks.reduce((total, chunk) => total + (chunk.geometryUpdates?.length ?? 0), 0))
+            .toBe(PDF_NATIVE_MUTATION_LIMITS.noteGeometryUpdates + 1);
         expect(chunks.reduce((total, chunk) => total + (chunk.freeTextEditors?.length ?? 0), 0))
             .toBe(PDF_NATIVE_MUTATION_LIMITS.freeTextEditors + 1);
         expect(chunks.reduce((total, chunk) => total + (chunk.pageLabels?.ranges.length ?? 0), 0))
@@ -434,6 +454,7 @@ describe('native PDF mutation contracts', () => {
             .toBe(PDF_NATIVE_MUTATION_LIMITS.placedImages + 1);
         for (const chunk of chunks) {
             expect(chunk.updates?.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.noteTextUpdates);
+            expect(chunk.geometryUpdates?.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.noteGeometryUpdates);
             expect(chunk.freeTextEditors?.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.freeTextEditors);
             expect(chunk.pageLabels?.ranges.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges);
             expect(chunk.bookmarks?.items.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.bookmarkItems);

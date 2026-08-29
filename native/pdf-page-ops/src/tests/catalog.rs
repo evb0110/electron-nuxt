@@ -13,6 +13,7 @@
             &output_path,
             &NativeMutationsFile {
                 updates: Vec::new(),
+                geometry_updates: Vec::new(),
                 free_text_notes: Vec::new(),
                 free_text_editors: Vec::new(),
                 deletes: Vec::new(),
@@ -129,6 +130,7 @@
             &input_path,
             &NativeMutationsFile {
                 updates: Vec::new(),
+                geometry_updates: Vec::new(),
                 free_text_notes: Vec::new(),
                 free_text_editors: Vec::new(),
                 deletes: Vec::new(),
@@ -165,6 +167,7 @@
                 &input_path,
                 &NativeMutationsFile {
                     updates: Vec::new(),
+                    geometry_updates: Vec::new(),
                     free_text_notes: Vec::new(),
                     free_text_editors: Vec::new(),
                     deletes: Vec::new(),
@@ -262,6 +265,7 @@
             &pdf_path,
             &NativeMutationsFile {
                 updates: Vec::new(),
+                geometry_updates: Vec::new(),
                 free_text_notes: Vec::new(),
                 free_text_editors: Vec::new(),
                 deletes: Vec::new(),

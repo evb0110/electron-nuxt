@@ -711,6 +711,9 @@ pub(crate) struct NoteChangesFile {
     pub(crate) updates: Vec<NoteTextUpdate>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
+    pub(crate) geometry_updates: Vec<NoteGeometryUpdate>,
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) free_text_notes: Vec<FreeTextNote>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
@@ -723,6 +726,9 @@ pub(crate) struct NativeMutationsFile {
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) updates: Vec<NoteTextUpdate>,
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
+    pub(crate) geometry_updates: Vec<NoteGeometryUpdate>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) free_text_notes: Vec<FreeTextNote>,
@@ -749,6 +755,15 @@ pub(crate) struct NoteTextUpdate {
     pub(crate) object_number: u32,
     pub(crate) generation_number: u16,
     pub(crate) text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct NoteGeometryUpdate {
+    pub(crate) object_number: u32,
+    pub(crate) generation_number: u16,
+    pub(crate) page_index: u32,
+    pub(crate) marker_rect: MarkerRect,
 }
 
 #[derive(Clone, Copy, Deserialize)]

@@ -9,6 +9,7 @@ import type {
     IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
     IPdfNativeSaveResult,
+    IPdfNoteGeometryUpdate,
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
     IPdfSerializedCommitCallbacks,
@@ -699,12 +700,14 @@ export function createDocumentPersistence(
             modifiedAt: string;
             verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
             assertBeforeExpose?: () => Promise<void> | void;
+            geometryUpdates?: IPdfNoteGeometryUpdate[];
             freeTextNotes?: IPdfNativeFreeTextNote[];
             deletes?: IPdfNativeAnnotationDelete[];
         },
     ): Promise<IPdfPersistResult | null> {
         return trySavePdfNativeMutations({
             ...(updates.length > 0 ? {updates} : {}),
+            ...((opts.geometryUpdates?.length ?? 0) > 0 ? {geometryUpdates: opts.geometryUpdates} : {}),
             ...((opts.freeTextNotes?.length ?? 0) > 0 ? {freeTextNotes: opts.freeTextNotes} : {}),
             ...((opts.deletes?.length ?? 0) > 0 ? {deletes: opts.deletes} : {}),
         }, opts);
@@ -724,6 +727,7 @@ export function createDocumentPersistence(
     ): Promise<IPdfPersistResult | null> {
         const documentFiles = getDocumentFilesCapability();
         const updates = mutations.updates ?? [];
+        const geometryUpdates = mutations.geometryUpdates ?? [];
         const freeTextNotes = mutations.freeTextNotes ?? [];
         const freeTextEditors = mutations.freeTextEditors ?? [];
         const deletes = mutations.deletes ?? [];
@@ -738,6 +742,7 @@ export function createDocumentPersistence(
             freeTextNotes.length === 0
             && freeTextEditors.length === 0
             && updates.length === 0
+            && geometryUpdates.length === 0
             && deletes.length === 0
             && !hasPageLabels
             && !hasBookmarks
@@ -760,6 +765,7 @@ export function createDocumentPersistence(
             && freeTextEditors.length === 0
             && deletes.length === 0
             && updates.length > 0
+            && geometryUpdates.length === 0
             && typeof documentFiles.savePdfNoteTextUpdates === 'function'
         );
         const canUseLegacyNativeNoteChanges = (
@@ -768,7 +774,7 @@ export function createDocumentPersistence(
             && !hasShapes
             && !hasMarkup
             && !hasPlacedImages
-            && (freeTextNotes.length > 0 || deletes.length > 0)
+            && (geometryUpdates.length > 0 || freeTextNotes.length > 0 || deletes.length > 0)
             && freeTextEditors.length === 0
             && typeof documentFiles.savePdfNoteChanges === 'function'
         );
@@ -780,6 +786,7 @@ export function createDocumentPersistence(
                 hasLegacyNoteText: typeof documentFiles.savePdfNoteTextUpdates === 'function',
                 hasLegacyNoteChanges: typeof documentFiles.savePdfNoteChanges === 'function',
                 updateCount: updates.length,
+                geometryUpdateCount: geometryUpdates.length,
                 freeTextNoteCount: freeTextNotes.length,
                 freeTextEditorCount: freeTextEditors.length,
                 deleteCount: deletes.length,
@@ -949,6 +956,7 @@ export function createDocumentPersistence(
                     if (canUseLegacyNativeNoteChanges) {
                         return documentFiles.savePdfNoteChanges!(workingPath, {
                             ...(updates.length > 0 ? {updates} : {}),
+                            ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
                             ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
                             ...(deletes.length > 0 ? {deletes} : {}),
                         }, opts.modifiedAt, createDocumentMutationRevisionOptions(expectedDocumentRevisionToken));

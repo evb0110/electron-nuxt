@@ -557,6 +557,14 @@ export interface IPdfNoteTextUpdate {
     text: string;
 }
 
+/** A bounded geometry update for an existing indirect annotation. */
+export interface IPdfNoteGeometryUpdate {
+    objectNumber: number;
+    generationNumber: number;
+    pageIndex: TPageIndex;
+    markerRect: IMarkerRect;
+}
+
 export type IPdfNativeFreeTextNoteMarkerRect = IMarkerRect;
 
 export interface IPdfNativeFreeTextNote {
@@ -591,6 +599,7 @@ export interface IPdfNativeAnnotationDelete {
 
 export interface IPdfNativeNoteChanges {
     updates?: IPdfNoteTextUpdate[];
+    geometryUpdates?: IPdfNoteGeometryUpdate[];
     freeTextNotes?: IPdfNativeFreeTextNote[];
     deletes?: IPdfNativeAnnotationDelete[];
 }

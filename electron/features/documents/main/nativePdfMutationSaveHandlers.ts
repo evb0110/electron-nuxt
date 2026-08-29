@@ -310,6 +310,7 @@ async function prepareNativeNoteMutation(options: {
                         : options.command.command === 'save-note-changes'
                             ? {
                                 ...(chunk.updates ? {updates: chunk.updates} : {}),
+                                ...(chunk.geometryUpdates ? {geometryUpdates: chunk.geometryUpdates} : {}),
                                 ...(chunk.freeTextNotes ? {freeTextNotes: chunk.freeTextNotes} : {}),
                                 ...(chunk.deletes ? {deletes: chunk.deletes} : {}),
                             }

@@ -15,6 +15,7 @@ import type {
     IPdfNativeFreeTextEditor,
     IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
+    IPdfNoteGeometryUpdate,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
 import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
@@ -136,6 +137,7 @@ export interface INativePdfMutationProjection {
     canonicalAnnotationProgram: readonly IBackendAnnotationMutation[];
     mutations: IPdfNativeMutationSet;
     noteTextUpdates: IPdfNoteTextUpdate[];
+    noteGeometryUpdates?: IPdfNoteGeometryUpdate[];
     freeTextNotes: IPdfNativeFreeTextNote[];
     freeTextEditors: IPdfNativeFreeTextEditor[];
     annotationDeletes: IPdfNativeAnnotationDelete[];

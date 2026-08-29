@@ -963,6 +963,43 @@ describe('createDocumentPersistence', () => {
         expectBroadWorkingCopyFacadeNotUsed();
     });
 
+    it('falls back to legacy note-change native saves for imported note geometry', async () => {
+        const { persistence } = createPersistenceHarness();
+        const geometryUpdates = [{
+            objectNumber: 12,
+            generationNumber: 0,
+            pageIndex: requirePageIndex(1),
+            markerRect: {
+                left: 0.6,
+                top: 0.25,
+                width: 0.15,
+                height: 0.12,
+            },
+        }];
+        Object.assign(mocks.documentFilesCapability, {
+            applyPdfNativeMutationsToWorkingCopy: undefined,
+            commitStagedPdfNativeMutations: undefined,
+            savePdfNativeMutations: undefined,
+        });
+
+        const result = await persistence.trySavePdfNativeMutations({geometryUpdates}, {
+            saveMode: 'incremental',
+            expectedWorkingPath: '/tmp/old-working.pdf',
+            modifiedAt: 'D:20260628123640+03\'00\'',
+        });
+
+        expect(result?.success).toBe(true);
+        expect(mocks.documentFilesCapability.savePdfNoteChanges).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            {geometryUpdates},
+            'D:20260628123640+03\'00\'',
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
+        );
+        expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
+        expectBroadFilePersistenceFacadeNotUsed();
+        expectBroadWorkingCopyFacadeNotUsed();
+    });
+
     it('returns null for native mutations when no split native save method is available', async () => {
         const {
             deps,

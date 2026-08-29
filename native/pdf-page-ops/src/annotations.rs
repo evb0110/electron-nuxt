@@ -22,6 +22,248 @@ pub(crate) fn update_note_text(
     Ok(())
 }
 
+fn find_annotation_page_from_annots(
+    document: &impl PdfObjectSource,
+    target_id: ObjectId,
+) -> Result<ObjectId> {
+    for page_id in document.page_ids().into_values() {
+        if get_page_annots(document, page_id)?
+            .iter()
+            .any(|object| object.as_reference().ok() == Some(target_id))
+        {
+            return Ok(page_id);
+        }
+    }
+    Err(format!(
+        "Note geometry target {}R{} is not referenced from page Annots",
+        target_id.0, target_id.1
+    )
+    .into())
+}
+
+fn set_annotation_geometry_dict(dict: &mut Dictionary, page_id: ObjectId, pdf_rect: PdfRect) {
+    dict.set("Rect", rect_object(pdf_rect));
+    dict.set("P", Object::Reference(page_id));
+}
+
+fn remove_annotation_refs_from_page(
+    document: &mut Document,
+    page_id: ObjectId,
+    refs: &[ObjectId],
+) -> Result<bool> {
+    let refs_to_remove: HashSet<ObjectId> = refs.iter().copied().collect();
+    let annots = get_page_annots(document, page_id)?;
+    let (filtered, removed) = filter_annots_without_refs(annots, &refs_to_remove);
+    if removed {
+        document
+            .get_dictionary_mut(page_id)?
+            .set("Annots", Object::Array(filtered));
+    }
+    Ok(removed)
+}
+
+fn append_missing_annotation_refs_to_page(
+    document: &mut Document,
+    page_id: ObjectId,
+    refs: &[ObjectId],
+) -> Result<()> {
+    let mut annots = get_page_annots(document, page_id)?;
+    for object_id in refs {
+        if !annots
+            .iter()
+            .any(|object| object.as_reference().ok() == Some(*object_id))
+        {
+            annots.push(Object::Reference(*object_id));
+        }
+    }
+    document
+        .get_dictionary_mut(page_id)?
+        .set("Annots", Object::Array(annots));
+    Ok(())
+}
+
+pub(crate) fn update_note_geometry(
+    document: &mut Document,
+    updates: &[NoteGeometryUpdate],
+) -> Result<()> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+    let page_resolver = PageTreeResolver::new(document)?;
+    let mut updated_count = 0;
+    for update in updates {
+        let target_id = (update.object_number, update.generation_number);
+        let (target_subtype, popup_ref) = {
+            let target_dict = document.get_dictionary(target_id)?;
+            (
+                annotation_subtype(target_dict),
+                annotation_related_ref(target_dict, b"Popup"),
+            )
+        };
+        if target_subtype != "text" && target_subtype != "freetext" {
+            return Err(format!(
+                "Note geometry target {}R{} is not a Text annotation",
+                target_id.0, target_id.1
+            )
+            .into());
+        }
+        let source_page_id = find_annotation_page_from_annots(document, target_id)?;
+        let page_number = update
+            .page_index
+            .checked_add(1)
+            .ok_or("Invalid note geometry page index")?;
+        let destination_page_id = page_resolver.page_id(document, page_number)?;
+        let page_view = resolve_page_view(document, destination_page_id)?;
+        let page_rotation = resolve_page_rotation(document, destination_page_id)?;
+        let pdf_rect = marker_rect_to_pdf_rect(update.marker_rect, page_view, page_rotation)?;
+
+        {
+            let target_dict = document.get_dictionary_mut(target_id)?;
+            set_annotation_geometry_dict(target_dict, destination_page_id, pdf_rect);
+            if let Ok(Object::Dictionary(popup_dict)) = target_dict.get_mut(b"Popup") {
+                set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect);
+            }
+        }
+        if let Some(popup_id) = popup_ref {
+            let popup_dict = document.get_dictionary_mut(popup_id)?;
+            set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect);
+        }
+
+        if source_page_id != destination_page_id {
+            let mut refs = vec![target_id];
+            if let Some(popup_id) = popup_ref {
+                refs.push(popup_id);
+            }
+            remove_annotation_refs_from_page(document, source_page_id, &refs)?;
+            append_missing_annotation_refs_to_page(document, destination_page_id, &refs)?;
+        }
+        updated_count += 1;
+    }
+    if updated_count != updates.len() {
+        return Err(format!(
+            "Updated {updated_count} of {} requested note geometry annotation(s)",
+            updates.len()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn get_incremental_page_annots(
+    incremental: &IncrementalDocument,
+    page_id: ObjectId,
+) -> Result<Vec<Object>> {
+    get_page_annots(&incremental.new_document, page_id)
+        .or_else(|_| get_page_annots(incremental.get_prev_documents(), page_id))
+}
+
+fn remove_annotation_refs_from_page_incremental(
+    incremental: &mut IncrementalDocument,
+    page_id: ObjectId,
+    refs: &[ObjectId],
+) -> Result<bool> {
+    let refs_to_remove: HashSet<ObjectId> = refs.iter().copied().collect();
+    let annots = get_incremental_page_annots(incremental, page_id)?;
+    let (filtered, removed) = filter_annots_without_refs(annots, &refs_to_remove);
+    if removed {
+        incremental.opt_clone_object_to_new_document(page_id)?;
+        incremental
+            .new_document
+            .get_dictionary_mut(page_id)?
+            .set("Annots", Object::Array(filtered));
+    }
+    Ok(removed)
+}
+
+fn append_missing_annotation_refs_to_page_incremental(
+    incremental: &mut IncrementalDocument,
+    page_id: ObjectId,
+    refs: &[ObjectId],
+) -> Result<()> {
+    let mut annots = get_incremental_page_annots(incremental, page_id)?;
+    for object_id in refs {
+        if !annots
+            .iter()
+            .any(|object| object.as_reference().ok() == Some(*object_id))
+        {
+            annots.push(Object::Reference(*object_id));
+        }
+    }
+    incremental.opt_clone_object_to_new_document(page_id)?;
+    incremental
+        .new_document
+        .get_dictionary_mut(page_id)?
+        .set("Annots", Object::Array(annots));
+    Ok(())
+}
+
+pub(crate) fn update_note_geometry_incremental(
+    incremental: &mut IncrementalDocument,
+    updates: &[NoteGeometryUpdate],
+) -> Result<()> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+    let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
+    for update in updates {
+        let target_id = (update.object_number, update.generation_number);
+        let (target_subtype, popup_ref) = {
+            let target_dict = incremental.get_prev_documents().get_dictionary(target_id)?;
+            (
+                annotation_subtype(target_dict),
+                annotation_related_ref(target_dict, b"Popup"),
+            )
+        };
+        if target_subtype != "text" && target_subtype != "freetext" {
+            return Err(format!(
+                "Note geometry target {}R{} is not a Text annotation",
+                target_id.0, target_id.1
+            )
+            .into());
+        }
+        let source_page_id =
+            find_annotation_page_from_annots(incremental.get_prev_documents(), target_id)?;
+        let page_number = update
+            .page_index
+            .checked_add(1)
+            .ok_or("Invalid note geometry page index")?;
+        let destination_page_id =
+            page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
+        let page_view = resolve_page_view(incremental.get_prev_documents(), destination_page_id)?;
+        let page_rotation =
+            resolve_page_rotation(incremental.get_prev_documents(), destination_page_id)?;
+        let pdf_rect = marker_rect_to_pdf_rect(update.marker_rect, page_view, page_rotation)?;
+
+        incremental.opt_clone_object_to_new_document(target_id)?;
+        {
+            let target_dict = incremental.new_document.get_dictionary_mut(target_id)?;
+            set_annotation_geometry_dict(target_dict, destination_page_id, pdf_rect);
+            if let Ok(Object::Dictionary(popup_dict)) = target_dict.get_mut(b"Popup") {
+                set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect);
+            }
+        }
+        if let Some(popup_id) = popup_ref {
+            incremental.opt_clone_object_to_new_document(popup_id)?;
+            let popup_dict = incremental.new_document.get_dictionary_mut(popup_id)?;
+            set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect);
+        }
+
+        if source_page_id != destination_page_id {
+            let mut refs = vec![target_id];
+            if let Some(popup_id) = popup_ref {
+                refs.push(popup_id);
+            }
+            remove_annotation_refs_from_page_incremental(incremental, source_page_id, &refs)?;
+            append_missing_annotation_refs_to_page_incremental(
+                incremental,
+                destination_page_id,
+                &refs,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn upsert_free_text_notes_with_counter(
     document: &mut Document,
     notes: &[FreeTextNote],

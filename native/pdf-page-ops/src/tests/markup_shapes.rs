@@ -20,6 +20,7 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
         &output_path,
         &NativeMutationsFile {
             updates: Vec::new(),
+            geometry_updates: Vec::new(),
             free_text_notes: Vec::new(),
             free_text_editors: Vec::new(),
             deletes: Vec::new(),
@@ -321,6 +322,7 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
     };
     let mutation = NativeMutationsFile {
         updates: Vec::new(),
+        geometry_updates: Vec::new(),
         free_text_notes: Vec::new(),
         free_text_editors: Vec::new(),
         deletes: Vec::new(),
@@ -410,6 +412,7 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
         &pdf_path,
         &NativeMutationsFile {
             updates: Vec::new(),
+            geometry_updates: Vec::new(),
             free_text_notes: Vec::new(),
             free_text_editors: Vec::new(),
             deletes: Vec::new(),
@@ -775,6 +778,7 @@ fn appends_managed_shape_as_incremental_revision() {
         &output_path,
         &NativeMutationsFile {
             updates: Vec::new(),
+            geometry_updates: Vec::new(),
             free_text_notes: Vec::new(),
             free_text_editors: Vec::new(),
             deletes: Vec::new(),
@@ -838,6 +842,7 @@ fn appends_ink_with_a_preview_compatible_normal_appearance() {
         &pdf_path,
         &NativeMutationsFile {
             updates: Vec::new(),
+            geometry_updates: Vec::new(),
             free_text_notes: Vec::new(),
             free_text_editors: Vec::new(),
             deletes: Vec::new(),
@@ -1122,6 +1127,7 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
         &pdf_path,
         &NativeMutationsFile {
             updates: Vec::new(),
+            geometry_updates: Vec::new(),
             free_text_notes: Vec::new(),
             free_text_editors: Vec::new(),
             deletes: Vec::new(),
@@ -1153,6 +1159,7 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
         &pdf_path,
         &NativeMutationsFile {
             updates: Vec::new(),
+            geometry_updates: Vec::new(),
             free_text_notes: Vec::new(),
             free_text_editors: Vec::new(),
             deletes: Vec::new(),
@@ -1394,6 +1401,7 @@ fn imported_on_page_square(stable_key: &str) -> ShapeAnnotation {
 fn shapes_mutation(shapes: Vec<ShapeAnnotation>) -> NativeMutationsFile {
     NativeMutationsFile {
         updates: Vec::new(),
+        geometry_updates: Vec::new(),
         free_text_notes: Vec::new(),
         free_text_editors: Vec::new(),
         deletes: Vec::new(),

@@ -165,6 +165,7 @@
         let modified_at = "D:20260609123456+03'00'";
         let mutations = NativeMutationsFile {
             updates: Vec::new(),
+            geometry_updates: Vec::new(),
             free_text_notes: Vec::new(),
             free_text_editors: Vec::new(),
             deletes: Vec::new(),

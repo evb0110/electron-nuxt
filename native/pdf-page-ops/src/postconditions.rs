@@ -18,6 +18,7 @@ pub(crate) fn validate_appended_revision_postconditions(
     modified_at: &str,
 ) -> Result<()> {
     validate_note_text_document_postconditions(document, &mutations.updates, modified_at)?;
+    validate_note_geometry_document_postconditions(document, &mutations.geometry_updates)?;
     validate_free_text_note_document_postconditions(
         document,
         &mutations.free_text_notes,
@@ -110,6 +111,89 @@ pub(crate) fn validate_note_text_document_postconditions(
                     modified_at,
                     "popup parent annotation",
                 )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_note_geometry_document_postconditions(
+    document: &impl PdfObjectSource,
+    updates: &[NoteGeometryUpdate],
+) -> Result<()> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+    let page_resolver = PageTreeResolver::new(document)?;
+    for update in updates {
+        let page_number = update
+            .page_index
+            .checked_add(1)
+            .ok_or("Invalid note geometry page index")?;
+        let page_id = page_resolver.page_id(document, page_number)?;
+        let page_view = resolve_page_view(document, page_id)?;
+        let page_rotation = resolve_page_rotation(document, page_id)?;
+        let expected_rect = marker_rect_to_pdf_rect(update.marker_rect, page_view, page_rotation)?;
+        let target_id = (update.object_number, update.generation_number);
+        let target_dict = document.dictionary(target_id)?;
+        let target_subtype = annotation_subtype(target_dict);
+        if target_subtype != "text" && target_subtype != "freetext" {
+            return Err("Note geometry target has an unsupported subtype".into());
+        }
+        let page_annots = get_page_annots(document, page_id)?;
+        if !page_annots
+            .iter()
+            .any(|object| object.as_reference().ok() == Some(target_id))
+        {
+            return Err("Note geometry target is missing from destination page Annots".into());
+        }
+        validate_rect_approximately(
+            parse_rect(target_dict.get(b"Rect")?)?,
+            expected_rect,
+            "Note geometry annotation Rect",
+        )?;
+        if target_dict
+            .get(b"P")
+            .ok()
+            .and_then(|object| object.as_reference().ok())
+            .is_some_and(|target_page_id| target_page_id != page_id)
+        {
+            return Err("Note geometry annotation /P did not match destination page".into());
+        }
+
+        if let Ok(Object::Dictionary(popup_dict)) = target_dict.get(b"Popup") {
+            validate_rect_approximately(
+                parse_rect(popup_dict.get(b"Rect")?)?,
+                expected_rect,
+                "Note geometry embedded Popup Rect",
+            )?;
+        }
+        if let Some(popup_id) = annotation_related_ref(target_dict, b"Popup") {
+            if !page_annots
+                .iter()
+                .any(|object| object.as_reference().ok() == Some(popup_id))
+            {
+                return Err("Note geometry Popup is missing from destination page Annots".into());
+            }
+            let popup_dict = document.dictionary(popup_id)?;
+            if annotation_subtype(popup_dict) != "popup" {
+                return Err("Note geometry Popup has the wrong subtype".into());
+            }
+            validate_rect_approximately(
+                parse_rect(popup_dict.get(b"Rect")?)?,
+                expected_rect,
+                "Note geometry Popup Rect",
+            )?;
+            if annotation_related_ref(popup_dict, b"Parent") != Some(target_id) {
+                return Err("Note geometry Popup Parent did not reference its target".into());
+            }
+            if popup_dict
+                .get(b"P")
+                .ok()
+                .and_then(|object| object.as_reference().ok())
+                .is_some_and(|popup_page_id| popup_page_id != page_id)
+            {
+                return Err("Note geometry Popup /P did not match destination page".into());
             }
         }
     }

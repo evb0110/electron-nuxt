@@ -1,6 +1,7 @@
 use super::*;
 
 const MAX_NOTE_TEXT_UPDATES: usize = 256;
+const MAX_NOTE_GEOMETRY_UPDATES: usize = 256;
 const MAX_NOTE_CHANGES: usize = 256;
 const MAX_FREE_TEXT_EDITORS: usize = 256;
 const MAX_PAGE_LABEL_RANGES: usize = 2_048;
@@ -154,9 +155,29 @@ pub(crate) fn validate_marker_rect(rect: MarkerRect) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn validate_note_geometry_updates(updates: &[NoteGeometryUpdate]) -> Result<()> {
+    if updates.len() > MAX_NOTE_GEOMETRY_UPDATES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("Too many note geometry updates (maximum {MAX_NOTE_GEOMETRY_UPDATES})"),
+        ));
+    }
+    for update in updates {
+        if update.object_number == 0 {
+            return Err("Invalid note geometry update object number".into());
+        }
+        validate_marker_rect(update.marker_rect)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn read_note_changes(path: &Path) -> Result<NoteChangesFile> {
     let parsed: NoteChangesFile = read_json_sidecar(path, "note changes")?;
-    if parsed.updates.is_empty() && parsed.free_text_notes.is_empty() && parsed.deletes.is_empty() {
+    if parsed.updates.is_empty()
+        && parsed.geometry_updates.is_empty()
+        && parsed.free_text_notes.is_empty()
+        && parsed.deletes.is_empty()
+    {
         return Err("At least one note change is required".into());
     }
     for update in &parsed.updates {
@@ -164,15 +185,18 @@ pub(crate) fn read_note_changes(path: &Path) -> Result<NoteChangesFile> {
             return Err("Invalid note update object number".into());
         }
     }
+    validate_note_geometry_updates(&parsed.geometry_updates)?;
     validate_free_text_notes(&parsed.free_text_notes)?;
     validate_note_change_caps(
         parsed.updates.len(),
+        parsed.geometry_updates.len(),
         parsed.free_text_notes.len(),
         parsed.deletes.len(),
     )?;
     validate_annotation_deletes(&parsed.deletes)?;
     validate_mutation_collection_budget(&[
         parsed.updates.len(),
+        parsed.geometry_updates.len(),
         parsed.free_text_notes.len(),
         parsed.deletes.len(),
     ])?;
@@ -514,6 +538,7 @@ pub(crate) fn validate_placed_images(images: &[PlacedImage]) -> Result<()> {
 pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> {
     let parsed: NativeMutationsFile = read_json_sidecar(path, "native PDF mutations")?;
     if parsed.updates.is_empty()
+        && parsed.geometry_updates.is_empty()
         && parsed.free_text_notes.is_empty()
         && parsed.free_text_editors.is_empty()
         && parsed.deletes.is_empty()
@@ -531,11 +556,13 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
             return Err("Invalid note update object number".into());
         }
     }
+    validate_note_geometry_updates(&parsed.geometry_updates)?;
     validate_free_text_notes(&parsed.free_text_notes)?;
     validate_free_text_editors(&parsed.free_text_editors)?;
     validate_annotation_deletes(&parsed.deletes)?;
     validate_note_change_caps(
         parsed.updates.len(),
+        parsed.geometry_updates.len(),
         parsed.free_text_notes.len(),
         parsed.deletes.len(),
     )?;
@@ -560,6 +587,7 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
     validate_placed_images(&parsed.placed_images)?;
     validate_mutation_collection_budget(&[
         parsed.updates.len(),
+        parsed.geometry_updates.len(),
         parsed.free_text_notes.len(),
         parsed.free_text_editors.len(),
         parsed.deletes.len(),
@@ -585,11 +613,22 @@ fn validate_mutation_collection_budget(lengths: &[usize]) -> Result<()> {
     Ok(())
 }
 
-fn validate_note_change_caps(updates: usize, free_text_notes: usize, deletes: usize) -> Result<()> {
+fn validate_note_change_caps(
+    updates: usize,
+    geometry_updates: usize,
+    free_text_notes: usize,
+    deletes: usize,
+) -> Result<()> {
     if updates > MAX_NOTE_TEXT_UPDATES {
         return Err(domain_error(
             NativeErrorCode::TooLarge,
             format!("Too many note text updates (maximum {MAX_NOTE_TEXT_UPDATES})"),
+        ));
+    }
+    if geometry_updates > MAX_NOTE_GEOMETRY_UPDATES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("Too many note geometry updates (maximum {MAX_NOTE_GEOMETRY_UPDATES})"),
         ));
     }
     if free_text_notes > MAX_NOTE_CHANGES || deletes > MAX_NOTE_CHANGES {
@@ -599,7 +638,8 @@ fn validate_note_change_caps(updates: usize, free_text_notes: usize, deletes: us
         ));
     }
     let total = updates
-        .checked_add(free_text_notes)
+        .checked_add(geometry_updates)
+        .and_then(|value| value.checked_add(free_text_notes))
         .and_then(|value| value.checked_add(deletes))
         .unwrap_or(usize::MAX);
     if total > MAX_NOTE_CHANGES {
@@ -640,6 +680,7 @@ fn validate_native_mutation_continuation(mutations: &NativeMutationsFile) -> Res
     let has_family_payload = match continuation.family {
         NativeMutationContinuationFamily::Notes => {
             !mutations.updates.is_empty()
+                || !mutations.geometry_updates.is_empty()
                 || !mutations.free_text_notes.is_empty()
                 || !mutations.deletes.is_empty()
         }
