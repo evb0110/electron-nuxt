@@ -17,6 +17,8 @@ const ELECTRON_APP_PAGE_APPEAR_TIMEOUT_MS = 20_000;
 const VITE_OPTIMIZE_DEP_ERROR_MARKER = 'VITE_OPTIMIZE_DEP_504';
 const RENDERER_READINESS_ERROR_NAME = 'RendererReadinessError';
 const RETRYABLE_RENDERER_BINDINGS_ERROR_NAME = 'RetryableRendererBindingsError';
+const RETRYABLE_RENDERER_BODY_ERROR_NAME = 'RetryableRendererBodyError';
+const RENDERER_BODY_PROBE_TIMEOUT_MS = 5_000;
 const RENDERER_DEAD_PAGE_RELOAD_INTERVAL_MS = 5_000;
 const RENDERER_DEAD_PAGE_MAX_RELOADS = 5;
 
@@ -142,6 +144,29 @@ function createRetryableRendererBindingsError(state: IRendererState) {
     );
     error.name = RETRYABLE_RENDERER_BINDINGS_ERROR_NAME;
     return error;
+}
+
+function createRetryableRendererBodyError() {
+    const error = new Error(
+        `Renderer body probe did not respond within ${String(RENDERER_BODY_PROBE_TIMEOUT_MS)}ms`,
+    );
+    error.name = RETRYABLE_RENDERER_BODY_ERROR_NAME;
+    return error;
+}
+
+export async function probeRendererBody(
+    page: Pick<Page, '$'>,
+    timeoutMs = RENDERER_BODY_PROBE_TIMEOUT_MS,
+) {
+    const timeoutMarker = {};
+    const result = await Promise.race([
+        page.$('body'),
+        delay(timeoutMs).then(() => timeoutMarker),
+    ]);
+    if (result === timeoutMarker) {
+        return 'unresponsive' as const;
+    }
+    return result === null ? 'waiting' as const : 'ready' as const;
 }
 
 function hasRendererDeadDevServerBody(state: IRendererState) {
@@ -485,7 +510,11 @@ async function waitForBodyElement(
         }
         if (!currentPage.isClosed()) {
             try {
-                if (await currentPage.$('body')) {
+                const bodyProbe = await probeRendererBody(currentPage);
+                if (bodyProbe === 'unresponsive') {
+                    throw createRetryableRendererBodyError();
+                }
+                if (bodyProbe === 'ready') {
                     return currentPage;
                 }
             } catch (error) {

@@ -72,6 +72,7 @@ import {
     classifyRendererBindingReadiness,
     isElectronAppPageUrl,
     isNuxtDevServerUrl,
+    probeRendererBody,
     isRendererReadinessError,
     selectNewestElectronAppPage,
 } from '@scripts/electron-run/rendererReadiness';
@@ -610,6 +611,12 @@ describe('sessionManager automation launch args', () => {
         const source = await readFile('scripts/electron-run/rendererReadiness.ts', 'utf8');
         expect(source).not.toContain('waitForSelector(\'body\', { timeout: 30000 })');
         expect(source).not.toContain('waitForSelector(\'body\', { timeout: 15000 })');
+    });
+
+    it('classifies an initial body probe that never answers as unresponsive', async () => {
+        const page = {$: (_selector: string) => new Promise<null>(() => {})};
+
+        await expect(probeRendererBody(page, 5)).resolves.toBe('unresponsive');
     });
 
     it('treats failed Nuxt HTTP readiness probes as not ready', async () => {
