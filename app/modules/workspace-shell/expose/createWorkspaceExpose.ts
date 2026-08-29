@@ -9,6 +9,9 @@ import type {
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { ICropMargins } from '@app/types/crop';
+import type { TPageMoveOperation } from '@contracts/pageNumbers';
+import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import type {
     TFitMode,
     TPdfViewMode,
@@ -101,6 +104,12 @@ export interface ICreateWorkspaceExposeDeps extends
     pageOpsExtract: (pages: number[]) => Promise<boolean>;
     handlePageRotate: (pages: number[], angle: 90 | 270) => Promise<boolean>;
     pageOpsInsert: (totalPages: number, afterPage: number) => Promise<boolean>;
+    pageOpsReorder: (order: number[]) => Promise<boolean>;
+    pageOpsMove: (move: TPageMoveOperation) => Promise<boolean>;
+    handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
+    pageLabels: Ref<string[] | null>;
+    pageLabelRanges: Ref<IPdfPageLabelRange[]>;
+    pageLabelsResolved: Ref<boolean>;
     totalPages: Ref<number>;
     isDjvuMode: Ref<boolean>;
     viewerCapabilities?: Ref<IWorkspaceViewerCapabilities>;
@@ -365,6 +374,9 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             annotationCommentsStatus: deps.annotationCommentsStatus.value,
             annotationInventory: cloneAnnotationInventory(deps.annotationInventory.value),
             annotationDirty: deps.annotationDirty.value,
+            pageLabels: deps.pageLabels.value,
+            pageLabelRanges: structuredClone(deps.pageLabelRanges.value),
+            pageLabelsResolved: deps.pageLabelsResolved.value,
             dirtyState: {
                 annotationDirty: deps.annotationDirty.value,
                 bookmarksDirty: deps.bookmarksDirty?.value ?? false,

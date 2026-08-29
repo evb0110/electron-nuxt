@@ -22,6 +22,8 @@ import {
     PDFDocument,
     PDFHexString,
     PDFName,
+    PDFNumber,
+    PDFString,
     StandardFonts,
     degrees,
     rgb,
@@ -633,6 +635,48 @@ export async function createOutlinePageLabelFixturePdf(filename: string) {
             items: [],
         },
     ]);
+    writeFileSync(filePath, await doc.save());
+    return filePath;
+}
+
+export async function createCompactPageLabelsFixturePdf(filename: string, pageCount = 201) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+
+    for (let pageNumber = 0; pageNumber < pageCount; pageNumber += 1) {
+        doc.addPage([
+            612,
+            792,
+        ]);
+    }
+
+    const {context} = doc;
+    const pageLabels = context.register(context.obj({Nums: [
+        0,
+        context.register(context.obj({
+            S: PDFName.of('r'),
+            St: PDFNumber.of(1),
+        })),
+        40,
+        context.register(context.obj({
+            P: PDFString.of('Main-'),
+            S: PDFName.of('D'),
+            St: PDFNumber.of(1),
+        })),
+        100,
+        context.register(context.obj({
+            S: PDFName.of('R'),
+            St: PDFNumber.of(1),
+        })),
+        150,
+        context.register(context.obj({
+            P: PDFString.of('Appendix-'),
+            S: PDFName.of('a'),
+            St: PDFNumber.of(1),
+        })),
+    ]}));
+    doc.catalog.set(PDFName.of('PageLabels'), pageLabels);
     writeFileSync(filePath, await doc.save());
     return filePath;
 }

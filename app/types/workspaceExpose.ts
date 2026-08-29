@@ -1,4 +1,6 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { ICropMargins } from '@app/types/crop';
+import type { TPageMoveOperation } from '@contracts/pageNumbers';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
@@ -197,6 +199,12 @@ export interface IWorkspacePageOpsPort {
     handleRotateCw: (pages?: number[]) => void;
     handleRotateCcw: (pages?: number[]) => void;
     handleInsertPages: () => void;
+    pageOpsDelete: (pages: number[], totalPages: number) => Promise<boolean>;
+    handlePageRotate: (pages: number[], angle: 90 | 270) => Promise<boolean>;
+    pageOpsInsert: (totalPages: number, afterPage: number) => Promise<boolean>;
+    pageOpsReorder: (order: number[]) => Promise<boolean>;
+    pageOpsMove: (move: TPageMoveOperation) => Promise<boolean>;
+    handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
     handleConvertToPdf: () => void;
 }
 
@@ -238,6 +246,14 @@ export interface IWorkspaceAgentPort {
 interface IWorkspaceStatePort {hasPdf: {value: boolean;} | boolean;}
 
 export interface IWorkspaceAutomationStateSnapshot {
+    pageLabels?: string[] | null;
+    pageLabelRanges?: Array<{
+        startPage: number;
+        style: 'D' | 'R' | 'r' | 'A' | 'a' | null;
+        prefix: string;
+        startNumber: number;
+    }>;
+    pageLabelsResolved?: boolean;
     annotationComments: IAnnotationCommentSummary[];
     annotationCommentsStatus: TAnnotationCommentsStatus;
     /**
