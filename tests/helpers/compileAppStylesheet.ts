@@ -36,6 +36,16 @@ const APP_CSS_ENTRY = join(APP_CSS_DIR, 'main.css');
 // writes it during install, so a missing file means an unprepared workspace.
 const NUXT_BUILD_SPECIFIER = '#build/';
 const NUXT_BUILD_DIR = join(REPO_ROOT, '.nuxt');
+const PUBLIC_DIR = join(REPO_ROOT, 'public');
+// Only the app's own root-relative font URLs; anything else stays a plain URL so
+// a stylesheet change cannot quietly turn images into megabytes of base64.
+const ROOT_RELATIVE_FONT_URL_PATTERN = /url\((['"]?)\/(fonts\/[^'")]+\.(woff2|woff|ttf|otf))\1\)/gu;
+const FONT_MEDIA_TYPES: Record<string, string> = {
+    otf: 'font/otf',
+    ttf: 'font/ttf',
+    woff: 'font/woff',
+    woff2: 'font/woff2',
+};
 const NUXT_UI_COLOR_SHADES = [
     50,
     100,
@@ -138,6 +148,24 @@ async function nuxtUiColorRoleDeclarations() {
 }
 
 /**
+ * A browser test hands this stylesheet to a page built with `setContent`, where
+ * the app's root-relative font URLs resolve against nothing and text falls back
+ * to a system face. Inlining the files from `public/` keeps measurements on the
+ * font the app really ships, which sizes non-Latin text differently enough to
+ * decide whether a label fits its control.
+ */
+function inlineAppFonts(css: string) {
+    return css.replaceAll(ROOT_RELATIVE_FONT_URL_PATTERN, (match, _quote: string, path: string, extension: string) => {
+        const fontPath = join(PUBLIC_DIR, path);
+        if (!existsSync(fontPath)) {
+            return match;
+        }
+        const mediaType = FONT_MEDIA_TYPES[extension] ?? 'application/octet-stream';
+        return `url("data:${mediaType};base64,${readFileSync(fontPath).toString('base64')}")`;
+    });
+}
+
+/**
  * @param utilityCandidates Utility class names to emit, normally harvested from
  * the markup a component actually rendered rather than listed out by hand.
  */
@@ -157,5 +185,5 @@ export async function compileAppStylesheet(utilityCandidates: Iterable<string>) 
         },
     });
 
-    return `:root {\n${await nuxtUiColorRoleDeclarations()}\n}\n${compiler.build([...utilityCandidates])}`;
+    return `:root {\n${await nuxtUiColorRoleDeclarations()}\n}\n${inlineAppFonts(compiler.build([...utilityCandidates]))}`;
 }

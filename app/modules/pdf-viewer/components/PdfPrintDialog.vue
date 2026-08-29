@@ -2,7 +2,7 @@
     <UModal
         v-model:open="open"
         :title="t('print.title')"
-        :ui="{ footer: 'justify-end gap-2' }"
+        :ui="dialogUi"
     >
         <template #description>
             <span class="sr-only">
@@ -34,8 +34,13 @@
                     </UFormField>
                 </div>
 
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <div class="flex min-w-0 flex-col gap-2">
+                <div class="grid gap-4 sm:grid-cols-3">
+                    <!--
+                        Two of the three tracks go to the layout column: its
+                        option names run to 289px in Dutch and 288px in Russian,
+                        while no locale's orientation name passes 101px.
+                    -->
+                    <div class="flex min-w-0 flex-col gap-2 sm:col-span-2">
                         <p class="m-0 text-xs text-muted">
                             {{ t('print.layoutLabel') }}
                         </p>
@@ -175,10 +180,20 @@ const radioGroupUi = {
 
 const rangeFieldUi = { error: 'mt-1 text-xs' } as const;
 
-// `min-w-0` lets the button shrink to its column, `break-words` keeps a single
-// long word inside it, and `text-start` overrides the centring a `<button>`
-// element applies to the extra lines a wrapped option name produces.
-const optionButtonClass = 'min-w-0 justify-start break-words text-start';
+// The default modal is `max-w-lg`, which leaves each option column ~209px and
+// wraps the longest layout names. `max-w-xl` plus the 2:1 column split gives the
+// layout column ~327px, enough for every locale's option names on one line.
+const dialogUi = {
+    content: 'max-w-xl',
+    footer: 'justify-end gap-2',
+} as const;
+
+// `min-w-0` lets the button shrink to its column and `text-start` overrides the
+// centring a `<button>` applies to the extra lines a wrapped name produces.
+// `wrap-anywhere` rather than `break-words`: only `overflow-wrap: anywhere`
+// shrinks the text's min-content width, so a locale that names an option with
+// one unbreakable compound word wraps it instead of spilling past the button.
+const optionButtonClass = 'min-w-0 justify-start wrap-anywhere text-start';
 
 const viewMode = ref<TPdfViewMode>('single');
 const orientation = ref<TPrintOrientation>('auto');

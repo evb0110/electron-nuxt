@@ -74,6 +74,19 @@ describe('compileAppStylesheet', () => {
         expect(css).toMatch(/--ui-color-neutral-500:\s*[^;\s][^;]*;/u);
     });
 
+    it('inlines the shipped font files so a page can measure real text', async () => {
+        const css = await compileAppStylesheet([]);
+
+        // A browser test builds its page with `setContent`, where a root-relative
+        // font URL resolves against nothing and text silently falls back to a
+        // system face that measures differently.
+        expect(css).not.toContain('url(\'/fonts/noto-sans/noto-sans-variable.woff2\')');
+        expect(css).toContain('url("data:font/woff2;base64,');
+        // Only fonts: inlining every root-relative asset would drag images into
+        // the stylesheet as base64 for no measurement benefit.
+        expect(css).not.toMatch(/url\("data:image/u);
+    });
+
     it('leaves no fallback global behind when the worker had none', async () => {
         expect(ownDefineAppConfig()).toBeUndefined();
 
