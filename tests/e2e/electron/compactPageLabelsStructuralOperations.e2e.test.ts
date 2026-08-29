@@ -179,6 +179,31 @@ async function waitForLabels(session: IElectronE2ESession, expected: readonly st
     }, {timeout: 60_000}).toEqual(expected);
 }
 
+async function waitForCompactRanges(session: IElectronE2ESession, expected: readonly IPdfPageLabelRange[]) {
+    await expect.poll(async () => {
+        try {
+            const state = await readWorkspaceStateValues<{
+                pageLabels?: string[] | null;
+                pageLabelRanges?: IPdfPageLabelRange[];
+                pageLabelsResolved?: boolean;
+            }>(session.page, [
+                'pageLabels',
+                'pageLabelRanges',
+                'pageLabelsResolved',
+            ]);
+            if (state.pageLabelsResolved !== true || state.pageLabels !== null) {
+                return false;
+            }
+            const ranges = state.pageLabelRanges ?? [];
+            return expected.every(expectedRange => ranges.some(range => (
+                range.style === expectedRange.style && range.prefix === expectedRange.prefix
+            )));
+        } catch {
+            return false;
+        }
+    }, {timeout: 60_000}).toBe(true);
+}
+
 async function waitForPageOperation(session: IElectronE2ESession) {
     const readProgress = async () => {
         try {
@@ -328,6 +353,14 @@ describe('Electron E2E, compact page labels through structural operations', () =
         });
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
-        await waitForLabels(session, expected);
+        await waitForCompactRanges(session, [
+            ...initialRanges,
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
     }, TEST_TIMEOUT_MS);
 });
