@@ -221,9 +221,12 @@ async function waitForTotalPages(session: IElectronE2ESession, totalPages: numbe
 }
 
 async function runCommand<T>(session: IElectronE2ESession, name: string, args: unknown[]) {
-    if (name === 'handleSave') {
+    if (name === 'handleSave' || name === 'pageOpsDelete') {
         const result = await callWorkspaceCommand<T>(session.page, name, args);
         expect(result.called, `${name} should be exposed`).toBe(true);
+        if (name === 'pageOpsDelete') {
+            expect(result.value, `${name} should succeed`).toBe(true);
+        }
         return result.value;
     }
     const called = await session.page.evaluate((payload: {
