@@ -1,0 +1,24 @@
+app/types/workspaceExpose.ts
+  s_1f0952d2813e9c::t_3a507555edcafc 258
+tests/e2e/electron/compactPageLabelsStructuralOperations.e2e.test.ts
+  s_1f0952d2813e9c::t_cb7fdcbe045503 15-17,197-209,211-215
+  s_1f0952d2813e9c::t_34dc1da569ec8d 272,310
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_1f0952d2813e9c::t_3a507555edcafc 381
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "98fb6bf93b579484d6e383b3f2ce80672d0584cc",
+  "prompts": {},
+  "sessions": {
+    "s_1f0952d2813e9c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04e2c-3a78-7250-80c2-d7481c084e67",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
