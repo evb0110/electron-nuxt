@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import type * as UTIFModule from 'utif';
 import type * as EsToolkitMathModule from 'es-toolkit/math';
+import {cast} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 type TUtifModule = typeof UTIFModule;
 
@@ -416,6 +417,179 @@ describe('createBrowserImageExportCapability', () => {
 
         expect(utifLoaderState.encoderAccess).toHaveBeenCalled();
         expect(revokeObjectURL).toHaveBeenCalledWith('blob:djvu-page');
+        expect(terminate).toHaveBeenCalledOnce();
+    });
+
+    it('streams all-pages DjVu TIFF decoding one page at a time through a file handle', async () => {
+        const pageCount = 256;
+        const pageSizes = Array.from({length: pageCount}, () => ({
+            width: 1,
+            height: 1,
+        }));
+        const terminate = vi.fn();
+        const revokeObjectURL = vi.fn();
+        const getPage = vi.fn((pageNumber: number) => ({createPngObjectUrl: () => ({run: async () => ({url: `blob:djvu-page-${pageNumber}`})})}));
+        createDjvuWorkerFromPathMock.mockResolvedValue({
+            doc: {
+                getPagesSizes: () => ({run: async () => pageSizes}),
+                getPage,
+            },
+            revokeObjectURL,
+            terminate,
+        });
+
+        const writableWrites: Uint8Array[] = [];
+        const writable = {
+            abort: vi.fn(async () => {}),
+            close: vi.fn(async () => {}),
+            write: vi.fn(async (chunk: Uint8Array) => {
+                writableWrites.push(chunk);
+                if (chunk.byteLength === 4) {
+                    pendingDecodedPages -= 1;
+                }
+            }),
+        };
+        const handle = {
+            createWritable: vi.fn(async () => writable),
+            name: 'sample.tiff',
+        };
+        const typedHandle = cast<FileSystemFileHandle>(handle);
+        pickSaveTargetMock.mockResolvedValueOnce({
+            canceled: false,
+            fileName: 'sample.tiff',
+            handle: typedHandle,
+        });
+
+        let currentPageNumber = 0;
+        let pendingDecodedPages = 0;
+        let maximumPendingDecodedPages = 0;
+        vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+            currentPageNumber = Number.parseInt(url.split('-').at(-1) ?? '0', 10);
+            return {
+                arrayBuffer: async () => new Uint8Array([currentPageNumber]).buffer,
+                ok: true,
+            };
+        }));
+        vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
+            close: vi.fn(),
+            height: 1,
+            width: 1,
+        })));
+        vi.stubGlobal('document', {createElement: (tagName: string) => {
+            if (tagName !== 'canvas') {
+                throw new Error(`Unexpected element request: ${tagName}`);
+            }
+            const canvas = {
+                width: 0,
+                height: 0,
+                getContext: vi.fn(() => ({
+                    drawImage: vi.fn(),
+                    getImageData: vi.fn(() => {
+                        pendingDecodedPages += 1;
+                        maximumPendingDecodedPages = Math.max(
+                            maximumPendingDecodedPages,
+                            pendingDecodedPages,
+                        );
+                        return {data: new Uint8ClampedArray([
+                            currentPageNumber & 0xff,
+                            currentPageNumber >> 8,
+                            0,
+                            255,
+                        ])};
+                    }),
+                })),
+            };
+            return canvas;
+        }});
+
+        const {createBrowserImageExportCapability} = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+
+        await expect(createBrowserImageExportCapability().exportPdfToMultiPageTiff(
+            'browser://documents/work/sample.djvu',
+            undefined,
+            undefined,
+            'djvu',
+        )).resolves.toMatchObject({success: true});
+
+        expect(maximumPendingDecodedPages).toBe(1);
+        expect(pendingDecodedPages).toBe(0);
+        expect(writableWrites.filter(chunk => chunk.byteLength === 4).map(chunk => (
+            (chunk[0] ?? 0) + ((chunk[1] ?? 0) * 0x100)
+        ))).toEqual(
+            Array.from({length: pageCount}, (_value, index) => index + 1),
+        );
+        expect(writable.close).toHaveBeenCalledOnce();
+        expect(writable.abort).not.toHaveBeenCalled();
+        expect(getPage).toHaveBeenCalledTimes(pageCount);
+        expect(terminate).toHaveBeenCalledOnce();
+    });
+
+    it('aborts the DjVu TIFF writable when a later page cannot be rendered', async () => {
+        const terminate = vi.fn();
+        const getPage = vi.fn((pageNumber: number) => {
+            if (pageNumber === 2) {
+                throw new Error('DjVu page render failed');
+            }
+            return {createPngObjectUrl: () => ({run: async () => ({url: `blob:djvu-page-${pageNumber}`})})};
+        });
+        createDjvuWorkerFromPathMock.mockResolvedValue({
+            doc: {
+                getPagesSizes: () => ({run: async () => [
+                    {
+                        width: 1,
+                        height: 1,
+                    },
+                    {
+                        width: 1,
+                        height: 1,
+                    },
+                ]}),
+                getPage,
+            },
+            revokeObjectURL: vi.fn(),
+            terminate,
+        });
+
+        const writable = {
+            abort: vi.fn(async () => {}),
+            close: vi.fn(async () => {}),
+            write: vi.fn(async () => {}),
+        };
+        const handle = {
+            createWritable: vi.fn(async () => writable),
+            name: 'sample.tiff',
+        };
+        const typedHandle = cast<FileSystemFileHandle>(handle);
+        pickSaveTargetMock.mockResolvedValueOnce({
+            canceled: false,
+            fileName: 'sample.tiff',
+            handle: typedHandle,
+        });
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            arrayBuffer: async () => new Uint8Array([1]).buffer,
+            ok: true,
+        })));
+        vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
+            close: vi.fn(),
+            height: 1,
+            width: 1,
+        })));
+
+        const {createBrowserImageExportCapability} = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+
+        await expect(createBrowserImageExportCapability().exportPdfToMultiPageTiff(
+            'browser://documents/work/sample.djvu',
+            undefined,
+            undefined,
+            'djvu',
+        )).rejects.toThrow('DjVu page render failed');
+
+        expect(writable.abort).toHaveBeenCalledOnce();
+        expect(writable.close).not.toHaveBeenCalled();
         expect(terminate).toHaveBeenCalledOnce();
     });
 
