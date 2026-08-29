@@ -170,14 +170,14 @@ describe('recentFilesPersistence', () => {
         expect(browser.cookieWrites).toEqual([expectedLegacyRecentFilesCookieExpiry()]);
     });
 
-    it('expires the request cookie even when local storage migration fails', () => {
+    it('retains the legacy cookie when local storage migration fails', () => {
         const browser = stubBrowserStorage({
             cookie: `${RECENT_FILES_COOKIE_KEY}=${encodeURIComponent(compactPayload())}`,
             throwOnSet: true,
         });
 
         expect(readBrowserRecentFilesSnapshot().hasSnapshot).toBe(true);
-        expect(browser.cookieWrites).toEqual([expectedLegacyRecentFilesCookieExpiry()]);
+        expect(browser.cookieWrites).toEqual([]);
     });
 
     it('keeps only the newest entry for each recent file path', () => {

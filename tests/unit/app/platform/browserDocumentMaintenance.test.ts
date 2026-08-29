@@ -47,9 +47,15 @@ const recentFilesStoreMocks = vi.hoisted(() => ({
     hasRecentFilesStorageSnapshot: vi.fn(() => false),
     pruneRecentFiles: vi.fn((recentFiles: unknown[]) => ({
         recentFiles,
-        evictedRefs: [],
+        evictedRefs: [] as string[],
     })),
-    readRecentFilesFromStorage: vi.fn(() => []),
+    readRecentFilesFromStorage: vi.fn((): Array<{
+        originalPath: string;
+        backend: 'browser';
+        fileName: string;
+        timestamp: number;
+        fileSize: number;
+    }> => []),
     writeRecentFilesToStorage: vi.fn(),
 }));
 const recoveryMocks = vi.hoisted(() => ({loadBrowserWorkspaceRecoveryLeasedRefs: vi.fn(async () => new Set<string>())}));
