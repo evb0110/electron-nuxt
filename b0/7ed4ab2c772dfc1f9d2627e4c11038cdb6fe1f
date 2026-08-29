@@ -1,0 +1,29 @@
+app/services/pdfjs/annotationEditorMutation.ts
+  s_b2ece6dfe48478::t_0de30e1f03f7c2 24,26-29,31-79,104-114
+  s_b2ece6dfe48478::t_547268a9cc333e 131-133
+  s_b2ece6dfe48478::t_d6fa4c20db121b 80-84,136
+  s_b2ece6dfe48478::t_fccd05eeb6d371 120
+  s_b2ece6dfe48478::t_a505295f5da06c 25,30
+  s_b2ece6dfe48478::t_de50d93dbef259 115
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationCrudDelete.test.ts
+  s_b2ece6dfe48478::t_dafce9d3a20a54 75,690-702
+  s_b2ece6dfe48478::t_8fb53d4eea9653 62,470-497
+  s_b2ece6dfe48478::t_b839c10c6c0cea 92-94
+  s_b2ece6dfe48478::t_16fcc6cc65ee8f 498-499,703-704
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b07ed4ab2c772dfc1f9d2627e4c11038cdb6fe1f",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
