@@ -25,6 +25,23 @@ interface IBookmarkNodeBuild {
 
 const encoder = new TextEncoder();
 
+// Maximum number of direct /Kids entries per /Pages node. Keeping every
+// /Kids array bounded avoids degraded viewer performance on large documents.
+const PAGE_TREE_FANOUT = 64;
+
+interface IPageTreeNodeBuild {
+    ref: number;
+    parentRef: number;
+    childRefs: number[];
+    pageCount: number;
+}
+
+interface IPageTreeBuild {
+    rootChildRefs: number[];
+    intermediateNodes: IPageTreeNodeBuild[];
+    leafParentRefs: number[];
+}
+
 function encodeAscii(text: string) {
     return encoder.encode(text);
 }
@@ -51,6 +68,86 @@ function encodePdfTextHex(value: string) {
     }
 
     return `<${hex.toUpperCase()}>`;
+}
+
+// Builds a balanced /Pages tree with at most PAGE_TREE_FANOUT entries per
+// /Kids array. Outputs within the fanout keep the original flat layout:
+// object 1 is the /Pages root and every page is a direct child of it. Larger
+// outputs get intermediate /Pages nodes whose object numbers are allocated
+// right after the per-page image objects, before the bookmarks. Page,
+// content, and image object numbering is unchanged in both cases.
+function buildPageTree(pageCount: number, rootRef: number, firstNodeRef: number): IPageTreeBuild {
+    const pageRefs = Array.from({ length: pageCount }, (_value, index) =>
+        pageObjectNumber(index));
+
+    if (pageCount <= PAGE_TREE_FANOUT) {
+        return {
+            rootChildRefs: pageRefs,
+            intermediateNodes: [],
+            leafParentRefs: pageRefs.map(() => rootRef),
+        };
+    }
+
+    interface ILevelEntry {
+        ref: number;
+        pageCount: number;
+    }
+
+    let entries: ILevelEntry[] = pageRefs.map(ref => ({
+        ref,
+        pageCount: 1,
+    }));
+    let nextNodeRef = firstNodeRef;
+    const levels: IPageTreeNodeBuild[][] = [];
+
+    while (entries.length > PAGE_TREE_FANOUT) {
+        const levelNodes: IPageTreeNodeBuild[] = [];
+        const nextEntries: ILevelEntry[] = [];
+        for (let start = 0; start < entries.length; start += PAGE_TREE_FANOUT) {
+            const group = entries.slice(start, start + PAGE_TREE_FANOUT);
+            const node: IPageTreeNodeBuild = {
+                ref: nextNodeRef,
+                parentRef: rootRef,
+                childRefs: group.map(entry => entry.ref),
+                pageCount: sumBy(group, entry => entry.pageCount),
+            };
+            nextNodeRef += 1;
+            levelNodes.push(node);
+            nextEntries.push({
+                ref: node.ref,
+                pageCount: node.pageCount,
+            });
+        }
+        levels.push(levelNodes);
+        entries = nextEntries;
+    }
+
+    for (const [
+        levelIndex,
+        levelNodes,
+    ] of levels.entries()) {
+        const parentLevel = levels[levelIndex + 1];
+        for (const node of levelNodes) {
+            node.parentRef = parentLevel
+                ?.find(candidate => candidate.childRefs.includes(node.ref))?.ref
+                ?? rootRef;
+        }
+    }
+
+    const leafLevel = levels[0];
+    if (!leafLevel) {
+        throw new Error('Page tree build produced no leaf level');
+    }
+    return {
+        rootChildRefs: entries.map(entry => entry.ref),
+        intermediateNodes: levels.flat(),
+        leafParentRefs: pageRefs.map((_ref, pageIndex) =>
+            leafLevel[Math.floor(pageIndex / PAGE_TREE_FANOUT)]?.ref ?? rootRef),
+    };
+}
+
+function formatObjectRef(ref: number) {
+    return `${ref} 0 R`;
 }
 
 function pageObjectNumber(pageIndex: number) {
@@ -146,6 +243,7 @@ export class StreamingImagePdfWriter {
     private readonly pageCount: number;
     private readonly sink: IStreamingPdfSink;
     private readonly pageHeights = new Map<number, number>();
+    private readonly pageTree: IPageTreeBuild;
     private bytesWritten = 0;
     private pagesWritten = 0;
 
@@ -157,6 +255,11 @@ export class StreamingImagePdfWriter {
         this.sink = options.sink;
         this.pageCount = options.pageCount;
         this.bookmarks = options.bookmarks ?? [];
+        this.pageTree = buildPageTree(
+            this.pageCount,
+            1,
+            imageObjectNumber(this.pageCount - 1) + 1,
+        );
     }
 
     public async start() {
@@ -210,7 +313,7 @@ export class StreamingImagePdfWriter {
         await this.writeObject(pageRef, [
             '<<',
             '/Type /Page',
-            '/Parent 1 0 R',
+            `/Parent ${this.pageTree.leafParentRefs[pageIndex]} 0 R`,
             `/MediaBox [0 0 ${formatPdfNumber(pageWidth)} ${formatPdfNumber(pageHeight)}]`,
             `/Resources << /ProcSet [/PDF /ImageC] /XObject << /Im0 ${imageRef} 0 R >> >>`,
             `/Contents ${contentRef} 0 R`,
@@ -227,8 +330,20 @@ export class StreamingImagePdfWriter {
 
         await this.writePagesRoot();
 
+        for (const node of this.pageTree.intermediateNodes) {
+            await this.writeObject(node.ref, [
+                '<<',
+                '/Type /Pages',
+                `/Parent ${node.parentRef} 0 R`,
+                `/Count ${node.pageCount}`,
+                `/Kids [${node.childRefs.map(formatObjectRef).join(' ')}]`,
+                '>>',
+            ]);
+        }
+
         let outlinesRootRef: number | null = null;
-        let nextRef = imageObjectNumber(this.pageCount - 1) + 1;
+        let nextRef = imageObjectNumber(this.pageCount - 1) + 1
+            + this.pageTree.intermediateNodes.length;
 
         if (this.bookmarks.length > 0) {
             outlinesRootRef = nextRef;
@@ -283,13 +398,11 @@ export class StreamingImagePdfWriter {
     }
 
     private async writePagesRoot() {
-        const kids = Array.from({ length: this.pageCount }, (_value, index) =>
-            `${pageObjectNumber(index)} 0 R`);
         await this.writeObject(1, [
             '<<',
             '/Type /Pages',
             `/Count ${this.pageCount}`,
-            `/Kids [${kids.join(' ')}]`,
+            `/Kids [${this.pageTree.rootChildRefs.map(formatObjectRef).join(' ')}]`,
             '>>',
         ]);
     }
