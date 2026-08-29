@@ -833,7 +833,16 @@ describe('useOcr', () => {
         ) => {
             receivedSignal = signal;
             writeStarted.resolve(true);
-            await writeRelease.promise;
+            await Promise.race([
+                writeRelease.promise,
+                new Promise<never>((_resolve, reject) => {
+                    if (signal?.aborted) {
+                        reject(signal.reason);
+                        return;
+                    }
+                    signal?.addEventListener('abort', () => reject(signal.reason), {once: true});
+                }),
+            ]);
             return true;
         });
 
@@ -856,6 +865,7 @@ describe('useOcr', () => {
             expect(ocr.isExporting.value).toBe(false);
             expect(ocr.error.value).toBeNull();
             expect(toastAddMock).not.toHaveBeenCalled();
+            expect(mockDocuments.writeDocxFile).not.toHaveBeenCalled();
         } finally {
             writeRelease.resolve(true);
             scope.stop();
