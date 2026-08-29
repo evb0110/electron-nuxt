@@ -1,0 +1,53 @@
+electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal.ts
+  s_844ab6c51813eb::t_97e8cc32f43e66 14,209-216,218-224,226,239-240,243-245,249-252,255-256,258-260
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_844ab6c51813eb::t_8382d524e4b37d 245-247,249-250,339-340
+electron/features/image-export/main/tiffPageManifests.ts
+  s_844ab6c51813eb::t_fce004bb35957c 1
+  s_844ab6c51813eb::t_9d04ce01ce3e50 2-5,7-12,14-18,30-83,85-134
+  s_844ab6c51813eb::t_8ecfb4a76984c9 6,84
+  s_844ab6c51813eb::t_f42aebce07937b 13
+  s_844ab6c51813eb::t_d3498c6d63d16e 19-29
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_844ab6c51813eb::t_75653a66d81769 819-822
+  s_844ab6c51813eb::t_967323f1fbd346 768-817,823-842
+  s_844ab6c51813eb::t_28f40b98e7217f 818
+electron/features/image-export/main/export.ts
+  s_844ab6c51813eb::t_d3498c6d63d16e 48,51,1044
+  s_844ab6c51813eb::t_f2e387922a1932 1100,1127,1130,1139-1144,1148,1168,1178-1179
+  s_844ab6c51813eb::t_af0286cbbba936 44,496-497
+  s_844ab6c51813eb::t_cd5cd65b54fb93 1160-1161
+  s_844ab6c51813eb::t_0ce6c4981299b3 1101,1126,1128-1129
+  s_844ab6c51813eb::t_9b84592ba7ff04 46-47,49-50,52
+  s_844ab6c51813eb::t_e6ee9823fd07d2 498
+tests/unit/app/platform/streamingImagePdf.test.ts
+  s_844ab6c51813eb::t_967323f1fbd346 11,35,38-41,183-209
+tests/unit/electron/imageExport.test.ts
+  s_844ab6c51813eb::t_81a23715b3ad06 817-829
+app/platform/browser-api/createBrowserImageExportCapability.ts
+  s_844ab6c51813eb::t_2375790a7693c0 594-612,617-673,685-694,697
+  s_844ab6c51813eb::t_7cb7a034398d74 613-616
+tests/unit/app/platform/browserImageExportCapability.test.ts
+  s_844ab6c51813eb::t_571d56b31f075f 68
+  s_844ab6c51813eb::t_a5d694c0d3a37a 483
+  s_844ab6c51813eb::t_b3d168a05ddf08 32,35,65-67,69-73,192-193
+  s_844ab6c51813eb::t_d76ad930ddcc4f 435-449,451-482,484-486
+  s_844ab6c51813eb::t_7cb7a034398d74 450
+  s_844ab6c51813eb::t_aac330d4bd0dd4 487-538
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "aee107b10cbfe14ae93033760d7a05c08b4581cf",
+  "prompts": {},
+  "sessions": {
+    "s_844ab6c51813eb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f74-6bc2-76c1-9f81-3cab08801540",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
