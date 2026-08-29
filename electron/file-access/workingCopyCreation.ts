@@ -10,10 +10,7 @@ import {
     relative,
     sep,
 } from 'path';
-import {
-    copyFile,
-    writeFile,
-} from 'fs/promises';
+import {writeFile} from 'fs/promises';
 import {
     decryptPdfFileIfNeeded,
     isPdfFileEncrypted,
@@ -144,7 +141,7 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
                 admissionSnapshot = afterProbe;
                 if (encrypted || !isPdf) {
                     await measureWorkingCopyPhase(phaseTimings, 'eager-copy', () =>
-                        copyFile(originalPath, workingPath));
+                        copyFileFromStableSource(originalPath, workingPath));
                     if (isPdf) {
                         await measureWorkingCopyPhase(phaseTimings, 'decrypt', () =>
                             decryptPdfFileIfNeeded(workingPath));

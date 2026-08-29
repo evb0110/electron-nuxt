@@ -10,6 +10,7 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    renameSync,
     readFileSync,
     realpathSync,
     rmSync,
@@ -25,6 +26,7 @@ import {
 import { tmpdir } from 'os';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import {requireDocumentRevisionToken} from '@contracts';
+import type * as WorkingCopyStore from '@electron/file-access/workingCopyStore';
 import type * as FsPromises from 'fs/promises';
 
 let tempRoot = '';
@@ -117,6 +119,50 @@ describe('workingCopy', () => {
 
         expect(operationIds.size).toBe(1);
         expect(readFileSync(workingPath)).toEqual(readFileSync(originalPath));
+    }, 30_000);
+
+    it('rejects source replacement during eager non-PDF fallback before registration', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'background';
+        const sourcePath = join(tempRoot, 'replacement-source.djvu');
+        const replacementPath = join(tempRoot, 'replacement-source-new.djvu');
+        const originalBytes = Buffer.alloc(32 * 1024 * 1024 + 17, 41);
+        writeFileSync(sourcePath, originalBytes);
+        writeFileSync(replacementPath, Buffer.alloc(originalBytes.byteLength, 97));
+        let admissionProbeCount = 0;
+        vi.doMock('@electron/file-access/workingCopyStore', async importOriginal => {
+            const original = await importOriginal<typeof WorkingCopyStore>();
+            return {
+                ...original,
+                captureWorkingCopyAdmissionSnapshot: async (...args: Parameters<typeof original.captureWorkingCopyAdmissionSnapshot>) => {
+                    const snapshot = await original.captureWorkingCopyAdmissionSnapshot(...args);
+                    admissionProbeCount += 1;
+                    if (admissionProbeCount === 2) {
+                        setImmediate(() => {
+                            renameSync(sourcePath, join(tempRoot, 'replacement-source-old.djvu'));
+                            renameSync(replacementPath, sourcePath);
+                        });
+                    }
+                    return snapshot;
+                },
+            };
+        });
+        vi.resetModules();
+        try {
+            const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const trustedSourcePath = allowOpenPath(sourcePath);
+            expect(trustedSourcePath).not.toBeNull();
+
+            const copy = createWorkingCopy(trustedSourcePath!, 7);
+
+            await expect(copy).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+            expect(existsSync(join(tempRoot, 'replacement-source-old.djvu'))).toBe(true);
+            expect(existsSync(sourcePath)).toBe(true);
+        } finally {
+            vi.doUnmock('@electron/file-access/workingCopyStore');
+            vi.resetModules();
+        }
     }, 30_000);
 
     it('uses background materialization by default after publishing lazy state', async () => {
