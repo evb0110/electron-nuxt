@@ -1,0 +1,26 @@
+packages/contracts/nativePdfMutations.ts
+  s_b2ece6dfe48478::t_de2b67a4c4e346 1245,1257-1258,1278-1323
+  s_b2ece6dfe48478::t_27bc6bc830a9d9 58,682,693-699,712,720-729,785-787
+  s_b2ece6dfe48478::t_87f859716744d3 1199,1205-1206
+  s_b2ece6dfe48478::t_b134f422b659bf 1324
+tests/unit/contracts/nativePdfMutations.test.ts
+  s_b2ece6dfe48478::t_57bf576925f13b 407-414
+  s_b2ece6dfe48478::t_a0c0a2006ffff9 369-381,383-406,415-423
+  s_b2ece6dfe48478::t_b2f848efc8903b 382
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "976f3f1cd1fc1c2de31816e56f6054ed16033eeb",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
