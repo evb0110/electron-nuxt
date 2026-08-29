@@ -3,6 +3,14 @@ import { join } from 'node:path';
 import {
     PDFDocument,
     degrees,
+    PDFName,
+    PDFNumber,
+    PDFString,
+} from 'pdf-lib';
+import type {
+    PDFArray,
+    PDFDict,
+    PDFRef,
 } from 'pdf-lib';
 import {
     beforeEach,
@@ -67,6 +75,77 @@ async function createPdf(options: {
     }
 
     return new Uint8Array(await pdfDocument.save());
+}
+
+async function createMetadataPdf() {
+    const pdfDocument = await PDFDocument.create();
+    const pages = [
+        pdfDocument.addPage([
+            200,
+            100,
+        ]),
+        pdfDocument.addPage([
+            300,
+            100,
+        ]),
+        pdfDocument.addPage([
+            400,
+            100,
+        ]),
+    ];
+    const {context} = pdfDocument;
+    const decimalLabels = context.register(context.obj({
+        S: PDFName.of('D'),
+        St: PDFNumber.of(1),
+    }));
+    const romanLabels = context.register(context.obj({
+        S: PDFName.of('R'),
+        St: PDFNumber.of(1),
+    }));
+    const pageLabels = context.register(context.obj({Nums: [
+        0,
+        decimalLabels,
+        1,
+        romanLabels,
+    ]}));
+    const outlineItem = context.register(context.obj({
+        Title: PDFString.of('Page three'),
+        Dest: [
+            pages[2]!.ref,
+            PDFName.of('Fit'),
+        ],
+    }));
+    const outlines = context.register(context.obj({
+        Type: PDFName.of('Outlines'),
+        First: outlineItem,
+        Last: outlineItem,
+        Count: PDFNumber.of(1),
+    }));
+    (context.lookup(outlineItem) as PDFDict).set(PDFName.of('Parent'), outlines);
+    pdfDocument.catalog.set(PDFName.of('PageLabels'), pageLabels);
+    pdfDocument.catalog.set(PDFName.of('Outlines'), outlines);
+    return new Uint8Array(await pdfDocument.save());
+}
+
+function readPageLabels(pdfDocument: PDFDocument) {
+    const pageLabels = pdfDocument.context.lookup(
+        pdfDocument.catalog.get(PDFName.of('PageLabels')) as PDFRef,
+    ) as PDFDict;
+    const nums = pageLabels.get(PDFName.of('Nums')) as PDFArray;
+    const labels: string[] = [];
+    for (let index = 0; index < nums.size(); index += 2) {
+        const pageLabel = pdfDocument.context.lookup(nums.get(index + 1)) as PDFDict;
+        labels.push((pageLabel.get(PDFName.of('P')) as PDFString).decodeText());
+    }
+    return labels;
+}
+
+function readOutlineDestination(pdfDocument: PDFDocument) {
+    const outlines = pdfDocument.context.lookup(
+        pdfDocument.catalog.get(PDFName.of('Outlines')) as PDFRef,
+    ) as PDFDict;
+    const first = pdfDocument.context.lookup(outlines.get(PDFName.of('First'))) as PDFDict;
+    return (first.get(PDFName.of('Dest')) as PDFArray).get(0) as PDFRef;
 }
 
 async function summarizePdf(data: Uint8Array): Promise<IPdfPageSummary[]> {
@@ -333,6 +412,64 @@ describe('browser page-ops WASM fast path', () => {
         expect(await summarizePdf(wasmCrop.data)).toEqual(await summarizePdf(pdfLibCrop.data));
         expect(await summarizePdf(wasmRemoveCrop.data)).toEqual(await summarizePdf(pdfLibRemoveCrop.data));
         expect(wasmGeometry).toEqual(pdfLibGeometry);
+    });
+
+    it('preserves outlines and remaps page labels across browser page operations', async () => {
+        const basePdf = await createMetadataPdf();
+        const insertionPdf = await createPdf({pageWidths: [500]});
+        const wasm = await loadWasmRunner();
+        const operations = [
+            {
+                result: await wasm.run('deletePages', {
+                    data: basePdf,
+                    pages: [2],
+                }),
+                labels: [
+                    '1',
+                    'II',
+                ],
+                destinationPage: 2,
+            },
+            {
+                result: await wasm.run('reorderPages', {
+                    data: basePdf,
+                    newOrder: [
+                        3,
+                        1,
+                        2,
+                    ],
+                }),
+                labels: [
+                    'II',
+                    '1',
+                    'I',
+                ],
+                destinationPage: 1,
+            },
+            {
+                result: await wasm.run('insertPages', {
+                    data: basePdf,
+                    insertionData: insertionPdf,
+                    afterPage: 1,
+                }),
+                labels: [
+                    '1',
+                    '2',
+                    'I',
+                    'II',
+                ],
+                destinationPage: 4,
+            },
+        ];
+
+        for (const operation of operations) {
+            assertSuccessfulWasmMutation(operation.result);
+            const output = await PDFDocument.load(operation.result.data);
+            expect(output.catalog.get(PDFName.of('Outlines'))).toBeDefined();
+            expect(readPageLabels(output)).toEqual(operation.labels);
+            expect(readOutlineDestination(output).objectNumber)
+                .toBe(output.getPage(operation.destinationPage - 1).ref.objectNumber);
+        }
     });
 
     it('leaves non-integer runtime page fields to the pdf-lib fallback validation', async () => {

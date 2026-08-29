@@ -57,6 +57,15 @@ pub(crate) struct PageCloneContext<'a> {
     pub(crate) object_map: HashMap<(usize, ObjectId), ObjectId>,
 }
 
+struct BrowserPageLabelRange {
+    start_page: i64,
+    prefix: Option<Vec<u8>>,
+    style: Option<Vec<u8>>,
+    start_number: i64,
+}
+
+const MAX_BROWSER_PAGE_LABEL_NUMBER: i64 = 1_000_000_000;
+
 pub(crate) fn load_browser_pdf(data: &[u8]) -> Result<Document> {
     let document = load_pdf_bytes(data)?;
     if document.is_encrypted() {
@@ -425,8 +434,13 @@ pub(crate) fn build_browser_page_subset_pdf(
         "Type" => "Catalog",
         "Pages" => pages_id,
     };
-    if let Some(source_index) = retained_single_source_index(sources, page_sequence) {
-        preserve_single_source_document_metadata(&mut clone_context, source_index, &mut catalog)?;
+    if !sources.is_empty() {
+        preserve_single_source_document_metadata(
+            &mut clone_context,
+            0,
+            page_sequence,
+            &mut catalog,
+        )?;
     }
     let catalog_id = clone_context.target.add_object(catalog);
     clone_context.target.trailer.set("Root", catalog_id);
@@ -438,41 +452,16 @@ pub(crate) fn build_browser_page_subset_pdf(
     })
 }
 
-pub(crate) fn retained_single_source_index(
-    sources: &[&Document],
-    page_sequence: &[PageCloneSource],
-) -> Option<usize> {
-    if sources.len() != 1 {
-        return None;
-    }
-    let source_index = 0;
-    let source_pages = sources[source_index].get_pages();
-    if page_sequence.len() != source_pages.len() {
-        return None;
-    }
-
-    let mut retained_pages = HashSet::new();
-    for source in page_sequence {
-        if source.document_index != source_index {
-            return None;
-        }
-        retained_pages.insert(source.page_id);
-    }
-
-    source_pages
-        .values()
-        .all(|page_id| retained_pages.contains(page_id))
-        .then_some(source_index)
-}
-
 pub(crate) fn preserve_single_source_document_metadata(
     clone_context: &mut PageCloneContext,
     source_index: usize,
+    page_sequence: &[PageCloneSource],
     catalog: &mut Dictionary,
 ) -> Result<()> {
-    let source_catalog = clone_context.source(source_index)?.catalog()?.clone();
+    let source_document = clone_context.source(source_index)?;
+    let source_catalog = source_document.catalog()?.clone();
     for (key, value) in source_catalog.iter() {
-        if key.as_slice() == b"Type" || key.as_slice() == b"Pages" {
+        if matches!(key.as_slice(), b"Type" | b"Pages" | b"PageLabels") {
             continue;
         }
         catalog.set(
@@ -499,7 +488,144 @@ pub(crate) fn preserve_single_source_document_metadata(
         None => {}
     }
 
+    if let Ok(page_labels) = source_catalog.get(b"PageLabels") {
+        catalog.set(
+            "PageLabels",
+            remap_browser_page_labels(clone_context, source_index, page_sequence, page_labels)?,
+        );
+    }
+
     Ok(())
+}
+
+fn remap_browser_page_labels(
+    clone_context: &PageCloneContext,
+    source_index: usize,
+    page_sequence: &[PageCloneSource],
+    page_labels: &Object,
+) -> Result<Object> {
+    let source = clone_context.source(source_index)?;
+    let labels = resolve_dictionary_object(source, page_labels, "PageLabels")?;
+    let nums = labels.get(b"Nums")?.as_array()?;
+    if nums.is_empty() || nums.len() % 2 != 0 {
+        return Err("PageLabels has no usable ranges".into());
+    }
+    let mut ranges = Vec::new();
+    for pair in nums.chunks_exact(2) {
+        let start_page: i64 = pair[0]
+            .as_i64()?
+            .checked_add(1)
+            .ok_or("Invalid PageLabels range")?;
+        let label = resolve_dictionary_object(source, &pair[1], "PageLabel")?;
+        ranges.push(BrowserPageLabelRange {
+            start_page,
+            prefix: label
+                .get(b"P")
+                .ok()
+                .and_then(|value| value.as_str().ok())
+                .map(|value| value.to_vec()),
+            style: label
+                .get(b"S")
+                .ok()
+                .and_then(|value| value.as_name().ok())
+                .map(|value| value.to_vec()),
+            start_number: label
+                .get(b"St")
+                .ok()
+                .and_then(|value| value.as_i64().ok())
+                .unwrap_or(1)
+                .clamp(1, MAX_BROWSER_PAGE_LABEL_NUMBER),
+        });
+    }
+    ranges.sort_by_key(|range| range.start_page);
+
+    let source_page_numbers = source
+        .get_pages()
+        .into_iter()
+        .map(|(page_number, page_id)| (page_id, page_number as i64))
+        .collect::<HashMap<_, _>>();
+    let mut output_nums = Vec::with_capacity(page_sequence.len() * 2);
+    for (output_index, page) in page_sequence.iter().enumerate() {
+        let label = if page.document_index == source_index {
+            let source_page_number = *source_page_numbers
+                .get(&page.page_id)
+                .ok_or("Page-label source page was not found")?;
+            page_label_for_number(&ranges, source_page_number)
+        } else {
+            format_decimal((output_index + 1) as i64)
+        };
+        output_nums.push(Object::Integer(output_index as i64));
+        let mut label_dict = Dictionary::new();
+        label_dict.set("P", Object::string_literal(label));
+        output_nums.push(Object::Dictionary(label_dict));
+    }
+    Ok(dictionary! {"Nums" => output_nums}.into())
+}
+
+fn page_label_for_number(ranges: &[BrowserPageLabelRange], page_number: i64) -> String {
+    let range = ranges
+        .iter()
+        .rev()
+        .find(|range| range.start_page <= page_number)
+        .or_else(|| ranges.first())
+        .expect("PDF page labels must contain a range");
+    let number = range
+        .start_number
+        .saturating_add(page_number.saturating_sub(range.start_page))
+        .clamp(1, MAX_BROWSER_PAGE_LABEL_NUMBER);
+    let suffix = match range.style.as_deref() {
+        None => String::new(),
+        Some(b"R") => format_roman(number).to_uppercase(),
+        Some(b"r") => format_roman(number),
+        Some(b"A") => format_alpha(number).to_uppercase(),
+        Some(b"a") => format_alpha(number),
+        Some(_) => format_decimal(number),
+    };
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(range.prefix.as_deref().unwrap_or_default()),
+        suffix
+    )
+}
+
+fn format_decimal(number: i64) -> String {
+    number.to_string()
+}
+
+fn format_alpha(mut number: i64) -> String {
+    let mut result = String::new();
+    while number > 0 {
+        number -= 1;
+        result.insert(0, char::from(b'A' + (number % 26) as u8));
+        number /= 26;
+    }
+    result
+}
+
+fn format_roman(mut number: i64) -> String {
+    let values = [
+        (1000, "m"),
+        (900, "cm"),
+        (500, "d"),
+        (400, "cd"),
+        (100, "c"),
+        (90, "xc"),
+        (50, "l"),
+        (40, "xl"),
+        (10, "x"),
+        (9, "ix"),
+        (5, "v"),
+        (4, "iv"),
+        (1, "i"),
+    ];
+    let mut result = String::new();
+    for (value, text) in values {
+        while number >= value {
+            number -= value;
+            result.push_str(text);
+        }
+    }
+    result
 }
 
 impl PageCloneContext<'_> {
