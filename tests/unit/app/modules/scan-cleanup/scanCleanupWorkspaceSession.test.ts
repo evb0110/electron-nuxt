@@ -437,12 +437,12 @@ describe('scan cleanup workspace session detection guidance', () => {
     it('starts a full xlarge ink run with bounded document calibration', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
-        harness.value.start = vi.fn(async () => ({
+        vi.mocked(harness.value.start).mockResolvedValue({
             started: false as const,
             jobId: 'run-1',
             error: 'test stop',
             errorCode: 'internal' as const,
-        }));
+        });
         const mounted = mountSession(`ink-summary-${Date.now()}`, {totalPages: () => 20_001});
         mounted.session.settings.values.pageAlignment = 'ink';
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
