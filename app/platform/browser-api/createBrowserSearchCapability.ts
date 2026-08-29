@@ -3,7 +3,7 @@ import type {
     IPdfSearchResponse,
     IPdfSearchResult,
 } from '@contracts/search';
-import {validateSearchQuery} from '@contracts/search';
+import {validateSearchQuery} from '@pdf-core';
 import {
     buildPdfSearchExcerpt,
     iteratePdfSearchMatches,
