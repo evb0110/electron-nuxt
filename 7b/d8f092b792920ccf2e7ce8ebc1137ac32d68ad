@@ -1,0 +1,19 @@
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceExport.test.ts
+  s_6505ca2096ad09::t_ca1bc4453af8b6 148-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7bd8f092b792920ccf2e7ce8ebc1137ac32d68ad",
+  "prompts": {},
+  "sessions": {
+    "s_6505ca2096ad09": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04e9e-bacc-7da1-a8de-18b77591413b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
