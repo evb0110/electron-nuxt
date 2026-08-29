@@ -33,6 +33,8 @@ import {
     grantScanCleanupOutputAccess,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
 import {ScanCleanupPageScopeError} from '@scan-cleanup-core/pageScope';
+import type {IScanCleanupDetectionResultStore} from '@scan-cleanup-core/types';
+import {registerScanCleanupDetectionResultStore} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {
     beginMainOperationShutdown,
     resetMainOperationLifecycleForTests,
@@ -257,6 +259,47 @@ describe('scan cleanup service', () => {
         await expect(service.pruneGeneratedOutputs()).resolves.toBe(0);
 
         expect(mocks.pruneOutputs).toHaveBeenCalledWith({isOutputLive: mocks.isWorkingCopyOriginalPathRegistered});
+    });
+
+    it('refuses xlarge ink placement after claiming bounded detection evidence', async () => {
+        const close = vi.fn(async () => undefined);
+        const resultStore: IScanCleanupDetectionResultStore = {
+            pageCount: 20_001,
+            resultCount: 20_001,
+            append: async () => undefined,
+            replace: async () => undefined,
+            getPage: async () => undefined,
+            readRange: async () => [],
+            forEachChunk: async () => undefined,
+            close,
+        };
+        const detectionResultStoreId = registerScanCleanupDetectionResultStore({
+            documentRevision: owner.documentRevision,
+            ownerId: owner.ownerId,
+            resultStore,
+            sourcePdfPath: startRequest.sourcePdfPath,
+        });
+        const service = createScanCleanupService();
+
+        const result = await service.start(sender(), {
+            ...startRequest,
+            detectionResultStoreId,
+            options: {
+                ...startRequest.options,
+                pageAlignment: 'ink',
+            },
+        });
+
+        expect(result).toMatchObject({
+            started: false,
+            errorCode: 'too-large',
+        });
+        if (result.started) {
+            throw new Error('xlarge ink placement unexpectedly started');
+        }
+        expect(result.error).toContain('20,000');
+        expect(mocks.runWorker).not.toHaveBeenCalled();
+        expect(close).toHaveBeenCalledOnce();
     });
 
     it.each([

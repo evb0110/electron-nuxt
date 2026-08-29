@@ -65,11 +65,15 @@ import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMa
 import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
+    SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
     ScanCleanupInsufficientScratchError,
     ScanCleanupNativeToolUnavailableError,
 } from '@scan-cleanup-core/errors';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
-import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+import {
+    attachScanCleanupPageOverrideDefaults,
+    usesScanCleanupInkAlignment,
+} from '@contracts/scanCleanupPageOverrides';
 import {claimScanCleanupDetectionResultStore} from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {
     persistScanCleanupDetectionResultStore,
@@ -554,6 +558,24 @@ export function createScanCleanupService(
                         jobId,
                         error: 'Detection results are no longer available for this document',
                         errorCode: 'invalid-request',
+                    };
+                }
+                if (
+                    detectionResultStoreLease !== null
+                    && detectionResultStoreLease.resultStore.pageCount > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
+                    && usesScanCleanupInkAlignment(request.options)
+                ) {
+                    // The renderer keeps only a bounded result window. Ink
+                    // placement needs the document-wide sample set to resolve
+                    // its top edge, so a selected subset cannot safely use
+                    // partial early/middle/late evidence as if it were global.
+                    await detectionResultStoreLease.resultStore.close().catch(() => undefined);
+                    detectionResultStoreLease = null;
+                    return {
+                        started: false,
+                        jobId,
+                        error: SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
+                        errorCode: 'too-large',
                     };
                 }
                 const outputPdfPath = await createScanCleanupGeneratedOutputPath(request.sourcePdfPath, partial);

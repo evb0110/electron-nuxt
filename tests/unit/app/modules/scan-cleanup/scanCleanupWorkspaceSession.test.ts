@@ -433,6 +433,76 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('refuses selected xlarge ink placement instead of using partial early, middle, and late anchors', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`ink-selected-capacity-${Date.now()}`, {
+            totalPages: () => 20_001,
+            currentPage: () => 1,
+        });
+        mounted.session.settings.values.pageAlignment = 'ink';
+        mounted.session.selection.setSettingsScope('page');
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+
+        const state = detectionState('detect-1', 'completed');
+        const contentBox = {
+            xNormalized: 0.1,
+            yNormalized: 0.2,
+            widthNormalized: 0.7,
+            heightNormalized: 0.6,
+            rotationDegrees: 0 as const,
+        };
+        state.progress = {
+            ...state.progress,
+            completedUnits: 20_001,
+            totalUnits: 20_001,
+            percent: 100,
+        };
+        state.resultCount = 20_001;
+        state.detectionResultStoreId = 'ink-selected-store';
+        state.results = [
+            1,
+            10_001,
+            20_001,
+        ].map(pageNumber => ({
+            ...state.results[0]!,
+            pageNumber,
+            pagePlanEvidence: {
+                pageNumber,
+                rotationDegrees: 0,
+                layoutClassification: 'single-uncut-page' as const,
+                outputs: {full: {contentBox: {
+                    ...contentBox,
+                    yNormalized: pageNumber === 1
+                        ? 0.1
+                        : pageNumber === 10_001
+                            ? 0.2
+                            : 0.3,
+                }}},
+            },
+            sourcePageMetadata: {
+                pageNumber,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0,
+                sourceDpi: 300,
+            },
+        }));
+        harness.emitDetection(state);
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+
+        expect(mounted.session.detection.pagePlanEvidenceByPage.size).toBeLessThanOrEqual(256);
+        expect(mounted.session.detection.sourcePageMetadataByPage.value.size).toBeLessThanOrEqual(256);
+        await mounted.session.run.run();
+
+        expect(harness.value.start).not.toHaveBeenCalled();
+        expect(mounted.session.run.errorCode.value).toBe('too-large');
+        expect(mounted.session.run.runDisabledReason.value).toContain('20,000');
+        mounted.unmount();
+    });
+
     it('refuses an ink run for a selected page whose bounded detection record was evicted', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
@@ -488,11 +558,12 @@ describe('scan cleanup workspace session detection guidance', () => {
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
         expect(mounted.session.detection.pagePlanEvidenceByPage.has(20_001)).toBe(false);
 
-        expect(mounted.session.run.runDisabledReason.value).toContain('Ink placement evidence');
+        expect(mounted.session.run.runDisabledReason.value).toContain('20,000');
         await mounted.session.run.run();
 
         expect(harness.value.start).not.toHaveBeenCalled();
-        expect(mounted.session.run.error.value).toContain('Ink placement evidence');
+        expect(mounted.session.run.errorCode.value).toBe('too-large');
+        expect(mounted.session.run.error.value).toContain('20,000');
         mounted.unmount();
     });
 

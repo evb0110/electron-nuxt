@@ -184,7 +184,11 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     )));
     const inkPlacementCapacityExceeded = computed(() => {
         const resolvedOptions = options.resolvedOptions?.value ?? options.settings;
-        return runPageCount.value > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
+        // Ink placement is document-wide: the top edge and each snapped
+        // position depend on every included page. An xlarge detection keeps
+        // only a bounded renderer window, so a small selected batch cannot
+        // safely reuse the partial map and pretend its anchors are global.
+        return options.totalPages.value > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
             && usesScanCleanupInkAlignment(resolvedOptions)
             && options.detectionResultStoreId?.value !== null
             && options.detectionResultStoreId?.value !== undefined;
@@ -350,6 +354,16 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
 
     async function run() {
         if (!options.sourcePath.value) {
+            return;
+        }
+        if (inkPlacementCapacityExceeded.value) {
+            reportScanCleanupRunError(
+                options.ownerId,
+                SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
+                options.sourcePath.value,
+                'too-large',
+                options.documentRevision.value,
+            );
             return;
         }
         if (missingInkPlacementAnchorPage.value !== null) {
