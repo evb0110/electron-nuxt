@@ -21,7 +21,7 @@ const PRINT_DIALOG_PATH = new URL(
 );
 const DIALOG_CONTENT_CLASS_PATTERN = /const dialogUi = \{[\s\S]*?content: '([^']+)'/u;
 const OPTION_BUTTON_CLASS_PATTERN = /const optionButtonClass = '([^']+)';/u;
-const OPTION_GRID_CLASS_PATTERN = /<div class="(grid gap-4[^"]*)">/u;
+const OPTION_GRID_CLASS_PATTERN = /<div(?:\s+[^>]*?)?\s+class="(grid gap-4[^"]*)"[^>]*>/u;
 const OPTION_COLUMN_CLASS_PATTERN = /<div class="(flex [^"]*flex-col[^"]*)">/gu;
 const OPTION_BUTTON_ELEMENT_PATTERN = /<UButton\s+v-for="option in (?:layout|orientation)Options"[\s\S]*?<\/UButton>/gu;
 
