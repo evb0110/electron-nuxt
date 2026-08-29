@@ -74,6 +74,10 @@ describe('image export platform feature schemas', () => {
         ])).toThrow('sourceKind must be pdf or djvu');
         expect(() => codecs[channels.exportPdfToImages]!.decodeResult({success: 'yes'}))
             .toThrow('invalid image export result');
+        expect(() => codecs[channels.exportPdfToImages]!.decodeResult({
+            success: true,
+            outputPaths: Array.from({length: 100_001}, () => '/tmp/export.jpg'),
+        })).toThrow('outputPaths exceeds maximum item count (100000)');
         expect(codecs[channels.exportPdfToMultiPageTiff]!.decodeResult({
             success: true,
             outputPath: '/tmp/export.tiff',

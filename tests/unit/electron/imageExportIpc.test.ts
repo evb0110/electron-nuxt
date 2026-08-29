@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
+import type * as FsPromisesModule from 'fs/promises';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 import {
@@ -29,6 +30,7 @@ const mocks = vi.hoisted(() => ({
     fromWebContents: vi.fn(() => null),
     getPdfPageCount: vi.fn(async () => 10),
     normalizeImageExportPath: vi.fn((path: string) => ({ normalizedPath: path })),
+    rm: vi.fn(async () => undefined),
     resolveAllowedWritePath: vi.fn(async (path: string) => path),
     transitionWorkingCopyBackingState: vi.fn(),
     showSaveDialog: vi.fn(async (..._args: unknown[]) => ({
@@ -44,6 +46,11 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('fs', () => ({ existsSync: mocks.existsSync }));
+
+vi.mock('fs/promises', async (importOriginal) => ({
+    ...(await importOriginal<typeof FsPromisesModule>()),
+    rm: mocks.rm,
+}));
 
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory }));
 
@@ -541,6 +548,71 @@ describe('image export IPC lifecycle', () => {
                 error: 'render failed',
             }),
         ]]);
+    });
+
+    it('refuses a page image export past the output-path budget and deletes the generated files', async () => {
+        const sender = createSender();
+        const oversizedOutputPaths = Array.from(
+            {length: 100_001},
+            (_unused, index) => `/tmp/export-${index}.jpg`,
+        );
+        mocks.exportPdfPagesAsImages.mockResolvedValueOnce(oversizedOutputPaths);
+
+        const rejection = await handlePdfExportImages(
+            createContext(sender),
+            '/tmp/working.pdf',
+            [1],
+        ).catch((error: unknown) => error);
+
+        expect(rejection).toBeInstanceOf(Error);
+        expect((rejection as Error).name).toBe('ImageExportOutputBudgetError');
+        expect((rejection as Error).message).toMatch(/output-path budget/);
+        expect(mocks.rm).toHaveBeenCalledTimes(oversizedOutputPaths.length);
+        for (const [
+            index,
+            path,
+        ] of oversizedOutputPaths.entries()) {
+            if (index > 2 && index < oversizedOutputPaths.length - 2) continue;
+            expect(mocks.rm).toHaveBeenCalledWith(path, {force: true});
+        }
+    });
+
+    it('refuses a split multi-page TIFF export past the output-path budget and deletes every part', async () => {
+        const sender = createSender();
+        const oversizedParts = Array.from({length: 100_001}, (_unused, index) => `/tmp/export-part-${String(index + 1).padStart(3, '0')}.tiff`);
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: '/tmp/export.tiff',
+        });
+        mocks.exportPdfAsMultiPageTiff.mockResolvedValueOnce(oversizedParts);
+
+        const rejection = await handlePdfExportMultiPageTiff(
+            createContext(sender),
+            '/tmp/working.pdf',
+        ).catch((error: unknown) => error);
+
+        expect(rejection).toBeInstanceOf(Error);
+        expect((rejection as Error).name).toBe('ImageExportOutputBudgetError');
+        expect((rejection as Error).message).toMatch(/output-path budget/);
+        expect(mocks.rm).toHaveBeenCalledTimes(oversizedParts.length);
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/export-part-001.tiff', {force: true});
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/export-part-100001.tiff', {force: true});
+    });
+
+    it('still returns output paths for a page image export at the output-path budget boundary', async () => {
+        const sender = createSender();
+        const boundaryOutputPaths = Array.from({length: 100_000}, (_unused, index) => `/tmp/export-${index}.jpg`);
+        mocks.exportPdfPagesAsImages.mockResolvedValueOnce(boundaryOutputPaths);
+
+        await expect(handlePdfExportImages(
+            createContext(sender),
+            '/tmp/working.pdf',
+            [1],
+        )).resolves.toEqual({
+            success: true,
+            outputPaths: boundaryOutputPaths,
+        });
+        expect(mocks.rm).not.toHaveBeenCalled();
     });
 
     it('rejects oversized image export progress request ids before opening a save dialog', async () => {

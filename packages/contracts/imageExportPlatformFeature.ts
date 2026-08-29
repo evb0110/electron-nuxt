@@ -15,6 +15,8 @@ import {
 } from '@contracts/runtimeGuards';
 
 const MAX_COLLECTION_ITEMS = 100_000;
+/** Must match IMAGE_EXPORT_MAX_OUTPUT_PATHS in the main image-export resource limits. */
+const IMAGE_EXPORT_MAX_OUTPUT_PATHS = 100_000;
 const IMAGE_EXPORT_REQUEST_ID_MAX_LENGTH = 128;
 
 type TImageExportArgs = [
@@ -88,6 +90,9 @@ function decodeOutputPaths(value: unknown) {
     }
     if (!Array.isArray(value) || value.some(path => typeof path !== 'string')) {
         throw new Error('outputPaths must be an array of strings');
+    }
+    if (value.length > IMAGE_EXPORT_MAX_OUTPUT_PATHS) {
+        throw new Error(`outputPaths exceeds maximum item count (${IMAGE_EXPORT_MAX_OUTPUT_PATHS})`);
     }
     return value as string[];
 }

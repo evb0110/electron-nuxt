@@ -13,6 +13,27 @@ const IMAGE_EXPORT_MAX_RENDER_DIMENSION = Math.floor(
     Math.sqrt((IMAGE_EXPORT_MAX_NETPBM_READ_BYTES - PPM_HEADER_AND_ROUNDING_RESERVE_BYTES) / 3),
 );
 
+/**
+ * Maximum number of exported file paths returned through one IPC result.
+ * Matches the contract collection budget so an oversized export is refused
+ * instead of shipping an unbounded path array to the renderer.
+ */
+export const IMAGE_EXPORT_MAX_OUTPUT_PATHS = 100_000;
+export const IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME = 'ImageExportOutputBudgetError';
+
+export class ImageExportOutputBudgetError extends RangeError {
+    public constructor(pathCount: number) {
+        super(`Image export produced ${pathCount} output paths, exceeding the output-path budget of ${IMAGE_EXPORT_MAX_OUTPUT_PATHS}`);
+        this.name = IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME;
+    }
+}
+
+export function assertImageExportOutputPathBudget(paths: readonly string[]) {
+    if (paths.length > IMAGE_EXPORT_MAX_OUTPUT_PATHS) {
+        throw new ImageExportOutputBudgetError(paths.length);
+    }
+}
+
 export interface IExportPageSize {
     widthPts: number;
     heightPts: number;

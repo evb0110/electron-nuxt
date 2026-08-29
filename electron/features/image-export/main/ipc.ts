@@ -12,6 +12,11 @@ import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCre
 import {getWorkingCopyBackingEntry} from '@electron/file-access/workingCopyStore';
 import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
 import {
+    assertImageExportOutputPathBudget,
+    IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME,
+    ImageExportOutputBudgetError,
+} from '@electron/features/image-export/main/imageExportResourceLimits';
+import {
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
     getPdfPageCount,
@@ -69,6 +74,9 @@ const imageExportJobs = createMainJobRegistry<IImageExportProgress, IImageExport
     toError: (cause, kind) => ({
         code: kind === 'canceled' ? 'canceled' : kind,
         message: cause instanceof Error ? cause.message : String(cause ?? 'Image export failed'),
+        ...(cause instanceof ImageExportOutputBudgetError
+            ? {details: IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME}
+            : {}),
     }),
     terminalProgress: {
         completed: latest => ({
@@ -267,7 +275,15 @@ async function runImageExportJob(
             canceled: true,
         };
     }
-    throw new Error(terminal.error.message);
+    throw recreateImageExportFailure(terminal.error);
+}
+
+function recreateImageExportFailure(error: TImageExportError): Error {
+    const recreated = new Error(error.message);
+    if (error.details === IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME) {
+        recreated.name = IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME;
+    }
+    return recreated;
 }
 
 async function showImageExportDialog(parentWindow: BrowserWindow | null, defaultName: string, format: TImageExportProgressFormat) {
@@ -361,6 +377,12 @@ export async function handlePdfExportImages(
                 canceled: true,
             };
         }
+        try {
+            assertImageExportOutputPathBudget(outputPaths);
+        } catch (error) {
+            await discardExportedPaths(outputPaths);
+            throw error;
+        }
         const exportResult = {
             success: true,
             outputPaths,
@@ -430,6 +452,12 @@ export async function handlePdfExportMultiPageTiff(
                 success: false,
                 canceled: true,
             };
+        }
+        try {
+            assertImageExportOutputPathBudget(outputPaths);
+        } catch (error) {
+            await discardExportedPaths(outputPaths);
+            throw error;
         }
 
         const outputPath = outputPaths[0];
