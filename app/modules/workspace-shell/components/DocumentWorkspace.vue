@@ -176,10 +176,10 @@
                 <DocumentSourceSidebar
                     v-else
                     v-model:active-tab="sidebarTab"
-                    :is-active="isActive"
+                    :is-active="isActive || isRenderActive || isActiveViewerLayoutResizing"
                     :source="documentSourceSidebar.source.value"
                     :current-page="toolbarCurrentPage"
-                    :is-resizing="isResizingSidebar"
+                    :is-resizing="isActiveViewerLayoutResizing || (isRenderActive && !isActive)"
                     :search-session="documentSourceSidebar.searchSession"
                     :search-focus-request="searchFocusRequest"
                     @go-to-page="handleSourceSidebarGoToPage"

@@ -422,6 +422,9 @@ export const useDocumentPageSourceRuntime = (options: {
                 ),
                 reason: 'zoom-anchor-restoration',
                 ...restored,
+                left: props.value.continuousScroll && props.value.zoomMode === 'fit-width'
+                    ? container.scrollLeft
+                    : restored.left,
             });
         },
         onResizeSettled: () => scheduleRender.schedule(),
@@ -437,9 +440,16 @@ export const useDocumentPageSourceRuntime = (options: {
         }
         viewportScrollTop.value = nextScrollTop;
         scheduleRender.schedule();
-        if (viewportWritePort.consumeAuthorityScroll(viewerContainer.value)) {
+        const consumedAuthorityScroll = viewportWritePort.consumeAuthorityScroll(viewerContainer.value);
+        if (consumedAuthorityScroll) {
             layoutLifecycle.refreshLayoutTransactionAnchor();
-            syncCurrentPageFromViewport(false);
+            const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
+            const hasStableCommittedPage = viewportSession?.lifecycle === 'ready'
+                && viewportSession.requestedPage === viewportSession.committedPage
+                && viewportSession.requestedPage === props.value.currentPage;
+            if (!hasStableCommittedPage) {
+                syncCurrentPageFromViewport(false);
+            }
             return;
         }
         if (layoutLifecycle.hasPendingPointerRestore()) {
@@ -453,11 +463,17 @@ export const useDocumentPageSourceRuntime = (options: {
         layoutLifecycle.refreshLayoutTransactionAnchor();
         syncCurrentPageFromViewport(true);
     }
-    function syncCurrentPageFromViewport(supersedeNavigation: boolean) {
+    function syncCurrentPageFromViewport(
+        supersedeNavigation: boolean,
+        forceProjection = false,
+    ) {
         const container = viewerContainer.value;
         if (!container || !props.value.continuousScroll) {
             return;
         }
+        const totalPages = source.value?.pageCount
+            ?? chassisAuthority?.openSurface.snapshot.value.openingPageGeometry?.pageCount
+            ?? pageMetrics.value.length;
         const nearestPage = resolveNearestDocumentPageToViewportCenter({
             geometry: {
                 pageHeights: pageHeights.value,
@@ -465,14 +481,40 @@ export const useDocumentPageSourceRuntime = (options: {
                 totalHeight: totalHeight.value,
             },
             scrollTop: container.scrollTop,
-            totalPages: pageMetrics.value.length,
+            totalPages,
             viewportHeight: container.clientHeight,
         });
-        if (nearestPage && nearestPage !== props.value.currentPage) {
+        if (nearestPage && (forceProjection || nearestPage !== props.value.currentPage)) {
             const observedPage = chassisAuthority?.observePage(nearestPage, {supersedeNavigation}) ?? nearestPage;
             emit('update:currentPage', observedPage);
         }
     }
+    watch(
+        () => {
+            const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
+            return [
+                viewportSession?.lifecycle ?? null,
+                viewportSession?.requestedPage ?? null,
+                viewportSession?.committedPage ?? null,
+                viewportSession?.viewportIntent?.id ?? null,
+            ] as const;
+        },
+        (viewportSession, previousViewportSession) => {
+            // A navigation scroll can arrive before the target render commits.
+            // The navigation fence correctly rejects that early page projection,
+            // so reconcile once the viewport session reaches its ready boundary.
+            if (
+                viewportSession[0] === 'ready'
+                && previousViewportSession?.[0] !== 'ready'
+            ) {
+                syncCurrentPageFromViewport(false, true);
+            }
+        },
+        {
+            flush: 'sync',
+            immediate: true,
+        },
+    );
     function handleWheel(interaction: IDocumentWheelInteraction) {
         if (handleWheelZoom(interaction) || interaction.intent === 'platform-scroll') {
             return;

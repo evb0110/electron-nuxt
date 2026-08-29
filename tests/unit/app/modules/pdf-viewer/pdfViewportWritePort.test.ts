@@ -8,6 +8,43 @@ import { createPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/view
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
 
 describe('PDF viewport write port ownership tags', () => {
+    it('fences a synchronous scroll event raised by the DOM setter', () => {
+        const port = createPdfViewportWritePort();
+        let scrollTop = 0;
+        let consumedDuringSetter: boolean | null = null;
+        const container = cast<HTMLElement>({
+            scrollLeft: 0,
+            scrollHeight: 1_000,
+            clientHeight: 100,
+            get scrollTop() {
+                return scrollTop;
+            },
+            set scrollTop(value: number) {
+                scrollTop = value;
+                consumedDuringSetter = port.consumeAuthorityScroll(cast<HTMLElement>(this));
+            },
+        });
+        const intent = port.beginIntent('synchronous-navigation');
+
+        expect(port.apply(container, {
+            intent,
+            reason: 'test',
+            top: 120,
+        })).toBe(true);
+        expect(consumedDuringSetter).toBe(true);
+        expect(port.consumeAuthorityScroll(container)).toBe(true);
+
+        const clampedIntent = port.beginIntent('clamped-navigation');
+        expect(port.apply(container, {
+            intent: clampedIntent,
+            reason: 'test-clamped',
+            top: 2_000,
+        })).toBe(true);
+        expect(scrollTop).toBe(900);
+        expect(consumedDuringSetter).toBe(true);
+        expect(port.consumeAuthorityScroll(container)).toBe(true);
+    });
+
     it('consumes an authority-authored scroll burst and rejects drift as user input', () => {
         const container = cast<HTMLElement>({
             scrollLeft: 0,

@@ -24,6 +24,22 @@ export interface IDocumentViewportWritePort {
     observeUserScroll(container: HTMLElement): void;
 }
 
+function resolveAuthoredOffset(
+    value: number | undefined,
+    current: number,
+    scrollSize: number,
+    clientSize: number,
+) {
+    if (value === undefined) {
+        return current;
+    }
+    const maxOffset = scrollSize - clientSize;
+    if (!Number.isFinite(maxOffset)) {
+        return value;
+    }
+    return Math.min(Math.max(0, value), Math.max(0, maxOffset));
+}
+
 /**
  * The sole programmatic viewport writer shared by every document source and
  * rendering feature pack mounted in DocumentViewerChassis.
@@ -67,8 +83,38 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
             ) {
                 return false;
             }
-            if (write.left !== undefined) container.scrollLeft = write.left;
-            if (write.top !== undefined) container.scrollTop = write.top;
+            // Register the expected coordinate before each DOM assignment.
+            // Browsers can dispatch a scroll event while a setter is still on
+            // the stack, before the assignment returns. The event must see
+            // the same authority fence as the write that caused it.
+            const targetLeft = resolveAuthoredOffset(
+                write.left,
+                container.scrollLeft,
+                container.scrollWidth,
+                container.clientWidth,
+            );
+            const targetTop = resolveAuthoredOffset(
+                write.top,
+                container.scrollTop,
+                container.scrollHeight,
+                container.clientHeight,
+            );
+            if (write.left !== undefined) {
+                authorityWrites.set(container, {
+                    intentId: write.intent.intentId,
+                    left: targetLeft,
+                    top: container.scrollTop,
+                });
+                container.scrollLeft = targetLeft;
+            }
+            if (write.top !== undefined) {
+                authorityWrites.set(container, {
+                    intentId: write.intent.intentId,
+                    left: container.scrollLeft,
+                    top: targetTop,
+                });
+                container.scrollTop = targetTop;
+            }
             authorityWrites.set(container, {
                 intentId: write.intent.intentId,
                 left: container.scrollLeft,

@@ -129,6 +129,12 @@ describe('document viewer architecture boundaries', () => {
         expect(workspace).toMatch(
             /isActiveViewerLayoutResizing\s*=\s*computed\(\(\)\s*=>\s*\([\s\S]*?isTabTransitionBusy[\s\S]*?\)\);/u,
         );
+        expect(workspace).toMatch(
+            /:is-active="\s*isActive\s*\|\|\s*isRenderActive\s*\|\|\s*isActiveViewerLayoutResizing\s*"/u,
+        );
+        expect(workspace).toMatch(
+            /:is-resizing="\s*isActiveViewerLayoutResizing\s*\|\|\s*\(\s*isRenderActive\s*&&\s*!isActive\s*\)\s*"/u,
+        );
     });
 
     it('sequences every renderer activation through the shared visible-layout barrier', () => {

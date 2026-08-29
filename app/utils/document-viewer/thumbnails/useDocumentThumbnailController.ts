@@ -56,6 +56,11 @@ interface IRenderFailure {
     widthPx: number;
 }
 
+interface IDocumentThumbnailScrollAnchor {
+    page: number;
+    ratio: number;
+}
+
 interface IUseDocumentThumbnailControllerOptions {
     currentPage: Ref<number>;
     isActive: Ref<boolean>;
@@ -122,25 +127,82 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     let lastManualInteractionAtMs = 0;
     let lastProgrammaticScrollAtMs = 0;
     let hasSourceAspectEstimate = false;
+    let lastKnownAnchor: IDocumentThumbnailScrollAnchor | null = null;
     let mounted = false;
 
-    function captureResizeAnchor() {
-        const root = options.scrollRoot.value;
-        return root && root.clientHeight > 0 ? layout.captureAnchor(root.scrollTop) : null;
+    function captureDomAnchor(root: HTMLElement) {
+        const rootRect = root.getBoundingClientRect();
+        const centerY = rootRect.top + (rootRect.height / 2);
+        const items = Array.from(root.querySelectorAll<HTMLElement>('[data-pane-relocation-scroll-item]'))
+            .map(element => ({
+                element,
+                rect: element.getBoundingClientRect(),
+            }))
+            .filter(({rect}) => (
+                Math.min(rect.bottom, rootRect.bottom) - Math.max(rect.top, rootRect.top) > 0
+            ));
+        const measured = items.find(({rect}) => rect.top <= centerY && rect.bottom >= centerY)
+            ?? items[0];
+        const page = Number(measured?.element.dataset.thumbnailPage);
+        if (!measured || !Number.isSafeInteger(page) || page < 1) {
+            return null;
+        }
+        const itemRect = measured.rect;
+        return {
+            page,
+            ratio: itemRect.height > 0
+                ? Math.max(0, Math.min(1, (centerY - itemRect.top) / itemRect.height))
+                : 0,
+        };
     }
 
-    function restoreResizeAnchor(anchor: ReturnType<typeof layout.captureAnchor>) {
+    function readCurrentAnchor() {
+        const root = options.scrollRoot.value;
+        if (!root || root.clientHeight <= 0) {
+            return lastKnownAnchor;
+        }
+        const centerOffset = root.scrollTop + (root.clientHeight / 2);
+        const modelPage = layout.resolvePageAtOffset(centerOffset);
+        const modelAnchor = modelPage === null
+            ? null
+            : {
+                page: modelPage,
+                ratio: Math.max(0, Math.min(
+                    1,
+                    (centerOffset - layout.getPageTop(modelPage)) / layout.getPageHeight(modelPage),
+                )),
+            };
+        const anchor = captureDomAnchor(root) ?? modelAnchor;
+        if (anchor) {
+            lastKnownAnchor = anchor;
+        }
+        return anchor ?? lastKnownAnchor;
+    }
+
+    function captureResizeAnchor() {
+        return lastKnownAnchor ?? readCurrentAnchor();
+    }
+
+    function resolveAnchorScrollTop(anchor: IDocumentThumbnailScrollAnchor, root: HTMLElement) {
+        const page = Math.max(1, Math.trunc(anchor.page));
+        const pageTop = layout.getPageTop(page);
+        const pageHeight = layout.getPageHeight(page);
+        return Math.min(
+            Math.max(0, layout.getTotalHeight() - root.clientHeight),
+            Math.max(0, pageTop + (pageHeight * anchor.ratio) - (root.clientHeight / 2)),
+        );
+    }
+
+    function restoreResizeAnchor(anchor: IDocumentThumbnailScrollAnchor | null) {
         const root = options.scrollRoot.value;
         if (!root || !anchor || root.clientHeight <= 0) {
             return false;
         }
-        const nextScrollTop = Math.min(
-            Math.max(0, layout.getTotalHeight() - root.clientHeight),
-            layout.resolveAnchorScrollTop(anchor),
-        );
+        const nextScrollTop = resolveAnchorScrollTop(anchor, root);
         if (Math.abs(root.scrollTop - nextScrollTop) >= 1) {
             root.scrollTop = nextScrollTop;
         }
+        lastKnownAnchor = anchor;
         viewportRevision.value += 1;
         return true;
     }
@@ -156,7 +218,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         }
         const root = options.scrollRoot.value;
         const anchor = resizeAnchorLifecycle.read()
-            ?? (root ? layout.captureAnchor(root.scrollTop) : null);
+            ?? readCurrentAnchor();
         const aspectRatio = metrics.heightPoints / metrics.widthPoints;
         const estimateChanged = !hasSourceAspectEstimate && layout.setEstimatedAspectRatio(aspectRatio);
         hasSourceAspectEstimate = true;
@@ -165,7 +227,10 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             return;
         }
         layoutRevision.value += 1;
-        if (root && anchor) root.scrollTop = layout.resolveAnchorScrollTop(anchor);
+        if (root && anchor) {
+            root.scrollTop = resolveAnchorScrollTop(anchor, root);
+            lastKnownAnchor = anchor;
+        }
         if (resizeAnchorLifecycle.isActive()) resizeAnchorLifecycle.preserve();
     }
 
@@ -303,7 +368,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     }>) {
         const root = options.scrollRoot.value;
         const anchor = resizeAnchorLifecycle.read()
-            ?? (root ? layout.captureAnchor(root.scrollTop) : null);
+            ?? readCurrentAnchor();
         const changed = entries.reduce(
             (didChange, entry) => layout.updatePageChromeHeight(entry.pageNumber, entry.height) || didChange,
             false,
@@ -312,7 +377,10 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             return;
         }
         layoutRevision.value += 1;
-        if (root && anchor) root.scrollTop = layout.resolveAnchorScrollTop(anchor);
+        if (root && anchor) {
+            root.scrollTop = resolveAnchorScrollTop(anchor, root);
+            lastKnownAnchor = anchor;
+        }
         if (resizeAnchorLifecycle.isActive()) resizeAnchorLifecycle.preserve();
     }
 
@@ -322,7 +390,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         }
         const root = options.scrollRoot.value;
         const anchor = resizeAnchorLifecycle.read()
-            ?? (root ? layout.captureAnchor(root.scrollTop) : null);
+            ?? readCurrentAnchor();
         cssWidth.value = nextWidth;
         itemChromeHeight.value = nextItemChromeHeight;
         layout.reset({
@@ -331,7 +399,10 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             renderWidth: nextWidth,
         });
         layoutRevision.value += 1;
-        if (root && anchor) root.scrollTop = layout.resolveAnchorScrollTop(anchor);
+        if (root && anchor) {
+            root.scrollTop = resolveAnchorScrollTop(anchor, root);
+            lastKnownAnchor = anchor;
+        }
         if (resizeAnchorLifecycle.isActive()) resizeAnchorLifecycle.preserve();
     }
 
@@ -351,7 +422,11 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
                 settledCssWidth.value = measuredWidth;
             }
         }
-        if (resizeAnchorLifecycle.isActive()) resizeAnchorLifecycle.preserve();
+        if (resizeAnchorLifecycle.isActive()) {
+            resizeAnchorLifecycle.preserve();
+        } else {
+            readCurrentAnchor();
+        }
         viewportRevision.value += 1;
     }
 
@@ -479,6 +554,9 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
 
     function handleScroll() {
         isScrolling.value = true;
+        if (!options.isResizing.value && !resizeAnchorLifecycle.isActive()) {
+            readCurrentAnchor();
+        }
         viewportRevision.value += 1;
         if ((Date.now() - lastProgrammaticScrollAtMs) >= DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS) {
             markManualInteraction();
@@ -569,6 +647,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             metricsCache.clear();
             clearRenderFailures();
             hasSourceAspectEstimate = false;
+            lastKnownAnchor = null;
             layout.resetDocument({
                 itemChromeHeight: itemChromeHeight.value,
                 pageCount: source?.pageCount ?? 0,
@@ -578,6 +657,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             await nextTick();
             measureViewport();
             revealCurrentPage({force: true});
+            readCurrentAnchor();
             scheduleRefresh();
         },
         {immediate: true},
@@ -585,6 +665,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     watch(options.currentPage, async () => {
         await nextTick();
         revealCurrentPage();
+        readCurrentAnchor();
         viewportRevision.value += 1;
         scheduleRefresh();
     });
@@ -607,6 +688,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         await nextTick();
         measureViewport();
         revealCurrentPage({force: true});
+        readCurrentAnchor();
         viewportRevision.value += 1;
         scheduleRefresh();
     });
