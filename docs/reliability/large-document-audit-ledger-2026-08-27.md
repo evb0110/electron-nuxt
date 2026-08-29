@@ -33,9 +33,11 @@ publication. Hosted CI is tracked separately and is not required to record a
 source fix as published.
 
 Post-audit follow-ups are tracked with their owning issues even when they do
-not add a new baseline row. Issue #142 has the hidden-macOS automation GPU
-guard in `0ef7011d2`; issue #144 has the retired-Ink projection correction in
-`2fb34608f`. Both remain open pending their issue-specific external
+not add a new baseline row. Issue #142 is verified and closed against
+`0ef7011d2`: the hidden-macOS automation GPU guard and bounded renderer
+readiness recovery passed the focused launch suite and a hidden macOS startup
+probe at `c7c3e5e61`. Issue #144 has the retired-Ink projection correction in
+`2fb34608f` and remains open for its separate highlight and independent-reader
 acceptance. Issue #146 is represented by `SAV-020`, and issue #147 by
 `TEST-017`.
 
