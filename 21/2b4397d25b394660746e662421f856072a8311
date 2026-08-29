@@ -1,0 +1,19 @@
+tests/unit/electron/workingCopyDirectory.test.ts
+  s_3eede23e5e56b0::t_992ce765cf19a3 235-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "212b4397d25b394660746e662421f856072a8311",
+  "prompts": {},
+  "sessions": {
+    "s_3eede23e5e56b0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f36-11e7-7321-be47-8fe3bd1aa08b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
