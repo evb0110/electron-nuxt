@@ -9,6 +9,7 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationVisualEffects.types';
 import type { ITextMarkupColorMutationResult } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 import type { AnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 
 interface IAnnotationMutationContext {source: 'user' | 'note-window' | 'agent' | 'undo' | 'redo' | 'sync' | 'save-reload';}
 
@@ -47,6 +48,14 @@ export interface IUseAnnotationMutationServiceOptions {
 
 function hasTargetValue(value: string | null | undefined): value is string {
     return typeof value === 'string' && value.length > 0;
+}
+
+function isPdfBackedFreeTextComment(comment: IAnnotationCommentSummary) {
+    const subtype = comment.subtype?.trim().toLowerCase();
+    if (subtype !== 'freetext' && subtype !== 'typewriter') {
+        return false;
+    }
+    return comment.source === 'pdf' || Boolean(parsePdfJsAnnotationRef(comment.annotationId));
 }
 
 function createAnnotationMutationVisualEffectsState(): IAnnotationMutationVisualEffectsState {
@@ -124,6 +133,22 @@ export const useAnnotationMutationService = (
             const id = options.resolveCanonicalAnnotationId?.(input.comment);
             if (!id) {
                 return false;
+            }
+            if (
+                input.strategy !== 'local-only'
+                && input.strategy !== 'embedded-deferred'
+                && isPdfBackedFreeTextComment(input.comment)
+            ) {
+                try {
+                    if (!await options.deleteAnnotationComment(input.comment)) {
+                        return false;
+                    }
+                } catch {
+                    return false;
+                }
+                options.deleteCanonicalAnnotation(id);
+                enqueueAnnotationDomRemoval(input.comment);
+                return true;
             }
             options.deleteCanonicalAnnotation(id);
             if (input.strategy === 'local-only') {

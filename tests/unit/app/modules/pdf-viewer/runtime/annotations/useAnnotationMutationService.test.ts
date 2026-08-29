@@ -105,6 +105,25 @@ describe('useAnnotationMutationService canonical command ordering', () => {
         );
     });
 
+    it('does not tombstone a PDF-backed FreeText when its live editor stays attached', async () => {
+        const comment: IAnnotationCommentSummary = {
+            ...createComment(),
+            source: 'editor',
+            annotationId: '44R',
+            subtype: 'FreeText',
+        };
+        const options = createOptions({deleteAnnotationComment: vi.fn(async () => false)});
+        const service = useAnnotationMutationService(options);
+
+        await expect(service.deleteAnnotation(
+            {comment},
+            {source: 'user'},
+        )).resolves.toBe(false);
+
+        expect(options.deleteCanonicalAnnotation).not.toHaveBeenCalled();
+        expect(service.visualEffects.effects.value).toEqual([]);
+    });
+
     it('groups reopened FreeText editor removal and canonical tombstone in one history transaction', async () => {
         const events: string[] = [];
         let transactionCount = 0;
