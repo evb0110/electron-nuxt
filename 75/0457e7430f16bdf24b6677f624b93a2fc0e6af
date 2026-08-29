@@ -1,0 +1,38 @@
+tests/e2e/electron/helpers/viewerCore.ts
+  s_4bf2287f1a418f::t_64beef591f34be 1332,1335-1339
+tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts
+  s_4bf2287f1a418f::t_3aa6727d9c7a79 1271-1275,1383-1385,1390-1396,1402,1407-1408,1459
+  s_4bf2287f1a418f::t_a5da83ed9abce0 1499-1508
+  s_4bf2287f1a418f::t_551f161769e5fb 2
+  s_4bf2287f1a418f::t_70ede5497411f0 1338,1352,1371-1373,1378-1379,1399-1401,1405,1458
+  s_4bf2287f1a418f::t_b8cdd6fa815d43 73,583-587,632,637-639
+  s_4bf2287f1a418f::t_a3f022d542266f 633-636,715-721,1374-1377,1386-1389
+  s_4bf2287f1a418f::t_520adf8659d764 711-714,722-723,745-746,758-816
+  s_4bf2287f1a418f::t_579d5d8fe7f853 725-740
+  s_4bf2287f1a418f::t_64beef591f34be 40-41,45,84-87,96,326-335,362-366
+  s_4bf2287f1a418f::t_9a718c6edb255b 724,741-744
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_4bf2287f1a418f::t_9d1b81d853fbb4 1657,1687
+  s_4bf2287f1a418f::t_a3f022d542266f 1634-1637,1681-1683
+  s_4bf2287f1a418f::t_5150b5111ad7d9 1658,1688
+  s_4bf2287f1a418f::t_dfe5d91f8a97e8 1088
+  s_4bf2287f1a418f::t_551f161769e5fb 1661,1691
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_4bf2287f1a418f::t_287049567f30c0 274-275,277,279,283,288,298
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "750457e7430f16bdf24b6677f624b93a2fc0e6af",
+  "prompts": {},
+  "sessions": {
+    "s_4bf2287f1a418f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d51-f9ab-7053-8bfc-bdb1af7815dd",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

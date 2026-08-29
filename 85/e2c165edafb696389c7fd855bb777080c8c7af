@@ -1,0 +1,21 @@
+tests/unit/app/utils/recentFilesPersistence.test.ts
+  s_54386a8216bff5::t_c211aab06069e7 173,180
+tests/unit/app/platform/browserDocumentMaintenance.test.ts
+  s_54386a8216bff5::t_e75a8c55dee7d8 50,52-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "85e2c165edafb696389c7fd855bb777080c8c7af",
+  "prompts": {},
+  "sessions": {
+    "s_54386a8216bff5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d34-05bd-7920-ad61-7e7e91e9ae70",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

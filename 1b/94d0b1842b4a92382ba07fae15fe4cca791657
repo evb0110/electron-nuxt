@@ -1,0 +1,21 @@
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_e27fceeb7bbfb6::t_5c77a76bb23185 235
+tests/unit/electron/nativeSearch.test.ts
+  s_e27fceeb7bbfb6::t_f60fc861856bd0 13-19,109-159,229-247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1b94d0b1842b4a92382ba07fae15fe4cca791657",
+  "prompts": {},
+  "sessions": {
+    "s_e27fceeb7bbfb6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d46-62f2-7041-adde-67bbaab12bbf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

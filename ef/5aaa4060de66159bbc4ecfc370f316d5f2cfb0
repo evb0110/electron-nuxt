@@ -1,0 +1,27 @@
+tests/unit/contracts/search.test.ts
+  s_e27fceeb7bbfb6::t_807b63c4fa89a4 220,223-224
+  s_e27fceeb7bbfb6::t_d13529bae27fc6 221-222
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_e27fceeb7bbfb6::t_0de330686d4c2b 235
+  s_e27fceeb7bbfb6::t_218ed96c9a9f67 236
+packages/contracts/search.ts
+  s_e27fceeb7bbfb6::t_2d93fe78bb7b1a 23,325-331,368,376-378
+  s_e27fceeb7bbfb6::t_89d2c25c5beb93 317
+  s_e27fceeb7bbfb6::t_3d933dad59b0fe 336-360,375
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ef5aaa4060de66159bbc4ecfc370f316d5f2cfb0",
+  "prompts": {},
+  "sessions": {
+    "s_e27fceeb7bbfb6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d46-62f2-7041-adde-67bbaab12bbf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}

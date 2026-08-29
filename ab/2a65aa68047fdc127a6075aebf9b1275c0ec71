@@ -1,0 +1,40 @@
+native/pdf-page-ops/src/page_tree_ops.rs
+  s_e01f6d9d3ac967::t_e2a31d7a86a16b 60-66,513,520,522,527,532,538,569,576,586
+  s_e01f6d9d3ac967::t_3c088cfeddbbec 67-68,510-512,572-575
+  s_e01f6d9d3ac967::t_5024a98fda5535 437
+  s_e01f6d9d3ac967::t_b1aec85b37635d 438-443,458,461-462,464,491-497,501-509,514,519,521,539,541-554,556-558,560-564,566-568,570-571,578-581,583,589-605,621-628
+  s_e01f6d9d3ac967::t_a438994012008d 515-518
+  s_e01f6d9d3ac967::t_e6c5b3a935b800 523-526,528-531,533-536,606-620
+  s_e01f6d9d3ac967::t_21ee0b602d36c0 537
+  s_e01f6d9d3ac967::t_aa7fadcdd0846f 540
+  s_e01f6d9d3ac967::t_caf1171568b786 555,559,584-585,587-588
+  s_e01f6d9d3ac967::t_03f29673e69e05 565
+  s_e01f6d9d3ac967::t_1a3ad44a50928d 577,582
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_e01f6d9d3ac967::t_59307acc4ec986 200
+tests/unit/app/platform/browserPageOpsWasm.test.ts
+  s_e01f6d9d3ac967::t_90342b4fc4cfc9 6-8,80-82,95-96,100,111-112,117-150,417-422,431-433,447-454,461-472
+  s_e01f6d9d3ac967::t_ba411795273a74 9-13
+  s_e01f6d9d3ac967::t_02cd1cc4252432 83-94,97-99,101-110,113,115-116,423-430,434-446,455-460
+  s_e01f6d9d3ac967::t_3322d5c5ddf473 114
+native/pdf-page-ops/src/tests/page_tree_ops.rs
+  s_e01f6d9d3ac967::t_7ee276653dbe4f 1-71,78-80,82-86,88-91,93-94,124-145
+  s_e01f6d9d3ac967::t_64f4a49e8c8e48 72-77,81,87,92,101,106-123
+  s_e01f6d9d3ac967::t_0448d425a43d83 95-100,102-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ab2a65aa68047fdc127a6075aebf9b1275c0ec71",
+  "prompts": {},
+  "sessions": {
+    "s_e01f6d9d3ac967": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d46-115e-7451-b7e6-a7fbd179b722",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
