@@ -51,6 +51,16 @@ uses the shared 30-second readiness timeout for slow large-fixture editor
 creation and text visibility. Exact-fixture timing and heartbeat evidence
 remain open until quiet-host runs complete.
 
+Issue #134 acceptance follow-up, published at `63211b435`: owner/status for
+TEST-003, TEST-004, TEST-006, TEST-008, TEST-012, TEST-017, and TEST-027 remains
+`lane-134 / implemented-awaiting-exact-fixture`. The fix SHA is `63211b435`.
+Focused ESLint passed and CodeRabbit was attempted fail-open because the host
+account had exhausted its three included reviews. The full validate gate was
+started but not completed after the host became saturated. Remaining
+acceptance is the quiet-host exact 882-page lane, the quiet-host exact xlarge
+lane, their telemetry paths, and the shared annotation, draw-shape, and
+squiggly-markup suites.
+
 Ambiguous deduplication decisions:
 
 - `SAV-008` combines the full-audit original-path race with the native report's
