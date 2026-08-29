@@ -29,17 +29,18 @@ const encoder = new TextEncoder();
 // /Kids array bounded avoids degraded viewer performance on large documents.
 const PAGE_TREE_FANOUT = 64;
 
-interface IPageTreeNodeBuild {
-    ref: number;
-    parentRef: number;
-    childRefs: number[];
-    pageCount: number;
+interface IPageTreeLevelBuild {
+    firstNodeRef: number;
+    nodeCount: number;
+    pageSpan: number;
 }
 
 interface IPageTreeBuild {
+    rootRef: number;
     rootChildRefs: number[];
-    intermediateNodes: IPageTreeNodeBuild[];
-    leafParentRefs: number[];
+    levels: IPageTreeLevelBuild[];
+    intermediateNodeCount: number;
+    getPageParentRef: (pageIndex: number) => number;
 }
 
 function encodeAscii(text: string) {
@@ -74,75 +75,61 @@ function encodePdfTextHex(value: string) {
 // /Kids array. Outputs within the fanout keep the original flat layout:
 // object 1 is the /Pages root and every page is a direct child of it. Larger
 // outputs get intermediate /Pages nodes whose object numbers are allocated
-// right after the per-page image objects, before the bookmarks. Page,
-// content, and image object numbering is unchanged in both cases.
+// right after the per-page image objects, before the bookmarks. The plan keeps
+// only one descriptor per tree level, so catalog setup does not allocate a
+// page-sized list before the first page is written.
 function buildPageTree(pageCount: number, rootRef: number, firstNodeRef: number): IPageTreeBuild {
-    const pageRefs = Array.from({ length: pageCount }, (_value, index) =>
-        pageObjectNumber(index));
-
     if (pageCount <= PAGE_TREE_FANOUT) {
+        const rootChildRefs: number[] = [];
+        for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+            rootChildRefs.push(pageObjectNumber(pageIndex));
+        }
         return {
-            rootChildRefs: pageRefs,
-            intermediateNodes: [],
-            leafParentRefs: pageRefs.map(() => rootRef),
+            rootRef,
+            rootChildRefs,
+            levels: [],
+            intermediateNodeCount: 0,
+            getPageParentRef: () => rootRef,
         };
     }
 
-    interface ILevelEntry {
-        ref: number;
-        pageCount: number;
+    const levels: IPageTreeLevelBuild[] = [];
+    let nodeCount = Math.ceil(pageCount / PAGE_TREE_FANOUT);
+    let pageSpan = PAGE_TREE_FANOUT;
+    let intermediateNodeCount = 0;
+
+    while (true) {
+        levels.push({
+            firstNodeRef: firstNodeRef + intermediateNodeCount,
+            nodeCount,
+            pageSpan,
+        });
+        intermediateNodeCount += nodeCount;
+        if (nodeCount <= PAGE_TREE_FANOUT) {
+            break;
+        }
+        nodeCount = Math.ceil(nodeCount / PAGE_TREE_FANOUT);
+        pageSpan *= PAGE_TREE_FANOUT;
     }
 
-    let entries: ILevelEntry[] = pageRefs.map(ref => ({
-        ref,
-        pageCount: 1,
-    }));
-    let nextNodeRef = firstNodeRef;
-    const levels: IPageTreeNodeBuild[][] = [];
-
-    while (entries.length > PAGE_TREE_FANOUT) {
-        const levelNodes: IPageTreeNodeBuild[] = [];
-        const nextEntries: ILevelEntry[] = [];
-        for (let start = 0; start < entries.length; start += PAGE_TREE_FANOUT) {
-            const group = entries.slice(start, start + PAGE_TREE_FANOUT);
-            const node: IPageTreeNodeBuild = {
-                ref: nextNodeRef,
-                parentRef: rootRef,
-                childRefs: group.map(entry => entry.ref),
-                pageCount: sumBy(group, entry => entry.pageCount),
-            };
-            nextNodeRef += 1;
-            levelNodes.push(node);
-            nextEntries.push({
-                ref: node.ref,
-                pageCount: node.pageCount,
-            });
-        }
-        levels.push(levelNodes);
-        entries = nextEntries;
+    const rootLevel = levels.at(-1);
+    if (!rootLevel) {
+        throw new Error('Page tree build produced no root level');
     }
-
-    for (const [
-        levelIndex,
-        levelNodes,
-    ] of levels.entries()) {
-        const parentLevel = levels[levelIndex + 1];
-        for (const node of levelNodes) {
-            node.parentRef = parentLevel
-                ?.find(candidate => candidate.childRefs.includes(node.ref))?.ref
-                ?? rootRef;
-        }
+    const rootChildRefs: number[] = [];
+    for (let nodeIndex = 0; nodeIndex < rootLevel.nodeCount; nodeIndex += 1) {
+        rootChildRefs.push(rootLevel.firstNodeRef + nodeIndex);
     }
 
     const leafLevel = levels[0];
-    if (!leafLevel) {
-        throw new Error('Page tree build produced no leaf level');
-    }
     return {
-        rootChildRefs: entries.map(entry => entry.ref),
-        intermediateNodes: levels.flat(),
-        leafParentRefs: pageRefs.map((_ref, pageIndex) =>
-            leafLevel[Math.floor(pageIndex / PAGE_TREE_FANOUT)]?.ref ?? rootRef),
+        rootRef,
+        rootChildRefs,
+        levels,
+        intermediateNodeCount,
+        getPageParentRef: pageIndex => leafLevel
+            ? leafLevel.firstNodeRef + Math.floor(pageIndex / PAGE_TREE_FANOUT)
+            : rootRef,
     };
 }
 
@@ -313,7 +300,7 @@ export class StreamingImagePdfWriter {
         await this.writeObject(pageRef, [
             '<<',
             '/Type /Page',
-            `/Parent ${this.pageTree.leafParentRefs[pageIndex]} 0 R`,
+            `/Parent ${this.pageTree.getPageParentRef(pageIndex)} 0 R`,
             `/MediaBox [0 0 ${formatPdfNumber(pageWidth)} ${formatPdfNumber(pageHeight)}]`,
             `/Resources << /ProcSet [/PDF /ImageC] /XObject << /Im0 ${imageRef} 0 R >> >>`,
             `/Contents ${contentRef} 0 R`,
@@ -330,20 +317,46 @@ export class StreamingImagePdfWriter {
 
         await this.writePagesRoot();
 
-        for (const node of this.pageTree.intermediateNodes) {
-            await this.writeObject(node.ref, [
-                '<<',
-                '/Type /Pages',
-                `/Parent ${node.parentRef} 0 R`,
-                `/Count ${node.pageCount}`,
-                `/Kids [${node.childRefs.map(formatObjectRef).join(' ')}]`,
-                '>>',
-            ]);
+        for (const [
+            levelIndex,
+            level,
+        ] of this.pageTree.levels.entries()) {
+            const childLevel = this.pageTree.levels[levelIndex - 1];
+            for (let nodeIndex = 0; nodeIndex < level.nodeCount; nodeIndex += 1) {
+                const childStart = nodeIndex * PAGE_TREE_FANOUT;
+                const childCount = Math.min(
+                    PAGE_TREE_FANOUT,
+                    childLevel
+                        ? childLevel.nodeCount - childStart
+                        : this.pageCount - childStart,
+                );
+                const childRefs: number[] = [];
+                for (let childIndex = 0; childIndex < childCount; childIndex += 1) {
+                    const childRef = childLevel
+                        ? childLevel.firstNodeRef + childStart + childIndex
+                        : pageObjectNumber(childStart + childIndex);
+                    childRefs.push(childRef);
+                }
+                const pageStart = nodeIndex * level.pageSpan;
+                const nodePageCount = Math.min(level.pageSpan, this.pageCount - pageStart);
+                const parentLevel = this.pageTree.levels[levelIndex + 1];
+                const parentRef = parentLevel
+                    ? parentLevel.firstNodeRef + Math.floor(nodeIndex / PAGE_TREE_FANOUT)
+                    : this.pageTree.rootRef;
+                await this.writeObject(level.firstNodeRef + nodeIndex, [
+                    '<<',
+                    '/Type /Pages',
+                    `/Parent ${parentRef} 0 R`,
+                    `/Count ${nodePageCount}`,
+                    `/Kids [${childRefs.map(formatObjectRef).join(' ')}]`,
+                    '>>',
+                ]);
+            }
         }
 
         let outlinesRootRef: number | null = null;
         let nextRef = imageObjectNumber(this.pageCount - 1) + 1
-            + this.pageTree.intermediateNodes.length;
+            + this.pageTree.intermediateNodeCount;
 
         if (this.bookmarks.length > 0) {
             outlinesRootRef = nextRef;

@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { sumBy } from 'es-toolkit/math';
@@ -174,4 +175,19 @@ describe('StreamingImagePdfWriter', () => {
         expect(largestKidsArraySize(collectKidsArrays(pdfText))).toBeLessThanOrEqual(PAGE_TREE_FANOUT);
         expect(pdfText).toContain(`/Count ${pageCount}`);
     }, 20_000);
+
+    it('constructs a million-page tree without a page-sized Array.from allocation', () => {
+        const arrayFromSpy = vi.spyOn(Array, 'from').mockImplementation(() => {
+            throw new Error('million-page tree must not call Array.from');
+        });
+
+        try {
+            expect(() => new StreamingImagePdfWriter({
+                sink: new MemorySink(),
+                pageCount: 1_000_000,
+            })).not.toThrow();
+        } finally {
+            arrayFromSpy.mockRestore();
+        }
+    });
 });
