@@ -13,6 +13,7 @@ import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotation
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {buildNativeShapesMutationForSave} from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
 
 const IMPORT_SOURCE = {
     documentKey: 'doc-key',
@@ -239,6 +240,63 @@ describe('useAnnotationShapes', () => {
         expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
         expect(projection.shapes.getAllShapes()).toHaveLength(1);
         expect(projection.shapes.hasShapes.value).toBe(false);
+    });
+
+    it('omits a retired Ink ref after delete-save-undo while preserving a changed live shape', () => {
+        const projection = createShapeProjection();
+        const retiredShape = createEmbeddedInkShape({
+            id: 'retired-ink',
+            stableKey: 'evb-shape:retired-ink',
+            annotationId: '21R',
+        });
+        const liveShape = createEmbeddedInkShape({
+            id: 'live-ink',
+            stableKey: 'evb-shape:live-ink',
+            annotationId: '22R',
+            x: 0.4,
+            y: 0.3,
+        });
+
+        projection.shapes.importEmbeddedShapes([
+            retiredShape,
+            liveShape,
+        ], IMPORT_SOURCE);
+        const retiredId = projection.application.value.annotationIdForShape(retiredShape);
+        const liveId = projection.application.value.annotationIdForShape(liveShape);
+        expect(retiredId).not.toBeNull();
+        expect(liveId).not.toBeNull();
+
+        projection.store.delete(retiredId!);
+        const frontier = projection.store.beginSave();
+        projection.store.acknowledgeSave(frontier);
+        expect(projection.store.get(retiredId!)?.identity.pdfRef).toBeUndefined();
+
+        expect(projection.store.undo()).toBe(true);
+        expect(projection.store.get(retiredId!)).toMatchObject({deleted: false});
+        expect(projection.store.get(retiredId!)?.identity.pdfRef).toBeUndefined();
+
+        projection.store.setStyle(retiredId!, {color: '#dc2626'});
+        projection.store.setStyle(liveId!, {color: '#16a34a'});
+
+        const mutation = buildNativeShapesMutationForSave({
+            shapeStateDirty: true,
+            rewriteShapeState: false,
+            totalPageCount: 1,
+            shapes: projection.shapes.getAllShapes(),
+            deletedAnnotationIds: [],
+            deletedStableKeys: [],
+        });
+        expect(mutation).not.toBeNull();
+        const retiredNative = mutation!.shapes.find(shape => shape.id === retiredShape.id);
+        const liveNative = mutation!.shapes.find(shape => shape.id === liveShape.id);
+        expect(retiredNative).toMatchObject({
+            annotationId: null,
+            color: '#dc2626',
+        });
+        expect(liveNative).toMatchObject({
+            annotationId: '22R',
+            color: '#16a34a',
+        });
     });
 
     it('creates draw strokes as local Ink polyline drafts before they enter the store', () => {

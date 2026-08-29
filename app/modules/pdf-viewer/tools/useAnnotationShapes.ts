@@ -116,8 +116,13 @@ export const useAnnotationShapes = ({
     onScopeDispose(() => stopProjection?.());
 
     function projectShape(entity: IShapeEntity) {
+        // The canonical identity owns the PDF object reference. Geometry can
+        // retain the reference from an older document revision after a
+        // delete/save/undo replay, so never project that stale copy.
+        const geometry = {...entity.geometry};
+        delete geometry.annotationId;
         return {
-            ...entity.geometry,
+            ...geometry,
             ...(entity.identity.pdfRef
                 ? {
                     source: 'embedded' as const,
