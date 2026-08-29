@@ -632,6 +632,67 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         expect(decision.nativeMutationProjection.hasMarkupMutations).toBe(true);
     });
 
+    it('materializes an undone saved markup with no retired PDF ref', () => {
+        const markup: AnnotationEntity = {
+            ...editorMarkupWithRuntimeIdentity('anno_saved_highlight_undo'),
+            revision: 0,
+            persistedRevision: -1,
+            identity: {
+                id: asAnnotationId('anno_saved_highlight_undo'),
+                elementId: '9R',
+                pdfName: 'evb-markup:pdfjs_internal_editor_0',
+                pdfjsUid: 'pdfjs_saved_highlight_undo',
+            },
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([markup]),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_saved_highlight_undo',
+                        '9R',
+                        'pdfjs_saved_highlight_undo',
+                    ]),
+                    hasChanges: true,
+                    fingerprint: 'saved-highlight-undo',
+                }),
+                markupSubtypeHints: [{
+                    subtype: 'Highlight',
+                    pageIndex: 0,
+                    markerRect: MARKER_RECT,
+                    consumed: false,
+                    id: 'pdfjs_saved_highlight_undo',
+                    annotationId: '9R0',
+                    color: '#ffff00',
+                    pageMarkupIndex: 0,
+                    source: 'editor-live',
+                }],
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.canonical.comments[0]).toMatchObject({
+            annotationName: 'evb-markup:pdfjs_internal_editor_0',
+            source: 'editor',
+        });
+        const hints = decision.nativeMutationProjection.mutations.markup?.hints ?? [];
+        expect(hints).not.toContainEqual(expect.objectContaining({annotationId: '9R0'}));
+        expect(hints).toContainEqual(expect.objectContaining({
+            appAnnotationId: 'anno_saved_highlight_undo',
+            id: '9R',
+            annotationId: null,
+            source: 'editor',
+        }));
+    });
+
     it('keeps narrow sticky replayability beside native FreeText and new markup', () => {
         const savedInlineNote = {
             ...cleanEditorNote('anno_saved_inline_note'),

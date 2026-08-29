@@ -17,14 +17,18 @@ export function projectAnnotationEditorPresence(
     const present = externalIds.some(candidate => presentExternalIds.has(candidate));
     const changedDuringReplay = externalIds.some(candidate => changedExternalIds?.has(candidate));
     const shouldRestore = present && entity.deleted;
-    const shouldDeleteTransient = !present && entity.persistedRevision < 0 && !entity.deleted;
-    const shouldDeletePersistedReplay = (
+    // An empty editor snapshot is only evidence of a transient removal when
+    // the editor identity actually changed during this replay. The layer is
+    // rebuilt asynchronously, so the first post-replay snapshot can be empty
+    // even while a restored annotation is still on its way back. Persisted
+    // entities are never deleted from presence alone.
+    const shouldDeleteTransient = (
         !present
-        && entity.persistedRevision >= 0
+        && entity.persistedRevision < 0
         && !entity.deleted
         && changedDuringReplay
     );
-    if (!shouldRestore && !shouldDeleteTransient && !shouldDeletePersistedReplay) {
+    if (!shouldRestore && !shouldDeleteTransient) {
         return null;
     }
     return {

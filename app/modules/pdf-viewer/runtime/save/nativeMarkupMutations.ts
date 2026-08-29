@@ -5,7 +5,10 @@ import type {
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import { collectMarkupSubtypeHints } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/collectMarkupSubtypeHints';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
+import {
+    normalizePdfJsAnnotationId,
+    parsePdfJsAnnotationRef,
+} from '@app/utils/pdfAnnotationRefs';
 import type { IPdfNativeMarkupSubtypeHint } from '@contracts/electronApiDocuments';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { PDF_ANNOTATION_MARKUP_SUBTYPES } from '@contracts/annotations';
@@ -48,10 +51,47 @@ function hasCurrentMarkupTargetKey(keys: Set<string>, value: string | null | und
     return keys.has(normalized) || Boolean(normalizedAnnotationId && keys.has(normalizedAnnotationId));
 }
 
+function areMarkupTargetIdentitiesEqual(
+    left: string | null | undefined,
+    right: string | null | undefined,
+) {
+    const normalizedLeft = left?.trim();
+    const normalizedRight = right?.trim();
+    if (!normalizedLeft || !normalizedRight) {
+        return false;
+    }
+    const leftPdfId = normalizePdfJsAnnotationId(normalizedLeft);
+    const rightPdfId = normalizePdfJsAnnotationId(normalizedRight);
+    return normalizedLeft === normalizedRight
+        || Boolean(leftPdfId && rightPdfId && leftPdfId === rightPdfId);
+}
+
 function isCurrentMarkupHint(hint: IMarkupSubtypeHint, keys: Set<string>) {
     return hasCurrentMarkupTargetKey(keys, hint.appAnnotationId)
         || hasCurrentMarkupTargetKey(keys, hint.annotationId)
         || hasCurrentMarkupTargetKey(keys, hint.id);
+}
+
+function isRetiredPdfRefForEditorMarkup(
+    hint: IMarkupSubtypeHint,
+    currentMarkupHints: IMarkupSubtypeHint[],
+) {
+    if (!parsePdfJsAnnotationRef(hint.annotationId)) {
+        return false;
+    }
+    return currentMarkupHints.some(current => {
+        if (current.source !== 'editor' || current.annotationId) {
+            return false;
+        }
+        return [
+            hint.appAnnotationId,
+            hint.id,
+            hint.annotationId,
+        ].some(candidate => (
+            areMarkupTargetIdentitiesEqual(candidate, current.appAnnotationId)
+            || areMarkupTargetIdentitiesEqual(candidate, current.id)
+        ));
+    });
 }
 
 function isNativeMarkupHintEligible(hint: IMarkupSubtypeHint) {
@@ -129,6 +169,10 @@ export function buildNativeMarkupMutationForSave(opts: {
     }
     const liveHints = opts.markupSubtypeHints
         .filter(hint => isCurrentMarkupHint(hint, currentMarkupTargetKeys))
+        // A restored editor can retain the ref from the deleted PDF revision.
+        // Drop only that matching live alias; the canonical editor hint below
+        // carries the current geometry and canonical app identity for creation.
+        .filter(hint => !isRetiredPdfRefForEditorMarkup(hint, currentMarkupHints))
         .flatMap((hint) => {
             const nativeHint = toNativeMarkupHint(hint);
             return nativeHint ? [nativeHint] : [];

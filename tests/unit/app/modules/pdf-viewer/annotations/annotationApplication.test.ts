@@ -196,13 +196,61 @@ describe('AnnotationApplication', () => {
             id: transientId,
             pdfjsUid: 'pdfjs-editor-2',
         }}));
-        application.reconcilePdfjsEditorPresence(new Set(['pdfjs-editor-1']));
+        application.reconcilePdfjsEditorPresence(
+            new Set(['pdfjs-editor-1']),
+            {changedExternalIds: new Set(['pdfjs-editor-2'])},
+        );
         expect(application.store.get(transientId)?.deleted).toBe(true);
         application.reconcilePdfjsEditorPresence(new Set([
             'pdfjs-editor-1',
             'pdfjs-editor-2',
         ]));
         expect(application.store.get(transientId)?.deleted).toBe(false);
+    });
+
+    it('does not rebind a retired PDF ref from a restored editor summary', () => {
+        const application = new AnnotationApplication('document');
+        const annotationId = asAnnotationId('saved-highlight-undo');
+        application.store.import(textMarkup({
+            identity: {
+                id: annotationId,
+                pdfRef: '12R0',
+                pdfjsUid: 'highlight-editor-1',
+            },
+            persistedRevision: 0,
+        }));
+
+        application.store.delete(annotationId);
+        application.store.acknowledgeSave(application.store.beginSave());
+        expect(application.store.get(annotationId)).toMatchObject({
+            deleted: true,
+            identity: {id: annotationId},
+            persistedRevision: -1,
+        });
+
+        expect(application.store.undo()).toBe(true);
+        expect(application.store.get(annotationId)).toMatchObject({
+            deleted: false,
+            identity: {id: annotationId},
+            persistedRevision: -1,
+        });
+        expect(application.store.get(annotationId)?.identity).not.toHaveProperty('pdfRef');
+
+        application.ingestLegacySummaries([{
+            ...application.listCommentSummaries()[0]!,
+            source: 'editor',
+            annotationId: '12R0',
+        }]);
+
+        expect(application.store.get(annotationId)?.identity).not.toHaveProperty('pdfRef');
+
+        application.ingestLegacySummaries([{
+            ...application.listCommentSummaries()[0]!,
+            source: 'pdf',
+            annotationId: '13R0',
+        }]);
+
+        expect(application.store.get(annotationId)?.identity.pdfRef).toBe('13R0');
     });
 
     it('projects a redone saved annotation as persisted, with its saved ref', () => {

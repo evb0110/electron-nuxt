@@ -562,9 +562,10 @@ export class AnnotationStore {
      * Canonical decision for a PDF.js editor-presence proposal. Callers forward
      * the external ids the editor layer currently renders; the store alone
      * decides whether that evidence restores a canonically-deleted entity or
-     * tombstones a still-transient one, matching presence against external
-     * identity bindings. The saved baseline is preserved because presence
-     * reconciliation is never an authored edit.
+     * tombstones a still-transient one whose external identity changed during
+     * replay. An empty snapshot without that change evidence is inconclusive
+     * because the PDF.js editor layer can be rebuilding. The saved baseline is
+     * preserved because presence reconciliation is never an authored edit.
      */
     reconcileEditorPresence(
         presentExternalIds: ReadonlySet<string>,

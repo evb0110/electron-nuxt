@@ -98,7 +98,7 @@ export interface IPdfSaveNativeRouteDecision extends INativeAppendSaveRoute {
 export type TPdfSaveRouteDecision = IPdfSaveNativeRouteDecision | IPdfSaveByteRouteDecision;
 
 function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
-    const source = entity.identity.pdfRef || entity.identity.pdfName ? 'pdf' : 'editor';
+    const source = entity.persistedRevision >= 0 ? 'pdf' : 'editor';
     const id = entity.identity.elementId ?? entity.identity.pdfjsUid ?? entity.identity.pdfRef ?? entity.identity.id;
     const annotationId = entity.identity.pdfRef ?? null;
     const uid = entity.identity.pdfjsUid ?? null;

@@ -66,7 +66,7 @@ function shape(id: string): IShapeEntity {
 }
 
 describe('AnnotationStore editor presence reconciliation', () => {
-    it('tombstones a transient the editor layer never bound an external id to', () => {
+    it('leaves an unbound transient alone without replay evidence', () => {
         const store = new AnnotationStore();
         const orphan = stickyNote('unbound-note');
         store.createStickyNote(orphan);
@@ -74,10 +74,10 @@ describe('AnnotationStore editor presence reconciliation', () => {
         store.reconcileEditorPresence(new Set());
 
         expect(store.get(orphan.identity.id)).toMatchObject({
-            deleted: true,
-            revision: 1,
+            deleted: false,
+            revision: 0,
         });
-        expect(store.list()).toEqual([]);
+        expect(store.list()).toHaveLength(1);
     });
 
     it('tombstones a transient whose bound editor is gone from the snapshot', () => {
@@ -88,7 +88,10 @@ describe('AnnotationStore editor presence reconciliation', () => {
         });
         store.createStickyNote(bound);
 
-        store.reconcileEditorPresence(new Set(['editor-9']));
+        store.reconcileEditorPresence(
+            new Set(['editor-9']),
+            {changedExternalIds: new Set(['editor-7'])},
+        );
 
         expect(store.get(bound.identity.id)?.deleted).toBe(true);
     });
@@ -122,7 +125,7 @@ describe('AnnotationStore editor presence reconciliation', () => {
         });
     });
 
-    it('tombstones a persisted annotation whose editor disappeared during history replay', () => {
+    it('does not tombstone a persisted annotation from an incomplete replay snapshot', () => {
         const store = new AnnotationStore();
         const persisted = {
             ...stickyNote('history-persisted-note', {
@@ -139,11 +142,34 @@ describe('AnnotationStore editor presence reconciliation', () => {
         );
 
         expect(store.get(persisted.identity.id)).toMatchObject({
-            deleted: true,
+            deleted: false,
             identity: {pdfRef: '12R'},
-            modifiedAt: persisted.modifiedAt,
-            revision: 1,
+            revision: 0,
         });
+    });
+
+    it('does not tombstone a saved deletion that replay restored before its editor reappears', () => {
+        const store = new AnnotationStore();
+        const persisted = {
+            ...stickyNote('saved-delete-undo', {
+                pdfjsUid: 'editor-saved-delete',
+                pdfRef: '22R',
+            }),
+            persistedRevision: 0,
+        };
+        store.import(persisted);
+        store.delete(persisted.identity.id);
+        store.acknowledgeSave(store.beginSave());
+
+        expect(store.undo()).toBe(true);
+        expect(store.get(persisted.identity.id)).toMatchObject({
+            deleted: false,
+            persistedRevision: -1,
+        });
+
+        store.reconcileEditorPresence(new Set());
+
+        expect(store.get(persisted.identity.id)?.deleted).toBe(false);
     });
 
     it('restores a tombstoned annotation the editor layer still renders', () => {
@@ -187,10 +213,13 @@ describe('AnnotationStore editor presence reconciliation', () => {
 
     it('does not create an undo step for a presence decision', () => {
         const store = new AnnotationStore();
-        const orphan = stickyNote('history-free-note');
+        const orphan = stickyNote('history-free-note', {pdfjsUid: 'history-free-editor'});
         store.createStickyNote(orphan);
 
-        store.reconcileEditorPresence(new Set());
+        store.reconcileEditorPresence(
+            new Set(),
+            {changedExternalIds: new Set(['history-free-editor'])},
+        );
 
         expect(store.undo()).toBe(true);
         expect(store.get(orphan.identity.id)).toBeNull();

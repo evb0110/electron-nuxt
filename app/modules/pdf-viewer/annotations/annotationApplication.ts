@@ -202,7 +202,12 @@ export class AnnotationApplication {
                     || (Boolean(comment.id) && existing.identity.elementId === comment.id),
                 );
                 if (!identifiesSameRecord) this.legacyIdentityConflicts.add(persistentIdentity(comment));
-                if (identifiesSameRecord && (comment.annotationId || comment.annotationName)) {
+                // PDF.js editor summaries can retain the object ref of an
+                // annotation deleted by the last acknowledged save. They
+                // identify the live editor record, but cannot prove that the
+                // ref still exists in the current PDF revision. Only a fresh
+                // PDF scan is authoritative for rebinding those refs.
+                if (identifiesSameRecord && comment.source === 'pdf' && (comment.annotationId || comment.annotationName)) {
                     const {
                         id: _canonicalId,
                         ...existingBindings
