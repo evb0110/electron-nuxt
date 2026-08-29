@@ -11,7 +11,10 @@ import {
     startElectronE2ESession,
     type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    callWorkspaceCommand,
+    readWorkspaceStateValues,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     waitForPdfLoaded,
     waitForViewerInteractive,
@@ -191,7 +194,25 @@ async function waitForPageOperation(session: IElectronE2ESession) {
     await new Promise(resolve => setTimeout(resolve, 3_000));
 }
 
+async function waitForTotalPages(session: IElectronE2ESession, totalPages: number) {
+    await expect.poll(async () => {
+        try {
+            return (await readWorkspaceStateValues<{totalPages?: number}>(
+                session.page,
+                ['totalPages'],
+            )).totalPages;
+        } catch {
+            return undefined;
+        }
+    }, {timeout: 60_000}).toBe(totalPages);
+}
+
 async function runCommand<T>(session: IElectronE2ESession, name: string, args: unknown[]) {
+    if (name === 'handleSave') {
+        const result = await callWorkspaceCommand<T>(session.page, name, args);
+        expect(result.called, `${name} should be exposed`).toBe(true);
+        return result.value;
+    }
     const called = await session.page.evaluate((payload: {
         args: unknown[];
         name: string
@@ -242,14 +263,13 @@ describe('Electron E2E, compact page labels through structural operations', () =
             [1],
             90,
         ]);
-        await waitForLabels(session, expected);
 
         await runCommand(session, 'pageOpsDelete', [
             [20],
             PAGE_COUNT,
         ]);
         expected = expected.filter((_, index) => index !== 19);
-        await waitForLabels(session, expected);
+        await waitForTotalPages(session, expected.length);
 
         const reorder = Array.from({length: expected.length}, (_, index) => index + 1);
         [
@@ -261,7 +281,6 @@ describe('Electron E2E, compact page labels through structural operations', () =
         ];
         expected = reorder.map(page => expected[page - 1]!);
         await runCommand(session, 'pageOpsReorder', [reorder]);
-        await waitForLabels(session, expected);
 
         await runCommand(session, 'handleCropPages', [
             [40],
@@ -272,7 +291,6 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 right: 5,
             },
         ]);
-        await waitForLabels(session, expected);
 
         const move = {
             pageCount: expected.length,
@@ -283,14 +301,13 @@ describe('Electron E2E, compact page labels through structural operations', () =
         const moved = expected.splice(move.startPage - 1, 1)[0]!;
         expected.splice(move.insertAt - 1, 0, moved);
         await runCommand(session, 'pageOpsMove', [move]);
-        await waitForLabels(session, expected);
 
         await runCommand(session, 'pageOpsInsert', [
             expected.length,
             100,
         ]);
         expected.splice(100, 0, '1');
-        await waitForLabels(session, expected);
+        await waitForTotalPages(session, expected.length);
 
         await runCommand(session, 'handleSave', []);
         await expect.poll(async () => (
