@@ -5,7 +5,10 @@ import {
 } from 'vitest';
 import {
     resolveDocumentPageDisplayLayoutsBounded,
+    resolveDocumentPageHeightsBounded,
+    resolveDocumentPageLayoutsBounded,
     resolveDocumentPageSourceReadyEdgeSemanticPage,
+    resolveDocumentPageTopsBounded,
 } from '@app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime';
 import {
     createProvisionalDocumentPageMetrics,
@@ -72,6 +75,52 @@ describe('document page-source layout memory bounds', () => {
         expect(Object.keys(layouts).filter(key => /^\d+$/u.test(key))).toEqual([]);
         expect(layouts).toHaveLength(1_000_000);
         expect(layouts[999_999]).toMatchObject({
+            width: 600,
+            height: 800,
+        });
+    });
+
+    it('keeps every sparse continuous layout collection lazy without mapping the document', () => {
+        const metrics = createProvisionalDocumentPageMetrics(1_000_000, {
+            widthPoints: 600,
+            heightPoints: 800,
+            rotation: 0,
+        });
+        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(
+            metrics,
+            600,
+            800,
+            1,
+            'custom',
+        );
+        Object.defineProperty(displayLayouts, 'map', {
+            configurable: true,
+            value: () => {
+                throw new Error('sparse page layouts must not be mapped');
+            },
+        });
+
+        const pageHeights = resolveDocumentPageHeightsBounded(displayLayouts);
+        const pageTops = resolveDocumentPageTopsBounded(pageHeights, true);
+        const pageLayouts = resolveDocumentPageLayoutsBounded(
+            displayLayouts,
+            pageTops,
+            true,
+        );
+
+        for (const collection of [
+            pageHeights,
+            pageTops,
+            pageLayouts,
+        ]) {
+            expect(isLazyIndexedCollection(collection)).toBe(true);
+            expect(Object.keys(collection).filter(key => /^\d+$/u.test(key))).toEqual([]);
+            expect(collection).toHaveLength(1_000_000);
+        }
+        expect(pageHeights[0]).toBe(800);
+        expect(pageTops[0]).toBe(20);
+        expect(pageLayouts[0]).toMatchObject({
+            top: 20,
             width: 600,
             height: 800,
         });

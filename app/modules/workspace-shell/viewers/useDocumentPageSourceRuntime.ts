@@ -22,8 +22,13 @@ import { clampDocumentManualZoom } from '@app/utils/document-viewer/zoomPolicy';
 import {
     resolveDocumentPageDisplayLayouts,
     resolveDocumentPageDisplayScale,
+    type IDocumentPageDisplayLayout,
 } from '@app/utils/document-viewer/layout/resolveDocumentPageDisplayLayout';
-import {createLazyIndexedCollection} from '@app/utils/document-viewer/virtualization/pageVirtualization';
+import {
+    createLazyIndexedCollection,
+    isLazyIndexedCollection,
+    type ILazyIndexedCollection,
+} from '@app/utils/document-viewer/virtualization/pageVirtualization';
 import {
     resolveNearestDocumentPageToViewportCenter,
     resolveDocumentContinuousScrollWindow,
@@ -60,6 +65,8 @@ const DOCUMENT_SOURCE_RENDER_CONCURRENCY = 2;
 const DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE = 256;
 const DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS = 32;
 export const DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS = 1_500;
+
+type TDocumentPageSourceCollection<T> = T[] | ILazyIndexedCollection<T>;
 
 function resolveDocumentPageDisplayLayout(
     metric: IDocumentPageMetrics,
@@ -117,6 +124,92 @@ export function resolveDocumentPageDisplayLayoutsBounded(
         length: metrics.length,
         maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
     });
+}
+function mapDocumentPageSourceCollectionBounded<T, U>(
+    collection: TDocumentPageSourceCollection<T>,
+    mapValue: (value: T, index: number) => U,
+): TDocumentPageSourceCollection<U> {
+    if (isLazyIndexedCollection(collection)) {
+        return createLazyIndexedCollection({
+            cacheValues: true,
+            chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
+            getValue: index => mapValue(collection.get(index) as T, index),
+            length: collection.length,
+            maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
+        });
+    }
+    return collection.map((value, index) => mapValue(value, index));
+}
+export function resolveDocumentPageHeightsBounded(
+    displayLayouts: TDocumentPageSourceCollection<IDocumentPageDisplayLayout>,
+) {
+    return mapDocumentPageSourceCollectionBounded(displayLayouts, layout => layout.height);
+}
+export function resolveDocumentPageTopsBounded(
+    heights: TDocumentPageSourceCollection<number>,
+    sparse: boolean,
+) {
+    if (!sparse) {
+        let top = DOCUMENT_PAGE_GUTTER_PX;
+        return heights.map((height) => {
+            const value = top;
+            top += height + DOCUMENT_PAGE_GUTTER_PX;
+            return value;
+        });
+    }
+    const prefixTops = new Map<number, number>([[
+        0,
+        DOCUMENT_PAGE_GUTTER_PX,
+    ]]);
+    const resolvePageTop = (index: number) => {
+        const cached = prefixTops.get(index);
+        if (cached !== undefined) {
+            return cached;
+        }
+        let nearestIndex = 0;
+        let top = DOCUMENT_PAGE_GUTTER_PX;
+        for (const [
+            cachedIndex,
+            cachedTop,
+        ] of prefixTops) {
+            if (cachedIndex <= index && cachedIndex >= nearestIndex) {
+                nearestIndex = cachedIndex;
+                top = cachedTop;
+            }
+        }
+        for (let pageIndex = nearestIndex; pageIndex < index; pageIndex += 1) {
+            top += (heights[pageIndex] ?? 0) + DOCUMENT_PAGE_GUTTER_PX;
+        }
+        prefixTops.set(index, top);
+        while (prefixTops.size > DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS) {
+            const oldest = [...prefixTops.keys()].find(key => key !== 0 && key !== index);
+            if (oldest === undefined) {
+                break;
+            }
+            prefixTops.delete(oldest);
+        }
+        return top;
+    };
+    return createLazyIndexedCollection({
+        cacheValues: false,
+        chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
+        getValue: resolvePageTop,
+        length: heights.length,
+        maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
+    });
+}
+export function resolveDocumentPageLayoutsBounded(
+    displayLayouts: TDocumentPageSourceCollection<IDocumentPageDisplayLayout>,
+    pageTops: TDocumentPageSourceCollection<number>,
+    continuousScroll: boolean,
+) {
+    return mapDocumentPageSourceCollectionBounded(displayLayouts, (layout, index) => ({
+        top: continuousScroll
+            ? pageTops[index] ?? DOCUMENT_PAGE_GUTTER_PX
+            : DOCUMENT_PAGE_GUTTER_PX,
+        width: layout.width,
+        height: layout.height,
+    }));
 }
 export function shouldRetainInactiveDocumentPageSourceLease(
     retainWarmLease: boolean,
@@ -204,58 +297,11 @@ export const useDocumentPageSourceRuntime = (options: {
         isInteractionActive: computed(() => props.value.isInteractionActive),
         reset: () => { handleWheelZoom.reset(); layoutLifecycle.cancelPendingRestore(); },
     });
-    const pageHeights = computed(() => pageDisplayLayouts.value.map(layout => layout.height));
-    const pageTops = computed(() => {
-        const heights = pageHeights.value;
-        if (!isSparseDocumentPageMetrics(pageMetrics.value)) {
-            let top = DOCUMENT_PAGE_GUTTER_PX;
-            return heights.map((height) => {
-                const value = top;
-                top += height + DOCUMENT_PAGE_GUTTER_PX;
-                return value;
-            });
-        }
-        const prefixTops = new Map<number, number>([[
-            0,
-            DOCUMENT_PAGE_GUTTER_PX,
-        ]]);
-        const resolvePageTop = (index: number) => {
-            const cached = prefixTops.get(index);
-            if (cached !== undefined) {
-                return cached;
-            }
-            let nearestIndex = 0;
-            let top = DOCUMENT_PAGE_GUTTER_PX;
-            for (const [
-                cachedIndex,
-                cachedTop,
-            ] of prefixTops) {
-                if (cachedIndex <= index && cachedIndex >= nearestIndex) {
-                    nearestIndex = cachedIndex;
-                    top = cachedTop;
-                }
-            }
-            for (let pageIndex = nearestIndex; pageIndex < index; pageIndex += 1) {
-                top += (heights[pageIndex] ?? 0) + DOCUMENT_PAGE_GUTTER_PX;
-            }
-            prefixTops.set(index, top);
-            while (prefixTops.size > DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS) {
-                const oldest = [...prefixTops.keys()].find(key => key !== 0 && key !== index);
-                if (oldest === undefined) {
-                    break;
-                }
-                prefixTops.delete(oldest);
-            }
-            return top;
-        };
-        return createLazyIndexedCollection({
-            cacheValues: false,
-            chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
-            getValue: resolvePageTop,
-            length: heights.length,
-            maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
-        });
-    });
+    const pageHeights = computed(() => resolveDocumentPageHeightsBounded(pageDisplayLayouts.value));
+    const pageTops = computed(() => resolveDocumentPageTopsBounded(
+        pageHeights.value,
+        isSparseDocumentPageMetrics(pageMetrics.value),
+    ));
     const totalHeight = computed(() => Math.max(
         containerHeight.value,
         (pageTops.value.at(-1) ?? DOCUMENT_PAGE_GUTTER_PX)
@@ -265,13 +311,11 @@ export const useDocumentPageSourceRuntime = (options: {
             + (pageHeights.value[props.value.currentPage - 1] ?? 0)
             + DOCUMENT_PAGE_GUTTER_PX,
     ));
-    const pageLayouts = computed(() => pageDisplayLayouts.value.map((layout, index) => ({
-        top: props.value.continuousScroll
-            ? pageTops.value[index] ?? DOCUMENT_PAGE_GUTTER_PX
-            : DOCUMENT_PAGE_GUTTER_PX,
-        width: layout.width,
-        height: layout.height,
-    })));
+    const pageLayouts = computed(() => resolveDocumentPageLayoutsBounded(
+        pageDisplayLayouts.value,
+        pageTops.value,
+        props.value.continuousScroll,
+    ));
     const mountedPages = computed(() => {
         const pageCount = source.value?.pageCount
             ?? chassisAuthority?.openSurface.snapshot.value.openingPageGeometry?.pageCount
@@ -335,10 +379,13 @@ export const useDocumentPageSourceRuntime = (options: {
     function resolvePageLeft(pageWidth: number) {
         return Math.max(DOCUMENT_PAGE_GUTTER_PX, (containerWidth.value - pageWidth) / 2);
     }
-    const zoomAnchorPageLayouts = computed(() => pageLayouts.value.map(layout => ({
-        ...layout,
-        left: resolvePageLeft(layout.width),
-    })));
+    const zoomAnchorPageLayouts = computed(() => mapDocumentPageSourceCollectionBounded(
+        pageLayouts.value,
+        layout => ({
+            ...layout,
+            left: resolvePageLeft(layout.width),
+        }),
+    ));
     function getPageStyle(pageNumber: number) {
         const layout = pageLayouts.value[pageNumber - 1];
         if (!layout) {
