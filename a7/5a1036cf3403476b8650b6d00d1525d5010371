@@ -1,0 +1,32 @@
+app/platform/browser-api/streamingImagePdfWriter.ts
+  s_b2ece6dfe48478::t_b7389a1698f7af 130
+  s_b2ece6dfe48478::t_13363f93f4ebe1 98,118
+  s_b2ece6dfe48478::t_f9b9d441a38316 145
+  s_b2ece6dfe48478::t_a610c8b3a7599c 28-44,73-97,99-117,119-126,128-129,131-144,146-152,246,258-262,316,333-343,345-346,405
+  s_b2ece6dfe48478::t_5f6026568f9a42 127
+tests/unit/app/platform/streamingImagePdf.test.ts
+  s_b2ece6dfe48478::t_ac20f7245f044c 10-31,99-103,105-128,130-149,153-155,157,159,161-163,165-170,174
+  s_b2ece6dfe48478::t_13363f93f4ebe1 104,129,156
+  s_b2ece6dfe48478::t_93644871aa4c1a 150-152
+  s_b2ece6dfe48478::t_e28ffa205dde3f 158
+  s_b2ece6dfe48478::t_740aa78d2925fb 160
+  s_b2ece6dfe48478::t_8daac90e6008c2 164
+  s_b2ece6dfe48478::t_aaac596493e0ee 171-173
+  s_b2ece6dfe48478::t_90b0ea3c45189f 175-176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a75a1036cf3403476b8650b6d00d1525d5010371",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
