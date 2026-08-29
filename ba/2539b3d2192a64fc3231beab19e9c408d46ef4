@@ -1,0 +1,24 @@
+app/platform/browser-api/createBrowserImageExportCapability.ts
+  s_b2ece6dfe48478::t_f04d02cf741319 67-89,510-515,701-707
+tests/unit/app/platform/browserImageExportCapability.test.ts
+  s_b2ece6dfe48478::t_f04d02cf741319 849
+  s_b2ece6dfe48478::t_327b5d02da624e 9,96
+  s_b2ece6dfe48478::t_ab6025aee5f3ec 93-95,97-106,155-157,724-729,740-777,785-848
+  s_b2ece6dfe48478::t_7ba5f3112bf237 730-739,778-784
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ba2539b3d2192a64fc3231beab19e9c408d46ef4",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
