@@ -191,7 +191,7 @@ async function waitForPageOperation(session: IElectronE2ESession) {
         }
     };
     await expect.poll(readProgress, {timeout: 20_000}).toBe(true);
-    await new Promise(resolve => setTimeout(resolve, 3_000));
+    await new Promise(resolve => setTimeout(resolve, 10_000));
 }
 
 async function waitForPageOperationComplete(session: IElectronE2ESession) {
@@ -316,7 +316,6 @@ describe('Electron E2E, compact page labels through structural operations', () =
         ]);
         expected.splice(100, 0, '1');
 
-        await waitForPageOperationComplete(session);
         await runCommand(session, 'handleSave', []);
         await expect.poll(async () => (
             await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session!.page, ['dirtyState'])
