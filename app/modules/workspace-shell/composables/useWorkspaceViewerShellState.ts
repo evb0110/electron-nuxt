@@ -48,9 +48,11 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
 
     function setSelectedPageSelection(selection: TPageSelection) {
         selectedPageSelection.value = selection;
-        setSelectedThumbnailPages(pageSelectionCount(selection) <= LEGACY_SELECTION_MATERIALIZATION_LIMIT
-            ? materializePageSelection(selection)
-            : []);
+        if (pageSelectionCount(selection) <= LEGACY_SELECTION_MATERIALIZATION_LIMIT) {
+            setSelectedThumbnailPages(materializePageSelection(selection));
+        }
+        // An empty legacy array means "all pages" to older consumers. Keep
+        // the last bounded mirror when the compact model cannot fit there.
     }
 
     function requestThumbnailInvalidation(pages: number[]) {

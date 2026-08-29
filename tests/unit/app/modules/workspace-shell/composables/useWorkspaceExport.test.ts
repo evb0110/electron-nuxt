@@ -10,6 +10,7 @@ import {
     effectScope,
     ref,
 } from 'vue';
+import { createRangePageSelection } from '@contracts/pageNumbers';
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 
@@ -56,6 +57,7 @@ function createComposable(options: {
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
     sourceKind?: 'pdf' | 'djvu';
     sourcePath?: string;
+    totalPages?: number;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
@@ -69,7 +71,7 @@ function createComposable(options: {
         workingCopyPath,
         sourceKind,
         sourcePath,
-        totalPages: ref(5),
+        totalPages: ref(options.totalPages ?? 5),
         ...(options.ensureWorkingCopyFreshForRead ? { ensureWorkingCopyFreshForRead: options.ensureWorkingCopyFreshForRead } : {}),
         ...(options.runWithDocumentOperationLease
             ? {runWithDocumentOperationLease: options.runWithDocumentOperationLease}
@@ -99,6 +101,48 @@ describe('useWorkspaceExport', () => {
 
     afterEach(() => {
         vi.useRealTimers();
+    });
+
+    it('refuses an oversized partial compact image selection instead of opening an all-pages dialog', async () => {
+        const {
+            scope,
+            state,
+        } = createComposable({totalPages: 200_000});
+        const selection = createRangePageSelection(200_000, 2, 100_002);
+        const exportPromise = state.handleExportImages(selection);
+
+        try {
+            expect(state.exportScopeDialogOpen.value).toBe(false);
+            expect(exportImagesMock).not.toHaveBeenCalled();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: expect.stringContaining('100001'),
+            }));
+        } finally {
+            scope.stop();
+            await exportPromise;
+        }
+    });
+
+    it('refuses an oversized partial compact TIFF selection instead of opening an all-pages dialog', async () => {
+        const {
+            scope,
+            state,
+        } = createComposable({totalPages: 200_000});
+        const selection = createRangePageSelection(200_000, 2, 100_002);
+        const exportPromise = state.handleExportMultiPageTiff(selection);
+
+        try {
+            expect(state.exportScopeDialogOpen.value).toBe(false);
+            expect(exportTiffMock).not.toHaveBeenCalled();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: expect.stringContaining('100001'),
+            }));
+        } finally {
+            scope.stop();
+            await exportPromise;
+        }
     });
 
     it('shows a running export card and a temporary success state for image export', async () => {

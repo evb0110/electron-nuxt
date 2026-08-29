@@ -26,6 +26,19 @@ import {
 type TExportDialogMode = 'images' | 'multipage-tiff';
 type TPageSelectionInput = number[] | TPageSelection;
 
+const EXPORT_SELECTION_MATERIALIZATION_LIMIT = 100_000;
+
+type TExportSelectionResolution =
+    | {kind: 'all'}
+    | {
+        kind: 'explicit';
+        pages: number[];
+    }
+    | {
+        kind: 'refused';
+        selectedPageCount: number;
+    };
+
 export interface IWorkspaceExportOverlay {
     kind: 'images' | 'multipage-tiff';
     pageCount: number;
@@ -195,6 +208,40 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         return uniq(selectedPages)
             .filter(page => Number.isInteger(page) && page >= 1 && page <= totalPages.value)
             .sort((left, right) => left - right);
+    }
+
+    function resolveExportSelection(selectedPages: TPageSelectionInput): TExportSelectionResolution {
+        const selectedPageCount = Array.isArray(selectedPages)
+            ? selectedPages.length
+            : pageSelectionCount(selectedPages);
+        if (selectedPageCount === totalPages.value) {
+            return {kind: 'all'};
+        }
+        if (selectedPageCount > EXPORT_SELECTION_MATERIALIZATION_LIMIT) {
+            return {
+                kind: 'refused',
+                selectedPageCount,
+            };
+        }
+        return {
+            kind: 'explicit',
+            pages: Array.isArray(selectedPages)
+                ? selectedPages
+                : materializePageSelection(selectedPages),
+        };
+    }
+
+    function showExportSelectionRefusalToast(
+        mode: TExportDialogMode,
+        selectedPageCount: number,
+    ) {
+        toast.add({
+            color: 'error',
+            title: mode === 'images'
+                ? t('errors.export.images')
+                : t('errors.export.multiPageTiff'),
+            description: `Selected page count ${selectedPageCount} exceeds the export limit of ${EXPORT_SELECTION_MATERIALIZATION_LIMIT} pages.`,
+        });
     }
 
     function getSelectedPageCount(pageNumbers?: number[]) {
@@ -481,13 +528,12 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         if (!sourcePath.value) {
             return;
         }
-        const initialPages = Array.isArray(selectedPages)
-            ? selectedPages
-            : pageSelectionCount(selectedPages) === totalPages.value
-                ? []
-                : pageSelectionCount(selectedPages) <= 100_000
-                    ? materializePageSelection(selectedPages)
-                    : [];
+        const selection = resolveExportSelection(selectedPages);
+        if (selection.kind === 'refused') {
+            showExportSelectionRefusalToast('images', selection.selectedPageCount);
+            return;
+        }
+        const initialPages = selection.kind === 'all' ? [] : selection.pages;
         const pageNumbers = await openExportScopeDialog('images', initialPages);
         if (pageNumbers === null) {
             return;
@@ -499,13 +545,12 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         if (!sourcePath.value) {
             return;
         }
-        const initialPages = Array.isArray(selectedPages)
-            ? selectedPages
-            : pageSelectionCount(selectedPages) === totalPages.value
-                ? []
-                : pageSelectionCount(selectedPages) <= 100_000
-                    ? materializePageSelection(selectedPages)
-                    : [];
+        const selection = resolveExportSelection(selectedPages);
+        if (selection.kind === 'refused') {
+            showExportSelectionRefusalToast('multipage-tiff', selection.selectedPageCount);
+            return;
+        }
+        const initialPages = selection.kind === 'all' ? [] : selection.pages;
         const pageNumbers = await openExportScopeDialog('multipage-tiff', initialPages);
         if (pageNumbers === null) {
             return;

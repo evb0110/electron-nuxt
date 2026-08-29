@@ -3,9 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
+import { createRangePageSelection } from '@contracts/pageNumbers';
 import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
 
-describe('workspace viewer zoom state', () => {
+describe('workspace viewer shell state', () => {
     it('derives compatibility modes from one authoritative discriminated state', () => {
         const state = useWorkspaceViewerShellState({
             surfaceMode: 'reader',
@@ -43,5 +44,23 @@ describe('workspace viewer zoom state', () => {
             kind: 'fit',
             axis: 'height',
         });
+    });
+
+    it('keeps the last bounded legacy mirror for an oversized compact selection', () => {
+        const state = useWorkspaceViewerShellState();
+        state.totalPages.value = 200_000;
+        state.setSelectedThumbnailPages([
+            2,
+            4,
+        ]);
+        const selection = createRangePageSelection(200_000, 2, 100_002);
+
+        state.setSelectedPageSelection(selection);
+
+        expect(state.selectedPageSelection.value).toEqual(selection);
+        expect(state.selectedThumbnailPages.value).toEqual([
+            2,
+            4,
+        ]);
     });
 });

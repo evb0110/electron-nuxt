@@ -38,6 +38,7 @@ function createSelectionHarness(options: {
     const onSelectedPagesChange = vi.fn((pages: number[]) => {
         selectedPages.value = pages;
     });
+    const onSelectionRefused = vi.fn();
     const onPageSelectionChange = vi.fn((selection: TPageSelection) => {
         selectedPageSelection.value = selection;
     });
@@ -53,6 +54,7 @@ function createSelectionHarness(options: {
         markUserInteraction: vi.fn(),
         onContextMenu: vi.fn(),
         onGoToPage,
+        onSelectionRefused,
         onSelectedPagesChange,
         ...(options.pageSelection === undefined
             ? {}
@@ -70,6 +72,7 @@ function createSelectionHarness(options: {
         focusPageElement,
         onGoToPage,
         onPageSelectionChange,
+        onSelectionRefused,
         onSelectedPagesChange,
         renderedPages,
         scrollPageIntoKeyboardView,
@@ -375,7 +378,7 @@ describe('usePdfThumbnailSelection', () => {
         onSelectedPagesChange.mockClear();
 
         selection.handleThumbnailClick(
-            new MouseEvent('click', {shiftKey: true}),
+            new MouseEvent('click', { shiftKey: true }),
             1_000_000,
         );
 
@@ -393,5 +396,31 @@ describe('usePdfThumbnailSelection', () => {
             4,
         ]);
         expect(selection.isSelected(1_000_000)).toBe(true);
+    });
+
+    it('refuses a million-page legacy shift selection before allocating an all-pages array', () => {
+        const {
+            onSelectedPagesChange,
+            onSelectionRefused,
+            selectedPages,
+            selection,
+        } = createSelectionHarness({totalPages: 1_000_000});
+        onSelectedPagesChange.mockClear();
+
+        selection.handleThumbnailClick(
+            new MouseEvent('click', {shiftKey: true}),
+            1_000_000,
+        );
+
+        expect(onSelectionRefused).toHaveBeenCalledWith({
+            kind: 'page-count-limit',
+            pageCount: 1_000_000,
+            limit: 100_000,
+        });
+        expect(onSelectedPagesChange).not.toHaveBeenCalled();
+        expect(selectedPages.value).toEqual([
+            2,
+            4,
+        ]);
     });
 });

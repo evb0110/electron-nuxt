@@ -19,6 +19,13 @@ import type { TPageSelection } from '@app/utils/pdfPageSelection';
 
 /** Rows PageUp/PageDown skip, matching the scan-cleanup rail. */
 const PAGE_KEYBOARD_STEP = 5;
+const LEGACY_SELECTION_MATERIALIZATION_LIMIT = 100_000;
+
+export interface IPdfThumbnailSelectionRefusal {
+    kind: 'page-count-limit';
+    pageCount: number;
+    limit: number;
+}
 
 const NESTED_CONTROL_SELECTOR = 'button, input, select, textarea, a[href], [role="button"]';
 
@@ -51,6 +58,7 @@ interface IUsePdfThumbnailSelectionOptions {
         pages: number[];
     }) => void;
     onGoToPage: (page: number) => void;
+    onSelectionRefused?: (reason: IPdfThumbnailSelectionRefusal) => void;
     onSelectedPagesChange?: (pages: number[]) => void;
     onPageSelectionChange?: ((selection: TPageSelection) => void) | undefined;
     renderedPages: ComputedRef<number[]>;
@@ -70,6 +78,7 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         markUserInteraction,
         onContextMenu,
         onGoToPage,
+        onSelectionRefused = () => {},
         onSelectedPagesChange = () => {},
         onPageSelectionChange,
         renderedPages,
@@ -104,7 +113,7 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         // Keep the old array contract for the existing UI and tests.  A
         // large lazy selection has no safe legacy representation, so the
         // model callback is the source of truth in that case.
-        if (!usesPageSelectionModel || pageSelectionCount(selection) <= 100_000) {
+        if (!usesPageSelectionModel || pageSelectionCount(selection) <= LEGACY_SELECTION_MATERIALIZATION_LIMIT) {
             onSelectedPagesChange(materializePageSelection(selection));
         }
     }
@@ -191,6 +200,28 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
             }
             selectionFocusPage.value = page;
             notifyPageSelection(nextSelection);
+            return;
+        }
+
+        // A legacy consumer only accepts a page array. Keep ordinary document
+        // semantics, but refuse a range that would require a page-sized array.
+        if (totalPages.value > LEGACY_SELECTION_MATERIALIZATION_LIMIT) {
+            if (event.shiftKey) {
+                onSelectionRefused({
+                    kind: 'page-count-limit',
+                    limit: LEGACY_SELECTION_MATERIALIZATION_LIMIT,
+                    pageCount: totalPages.value,
+                });
+                return;
+            }
+            if (event.metaKey || event.ctrlKey) {
+                toggleSinglePageSelection(page);
+                return;
+            }
+            multiSelection.selected.value = new Set([page]);
+            multiSelection.anchor.value = page;
+            selectionFocusPage.value = page;
+            onSelectedPagesChange([page]);
             return;
         }
 
@@ -299,6 +330,15 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
             notifyPageSelection(nextSelection);
             onGoToPage(nextFocusPage);
             focusThumbnailPage(nextFocusPage);
+            return;
+        }
+
+        if (totalPages.value > LEGACY_SELECTION_MATERIALIZATION_LIMIT) {
+            onSelectionRefused({
+                kind: 'page-count-limit',
+                limit: LEGACY_SELECTION_MATERIALIZATION_LIMIT,
+                pageCount: totalPages.value,
+            });
             return;
         }
 
