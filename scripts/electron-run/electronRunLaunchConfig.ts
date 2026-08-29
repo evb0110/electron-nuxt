@@ -67,6 +67,16 @@ export function shouldDisableAutomationSandbox(
     return platform === 'linux' && env.CI === 'true';
 }
 
+export function shouldDisableMacOSAutomationGpu(
+    env: NodeJS.ProcessEnv = process.env,
+    platform = process.platform,
+) {
+    // Hidden macOS Electron sessions can lose their GPU process before CDP
+    // attaches. Keep visible automation and normal desktop launches on the
+    // hardware-rendered path.
+    return platform === 'darwin' && env.EVB_AUTOMATION_HIDE_WINDOW === '1';
+}
+
 export function buildElectronAutomationArgs(options: {
     cdpPort: number;
     automationUserDataDir: string;
@@ -95,6 +105,9 @@ export function buildElectronAutomationArgs(options: {
             '--disable-setuid-sandbox',
             '--no-sandbox',
         );
+    }
+    if (shouldDisableMacOSAutomationGpu(options.env, options.platform)) {
+        args.unshift('--disable-gpu');
     }
     if (forceNoReducedMotion) {
         args.unshift('--force-prefers-no-reduced-motion');

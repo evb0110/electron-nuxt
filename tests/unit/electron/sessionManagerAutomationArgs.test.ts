@@ -141,6 +141,47 @@ describe('sessionManager automation launch args', () => {
         ]);
     });
 
+    it('disables GPU only for hidden macOS automation launches', () => {
+        const hiddenMacArgs = buildElectronAutomationArgs({
+            cdpPort: 9222,
+            automationUserDataDir: '/tmp/evb-user-data',
+            mainJs: '/tmp/main.js',
+            env: {
+                EVB_AUTOMATION_HIDE_WINDOW: '1',
+                EVB_AUTOMATION_NO_FOCUS: '1',
+                EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
+            },
+            platform: 'darwin',
+        });
+        expect(hiddenMacArgs).toContain('--disable-gpu');
+
+        const visibleMacArgs = buildElectronAutomationArgs({
+            cdpPort: 9222,
+            automationUserDataDir: '/tmp/evb-user-data',
+            mainJs: '/tmp/main.js',
+            env: {
+                EVB_AUTOMATION_HIDE_WINDOW: '0',
+                EVB_AUTOMATION_NO_FOCUS: '0',
+                EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
+            },
+            platform: 'darwin',
+        });
+        expect(visibleMacArgs).not.toContain('--disable-gpu');
+
+        const hiddenLinuxArgs = buildElectronAutomationArgs({
+            cdpPort: 9222,
+            automationUserDataDir: '/tmp/evb-user-data',
+            mainJs: '/tmp/main.js',
+            env: {
+                EVB_AUTOMATION_HIDE_WINDOW: '1',
+                EVB_AUTOMATION_NO_FOCUS: '1',
+                EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
+            },
+            platform: 'linux',
+        });
+        expect(hiddenLinuxArgs).not.toContain('--disable-gpu');
+    });
+
     it('can force a neutral reduced-motion baseline for profile E2E sessions', () => {
         expect(buildElectronAutomationArgs({
             cdpPort: 9222,
