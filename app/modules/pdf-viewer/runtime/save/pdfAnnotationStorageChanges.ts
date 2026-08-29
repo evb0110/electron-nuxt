@@ -327,12 +327,14 @@ function isReplayableFreeTextNoteStorageValue(value: unknown) {
         return false;
     }
 
-    return (
-        hasActivePopupPayload(value)
-        || isBlankStringValue(value.value)
+    // PDF.js serializes a changed legacy Popup alongside the visible FreeText
+    // value. A non-point imported FreeText can have that Popup too, but its
+    // non-blank value is still the native editor payload we need to preserve.
+    // App note markers use a blank (or zero-width) visible value, so keep that
+    // shape and explicit comment payloads on the note replay path.
+    return isBlankStringValue(value.value)
         || hasTextPayload(value.comment)
-        || value.hasComment === true
-    );
+        || value.hasComment === true;
 }
 
 function isUntrackedBlankEditorOnlyFreeTextStorageValue(

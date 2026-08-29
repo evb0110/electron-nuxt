@@ -630,6 +630,51 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
         expect(result.hasUnknownChanges).toBe(false);
     });
 
+    it('captures an edited non-point imported FreeText even when its legacy Popup is serialized', () => {
+        const document = {annotationStorage: {
+            serializable: {map: new Map([[
+                'pdfjs_internal_editor_5',
+                {
+                    annotationType: 3,
+                    annotationId: '45R',
+                    pageIndex: 7,
+                    rect: [
+                        20,
+                        30,
+                        180,
+                        80,
+                    ],
+                    rotation: 0,
+                    color: [
+                        17,
+                        24,
+                        39,
+                    ],
+                    fontSize: 18,
+                    value: 'edited imported text',
+                    popup: {
+                        contents: 'legacy popup text',
+                        deleted: false,
+                    },
+                },
+            ]])},
+            modifiedIds: {ids: new Set(['pdfjs_internal_editor_5'])},
+        }} as never;
+
+        const result = collectLivePdfJsAnnotationChangeIds(document);
+
+        expect(result.ids).toEqual(new Set(['45R']));
+        expect(result.replayableEditorNoteIds).toEqual(new Set());
+        expect(result.nativeFreeTextEditors).toEqual(new Map([[
+            '45R',
+            expect.objectContaining({
+                annotationId: '45R',
+                text: 'edited imported text',
+            }),
+        ]]));
+        expect(result.hasUnknownChanges).toBe(false);
+    });
+
     it('removes PDF.js invisible placeholders from a native FreeText mutation', () => {
         const document = {annotationStorage: {
             serializable: {map: new Map([[
