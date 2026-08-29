@@ -87,6 +87,8 @@ interface INativeNoteCommandOptions {
 interface INativeNotePhaseTiming {
     phase: string;
     durationMs: number;
+    startedAtEpochMs?: number;
+    endedAtEpochMs?: number;
 }
 
 function resolveNativeNoteCommandExecution(
@@ -260,12 +262,16 @@ async function measureNativeNotePhase<T>(
     operation: () => Promise<T>,
 ) {
     const start = performance.now();
+    const startedAtEpochMs = Date.now();
     try {
         return await operation();
     } finally {
+        const endedAtEpochMs = Date.now();
         phaseTimings.push({
             phase,
             durationMs: Math.round((performance.now() - start) * 10) / 10,
+            startedAtEpochMs,
+            endedAtEpochMs,
         });
     }
 }
@@ -401,7 +407,6 @@ async function runNativeNoteCommand(
         expectedDocumentRevisionToken,
         binaryPath,
     } = execution;
-
     return enqueueWorkingCopyMutation(normalizedWorkingPath, async (mutationOperation) => {
         const {
             phaseTimings,
@@ -530,6 +535,7 @@ async function runNativeWorkingCopyCommand(
             senderId,
             expectedDocumentRevisionToken,
         );
+        const operationStartedAtEpochMs: number = Date.now();
 
         // Managed binary handles validate the artifact type from its extension.
         // Keep this staging path recognizable as a PDF even though it is also a
@@ -567,6 +573,8 @@ async function runNativeWorkingCopyCommand(
             const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
             logTimings(`Native working-copy mutation phase timings: ${JSON.stringify({
                 command: options.command,
+                endedAtEpochMs: Date.now(),
+                startedAtEpochMs: operationStartedAtEpochMs,
                 totalMs,
                 phases: phaseTimings,
             })}`);
@@ -580,6 +588,8 @@ async function runNativeWorkingCopyCommand(
         } catch (error) {
             log.warn(`Native working-copy mutation failed: ${JSON.stringify({
                 command: options.command,
+                endedAtEpochMs: Date.now(),
+                startedAtEpochMs: operationStartedAtEpochMs,
                 totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
                 phases: phaseTimings,
                 error: getErrorMessage(error),
@@ -611,6 +621,7 @@ export async function handleCommitStagedPdfNativeMutations(
     const stagedOutput = await resolveTypedStagedArtifact(context, stagedArtifact);
     const phaseTimings: INativeNotePhaseTiming[] = [];
     const operationStart = performance.now();
+    const operationStartedAtEpochMs = Date.now();
     let result: IPdfNativeNoteTextSaveResult | null = null;
     let stagedArtifactCleaned = false;
     try {
@@ -696,6 +707,8 @@ export async function handleCommitStagedPdfNativeMutations(
     const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
     const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
     logTimings(`Native staged mutation commit phase timings: ${JSON.stringify({
+        endedAtEpochMs: Date.now(),
+        startedAtEpochMs: operationStartedAtEpochMs,
         totalMs,
         phases: phaseTimings,
     })}`);

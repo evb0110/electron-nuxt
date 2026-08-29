@@ -239,12 +239,38 @@ interface IHeartbeatSnapshot {
     sampleCount: number;
     startedAt: number;
     stoppedAt: number;
+    maxGapStartEpochMs: number | null;
+    maxGapEndEpochMs: number | null;
+    visibilityAtStart: IRendererVisibilitySnapshot;
+    visibilityAtStop: IRendererVisibilitySnapshot;
+    messageChannelMaxGapMs: number;
+    messageChannelMaxGapStartEpochMs: number | null;
+    messageChannelMaxGapEndEpochMs: number | null;
+    workerMaxGapMs: number | null;
+    workerMaxGapStartEpochMs: number | null;
+    workerMaxGapEndEpochMs: number | null;
+    workerSampleCount: number;
+    workerAvailable: boolean;
+}
+
+interface IRendererVisibilitySnapshot {
+    documentHidden: boolean;
+    visibilityState: DocumentVisibilityState;
+    epochMs: number;
 }
 
 interface IHeartbeatProbe extends IHeartbeatSnapshot {
     lastTickAt: number;
+    lastTickEpochMs: number;
     running: boolean;
     timerId: number | null;
+    messageChannel: MessageChannel | null;
+    messageChannelTimerId: number | null;
+    lastMessageChannelAt: number;
+    lastMessageChannelEpochMs: number;
+    worker: Worker | null;
+    lastWorkerAt: number | null;
+    lastWorkerEpochMs: number | null;
 }
 
 interface IRendererLongTask {
@@ -292,6 +318,8 @@ interface IAnnotationIndexRead {
 
 interface IPhaseTiming {
     durationMs: number;
+    startedAtEpochMs: number;
+    endedAtEpochMs: number;
     phase: string;
 }
 
@@ -334,6 +362,13 @@ interface IXlargeAcceptanceTelemetry {
         stage: string
     }>;
     rendererLongTasks: IRendererLongTask[];
+    windowHosting: {
+        automationHideWindow: string | null;
+        automationNoFocus: string | null;
+        browserWindowVisible: boolean;
+        browserWindowOccluded: boolean | null;
+        occlusionProbeAvailable: boolean;
+    };
     rss: Array<IRendererRssTelemetry & {session: 'A' | 'B'}>;
     rendererJsHeapBudgetBytes: number;
     ipcPayloadMeasurements: IXlargeIpcPayloadMeasurement[];
@@ -371,6 +406,13 @@ function createTelemetry(): IXlargeAcceptanceTelemetry {
         phases: [],
         heartbeats: [],
         rendererLongTasks: [],
+        windowHosting: {
+            automationHideWindow: process.env.EVB_AUTOMATION_HIDE_WINDOW ?? null,
+            automationNoFocus: process.env.EVB_AUTOMATION_NO_FOCUS ?? null,
+            browserWindowVisible: process.env.EVB_AUTOMATION_HIDE_WINDOW !== '1',
+            browserWindowOccluded: null,
+            occlusionProbeAvailable: false,
+        },
         rss: [],
         rendererJsHeapBudgetBytes: XLARGE_RENDERER_JS_HEAP_MAX_DELTA_BYTES,
         ipcPayloadMeasurements: [],
@@ -437,12 +479,16 @@ async function timed<T>(
     operation: () => Promise<T>,
 ) {
     const startedAt = performance.now();
+    const startedAtEpochMs = Date.now();
     try {
         return await operation();
     } finally {
+        const endedAtEpochMs = Date.now();
         telemetry.phases.push({
             phase,
             durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+            startedAtEpochMs,
+            endedAtEpochMs,
         });
     }
 }
@@ -639,26 +685,128 @@ async function startRendererHeartbeat(page: Page) {
     await page.evaluate((intervalMs: number) => {
         const target = window as Window & {__evbXlargeHeartbeat?: IHeartbeatProbe};
         const startedAt = performance.now();
+        const startedEpochMs = Date.now();
+        const visibility = (): IRendererVisibilitySnapshot => ({
+            documentHidden: document.hidden,
+            epochMs: Date.now(),
+            visibilityState: document.visibilityState,
+        });
+        const initialVisibility = visibility();
+        const recordGap = (
+            now: number,
+            nowEpochMs: number,
+            last: number,
+            lastEpochMs: number,
+            onGap: (gapMs: number, gapStartEpochMs: number, gapEndEpochMs: number) => void,
+        ) => {
+            const gapMs = now - last;
+            onGap(gapMs, lastEpochMs, nowEpochMs);
+        };
         const state: IHeartbeatProbe = {
             maxGapMs: 0,
             sampleCount: 0,
             startedAt,
             stoppedAt: 0,
+            maxGapStartEpochMs: null,
+            maxGapEndEpochMs: null,
+            visibilityAtStart: initialVisibility,
+            visibilityAtStop: initialVisibility,
+            messageChannelMaxGapMs: 0,
+            messageChannelMaxGapStartEpochMs: null,
+            messageChannelMaxGapEndEpochMs: null,
+            workerMaxGapMs: null,
+            workerMaxGapStartEpochMs: null,
+            workerMaxGapEndEpochMs: null,
+            workerSampleCount: 0,
+            workerAvailable: typeof Worker === 'function',
             lastTickAt: startedAt,
+            lastTickEpochMs: startedEpochMs,
             running: true,
             timerId: null,
+            messageChannel: null,
+            messageChannelTimerId: null,
+            lastMessageChannelAt: startedAt,
+            lastMessageChannelEpochMs: startedEpochMs,
+            worker: null,
+            lastWorkerAt: null,
+            lastWorkerEpochMs: null,
         };
         const tick = () => {
             if (!state.running) {
                 return;
             }
             const now = performance.now();
-            state.maxGapMs = Math.max(state.maxGapMs, now - state.lastTickAt);
+            const nowEpochMs = Date.now();
+            recordGap(now, nowEpochMs, state.lastTickAt, state.lastTickEpochMs, (gapMs, gapStartEpochMs, gapEndEpochMs) => {
+                if (gapMs <= state.maxGapMs) {
+                    return;
+                }
+                state.maxGapMs = gapMs;
+                state.maxGapStartEpochMs = gapStartEpochMs;
+                state.maxGapEndEpochMs = gapEndEpochMs;
+            });
             state.lastTickAt = now;
+            state.lastTickEpochMs = nowEpochMs;
             state.sampleCount += 1;
-            state.timerId = window.setTimeout(tick, intervalMs);
         };
-        state.timerId = window.setTimeout(tick, intervalMs);
+        state.timerId = window.setInterval(tick, intervalMs);
+
+        if (typeof MessageChannel === 'function') {
+            const channel = new MessageChannel();
+            state.messageChannel = channel;
+            channel.port1.onmessage = () => {
+                if (!state.running) {
+                    return;
+                }
+                const now = performance.now();
+                const nowEpochMs = Date.now();
+                recordGap(now, nowEpochMs, state.lastMessageChannelAt, state.lastMessageChannelEpochMs, (gapMs, gapStartEpochMs, gapEndEpochMs) => {
+                    if (gapMs <= state.messageChannelMaxGapMs) {
+                        return;
+                    }
+                    state.messageChannelMaxGapMs = gapMs;
+                    state.messageChannelMaxGapStartEpochMs = gapStartEpochMs;
+                    state.messageChannelMaxGapEndEpochMs = gapEndEpochMs;
+                });
+                state.lastMessageChannelAt = now;
+                state.lastMessageChannelEpochMs = nowEpochMs;
+                state.messageChannelTimerId = window.setTimeout(() => channel.port2.postMessage(null), intervalMs);
+            };
+            state.messageChannelTimerId = window.setTimeout(() => channel.port2.postMessage(null), intervalMs);
+        }
+
+        if (typeof Worker === 'function' && typeof Blob === 'function' && typeof URL.createObjectURL === 'function') {
+            const workerSource = `
+                setInterval(() => postMessage({at: performance.now(), epochMs: Date.now()}), ${intervalMs});
+            `;
+            const workerUrl = URL.createObjectURL(new Blob([workerSource], {type: 'text/javascript'}));
+            const worker = new Worker(workerUrl);
+            state.worker = worker;
+            worker.onmessage = (event: MessageEvent<{
+                at: number;
+                epochMs: number;
+            }>) => {
+                if (!state.running) {
+                    return;
+                }
+                const now = event.data.at;
+                const nowEpochMs = event.data.epochMs;
+                if (state.lastWorkerAt !== null && state.lastWorkerEpochMs !== null) {
+                    recordGap(now, nowEpochMs, state.lastWorkerAt, state.lastWorkerEpochMs, (gapMs, gapStartEpochMs, gapEndEpochMs) => {
+                        if (state.workerMaxGapMs !== null && gapMs <= state.workerMaxGapMs) {
+                            return;
+                        }
+                        state.workerMaxGapMs = gapMs;
+                        state.workerMaxGapStartEpochMs = gapStartEpochMs;
+                        state.workerMaxGapEndEpochMs = gapEndEpochMs;
+                    });
+                }
+                state.lastWorkerAt = now;
+                state.lastWorkerEpochMs = nowEpochMs;
+                state.workerSampleCount += 1;
+            };
+            URL.revokeObjectURL(workerUrl);
+        }
         target.__evbXlargeHeartbeat = state;
     }, XLARGE_HEARTBEAT_INTERVAL_MS);
 
@@ -674,14 +822,37 @@ async function startRendererHeartbeat(page: Page) {
             }
             state.running = false;
             if (state.timerId !== null) {
-                window.clearTimeout(state.timerId);
+                window.clearInterval(state.timerId);
             }
+            if (state.messageChannelTimerId !== null) {
+                window.clearTimeout(state.messageChannelTimerId);
+            }
+            state.messageChannel?.port1.close();
+            state.messageChannel?.port2.close();
+            state.worker?.terminate();
+            state.visibilityAtStop = {
+                documentHidden: document.hidden,
+                epochMs: Date.now(),
+                visibilityState: document.visibilityState,
+            };
             state.stoppedAt = performance.now();
             return {
                 maxGapMs: Math.round(state.maxGapMs * 10) / 10,
                 sampleCount: state.sampleCount,
                 startedAt: Math.round(state.startedAt * 10) / 10,
                 stoppedAt: Math.round(state.stoppedAt * 10) / 10,
+                maxGapStartEpochMs: state.maxGapStartEpochMs,
+                maxGapEndEpochMs: state.maxGapEndEpochMs,
+                visibilityAtStart: state.visibilityAtStart,
+                visibilityAtStop: state.visibilityAtStop,
+                messageChannelMaxGapMs: Math.round(state.messageChannelMaxGapMs * 10) / 10,
+                messageChannelMaxGapStartEpochMs: state.messageChannelMaxGapStartEpochMs,
+                messageChannelMaxGapEndEpochMs: state.messageChannelMaxGapEndEpochMs,
+                workerMaxGapMs: state.workerMaxGapMs === null ? null : Math.round(state.workerMaxGapMs * 10) / 10,
+                workerMaxGapStartEpochMs: state.workerMaxGapStartEpochMs,
+                workerMaxGapEndEpochMs: state.workerMaxGapEndEpochMs,
+                workerSampleCount: state.workerSampleCount,
+                workerAvailable: state.workerAvailable,
             };
         });
     };
@@ -1426,6 +1597,15 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             });
             expect(dirtyState.dirtyState?.pdfJsAnnotationStorage?.ids?.length ?? 0).toBeGreaterThan(0);
 
+            if (activeHeartbeat) {
+                const heartbeatBeforeSave = await activeHeartbeat();
+                telemetry.heartbeats.push({
+                    session: 'B',
+                    stage: 'session-b-before-save',
+                    ...heartbeatBeforeSave,
+                });
+            }
+            activeHeartbeat = await startRendererHeartbeat(sessionB.page);
             await installSaveReceiptProbe(sessionB.page);
             await startRendererLongTaskProbe(sessionB.page);
             const saveTargetPath = sessionBOpenState.pdfSourceState?.reloadPath
