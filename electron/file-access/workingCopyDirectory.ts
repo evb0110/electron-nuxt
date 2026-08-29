@@ -237,9 +237,7 @@ export async function copyFileFromStableSource(sourcePath: string, targetPath: s
             }
             await targetHandle.write(buffer, 0, length, Number(offset));
             offset += BigInt(length);
-            if (offset < sourceStat.size) {
-                await new Promise<void>(resolveCopyYield => setImmediate(resolveCopyYield));
-            }
+            await new Promise<void>(resolveCopyYield => setImmediate(resolveCopyYield));
         }
         const currentHandleStat = await sourceHandle.stat({bigint: true});
         const currentPathStat = await stat(sourcePath, {bigint: true});
