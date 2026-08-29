@@ -1,0 +1,24 @@
+app/modules/pdf-viewer/annotations/domain/projectAnnotationEditorPresence.ts
+  s_b2ece6dfe48478::t_adc8ef3565025c 29-35
+  s_b2ece6dfe48478::t_a00c8ecbed8583 20-22
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreEditorPresence.test.ts
+  s_b2ece6dfe48478::t_a00c8ecbed8583 128
+  s_b2ece6dfe48478::t_6c31185b9c36af 145,147-148
+  s_b2ece6dfe48478::t_55878dcd37abde 171-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "709559ddbfbd85f909dbb96bf35c1090f9599c85",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
