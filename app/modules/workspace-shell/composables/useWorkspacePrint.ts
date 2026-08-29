@@ -33,6 +33,7 @@ const PDF_MIME_TYPE = 'application/pdf';
 const NATIVE_PRINT_REQUIRED_REASON = 'requires-native-backend' as const;
 const PDF_LIB_PRINT_PAGE_COUNT_LIMIT = 5_000;
 const PRINT_SELECTION_MATERIALIZATION_LIMIT = 100_000;
+const HIGH_PAGE_COUNT_PRINT_LAYOUT_ERROR_KEY = 'print.highPageCountAdvancedLayout' as const;
 
 class NativePrintRequiredError extends Error {
     readonly code = 'native-print-required' as const;
@@ -151,6 +152,17 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     function canPrintDjvuSource() {
         return Boolean(deps.printDjvuSource)
             && (deps.canPrintDjvuSource?.value ?? true);
+    }
+
+    function requiresNativePrintForHighPageCountLayout(payload: IPrintDialogSubmitPayload) {
+        if (
+            deps.totalPages.value <= PDF_LIB_PRINT_PAGE_COUNT_LIMIT
+            || Boolean(payload.pageNumbers?.length)
+        ) {
+            return false;
+        }
+
+        return payload.viewMode !== 'single' || payload.orientation !== 'auto';
     }
 
     function resetPrintError() {
@@ -824,6 +836,9 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                         ? {}
                         : {pageNumbers: materializePageSelection(selection)}),
                 };
+            }
+            if (requiresNativePrintForHighPageCountLayout(payload)) {
+                throw new NativePrintRequiredError(t(HIGH_PAGE_COUNT_PRINT_LAYOUT_ERROR_KEY));
             }
             throwIfPrintAborted(signal);
             if (deps.ensurePrintReady && !await deps.ensurePrintReady()) {

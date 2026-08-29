@@ -898,6 +898,7 @@ export default {
         'rangePlaceholder': 'p. ej. 1-3, 7, 10-12',
         'invalidRange': 'Introduzca un rango de páginas válido.',
         'selectionTooLarge': 'Esta selección parcial es demasiado grande. Reduce el rango de páginas e inténtalo de nuevo.',
+        'highPageCountAdvancedLayout': 'La impresión PDF nativa es necesaria para páginas enfrentadas o una orientación explícita en documentos de más de 5.000 páginas.',
         'layoutLabel': 'Diseño',
         'layoutSingle': 'Páginas individuales',
         'layoutFacing': 'Páginas enfrentadas',

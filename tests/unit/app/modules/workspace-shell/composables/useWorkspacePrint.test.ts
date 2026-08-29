@@ -1550,6 +1550,52 @@ describe('useWorkspacePrint', () => {
         }
     });
 
+    it.each([
+        [
+            'facing pages with automatic orientation',
+            'facing',
+            'auto',
+        ],
+        [
+            'single pages with portrait orientation',
+            'single',
+            'portrait',
+        ],
+    ] as const)('refuses an all-page advanced layout before loading a high-page-count PDF (%s)', async (
+        _label,
+        viewMode,
+        orientation,
+    ) => {
+        const appFrame = stubDocumentWithFrame();
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            totalPages: 5_001,
+            sourcePdf: new Blob([Uint8Array.of(1, 2, 3)], { type: 'application/pdf' }),
+        });
+
+        try {
+            const printPromise = state.handlePrintDialogSubmit({
+                viewMode,
+                orientation,
+            }, {reopenDialogOnError: false});
+            await flushMicrotasks(12);
+            appFrame.frame.trigger('load');
+            await printPromise;
+
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: expect.stringContaining('print.highPageCountAdvancedLayout'),
+            }));
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('never hands print jobs to the default PDF app when using rendered browser printing', async () => {
         documentsCapabilityMock.printPdfPath.mockResolvedValue({ success: true });
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));

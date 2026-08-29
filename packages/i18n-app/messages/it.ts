@@ -898,6 +898,7 @@ export default {
         'rangePlaceholder': 'es. 1-3, 7, 10-12',
         'invalidRange': 'Inserisci un intervallo di pagine valido.',
         'selectionTooLarge': 'Questa selezione parziale è troppo grande. Riduci l\'intervallo di pagine e riprova.',
+        'highPageCountAdvancedLayout': 'Per pagine affiancate o un orientamento esplicito nei documenti con più di 5.000 pagine è necessaria la stampa PDF nativa.',
         'layoutLabel': 'Layout',
         'layoutSingle': 'Pagine singole',
         'layoutFacing': 'Pagine affiancate',

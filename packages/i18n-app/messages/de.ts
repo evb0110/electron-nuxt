@@ -898,6 +898,7 @@ export default {
         'rangePlaceholder': 'z. B. 1-3, 7, 10-12',
         'invalidRange': 'Geben Sie einen gültigen Seitenbereich ein.',
         'selectionTooLarge': 'Diese Teilauswahl ist zu groß. Grenzen Sie den Seitenbereich ein und versuchen Sie es erneut.',
+        'highPageCountAdvancedLayout': 'Für Doppelseiten oder eine explizite Ausrichtung bei Dokumenten mit mehr als 5.000 Seiten ist natives PDF-Drucken erforderlich.',
         'layoutLabel': 'Layout',
         'layoutSingle': 'Einzelseiten',
         'layoutFacing': 'Doppelseiten',

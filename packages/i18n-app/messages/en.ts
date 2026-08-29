@@ -898,6 +898,7 @@ export default {
         'rangePlaceholder': 'e.g. 1-3, 7, 10-12',
         'invalidRange': 'Enter a valid page range.',
         'selectionTooLarge': 'This partial selection is too large to print safely. Narrow the page range and try again.',
+        'highPageCountAdvancedLayout': 'Native PDF printing is required for facing pages or explicit orientation on documents with more than 5,000 pages.',
         'layoutLabel': 'Layout',
         'layoutSingle': 'Single pages',
         'layoutFacing': 'Facing pages',

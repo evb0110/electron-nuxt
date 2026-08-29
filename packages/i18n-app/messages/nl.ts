@@ -898,6 +898,7 @@ export default {
         'rangePlaceholder': 'bijv. 1-3, 7, 10-12',
         'invalidRange': 'Voer een geldig paginabereik in.',
         'selectionTooLarge': 'Deze gedeeltelijke selectie is te groot. Verklein het paginabereik en probeer opnieuw.',
+        'highPageCountAdvancedLayout': 'Voor tegenoverliggende pagina\'s of een expliciete oriëntatie in documenten met meer dan 5.000 pagina\'s is native PDF-afdrukken vereist.',
         'layoutLabel': 'Indeling',
         'layoutSingle': 'Enkele pagina\'s',
         'layoutFacing': 'Tegenoverliggende pagina\'s',

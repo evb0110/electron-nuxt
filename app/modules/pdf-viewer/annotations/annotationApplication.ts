@@ -177,6 +177,11 @@ function isPersistedSummary(comment: IAnnotationCommentSummary) {
         || Boolean(normalizePdfJsAnnotationId(comment.annotationId));
 }
 
+function isImportedFreeTextSummary(comment: IAnnotationCommentSummary) {
+    return comment.source === 'pdf'
+        && comment.subtype?.trim().toLowerCase() === 'freetext';
+}
+
 function toMarkupSubtype(value: string | null | undefined): TMarkupSubtype | null {
     if (value === 'Highlight' || value === 'Underline' || value === 'StrikeOut' || value === 'Squiggly') {
         return value;
@@ -374,7 +379,11 @@ export class AnnotationApplication {
                 this.store.import(entity);
                 return;
             }
-            if (!comment.hasNote) {
+            // `hasNote` distinguishes point-note/sidebar semantics from a
+            // regular FreeText box. A persisted FreeText still needs a
+            // canonical entity so its visible editor has an identity and can
+            // participate in save and delete projection.
+            if (!comment.hasNote && !isImportedFreeTextSummary(comment)) {
                 return;
             }
             const entity: IStickyNoteEntity = {

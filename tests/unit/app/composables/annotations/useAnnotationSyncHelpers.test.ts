@@ -601,6 +601,105 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
         });
     });
 
+    it.each([
+        [
+            'without a Popup',
+            {
+                id: 'freetext-without-popup',
+                subtype: 'FreeText',
+                rect: [
+                    10,
+                    70,
+                    220,
+                    620,
+                ] as number[],
+                contents: 'Imported text box',
+            },
+            null,
+        ],
+        [
+            'with a Popup',
+            {
+                id: 'freetext-with-popup',
+                subtype: 'FreeText',
+                rect: [
+                    10,
+                    70,
+                    220,
+                    620,
+                ] as number[],
+                contents: 'Imported text box',
+                popupRef: 'freetext-popup',
+            },
+            {
+                id: 'freetext-popup',
+                subtype: 'Popup',
+            },
+        ],
+    ] as const)('imports a non-point FreeText %s into the canonical store with stable identity', (
+        _label,
+        annotation,
+        popupAnnotation,
+    ) => {
+        const comments: Array<ReturnType<typeof __test__.buildPdfAnnotationCommentSummary>> = [];
+        const links: Array<NonNullable<ReturnType<typeof __test__.tryExtractPdfLinkAnnotation>>> = [];
+
+        __test__.collectPagePdfSnapshotEntries(
+            {
+                annotations: popupAnnotation
+                    ? [
+                        popupAnnotation,
+                        annotation,
+                    ]
+                    : [annotation],
+                pageView,
+                pageRotation: 0,
+            },
+            1,
+            summaryDeps,
+            comments,
+            links,
+        );
+
+        expect(links).toHaveLength(0);
+        expect(comments).toHaveLength(1);
+        const [summary] = comments;
+        expect(summary).toMatchObject({
+            source: 'pdf',
+            subtype: 'FreeText',
+            text: 'Imported text box',
+            annotationId: annotation.id,
+            markerRect: expect.objectContaining({width: expect.any(Number)}),
+        });
+        expect(summary.hasNote).toBe(false);
+
+        const documentKey = `freetext-${annotation.id}`;
+        const application = new AnnotationApplication(documentKey);
+        application.ingestLegacySummaries(comments);
+
+        expect(application.store.list()).toHaveLength(1);
+        const [entity] = application.store.list();
+        expect(entity).toMatchObject({
+            kind: 'sticky-note',
+            text: 'Imported text box',
+            pageIndex: 0,
+            identity: {pdfRef: annotation.id},
+        });
+        application.ingestLegacySummaries(comments);
+        expect(application.store.list()).toHaveLength(1);
+        expect(application.store.list()[0]?.identity.id).toBe(entity?.identity.id);
+
+        const reopened = new AnnotationApplication(documentKey);
+        reopened.ingestLegacySummaries(comments);
+        expect(reopened.store.list()[0]?.identity.id).toBe(entity?.identity.id);
+        expect(application.listCommentSummaries()[0]).toMatchObject({
+            source: 'pdf',
+            subtype: 'FreeText',
+            hasNote: true,
+            annotationId: annotation.id,
+        });
+    });
+
     it('does not treat a regular-size FreeText editor with a popup as a point note', () => {
         const summary = __test__.buildPdfAnnotationCommentSummary(
             {

@@ -899,6 +899,7 @@ export default {
         'rangePlaceholder': 'ex. 1-3, 7, 10-12',
         'invalidRange': 'Insira um intervalo de páginas válido.',
         'selectionTooLarge': 'Esta seleção parcial é grande demais. Reduza o intervalo de páginas e tente novamente.',
+        'highPageCountAdvancedLayout': 'A impressão nativa de PDF é necessária para páginas opostas ou uma orientação explícita em documentos com mais de 5.000 páginas.',
         'layoutLabel': 'Layout',
         'layoutSingle': 'Páginas únicas',
         'layoutFacing': 'Páginas opostas',

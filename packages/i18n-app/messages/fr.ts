@@ -899,6 +899,7 @@ export default {
         'rangePlaceholder': 'ex. 1-3, 7, 10-12',
         'invalidRange': 'Saisissez une plage de pages valide.',
         'selectionTooLarge': 'Cette sélection partielle est trop grande. Réduisez la plage de pages et réessayez.',
+        'highPageCountAdvancedLayout': 'L’impression PDF native est nécessaire pour les pages en vis-à-vis ou une orientation explicite dans les documents de plus de 5 000 pages.',
         'layoutLabel': 'Disposition',
         'layoutSingle': 'Pages uniques',
         'layoutFacing': 'Pages en vis-à-vis',
