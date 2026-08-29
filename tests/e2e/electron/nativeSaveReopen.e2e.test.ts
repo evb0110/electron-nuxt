@@ -240,23 +240,36 @@ describe('Electron E2E - native save and reopen', () => {
                     4,
                     5,
                 ],
-                run: async (page: Parameters<typeof evaluateInPage>[0], path: string) => {
-                    return evaluateInPage(page, async ({workingCopyPath}) => {
+                run: async (page: Parameters<typeof evaluateInPage>[0], path: string, sourcePath?: string) => {
+                    if (!sourcePath) throw new Error('Insert fixture source is unavailable');
+                    return evaluateInPage(page, async ({
+                        workingCopyPath,
+                        sourcePath: source,
+                    }) => {
                         const api = (window as IE2EWindow).electronAPI;
                         if (!api) throw new Error('electronAPI is unavailable');
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
-                        return api.pageOps.insert(workingCopyPath, 4, 2, {expectedDocumentRevisionToken: revision?.token});
-                    }, {workingCopyPath: path});
+                        return api.pageOps.insertFile(workingCopyPath, 4, 2, [source], 'outline-matrix-insert', {expectedDocumentRevisionToken: revision?.token});
+                    }, {
+                        workingCopyPath: path,
+                        sourcePath,
+                    });
                 },
             },
         ] as const;
 
         for (const testCase of cases) {
             const pdfPath = await createOutlinePageLabelFixturePdf(`outline-matrix-${testCase.name}-${Date.now()}.pdf`);
+            const sourcePath = testCase.name === 'insert'
+                ? await createMultiPageTextFixturePdf(`outline-matrix-${testCase.name}-source-${Date.now()}.pdf`, 1)
+                : undefined;
             session = await startElectronE2ESession(`e2e-outline-matrix-${testCase.name}-${Date.now()}`, {
                 clean: true,
                 extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
-                initialOpenPaths: [pdfPath],
+                initialOpenPaths: sourcePath ? [
+                    pdfPath,
+                    sourcePath,
+                ] : [pdfPath],
             });
             await waitForOpenedPdf(session, pdfPath);
 
@@ -265,7 +278,7 @@ describe('Electron E2E - native save and reopen', () => {
                 if (!api) throw new Error('electronAPI is unavailable');
                 return api.documentWorkingCopy.createWorkingCopyFromPath(path, path);
             }, pdfPath);
-            const result = await testCase.run(session.page, workingCopyPath);
+            const result = await testCase.run(session.page, workingCopyPath, sourcePath);
             expect(result?.success, `${testCase.name} native page operation`).toBe(true);
             const saveResult = await evaluateInPage(session.page, async ({workingCopyPath: path}) => {
                 const api = (window as IE2EWindow).electronAPI;

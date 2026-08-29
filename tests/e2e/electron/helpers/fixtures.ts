@@ -1584,7 +1584,7 @@ export async function readPdfMetadataWithQpdf(filePath: string) {
     }
     return JSON.parse(result.stdout) as {
         outlines: IQpdfMetadataOutline[];
-        pagelabels: Array<Record<string, unknown>>;
+        pagelabels: Array<{label?: Record<string, unknown>}>;
     };
 }
 
