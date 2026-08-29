@@ -44,7 +44,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     openAnnotationsTab,
-    saveViaVisibleToolbar,
+    saveViaVisibleToolbarWithDeadline,
     scrollViewerToPage,
     waitForPdfLoaded,
     waitForViewerInteractive,
@@ -1389,7 +1389,16 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             const saveEvent = await timed(
                 telemetry,
                 'session-b-save-window-handle',
-                () => saveViaVisibleToolbar(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS, saveEventPath),
+                () => saveViaVisibleToolbarWithDeadline(
+                    sessionB!.page,
+                    XLARGE_SAVE_TIMEOUT_MS,
+                    saveEventPath,
+                    {
+                        label: 'xlarge PDF session B visible toolbar save',
+                        onTimeout: () => sessionB!.stop(),
+                        diagnostics: () => 'phase=session-b-save-window-handle',
+                    },
+                ),
             );
             expect(saveEvent.detail.path).toBe(saveEventPath);
             expect(saveEvent.detail.documentRevisionToken).toEqual(expect.any(String));

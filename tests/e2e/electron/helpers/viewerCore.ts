@@ -22,6 +22,10 @@ import {
     waitForAutomationEvent,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    runWithElectronE2EDeadline,
+    type IElectronE2EDeadlineOptions,
+} from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 
 export {
     installNativePdfOpeningSampler,
@@ -1343,15 +1347,51 @@ export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOU
  * Saves through the enabled visible toolbar control and requires the product's
  * save-committed event. There is deliberately no workspace-command fallback.
  */
+export interface ISaveViaVisibleToolbarOptions {signal?: AbortSignal;}
+
+function throwIfAborted(signal: AbortSignal | undefined) {
+    if (!signal?.aborted) {
+        return;
+    }
+    throw signal.reason ?? new Error('Visible toolbar save was aborted');
+}
+
+async function awaitWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined) {
+    if (!signal) {
+        return promise;
+    }
+    throwIfAborted(signal);
+    let handleAbort: (() => void) | undefined;
+    const aborted = new Promise<never>((_, reject) => {
+        handleAbort = () => reject(signal.reason ?? new Error('Visible toolbar save was aborted'));
+        signal.addEventListener('abort', handleAbort, {once: true});
+    });
+    try {
+        return await Promise.race([
+            promise,
+            aborted,
+        ]);
+    } finally {
+        if (handleAbort) {
+            signal.removeEventListener('abort', handleAbort);
+        }
+    }
+}
+
 export async function saveViaVisibleToolbar(
     page: Page,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     expectedPath?: string,
+    options: ISaveViaVisibleToolbarOptions = {},
 ) {
+    const {signal} = options;
+    throwIfAborted(signal);
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
+        throwIfAborted(signal);
         const buttons = await page.$$('button[aria-label="Save"], button[aria-label^="Save ("]');
         for (const button of buttons) {
+            throwIfAborted(signal);
             const enabled = await button.evaluate((candidate) => {
                 const rect = candidate.getBoundingClientRect();
                 const style = window.getComputedStyle(candidate);
@@ -1369,13 +1409,17 @@ export async function saveViaVisibleToolbar(
                 continue;
             }
 
+            throwIfAborted(signal);
             const baselineEventId = await getLatestAutomationEventId(page);
             await button.click();
-            const event = await waitForAutomationEvent(page, 'save-committed', {
-                afterEventId: baselineEventId,
-                ...(expectedPath ? {path: expectedPath} : {}),
-                timeoutMs,
-            });
+            const event = await awaitWithAbort(
+                waitForAutomationEvent(page, 'save-committed', {
+                    afterEventId: baselineEventId,
+                    ...(expectedPath ? {path: expectedPath} : {}),
+                    timeoutMs,
+                }),
+                signal,
+            );
             if (!event) {
                 throw new Error('Visible Save completed without a save-committed event');
             }
@@ -1385,4 +1429,24 @@ export async function saveViaVisibleToolbar(
     }
 
     throw new Error('Visible Save button did not become enabled');
+}
+
+export interface ISaveViaVisibleToolbarDeadlineOptions extends IElectronE2EDeadlineOptions {label?: string;}
+
+export function saveViaVisibleToolbarWithDeadline(
+    page: Page,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    expectedPath?: string,
+    options: ISaveViaVisibleToolbarDeadlineOptions = {},
+) {
+    const {
+        label = 'Visible toolbar save',
+        ...deadlineOptions
+    } = options;
+    return runWithElectronE2EDeadline(
+        label,
+        timeoutMs,
+        signal => saveViaVisibleToolbar(page, timeoutMs, expectedPath, {signal}),
+        deadlineOptions,
+    );
 }

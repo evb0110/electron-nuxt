@@ -51,7 +51,7 @@ import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/creat
 import {
     openAnnotationsTab,
     openPdfInApp,
-    saveViaVisibleToolbar,
+    saveViaVisibleToolbarWithDeadline,
     saveViaWindowHandle,
     scrollViewerToPage,
     waitForPdfLoaded,
@@ -183,10 +183,24 @@ async function waitForStagedArtifact(page: Page) {
     return artifact;
 }
 
+function isPageContextUnavailableError(error: unknown) {
+    return error instanceof Error
+        && /Execution context was destroyed|Cannot find context with specified id|Target closed|Session closed|Frame was detached/i.test(error.message);
+}
+
 async function resumeStagedArtifactCommit(page: Page) {
-    await page.evaluate(() => {
-        (window as IStagedArtifactCaptureWindow).__resumeLargePdfStagedArtifactCommit?.();
-    });
+    if (page.isClosed()) {
+        return;
+    }
+    try {
+        await page.evaluate(() => {
+            (window as IStagedArtifactCaptureWindow).__resumeLargePdfStagedArtifactCommit?.();
+        });
+    } catch (error) {
+        if (!page.isClosed() && !isPageContextUnavailableError(error)) {
+            throw error;
+        }
+    }
 }
 
 function hashFileSha256(filePath: string, maxBytes?: number) {
@@ -1656,7 +1670,16 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         )).toBeGreaterThan(0);
         const saveStartedAt = Date.now();
         try {
-            const saveEvent = await saveViaVisibleToolbar(page, LARGE_PDF_TIMEOUT_MS, fixturePath);
+            const saveEvent = await saveViaVisibleToolbarWithDeadline(
+                page,
+                LARGE_PDF_SAVE_TIMEOUT_MS,
+                fixturePath,
+                {
+                    label: 'large PDF toolbar save with multiple editors',
+                    onTimeout: () => session.stop(),
+                    diagnostics: () => `phase=large-pdf-toolbar-save session=${session.name}`,
+                },
+            );
             expect(saveEvent.detail.documentRevisionToken).toEqual(expect.any(String));
         } catch (error) {
             const debugState = await collectLargePdfAnnotationDebugState(page).catch(() => null);
@@ -1686,7 +1709,16 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         });
         const secondSaveStartedAt = Date.now();
         try {
-            const saveEvent = await saveViaVisibleToolbar(page, LARGE_PDF_TIMEOUT_MS, fixturePath);
+            const saveEvent = await saveViaVisibleToolbarWithDeadline(
+                page,
+                LARGE_PDF_SAVE_TIMEOUT_MS,
+                fixturePath,
+                {
+                    label: 'large PDF second toolbar save with multiple editors',
+                    onTimeout: () => session.stop(),
+                    diagnostics: () => `phase=large-pdf-second-toolbar-save session=${session.name}`,
+                },
+            );
             expect(saveEvent.detail.documentRevisionToken).toEqual(expect.any(String));
         } catch (error) {
             const debugState = await collectLargePdfAnnotationDebugState(page).catch(() => null);
@@ -1846,10 +1878,15 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(firstLiveSession.markerCount).toBeGreaterThan(0);
 
         const firstSaveStartedAt = Date.now();
-        const firstSaveEvent = await saveViaVisibleToolbar(
+        const firstSaveEvent = await saveViaVisibleToolbarWithDeadline(
             freshSession.page,
             LARGE_PDF_SAVE_TIMEOUT_MS,
             fixtureRealPath,
+            {
+                label: 'large PDF sticky-note first save',
+                onTimeout: () => freshSession.stop(),
+                diagnostics: () => `phase=large-pdf-sticky-note-first-save session=${freshSession.name}`,
+            },
         );
         const firstSaveElapsedMs = Date.now() - firstSaveStartedAt;
         expect(firstSaveElapsedMs).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
@@ -1975,14 +2012,21 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(secondDirtyState.dirtyState?.pdfJsAnnotationStorage?.ids.length ?? 0).toBeGreaterThan(0);
         await installStagedArtifactCapture(restartedSession.page);
         const secondSaveStartedAt = Date.now();
-        const secondSavePromise = saveViaVisibleToolbar(
+        const secondSavePromise = saveViaVisibleToolbarWithDeadline(
             restartedSession.page,
-            LARGE_PDF_TIMEOUT_MS,
+            LARGE_PDF_SAVE_TIMEOUT_MS,
             fixtureRealPath,
+            {
+                label: 'large PDF sticky-note second save',
+                onTimeout: () => restartedSession.stop(),
+                diagnostics: () => `phase=large-pdf-sticky-note-second-save session=${restartedSession.name}`,
+            },
         );
         const stagedClonePath = join(restartArtifactDir, 'second-save-staged.pdf');
         let stagedArtifact: ITypedStagedArtifact | null = null;
         let stagedInspectionElapsedMs = 0;
+        let stagedCaptureFailed = false;
+        let stagedCaptureFailure: unknown;
         try {
             stagedArtifact = await waitForStagedArtifact(restartedSession.page);
             const stagedInspectionStartedAt = Date.now();
@@ -1993,8 +2037,15 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             } finally {
                 stagedInspectionElapsedMs = Date.now() - stagedInspectionStartedAt;
             }
+        } catch (error) {
+            stagedCaptureFailed = true;
+            stagedCaptureFailure = error;
         } finally {
             await resumeStagedArtifactCommit(restartedSession.page);
+        }
+        if (stagedCaptureFailed) {
+            await secondSavePromise;
+            throw stagedCaptureFailure;
         }
         const secondSaveEvent = await secondSavePromise;
         const secondSaveElapsedMs = Date.now() - secondSaveStartedAt - stagedInspectionElapsedMs;
