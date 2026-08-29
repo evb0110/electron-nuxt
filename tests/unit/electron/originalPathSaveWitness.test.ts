@@ -7,6 +7,7 @@ import {
 } from 'fs/promises';
 import {tmpdir} from 'os';
 import {join} from 'path';
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import {
     afterEach,
     beforeEach,
@@ -111,6 +112,39 @@ describe('originalPathSaveBaseMatches', () => {
             expect(admittedSnapshot.sampleSha256).toBe(changedSnapshot.sampleSha256);
             expect(admittedSnapshot.fullSha256).toMatch(/^[0-9a-f]{64}$/u);
             expect(changedSnapshot.fullSha256).not.toBe(admittedSnapshot.fullSha256);
+        } finally {
+            Object.defineProperty(process, 'platform', {
+                configurable: true,
+                value: originalPlatform,
+            });
+        }
+    });
+
+    it('rejects a Windows content change when the stat witness is unchanged', async () => {
+        const originalPlatform = process.platform;
+        Object.defineProperty(process, 'platform', {
+            configurable: true,
+            value: 'win32',
+        });
+        try {
+            const originalPath = join(tempDir, 'original.pdf');
+            const originalBytes = Buffer.alloc(256 * 1024, 7);
+            const originalHash = createOriginalFileContentFingerprintHash(originalBytes.byteLength);
+            originalHash.update(originalBytes);
+            const originalFingerprint = `sha256-full-v1:${originalHash.digest('hex')}`;
+            await writeFile(originalPath, originalBytes);
+
+            const changedBytes = Buffer.from(originalBytes);
+            changedBytes[70_000] = 8;
+            await writeFile(originalPath, changedBytes);
+            const changedStat = await stat(originalPath, {bigint: true});
+            mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+                contentFingerprint: originalFingerprint,
+                mtimeMs: Number(changedStat.mtimeNs) / 1_000_000,
+                size: Number(changedStat.size),
+            });
+
+            await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
         } finally {
             Object.defineProperty(process, 'platform', {
                 configurable: true,

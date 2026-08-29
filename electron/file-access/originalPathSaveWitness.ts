@@ -9,6 +9,7 @@ import {
     getWorkingCopyOriginalFileExpectation,
     type IWorkingCopyOriginalFileExpectation,
 } from '@electron/file-access/workingCopyStore';
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import {isErrnoException} from '@contracts/runtimeGuards';
 
 const SAVE_WITNESS_SAMPLE_BYTES = 64 * 1024;
@@ -120,11 +121,18 @@ async function sampleFileHandle(handle: FileHandle, size: bigint) {
 }
 
 async function hashWholeFileHandle(handle: FileHandle, size: bigint) {
+    return hashFileHandle(handle, size, createHash('sha256'));
+}
+
+async function hashFileHandle(
+    handle: FileHandle,
+    size: bigint,
+    hash: ReturnType<typeof createHash>,
+) {
     const numericSize = Number(size);
     if (!Number.isSafeInteger(numericSize) || numericSize < 0) {
         throw new OriginalPathSaveConflictError();
     }
-    const hash = createHash('sha256');
     const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(numericSize, SAVE_WITNESS_HASH_CHUNK_BYTES)));
     let offset = 0;
     while (offset < numericSize) {
@@ -141,6 +149,64 @@ async function hashWholeFileHandle(handle: FileHandle, size: bigint) {
         offset += length;
     }
     return hash.digest('hex');
+}
+
+async function hashContentFingerprintFileHandle(handle: FileHandle, size: bigint) {
+    const numericSize = Number(size);
+    if (!Number.isSafeInteger(numericSize) || numericSize < 0) {
+        throw new OriginalPathSaveConflictError();
+    }
+    const hash = createOriginalFileContentFingerprintHash(numericSize);
+    return `sha256-full-v1:${await hashFileHandle(handle, size, hash)}`;
+}
+
+async function matchesExpectedContentFingerprint(
+    originalPath: string,
+    expected: IWorkingCopyOriginalFileExpectation,
+    admittedStat: BigIntStats,
+) {
+    if (
+        process.platform !== 'win32'
+        || expected.contentFingerprint === undefined
+        || admittedStat.size > BigInt(SAVE_WITNESS_FULL_HASH_MAX_BYTES)
+    ) {
+        return true;
+    }
+    if (!/^sha256-full-v1:[0-9a-f]{64}$/u.test(expected.contentFingerprint)) {
+        return false;
+    }
+
+    let handle: FileHandle;
+    try {
+        handle = await open(originalPath, 'r');
+    } catch {
+        return false;
+    }
+    try {
+        const before = await handle.stat({bigint: true});
+        if (
+            !before.isFile()
+            || before.size !== admittedStat.size
+            || before.dev !== admittedStat.dev
+            || before.ino !== admittedStat.ino
+        ) {
+            return false;
+        }
+        const actualFingerprint = await hashContentFingerprintFileHandle(handle, before.size);
+        const after = await handle.stat({bigint: true});
+        if (
+            after.size !== before.size
+            || after.dev !== before.dev
+            || after.ino !== before.ino
+        ) {
+            return false;
+        }
+        return actualFingerprint === expected.contentFingerprint;
+    } catch {
+        return false;
+    } finally {
+        await handle.close().catch(() => undefined);
+    }
 }
 
 async function captureHandleSnapshot(handle: FileHandle): Promise<IOriginalPathSaveSnapshot> {
@@ -428,5 +494,6 @@ export async function originalPathSaveBaseMatches(
     } catch {
         return false;
     }
-    return expectationMatchesStat(expected, actual);
+    return expectationMatchesStat(expected, actual)
+        && await matchesExpectedContentFingerprint(originalPath, expected, actual);
 }
