@@ -1,7 +1,7 @@
 use std::{
     error::Error,
     fs::{self, File, OpenOptions},
-    io::{self, Seek, SeekFrom, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
@@ -15,6 +15,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use crate::{NativeError, NativeErrorCode};
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+const WITNESS_SAMPLE_BYTES: usize = 64 * 1024;
 
 fn create_exclusive_temporary_file(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
@@ -27,6 +28,14 @@ fn create_exclusive_temporary_file(path: &Path) -> io::Result<File> {
 fn open_existing_temporary_file(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true).write(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    options.open(path)
+}
+
+fn open_destination_without_following_symlinks(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
     #[cfg(unix)]
     options.custom_flags(libc::O_NOFOLLOW);
     options.open(path)
@@ -47,10 +56,18 @@ pub struct AtomicOutput {
 }
 
 struct DestinationState {
+    file: File,
+    permissions: fs::Permissions,
+    snapshot: DestinationSnapshot,
+}
+
+struct DestinationSnapshot {
     identity: Option<FileIdentity>,
     length: u64,
     modified: Option<std::time::SystemTime>,
-    permissions: fs::Permissions,
+    sample: Vec<u8>,
+    #[cfg(unix)]
+    changed: (i64, i64),
 }
 
 impl AtomicOutput {
@@ -60,14 +77,20 @@ impl AtomicOutput {
             .file_name()
             .and_then(|value| value.to_str())
             .unwrap_or("output");
-        let destination_state = match File::open(destination) {
-            Ok(file) => {
-                let metadata = file.metadata()?;
+        let destination_state = match fs::symlink_metadata(destination) {
+            Ok(path_metadata) => {
+                if !path_metadata.file_type().is_file() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Atomic output destination must be a regular file, not a symlink",
+                    ));
+                }
+                let file = open_destination_without_following_symlinks(destination)?;
+                let snapshot = capture_destination_snapshot(&file)?;
                 Some(DestinationState {
-                    identity: file_identity(&file)?,
-                    length: metadata.len(),
-                    modified: metadata.modified().ok(),
-                    permissions: metadata.permissions(),
+                    file,
+                    permissions: path_metadata.permissions(),
+                    snapshot,
                 })
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => None,
@@ -194,7 +217,11 @@ impl AtomicOutput {
         &self.temporary_path
     }
 
-    pub fn publish(mut self) -> io::Result<()> {
+    pub fn publish(self) -> io::Result<()> {
+        self.publish_after(|| {})
+    }
+
+    fn publish_after(mut self, before_replace: impl FnOnce()) -> io::Result<()> {
         {
             let file = self.file_mut()?;
             file.flush()?;
@@ -204,6 +231,8 @@ impl AtomicOutput {
             fs::set_permissions(&self.temporary_path, state.permissions.clone())?;
         }
         drop(self.file.take());
+        before_replace();
+        self.assert_destination_unchanged()?;
         replace_file_atomically(&self.temporary_path, &self.destination_path)?;
         self.published = true;
         sync_parent_directory(&self.destination_path);
@@ -211,12 +240,19 @@ impl AtomicOutput {
     }
 
     pub fn publish_if_unchanged(self) -> io::Result<()> {
-        self.assert_destination_unchanged()?;
         self.publish()
     }
 
+    #[cfg(test)]
+    fn publish_if_unchanged_after(self, before_replace: impl FnOnce()) -> io::Result<()> {
+        self.publish_after(before_replace)
+    }
+
     fn assert_destination_unchanged(&self) -> io::Result<()> {
-        match (&self.destination_state, File::open(&self.destination_path)) {
+        match (
+            &self.destination_state,
+            fs::symlink_metadata(&self.destination_path),
+        ) {
             (None, Err(error)) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             (None, Ok(_)) => Err(io::Error::other(
                 "Destination appeared during atomic output",
@@ -226,12 +262,16 @@ impl AtomicOutput {
                 io::Error::other("Destination disappeared during atomic output"),
             ),
             (Some(_), Err(error)) => Err(error),
-            (Some(state), Ok(file)) => {
-                let metadata = file.metadata()?;
-                let identity = file_identity(&file)?;
-                if identity != state.identity
-                    || metadata.len() != state.length
-                    || metadata.modified().ok() != state.modified
+            (Some(_), Ok(metadata)) if !metadata.file_type().is_file() => Err(io::Error::other(
+                "Destination changed into a symlink or non-file during atomic output",
+            )),
+            (Some(state), Ok(_)) => {
+                let path_file =
+                    open_destination_without_following_symlinks(&self.destination_path)?;
+                let held_snapshot = capture_destination_snapshot(&state.file)?;
+                let path_snapshot = capture_destination_snapshot(&path_file)?;
+                if !destination_snapshots_match(&state.snapshot, &held_snapshot)
+                    || !destination_snapshots_match(&state.snapshot, &path_snapshot)
                 {
                     return Err(io::Error::other("Destination changed during atomic output"));
                 }
@@ -239,6 +279,79 @@ impl AtomicOutput {
             }
         }
     }
+}
+
+fn capture_destination_snapshot(file: &File) -> io::Result<DestinationSnapshot> {
+    let before = file.metadata()?;
+    if !before.is_file() {
+        return Err(io::Error::other(
+            "Atomic output destination is not a regular file",
+        ));
+    }
+    let length = before.len();
+    let sample_length = usize::try_from(length.min(WITNESS_SAMPLE_BYTES as u64))
+        .map_err(|_| io::Error::other("Atomic output destination is too large to sample"))?;
+    let last_offset = length.saturating_sub(sample_length as u64);
+    let offsets = [0, last_offset / 2, last_offset];
+    let mut sample = Vec::with_capacity(sample_length.saturating_mul(offsets.len()));
+    let mut reader = file.try_clone()?;
+    let mut previous_offset = None;
+    for offset in offsets {
+        if previous_offset == Some(offset) {
+            continue;
+        }
+        previous_offset = Some(offset);
+        reader.seek(SeekFrom::Start(offset))?;
+        let start = sample.len();
+        sample.resize(start + sample_length, 0);
+        reader.read_exact(&mut sample[start..])?;
+    }
+    let after = file.metadata()?;
+    let identity = file_identity(file)?;
+    let before_snapshot =
+        destination_snapshot_from_metadata(&before, identity.clone(), sample.clone());
+    let after_snapshot = destination_snapshot_from_metadata(&after, identity, sample);
+    if !destination_snapshots_match(&before_snapshot, &after_snapshot) {
+        return Err(io::Error::other(
+            "Destination changed while its atomic output witness was captured",
+        ));
+    }
+    Ok(after_snapshot)
+}
+
+fn destination_snapshot_from_metadata(
+    metadata: &fs::Metadata,
+    identity: Option<FileIdentity>,
+    sample: Vec<u8>,
+) -> DestinationSnapshot {
+    DestinationSnapshot {
+        identity,
+        length: metadata.len(),
+        modified: metadata.modified().ok(),
+        sample,
+        #[cfg(unix)]
+        changed: {
+            use std::os::unix::fs::MetadataExt;
+            (metadata.ctime(), metadata.ctime_nsec())
+        },
+    }
+}
+
+fn destination_snapshots_match(left: &DestinationSnapshot, right: &DestinationSnapshot) -> bool {
+    left.identity == right.identity
+        && left.length == right.length
+        && left.modified == right.modified
+        && left.sample == right.sample
+        && {
+            #[cfg(unix)]
+            {
+                left.changed == right.changed
+            }
+            #[cfg(not(unix))]
+            {
+                true
+            }
+        }
 }
 
 impl Drop for AtomicOutput {
@@ -737,6 +850,48 @@ mod tests {
         );
         assert_no_sibling_temporary(&destination);
         fs::remove_file(destination).unwrap();
+    }
+
+    #[test]
+    fn publication_rejects_a_path_replacement_after_the_first_witness_check() {
+        let destination = test_path("replacement-after-witness");
+        let displaced = test_path("replacement-after-witness-displaced");
+        fs::write(&destination, b"admitted-output").unwrap();
+        let mut output = AtomicOutput::create(&destination).unwrap();
+        output.file_mut().unwrap().write_all(b"app-output").unwrap();
+
+        let result = output.publish_if_unchanged_after(|| {
+            fs::rename(&destination, &displaced).unwrap();
+            fs::write(&destination, b"external-output").unwrap();
+        });
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(&destination).unwrap(), b"external-output");
+        assert_eq!(fs::read(&displaced).unwrap(), b"admitted-output");
+        fs::remove_file(destination).unwrap();
+        fs::remove_file(displaced).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn publication_rejects_a_symlink_destination_without_replacing_the_link() {
+        use std::os::unix::fs::symlink;
+
+        let destination = test_path("symlink-destination");
+        let referent = test_path("symlink-referent");
+        fs::write(&referent, b"referent-output").unwrap();
+        symlink(&referent, &destination).unwrap();
+
+        let result = AtomicOutput::create(&destination);
+
+        assert!(result.is_err());
+        assert!(fs::symlink_metadata(&destination)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read(&referent).unwrap(), b"referent-output");
+        fs::remove_file(destination).unwrap();
+        fs::remove_file(referent).unwrap();
     }
 
     fn test_path(label: &str) -> PathBuf {
