@@ -7,6 +7,7 @@ import {
     vi,
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
+import {execFile} from 'node:child_process';
 import {
     mkdtempSync,
     readFileSync,
@@ -21,11 +22,19 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import {promisify} from 'node:util';
 import {requireDocumentRevisionToken} from '@contracts';
+
+const execFileAsync = promisify(execFile);
 
 const mocks = vi.hoisted(() => ({
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
-    atomicReplace: vi.fn(async (sourcePath: string, targetPath: string) => {
+    atomicReplace: vi.fn(async (
+        sourcePath: string,
+        targetPath: string,
+        options?: {assertDestinationCurrent?: () => Promise<void>},
+    ) => {
+        await options?.assertDestinationCurrent?.();
         await rename(sourcePath, targetPath);
     }),
     validatePdfFile: vi.fn(),
@@ -51,7 +60,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
-    atomicReplace: (...args: [string, string]) => mocks.atomicReplace(...args),
+    atomicReplace: (...args: Parameters<typeof mocks.atomicReplace>) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
@@ -224,7 +233,11 @@ describe('workingCopySave', () => {
         });
         expect(readFileSyncUtf8(originalPath)).toBe('new-working');
         expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp`);
-        expect(mocks.atomicReplace).toHaveBeenCalledWith(`${originalPath}.tmp`, originalPath);
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(
+            `${originalPath}.tmp`,
+            originalPath,
+            expect.objectContaining({assertDestinationCurrent: expect.any(Function)}),
+        );
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
         expect(mocks.atomicReplace.mock.invocationCallOrder[0]!)
             .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[0]!);
@@ -248,6 +261,48 @@ describe('workingCopySave', () => {
                 validation: {isValid: true},
             });
         expect(readFileSyncUtf8(originalPath)).toBe('new-working');
+    });
+
+    it('returns a typed stale conflict without overwriting a same-size external replacement', async () => {
+        const initialBytes = 'original-version';
+        const externalBytes = 'external-version';
+        expect(Buffer.byteLength(externalBytes)).toBe(Buffer.byteLength(initialBytes));
+        const workingPath = join(tempRoot, 'external-conflict-working.pdf');
+        const originalPath = join(tempRoot, 'external-conflict-original.pdf');
+        writeFileSync(workingPath, 'renderer-version');
+        writeFileSync(originalPath, initialBytes);
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        const publicationPaused = deferred<undefined>();
+        const releasePublication = deferred<undefined>();
+        mocks.atomicReplace.mockImplementationOnce(async (
+            _sourcePath: string,
+            _targetPath: string,
+            options?: {assertDestinationCurrent?: () => Promise<void>},
+        ) => {
+            publicationPaused.resolve(undefined);
+            await releasePublication.promise;
+            await options?.assertDestinationCurrent?.();
+        });
+        const {handleFileSaveStructured} = await import('@electron/features/documents/main/workingCopySave');
+
+        const save = handleFileSaveStructured(context, workingPath, revisionOptions);
+        await publicationPaused.promise;
+        await execFileAsync(process.execPath, [
+            '-e',
+            'const fs = require(\'node:fs/promises\'); const [target, bytes] = process.argv.slice(1); const replacement = `${target}.external`; fs.writeFile(replacement, bytes).then(() => fs.rename(replacement, target));',
+            originalPath,
+            externalBytes,
+        ]);
+        releasePublication.resolve(undefined);
+
+        await expect(save).resolves.toMatchObject({
+            ok: false,
+            reason: 'stale',
+            externalWriteCommitted: false,
+            validation: {errors: [expect.stringContaining('Original file changed on disk')]},
+        });
+        expect(readFileSyncUtf8(originalPath)).toBe(externalBytes);
+        expect(readFileSyncUtf8(workingPath)).toBe('renderer-version');
     });
 
     it('copies optimized structured save bytes back to the working copy after the original write commits', async () => {

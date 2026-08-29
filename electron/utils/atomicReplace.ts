@@ -106,14 +106,18 @@ export async function atomicReplace(
          * has nothing to recover.
          */
         durable?: boolean;
+        assertDestinationCurrent?: () => Promise<void>;
         markMutationCommitStarted?: boolean;
     } = {},
 ) {
     const durable = options.durable !== false;
+    const shouldMarkMutationCommitStarted = options.markMutationCommitStarted !== false;
+    const shouldDeferMutationCommitStarted = options.assertDestinationCurrent !== undefined
+        && shouldMarkMutationCommitStarted;
     if (durable) {
         await fsyncPath(srcTemp);
     }
-    if (options.markMutationCommitStarted !== false) {
+    if (shouldMarkMutationCommitStarted && !shouldDeferMutationCommitStarted) {
         markActiveWorkingCopyMutationCommitStarted();
     }
 
@@ -131,6 +135,10 @@ export async function atomicReplace(
     }
 
     if (process.platform !== 'win32') {
+        await options.assertDestinationCurrent?.();
+        if (shouldDeferMutationCommitStarted) {
+            markActiveWorkingCopyMutationCommitStarted();
+        }
         await rename(srcTemp, dst);
         if (durable) {
             await fsyncParentDirectory(dst);
@@ -140,6 +148,10 @@ export async function atomicReplace(
 
     const backupPath = `${dst}.bak-${randomSuffix()}`;
     let hasBackup = false;
+    await options.assertDestinationCurrent?.();
+    if (shouldDeferMutationCommitStarted) {
+        markActiveWorkingCopyMutationCommitStarted();
+    }
     try {
         await rename(dst, backupPath);
         hasBackup = true;

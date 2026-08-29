@@ -9,6 +9,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
     close: vi.fn(),
+    markMutationCommitStarted: vi.fn(),
     open: vi.fn(),
     rename: vi.fn(),
     stat: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
 })}));
+vi.mock('@electron/file-access/workingCopyMutationCommitSignal', () => ({markActiveWorkingCopyMutationCommitStarted: mocks.markMutationCommitStarted}));
 
 function setPlatform(platform: NodeJS.Platform) {
     Object.defineProperty(process, 'platform', {
@@ -96,6 +98,57 @@ describe('atomicReplace', () => {
         expect(mocks.rename).toHaveBeenCalledTimes(1);
         expect(mocks.rename).toHaveBeenCalledWith('/out/tmp.pdf', '/out/extract.pdf');
         expect(mocks.unlink).not.toHaveBeenCalled();
+    });
+
+    it('checks a destination witness immediately before the POSIX rename', async () => {
+        setPlatform('linux');
+        const conflict = new Error('destination changed');
+        const assertDestinationCurrent = vi.fn().mockRejectedValue(conflict);
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
+
+        await expect(atomicReplace('/out/tmp.pdf', '/out/extract.pdf', {assertDestinationCurrent})).rejects.toBe(conflict);
+
+        expect(assertDestinationCurrent).toHaveBeenCalledOnce();
+        expect(mocks.markMutationCommitStarted).not.toHaveBeenCalled();
+        expect(mocks.rename).not.toHaveBeenCalled();
+    });
+
+    it('checks a destination witness before the Windows backup rename', async () => {
+        setPlatform('win32');
+        const conflict = new Error('destination changed');
+        const assertDestinationCurrent = vi.fn().mockRejectedValue(conflict);
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
+
+        await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf', {assertDestinationCurrent}))
+            .rejects.toBe(conflict);
+
+        expect(assertDestinationCurrent).toHaveBeenCalledOnce();
+        expect(mocks.markMutationCommitStarted).not.toHaveBeenCalled();
+        expect(mocks.rename).not.toHaveBeenCalled();
+    });
+
+    it('signals mutation commit after the destination witness passes and before POSIX rename', async () => {
+        setPlatform('linux');
+        const order: string[] = [];
+        const assertDestinationCurrent = vi.fn(async () => {
+            order.push('assert');
+        });
+        mocks.markMutationCommitStarted.mockImplementation(() => {
+            order.push('mark');
+        });
+        mocks.rename.mockImplementation(async () => {
+            order.push('rename');
+        });
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
+
+        await expect(atomicReplace('/out/tmp.pdf', '/out/extract.pdf', {assertDestinationCurrent}))
+            .resolves.toBeUndefined();
+
+        expect(order).toEqual([
+            'assert',
+            'mark',
+            'rename',
+        ]);
     });
 
     it('reports both promotion and restore failures on Windows', async () => {

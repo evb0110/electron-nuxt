@@ -58,7 +58,7 @@ import {
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import {captureOriginalPathSaveWitness} from '@electron/features/documents/main/originalPathSaveBaseMatches';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import {createNativeIncrementalMutationSemanticScopeSha256} from '@electron/features/documents/main/documentSaveUtilityProtocol';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
@@ -368,10 +368,13 @@ async function runNativeNoteCommand(
                 originalPath,
                 reason: 'native-mutation',
                 senderId,
-                assertOriginalCurrent: () => measureNativeNotePhase(phaseTimings, 'assert-original-base', () =>
-                    originalPathSaveBaseMatches(normalizedWorkingPath, originalPath, senderId)),
-                publishOriginal: () => measureNativeNotePhase(phaseTimings, 'atomic-replace-original', () =>
-                    atomicReplace(tempPath, originalPath)),
+                captureOriginalWitness: () => measureNativeNotePhase(phaseTimings, 'assert-original-base', () =>
+                    captureOriginalPathSaveWitness(normalizedWorkingPath, originalPath, senderId)),
+                publishOriginal: assertDestinationCurrent => measureNativeNotePhase(
+                    phaseTimings,
+                    'atomic-replace-original',
+                    () => atomicReplace(tempPath, originalPath, {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
+                ),
                 afterWorkingCopySync: () => syncNativeOutputToRequestingWorkingCopy(
                     normalizedWorkingPath,
                     senderId,
@@ -553,14 +556,14 @@ export async function handleCommitStagedPdfNativeMutations(
                 originalPath,
                 reason: 'native-mutation',
                 senderId,
-                assertOriginalCurrent: () => originalPathSaveBaseMatches(
+                captureOriginalWitness: () => captureOriginalPathSaveWitness(
                     normalizedWorkingPath,
                     originalPath,
                     senderId,
                 ),
-                publishOriginal: async () => {
+                publishOriginal: async assertDestinationCurrent => {
                     const currentArtifact = await resolveTypedStagedArtifact(context, stagedOutput);
-                    await publishImmutableFileAtomic(currentArtifact.path, originalPath);
+                    await publishImmutableFileAtomic(currentArtifact.path, originalPath, {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})});
                 },
                 afterWorkingCopySync: () => syncNativeOutputToRequestingWorkingCopy(
                     normalizedWorkingPath,

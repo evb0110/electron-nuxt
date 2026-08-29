@@ -164,6 +164,7 @@ export async function copyFileAtomic(
     resolvedSourcePath: string,
     resolvedTargetPath: string,
     options: {
+        assertDestinationCurrent?: () => Promise<void>;
         durable?: boolean;
         linkImmutableSource?: boolean;
         onPhase?: (phase: string, durationMs: number) => void;
@@ -212,6 +213,7 @@ export async function copyFileAtomic(
             }
         }
         assertNoSymlinkPathSegments(resolvedTargetPath);
+        await options.assertDestinationCurrent?.();
         await measureCopyPhase(options.onPhase, 'rename', () =>
             rename(temporaryPath, resolvedTargetPath));
         if (options.durable !== false) {
@@ -268,6 +270,7 @@ export async function linkOrCopyFileDurably(
 export async function publishImmutableFileAtomic(
     resolvedSourcePath: string,
     resolvedTargetPath: string,
+    options: {assertDestinationCurrent?: () => Promise<void>} = {},
 ) {
     assertNoSymlinkPathSegments(resolvedSourcePath);
     assertNoSymlinkPathSegments(resolvedTargetPath);
@@ -277,7 +280,7 @@ export async function publishImmutableFileAtomic(
         `.${basename(resolvedTargetPath)}.${process.pid}.${randomUUID()}.tmp`,
     );
     try {
-        await link(resolvedSourcePath, temporaryPath);
+        await linkImmutableSourceForAtomicCopy(resolvedSourcePath, temporaryPath);
     } catch (error) {
         const code = isErrnoException(error) && typeof error.code === 'string'
             ? error.code
@@ -285,11 +288,14 @@ export async function publishImmutableFileAtomic(
         if (!RECOVERABLE_IMMUTABLE_LINK_CODES.has(code ?? '')) {
             throw error;
         }
-        return copyFileAtomic(resolvedSourcePath, resolvedTargetPath);
+        return copyFileAtomic(resolvedSourcePath, resolvedTargetPath, {...(options.assertDestinationCurrent === undefined
+            ? {}
+            : {assertDestinationCurrent: options.assertDestinationCurrent})});
     }
 
     try {
         assertNoSymlinkPathSegments(resolvedTargetPath);
+        await options.assertDestinationCurrent?.();
         await rename(temporaryPath, resolvedTargetPath);
         await fsyncDirectoryBestEffort(directoryPath);
     } catch (error) {

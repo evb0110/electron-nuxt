@@ -72,7 +72,7 @@ import {
 } from '@electron/file-access/documentRevisionStore';
 import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
-import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import {captureOriginalPathSaveWitness} from '@electron/features/documents/main/originalPathSaveBaseMatches';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
 import {
@@ -672,17 +672,18 @@ async function commitSession(
                 originalPath: session.targetPath,
                 reason: 'save-sync',
                 senderId: session.senderId,
-                assertOriginalCurrent: () => originalPathSaveBaseMatches(
+                captureOriginalWitness: () => captureOriginalPathSaveWitness(
                     session.workingPath,
                     session.targetPath,
                     session.senderId,
                 ),
-                publishOriginal: async () => {
+                publishOriginal: async assertDestinationCurrent => {
                     await commitPdfTempFile(session.tempPath, session.targetPath, {
                         signal: session.lifecycleOperation.signal,
                         ownerId: `serialized-pdf:${session.id}`,
                         receipt,
                         ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
+                        ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
                     });
                 },
                 afterWorkingCopySync: async () => {
