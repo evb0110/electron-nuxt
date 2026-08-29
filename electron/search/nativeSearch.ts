@@ -429,9 +429,6 @@ async function isNativeSearchIndexFresh(
         return null;
     }
 
-    // Partial OCR sidecars can validly contain only the OCR'd page records while
-    // still declaring the document's total page count. The native search tool
-    // searches the records present and returns the declared total separately.
     if (
         typeof expectedPageCount === 'number'
         && expectedPageCount > 0

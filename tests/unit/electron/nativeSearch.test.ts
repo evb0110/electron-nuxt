@@ -10,6 +10,13 @@ import {
     COMPACT_SEARCH_INDEX_HEADER_SIZE,
     COMPACT_SEARCH_INDEX_MAGIC,
     COMPACT_SEARCH_INDEX_SCHEMA_VERSION,
+    COMPACT_SEARCH_INDEX_STREAMING_DIRECTORY_ENTRY_SIZE,
+    COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE,
+    COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE,
+    COMPACT_SEARCH_INDEX_STREAMING_FOOTER_MAGIC,
+    COMPACT_SEARCH_INDEX_STREAMING_FOOTER_SIZE,
+    COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION,
+    COMPACT_SEARCH_INDEX_STREAMING_HEADER_SIZE,
 } from '@contracts/searchIndexSidecar';
 import { requireDocumentRevisionToken } from '@contracts';
 import { isNativeSearchSupportedOptions } from '@electron/search/nativeSearch';
@@ -99,6 +106,57 @@ function createNativeSearchResult(resultCount: number) {
     };
 }
 
+function createStreamingSearchIndexFile(flags: number) {
+    const pageCount = 4;
+    const revisionOffset = COMPACT_SEARCH_INDEX_STREAMING_HEADER_SIZE;
+    const directoryOffset = revisionOffset + Buffer.byteLength(DOCUMENT_REVISION);
+    const textDataOffset = directoryOffset + pageCount * COMPACT_SEARCH_INDEX_STREAMING_DIRECTORY_ENTRY_SIZE;
+    const footerOffset = textDataOffset;
+    const fileSize = footerOffset + COMPACT_SEARCH_INDEX_STREAMING_FOOTER_SIZE;
+    const header = Buffer.alloc(COMPACT_SEARCH_INDEX_STREAMING_HEADER_SIZE);
+    header.write('EVBSSIDX', 0, 'ascii');
+    header.writeUInt32LE(COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION, 8);
+    header.writeUInt32LE(COMPACT_SEARCH_INDEX_STREAMING_HEADER_SIZE, 12);
+    header.writeUInt32LE(pageCount, 16);
+    header.writeUInt32LE(pageCount, 20);
+    header.writeUInt32LE(flags, 24);
+    header.writeUInt32LE(Buffer.byteLength(DOCUMENT_REVISION), 28);
+    header.writeBigUInt64LE(BigInt(revisionOffset), 32);
+    header.writeBigUInt64LE(BigInt(directoryOffset), 40);
+    header.writeBigUInt64LE(BigInt(textDataOffset), 48);
+    header.writeBigUInt64LE(BigInt(footerOffset), 56);
+
+    const footer = Buffer.alloc(COMPACT_SEARCH_INDEX_STREAMING_FOOTER_SIZE);
+    footer.write(COMPACT_SEARCH_INDEX_STREAMING_FOOTER_MAGIC, 0, 'ascii');
+    footer.writeUInt32LE(COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION, 8);
+    footer.writeUInt32LE(COMPACT_SEARCH_INDEX_STREAMING_FOOTER_SIZE, 12);
+    footer.writeUInt32LE(flags, 16);
+    footer.writeUInt32LE(pageCount, 24);
+    footer.writeBigUInt64LE(0n, 32);
+    footer.writeBigUInt64LE(BigInt(fileSize), 40);
+    footer.writeBigUInt64LE(BigInt(pageCount * COMPACT_SEARCH_INDEX_STREAMING_DIRECTORY_ENTRY_SIZE), 48);
+    footer.writeBigUInt64LE(BigInt(pageCount), 56);
+
+    return {
+        read: vi.fn(async (
+            buffer: Buffer,
+            offset: number,
+            length: number,
+            position: number,
+        ) => {
+            const source = position === 0
+                ? header
+                : position === revisionOffset
+                    ? Buffer.from(DOCUMENT_REVISION, 'utf8')
+                    : footer;
+            const bytesRead = source.copy(buffer, offset, 0, length);
+            return {bytesRead};
+        }),
+        stat: vi.fn(async () => ({size: fileSize})),
+        close: vi.fn(async () => undefined),
+    };
+}
+
 describe('native search geometry attachment', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -167,6 +225,26 @@ describe('native search geometry attachment', () => {
             pageHeight: 200,
             words: [expect.objectContaining({text: 'needle'})],
         }));
+    });
+
+    it.each([
+        COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE,
+        COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE | COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE,
+    ])('rejects a sidecar marked partial even when its page count is complete', async (flags) => {
+        const {tryRunNativeSearch} = await import('@electron/search/nativeSearch');
+        mocks.open.mockResolvedValueOnce(createStreamingSearchIndexFile(flags));
+
+        await expect(tryRunNativeSearch({
+            pdfPath: '/tmp/file.pdf',
+            documentRevision: DOCUMENT_REVISION,
+            query: 'needle',
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+            pageCount: 4,
+        })).resolves.toBeNull();
+        expect(mocks.tryRunPersistentNativeSearch).not.toHaveBeenCalled();
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
     });
 });
 
