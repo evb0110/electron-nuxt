@@ -4862,6 +4862,75 @@ describe('scan cleanup preview', () => {
         await retention.dispose();
     });
 
+    it('keeps concurrent raster page windows isolated for a cursor-only page-size store', async () => {
+        const dir = await setup();
+        const pageSizes = [
+            1,
+            2,
+            3,
+            4,
+        ].map(pageNumber => ({
+            ...DOCUMENT_PAGE_SIZES[0]!,
+            pageNumber,
+            dominantImageWidthPx: pageNumber * 100,
+            dominantImageHeightPx: pageNumber * 200,
+            dominantImageWidthPoints: pageNumber * 100,
+            dominantImageHeightPoints: pageNumber * 200,
+        }));
+        let currentPageNumber = 0;
+        const store: IPdfPageSizeStore = {
+            pageCount: pageSizes.length,
+            // This models a bounded reader that keeps one mutable current
+            // chunk but predates the optional fork() capability. Two windows
+            // must not observe whichever page resumed last.
+            getPage: vi.fn(async pageNumber => {
+                currentPageNumber = pageNumber;
+                await Promise.resolve();
+                return pageSizes[currentPageNumber - 1]!;
+            }),
+            readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
+                pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
+            forEachChunk: vi.fn(async onChunk => {
+                await onChunk({
+                    pageCount: pageSizes.length,
+                    chunkIndex: 0,
+                    firstPageNumber: 1,
+                    offset: 0,
+                    byteLength: 0,
+                    pages: pageSizes,
+                });
+            }),
+            close: vi.fn(async () => undefined),
+        };
+        const deps = dependencies(dir);
+        deps.getPageSizeStore = vi.fn(() => store);
+        const retention = createRawRasterRetention(deps);
+        const document = await retention.openDocument({
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'revision-1',
+        });
+        const source = await retention.rasterPageSource(document, new AbortController().signal);
+
+        const [
+            first,
+            last,
+        ] = await Promise.all([
+            source.getPageRaster(1),
+            source.getPageRaster(pageSizes.length),
+        ]);
+
+        expect(first).toMatchObject({
+            width: 100,
+            height: 200,
+        });
+        expect(last).toMatchObject({
+            width: 400,
+            height: 800,
+        });
+        await retention.release(document);
+        await retention.dispose();
+    });
+
     it('refuses an implicit all-page legacy raster probe for million-page documents', async () => {
         const dir = await setup();
         const deps = dependencies(dir);

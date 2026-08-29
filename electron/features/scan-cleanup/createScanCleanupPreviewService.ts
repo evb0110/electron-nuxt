@@ -1130,11 +1130,23 @@ export function createRawRasterRetention(dependencies: IScanCleanupPreviewDepend
                 document.pageSizeStores.add(rasterPageSizeStore);
             }
 
+            // PdfPageSizeStore forks have an independent cursor, but the
+            // optional fork() capability is absent from older injected stores.
+            // Keep those cursor-only stores safe when two raster windows ask
+            // for distant pages at once. A forked store can still serve its
+            // requests concurrently.
+            const serializePageReads = rasterPageSizeStore === pageSizeStore;
+            let pageReadTail = Promise.resolve();
             const readPageSize = async (pageNumber: number) => {
                 if (rasterPageSizeStore === null) {
                     return undefined;
                 }
-                return rasterPageSizeStore.getPage(pageNumber);
+                if (!serializePageReads) {
+                    return rasterPageSizeStore.getPage(pageNumber);
+                }
+                const read = pageReadTail.then(() => rasterPageSizeStore.getPage(pageNumber));
+                pageReadTail = read.then(() => undefined, () => undefined);
+                return read;
             };
 
             const pageRasterCache = new Map<number, Promise<IDetectedPageRaster | undefined>>();
