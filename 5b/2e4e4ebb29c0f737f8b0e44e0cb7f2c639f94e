@@ -1,0 +1,26 @@
+tests/unit/app/composables/useOcr.test.ts
+  s_b2ece6dfe48478::t_f7dbaf89762783 818-819,822-834,836-852,854-859,861-863
+  s_b2ece6dfe48478::t_2be4f1e992ad44 794-799,805
+  s_b2ece6dfe48478::t_5aff41d03be92d 57
+  s_b2ece6dfe48478::t_a0cda6894907bd 820-821,835,853,860
+app/composables/useOcr.ts
+  s_b2ece6dfe48478::t_09e7380e19176e 100-104,773
+  s_b2ece6dfe48478::t_3f8b0887d770e3 832-833,840,845,858-862,864-865,889
+  s_b2ece6dfe48478::t_30e013a8e6abc4 14,847
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5b2e4e4ebb29c0f737f8b0e44e0cb7f2c639f94e",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
