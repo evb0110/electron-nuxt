@@ -61,6 +61,15 @@ acceptance is the quiet-host exact 882-page lane, the quiet-host exact xlarge
 lane, their telemetry paths, and the shared annotation, draw-shape, and
 squiggly-markup suites.
 
+Issue #137 is verified and closed against published `9fcc32c34`. The
+RGB-camera preview result was a false positive in the old relative comparison
+of near-zero variance proxies. The oracle now compares the absolute variance
+residual against measured stroke width and keeps a regression for real
+two-word divergence. The current export, stroke-weight, and word-loss checks
+pass, as does the focused harness suite (2 tests). The historical SCAN rows
+below retain their original baseline-red provenance; it is no longer a current
+main failure.
+
 Ambiguous deduplication decisions:
 
 - `SAV-008` combines the full-audit original-path race with the native report's
