@@ -55,7 +55,24 @@ const mocks = vi.hoisted(() => ({
     pageWidthPts: 439.6,
     pageHeightPts: 670,
     renderedRasterSizes: [] as IRenderedRasterSize[],
+    requestedRenderDpis: [] as number[],
+    pageSizeOverrides: {} as Record<number, {
+        widthPts: number;
+        heightPts: number
+    }>,
 }));
+
+// Mirrors the production bounded stdout capture in appendTextChunkWithByteCap:
+// every byte is delivered, but the retained buffer keeps only a bounded tail.
+const MOCK_NATIVE_MAX_STDOUT_BYTES = 262_144;
+
+function simulateBoundedStdoutCapture(output: string) {
+    if (Buffer.byteLength(output, 'utf8') <= MOCK_NATIVE_MAX_STDOUT_BYTES) {
+        return output;
+    }
+    const tailBytes = Math.floor(MOCK_NATIVE_MAX_STDOUT_BYTES * 0.9);
+    return output.slice(Math.max(0, output.length - tailBytes));
+};
 
 vi.mock('fs/promises', async () => {
     const actual = await vi.importActual<typeof FsPromises>('fs/promises');
@@ -199,6 +216,8 @@ describe('image export', () => {
         mocks.pageWidthPts = 439.6;
         mocks.pageHeightPts = 670;
         mocks.renderedRasterSizes.length = 0;
+        mocks.requestedRenderDpis.length = 0;
+        mocks.pageSizeOverrides = {};
         mocks.stat.mockImplementation(async () => ({
             isFile: () => true,
             size: 1024,
@@ -211,7 +230,7 @@ describe('image export', () => {
             await writeFile(targetPath, await readFile(sourcePath));
             await rm(sourcePath, { force: true });
         });
-        mocks.runCommand.mockImplementation(async (command: string, args: string[]) => {
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: {onStdout?: (chunk: string) => void}) => {
             if (command === '/mock/qpdf' && args[0] === '--show-npages') {
                 return {
                     stdout: String(mocks.pdfPageCount),
@@ -221,17 +240,30 @@ describe('image export', () => {
             }
 
             if (command === '/mock/pdfinfo') {
+                const firstPageArgIndex = args.indexOf('-f');
+                const firstPage = firstPageArgIndex >= 0
+                    ? Number.parseInt(String(args[firstPageArgIndex + 1]), 10)
+                    : 1;
                 const lastPageArgIndex = args.indexOf('-l');
                 const lastPage = lastPageArgIndex >= 0
                     ? Number.parseInt(String(args[lastPageArgIndex + 1]), 10)
                     : mocks.pdfPageCount;
 
+                const lines = [`Pages:           ${mocks.pdfPageCount}`];
+                for (let page = firstPage; page <= lastPage; page += 1) {
+                    const overriddenSize = mocks.pageSizeOverrides[page];
+                    lines.push(`Page ${String(page).padStart(4, ' ')} rot:  0`);
+                    lines.push(`Page ${String(page).padStart(4, ' ')} size:  ${overriddenSize?.widthPts ?? mocks.pageWidthPts} x ${overriddenSize?.heightPts ?? mocks.pageHeightPts} pts`);
+                }
+                const fullOutput = lines.join('\n');
+                // The real runner streams every stdout byte before the bounded
+                // capture trims its retained buffer, so deliver full chunks here.
+                for (let offset = 0; offset < fullOutput.length; offset += 4096) {
+                    options?.onStdout?.(fullOutput.slice(offset, offset + 4096));
+                }
+
                 return {
-                    stdout: [
-                        `Pages:           ${mocks.pdfPageCount}`,
-                        ...Array.from({ length: lastPage }, (_, index) =>
-                            `Page ${String(index + 1).padStart(4, ' ')} size:  ${mocks.pageWidthPts} x ${mocks.pageHeightPts} pts`),
-                    ].join('\n'),
+                    stdout: simulateBoundedStdoutCapture(fullOutput),
                     stderr: '',
                     exitCode: 0,
                 };
@@ -282,6 +314,11 @@ describe('image export', () => {
             const prefix = args[args.length - 1];
             if (typeof prefix !== 'string') {
                 throw new Error('Expected pdftoppm output prefix');
+            }
+
+            const dpiArgIndex = args.indexOf('-r');
+            if (dpiArgIndex >= 0) {
+                mocks.requestedRenderDpis.push(Number.parseFloat(String(args[dpiArgIndex + 1])));
             }
 
             const formatArg = args.includes('-png')
@@ -563,6 +600,32 @@ describe('image export', () => {
         expect(rasterSize).toBeDefined();
         expect(rasterSize!.width * rasterSize!.height * 3).toBeLessThan(IMAGE_EXPORT_MAX_NETPBM_READ_BYTES);
     });
+
+    it('plans export DPI from the complete pdfinfo output when a huge first page precedes thousands of pages', async () => {
+        // Regression for EXP-001: the bounded stdout capture keeps only the last
+        // ~256 KiB of pdfinfo output, so a huge page 1 inside a 6,000-page
+        // document used to be invisible to DPI planning and the export could
+        // choose an unsafe DPI for it. The mock reproduces that tail-only
+        // buffer while still streaming the full output through onStdout.
+        const hugePageSize = {
+            widthPts: 2000,
+            heightPts: 2000,
+        };
+        mocks.pdfPageCount = 6_000;
+        mocks.pageSizeOverrides[1] = hugePageSize;
+
+        const outputPath = join(tempDir, 'huge-first-page.png');
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toHaveLength(6_000);
+
+        const ppmHeaderReserveBytes = 64 * 1024;
+        const maxRenderDimension = Math.floor(Math.sqrt(
+            (IMAGE_EXPORT_MAX_NETPBM_READ_BYTES - ppmHeaderReserveBytes) / 3,
+        ));
+        const hugePageSafeDpi = Math.floor((maxRenderDimension * 72) / hugePageSize.widthPts);
+        expect(hugePageSafeDpi).toBeLessThan(300);
+        expect(mocks.requestedRenderDpis.length).toBeGreaterThan(0);
+        expect(mocks.requestedRenderDpis.every(dpi => dpi === hugePageSafeDpi)).toBe(true);
+    }, 60_000);
 
     it('uses the default export DPI when the source-resolution probe fails', async () => {
         mocks.pdfimagesPath = '/mock/pdfimages';

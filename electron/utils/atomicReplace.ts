@@ -12,6 +12,7 @@ import {
     join,
 } from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
+import { assertNoSymlinkPathSegments } from '@electron/file-access/documentFileWriteAtomic';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
@@ -110,6 +111,8 @@ export async function atomicReplace(
         markMutationCommitStarted?: boolean;
     } = {},
 ) {
+    assertNoSymlinkPathSegments(srcTemp);
+    assertNoSymlinkPathSegments(dst);
     const durable = options.durable !== false;
     const shouldMarkMutationCommitStarted = options.markMutationCommitStarted !== false;
     const shouldDeferMutationCommitStarted = options.assertDestinationCurrent !== undefined

@@ -34,7 +34,10 @@
                     </UFormField>
                 </div>
 
-                <div class="grid gap-4 sm:grid-cols-3">
+                <div
+                    v-if="supportsAdvancedPrintOptions !== false"
+                    class="grid gap-4 sm:grid-cols-3"
+                >
                     <!--
                         Two of the three tracks go to the layout column: its
                         option names run to 289px in Dutch and 288px in Russian,
@@ -153,6 +156,7 @@ const {
     isPreparing,
     selectedPages,
     totalPages,
+    supportsAdvancedPrintOptions,
 } = defineProps<{
     totalPages: number;
     currentPage: number;
@@ -161,6 +165,7 @@ const {
     isPreparing: boolean;
     status: string | null;
     error: string | null;
+    supportsAdvancedPrintOptions?: boolean;
 }>();
 
 const emit = defineEmits<{submit: [payload: {
@@ -330,7 +335,7 @@ watch(open, (isOpen) => {
     }
 
     resetScopeForOpen();
-    viewMode.value = defaultViewMode;
+    viewMode.value = supportsAdvancedPrintOptions === false ? 'single' : defaultViewMode;
     orientation.value = 'auto';
 });
 </script>

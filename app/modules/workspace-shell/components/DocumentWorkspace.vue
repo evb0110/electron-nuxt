@@ -357,6 +357,7 @@
             :total-pages="totalPages"
             :current-page="currentPage"
             :view-mode="viewMode"
+            :supports-advanced-print-options="supportsAdvancedPrintOptions"
             :show-djvu-conversion-ui="showDjvuConversionUi"
             :show-convert-dialog="showConvertDialog"
             :djvu-path="djvuSourcePath"
@@ -823,6 +824,7 @@ const {
     printDialogSelectedPages,
     printError,
     printStatus,
+    supportsAdvancedPrintOptions,
 } = printWorkflow;
 const {
     canUndo,

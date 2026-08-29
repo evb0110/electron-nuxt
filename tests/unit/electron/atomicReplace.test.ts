@@ -1,4 +1,12 @@
 import {
+    mkdtempSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {
     afterEach,
     beforeEach,
     describe,
@@ -149,6 +157,32 @@ describe('atomicReplace', () => {
             'mark',
             'rename',
         ]);
+    });
+
+    it('rejects a symlink destination before replacing its leaf', async () => {
+        setPlatform('darwin');
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-atomic-replace-symlink-'));
+        const sourcePath = join(tempRoot, 'source.pdf');
+        const referentPath = join(tempRoot, 'referent.pdf');
+        const destinationPath = join(tempRoot, 'destination.pdf');
+        writeFileSync(sourcePath, 'new bytes');
+        writeFileSync(referentPath, 'referent bytes');
+        symlinkSync(referentPath, destinationPath);
+
+        try {
+            const {atomicReplace} = await import('@electron/utils/atomicReplace');
+
+            await expect(atomicReplace(sourcePath, destinationPath))
+                .rejects
+                .toThrow(`Invalid file path: symlink path segment is not allowed (${destinationPath})`);
+
+            expect(mocks.rename).not.toHaveBeenCalled();
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 
     it('reports both promotion and restore failures on Windows', async () => {

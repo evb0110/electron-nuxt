@@ -25,6 +25,7 @@ const BROWSER_PRINT_FRAME_MIN_WIDTH_PX = 1280;
 const BROWSER_PRINT_FRAME_MIN_HEIGHT_PX = 1600;
 const PDF_MIME_TYPE = 'application/pdf';
 const NATIVE_PRINT_REQUIRED_REASON = 'requires-native-backend' as const;
+const PDF_LIB_PRINT_PAGE_COUNT_LIMIT = 5_000;
 
 class NativePrintRequiredError extends Error {
     readonly code = 'native-print-required' as const;
@@ -131,6 +132,11 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     let closeDialogForSystemPrint = false;
     let preparingPrintToastTimer: number | null = null;
     let preparingPrintToastId: string | number | null = null;
+
+    const supportsAdvancedPrintOptions = computed(() => (
+        !isPathPdfSource(deps.sourcePdf.value)
+        && deps.totalPages.value <= PDF_LIB_PRINT_PAGE_COUNT_LIMIT
+    ));
 
     function canPrintDjvuSource() {
         return Boolean(deps.printDjvuSource)
@@ -830,7 +836,31 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             }
 
             if (options.printSourceDirectly === true) {
-                await tryPrintInBrowserWithNativeFallback(
+                if (deps.totalPages.value > PDF_LIB_PRINT_PAGE_COUNT_LIMIT) {
+                    await printPdfWithBrowserPdfViewer(
+                        sourceData,
+                        browserPrintTitle,
+                        signal,
+                        printRunId,
+                    );
+                } else {
+                    await tryPrintInBrowserWithNativeFallback(
+                        sourceData,
+                        browserPrintTitle,
+                        signal,
+                        printRunId,
+                    );
+                }
+                return;
+            }
+
+            if (
+                deps.totalPages.value > PDF_LIB_PRINT_PAGE_COUNT_LIMIT
+                && payload.viewMode === 'single'
+                && payload.orientation === 'auto'
+                && (!payload.pageNumbers || payload.pageNumbers.length === 0)
+            ) {
+                await printPdfWithBrowserPdfViewer(
                     sourceData,
                     browserPrintTitle,
                     signal,
@@ -901,6 +931,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         isPreparingCurrentPagePrint,
         printError,
         printStatus,
+        supportsAdvancedPrintOptions,
         handlePrint,
         handleQuickPrint,
         handlePrintCurrentPage,

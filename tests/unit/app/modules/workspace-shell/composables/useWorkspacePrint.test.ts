@@ -208,6 +208,7 @@ async function flushMicrotasks(iterations = 6) {
 }
 
 function createState(options?: {
+    totalPages?: number;
     sourcePdf?: TPdfSource | null;
     workingCopyPath?: string | null;
     fileName?: string | null;
@@ -243,7 +244,7 @@ function createState(options?: {
     const getPrintableSourceData = options?.getPrintableSourceData ?? vi.fn(async () => Uint8Array.of(9, 8, 7));
     const scope = effectScope();
     const state = scope.run(() => useWorkspacePrint({
-        totalPages: ref(10),
+        totalPages: ref(options?.totalPages ?? 10),
         currentPage: ref(4),
         selectedPages: ref([
             3,
@@ -538,6 +539,23 @@ describe('useWorkspacePrint', () => {
             expect(state.printError.value).toBeNull();
         } finally {
             scope.stop();
+        }
+    });
+
+    it('marks layout and orientation controls unavailable for path-backed printing', () => {
+        const pathState = createState({sourcePdf: {
+            kind: 'path',
+            path: '/tmp/path-backed.pdf',
+            size: 3 * 1024 * 1024 * 1024,
+        }});
+        const dataState = createState({sourcePdf: new Blob([Uint8Array.of(1, 2, 3)], { type: 'application/pdf' })});
+
+        try {
+            expect(pathState.state.supportsAdvancedPrintOptions.value).toBe(false);
+            expect(dataState.state.supportsAdvancedPrintOptions.value).toBe(true);
+        } finally {
+            pathState.scope.stop();
+            dataState.scope.stop();
         }
     });
 
@@ -982,6 +1000,7 @@ describe('useWorkspacePrint', () => {
             expect(documentsCapabilityMock.printPdfData).not.toHaveBeenCalled();
             expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
 
+            await appFrame.frame.waitForListener('load');
             appFrame.frame.trigger('load');
             await submitPromise;
 
@@ -1431,6 +1450,40 @@ describe('useWorkspacePrint', () => {
             afterPrintHandler?.();
 
             expect(appFrame.frame.remove).toHaveBeenCalledTimes(1);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('keeps a byte-small high-page-count PDF out of eager pdf-lib print planning', async () => {
+        const appFrame = stubDocumentWithFrame();
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            totalPages: 5_001,
+            sourcePdf: new Blob([Uint8Array.of(1, 2, 3)], { type: 'application/pdf' }),
+        });
+
+        try {
+            const printPromise = state.handlePrintDialogSubmit({
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+            await flushMicrotasks(12);
+
+            expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
+            expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
+            expect(createObjectURLMock).toHaveBeenCalledTimes(1);
+            expect(appFrame.frame.src).toBe('blob:print-pdf');
+
+            appFrame.frame.trigger('load');
+            await printPromise;
+
+            expect(renderPdfPagesForBrowserPrintMock).not.toHaveBeenCalled();
+            expect(appFrame.frameWindow.print).toHaveBeenCalledOnce();
+            expect(state.printError.value).toBeNull();
         } finally {
             scope.stop();
         }

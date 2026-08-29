@@ -158,6 +158,39 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         expect(originalStat.ino).not.toBe(workingStat.ino);
     });
 
+    it('does not restore over an external replacement after publication', async () => {
+        const {
+            originalPath,
+            stagedPath,
+            workingCopyPath,
+        } = await prepare('old-original', 'old-working');
+        const externalPath = join(tempRoot, 'external.pdf');
+        await writeFile(externalPath, 'external-original');
+        const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+        const {captureOriginalPathSaveWitness} = await import('@electron/features/documents/main/originalPathSaveBaseMatches');
+        const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+
+        await expect(transitionOriginalAndWorkingCopyRevision({
+            workingCopyPath,
+            originalPath,
+            reason: 'native-mutation',
+            senderId: 7,
+            captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
+            publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
+                stagedPath,
+                originalPath,
+                {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
+            ),
+            afterWorkingCopySync: async () => {
+                await rename(externalPath, originalPath);
+                throw new Error('post-sync failure');
+            },
+        })).rejects.toThrow('Original file changed on disk; save skipped to avoid overwriting external edits');
+
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('external-original');
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+    });
+
     it('restores the original when publication changes it and then fails', async () => {
         const {
             originalPath,

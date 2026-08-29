@@ -102,10 +102,16 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                     shouldRestoreOriginal = true;
                     await measureTransitionPhase('transition-publish-original', input.onPhase, () =>
                         input.publishOriginal(witness ? () => witness.assertCurrent() : undefined));
+                    await measureTransitionPhase(
+                        'transition-rebase-original-witness-after-publish',
+                        input.onPhase,
+                        async () => witness?.rebaseAfterPublish(),
+                    );
                     await measureTransitionPhase('transition-journal-original-committed', input.onPhase, () =>
                         writeJournal(journalPath(input.workingCopyPath), {
                             ...record,
                             state: 'original-committed',
+                            ...(witness === null ? {} : {publishedOriginalSnapshot: witness.getSnapshotForJournal()}),
                         }));
                     await measureTransitionPhase('transition-sync-working-copy', input.onPhase, () =>
                         copyFileAtomic(input.originalPath, input.workingCopyPath, {
@@ -117,6 +123,11 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                                 durationMs,
                             ),
                         }));
+                    await measureTransitionPhase(
+                        'transition-rebase-original-witness-after-working-sync',
+                        input.onPhase,
+                        async () => witness?.assertCurrent({allowBackupMetadataChange: true}),
+                    );
                     await measureTransitionPhase('transition-rebind-ocr', input.onPhase, () =>
                         rebindDocumentTextCatalogIfPresent(
                             input.workingCopyPath,
@@ -152,7 +163,10 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             let originalRestored = !shouldRestoreOriginal;
             try {
                 if (!committed && shouldRestoreOriginal && backupCreated) {
-                    await copyFileAtomic(originalBackupPath, input.originalPath);
+                    const restoreOptions = witness === null
+                        ? {}
+                        : {assertDestinationCurrent: () => witness.assertCurrent()};
+                    await copyFileAtomic(originalBackupPath, input.originalPath, restoreOptions);
                     originalRestored = true;
                 }
             } finally {

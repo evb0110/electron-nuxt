@@ -10,6 +10,7 @@ import {
     PDFName,
 } from 'pdf-lib';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
+import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { buildPdfAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary';
 import { buildPopupIndex } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPopupIndex';
@@ -538,6 +539,66 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
         );
 
         expect(summary.text).toBe('real note');
+    });
+
+    it('imports a Text annotation with a Popup as a canonical sticky note', () => {
+        const comments: Array<ReturnType<typeof __test__.buildPdfAnnotationCommentSummary>> = [];
+        const links: Array<NonNullable<ReturnType<typeof __test__.tryExtractPdfLinkAnnotation>>> = [];
+
+        __test__.collectPagePdfSnapshotEntries(
+            {
+                annotations: [
+                    {
+                        id: 'popup-1',
+                        subtype: 'Popup',
+                        contents: 'Imported note',
+                    },
+                    {
+                        id: 'text-1',
+                        subtype: 'Text',
+                        rect: [
+                            10,
+                            70,
+                            20,
+                            80,
+                        ],
+                        popupRef: 'popup-1',
+                    },
+                ],
+                pageView,
+                pageRotation: 0,
+            },
+            1,
+            summaryDeps,
+            comments,
+            links,
+        );
+
+        expect(links).toHaveLength(0);
+        expect(comments).toHaveLength(1);
+        const summary = comments[0]!;
+        expect(summary).toMatchObject({
+            source: 'pdf',
+            id: 'text-1',
+            subtype: 'Text',
+            text: 'Imported note',
+            hasNote: true,
+            annotationId: 'text-1',
+        });
+        expect(summary.markerRect?.left).toBeCloseTo(0.1);
+        expect(summary.markerRect?.top).toBeCloseTo(0.2);
+        expect(summary.markerRect?.width).toBeCloseTo(0.1);
+        expect(summary.markerRect?.height).toBeCloseTo(0.1);
+
+        const application = new AnnotationApplication('text-popup');
+        application.ingestLegacySummaries(comments);
+        expect(application.store.list()).toHaveLength(1);
+        expect(application.store.list()[0]).toMatchObject({
+            kind: 'sticky-note',
+            text: 'Imported note',
+            pageIndex: 0,
+            identity: {pdfRef: 'text-1'},
+        });
     });
 
     it('does not treat a regular-size FreeText editor with a popup as a point note', () => {

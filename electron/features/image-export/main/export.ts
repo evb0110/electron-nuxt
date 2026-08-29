@@ -76,6 +76,10 @@ import {
     buildMultiPageTiffOutputPaths,
     resolveOutputPathConflicts,
 } from '@electron/features/image-export/main/imageExportPathPlanning';
+import {
+    createPdfInfoPageSizeStreamScanner,
+    parsePdfInfoPageSizeLine,
+} from '@electron/features/image-export/main/parsePdfInfoPageSizes';
 
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
 type TPageRenderFormat = TImageExportFormat | 'ppm';
@@ -489,29 +493,6 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-function parsePdfInfoPageSizes(output: string) {
-    const pageSizes: IExportPageSize[] = [];
-    for (const line of output.split(/\r?\n/u)) {
-        const match = line.match(/^Page(?:\s+\d+)?\s+size:\s+([\d.]+)\s*x\s*([\d.]+)\s*pts/u);
-        if (!match) {
-            continue;
-        }
-
-        const widthPts = Number.parseFloat(match[1] ?? '');
-        const heightPts = Number.parseFloat(match[2] ?? '');
-        if (!Number.isFinite(widthPts) || !Number.isFinite(heightPts) || widthPts <= 0 || heightPts <= 0) {
-            continue;
-        }
-
-        pageSizes.push({
-            widthPts,
-            heightPts,
-        });
-    }
-
-    return pageSizes;
-}
-
 async function readExportPageSizes(
     pdfPath: string,
     popplerRuntimePaths: IPopplerRuntimePaths & { pdfinfo: string },
@@ -522,9 +503,15 @@ async function readExportPageSizes(
     throwIfAborted(signal);
     try {
         const popplerEnv = buildPopplerEnv(popplerRuntimePaths);
+        let longestSidePts = 0;
+        const trackPageSize = (pageSize: IExportPageSize) => {
+            longestSidePts = Math.max(longestSidePts, pageSize.widthPts, pageSize.heightPts);
+        };
+        const onStdout = createPdfInfoPageSizeStreamScanner(trackPageSize);
         const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
             timeoutMs: PDFINFO_PAGE_SIZE_TIMEOUT_MS,
             commandLabel: 'pdfinfo(export-page-size)',
+            onStdout,
             ...(signal ? { signal } : {}),
             ...(cancelGroup ? { cancelGroup } : {}),
         };
@@ -539,7 +526,24 @@ async function readExportPageSizes(
             String(pageCount),
             pdfPath,
         ], commandOptions);
-        return parsePdfInfoPageSizes(result.stdout);
+        // Streaming already sees every byte; also parse the bounded stdout
+        // buffer so command runners that never call onStdout still contribute.
+        for (const line of result.stdout.split(/\r?\n/u)) {
+            const pageSize = parsePdfInfoPageSizeLine(line);
+            if (pageSize) {
+                trackPageSize(pageSize);
+            }
+        }
+
+        // DPI planning only needs the longest side, so complete per-page
+        // metadata is reduced while streaming instead of being kept dense.
+        if (longestSidePts <= 0) {
+            return [];
+        }
+        return [{
+            widthPts: longestSidePts,
+            heightPts: longestSidePts,
+        }];
     } catch (error) {
         if (signal?.aborted) {
             throw signal.reason instanceof Error ? signal.reason : error;

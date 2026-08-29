@@ -16,6 +16,7 @@
             :current-page="currentPage"
             :selected-pages="printDialogSelectedPages"
             :default-view-mode="viewMode"
+            :supports-advanced-print-options="supportsAdvancedPrintOptions"
             :is-preparing="isPreparingPrint"
             :status="printStatus"
             :error="printError"
@@ -103,6 +104,7 @@ defineProps<{
     totalPages: number;
     currentPage: number;
     viewMode: TPdfPrintDialogProps['defaultViewMode'];
+    supportsAdvancedPrintOptions: TPdfPrintDialogProps['supportsAdvancedPrintOptions'];
     showDjvuConversionUi: boolean;
     showConvertDialog: boolean;
     djvuPath: TDjvuConvertDialogProps['djvuPath'];

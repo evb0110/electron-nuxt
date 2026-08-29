@@ -23,6 +23,7 @@ import { isPointNoteMarkerSizedRect } from '@app/modules/pdf-viewer/engine/annot
 import { toCanonicalTextMarkupGeometryFromRecord } from '@app/modules/pdf-viewer/engine/annotation-geometry/canonicalTextMarkupGeometry';
 
 const FREE_TEXT_SUBTYPE_LOWER = 'freetext';
+const TEXT_SUBTYPE_LOWER = 'text';
 
 function isFreeTextNoteMarkerRect(
     subtype: string | null | undefined,
@@ -85,7 +86,7 @@ function hasPdfAnnotationNote(
     const isFreeTextNote = normalizedSubtype === FREE_TEXT_SUBTYPE_LOWER
         && isFreeTextNoteMarkerRect(subtype, hasLinkedPopup, markerRect);
     return Boolean(
-        (isTextMarkupSubtype(subtype) || isFreeTextNote)
+        (normalizedSubtype === TEXT_SUBTYPE_LOWER || isTextMarkupSubtype(subtype) || isFreeTextNote)
         && (hasLinkedPopup || text.trim().length > 0),
     );
 }

@@ -23,6 +23,16 @@ interface IOriginalPathSaveSnapshot {
     size: bigint;
 }
 
+export interface IOriginalPathSaveJournalSnapshot {
+    ctimeNs: string;
+    deviceId: string;
+    inode: string;
+    linkCount: string;
+    mtimeNs: string;
+    sampleSha256: string;
+    size: string;
+}
+
 export class OriginalPathSaveConflictError extends Error {
     constructor() {
         super('Original file changed on disk; save skipped to avoid overwriting external edits');
@@ -31,9 +41,11 @@ export class OriginalPathSaveConflictError extends Error {
 }
 
 export interface IOriginalPathSaveWitness {
-    assertCurrent: () => Promise<void>;
+    assertCurrent: (options?: {allowBackupMetadataChange?: boolean}) => Promise<void>;
     close: () => Promise<void>;
+    getSnapshotForJournal: () => IOriginalPathSaveJournalSnapshot;
     rebaseAfterBackup: () => Promise<void>;
+    rebaseAfterPublish: () => Promise<void>;
 }
 
 function expectationMatchesStat(
@@ -124,6 +136,50 @@ function createSnapshot(fileStat: BigIntStats, sampleSha256: string): IOriginalP
     };
 }
 
+function serializeSnapshot(snapshot: IOriginalPathSaveSnapshot): IOriginalPathSaveJournalSnapshot {
+    return {
+        ctimeNs: snapshot.ctimeNs.toString(),
+        deviceId: snapshot.deviceId.toString(),
+        inode: snapshot.inode.toString(),
+        linkCount: snapshot.linkCount.toString(),
+        mtimeNs: snapshot.mtimeNs.toString(),
+        sampleSha256: snapshot.sampleSha256,
+        size: snapshot.size.toString(),
+    };
+}
+
+function deserializeSnapshot(value: unknown): IOriginalPathSaveSnapshot | null {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+    const candidate = value as Record<string, unknown>;
+    const fields = [
+        'ctimeNs',
+        'deviceId',
+        'inode',
+        'linkCount',
+        'mtimeNs',
+        'sampleSha256',
+        'size',
+    ] as const;
+    if (fields.some(field => typeof candidate[field] !== 'string')) {
+        return null;
+    }
+    try {
+        return {
+            ctimeNs: BigInt(candidate.ctimeNs as string),
+            deviceId: BigInt(candidate.deviceId as string),
+            inode: BigInt(candidate.inode as string),
+            linkCount: BigInt(candidate.linkCount as string),
+            mtimeNs: BigInt(candidate.mtimeNs as string),
+            sampleSha256: candidate.sampleSha256 as string,
+            size: BigInt(candidate.size as string),
+        };
+    } catch {
+        return null;
+    }
+}
+
 async function capturePathSnapshot(originalPath: string) {
     const pathHandle = await open(originalPath, 'r');
     try {
@@ -148,13 +204,13 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
 
     constructor(
         private readonly originalPath: string,
-        private readonly handle: FileHandle,
+        private handle: FileHandle,
         snapshot: IOriginalPathSaveSnapshot,
     ) {
         this.snapshot = snapshot;
     }
 
-    async assertCurrent() {
+    async assertCurrent(options: {allowBackupMetadataChange?: boolean} = {}) {
         try {
             const [
                 handleSnapshot,
@@ -164,8 +220,8 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
                 capturePathSnapshot(this.originalPath),
             ]);
             if (
-                !snapshotsMatch(this.snapshot, handleSnapshot)
-                || !snapshotsMatch(this.snapshot, pathSnapshot)
+                !snapshotsMatch(this.snapshot, handleSnapshot, options)
+                || !snapshotsMatch(this.snapshot, pathSnapshot, options)
             ) {
                 throw new OriginalPathSaveConflictError();
             }
@@ -195,8 +251,72 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
         }
     }
 
+    async rebaseAfterPublish() {
+        let nextHandle: FileHandle | null = null;
+        try {
+            nextHandle = await open(this.originalPath, 'r');
+            const nextSnapshot = await captureHandleSnapshot(nextHandle);
+            const pathSnapshot = await capturePathSnapshot(this.originalPath);
+            if (!snapshotsMatch(nextSnapshot, pathSnapshot)) {
+                throw new OriginalPathSaveConflictError();
+            }
+            const previousHandle = this.handle;
+            this.handle = nextHandle;
+            this.snapshot = nextSnapshot;
+            nextHandle = null;
+            await previousHandle.close().catch(() => undefined);
+        } catch (error) {
+            await nextHandle?.close().catch(() => undefined);
+            rethrowWitnessSnapshotError(error);
+        }
+    }
+
+    getSnapshotForJournal() {
+        return serializeSnapshot(this.snapshot);
+    }
+
     async close() {
         await this.handle.close().catch(() => undefined);
+    }
+}
+
+export async function assertPathMatchesSaveWitnessSnapshot(
+    originalPath: string,
+    expected: IOriginalPathSaveJournalSnapshot,
+) {
+    const expectedSnapshot = deserializeSnapshot(expected);
+    if (!expectedSnapshot) {
+        throw new OriginalPathSaveConflictError();
+    }
+    try {
+        const actualSnapshot = await capturePathSnapshot(originalPath);
+        if (!snapshotsMatch(expectedSnapshot, actualSnapshot)) {
+            throw new OriginalPathSaveConflictError();
+        }
+    } catch (error) {
+        rethrowWitnessSnapshotError(error);
+    }
+}
+
+export async function capturePathSaveWitness(
+    originalPath: string,
+): Promise<IOriginalPathSaveWitness | null> {
+    let handle: FileHandle;
+    try {
+        handle = await open(originalPath, 'r');
+    } catch {
+        return null;
+    }
+    try {
+        const snapshot = await captureHandleSnapshot(handle);
+        const pathSnapshot = await capturePathSnapshot(originalPath);
+        if (!snapshotsMatch(snapshot, pathSnapshot)) {
+            throw new OriginalPathSaveConflictError();
+        }
+        return new OriginalPathSaveWitness(originalPath, handle, snapshot);
+    } catch {
+        await handle.close().catch(() => undefined);
+        return null;
     }
 }
 
