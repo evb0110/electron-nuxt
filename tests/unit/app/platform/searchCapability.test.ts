@@ -785,6 +785,9 @@ describe('createBrowserSearchCapability', () => {
         vi.doMock('@app/platform/browser-api/browserSearchLimits', () => ({
             SEARCH_EXCERPT_CONTEXT_CHARS: 10,
             SEARCH_RESULT_LIMIT: 2,
+            BROWSER_SEARCH_MAX_PAGE_COUNT: 1_000_000,
+            validateBrowserSearchPageCount: () => undefined,
+            validateBrowserSearchQueryCost: () => undefined,
         }));
         const pageTexts = [
             'alpha foo',
@@ -835,6 +838,9 @@ describe('createBrowserSearchCapability', () => {
         vi.doMock('@app/platform/browser-api/browserSearchLimits', () => ({
             SEARCH_EXCERPT_CONTEXT_CHARS: 10,
             SEARCH_RESULT_LIMIT: 2,
+            BROWSER_SEARCH_MAX_PAGE_COUNT: 1_000_000,
+            validateBrowserSearchPageCount: () => undefined,
+            validateBrowserSearchQueryCost: () => undefined,
         }));
         const pageTexts = [
             'alpha foo',
@@ -877,6 +883,9 @@ describe('createBrowserSearchCapability', () => {
         vi.doMock('@app/platform/browser-api/browserSearchLimits', () => ({
             SEARCH_EXCERPT_CONTEXT_CHARS: 10,
             SEARCH_RESULT_LIMIT: 2,
+            BROWSER_SEARCH_MAX_PAGE_COUNT: 1_000_000,
+            validateBrowserSearchPageCount: () => undefined,
+            validateBrowserSearchQueryCost: () => undefined,
         }));
         const pageTexts = [
             'alpha foo',
