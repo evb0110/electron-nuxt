@@ -1,0 +1,81 @@
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_b2ece6dfe48478::t_01b833744bcf13 552-554,708
+  s_b2ece6dfe48478::t_b665e9fac727b9 21,205
+native/pdf-page-ops/src/tests/notes.rs
+  s_b2ece6dfe48478::t_709969831cc8d8 144-145
+  s_b2ece6dfe48478::t_c579909cf86fad 107-110,147-152,161-172,174-177
+  s_b2ece6dfe48478::t_c473ad01de5341 62-106,111-143,146,153-160,173,178-187
+  s_b2ece6dfe48478::t_ed2edc5aa3c445 61
+native/pdf-page-ops/src/input.rs
+  s_b2ece6dfe48478::t_733b5f7cfdcc42 4
+  s_b2ece6dfe48478::t_1cbe0aae2ad494 541,559,565,590
+  s_b2ece6dfe48478::t_581d59dc3c225f 642
+  s_b2ece6dfe48478::t_c579909cf86fad 162,631
+  s_b2ece6dfe48478::t_00a90a9c56df3c 616-621,628-630,641,683
+  s_b2ece6dfe48478::t_488fb8323f9e3a 176-180,188,192,199
+  s_b2ece6dfe48478::t_2d0137a4b4ce90 158-161,163-173,632-633
+tests/unit/app/modules/workspace-shell/composables/createDocumentPersistence.test.ts
+  s_b2ece6dfe48478::t_3e6157aa47483b 966-1002
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_b2ece6dfe48478::t_b6e9dc9be56d4f 662-664
+  s_b2ece6dfe48478::t_922b57b0e66734 62
+  s_b2ece6dfe48478::t_1dce74e8f00a7d 561-564,575-576,584-586,659-661,665,705,715-716,805,815
+native/pdf-page-ops/src/tests/placed_images.rs
+  s_b2ece6dfe48478::t_ae8378cec68c3b 168
+tests/unit/contracts/nativePdfMutations.test.ts
+  s_b2ece6dfe48478::t_2697a74d76dfd6 19-30,213,277,375-378,441-442,457
+app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.ts
+  s_b2ece6dfe48478::t_01b833744bcf13 818
+native/pdf-page-ops/src/incremental.rs
+  s_b2ece6dfe48478::t_4f72aea1952d63 264-266,342-344
+app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types.ts
+  s_b2ece6dfe48478::t_9ad978a61ec492 18,140
+packages/contracts/nativePdfMutations.ts
+  s_b2ece6dfe48478::t_355d6e275ee153 23,48,465-506,1173,1176,1181,1196,1214,1225
+  s_b2ece6dfe48478::t_49b39bba9495e0 1427,1429,1434,1441,1445-1449,1453,1456,1461
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_b2ece6dfe48478::t_65b4a937e0e436 14,913
+  s_b2ece6dfe48478::t_5c4cab66273b25 930-935
+  s_b2ece6dfe48478::t_e4e53ba9bb13cc 912,914-929
+  s_b2ece6dfe48478::t_89cd1cdb46e922 32
+  s_b2ece6dfe48478::t_22296635d98b1f 936-937
+native/pdf-page-ops/src/tests/catalog.rs
+  s_b2ece6dfe48478::t_ae8378cec68c3b 16,133,170,268
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_b2ece6dfe48478::t_b6a89e47709e78 313
+native/pdf-page-ops/src/tests/markup_shapes.rs
+  s_b2ece6dfe48478::t_ae8378cec68c3b 23,325,415,781,845,1130,1162,1404
+native/pdf-page-ops/src/annotations.rs
+  s_b2ece6dfe48478::t_526cf01a3970da 156-157
+  s_b2ece6dfe48478::t_709969831cc8d8 224-225,230-231,233-234,257-261
+  s_b2ece6dfe48478::t_b9789ce1393fab 25-155,158-223,226-229,232,235-256,262-266
+app/modules/pdf-viewer/runtime/save/buildNativeNoteGeometryUpdatesForSave.ts
+  s_b2ece6dfe48478::t_5c4cab66273b25 1-99
+app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts
+  s_b2ece6dfe48478::t_3dbc9d3c1e49d0 12,703,710,730,745,768,777,789,959
+native/pdf-page-ops/src/postconditions.rs
+  s_b2ece6dfe48478::t_886416ca123805 21,120-157,159-192,194-199
+  s_b2ece6dfe48478::t_d110699402c9a7 158,193
+  s_b2ece6dfe48478::t_0326bad7741cbc 200-202
+native/pdf-page-ops/src/types.rs
+  s_b2ece6dfe48478::t_1bef07d7e1028d 714-716,731-733,760-766
+  s_b2ece6dfe48478::t_3ba120e42c3ca0 767-768
+packages/contracts/electronApiDocuments.ts
+  s_b2ece6dfe48478::t_ae6839afbe460b 560-567,602
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "eef0c4008f88632f8f48024cd04ca165857523bc",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
