@@ -19,6 +19,7 @@ import type {
     IScanCleanupCapability,
     IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
+    IScanCleanupPlacementAnchorSummary,
     IScanCleanupPreviewResult,
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
@@ -430,6 +431,75 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(mounted.session.run.runDisabledReason.value).toContain('20,000');
+        mounted.unmount();
+    });
+
+    it('starts a full xlarge ink run with bounded document calibration', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        harness.value.start = vi.fn(async () => ({
+            started: false as const,
+            jobId: 'run-1',
+            error: 'test stop',
+            errorCode: 'internal' as const,
+        }));
+        const mounted = mountSession(`ink-summary-${Date.now()}`, {totalPages: () => 20_001});
+        mounted.session.settings.values.pageAlignment = 'ink';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+
+        const placementAnchorSummary: IScanCleanupPlacementAnchorSummary = {
+            schemaVersion: 1,
+            sampleCount: 20_001,
+            referenceHeightPoints: 792,
+            toleranceNormalized: 0.014,
+            topEdgeNormalized: 0.1,
+            clusters: [{
+                startNormalized: 0.1,
+                endNormalized: 0.1,
+                valueNormalized: 0.1,
+            }],
+            samples: [
+                {
+                    pageNumber: 1,
+                    half: 'full',
+                    yNormalized: 0.1,
+                    anchor: {yNormalized: 0},
+                },
+                {
+                    pageNumber: 10_001,
+                    half: 'full',
+                    yNormalized: 0.2,
+                    anchor: {yNormalized: 0.1},
+                },
+                {
+                    pageNumber: 20_001,
+                    half: 'full',
+                    yNormalized: 0.2,
+                    anchor: {yNormalized: 0.1},
+                },
+            ],
+        };
+        const state = detectionState('detect-1', 'completed');
+        state.progress = {
+            ...state.progress,
+            completedUnits: 20_001,
+            totalUnits: 20_001,
+            percent: 100,
+        };
+        state.resultCount = 20_001;
+        state.detectionResultStoreId = 'ink-summary-store';
+        state.placementAnchorSummary = placementAnchorSummary;
+        harness.emitDetection(state);
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+
+        expect(mounted.session.run.runDisabledReason.value).not.toContain('20,000');
+        await mounted.session.run.run();
+
+        expect(harness.value.start).toHaveBeenCalledOnce();
+        expect(harness.value.start).toHaveBeenCalledWith(expect.objectContaining({
+            detectionResultStoreId: 'ink-summary-store',
+            placementAnchorSummary,
+        }));
         mounted.unmount();
     });
 

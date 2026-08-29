@@ -457,6 +457,45 @@ export interface IScanCleanupPagePlanEvidence {
     }>>;
 }
 
+/**
+ * Bounded document-wide calibration for `ink` placement. The detection
+ * result store keeps the page-local evidence, while this summary carries the
+ * calibration needed by a streaming conversion without rebuilding a page map
+ * in the renderer or across IPC.
+ */
+export interface IScanCleanupPlacementAnchorSummarySample {
+    pageNumber: number;
+    half: TScanCleanupOutputHalf;
+    /** The source content-box top, normalized to the document reference height. */
+    yNormalized: number;
+    /** The resolved offset from the document top edge for this sparse sample. */
+    anchor: IScanCleanupPlacementAnchor;
+}
+
+export interface IScanCleanupPlacementAnchorSummaryCluster {
+    /** First and last normalized values represented by this bounded cluster. */
+    startNormalized: number;
+    endNormalized: number;
+    /** The cluster's deterministic snapped value. */
+    valueNormalized: number;
+}
+
+export interface IScanCleanupPlacementAnchorSummary {
+    schemaVersion: 1;
+    /** Number of ink-aligned output samples in the complete detection pass. */
+    sampleCount: number;
+    /** Tallest rotated included source sheet, in PDF points. */
+    referenceHeightPoints: number;
+    /** Jitter tolerance expressed against `referenceHeightPoints`. */
+    toleranceNormalized: number;
+    /** The document top edge selected from the bounded cluster summary. */
+    topEdgeNormalized: number;
+    /** At most one bounded cluster per retained sample bucket. */
+    clusters: readonly IScanCleanupPlacementAnchorSummaryCluster[];
+    /** Deterministic early, middle, and late evidence samples. */
+    samples: readonly IScanCleanupPlacementAnchorSummarySample[];
+}
+
 export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationMetadata {
     pageNumber: number;
     /** Monotonic within one detection job for this page's provisional/reconciled verdicts. */
@@ -494,6 +533,8 @@ interface IScanCleanupDetectionJobBase {
     resultCount?: number;
     /** Opaque main-process handoff for xlarge detection results. */
     detectionResultStoreId?: string;
+    /** Bounded document-wide calibration for xlarge `ink` placement. */
+    placementAnchorSummary?: IScanCleanupPlacementAnchorSummary;
     results: IScanCleanupDetectionResult[];
     updatedAtMs: number;
 }
@@ -550,6 +591,8 @@ export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
         string,
         Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>
     >>;
+    /** Bounded document-wide calibration for xlarge `ink` placement. */
+    placementAnchorSummary?: IScanCleanupPlacementAnchorSummary;
 }
 
 const s = runtimeSchema;

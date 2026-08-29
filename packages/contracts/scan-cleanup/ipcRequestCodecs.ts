@@ -49,6 +49,7 @@ import type {
 import {isScanCleanupOutputMode} from '@contracts/scan-cleanup/outputModeGuards';
 import {assertSimpleScanCleanupPolygon} from '@contracts/scan-cleanup/assertSimpleScanCleanupPolygon';
 import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
+import {decodeScanCleanupPlacementAnchorSummary} from '@contracts/scan-cleanup/decodeScanCleanupPlacementAnchorSummary';
 
 function decodeTextToneEvidence(value: unknown, label: string): IScanCleanupTextToneDiagnostics {
     if (
@@ -961,6 +962,9 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
             key,
             decodeScanCleanupPlacementAnchors(anchors, 'placement anchor'),
         ]));
+    const placementAnchorSummary = value.placementAnchorSummary === undefined
+        ? undefined
+        : decodeScanCleanupPlacementAnchorSummary(value.placementAnchorSummary);
     return {
         sourcePdfPath,
         ...decodeOwnerContext(value),
@@ -977,6 +981,7 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
         ...(sourcePageMetadataByPage === undefined ? {} : {sourcePageMetadataByPage}),
         ...(pagePlanEvidenceByPage === undefined ? {} : {pagePlanEvidenceByPage}),
         ...(placementAnchorsByPage === undefined ? {} : {placementAnchorsByPage}),
+        ...(placementAnchorSummary === undefined ? {} : {placementAnchorSummary}),
     };
 }
 

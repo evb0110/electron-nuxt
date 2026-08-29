@@ -4,6 +4,7 @@ import type {
     IScanCleanupDetectionResult,
     IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
+    IScanCleanupPlacementAnchorSummary,
     IScanCleanupPlacementAnchor,
     IScanCleanupSourcePageMetadata,
     TNativeScanCleanupProgressV3,
@@ -470,6 +471,8 @@ export interface IRunScanCleanupPipelineRequest {
         string,
         Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>
     >>;
+    /** Bounded document-wide calibration for xlarge `ink` placement. */
+    placementAnchorSummary?: IScanCleanupPlacementAnchorSummary;
     assemblyBackend?: TScanCleanupAssemblerBackend;
     transportMode?: TScanCleanupTransportMode;
 }

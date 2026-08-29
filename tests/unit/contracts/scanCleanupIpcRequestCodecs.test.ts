@@ -292,6 +292,71 @@ describe('scan-cleanup IPC request codecs', () => {
         expect(decodeStartArgs([request])[0].placementAnchorsByPage).toBeUndefined();
     });
 
+    it('decodes a bounded document-wide ink placement summary', () => {
+        const placementAnchorSummary = {
+            schemaVersion: 1 as const,
+            sampleCount: 20_001,
+            referenceHeightPoints: 792,
+            toleranceNormalized: 0.014,
+            topEdgeNormalized: 0.1,
+            clusters: [{
+                startNormalized: 0.1,
+                endNormalized: 0.101,
+                valueNormalized: 0.1005,
+            }],
+            samples: [
+                {
+                    pageNumber: 1,
+                    half: 'full' as const,
+                    yNormalized: 0.1,
+                    anchor: {yNormalized: 0},
+                },
+                {
+                    pageNumber: 10_001,
+                    half: 'full' as const,
+                    yNormalized: 0.3,
+                    anchor: {yNormalized: 0.2},
+                },
+                {
+                    pageNumber: 20_001,
+                    half: 'full' as const,
+                    yNormalized: 0.2,
+                    anchor: {yNormalized: 0.1},
+                },
+            ],
+        };
+        expect(decodeStartArgs([{
+            ...request,
+            placementAnchorSummary,
+        }])[0].placementAnchorSummary).toEqual(placementAnchorSummary);
+        for (const malformed of [
+            {
+                ...placementAnchorSummary,
+                schemaVersion: 2,
+            },
+            {
+                ...placementAnchorSummary,
+                topEdgeNormalized: 2,
+            },
+            {
+                ...placementAnchorSummary,
+                clusters: Array.from({length: 257}, () => placementAnchorSummary.clusters[0]),
+            },
+            {
+                ...placementAnchorSummary,
+                samples: [{
+                    ...placementAnchorSummary.samples[0],
+                    anchor: {yNormalized: Number.NaN},
+                }],
+            },
+        ]) {
+            expect(() => decodeStartArgs([{
+                ...request,
+                placementAnchorSummary: malformed,
+            }])).toThrow('placement anchor summary');
+        }
+    });
+
     it('rejects placement anchors that are unbounded, mistyped, or carry extra keys', () => {
         const anchor = {yNormalized: 0.5};
         for (const placementAnchors of [

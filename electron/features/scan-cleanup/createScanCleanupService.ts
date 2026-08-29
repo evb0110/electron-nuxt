@@ -564,11 +564,11 @@ export function createScanCleanupService(
                     detectionResultStoreLease !== null
                     && detectionResultStoreLease.resultStore.pageCount > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
                     && usesScanCleanupInkAlignment(request.options)
+                    && request.placementAnchorSummary === undefined
                 ) {
-                    // The renderer keeps only a bounded result window. Ink
-                    // placement needs the document-wide sample set to resolve
-                    // its top edge, so a selected subset cannot safely use
-                    // partial early/middle/late evidence as if it were global.
+                    // The renderer keeps only a bounded result window. A
+                    // completed detection must carry the document-wide
+                    // bounded calibration before an xlarge ink run starts.
                     await detectionResultStoreLease.resultStore.close().catch(() => undefined);
                     detectionResultStoreLease = null;
                     return {

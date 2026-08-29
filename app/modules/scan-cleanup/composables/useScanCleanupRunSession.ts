@@ -2,6 +2,7 @@ import type {
     IScanCleanupDocumentPrior,
     IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
+    IScanCleanupPlacementAnchorSummary,
     IScanCleanupSourcePageMetadata,
     TScanCleanupLayoutClassification,
     TScanCleanupErrorCode,
@@ -70,6 +71,8 @@ interface IUseScanCleanupRunSessionOptions {
     detectionErrorCode: Readonly<Ref<TScanCleanupErrorCode | null>>;
     /** Opaque main-process handle for xlarge detection results. */
     detectionResultStoreId?: Readonly<Ref<string | null>>;
+    /** Bounded document-wide calibration for xlarge `ink` placement. */
+    placementAnchorSummary?: Readonly<Ref<IScanCleanupPlacementAnchorSummary | null>>;
     detectionPending: ComputedRef<boolean>;
     detectionStatus: ComputedRef<Extract<TScanCleanupDetectionJobState['status'], 'completed' | 'failed' | 'canceled'> | null>;
     /**
@@ -191,7 +194,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         return options.totalPages.value > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
             && usesScanCleanupInkAlignment(resolvedOptions)
             && options.detectionResultStoreId?.value !== null
-            && options.detectionResultStoreId?.value !== undefined;
+            && options.detectionResultStoreId?.value !== undefined
+            && (options.placementAnchorSummary?.value ?? null) === null;
     });
     const missingInkPlacementAnchorPage = computed(() => {
         const resolvedOptions = options.resolvedOptions?.value ?? options.settings;
@@ -201,11 +205,15 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         ) {
             return null;
         }
+        if (options.placementAnchorSummary?.value !== null
+            && options.placementAnchorSummary?.value !== undefined) {
+            return null;
+        }
         const requested = runPageNumbers.value;
         if (requested === null) {
-            // A full xlarge ink run is refused by the capacity guard above.
-            // Small full runs retain every page map, so only selected pages can
-            // observe a bounded-map eviction at this layer.
+            // Xlarge runs carry their bounded document calibration through the
+            // detection state. Small full runs retain every page map, so only
+            // selected pages can observe a bounded-map eviction here.
             return null;
         }
         const evidenceByPage = options.resolvePagePlanEvidence(requested);
@@ -396,6 +404,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             // Read the opaque handoff id at request-build time so a large result
             // store takes the descriptor path instead of falling back to maps.
             const detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
+            const placementAnchorSummary = options.placementAnchorSummary?.value ?? null;
             const pagePlanEvidence = options.resolvePagePlanEvidence(requestedPageNumbers);
             const legacyDetectionFields = detectionResultStoreId === null
                 && runPageCount.value <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
@@ -460,6 +469,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 ...(detectionResultStoreId === null || detectionResultStoreId === undefined
                     ? {}
                     : {detectionResultStoreId}),
+                ...(placementAnchorSummary === null
+                    ? {}
+                    : {placementAnchorSummary}),
                 ...legacyDetectionFields,
                 ...(placementAnchors.length === 0
                     ? {}

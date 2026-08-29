@@ -265,6 +265,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         detectionErrorCode: detection.errorCode,
         detectionEvidenceComplete: detection.detectionEvidenceComplete,
         detectionResultStoreId: detection.detectionResultStoreId,
+        placementAnchorSummary: detection.placementAnchorSummary,
         detectionPending: detection.pending,
         detectionStatus: detection.terminalStatus,
         documentPriorByPage: detection.documentPriorByPage,

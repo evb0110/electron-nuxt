@@ -22,6 +22,7 @@ import type {
     INativeScanCleanupOutputMetadataV3,
     INativeScanCleanupPageMetadataV3,
     IScanCleanupDetectionResult,
+    IScanCleanupPlacementAnchorSummary,
     IScanCleanupSourcePageMetadata,
     TNativeScanCleanupProgressV3,
     TScanCleanupProgress,
@@ -36,7 +37,14 @@ import {
 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { getErrorMessage } from '@contracts/getErrorMessage';
-import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import {
+    getScanCleanupPageOverride,
+    resolveScanCleanupOutputPlacement,
+} from '@contracts/scanCleanupPageOverrides';
+import {
+    resolveScanCleanupPlacementAnchorFromSummary,
+    resolveScanCleanupSheetHeightPoints,
+} from '@scan-cleanup-core/placementAnchors';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {
     assertCanonicalPdfPageSizes,
@@ -281,10 +289,12 @@ function scanCleanupUsesInkPlacement(
 function assertScanCleanupInkAnchorCapacity(
     pageCount: number,
     options: IRunScanCleanupPipelineRequest['options'],
+    placementAnchorSummary: IRunScanCleanupPipelineRequest['placementAnchorSummary'],
 ) {
     if (
         pageCount > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
         && scanCleanupUsesInkPlacement(options)
+        && placementAnchorSummary === undefined
     ) {
         throw new ScanCleanupContractError(SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE);
     }
@@ -1100,16 +1110,56 @@ type TScanCleanupBoundedDetectionRequestFields = Pick<IRunScanCleanupPipelineReq
     | 'sourcePageMetadataByPage'
 >;
 
-function selectPageRecord<T>(
-    record: Partial<Record<string, T>> | undefined,
+function resolveBatchPlacementAnchors(
+    baseRequest: IRunScanCleanupPipelineRequest,
+    results: ReadonlyMap<number, IScanCleanupDetectionResult>,
     pageNumbers: readonly number[],
+    summary: IScanCleanupPlacementAnchorSummary | undefined,
 ) {
-    const selected: Partial<Record<string, T>> = {};
+    const anchorsByPage: NonNullable<IRunScanCleanupPipelineRequest['placementAnchorsByPage']> = {};
     for (const pageNumber of pageNumbers) {
-        const value = record?.[String(pageNumber)];
-        if (value !== undefined) selected[String(pageNumber)] = value;
+        const key = String(pageNumber);
+        const result = results.get(pageNumber);
+        const pageOverride = getScanCleanupPageOverride(baseRequest.options.pageOverrides, pageNumber);
+        const evidence = result?.pagePlanEvidence ?? baseRequest.pagePlanEvidenceByPage?.[key];
+        const metadata = result?.sourcePageMetadata ?? baseRequest.sourcePageMetadataByPage?.[key];
+        const explicit = baseRequest.placementAnchorsByPage?.[key];
+        const resolved: Partial<Record<
+            IScanCleanupPlacementAnchorSummary['samples'][number]['half'],
+            {yNormalized: number}
+        >> = explicit === undefined ? {} : {...explicit};
+        if (summary !== undefined) {
+            const sheetHeightPoints = resolveScanCleanupSheetHeightPoints(metadata);
+            const scale = summary.referenceHeightPoints > 0 && sheetHeightPoints > 0
+                ? sheetHeightPoints / summary.referenceHeightPoints
+                : 1;
+            for (const half of [
+                'full',
+                'left',
+                'right',
+            ] as const) {
+                if (resolved[half] !== undefined) continue;
+                if (resolveScanCleanupOutputPlacement(
+                    baseRequest.options.pageAlignment,
+                    pageOverride,
+                    half,
+                ) !== 'ink') {
+                    continue;
+                }
+                const contentBox = pageOverride.manualContentBoxes?.[half]
+                    ?? evidence?.outputs[half]?.contentBox;
+                if (contentBox === undefined) continue;
+                resolved[half] = resolveScanCleanupPlacementAnchorFromSummary(
+                    summary,
+                    contentBox.yNormalized * scale,
+                );
+            }
+        }
+        if (Object.keys(resolved).length > 0) {
+            anchorsByPage[key] = resolved;
+        }
     }
-    return selected;
+    return anchorsByPage;
 }
 
 /** Read only one bounded conversion window from the detection sidecar. */
@@ -1185,7 +1235,12 @@ function buildBoundedDetectionRequestFields(
         layoutByPage,
         outputModeRecommendations,
         pagePlanEvidenceByPage,
-        placementAnchorsByPage: selectPageRecord(baseRequest.placementAnchorsByPage, pageNumbers),
+        placementAnchorsByPage: resolveBatchPlacementAnchors(
+            baseRequest,
+            resultByPage,
+            pageNumbers,
+            baseRequest.placementAnchorSummary,
+        ),
         softAlphaForegroundRecommendations,
         sourcePageMetadataByPage,
     };
@@ -1509,11 +1564,15 @@ export async function runScanCleanupConversion(
             request.sourcePageRange,
         );
         const pageCount = pageNumbers.length;
-        // Ink anchors are currently transported as a bounded page-keyed
-        // record. Keep direct core callers on the same fail-closed contract
-        // as the renderer instead of allowing a large request to allocate an
-        // unbounded anchor map during save.
-        assertScanCleanupInkAnchorCapacity(pageCount, request.options);
+        // A document-wide summary carries only bounded calibration. Keep
+        // direct callers without that summary on the fail-closed contract
+        // instead of allowing a large request to allocate an unbounded anchor
+        // map during save.
+        assertScanCleanupInkAnchorCapacity(
+            pageCount,
+            request.options,
+            request.placementAnchorSummary,
+        );
         const largeStreamingRun = documentPageCount > PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES
             && context?.smallCompatibilityRun !== true;
         const warnings = [...prepared.warnings];

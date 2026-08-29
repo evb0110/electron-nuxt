@@ -7,7 +7,10 @@ import type {
     TScanCleanupPageOverrides,
 } from '@contracts/scan-cleanup/domain';
 import type {IScanCleanupMarginsMm} from '@contracts/scan-cleanup/geometry';
-import type {IScanCleanupPreviewMetadata} from '@contracts/scan-cleanup/ipc';
+import type {
+    IScanCleanupPlacementAnchorSummaryCluster,
+    IScanCleanupPreviewMetadata,
+} from '@contracts/scan-cleanup/ipc';
 import type {IScanCleanupPlacementAnchor} from '@contracts/scan-cleanup/nativeProtocolV3';
 
 export type TScanCleanupResolvedPageLayout = ReturnType<typeof resolveScanCleanupPageLayout>;
@@ -273,6 +276,8 @@ function resolveScanCleanupAnchorClusterValue(sorted: readonly number[]) {
 }
 
 interface IScanCleanupAnchorCluster {
+    start: number;
+    end: number;
     value: number;
     size: number;
 }
@@ -312,6 +317,8 @@ function snapScanCleanupAnchors(
             snapped[entry.index] = value;
         }
         clusters.push({
+            start: ordered[start]!.sample.yNormalized,
+            end: ordered[end - 1]!.sample.yNormalized,
             value,
             size: cluster.length,
         });
@@ -337,6 +344,58 @@ function resolveScanCleanupInkTopEdge(clusters: readonly IScanCleanupAnchorClust
     return Math.min(...(supported.length > 0 ? supported : clusters).map(cluster => cluster.value));
 }
 
+export interface IScanCleanupPlacementAnchorResolution {
+    anchorsByPage: TScanCleanupPlacementAnchorsByPage;
+    topEdgeNormalized: number;
+    clusters: readonly IScanCleanupPlacementAnchorSummaryCluster[];
+}
+
+/**
+ * Resolve anchors and expose the bounded cluster calibration used by a
+ * streaming conversion. `sampleCount` lets a bounded sample set retain the
+ * document's scale for the top-edge share calculation when the full result
+ * store contains more samples than the retained calibration window.
+ */
+export function resolveScanCleanupPlacementAnchorResolution(
+    samples: readonly IScanCleanupPlacementAnchorSample[],
+    tolerance: number,
+    sampleCount = samples.length,
+): IScanCleanupPlacementAnchorResolution {
+    const anchorsByPage: TScanCleanupPlacementAnchorsByPage = new Map();
+    if (samples.length === 0) {
+        return {
+            anchorsByPage,
+            topEdgeNormalized: 0,
+            clusters: [],
+        };
+    }
+    const {
+        clusters,
+        snapped,
+    } = snapScanCleanupAnchors(samples, tolerance);
+    // A sparse calibration window represents the full document. Use the
+    // window's cardinality for its support threshold so a common cluster is
+    // not discarded simply because it was downsampled to 256 entries.
+    const representedSampleCount = Number.isSafeInteger(sampleCount) && sampleCount > 0
+        ? Math.min(sampleCount, samples.length)
+        : samples.length;
+    const topEdge = resolveScanCleanupInkTopEdge(clusters, representedSampleCount);
+    samples.forEach((sample, index) => {
+        const page = anchorsByPage.get(sample.pageNumber) ?? {};
+        page[sample.half] = {yNormalized: Math.max(0, snapped[index]! - topEdge)};
+        anchorsByPage.set(sample.pageNumber, page);
+    });
+    return {
+        anchorsByPage,
+        topEdgeNormalized: topEdge,
+        clusters: clusters.map(cluster => ({
+            startNormalized: cluster.start,
+            endNormalized: cluster.end,
+            valueNormalized: cluster.value,
+        })),
+    };
+}
+
 /**
  * Turns the ink tops a document measured into the vertical positions its
  * outputs will actually be printed at.
@@ -360,21 +419,7 @@ export function resolveScanCleanupPlacementAnchors(
     samples: readonly IScanCleanupPlacementAnchorSample[],
     tolerance: number,
 ): TScanCleanupPlacementAnchorsByPage {
-    const anchorsByPage: TScanCleanupPlacementAnchorsByPage = new Map();
-    if (samples.length === 0) {
-        return anchorsByPage;
-    }
-    const {
-        clusters,
-        snapped,
-    } = snapScanCleanupAnchors(samples, tolerance);
-    const topEdge = resolveScanCleanupInkTopEdge(clusters, samples.length);
-    samples.forEach((sample, index) => {
-        const page = anchorsByPage.get(sample.pageNumber) ?? {};
-        page[sample.half] = {yNormalized: Math.max(0, snapped[index]! - topEdge)};
-        anchorsByPage.set(sample.pageNumber, page);
-    });
-    return anchorsByPage;
+    return resolveScanCleanupPlacementAnchorResolution(samples, tolerance).anchorsByPage;
 }
 
 export function resolveScanCleanupPageLayout(

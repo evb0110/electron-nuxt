@@ -21,6 +21,7 @@ import {
     decodeSourcePageMetadata,
     isLayoutClassification,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
+import {decodeScanCleanupPlacementAnchorSummary} from '@contracts/scan-cleanup/decodeScanCleanupPlacementAnchorSummary';
 import {
     isScanCleanupOutputMode,
     isScanCleanupOutputModeRecommendationReason,
@@ -1109,6 +1110,11 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
                 value.detectionResultStoreId,
                 'detection result store id',
                 SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+            )}),
+        ...(value.placementAnchorSummary === undefined
+            ? {}
+            : {placementAnchorSummary: decodeScanCleanupPlacementAnchorSummary(
+                value.placementAnchorSummary,
             )}),
         results,
         updatedAtMs: value.updatedAtMs,

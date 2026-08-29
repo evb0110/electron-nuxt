@@ -472,6 +472,7 @@ interface IDetectionResult {
     results: TScanCleanupDetectionJobState['results'];
     resultStore: IScanCleanupDetectionResultStore;
     resultStoreId?: string;
+    placementAnchorSummary?: TScanCleanupDetectionJobState['placementAnchorSummary'];
 }
 
 type TDetectionError = IScanCleanupJobErrorEnvelope;
@@ -3433,6 +3434,9 @@ export function createScanCleanupPreviewService(
                     ...(result.resultStoreId === undefined
                         ? {}
                         : {detectionResultStoreId: result.resultStoreId}),
+                    ...(result.placementAnchorSummary === undefined
+                        ? {}
+                        : {placementAnchorSummary: result.placementAnchorSummary}),
                     results,
                     updatedAtMs: Date.now(),
                 };

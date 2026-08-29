@@ -77,6 +77,8 @@ import {
     type TScanCleanupPageScope,
 } from '@scan-cleanup-core/pageScope';
 import {createFileBackedScanCleanupDetectionResultStore} from '@scan-cleanup-core/fileBackedResultStore';
+import {buildScanCleanupPlacementAnchorSummary} from '@scan-cleanup-core/placementAnchors';
+import {usesScanCleanupInkAlignment} from '@contracts/scanCleanupPageOverrides';
 
 export const DETECTION_DPI = 150;
 export const PREVIEW_DPI = DETECTION_DPI;
@@ -1477,9 +1479,17 @@ async function runBatchedScanCleanupDetection<TDocument>(
             });
         }
     }
+    const placementAnchorSummary = usesScanCleanupInkAlignment(request.options)
+        ? await buildScanCleanupPlacementAnchorSummary({
+            options: request.options,
+            resultStore,
+            signal,
+        })
+        : undefined;
     return {
         resultStore,
         results: publishedResults(),
+        ...(placementAnchorSummary === undefined ? {} : {placementAnchorSummary}),
     };
 }
 

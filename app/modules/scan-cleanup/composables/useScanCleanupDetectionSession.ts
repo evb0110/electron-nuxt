@@ -5,6 +5,7 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
     IScanCleanupPageOverride,
+    IScanCleanupPlacementAnchorSummary,
     IScanCleanupPreviewResult,
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
@@ -137,6 +138,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const detectionResultCount = ref(0);
     const detectionEvidenceComplete = ref(false);
     const detectionResultStoreId = shallowRef<string | null>(null);
+    const placementAnchorSummary = shallowRef<IScanCleanupPlacementAnchorSummary | null>(null);
     let jobId: string | null = null;
     let jobDocumentKey: string | null = null;
     let jobDocumentRevision: string | null = null;
@@ -495,6 +497,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         detectionResultCount.value = 0;
         detectionEvidenceComplete.value = false;
         detectionResultStoreId.value = null;
+        placementAnchorSummary.value = null;
         detectedLayoutByPage.clear();
         confidenceByPage.clear();
         documentPriorByPage.clear();
@@ -506,6 +509,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     function clearDetectionEvidenceForPage(pageNumber: number) {
+        // A page edit can change the document top edge. Do not reuse the
+        // previous xlarge calibration while replacement detection is pending.
+        placementAnchorSummary.value = null;
         retainedDetectionPages.delete(pageNumber);
         signatures.delete(pageNumber);
         detectionResultsByPage.delete(pageNumber);
@@ -634,6 +640,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         if (state.detectionResultStoreId !== undefined) {
             detectionResultStoreId.value = state.detectionResultStoreId;
         }
+        placementAnchorSummary.value = state.placementAnchorSummary ?? null;
         for (const pageNumber of state.progress.completedPageNumbers ?? []) retainSettledPage(pageNumber);
         const completedWithCurrentEvidence = state.status === 'completed' && evidenceIsCurrent();
         applyScanCleanupDetectionResults(
@@ -1053,6 +1060,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         jobDocumentRevision = options.documentRevision.value;
         jobState.value = structuredClone(cached.state);
         documentCanvasSignature.value = cached.state.documentCanvasSignature ?? '';
+        placementAnchorSummary.value = cached.state.placementAnchorSummary ?? null;
         detectionResultCount.value = cached.state.resultCount ?? cached.results.length;
         detectionEvidenceComplete.value = detectionResultCount.value >= options.totalPages.value;
         detectionResultsByPage.clear();
@@ -1320,6 +1328,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         documentPriorByPage,
         detectionEvidenceComplete: computed(() => detectionEvidenceComplete.value),
         detectionResultStoreId: computed(() => detectionResultStoreId.value),
+        placementAnchorSummary: computed(() => placementAnchorSummary.value),
         error,
         errorCode,
         isDetecting,

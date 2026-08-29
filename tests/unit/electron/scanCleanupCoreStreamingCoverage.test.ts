@@ -777,6 +777,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         });
         const progress: TScanCleanupProgress[] = [];
         const log = vi.fn<TScanCleanupLog>();
+        const placementAnchorsByBatch: unknown[] = [];
         const runSidecar = vi.fn(async (
             _binaryPath,
             manifestPath,
@@ -786,11 +787,13 @@ describe('scan-cleanup-core conversion coverage', () => {
         ) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
                 pageMetadataPath: string;
+                options?: {placementAnchors?: unknown};
                 outputs: Array<{
                     metadataPath: string;
                     outputPath: string;
                 }>;
             }>;};
+            placementAnchorsByBatch.push(manifest.pages.map(page => page.options?.placementAnchors));
             for (const [
                 index,
                 page,
@@ -851,11 +854,85 @@ describe('scan-cleanup-core conversion coverage', () => {
             {
                 sourcePdfPath,
                 outputPdfPath,
-                options,
+                options: {
+                    ...options,
+                    matchPageSize: true,
+                    pageAlignment: 'ink',
+                },
                 sourcePageNumbers: [
                     1,
                     2,
                 ],
+                layoutByPage: {
+                    '1': 'single-uncut-page',
+                    '2': 'single-uncut-page',
+                },
+                pagePlanEvidenceByPage: {
+                    '1': {
+                        pageNumber: 1,
+                        rotationDegrees: 0,
+                        layoutClassification: 'single-uncut-page',
+                        outputs: {full: {contentBox: {
+                            xNormalized: 0.1,
+                            yNormalized: 0.1,
+                            widthNormalized: 0.8,
+                            heightNormalized: 0.7,
+                            rotationDegrees: 0,
+                        }}},
+                    },
+                    '2': {
+                        pageNumber: 2,
+                        rotationDegrees: 0,
+                        layoutClassification: 'single-uncut-page',
+                        outputs: {full: {contentBox: {
+                            xNormalized: 0.1,
+                            yNormalized: 0.3,
+                            widthNormalized: 0.8,
+                            heightNormalized: 0.7,
+                            rotationDegrees: 0,
+                        }}},
+                    },
+                },
+                sourcePageMetadataByPage: {
+                    '1': {
+                        pageNumber: 1,
+                        xPoints: 0,
+                        yPoints: 0,
+                        widthPoints: 72,
+                        heightPoints: 72,
+                        rotation: 0,
+                        sourceDpi: 300,
+                    },
+                    '2': {
+                        pageNumber: 2,
+                        xPoints: 0,
+                        yPoints: 0,
+                        widthPoints: 72,
+                        heightPoints: 72,
+                        rotation: 0,
+                        sourceDpi: 300,
+                    },
+                },
+                placementAnchorSummary: {
+                    schemaVersion: 1,
+                    sampleCount: 2,
+                    referenceHeightPoints: 72,
+                    toleranceNormalized: 0,
+                    topEdgeNormalized: 0.1,
+                    clusters: [
+                        {
+                            startNormalized: 0.1,
+                            endNormalized: 0.1,
+                            valueNormalized: 0.1,
+                        },
+                        {
+                            startNormalized: 0.3,
+                            endNormalized: 0.3,
+                            valueNormalized: 0.3,
+                        },
+                    ],
+                    samples: [],
+                },
             },
             {
                 ...paths(root),
@@ -877,6 +954,10 @@ describe('scan-cleanup-core conversion coverage', () => {
         expect(pageSizeStore.close).toHaveBeenCalledOnce();
         expect(dependencies.createRasterPipes).toHaveBeenCalledOnce();
         expect(runSidecar).toHaveBeenCalledOnce();
+        expect(placementAnchorsByBatch).toEqual([[
+            {full: {yNormalized: 0}},
+            {full: {yNormalized: 0.19999999999999998}},
+        ]]);
         expect(renderPagePpm).toHaveBeenCalledTimes(4);
         expect(progress.at(-1)).toMatchObject({
             stage: 'handoff',
