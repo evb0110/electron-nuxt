@@ -217,5 +217,4 @@ describe('workingCopyDirectory', () => {
             });
         }
     });
-
 });
