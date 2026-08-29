@@ -9,6 +9,7 @@ import {getMainOperationErrorEnvelope} from '@contracts/mainOperationErrors';
 import {
     beginMainOperationShutdown,
     cancelAllMainOperations,
+    cancelMainOperationsForOwner,
     cancelMainOperationsForClosingWorkingCopy,
     drainCriticalMainOperations,
     registerMainOperation,
@@ -46,6 +47,33 @@ describe('mainOperationLifecycle', () => {
             ownerWebContentsId: 7,
             aborted: true,
         })]);
+    });
+
+    it('aborts every unfinished operation owned by a renderer when it disappears', () => {
+        const ownedCancel = vi.fn();
+        const owned = registerMainOperation({
+            kind: 'critical-write',
+            ownerWebContentsId: 42,
+            cancel: ownedCancel,
+        });
+        const committed = registerMainOperation({
+            kind: 'critical-write',
+            ownerWebContentsId: 42,
+            cancel: vi.fn(),
+        });
+        committed.markCommitStarted();
+        const other = registerMainOperation({
+            kind: 'abortable-work',
+            ownerWebContentsId: 7,
+            cancel: vi.fn(),
+        });
+
+        cancelMainOperationsForOwner(42, 'Renderer lifecycle ended');
+
+        expect(owned.signal.aborted).toBe(true);
+        expect(ownedCancel).toHaveBeenCalledWith('Renderer lifecycle ended');
+        expect(committed.signal.aborted).toBe(false);
+        expect(other.signal.aborted).toBe(false);
     });
 
     it('does not abort critical writes after commit starts and drains until completion', async () => {

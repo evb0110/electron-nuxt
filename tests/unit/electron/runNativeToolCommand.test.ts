@@ -88,8 +88,8 @@ describe('runNativeToolCommand', () => {
             log,
             timeoutMs: 5_000,
         });
-        expect(handshakeOptions).not.toHaveProperty('cancelGroup');
-        expect(handshakeOptions).not.toHaveProperty('signal');
+        expect(handshakeOptions.signal).toBeInstanceOf(AbortSignal);
+        expect(handshakeOptions.signal).not.toBe(controller.signal);
         expect(commandOptions).toMatchObject({
             cancelGroup: 'search-request-1',
             cwd: '/work',
@@ -97,6 +97,27 @@ describe('runNativeToolCommand', () => {
             log,
             signal: controller.signal,
         });
+    });
+
+    it('terminates the shared protocol child when its last caller aborts', async () => {
+        const handshake = createDeferred<{
+            exitCode: number;
+            stderr: string;
+            stdout: string;
+        }>();
+        mocks.runNativeCommand.mockImplementationOnce(() => handshake.promise);
+        const {runNativeToolCommand} = await loadModule();
+        const caller = new AbortController();
+
+        const result = runNativeToolCommand('/tools/evb-pdf-search', ['search'], {
+            signal: caller.signal,
+        });
+        const handshakeSignal = mocks.runNativeCommand.mock.calls[0]?.[2]?.signal as AbortSignal;
+
+        caller.abort(new DOMException('caller canceled', 'AbortError'));
+
+        await expect(result).rejects.toThrow('caller canceled');
+        expect(handshakeSignal.aborted).toBe(true);
     });
 
     it('forwards every execution limit after completing the shared handshake', async () => {
@@ -160,7 +181,7 @@ describe('runNativeToolCommand', () => {
 
         expect(mocks.runNativeCommand).toHaveBeenCalledTimes(1);
         expect(mocks.runNativeCommand.mock.calls[0]?.[2]).not.toHaveProperty('cancelGroup');
-        expect(mocks.runNativeCommand.mock.calls[0]?.[2]).not.toHaveProperty('signal');
+        expect(mocks.runNativeCommand.mock.calls[0]?.[2]?.signal).toBeInstanceOf(AbortSignal);
 
         canceledCaller.abort(new DOMException('first caller canceled', 'AbortError'));
         await expect(canceledResult).rejects.toThrow('first caller canceled');

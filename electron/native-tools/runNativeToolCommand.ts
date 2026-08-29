@@ -44,7 +44,13 @@ const expectedNativeToolProtocolVersions = new Map<string, number>(
         tool.protocolVersion,
     ]),
 );
-const nativeToolProtocolHandshakeCache = new Map<string, Promise<void>>();
+interface IProtocolHandshake {
+    controller: AbortController;
+    promise: Promise<void>;
+    waiters: number;
+}
+
+const nativeToolProtocolHandshakeCache = new Map<string, IProtocolHandshake>();
 
 export async function runNativeToolCommand(
     command: string,
@@ -70,38 +76,59 @@ export async function verifyNativeToolProtocol(command: string, options: IRunNat
         return;
     }
 
-    const handshake = runNativeToolProtocolHandshake(command, toolName, options)
+    const controller = new AbortController();
+    const handshake: IProtocolHandshake = {
+        controller,
+        promise: runNativeToolProtocolHandshake(command, toolName, options, controller.signal)
         .catch((error: unknown) => {
             if (nativeToolProtocolHandshakeCache.get(command) === handshake) {
                 nativeToolProtocolHandshakeCache.delete(command);
             }
             throw error;
-        });
+        }),
+        waiters: 0,
+    };
     nativeToolProtocolHandshakeCache.set(command, handshake);
     await waitForProtocolHandshake(handshake, options.signal);
 }
 
-function waitForProtocolHandshake(handshake: Promise<void>, signal: AbortSignal | undefined) {
+function waitForProtocolHandshake(handshake: IProtocolHandshake, signal: AbortSignal | undefined) {
+    handshake.waiters += 1;
+    let released = false;
+    const release = () => {
+        if (released) {
+            return;
+        }
+        released = true;
+        handshake.waiters -= 1;
+        if (handshake.waiters === 0 && !handshake.controller.signal.aborted) {
+            handshake.controller.abort(new Error('All native tool protocol callers canceled'));
+        }
+    };
     if (signal === undefined) {
-        return handshake;
+        return handshake.promise.finally(release);
     }
     if (signal.aborted) {
+        release();
         return Promise.reject(abortErrorFromSignal(signal));
     }
 
     return new Promise<void>((resolve, reject) => {
         const handleAbort = () => {
             signal.removeEventListener('abort', handleAbort);
+            release();
             reject(abortErrorFromSignal(signal));
         };
         signal.addEventListener('abort', handleAbort, { once: true });
-        void handshake.then(
+        void handshake.promise.then(
             () => {
                 signal.removeEventListener('abort', handleAbort);
+                release();
                 resolve();
             },
             (error: unknown) => {
                 signal.removeEventListener('abort', handleAbort);
+                release();
                 reject(error);
             },
         );
@@ -118,13 +145,14 @@ async function runNativeToolProtocolHandshake(
     command: string,
     toolName: string,
     options: IRunNativeToolCommandOptions,
+    signal: AbortSignal,
 ) {
     const expectedVersion = expectedNativeToolProtocolVersions.get(toolName);
     if (expectedVersion === undefined) {
         throw new NativeToolProtocolVersionError(toolName, -1, 'unknown tool');
     }
 
-    const commandOptions = createProtocolHandshakeCommandOptions(options);
+    const commandOptions = createProtocolHandshakeCommandOptions(options, signal);
     commandOptions.timeoutMs = NATIVE_TOOL_PROTOCOL_VERSION_TIMEOUT_MS;
     commandOptions.commandLabel = `${toolName}(protocol-version)`;
     commandOptions.maxStdoutBytes = 128;
@@ -138,7 +166,7 @@ async function runNativeToolProtocolHandshake(
     }
 }
 
-function createProtocolHandshakeCommandOptions(options: IRunNativeToolCommandOptions): IRunCommandOptions {
+function createProtocolHandshakeCommandOptions(options: IRunNativeToolCommandOptions, signal: AbortSignal): IRunCommandOptions {
     const handshakeOptions: IRunNativeToolCommandOptions = {};
     if (options.cwd !== undefined) {
         handshakeOptions.cwd = options.cwd;
@@ -149,6 +177,7 @@ function createProtocolHandshakeCommandOptions(options: IRunNativeToolCommandOpt
     if (options.log !== undefined) {
         handshakeOptions.log = options.log;
     }
+    handshakeOptions.signal = signal;
     return createBaseRunCommandOptions(handshakeOptions);
 }
 

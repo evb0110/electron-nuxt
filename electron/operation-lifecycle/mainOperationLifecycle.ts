@@ -150,6 +150,18 @@ export function cancelAllMainOperations(reason: string): void {
     }
 }
 
+export function cancelMainOperationsForOwner(ownerWebContentsId: number, reason: string): void {
+    for (const operation of operations.values()) {
+        if (operation.ownerWebContentsId !== ownerWebContentsId) {
+            continue;
+        }
+        if (operation.kind === 'critical-write' && operation.commitStarted) {
+            continue;
+        }
+        requestOperationCancel(operation, reason);
+    }
+}
+
 // A working copy that is being retired can still be the source of long native
 // work such as scan cleanup, OCR, or search indexing. Cancelling that work is
 // what lets the close finish instead of deleting the file out from under a job
