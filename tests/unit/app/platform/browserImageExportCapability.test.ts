@@ -738,10 +738,7 @@ describe('createBrowserImageExportCapability', () => {
                 handle: null,
             });
 
-        const {
-            createBrowserImageExportCapability,
-            BrowserImageExportPageBudgetError,
-        } = await import('@app/platform/browser-api/createBrowserImageExportCapability');
+        const {createBrowserImageExportCapability} = await import('@app/platform/browser-api/createBrowserImageExportCapability');
         const capability = createBrowserImageExportCapability();
 
         const rejection = await capability.exportPdfToImages(
@@ -753,11 +750,11 @@ describe('createBrowserImageExportCapability', () => {
             (error: unknown) => error,
         );
 
-        expect(rejection).toBeInstanceOf(BrowserImageExportPageBudgetError);
+        expect(rejection).toBeInstanceOf(RangeError);
         expect(rejection).toMatchObject({
             code: 'image-export-page-budget-exceeded',
             pageCount: OVERSIZED_PAGE_COUNT,
-            maxTargetPages: 100_000,
+            name: 'BrowserImageExportPageBudgetError',
         });
         expect((rejection as Error).message).toContain('all-pages exports above 100,000 pages');
         expect((rejection as Error).message).toContain('100,001 pages');
@@ -788,10 +785,7 @@ describe('createBrowserImageExportCapability', () => {
             terminate,
         });
 
-        const {
-            createBrowserImageExportCapability,
-            BrowserImageExportPageBudgetError,
-        } = await import('@app/platform/browser-api/createBrowserImageExportCapability');
+        const {createBrowserImageExportCapability} = await import('@app/platform/browser-api/createBrowserImageExportCapability');
 
         const rejection = await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
             'browser://documents/work/sample.djvu',
@@ -805,7 +799,7 @@ describe('createBrowserImageExportCapability', () => {
             (error: unknown) => error,
         );
 
-        expect(rejection).toBeInstanceOf(BrowserImageExportPageBudgetError);
+        expect(rejection).toBeInstanceOf(RangeError);
         expect((rejection as Error).message).toContain('all-pages exports above 100,000 pages');
 
         expect(rangeSpy).not.toHaveBeenCalled();

@@ -18,7 +18,7 @@ const IMAGE_EXPORT_MAX_RENDER_DIMENSION = Math.floor(
  * Matches the contract collection budget so an oversized export is refused
  * instead of shipping an unbounded path array to the renderer.
  */
-export const IMAGE_EXPORT_MAX_OUTPUT_PATHS = 100_000;
+const IMAGE_EXPORT_MAX_OUTPUT_PATHS = 100_000;
 export const IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME = 'ImageExportOutputBudgetError';
 
 export class ImageExportOutputBudgetError extends RangeError {

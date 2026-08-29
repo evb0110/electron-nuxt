@@ -69,12 +69,11 @@ interface IBrowserTiffPageDescriptor extends ITiffImageDescriptor {pageNumber: n
  * and the contract image-export collection budget. An all-pages browser export
  * must refuse above this page count instead of materializing a denser range.
  */
-export const BROWSER_IMAGE_EXPORT_MAX_TARGET_PAGES = 100_000;
+const BROWSER_IMAGE_EXPORT_MAX_TARGET_PAGES = 100_000;
 
-export class BrowserImageExportPageBudgetError extends RangeError {
+class BrowserImageExportPageBudgetError extends RangeError {
     public readonly code = 'image-export-page-budget-exceeded';
     public readonly pageCount: number;
-    public readonly maxTargetPages: number;
 
     public constructor(pageCount: number) {
         super(
@@ -83,7 +82,6 @@ export class BrowserImageExportPageBudgetError extends RangeError {
         );
         this.name = 'BrowserImageExportPageBudgetError';
         this.pageCount = pageCount;
-        this.maxTargetPages = BROWSER_IMAGE_EXPORT_MAX_TARGET_PAGES;
     }
 }
 
