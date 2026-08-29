@@ -643,12 +643,19 @@ export async function createCompactPageLabelsFixturePdf(filename: string, pageCo
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
 
     for (let pageNumber = 0; pageNumber < pageCount; pageNumber += 1) {
-        doc.addPage([
+        const page = doc.addPage([
             612,
             792,
         ]);
+        page.drawText(`Compact page label fixture ${pageNumber + 1}/${pageCount}`, {
+            x: 72,
+            y: 720,
+            size: 12,
+            font,
+        });
     }
 
     const {context} = doc;

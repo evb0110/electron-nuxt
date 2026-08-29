@@ -13,7 +13,6 @@ import {
 import {
     callWorkspaceCommand,
     readWorkspaceStateValues,
-    waitForSaveFrontierReady,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     waitForPdfLoaded,
@@ -197,7 +196,6 @@ describe('Electron E2E, compact page labels through structural operations', () =
         });
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
-        await waitForSaveFrontierReady(session.page, 60_000);
         await waitForLabels(session, expected);
 
         expect(await runCommand(session, 'handlePageRotate', [
