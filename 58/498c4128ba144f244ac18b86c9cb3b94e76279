@@ -1,0 +1,35 @@
+tests/unit/electron/runLosslessScanCleanup.test.ts
+  s_b2ece6dfe48478::t_1838caf920000e 169-173,235-239
+  s_b2ece6dfe48478::t_11e328f7ee23ce 1-17,21,23-29,31-136,150-168,174-182,184-190,192-219,221-234,240-242
+  s_b2ece6dfe48478::t_0c8fac877ff105 18
+  s_b2ece6dfe48478::t_87d98405304e14 19-20
+  s_b2ece6dfe48478::t_d000e04fa1a469 22,30,137-149,183,191,220
+scan-cleanup-core/runLosslessScanCleanup.ts
+  s_b2ece6dfe48478::t_76ffd6a1c65a09 82-86,883-893
+  s_b2ece6dfe48478::t_fce972ec1d0121 222-228,305,877-881
+  s_b2ece6dfe48478::t_baad9ca68707a2 87-89,104-110,219-221,306-311,875-876,882,894-903,909
+  s_b2ece6dfe48478::t_a69cd02fc0c41e 938
+app/modules/scan-cleanup/composables/useScanCleanupRunSession.ts
+  s_b2ece6dfe48478::t_7113d4ef8e4886 434-437,444-454,456-464
+  s_b2ece6dfe48478::t_601a43d6abc279 441-443
+tests/unit/app/modules/scan-cleanup/scanCleanupWorkspaceSession.test.ts
+  s_b2ece6dfe48478::t_d287a6611f0c30 492-506,514-515
+  s_b2ece6dfe48478::t_99518f77517a72 507-513
+  s_b2ece6dfe48478::t_1167ea53fdfcc2 527-528
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "58498c4128ba144f244ac18b86c9cb3b94e76279",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
