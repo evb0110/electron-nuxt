@@ -54,6 +54,7 @@ const mocks = vi.hoisted(() => ({
     getWorkingCopyRevision: vi.fn(),
     markWorkingCopySyncRequired: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
+    transitionWorkingCopyContentRevision: vi.fn(),
     optimizePdfForSaveAs: vi.fn(),
     optimizeLargePdfForOrdinarySave: vi.fn(),
     copyFileCopyOnWrite: vi.fn(),
@@ -88,6 +89,7 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({
     assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
     getWorkingCopyRevision: (...args: unknown[]) => mocks.getWorkingCopyRevision(...args),
     markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
+    transitionWorkingCopyContentRevision: (...args: unknown[]) => mocks.transitionWorkingCopyContentRevision(...args),
     markWorkingCopySyncRequired: (...args: unknown[]) => mocks.markWorkingCopySyncRequired(...args),
 }));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: vi.fn(() => true)}));
@@ -190,6 +192,14 @@ describe('serializedPdfPersistence', () => {
             mintedAt: 1,
         }));
         mocks.markWorkingCopyContentChanged.mockResolvedValue(undefined);
+        mocks.transitionWorkingCopyContentRevision.mockImplementation(async (
+            _workingCopyPath: string,
+            _reason: string,
+            commit: (revision: {token: TDocumentRevisionToken}) => Promise<void>,
+        ) => {
+            await commit({token: requireDocumentRevisionToken('drt1:test:working-copy-committed')});
+            return {token: requireDocumentRevisionToken('drt1:test:working-copy-committed')};
+        });
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
             await unlink(sourcePath);
@@ -849,11 +859,13 @@ describe('serializedPdfPersistence', () => {
         expect(readFileSyncUtf8(originalPath)).toBe('old-original');
         expect(mocks.optimizeLargePdfForOrdinarySave).not.toHaveBeenCalled();
         expect(mocks.transitionOriginalAndWorkingCopyRevision).not.toHaveBeenCalled();
-        expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(
+        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalledWith(
             workingPath,
             'replace-working-copy',
+            expect.any(Function),
             42,
         );
+        expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
         expect(mocks.addRecentFile).not.toHaveBeenCalled();
     });
 

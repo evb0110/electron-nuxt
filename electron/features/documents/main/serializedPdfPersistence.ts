@@ -65,10 +65,13 @@ import {
 } from '@electron/file-access/openPathCapabilities';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
-import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import {
+    clearWorkingCopyOcrArtifacts,
+    enqueueWorkingCopyMutation,
+} from '@electron/file-access/workingCopyMutationQueue';
 import {
     markWorkingCopySyncRequired,
-    markWorkingCopyContentChanged,
+    transitionWorkingCopyContentRevision,
 } from '@electron/file-access/documentRevisionStore';
 import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
@@ -667,13 +670,18 @@ async function commitSession(
         };
 
         if (session.mode === 'working_copy') {
-            await commitPdfTempFile(session.tempPath, session.workingPath, {
-                signal: session.lifecycleOperation.signal,
-                ownerId: `serialized-pdf:${session.id}`,
-                receipt,
-                ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
-            });
-            await markWorkingCopyContentChanged(session.workingPath, 'replace-working-copy', session.senderId);
+            await transitionWorkingCopyContentRevision(
+                session.workingPath,
+                'replace-working-copy',
+                () => commitPdfTempFile(session.tempPath, session.workingPath, {
+                    signal: session.lifecycleOperation.signal,
+                    ownerId: `serialized-pdf:${session.id}`,
+                    receipt,
+                    ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
+                }),
+                session.senderId,
+            );
+            await clearWorkingCopyOcrArtifacts(session.workingPath);
             targetWriteCommitted = true;
             workingCopyRefreshed = true;
         } else if (session.mode === 'save_as') {
