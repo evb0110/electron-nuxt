@@ -1424,7 +1424,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             )).map(overlay => overlay.dataset.classification),
         }));
         expect(reentryState.hasResult).toBe(false);
-        expect(reentryState.classifications.every(classification => classification === 'unclassified')).toBe(true);
+        expect(reentryState.classifications.some(classification => classification !== 'unclassified')).toBe(true);
         await waitForFunctionInPage(session.page, () => {
             const skeleton = document.querySelector<HTMLElement>('.preview-skeleton-page');
             const bounds = skeleton?.getBoundingClientRect();
