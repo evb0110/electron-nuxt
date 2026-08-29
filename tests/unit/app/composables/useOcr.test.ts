@@ -54,7 +54,7 @@ vi.mock('@app/utils/platformDocuments', () => ({
 }));
 vi.mock('@app/utils/ocr/loadOcrText', () => ({loadDocumentTextCatalogPages: loadDocumentTextCatalogPagesMock}));
 vi.mock('@app/utils/ocr/extractPdfText', () => ({ extractPdfText: extractPdfTextMock }));
-vi.mock('@app/utils/docx', () => ({createDocxFromText: createDocxFromTextMock}));
+vi.mock('@app/utils/docx', () => ({createDocxFromTextAsync: createDocxFromTextMock}));
 vi.mock('@app/utils/docxStreaming', () => ({createDocxFromTextChunks: createDocxFromTextChunksMock}));
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
 
@@ -791,12 +791,18 @@ describe('useOcr', () => {
                 '/tmp/work.pdf',
                 'revision-token',
                 undefined,
+                expect.any(AbortSignal),
             );
-            expect(createDocxFromTextChunksMock).toHaveBeenCalledWith(expect.anything(), false);
+            expect(createDocxFromTextChunksMock).toHaveBeenCalledWith(
+                expect.anything(),
+                false,
+                expect.any(AbortSignal),
+            );
             expect(extractPdfTextMock).not.toHaveBeenCalled();
             expect(mockDocuments.writeDocxFileChunks).toHaveBeenCalledWith(
                 '/tmp/export.docx',
                 expect.anything(),
+                expect.any(AbortSignal),
             );
             expect(mockDocuments.writeDocxFile).not.toHaveBeenCalled();
             expect(mockDocuments.cleanupFile).not.toHaveBeenCalled();
@@ -806,6 +812,52 @@ describe('useOcr', () => {
                 description: expect.any(String),
             }));
         } finally {
+            scope.stop();
+        }
+    });
+
+    it('cancels the deprecated DOCX export path without committing output', async () => {
+        const writeStarted = Promise.withResolvers<boolean>();
+        const writeRelease = Promise.withResolvers<boolean>();
+        let receivedSignal: AbortSignal | undefined;
+        mockDocuments.saveDocxAs.mockResolvedValueOnce('/tmp/export.docx');
+        loadDocumentTextCatalogPagesMock.mockResolvedValueOnce([{
+            pageNumber: 1,
+            text: 'pdf text',
+            source: 'pdf-native',
+        }]);
+        mockDocuments.writeDocxFileChunks.mockImplementationOnce(async (
+            _path,
+            _chunks,
+            signal,
+        ) => {
+            receivedSignal = signal;
+            writeStarted.resolve(true);
+            await writeRelease.promise;
+            return true;
+        });
+
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            expect(ocr.cancelDocxExport).toEqual(expect.any(Function));
+            const exportPromise = ocr.exportDocx('/tmp/work.pdf', {} as never);
+            await writeStarted.promise;
+
+            ocr.cancelDocxExport();
+            expect(receivedSignal?.aborted).toBe(true);
+            writeRelease.resolve(true);
+
+            await expect(exportPromise).resolves.toBe(false);
+            expect(ocr.isExporting.value).toBe(false);
+            expect(ocr.error.value).toBeNull();
+            expect(toastAddMock).not.toHaveBeenCalled();
+        } finally {
+            writeRelease.resolve(true);
             scope.stop();
         }
     });

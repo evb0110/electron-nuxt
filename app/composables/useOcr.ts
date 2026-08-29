@@ -11,7 +11,7 @@ import type {
     TOcrSearchablePdfPages,
 } from '@contracts/electronApiOcr';
 import type { IOcrCapability } from '@contracts/ocrPlatformFeature';
-import { createDocxFromText } from '@app/utils/docx';
+import { createDocxFromTextAsync } from '@app/utils/docx';
 import { createDocxFromTextChunks } from '@app/utils/docxStreaming';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -97,6 +97,11 @@ export const useOcr = () => {
     let pendingOcrReject: ((reason?: unknown) => void) | null = null;
     let cancelCleanupTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
+    let activeDocxAbortController: AbortController | null = null;
+
+    function cancelDocxExport() {
+        activeDocxAbortController?.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
+    }
 
     function clearCancelCleanupTimer() {
         if (cancelCleanupTimer !== null) {
@@ -765,6 +770,7 @@ export const useOcr = () => {
 
     onScopeDispose(() => {
         disposed = true;
+        cancelDocxExport();
         void cancelOcr();
     });
 
@@ -823,18 +829,22 @@ export const useOcr = () => {
 
         isExporting.value = true;
         error.value = null;
+        const abortController = new AbortController();
+        activeDocxAbortController = abortController;
 
         try {
             const selectedLanguages = getDocxExportLanguages();
             const documentRevisionToken = workingCopyPath
                 ? (await getDocumentFilesCapability().getDocumentRevision(workingCopyPath).catch(() => null))?.token ?? null
                 : null;
+            abortController.signal.throwIfAborted();
             return await exportTextAsDocx({
                 workingCopyPath,
                 documentRevisionToken,
                 pdfDocument,
+                signal: abortController.signal,
                 hasRtl: hasRtlOcrLanguage(selectedLanguages),
-                buildDocx: createDocxFromText,
+                buildDocx: createDocxFromTextAsync,
                 buildDocxChunks: createDocxFromTextChunks,
                 t,
                 toast,
@@ -845,8 +855,14 @@ export const useOcr = () => {
                 },
                 localizeError: e => localizeOcrError(e, 'errors.ocr.exportDocx'),
             });
+        } catch (e) {
+            if (abortController.signal.aborted || (e instanceof Error && e.name === 'AbortError')) {
+                return false;
+            }
+            throw e;
         } finally {
-            if (!disposed) {
+            if (activeDocxAbortController === abortController) {
+                activeDocxAbortController = null;
                 isExporting.value = false;
             }
         }
@@ -870,5 +886,6 @@ export const useOcr = () => {
         clearRunSettingsHistory,
         toggleLanguage,
         exportDocx,
+        cancelDocxExport,
     };
 };
