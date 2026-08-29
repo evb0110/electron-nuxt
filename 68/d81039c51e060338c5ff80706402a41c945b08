@@ -1,0 +1,25 @@
+app/modules/pdf-viewer/components/PdfPrintDialog.vue
+  s_166bee465f6d75::t_4a27514cdc4671 5,37-43,183-196
+tests/helpers/compileAppStylesheet.ts
+  s_166bee465f6d75::t_eae9ef89ea11d1 39-48,150-167,188
+tests/integration/browser/pdfPrintDialogOptionColumns.test.ts
+  s_166bee465f6d75::t_b0d5253903c1fb 9,14-17,22,25,30-31,42-44,49,52-58,60-61,66-67,72-101,124-127,132,138-139,151,183-193,196-213,220,222-224,226-228,233,235,251-278,307-316,321-323,329,336,344,351-356,366,368-374
+tests/unit/helpers/compileAppStylesheet.test.ts
+  s_166bee465f6d75::t_5eb18aba3aff11 77-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "68d81039c51e060338c5ff80706402a41c945b08",
+  "prompts": {},
+  "sessions": {
+    "s_166bee465f6d75": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1fa231a6-beda-49e3-9915-a90846b0cc8b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
