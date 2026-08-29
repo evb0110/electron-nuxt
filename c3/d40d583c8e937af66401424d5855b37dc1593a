@@ -1,0 +1,26 @@
+tests/unit/contracts/search.test.ts
+  s_e27fceeb7bbfb6::t_d13529bae27fc6 221-222
+  s_e27fceeb7bbfb6::t_807b63c4fa89a4 220,223-224
+packages/contracts/search.ts
+  s_e27fceeb7bbfb6::t_89d2c25c5beb93 317
+  s_e27fceeb7bbfb6::t_3d933dad59b0fe 336-360,375
+  s_e27fceeb7bbfb6::t_2d93fe78bb7b1a 23,325-331,368,376-378
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_e27fceeb7bbfb6::t_735abc1a237ea0 236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c3d40d583c8e937af66401424d5855b37dc1593a",
+  "prompts": {},
+  "sessions": {
+    "s_e27fceeb7bbfb6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d46-62f2-7041-adde-67bbaab12bbf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
