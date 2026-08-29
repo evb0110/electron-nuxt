@@ -349,6 +349,15 @@ describe('PdfThumbnails keyboard navigation', () => {
         expect(tabStopPages(host)).toEqual([6]);
     });
 
+    it('keeps a distant current page row mounted before the hidden rail is measured', async () => {
+        const {host} = await mountThumbnails({
+            currentPage: 18,
+            totalPages: 300,
+        });
+
+        expect(row(host, 18).getAttribute('aria-current')).toBe('page');
+    });
+
     it('reveals a virtualized row before moving focus to it', async () => {
         stubRailGeometry();
         const {host} = await mountThumbnails({

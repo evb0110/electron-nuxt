@@ -32,12 +32,12 @@
         :key="page"
         tag="div"
         class="pdf-thumbnail pdf-thumbnail--virtual"
-        :current="page === currentPage"
+        :current="page === clampPage(currentPage)"
         label-class="pdf-thumbnail-number"
         :selected="isSelected(page)"
         :frame-style="getThumbnailCanvasStyle(page)"
         :class="{
-          'is-active': page === currentPage,
+          'is-active': page === clampPage(currentPage),
           'is-dragged': isDragging && draggedPages.includes(page),
           'is-drop-before': dropInsertIndex === page - 1,
           'is-drop-after': page === totalPages && dropInsertIndex === totalPages,
@@ -96,6 +96,7 @@ import {
     VIRTUAL_OVERSCAN,
     createThumbnailCanvasStyle,
     createThumbnailItemStyle,
+    resolveThumbnailVirtualPages,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
 import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection';
 import {
@@ -223,15 +224,12 @@ const viewportPages = computed(() => {
     );
 });
 const virtualPages = computed(() => {
-    if (totalPages <= 0 || visibleEndIndex.value < visibleStartIndex.value) {
-        return [] as number[];
-    }
-
-    const pages: number[] = [];
-    for (let index = visibleStartIndex.value; index <= visibleEndIndex.value; index += 1) {
-        pages.push(index + 1);
-    }
-    return pages;
+    return resolveThumbnailVirtualPages(
+        visibleStartIndex.value,
+        visibleEndIndex.value,
+        totalPages,
+        currentPage,
+    );
 });
 const virtualWrapperStyle = computed(() => {
     if (totalPages <= 0) {
