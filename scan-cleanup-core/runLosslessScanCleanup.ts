@@ -79,7 +79,14 @@ import {
     createEmptyScanCleanupSummary,
     reportScanCleanupSummaryWarningEvent,
 } from '@scan-cleanup-core/createScanCleanupProgressReporter';
-import {ScanCleanupNativeToolUnavailableError} from '@scan-cleanup-core/errors';
+import {
+    ScanCleanupNativeToolUnavailableError,
+    ScanCleanupStreamingEvidenceError,
+} from '@scan-cleanup-core/errors';
+import {
+    assertScanCleanupCompactSourceBudget,
+    resolveScanCleanupCompactSourceBudget,
+} from '@scan-cleanup-core/policy/scanCleanupRepresentationPolicy';
 import {
     collectScanCleanupPageScopeBatch,
     iterateScanCleanupPageBatches,
@@ -93,6 +100,13 @@ import {
 
 /** The legacy map form remains accepted for focused direct/core tests. */
 type TScanCleanupLosslessDpiSource = IScanCleanupPageRasterSource | ISourceDpiDetectionResult;
+
+function isCompactLayeredRaster(raster: IDetectedPageRaster | undefined) {
+    return raster?.hasBilevelLayer === true
+        && raster.backgroundDpi !== undefined
+        && Number.isFinite(raster.backgroundDpi)
+        && raster.backgroundDpi > 0;
+}
 
 /**
  * A streaming child may inherit the parent's document canvas. In that case the
@@ -202,6 +216,16 @@ export async function runLosslessScanCleanup(
         };
     };
     let rasterizedCount = 0;
+    // A full lossless run may span many native batches. Count compact source
+    // pages as each bounded raster window is read instead of rebuilding a
+    // document-sized raster map just to calculate the publication budget.
+    const sourceReportedIncompleteCompactCount = dpiSource.compactLayeredPageCountComplete === false;
+    let compactLayeredPageCount = sourceReportedIncompleteCompactCount
+        ? 0
+        : dpiSource.compactLayeredPageCount ?? 0;
+    const shouldCountCompactPages = sourceReportedIncompleteCompactCount
+        || dpiSource.compactLayeredPageCount === undefined;
+    let compactLayeredPageCountComplete = !sourceReportedIncompleteCompactCount;
     const pagePlanResolver = createPagePlanResolver(request, log, 'lossless');
     emitProgress('rasterizing', 0, pageNumbers.length, []);
     const summary = createEmptyScanCleanupSummary(pageNumbers.length, preparedWarnings);
@@ -278,6 +302,13 @@ export async function runLosslessScanCleanup(
             pageNumber,
             await dpiSource.getPageRaster(pageNumber),
         ] as const)));
+        if (shouldCountCompactPages) {
+            for (const raster of batchRasterByNumber.values()) {
+                if (isCompactLayeredRaster(raster)) {
+                    compactLayeredPageCount = (compactLayeredPageCount ?? 0) + 1;
+                }
+            }
+        }
         const rasterPlans = batchPageNumbers.map(pageNumber => resolveRasterPlan(
             pageNumber,
             batchRasterByNumber.get(pageNumber),
@@ -841,12 +872,41 @@ export async function runLosslessScanCleanup(
         stat(preparedPdfPath),
         stat(stagedPdfPath),
     ]);
+    const fullDocumentRun = request.sourcePageNumbers === undefined
+        && request.sourcePageRange === undefined;
+    if (
+        fullDocumentRun
+        && request.options.outputMode === 'auto'
+        && !sourceReportedIncompleteCompactCount
+    ) {
+        compactLayeredPageCountComplete = true;
+    }
+    if (
+        fullDocumentRun
+        && request.options.outputMode === 'auto'
+        && !compactLayeredPageCountComplete
+    ) {
+        throw new ScanCleanupStreamingEvidenceError(
+            join(scratch, 'scan-cleanup-representation-report.json'),
+            'Automatic scan cleanup could not establish a bounded compact-source budget for the full lossless document; '
+            + 'source raster probing was incomplete, so publication was refused',
+        );
+    }
+    const compactSourceBudget = resolveScanCleanupCompactSourceBudget({
+        documentPageCount: pageNumbers.length,
+        options: request.options,
+        ...(compactLayeredPageCountComplete
+            ? {compactLayeredPageCount: compactLayeredPageCount ?? 0}
+            : {}),
+        partialRun: !fullDocumentRun,
+        sourceBytes: sourceFile.size,
+    });
     const representationReport = {
         schemaVersion: 1 as const,
         sourceBytes: sourceFile.size,
         outputBytes: outputFile.size,
         outputToSourceByteRatio: outputFile.size / sourceFile.size,
-        compactSourceBudget: null,
+        compactSourceBudget,
         outputMappings,
         pages: allOutputs.map((output, outputIndex) => {
             const sourcePageNumber = output.sourcePageIndex + 1;
@@ -875,5 +935,6 @@ export async function runLosslessScanCleanup(
         join(scratch, 'scan-cleanup-representation-report.json'),
         `${JSON.stringify(representationReport, null, 2)}\n`,
     );
+    assertScanCleanupCompactSourceBudget(outputFile.size, compactSourceBudget);
     return summary;
 }

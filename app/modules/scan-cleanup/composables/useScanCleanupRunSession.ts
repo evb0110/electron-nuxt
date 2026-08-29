@@ -431,30 +431,37 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 : {};
             // Clustered over the whole document, then narrowed to the pages
             // this run produces: a partial run has to place its pages where a
-            // full run would have.
+            // full run would have. For xlarge ink runs the bounded summary is
+            // authoritative, so do not duplicate it with the renderer's
+            // retained-page anchor window in the IPC request. The conversion
+            // resolves each batch from the summary instead.
             const placementAnchors: Array<readonly [string, NonNullable<
                 ReturnType<typeof options.placementAnchorsByPage.value.get>
             >]> = [];
-            if (requestedPageNumbers === null) {
-                for (const [
-                    pageNumber,
-                    anchors,
-                ] of options.placementAnchorsByPage.value) {
-                    if (Object.keys(anchors).length > 0) {
-                        placementAnchors.push([
-                            String(pageNumber),
-                            anchors,
-                        ]);
+            const usesBoundedPlacementAnchorSummary = placementAnchorSummary !== null
+                && detectionResultStoreId !== null;
+            if (!usesBoundedPlacementAnchorSummary) {
+                if (requestedPageNumbers === null) {
+                    for (const [
+                        pageNumber,
+                        anchors,
+                    ] of options.placementAnchorsByPage.value) {
+                        if (Object.keys(anchors).length > 0) {
+                            placementAnchors.push([
+                                String(pageNumber),
+                                anchors,
+                            ]);
+                        }
                     }
-                }
-            } else {
-                for (const pageNumber of requestedPageNumbers) {
-                    const anchors = options.placementAnchorsByPage.value.get(pageNumber);
-                    if (anchors !== undefined && Object.keys(anchors).length > 0) {
-                        placementAnchors.push([
-                            String(pageNumber),
-                            anchors,
-                        ]);
+                } else {
+                    for (const pageNumber of requestedPageNumbers) {
+                        const anchors = options.placementAnchorsByPage.value.get(pageNumber);
+                        if (anchors !== undefined && Object.keys(anchors).length > 0) {
+                            placementAnchors.push([
+                                String(pageNumber),
+                                anchors,
+                            ]);
+                        }
                     }
                 }
             }

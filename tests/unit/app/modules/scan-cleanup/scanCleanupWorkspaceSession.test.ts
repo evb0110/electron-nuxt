@@ -489,6 +489,30 @@ describe('scan cleanup workspace session detection guidance', () => {
         state.resultCount = 20_001;
         state.detectionResultStoreId = 'ink-summary-store';
         state.placementAnchorSummary = placementAnchorSummary;
+        state.results = [{
+            ...state.results[0]!,
+            pageNumber: 20_001,
+            sourcePageMetadata: {
+                pageNumber: 20_001,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0,
+                sourceDpi: 300,
+            },
+            pagePlanEvidence: {
+                ...state.results[0]!.pagePlanEvidence!,
+                pageNumber: 20_001,
+                outputs: {full: {contentBox: {
+                    xNormalized: 0.1,
+                    yNormalized: 0.2,
+                    widthNormalized: 0.7,
+                    heightNormalized: 0.6,
+                    rotationDegrees: 0,
+                }}},
+            },
+        }];
         harness.emitDetection(state);
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
 
@@ -500,6 +524,8 @@ describe('scan cleanup workspace session detection guidance', () => {
             detectionResultStoreId: 'ink-summary-store',
             placementAnchorSummary,
         }));
+        expect(vi.mocked(harness.value.start).mock.calls[0]?.[0])
+            .not.toHaveProperty('placementAnchorsByPage');
         mounted.unmount();
     });
 
