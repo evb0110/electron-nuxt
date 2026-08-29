@@ -280,19 +280,31 @@ describe('pdfOptimization', () => {
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/native/pdftoppm',
             expect.any(Array),
-            expect.objectContaining({signal: controller.signal, cancelGroup: 'pdf-optimize:cancel-opt'}),
+            expect.objectContaining({
+                signal: controller.signal,
+                cancelGroup: 'pdf-optimize:cancel-opt',
+            }),
         );
         expect(mocks.runQpdfCommand).toHaveBeenCalledWith(
             expect.any(Array),
-            expect.objectContaining({signal: controller.signal, cancelGroup: 'pdf-optimize:cancel-opt'}),
+            expect.objectContaining({
+                signal: controller.signal,
+                cancelGroup: 'pdf-optimize:cancel-opt',
+            }),
         );
         expect(mocks.optimizePdfForSave).toHaveBeenCalledWith(
             `${outputPath}.tmp`,
-            expect.objectContaining({signal: controller.signal, cancelGroup: 'pdf-optimize:cancel-opt'}),
+            expect.objectContaining({
+                signal: controller.signal,
+                cancelGroup: 'pdf-optimize:cancel-opt',
+            }),
         );
         expect(mocks.validatePdfFile).toHaveBeenCalledWith(
             `${outputPath}.tmp`,
-            expect.objectContaining({signal: controller.signal, cancelGroup: 'pdf-optimize:cancel-opt'}),
+            expect.objectContaining({
+                signal: controller.signal,
+                cancelGroup: 'pdf-optimize:cancel-opt',
+            }),
         );
     });
 

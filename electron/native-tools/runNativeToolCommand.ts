@@ -80,12 +80,12 @@ export async function verifyNativeToolProtocol(command: string, options: IRunNat
     const handshake: IProtocolHandshake = {
         controller,
         promise: runNativeToolProtocolHandshake(command, toolName, options, controller.signal)
-        .catch((error: unknown) => {
-            if (nativeToolProtocolHandshakeCache.get(command) === handshake) {
-                nativeToolProtocolHandshakeCache.delete(command);
-            }
-            throw error;
-        }),
+            .catch((error: unknown) => {
+                if (nativeToolProtocolHandshakeCache.get(command) === handshake) {
+                    nativeToolProtocolHandshakeCache.delete(command);
+                }
+                throw error;
+            }),
         waiters: 0,
     };
     nativeToolProtocolHandshakeCache.set(command, handshake);
