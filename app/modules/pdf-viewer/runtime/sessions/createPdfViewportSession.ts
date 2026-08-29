@@ -376,15 +376,15 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             ] as const;
         },
         (viewportSession, previousViewportSession) => {
-            // A navigation projection can arrive before its render and viewport
-            // fences make the shared surface ready. Replay the local viewport
-            // authority at that lifecycle edge so the workspace fence can accept
-            // the page that already settled physically.
+            // Page and scale projections can arrive before the shared surface is
+            // ready. Replay both authorities at that lifecycle edge so the
+            // workspace reflects the geometry that already settled physically.
             if (
                 viewportSession[0] === 'ready'
                 && previousViewportSession?.[0] !== 'ready'
             ) {
                 options.emitCurrentPage(currentPage.value);
+                reloadTransition.emitEffectiveZoom(scale.layoutScale.value);
             }
         },
         {

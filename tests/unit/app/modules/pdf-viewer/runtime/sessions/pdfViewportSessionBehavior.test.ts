@@ -146,6 +146,7 @@ function createViewportFixture(input: {
     const fitMode = input.fitMode ?? ref<'width' | 'height'>('width');
     const isActive = input.isActive ?? ref(true);
     const emittedPages: number[] = [];
+    const emitEffectiveZoom = vi.fn();
     const {port} = createTestPdfViewportWritePort();
     let viewport: ReturnType<typeof createPdfViewportSession> | undefined;
     const root = document.createElement('div');
@@ -193,7 +194,7 @@ function createViewportFixture(input: {
                 emitZoom: value => {
                     zoom.value = value;
                 },
-                emitEffectiveZoom: vi.fn(),
+                emitEffectiveZoom,
                 summarizeViewerStateForLog: vi.fn(),
                 clearPendingImagePlacement: vi.fn(),
             });
@@ -208,6 +209,7 @@ function createViewportFixture(input: {
         app,
         container,
         documentSession,
+        emitEffectiveZoom,
         emittedPages,
         fitMode,
         isActive,
@@ -879,6 +881,9 @@ describe('PdfViewportSession behavior', () => {
             pageCount: 10,
         });
         try {
+            expect(fixture.viewport.scale.seedOpeningFitScale(845 / 612)).toBe(true);
+            await nextTick();
+            fixture.emitEffectiveZoom.mockClear();
             setCurrentPage(fixture.viewport, 6);
             await nextTick();
             expect(outcomes).toEqual([false]);
@@ -914,6 +919,7 @@ describe('PdfViewportSession behavior', () => {
                 6,
                 6,
             ]);
+            expect(fixture.emitEffectiveZoom).toHaveBeenCalledExactlyOnceWith(845 / 612);
             expect(currentPage.value).toBe(6);
             expect(navigationFence.targetPage.value).toBeNull();
         } finally {
