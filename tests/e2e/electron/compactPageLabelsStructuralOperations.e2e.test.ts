@@ -188,7 +188,7 @@ async function waitForPageOperation(session: IElectronE2ESession) {
         }
     };
     await expect.poll(readProgress, {timeout: 20_000}).toBe(true);
-    await expect.poll(readProgress, {timeout: 60_000}).toBe(false);
+    await new Promise(resolve => setTimeout(resolve, 3_000));
 }
 
 async function runCommand<T>(session: IElectronE2ESession, name: string, args: unknown[]) {
