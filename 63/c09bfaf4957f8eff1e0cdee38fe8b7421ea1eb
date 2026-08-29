@@ -1,0 +1,63 @@
+packages/contracts/nativePdfMutations.ts
+  s_54386a8216bff5::t_dbbabc51bcf7d1 73-74,109-112,125,132,330,344,542,688,944
+app/platform/browser/browserRecentFilesStore.ts
+  s_54386a8216bff5::t_0b12238841ec07 36-39,41,127-129,160-161,170-172
+native/pdf-page-ops/src/text_layer.rs
+  s_54386a8216bff5::t_dbbabc51bcf7d1 2,1632-1634
+native/pdf-page-ops/src/split_pages.rs
+  s_54386a8216bff5::t_dbbabc51bcf7d1 2,747-749
+app/utils/localStorage.ts
+  s_54386a8216bff5::t_0b12238841ec07 30,35,38
+tests/unit/app/platform/browserRecentFilesStore.test.ts
+  s_54386a8216bff5::t_2bf3384ba00d18 9,103-136
+tests/unit/app/utils/localStorage.test.ts
+  s_54386a8216bff5::t_0b12238841ec07 47,54,57-64
+native/pdf-page-ops/tests/text_layer.rs
+  s_54386a8216bff5::t_dbbabc51bcf7d1 440-492
+app/platform/browser/browserDocumentMaintenance.ts
+  s_54386a8216bff5::t_0b12238841ec07 155-158,160
+  s_54386a8216bff5::t_358f101b079813 150,159,162
+native/pdf-page-ops/tests/error_classification.rs
+  s_54386a8216bff5::t_dbbabc51bcf7d1 158-205
+native/pdf-page-ops/src/page_geometry.rs
+  s_54386a8216bff5::t_dbbabc51bcf7d1 525-527
+native/pdf-page-ops/src/conformance.rs
+  s_54386a8216bff5::t_dbbabc51bcf7d1 2,107
+app/utils/recentFilesPersistence.ts
+  s_54386a8216bff5::t_0b12238841ec07 286,295-297
+native/pdf-page-ops/src/input.rs
+  s_54386a8216bff5::t_dbbabc51bcf7d1 715-719,721-746
+native/evb-native-support/src/output.rs
+  s_54386a8216bff5::t_dbbabc51bcf7d1 36-40,577-603
+native/pdf-page-ops/tests/split_pages.rs
+  s_54386a8216bff5::t_dbbabc51bcf7d1 359-397
+tests/unit/app/platform/browserDocumentMaintenance.test.ts
+  s_54386a8216bff5::t_18489956c2f293 75,201-242
+tests/unit/contracts/nativePdfMutations.test.ts
+  s_54386a8216bff5::t_dbbabc51bcf7d1 295-297,455-457,468-470,480-482,487-490
+  s_a2c78f8fbcffdf::t_2745189c111517 458-467,471-479,483-486
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "63c09bfaf4957f8eff1e0cdee38fe8b7421ea1eb",
+  "prompts": {},
+  "sessions": {
+    "s_54386a8216bff5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d34-05bd-7920-ad61-7e7e91e9ae70",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_a2c78f8fbcffdf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0f1be617-b6dc-4fea-8165-c9c64cadc457",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
