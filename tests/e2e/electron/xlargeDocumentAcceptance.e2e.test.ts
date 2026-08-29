@@ -247,6 +247,17 @@ interface IHeartbeatProbe extends IHeartbeatSnapshot {
     timerId: number | null;
 }
 
+interface IRendererLongTask {
+    durationMs: number;
+    name: string;
+    startTime: number;
+}
+
+interface IRendererLongTaskProbeWindow extends Window {
+    __evbXlargeLongTasks?: IRendererLongTask[];
+    __evbXlargeLongTaskObserver?: PerformanceObserver;
+}
+
 interface IRendererRssSample {
     atMs: number;
     electronBytes: number | null;
@@ -322,6 +333,7 @@ interface IXlargeAcceptanceTelemetry {
         session: 'A' | 'B';
         stage: string
     }>;
+    rendererLongTasks: IRendererLongTask[];
     rss: Array<IRendererRssTelemetry & {session: 'A' | 'B'}>;
     rendererJsHeapBudgetBytes: number;
     ipcPayloadMeasurements: IXlargeIpcPayloadMeasurement[];
@@ -358,6 +370,7 @@ function createTelemetry(): IXlargeAcceptanceTelemetry {
         },
         phases: [],
         heartbeats: [],
+        rendererLongTasks: [],
         rss: [],
         rendererJsHeapBudgetBytes: XLARGE_RENDERER_JS_HEAP_MAX_DELTA_BYTES,
         ipcPayloadMeasurements: [],
@@ -672,6 +685,39 @@ async function startRendererHeartbeat(page: Page) {
             };
         });
     };
+}
+
+async function startRendererLongTaskProbe(page: Page) {
+    await page.evaluate(() => {
+        const target = window as IRendererLongTaskProbeWindow;
+        const longTasks: IRendererLongTask[] = [];
+        target.__evbXlargeLongTasks = longTasks;
+        if (typeof PerformanceObserver !== 'function') {
+            return;
+        }
+        const observer = new PerformanceObserver(list => {
+            list.getEntries().forEach(entry => {
+                longTasks.push({
+                    durationMs: Math.round(entry.duration * 10) / 10,
+                    name: entry.name,
+                    startTime: Math.round(entry.startTime * 10) / 10,
+                });
+            });
+        });
+        observer.observe({
+            type: 'longtask',
+            buffered: true,
+        });
+        target.__evbXlargeLongTaskObserver = observer;
+    });
+}
+
+async function readRendererLongTaskProbe(page: Page) {
+    return page.evaluate(() => {
+        const target = window as IRendererLongTaskProbeWindow;
+        target.__evbXlargeLongTaskObserver?.disconnect();
+        return target.__evbXlargeLongTasks ?? [];
+    });
 }
 
 async function waitForRenderedPage(page: Page, pageNumber: number, timeoutMs: number) {
@@ -1381,6 +1427,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             expect(dirtyState.dirtyState?.pdfJsAnnotationStorage?.ids?.length ?? 0).toBeGreaterThan(0);
 
             await installSaveReceiptProbe(sessionB.page);
+            await startRendererLongTaskProbe(sessionB.page);
             const saveTargetPath = sessionBOpenState.pdfSourceState?.reloadPath
                 ?? sessionBOpenState.workingCopyPath
                 ?? stagedFixture.stagedPath;
@@ -1455,6 +1502,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             await timed(telemetry, 'saved-output-qpdf-check', () => assertQpdfCheck(savedPath));
 
             const heartbeatBeforeReload = await activeHeartbeat();
+            telemetry.rendererLongTasks = await readRendererLongTaskProbe(sessionB.page);
             telemetry.heartbeats.push({
                 session: 'B',
                 stage: 'save-before-fresh-renderer-reopen',

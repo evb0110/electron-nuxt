@@ -217,4 +217,43 @@ describe('workingCopyDirectory', () => {
             });
         }
     });
+
+    it('streams the unsupported-clone fallback in 16 MiB bounded reads', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-stable-copy-chunk-test-'));
+        const sourcePath = join(root, 'source.pdf');
+        const targetPath = join(root, 'target.pdf');
+        const readLengths: number[] = [];
+        writeFileSync(sourcePath, Buffer.alloc(16 * 1024 * 1024 + 17, 41));
+        try {
+            vi.doMock('fs/promises', async importOriginal => {
+                const original = await importOriginal<typeof FsPromises>();
+                return {
+                    ...original,
+                    open: async (...args: Parameters<typeof original.open>) => {
+                        const handle = await original.open(...args);
+                        if (args[0] === sourcePath && args[1] === 'r') {
+                            const read = handle.read.bind(handle);
+                            handle.read = (async (...readArgs: Parameters<typeof handle.read>) => {
+                                readLengths.push(readArgs[2] as number);
+                                return read(...readArgs);
+                            }) as typeof handle.read;
+                        }
+                        return handle;
+                    },
+                };
+            });
+            vi.resetModules();
+            const {copyFileFromStableSource} = await import('@electron/file-access/workingCopyDirectory');
+
+            await copyFileFromStableSource(sourcePath, targetPath);
+
+            expect(readLengths[0]).toBe(16 * 1024 * 1024);
+            expect(Math.max(...readLengths)).toBeLessThanOrEqual(16 * 1024 * 1024);
+        } finally {
+            rmSync(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
 });
