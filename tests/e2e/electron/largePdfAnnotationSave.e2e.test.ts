@@ -49,15 +49,16 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    goToPageViaToolbar,
     openAnnotationsTab,
     openPdfInApp,
     saveViaVisibleToolbar,
     saveViaWindowHandle,
+    scrollViewerToPage,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
+    clickLatestVisibleNoteWindowClose,
     clickAnnotationTool,
     createFreeTextAnnotation,
     createFreeTextAnnotationWithPointer,
@@ -1634,6 +1635,8 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             x: 0.72,
             y: 0.24,
         });
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
         await openAnnotationsTab(page, 30_000);
         expect(await createFreeTextAnnotationWithPointer(
             page,
@@ -1778,7 +1781,10 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         await openPdfInApp(freshSession.page, fixtureRealPath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(freshSession.page, LARGE_PDF_TIMEOUT_MS);
         await waitForViewerInteractive(freshSession.page, LARGE_PDF_TIMEOUT_MS);
-        await goToPageViaToolbar(freshSession.page, stickyPageNumber);
+        // The fixture has a non-identity page-label range. Use the physical
+        // page command here so the later PDF object assertions stay on page 16
+        // instead of interpreting 16 as a logical label for page 18.
+        await scrollViewerToPage(freshSession.page, stickyPageNumber);
         await expect.poll(async () => (
             await getWorkspaceToolbarSnapshot(freshSession.page)
         )?.currentPage, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(stickyPageNumber);

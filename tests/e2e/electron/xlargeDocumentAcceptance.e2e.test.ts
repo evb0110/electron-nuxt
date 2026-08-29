@@ -377,7 +377,11 @@ describe('Electron E2E - xlarge document acceptance source contract', () => {
         const source = await readFile(acceptanceSourcePath, 'utf8');
         expect(source).toContain('stageExactPdfFixture');
         expect(source).toContain('copyMode');
-        expect(source).not.toContain('COPYFILE_FICLONE_FORCE');
+        const forcedCloneToken = [
+            'COPYFILE',
+            'FICLONE_FORCE',
+        ].join('_');
+        expect(source).not.toContain(forcedCloneToken);
         expect(source).toContain('getPdfPageCount');
         expect(source).toContain('XLARGE_MIN_BYTES');
         expect(source).toContain('XLARGE_PAGE_COUNT');
@@ -1296,9 +1300,11 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 await waitForViewerInteractive(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS);
             });
             const sessionBOpenState = await readWorkspaceStateValues<{
+                originalPath?: string | null;
                 pdfSourceState?: IPdfSourceStateSnapshot;
                 workingCopyPath?: string | null;
             }>(sessionB.page, [
+                'originalPath',
                 'pdfSourceState',
                 'workingCopyPath',
             ]);
@@ -1378,12 +1384,14 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             const saveTargetPath = sessionBOpenState.pdfSourceState?.reloadPath
                 ?? sessionBOpenState.workingCopyPath
                 ?? stagedFixture.stagedPath;
+            const saveEventPath = sessionBOpenState.originalPath
+                ?? saveTargetPath;
             const saveEvent = await timed(
                 telemetry,
                 'session-b-save-window-handle',
-                () => saveViaVisibleToolbar(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS, saveTargetPath),
+                () => saveViaVisibleToolbar(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS, saveEventPath),
             );
-            expect(saveEvent.detail.path).toBe(saveTargetPath);
+            expect(saveEvent.detail.path).toBe(saveEventPath);
             expect(saveEvent.detail.documentRevisionToken).toEqual(expect.any(String));
             await waitForViewerInteractive(sessionB.page, XLARGE_SAVE_TIMEOUT_MS);
 
