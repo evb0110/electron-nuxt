@@ -328,7 +328,7 @@ umbrella and are not reopened as implementation work.
 | [#122 Make save, Save As, sidecars, journals, and queued mutations one transaction](https://github.com/evb0110/evb-viewer/issues/122) | `SAV-002`, `SAV-003`, `SAV-004`, `SAV-005`, `SAV-010`, `SAV-011` |
 | [#123 Make large working-copy creation, cloning, and materialization revision-safe](https://github.com/evb0110/evb-viewer/issues/123) | `SAV-006`, `SAV-009`, `SAV-012`, `SEC-002`, `SEC-003` |
 | [#124 Tie native utilities, queues, leases, handles, and cancellation to renderer lifecycle](https://github.com/evb0110/evb-viewer/issues/124) | `SAV-013`, `SAV-014`, `SAV-015`, `SAV-016`, `SAV-017`, `SAV-018`, `SAV-019` |
-| [#125 Complete bounded native annotation projection and placed-image lifecycle](https://github.com/evb0110/evb-viewer/issues/125) | `ANN-001`, `ANN-002`, `ANN-003`, `ANN-004`, `CAP-001` |
+| [#125 Complete bounded native annotation projection and placed-image lifecycle](https://github.com/evb0110/evb-viewer/issues/125) | `ANN-001`, `ANN-002`, `ANN-003`, `ANN-004`, `ANN-005`, `CAP-001` |
 | [#126 Make compact selections and xlarge page operations atomic and bounded](https://github.com/evb0110/evb-viewer/issues/126) | `SEL-001`, `SEL-002`, `SEL-003`, `SEL-004`, `SEL-005`, `SEL-006`, `SEL-007`, `CAP-002`, `CAP-003` |
 | [#127 Stream PDF image export, TIFF assembly, and print planning](https://github.com/evb0110/evb-viewer/issues/127) | `EXP-001`, `EXP-002`, `EXP-003`, `EXP-005`, `EXP-006`, `HOT-002`, `HOT-003` |
 | [#128 Remove browser and DjVu whole-document fallbacks from large-document paths](https://github.com/evb0110/evb-viewer/issues/128) | `EXP-004`, `EXP-007`, `EXP-008`, `EXP-009`, `HOT-001` |
