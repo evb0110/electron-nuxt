@@ -246,6 +246,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
 
     async function handleSaveFromCommandSurface() {
         const hasSaveableOpenNotes = deps.hasOpenAnnotationNotes?.value === true;
+        const hasPendingChanges = deps.hasPendingUnsavedChanges?.value === true;
         if (
             !deps.hasPdf.value
             || deps.isAnySaving.value
@@ -254,7 +255,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         ) {
             return false;
         }
-        if (!deps.canSave.value && !hasSaveableOpenNotes) {
+        if (!deps.canSave.value && !hasPendingChanges && !hasSaveableOpenNotes) {
             return true;
         }
 

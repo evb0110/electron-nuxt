@@ -200,6 +200,20 @@ describe('createWorkspaceExpose', () => {
         expect(deps.handleSave).not.toHaveBeenCalled();
     });
 
+    it('runs save when pending changes outlive a stale disabled toolbar state', async () => {
+        const deps = createDeps({
+            hasPdf: ref(true),
+            canSave: ref(false),
+            hasPendingUnsavedChanges: computed(() => true),
+            handleSave: vi.fn(async () => true),
+        });
+        const exposed = createWorkspaceExpose(deps);
+
+        await expect(exposed.handleSave()).resolves.toBe(true);
+
+        expect(deps.handleSave).toHaveBeenCalledOnce();
+    });
+
     it('runs repair save when a PDF is open even if ordinary save is disabled', async () => {
         const deps = createDeps({
             hasPdf: ref(true),
