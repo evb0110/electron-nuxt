@@ -919,6 +919,7 @@ pub(crate) fn validate_markup_target(
     object_id: ObjectId,
     target_subtype: &str,
     color: Option<&str>,
+    contents: Option<&str>,
 ) -> Result<()> {
     let dict = document.dictionary(object_id)?;
     if target_subtype != "Highlight" {
@@ -950,6 +951,46 @@ pub(crate) fn validate_markup_target(
             }
         }
     }
+    if let Some(expected_contents) = contents {
+        validate_markup_contents(document, dict, expected_contents)?;
+    }
+    Ok(())
+}
+
+fn validate_markup_contents(
+    document: &impl PdfObjectSource,
+    dict: &Dictionary,
+    expected_contents: &str,
+) -> Result<()> {
+    let validate_contents = |dictionary: &Dictionary, label: &str| -> Result<()> {
+        let actual_contents = dictionary
+            .get(b"Contents")
+            .ok()
+            .and_then(pdf_string_to_text)
+            .ok_or_else(|| format!("{label} is missing Contents"))?;
+        if actual_contents != expected_contents {
+            return Err(format!("{label} Contents did not match requested text").into());
+        }
+        Ok(())
+    };
+
+    validate_contents(dict, "Text-markup target")?;
+    if let Ok(Object::Dictionary(popup_dict)) = dict.get(b"Popup") {
+        validate_contents(popup_dict, "embedded popup")?;
+    }
+    if let Some(popup_id) = annotation_related_ref(dict, b"Popup") {
+        let popup_dict = document.dictionary(popup_id)?;
+        validate_contents(popup_dict, "popup annotation")?;
+    }
+    if annotation_subtype(dict) == "popup" {
+        if let Ok(Object::Dictionary(parent_dict)) = dict.get(b"Parent") {
+            validate_contents(parent_dict, "embedded popup parent")?;
+        }
+        if let Some(parent_id) = annotation_related_ref(dict, b"Parent") {
+            let parent_dict = document.dictionary(parent_id)?;
+            validate_contents(parent_dict, "popup parent annotation")?;
+        }
+    }
     Ok(())
 }
 
@@ -962,7 +1003,7 @@ pub(crate) fn validate_markup_document_postconditions(
         let Some(object_id) = parse_pdfjs_annotation_object_id(annotation_id) else {
             continue;
         };
-        validate_markup_target(document, object_id, subtype, None)?;
+        validate_markup_target(document, object_id, subtype, None, None)?;
     }
     for hint in &markup.hints {
         match hint
@@ -971,7 +1012,13 @@ pub(crate) fn validate_markup_document_postconditions(
             .and_then(parse_pdfjs_annotation_object_id)
         {
             Some(object_id) => {
-                validate_markup_target(document, object_id, &hint.subtype, hint.color.as_deref())?;
+                validate_markup_target(
+                    document,
+                    object_id,
+                    &hint.subtype,
+                    hint.color.as_deref(),
+                    hint.contents.as_deref(),
+                )?;
             }
             None => {
                 if is_new_markup_hint_data(hint) {
@@ -1018,7 +1065,13 @@ fn validate_new_markup_target(
     }
 
     let object_id = matching_refs[0];
-    validate_markup_target(document, object_id, &hint.subtype, hint.color.as_deref())?;
+    validate_markup_target(
+        document,
+        object_id,
+        &hint.subtype,
+        hint.color.as_deref(),
+        hint.contents.as_deref(),
+    )?;
     let page_view = resolve_page_view(document, page_id)?;
     let page_rotation = resolve_page_rotation(document, page_id)?;
     let (expected_quads, expected_rect) = markup_hint_pdf_quads(hint, page_view, page_rotation)?;

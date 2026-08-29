@@ -575,6 +575,35 @@ fn appends_imported_markup_note_text_without_materializing_the_document() {
     let _ = remove_file(pdf_path);
 }
 
+#[test]
+fn rejects_imported_markup_when_linked_popup_note_text_is_stale() {
+    let (mut document, page_id, markup_id) = create_test_markup_pdf("Highlight");
+    let popup_id = attach_markup_popup(&mut document, page_id, markup_id);
+    document.get_dictionary_mut(markup_id).unwrap().set(
+        "Contents",
+        Object::string_literal("edited imported markup note"),
+    );
+
+    let mutation = imported_markup_note_mutation(markup_id);
+    let error = validate_markup_document_postconditions(
+        &document,
+        mutation.markup.as_ref().expect("markup mutation exists"),
+    )
+    .expect_err("stale linked Popup text must fail the native postcondition");
+
+    assert!(error.to_string().contains("popup annotation Contents"));
+    assert_eq!(
+        document
+            .get_dictionary(popup_id)
+            .unwrap()
+            .get(b"Contents")
+            .ok()
+            .and_then(pdf_string_to_text)
+            .as_deref(),
+        Some("old popup note"),
+    );
+}
+
 fn create_sparse_high_index_markup() -> (Document, ObjectId, ObjectId) {
     let (mut document, _first_page_id, last_page_id) = create_sparse_million_page_document();
     let markup_id = document.add_object(dictionary! {
