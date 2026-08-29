@@ -4582,6 +4582,127 @@ describe('scan cleanup preview', () => {
         await retention.dispose();
     });
 
+    it('serves raster page reads from a forked page-size store without touching the parent cursor', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const pageSizes = [
+            {
+                ...DOCUMENT_PAGE_SIZES[0]!,
+                dominantImageWidthPx: 1_275,
+                dominantImageHeightPx: 1_650,
+                dominantImageWidthPoints: 306,
+                dominantImageHeightPoints: 396,
+            },
+            DOCUMENT_PAGE_SIZES[1]!,
+        ];
+        const createStore = (): IPdfPageSizeStore => ({
+            pageCount: pageSizes.length,
+            getPage: vi.fn(async pageNumber => pageSizes[pageNumber - 1]!),
+            readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
+                pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
+            forEachChunk: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
+        });
+        const parent = createStore();
+        const forkedStore = createStore();
+        const store: IPdfPageSizeStore = {
+            ...parent,
+            fork: vi.fn(() => forkedStore),
+        };
+        deps.getPageSizeStore = vi.fn(() => store);
+        deps.getPageSizes = vi.fn(async () => {
+            throw new Error('legacy page-size array reader must not be used');
+        });
+        const retention = createRawRasterRetention(deps);
+        const document = await retention.openDocument({
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'revision-1',
+        });
+
+        const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
+        const [
+            first,
+            second,
+        ] = await Promise.all([
+            rasterSource.getPageRaster(1),
+            rasterSource.getPageRaster(2),
+        ]);
+        expect(first).toMatchObject({dpi: 300});
+        expect(second).toBeUndefined();
+        expect(store.fork).toHaveBeenCalledOnce();
+        expect(forkedStore.getPage).toHaveBeenCalledTimes(2);
+        expect(parent.getPage).not.toHaveBeenCalled();
+        await retention.dispose();
+    });
+
+    it('serializes concurrent raster page reads on a cursor-only page-size store', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const pageSizes = [
+            {
+                ...DOCUMENT_PAGE_SIZES[0]!,
+                dominantImageWidthPx: 1_275,
+                dominantImageHeightPx: 1_650,
+                dominantImageWidthPoints: 306,
+                dominantImageHeightPoints: 396,
+            },
+            DOCUMENT_PAGE_SIZES[1]!,
+        ];
+        const order: string[] = [];
+        let releaseFirstRead: (() => void) | undefined;
+        const store: IPdfPageSizeStore = {
+            pageCount: pageSizes.length,
+            getPage: vi.fn(async (pageNumber) => {
+                order.push(`start ${pageNumber}`);
+                if (pageNumber === 1) {
+                    await new Promise<void>((resolve) => {
+                        releaseFirstRead = resolve;
+                    });
+                }
+                order.push(`end ${pageNumber}`);
+                return pageSizes[pageNumber - 1]!;
+            }),
+            readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
+                pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
+            forEachChunk: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
+        };
+        deps.getPageSizeStore = vi.fn(() => store);
+        deps.getPageSizes = vi.fn(async () => {
+            throw new Error('legacy page-size array reader must not be used');
+        });
+        const retention = createRawRasterRetention(deps);
+        const document = await retention.openDocument({
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'revision-1',
+        });
+
+        const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
+        const reads = Promise.all([
+            rasterSource.getPageRaster(1),
+            rasterSource.getPageRaster(2),
+        ]);
+        await vi.waitFor(() => {
+            expect(releaseFirstRead).toBeDefined();
+        });
+        // The second read must not start while the first holds the shared cursor.
+        expect(order).toEqual(['start 1']);
+        releaseFirstRead!();
+        const [
+            first,
+            second,
+        ] = await reads;
+        expect(first).toMatchObject({dpi: 300});
+        expect(second).toBeUndefined();
+        expect(order).toEqual([
+            'start 1',
+            'end 1',
+            'start 2',
+            'end 2',
+        ]);
+        await retention.dispose();
+    });
+
     it('opens bounded page geometry and raster facts without the legacy arrays', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
