@@ -64,6 +64,29 @@ interface IRenderedPdfPage {
 
 interface IBrowserTiffPageDescriptor extends ITiffImageDescriptor {pageNumber: number;}
 
+/**
+ * Matches IMAGE_EXPORT_MAX_OUTPUT_PATHS in the main image-export resource limits
+ * and the contract image-export collection budget. An all-pages browser export
+ * must refuse above this page count instead of materializing a denser range.
+ */
+export const BROWSER_IMAGE_EXPORT_MAX_TARGET_PAGES = 100_000;
+
+export class BrowserImageExportPageBudgetError extends RangeError {
+    public readonly code = 'image-export-page-budget-exceeded';
+    public readonly pageCount: number;
+    public readonly maxTargetPages: number;
+
+    public constructor(pageCount: number) {
+        super(
+            `Browser image export refuses all-pages exports above ${BROWSER_IMAGE_EXPORT_MAX_TARGET_PAGES.toLocaleString('en-US')} pages`
+                + ` (document has ${pageCount.toLocaleString('en-US')} pages); export an explicit page selection instead`,
+        );
+        this.name = 'BrowserImageExportPageBudgetError';
+        this.pageCount = pageCount;
+        this.maxTargetPages = BROWSER_IMAGE_EXPORT_MAX_TARGET_PAGES;
+    }
+}
+
 const BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES = 64 * 1024 * 1024;
 const imageExportProgressListeners = new Set<(progress: IImageExportProgress) => void>();
 let utifModulePromise: Promise<TUtifModule> | null = null;
@@ -484,6 +507,12 @@ async function loadPdfDocument(path: string) {
 }
 
 function getTargetPages(pdfDocument: { numPages: number }, pageNumbers?: number[]) {
+    // Only the dense all-pages fallback materializes range(1, numPages + 1);
+    // partial explicit selections stay below the contract collection budget.
+    if (!pageNumbers?.length && pdfDocument.numPages > BROWSER_IMAGE_EXPORT_MAX_TARGET_PAGES) {
+        throw new BrowserImageExportPageBudgetError(pdfDocument.numPages);
+    }
+
     const targetPages = (
         pageNumbers?.length
             ? pageNumbers
@@ -669,7 +698,13 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 return exportBrowserDjvuPagesAsImages(workingCopyPath, pageNumbers, requestId);
             }
             const pdfDocument = await loadPdfDocument(workingCopyPath);
-            const targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
+            let targetPages: number[];
+            try {
+                targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
+            } catch (error) {
+                await pdfDocument.destroy();
+                throw error;
+            }
             const outputRefs: string[] = [];
 
             if (targetPages.length === 0) {

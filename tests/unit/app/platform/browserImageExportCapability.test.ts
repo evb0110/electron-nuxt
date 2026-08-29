@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import type * as UTIFModule from 'utif';
+import type * as EsToolkitMathModule from 'es-toolkit/math';
 
 type TUtifModule = typeof UTIFModule;
 
@@ -89,6 +90,20 @@ vi.mock('@app/platform/browser-api/browserFileName', () => ({ ensurePdfExtension
 
 vi.mock('@app/platform/browser-api/browserBytes', () => ({ toUint8Array: (value: Uint8Array | ArrayBuffer) => value instanceof Uint8Array ? value : new Uint8Array(value) }));
 
+const rangeSpy = vi.hoisted(() => vi.fn());
+
+vi.mock('es-toolkit/math', async importOriginal => {
+    const actual = await importOriginal<typeof EsToolkitMathModule>();
+    return {
+        ...actual,
+        range: (...args: Parameters<typeof actual.range>) => {
+            const result = actual.range(...args);
+            rangeSpy(...args);
+            return result;
+        },
+    };
+});
+
 const UTIF = await vi.importActual<TUtifModule>('utif');
 
 function countTiffDirectories(bytes: Uint8Array) {
@@ -136,6 +151,9 @@ function createCanvas() {
 
     return canvas;
 }
+
+/** One page above the published image-export output budget (100,000). */
+const OVERSIZED_PAGE_COUNT = 100_001;
 
 function createFakePdfDocument(pageCount: number) {
     return {
@@ -702,5 +720,131 @@ describe('createBrowserImageExportCapability', () => {
 
         expect(getDocumentMock).not.toHaveBeenCalled();
         expect(createDjvuWorkerFromPathMock).not.toHaveBeenCalled();
+    });
+
+    it('refuses an oversized all-pages PDF image export before materializing the page range or rendering', async () => {
+        const fakePdfDocument = createFakePdfDocument(OVERSIZED_PAGE_COUNT);
+        getDocumentMock.mockReturnValue({promise: Promise.resolve(fakePdfDocument)});
+        // Keep a pre-fix run cheap: cancel the save picker after the first page.
+        pickSaveTargetMock
+            .mockResolvedValueOnce({
+                canceled: false,
+                fileName: 'page-001.jpg',
+                handle: null,
+            })
+            .mockResolvedValue({
+                canceled: true,
+                fileName: 'page-002.jpg',
+                handle: null,
+            });
+
+        const {
+            createBrowserImageExportCapability,
+            BrowserImageExportPageBudgetError,
+        } = await import('@app/platform/browser-api/createBrowserImageExportCapability');
+        const capability = createBrowserImageExportCapability();
+
+        const rejection = await capability.exportPdfToImages(
+            'browser://documents/work/sample.pdf',
+        ).then(
+            () => {
+                throw new Error('Expected the oversized all-pages export to be refused');
+            },
+            (error: unknown) => error,
+        );
+
+        expect(rejection).toBeInstanceOf(BrowserImageExportPageBudgetError);
+        expect(rejection).toMatchObject({
+            code: 'image-export-page-budget-exceeded',
+            pageCount: OVERSIZED_PAGE_COUNT,
+            maxTargetPages: 100_000,
+        });
+        expect((rejection as Error).message).toContain('all-pages exports above 100,000 pages');
+        expect((rejection as Error).message).toContain('100,001 pages');
+
+        expect(rangeSpy).not.toHaveBeenCalled();
+        expect(fakePdfDocument.getPage).not.toHaveBeenCalled();
+        expect(pickSaveTargetMock).not.toHaveBeenCalled();
+        expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.createStoredDocument).not.toHaveBeenCalled();
+        expect(fakePdfDocument.destroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses an oversized all-pages DjVu image export without rendering any page', async () => {
+        const terminate = vi.fn();
+        const getPage = vi.fn();
+        createDjvuWorkerFromPathMock.mockResolvedValue({
+            doc: {
+                getPagesSizes: () => ({run: async () => Array.from(
+                    {length: OVERSIZED_PAGE_COUNT},
+                    () => ({
+                        width: 1,
+                        height: 1,
+                    }),
+                )}),
+                getPage,
+            },
+            revokeObjectURL: vi.fn(),
+            terminate,
+        });
+
+        const {
+            createBrowserImageExportCapability,
+            BrowserImageExportPageBudgetError,
+        } = await import('@app/platform/browser-api/createBrowserImageExportCapability');
+
+        const rejection = await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
+            'browser://documents/work/sample.djvu',
+            undefined,
+            undefined,
+            'djvu',
+        ).then(
+            () => {
+                throw new Error('Expected the oversized all-pages export to be refused');
+            },
+            (error: unknown) => error,
+        );
+
+        expect(rejection).toBeInstanceOf(BrowserImageExportPageBudgetError);
+        expect((rejection as Error).message).toContain('all-pages exports above 100,000 pages');
+
+        expect(rangeSpy).not.toHaveBeenCalled();
+        expect(getPage).not.toHaveBeenCalled();
+        expect(terminate).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps explicit page selections working on oversized documents', async () => {
+        const fakePdfDocument = createFakePdfDocument(OVERSIZED_PAGE_COUNT);
+        getDocumentMock.mockReturnValue({promise: Promise.resolve(fakePdfDocument)});
+        pickSaveTargetMock.mockResolvedValue({
+            canceled: false,
+            fileName: 'page-007.jpg',
+            handle: null,
+        });
+        saveBytesToPickerOrDownloadMock.mockResolvedValue({
+            canceled: false,
+            fileName: 'page-007.jpg',
+            handle: null,
+        });
+        browserDocumentStoreMock.createStoredDocument.mockResolvedValue(
+            'browser://documents/output/page-007.jpg',
+        );
+
+        const {createBrowserImageExportCapability} = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+
+        const result = await createBrowserImageExportCapability().exportPdfToImages(
+            'browser://documents/work/sample.pdf',
+            [7],
+        );
+
+        expect(result).toEqual({
+            success: true,
+            outputPaths: ['browser://documents/output/page-007.jpg'],
+        });
+        expect(rangeSpy).not.toHaveBeenCalled();
+        expect(fakePdfDocument.getPage).toHaveBeenCalledWith(7);
+        expect(fakePdfDocument.destroy).toHaveBeenCalledTimes(1);
     });
 });
