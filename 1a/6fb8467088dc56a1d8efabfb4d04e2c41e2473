@@ -1,0 +1,159 @@
+packages/i18n-app/messages/en.ts
+  s_6505ca2096ad09::t_0368306954d4c2 900,1574
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_6505ca2096ad09::t_3f59c19bcdf8dd 259-266,290,297,807-810,817,819
+  s_6505ca2096ad09::t_32030f7f9729cc 19-24,34,88,116,126,806,811-816,818,820-821,936
+packages/i18n-app/messages/de.ts
+  s_6505ca2096ad09::t_a9527bcc73959e 900,1574
+app/modules/pdf-viewer/components/PdfExportScopeDialog.vue
+  s_6505ca2096ad09::t_816cc4f16fd521 61,63-64,84,109-112,118,120,125-126,145,148,159,172,174-175,185,190-191,196
+  s_6505ca2096ad09::t_25120e581307e2 73
+  s_6505ca2096ad09::t_d31936903832dc 81
+packages/i18n-app/messages/fr.ts
+  s_6505ca2096ad09::t_a9527bcc73959e 901,1585
+app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts
+  s_6505ca2096ad09::t_25120e581307e2 1
+  s_6505ca2096ad09::t_43c28fc8fac3c3 22,183,200-215,994-996,1006-1008,1018-1020,1030-1032
+tests/unit/app/utils/pdfPrint.test.ts
+  s_6505ca2096ad09::t_017171d524dacf 24,125-131
+packages/i18n-app/messages/nl.ts
+  s_6505ca2096ad09::t_a9527bcc73959e 900,1574
+tests/unit/contracts/pageOps.test.ts
+  s_6505ca2096ad09::t_3a849065cd1d88 68-77
+  s_6505ca2096ad09::t_64440d6d422529 60-67,78,80-81
+  s_6505ca2096ad09::t_bb7b95d6d193a0 79
+app/modules/workspace-shell/agent/documentWorkspaceAgentTypes.ts
+  s_6505ca2096ad09::t_43c28fc8fac3c3 5,70,92-93,99
+app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations.ts
+  s_6505ca2096ad09::t_a5816102f850ff 12,21,35,195,217,302,314,323-327,329-338,502-506,512,525,529,538,591-595,606,617,625,629-633,645,649,658,834,836,871,873
+electron/file-access/pageIdentityStore.ts
+  s_6505ca2096ad09::t_eea74db4d3deda 84,93,96
+electron/features/page-ops/main/qpdf.ts
+  s_6505ca2096ad09::t_7764e13a8888a9 115-122,319-327
+  s_6505ca2096ad09::t_bb7b95d6d193a0 262,265-266,283,289,306-318,328-334
+electron/features/page-ops/main/pageOpsMainBindings.ts
+  s_6505ca2096ad09::t_3a849065cd1d88 121-124
+  s_6505ca2096ad09::t_117ae937b2a68d 25,41,76,83,86,104-120,125-178,353,370,376-384,445,448-449,452-454,482,485-490,730,755,762-764,767-769,834,852,859-861,864-866,881,897,904-906,909-911
+app/modules/pdf-viewer/components/PdfSidebar.vue
+  s_6505ca2096ad09::t_c90fa6cc8265bd 278-280,458,460
+tests/unit/app/modules/pdf-viewer/composables/usePageOperations.test.ts
+  s_6505ca2096ad09::t_789feb63874d3b 16,168-169,175-184,189-192
+  s_6505ca2096ad09::t_3a849065cd1d88 151-167,170-174,185-188
+app/platform/browser-api/createBrowserPageOpsCapability.ts
+  s_6505ca2096ad09::t_2b977a0da8cf30 2-4,158-162,164-165,173-174,176-177,181,370,379,383,399-403,426,430,663,672,677,689,699,704,716,725,729
+  s_6505ca2096ad09::t_3f59c19bcdf8dd 102,141,143,163,166-172,175,178-180
+  s_6505ca2096ad09::t_bb7b95d6d193a0 135,153,182
+packages/i18n-app/messages/es.ts
+  s_6505ca2096ad09::t_a9527bcc73959e 900,1574
+app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection.ts
+  s_6505ca2096ad09::t_1224f81db6a55a 14,51,53,238,240,246-250
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_6505ca2096ad09::t_b134e321fec079 860
+app/utils/pdfPageSelection.ts
+  s_6505ca2096ad09::t_24dc5004e5192a 4,113-119
+  s_6505ca2096ad09::t_df7116f2e74235 120
+  s_6505ca2096ad09::t_1547f12023eb93 5-9,86,89
+  s_6505ca2096ad09::t_f7e1c0e8e051b4 81-85,87-88,90-91
+app/modules/workspace-shell/composables/usePageOpsHandlers.ts
+  s_6505ca2096ad09::t_bb7b95d6d193a0 390
+  s_6505ca2096ad09::t_6c234a369d1179 59-61,359,365,371,376,403,409,415,417,422,427,429,434
+  s_6505ca2096ad09::t_c5a9223661ffa5 284-291,293,355,384-387,389,391-393
+app/modules/workspace-shell/components/WorkspaceSaveDialogHost.vue
+  s_6505ca2096ad09::t_f3b78cf5f746f4 9,87
+  s_6505ca2096ad09::t_b134e321fec079 19,90
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_6505ca2096ad09::t_3a849065cd1d88 358-361
+  s_6505ca2096ad09::t_fc226b540191d7 383-408
+  s_6505ca2096ad09::t_4cc2a692392711 17-20,220-221,252,259-261,356-357,362-380
+app/modules/workspace-shell/composables/useWorkspaceExport.ts
+  s_6505ca2096ad09::t_51275230bcef95 31
+  s_6505ca2096ad09::t_e93b86d1dfa390 22,29-30,32-40,81-82,272,283-284,290-294,302-308,507-514,529-536,563
+  s_6505ca2096ad09::t_3a849065cd1d88 516-519,538-541
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_6505ca2096ad09::t_7e96638e9a2afa 12,101,103-105,167-173,486,492,498,504
+  s_6505ca2096ad09::t_ec27012a205d29 13,174-180,334,487,493,499,505
+packages/contracts/pageOpsPlatformFeature.ts
+  s_6505ca2096ad09::t_3a849065cd1d88 132-135
+  s_6505ca2096ad09::t_e944cca61dd453 8,45,47,60-62,112-131,136-137,693,705,753,759,931,945,962,981,998,1010
+  s_6505ca2096ad09::t_9500c7acfbfa5f 42,103-104
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_6505ca2096ad09::t_f3b78cf5f746f4 339
+  s_6505ca2096ad09::t_e30e0a21406cec 1381
+  s_6505ca2096ad09::t_793eb22184a8d2 741
+  s_6505ca2096ad09::t_3e4f5f5208d07c 826
+  s_6505ca2096ad09::t_b134e321fec079 342
+app/modules/pdf-viewer/runtime/composables/pdf/usePageContextMenu.ts
+  s_6505ca2096ad09::t_164018be2c8521 10,12,28,30,43,45
+tests/unit/app/modules/workspace-shell/composables/usePageOpsHandlers.test.ts
+  s_6505ca2096ad09::t_bff2fdf0b5ffe5 281,290-294
+  s_6505ca2096ad09::t_2384791f3f7c39 139-146
+tests/unit/app/utils/pdfPageSelection.test.ts
+  s_6505ca2096ad09::t_2ce777bc2a83bb 8,48-57
+packages/i18n-app/messages/pt.ts
+  s_6505ca2096ad09::t_a9527bcc73959e 901,1585
+tests/unit/app/platform/documentsPageOpsCapability.test.ts
+  s_6505ca2096ad09::t_3f59c19bcdf8dd 13,240,242,244
+  s_6505ca2096ad09::t_fc226b540191d7 185-197
+app/modules/workspace-shell/composables/document-session/createDocumentHistory.ts
+  s_6505ca2096ad09::t_bb3d449e7118fa 81-82
+tests/unit/electron/pageOpsIpcHandlers.test.ts
+  s_6505ca2096ad09::t_340fce61f38307 483,489,495,500-501,505
+  s_6505ca2096ad09::t_bb7b95d6d193a0 503-504
+  s_6505ca2096ad09::t_3a849065cd1d88 490-493,523-526,747-750,753-758,865-868,873-876
+  s_6505ca2096ad09::t_e11c7680849369 502
+  s_6505ca2096ad09::t_5ed85238e8b91d 858-864,869-872,877-892
+  s_6505ca2096ad09::t_cc3e26470859b6 55,148,271,481-482,484-488,494,496-499,506-522,527-536
+  s_6505ca2096ad09::t_7c26e758ca8095 735-746,751-752,759-769
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceExport.test.ts
+  s_6505ca2096ad09::t_3a849065cd1d88 108-111,121
+  s_6505ca2096ad09::t_cd66a81049470a 15,60,74,106-107,112-120,122-124
+packages/i18n-app/messages/it.ts
+  s_6505ca2096ad09::t_d31936903832dc 900,1574
+packages/i18n-app/messages/ru.ts
+  s_6505ca2096ad09::t_0368306954d4c2 907,1609
+app/utils/pdfPrintShared.ts
+  s_6505ca2096ad09::t_b3b479ac25a5fa 5-9,12-13,179-181,190-221
+app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract.ts
+  s_6505ca2096ad09::t_c90fa6cc8265bd 41,43
+tests/unit/app/modules/workspace-shell/composables/createWorkspaceExpose.test.ts
+  s_6505ca2096ad09::t_f0b933fcbf853b 119
+  s_6505ca2096ad09::t_978b6849c44a96 19,110-118,120-127
+packages/contracts/electronApiPageOps.ts
+  s_6505ca2096ad09::t_37a1b69aa1f2b7 8,12-17
+app/modules/pdf-viewer/components/PdfPrintDialog.vue
+  s_6505ca2096ad09::t_06385cb6661b90 138,142-143,166,190,193,195,200,218,221,237,250,252,300,304-305,311
+  s_6505ca2096ad09::t_d31936903832dc 158
+  s_6505ca2096ad09::t_25120e581307e2 151
+  s_6505ca2096ad09::t_7ce1081cdff1c1 197,201,203
+electron/file-access/pageIdentityDelta.ts
+  s_6505ca2096ad09::t_eea74db4d3deda 484-536,552-565
+  s_6505ca2096ad09::t_51275230bcef95 483
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.test.ts
+  s_6505ca2096ad09::t_07c8cc393b21de 12,1364-1378
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_6505ca2096ad09::t_bec220c4c8fa21 231-238,253
+app/types/pdfContextMenu.ts
+  s_6505ca2096ad09::t_164018be2c8521 2,20,22
+packages/i18n-app/messages/ptBr.ts
+  s_6505ca2096ad09::t_a9527bcc73959e 901,1585
+tests/unit/app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection.test.ts
+  s_6505ca2096ad09::t_496b019bbbe875 46,55,94-100,105-115
+  s_6505ca2096ad09::t_4ef48bb6778704 73
+  s_6505ca2096ad09::t_3a849065cd1d88 101-104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1a6fb8467088dc56a1d8efabfb4d04e2c41e2473",
+  "prompts": {},
+  "sessions": {
+    "s_6505ca2096ad09": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04e9e-bacc-7da1-a8de-18b77591413b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
