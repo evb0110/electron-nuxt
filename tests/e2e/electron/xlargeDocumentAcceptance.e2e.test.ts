@@ -1499,8 +1499,6 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 ?? savedState.workingCopyPath
                 ?? stagedFixture.stagedPath;
             expect(savedPath).toBe(saveTargetPath);
-            await timed(telemetry, 'saved-output-qpdf-check', () => assertQpdfCheck(savedPath));
-
             const heartbeatBeforeReload = await activeHeartbeat();
             telemetry.rendererLongTasks = await readRendererLongTaskProbe(sessionB.page);
             telemetry.heartbeats.push({
@@ -1509,6 +1507,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 ...heartbeatBeforeReload,
             });
             activeHeartbeat = null;
+            await timed(telemetry, 'saved-output-qpdf-check', () => assertQpdfCheck(savedPath));
             await timed(telemetry, 'fresh-renderer-reload', async () => {
                 await sessionB!.page.reload({waitUntil: 'domcontentloaded'});
                 activeHeartbeat = await startRendererHeartbeat(sessionB!.page);
