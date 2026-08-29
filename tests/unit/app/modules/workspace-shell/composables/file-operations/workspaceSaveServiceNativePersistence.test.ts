@@ -46,6 +46,85 @@ describe('workspaceSaveService native persistence', () => {
         toastAddMock.mockClear();
     });
 
+    it('records native markup identity bindings before acknowledging the save', async () => {
+        const callOrder: string[] = [];
+        const binding = {
+            annotationId: 'app-annotation-1',
+            pdfRef: '700 0 R',
+        };
+        const recordMaterializedIdentityBinding = vi.fn(() => {
+            callOrder.push('record');
+        });
+        const commitAnnotationSave = vi.fn(() => {
+            callOrder.push('commit');
+        });
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+            materializedIdentityBindings: [binding],
+        }));
+        const runSaveTransaction = vi.fn(async () => cast({
+            source: 'native-mutation-projection' as const,
+            baseBytes: null,
+            serializedBytes: null,
+            serializedResult: null,
+            nativeMutationProjection: {
+                canonicalAnnotationProgram: [],
+                mutations: {markup: {
+                    overrides: [],
+                    hints: [],
+                }},
+                noteTextUpdates: [],
+                freeTextNotes: [],
+                freeTextEditors: [],
+                annotationDeletes: [],
+                hasMetadataMutations: false,
+                hasShapeMutations: false,
+                hasMarkupMutations: true,
+                phase: 'native-markup',
+            },
+            fallbackDecision: {},
+            annotationSavePlan: {},
+            recordMaterializedIdentityBinding,
+            commitAnnotationSave,
+        }));
+        const {deps} = createDeps({
+            annotationDirty: ref(true),
+            canonicalAnnotationComments: shallowRef([createPdfNoteComment({
+                id: 'markup-1',
+                stableKey: 'src:editor:0:markup-1',
+                appAnnotationId: 'app-annotation-1',
+                subtype: 'Highlight',
+                text: '',
+                hasNote: false,
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.2,
+                },
+                source: 'editor',
+                annotationId: null,
+            })]),
+            hasAnnotationChanges: vi.fn(() => true),
+            workingCopyPath: ref('/tmp/work.pdf'),
+            trySavePdfNativeMutations,
+            runSaveTransaction,
+        });
+        const {handleSave} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        expect(recordMaterializedIdentityBinding).toHaveBeenCalledWith(binding);
+        expect(callOrder).toEqual([
+            'record',
+            'commit',
+        ]);
+    });
+
     const strictNativeMutationRows: readonly IStrictNativeMutationRow[] = [
         {
             name: 'notes',
@@ -607,7 +686,7 @@ describe('workspaceSaveService native persistence', () => {
         expectWorkspaceSaveNotMarked(deps);
     });
 
-    it('materializes a saved PDF.js baseline even when replayable editor-only FreeText deletes exist', async () => {
+    it('persists a saved PDF.js baseline through one exact editor-only FreeText delete', async () => {
         const pendingDeletes = [createEditorFreeTextNote()];
         const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
             success: true,
@@ -631,11 +710,16 @@ describe('workspaceSaveService native persistence', () => {
         const result = await handleSave();
 
         expect(result).toBe(true);
-        expect(trySaveEmbeddedNoteTextUpdates).not.toHaveBeenCalled();
-        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledOnce();
+        expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledWith([], expect.objectContaining({deletes: [{
+            pageIndex: 0,
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            createdAt: 1_781_009_077_000,
+        }]}));
+        expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.getSourcePdfData).not.toHaveBeenCalled();
-        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
-        expect(saveFile).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
     });
 
     it('does not use the native note text save path for Save As', async () => {

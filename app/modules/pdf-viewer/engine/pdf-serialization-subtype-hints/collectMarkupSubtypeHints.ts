@@ -84,6 +84,7 @@ export function collectMarkupSubtypeHints(comments: IAnnotationCommentSummary[])
             continue;
         }
         hints.push({
+            ...(comment.appAnnotationId ? {appAnnotationId: comment.appAnnotationId} : {}),
             annotationId: comment.annotationId,
             color: shouldCollectMarkupSubtypeHintColor(comment) ? comment.color : null,
             id: comment.id,

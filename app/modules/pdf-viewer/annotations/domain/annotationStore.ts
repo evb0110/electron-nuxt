@@ -30,7 +30,11 @@ import {
     semanticSnapshotsEqual,
     snapshotOfKind,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { AnnotationPersistenceIdentityLedger } from '@app/modules/pdf-viewer/annotations/domain/annotationPersistenceIdentityLedger';
+import {
+    AnnotationPersistenceIdentityLedger,
+    rebaseAnnotationPersistenceIdentity,
+} from '@app/modules/pdf-viewer/annotations/domain/annotationPersistenceIdentityLedger';
+import { projectAnnotationEditorPresence } from '@app/modules/pdf-viewer/annotations/domain/projectAnnotationEditorPresence';
 import { ExternalIdentityIndex } from '@app/modules/pdf-viewer/annotations/domain/externalIdentityIndex';
 import {
     findImportedShapeMatchIndex,
@@ -562,29 +566,20 @@ export class AnnotationStore {
      * identity bindings. The saved baseline is preserved because presence
      * reconciliation is never an authored edit.
      */
-    reconcileEditorPresence(presentExternalIds: ReadonlySet<string>) {
+    reconcileEditorPresence(
+        presentExternalIds: ReadonlySet<string>,
+        options: {changedExternalIds?: ReadonlySet<string>} = {},
+    ) {
         this.list({includeDeleted: true}).forEach((entity) => {
-            if (entity.kind === 'shape') {
+            const reconciled = projectAnnotationEditorPresence(
+                entity,
+                presentExternalIds,
+                options.changedExternalIds,
+            );
+            if (!reconciled) {
                 return;
             }
-            const present = [
-                entity.identity.pdfRef,
-                entity.identity.pdfjsUid,
-                entity.identity.elementId,
-            ]
-                .filter((candidate): candidate is string => Boolean(candidate))
-                .some(candidate => presentExternalIds.has(candidate));
-            const shouldRestore = present && entity.deleted;
-            const shouldDeleteTransient = !present && entity.persistedRevision < 0 && !entity.deleted;
-            if (!shouldRestore && !shouldDeleteTransient) {
-                return;
-            }
-            this.import({
-                ...entity,
-                deleted: !present,
-                revision: entity.revision + 1,
-                modifiedAt: Date.now(),
-            }, {preserveSavedBaseline: true});
+            this.import(reconciled, {preserveSavedBaseline: true});
         });
     }
 
@@ -737,19 +732,23 @@ export class AnnotationStore {
             const entity = this.#entities.get(id);
             if (entity?.revision === revision) {
                 const pdfRef = materializedPdfRefs.get(id);
-                const identity = pdfRef
-                    ? {
+                const identity = entity.deleted
+                    ? rebaseAnnotationPersistenceIdentity(entity.identity, undefined)
+                    : pdfRef ? {
                         ...entity.identity,
                         pdfRef,
-                    }
-                    : entity.identity;
+                    } : entity.identity;
                 updates.push({
                     id,
                     before: entity,
                     after: {
                         ...entity,
                         identity,
-                        persistedRevision: revision,
+                        // A committed tombstone describes an annotation the
+                        // new document revision no longer contains. Retire its
+                        // object ref so undo restores a fresh entity that the
+                        // next save must materialize again.
+                        persistedRevision: entity.deleted ? -1 : revision,
                     },
                 });
             }

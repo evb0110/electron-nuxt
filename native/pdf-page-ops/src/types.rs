@@ -585,6 +585,7 @@ pub(crate) enum Operation {
         mutations_file: PathBuf,
         modified_at: String,
         append: bool,
+        identity_bindings_file: Option<PathBuf>,
     },
     AnnotationNameIndex,
     EmbeddedShapeIndex,
@@ -858,6 +859,8 @@ pub(crate) struct MarkupSubtypeHint {
     #[serde(default)]
     pub(crate) annotation_id: Option<String>,
     #[serde(default)]
+    pub(crate) app_annotation_id: Option<String>,
+    #[serde(default)]
     pub(crate) color: Option<String>,
     #[serde(default)]
     pub(crate) id: Option<String>,
@@ -865,6 +868,13 @@ pub(crate) struct MarkupSubtypeHint {
     pub(crate) page_markup_index: Option<u32>,
     #[serde(default)]
     pub(crate) source: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MarkupIdentityBinding {
+    pub(crate) annotation_id: String,
+    pub(crate) pdf_ref: String,
 }
 
 #[derive(Clone, Deserialize)]

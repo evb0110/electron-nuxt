@@ -7,7 +7,6 @@ import {
     type IDocumentsFileCapability,
     type IPdfNativePagePreviewOptions,
     type IPdfNativeSaveResult,
-    type IPdfNativeStagedCommitOptions,
     type IPdfOptimizeOptions,
     type IPdfOptimizeResult,
     type TDocumentSaveResult,
@@ -26,6 +25,7 @@ import {
     decodeNullablePdfValidation,
     decodeOptionalDocumentObject as decodeOptionalObject,
     decodePdfPathValidationResult as decodePathValidationResult,
+    decodePdfNativeStagedCommitOptions,
     decodePdfRevisionOptions as decodeRevisionOptions,
     decodePdfSaveAsOptions as decodeSaveAsOptions,
     decodePdfValidation,
@@ -55,6 +55,7 @@ import type { IRecentFile } from '@contracts/shared';
 import {decodeTypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import {
+    normalizePdfNativeAnnotationIdentityBindings,
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
 } from '@contracts/nativePdfMutations';
@@ -412,12 +413,20 @@ function decodeNativeSaveResult(value: unknown): IPdfNativeSaveResult {
     if (value.stagedOutput !== undefined && !stagedOutput) {
         fail('invalid staged native PDF output');
     }
+    const identityBindings = value.identityBindings === undefined
+        ? undefined
+        : normalizePdfNativeAnnotationIdentityBindings(
+            value.identityBindings,
+            'identityBindings',
+            {errorKind: 'error'},
+        );
     return {
         applied: value.applied,
         validation: decodeNullablePdfValidation(value.validation),
         ...(value.nativeMutationPostconditionsVerified === true
             ? {nativeMutationPostconditionsVerified: true as const}
             : {}),
+        ...(identityBindings === undefined ? {} : {identityBindings}),
         ...(value.error === undefined ? {} : {error: value.error}),
         ...(value.syncError === undefined ? {} : {syncError: value.syncError}),
         ...(stagedOutput ? {stagedOutput} : {}),
@@ -853,7 +862,7 @@ const commitNativeMutationsArgs = documentArgs<'commitStagedPdfNativeMutations'>
         const decoded = appendOptional([
             decodeStringValue(args[0], 'path'),
             stagedOutput,
-        ], decodeRevisionOptions(args[2]) as IPdfNativeStagedCommitOptions | undefined);
+        ], decodePdfNativeStagedCommitOptions(args[2]));
         return decoded as TDocumentMethodArgs<'commitStagedPdfNativeMutations'>;
     },
     () => [

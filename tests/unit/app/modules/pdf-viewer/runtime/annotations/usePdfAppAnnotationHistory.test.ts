@@ -963,4 +963,42 @@ describe('usePdfAppAnnotationHistory', () => {
             'projection-sync',
         ]);
     });
+
+    it('captures the editor boundary before replay and projects it after', async () => {
+        const registrations: Array<{
+            undo: () => Promise<boolean> | boolean;
+            cmd: () => Promise<boolean> | boolean;
+        }> = [];
+        const calls: string[] = [];
+        const history = usePdfAppAnnotationHistory({
+            pdfjsAnnotationState: ref(createAnnotationState()),
+            emitAnnotationState: () => {},
+            markModified: () => calls.push('modified'),
+        });
+        history.setBeforeReplayEffect(() => calls.push('capture'));
+        history.setReplayEffect(() => calls.push('projection-sync'));
+        history.setWorkspaceCommandSink({
+            register: command => registrations.push(command),
+            reset: vi.fn(),
+            forget: vi.fn(),
+        });
+        history.registerCommand({
+            undo: () => calls.push('undo'),
+            cmd: () => calls.push('redo'),
+        });
+
+        await registrations[0]?.undo();
+        await registrations[0]?.cmd();
+
+        expect(calls).toEqual([
+            'capture',
+            'undo',
+            'modified',
+            'projection-sync',
+            'capture',
+            'redo',
+            'modified',
+            'projection-sync',
+        ]);
+    });
 });

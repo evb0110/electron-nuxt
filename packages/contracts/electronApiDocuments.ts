@@ -406,7 +406,18 @@ export interface IPdfSerializedCommitCallbacks {
     assertBeforeCommit?: () => Promise<void> | void;
 }
 
-export interface IPdfNativeStagedCommitOptions extends IDocumentMutationRevisionOptions {changedObjectRefs?: string[];}
+export interface IPdfNativeAnnotationIdentityBinding {
+    /** Canonical application annotation identity from the save frontier. */
+    annotationId: string;
+    /** Canonical indirect PDF object reference, formatted as `N G R`. */
+    pdfRef: string;
+}
+
+export interface IPdfNativeStagedCommitOptions extends IDocumentMutationRevisionOptions {
+    changedObjectRefs?: string[];
+    /** Bindings returned by the native staged mutation that is being committed. */
+    identityBindings?: IPdfNativeAnnotationIdentityBinding[];
+}
 
 export interface IPdfOptimizeProgress {
     requestId: string;
@@ -643,6 +654,8 @@ export interface IPdfNativeMarkupSubtypeHint {
     markerRect: IPdfNativeMarkupMarkerRect;
     /** One normalized marker rectangle per source text-markup quad. */
     markupGeometry?: IPdfNativeMarkupMarkerRect[] | null;
+    /** Canonical application identity for a newly authored markup annotation. */
+    appAnnotationId?: string | null;
     annotationId?: string | null;
     color?: string | null;
     id?: string | null;
@@ -681,6 +694,8 @@ export interface IPdfNativeNoteTextSaveResult {
      * repeat the same semantic checks.
      */
     nativeMutationPostconditionsVerified?: true;
+    /** Exact canonical identities and indirect refs created by the native mutation. */
+    identityBindings?: IPdfNativeAnnotationIdentityBinding[];
     error?: INativeErrorEnvelope;
     syncError?: string;
     /** Immutable native output. It is not visible as document state until committed. */

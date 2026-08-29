@@ -1,4 +1,5 @@
 import type {
+    IPdfNativeStagedCommitOptions,
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
@@ -7,6 +8,7 @@ import {
     type IPdfValidationResult,
 } from '@contracts/pdfConformance';
 import { isRecord } from '@contracts/runtimeGuards';
+import {normalizePdfNativeAnnotationIdentityBindings} from '@contracts/nativePdfMutations';
 
 const pdfObjectRefPattern = /^\d+\s+\d+\s+R$/u;
 
@@ -64,6 +66,23 @@ export function decodePdfRevisionOptions(value: unknown): IPdfSerializedSaveOpti
             ? {changedObjectRefs: [...new Set(decoded.changedObjectRefs)]}
             : {}),
         ...(decoded.workingCopyOnly === true ? {workingCopyOnly: true as const} : {}),
+    };
+}
+
+export function decodePdfNativeStagedCommitOptions(value: unknown): IPdfNativeStagedCommitOptions | undefined {
+    const decoded = decodePdfRevisionOptions(value);
+    if (decoded === undefined) {
+        return undefined;
+    }
+    const raw = decodeRequiredDocumentObject<Record<string, unknown>>(value, 'revisionOptions');
+    const identityBindings = normalizePdfNativeAnnotationIdentityBindings(
+        raw.identityBindings,
+        'revisionOptions.identityBindings',
+        {errorKind: 'error'},
+    );
+    return {
+        ...decoded,
+        ...(raw.identityBindings === undefined ? {} : {identityBindings}),
     };
 }
 

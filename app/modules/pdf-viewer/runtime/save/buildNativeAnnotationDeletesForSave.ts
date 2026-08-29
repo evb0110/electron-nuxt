@@ -17,6 +17,37 @@ function resolveNativeAnnotationDeleteRef(comment: IAnnotationCommentSummary) {
         ?? parsePdfJsAnnotationRef(comment.id);
 }
 
+export function getNativeAnnotationDeleteCommentTargetKey(
+    comment: IAnnotationCommentSummary,
+) {
+    const pageIndex = parsePageIndex(comment.pageIndex);
+    if (pageIndex === null) {
+        return null;
+    }
+    const targetRef = resolveNativeAnnotationDeleteRef(comment);
+    if (targetRef && targetRef.generationNumber <= 65_535) {
+        return `ref:${pageIndex}:${targetRef.objectNumber}:${targetRef.generationNumber}`;
+    }
+    const stableKey = comment.stableKey?.trim();
+    if (stableKey && isReplayableEditorOnlyFreeTextNote(comment)) {
+        return `stable:${pageIndex}:${stableKey}`;
+    }
+    return null;
+}
+
+export function getNativeAnnotationDeleteRequestTargetKey(
+    request: IPdfNativeAnnotationDelete,
+) {
+    if (
+        request.objectNumber !== undefined
+        && request.generationNumber !== undefined
+    ) {
+        return `ref:${request.pageIndex}:${request.objectNumber}:${request.generationNumber}`;
+    }
+    const stableKey = request.stableKey?.trim();
+    return stableKey ? `stable:${request.pageIndex}:${stableKey}` : null;
+}
+
 /** Reachable only through a native-append grant whose annotation route is source-replay. */
 export function buildNativeAnnotationDeletesForSave(
     opts: {pendingDeletes: readonly IAnnotationCommentSummary[]},

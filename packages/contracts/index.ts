@@ -365,6 +365,7 @@ export type {
 } from '@contracts/annotations';
 
 export {
+    normalizePdfNativeAnnotationIdentityBindings,
     PDF_NATIVE_DATE_PATTERN,
     PDF_NATIVE_MUTATION_ENUM_VALUES,
     PDF_NATIVE_MUTATION_LIMITS,

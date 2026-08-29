@@ -26,6 +26,8 @@ function addMarkupTargetKey(keys: Set<string>, value: string | null | undefined)
 function buildCurrentMarkupTargetKeys(hints: IMarkupSubtypeHint[]) {
     const keys = new Set<string>();
     for (const hint of hints) {
+        addMarkupTargetKey(keys, hint.appAnnotationId);
+        addMarkupTargetKey(keys, normalizePdfJsAnnotationId(hint.appAnnotationId));
         addMarkupTargetKey(keys, hint.id);
         addMarkupTargetKey(keys, hint.annotationId);
         const normalizedAnnotationId = normalizePdfJsAnnotationId(hint.annotationId);
@@ -47,7 +49,8 @@ function hasCurrentMarkupTargetKey(keys: Set<string>, value: string | null | und
 }
 
 function isCurrentMarkupHint(hint: IMarkupSubtypeHint, keys: Set<string>) {
-    return hasCurrentMarkupTargetKey(keys, hint.annotationId)
+    return hasCurrentMarkupTargetKey(keys, hint.appAnnotationId)
+        || hasCurrentMarkupTargetKey(keys, hint.annotationId)
         || hasCurrentMarkupTargetKey(keys, hint.id);
 }
 
@@ -83,6 +86,7 @@ export function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSu
         subtype: hint.subtype,
         pageIndex: requirePageIndex(hint.pageIndex),
         markerRect,
+        ...(hint.appAnnotationId?.trim() ? {appAnnotationId: hint.appAnnotationId.trim()} : {}),
         ...(emittedMarkupGeometry
             ? {markupGeometry: emittedMarkupGeometry}
             : {}),

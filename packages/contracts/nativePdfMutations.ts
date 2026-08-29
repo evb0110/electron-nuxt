@@ -788,7 +788,7 @@ function normalizeMarkupOptionalIndex(value: unknown, label: string, options: IP
     }
     return value;
 }
-
+export {normalizePdfNativeAnnotationIdentityBindings} from '@contracts/nativePdfIdentityBindings';
 function normalizeMarkupOverride(
     value: unknown,
     label: string,
@@ -827,11 +827,21 @@ function normalizeMarkupHint(
     if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
         fail(`${label}.pageIndex must be a non-negative safe integer`, options);
     }
+    const appAnnotationId = normalizeMarkupOptionalString(
+        value.appAnnotationId,
+        `${label}.appAnnotationId`,
+        options,
+    );
+    const canonicalAppAnnotationId = appAnnotationId?.trim() ?? null;
+    if (canonicalAppAnnotationId !== null && canonicalAppAnnotationId.length === 0) {
+        fail(`${label}.appAnnotationId must be a non-empty string or null`, options);
+    }
     return {
         subtype: normalizeMarkupSubtype(value.subtype, `${label}.subtype`, options),
         pageIndex: requirePageIndex(pageIndex),
         markerRect: normalizeMarkupMarkerRect(value.markerRect, `${label}.markerRect`, options),
         markupGeometry: normalizeMarkupGeometry(value.markupGeometry, `${label}.markupGeometry`, options),
+        ...(value.appAnnotationId === undefined ? {} : {appAnnotationId: canonicalAppAnnotationId}),
         annotationId: normalizeMarkupOptionalString(value.annotationId, `${label}.annotationId`, options),
         color: normalizeMarkupOptionalString(value.color, `${label}.color`, options),
         id: normalizeMarkupOptionalString(value.id, `${label}.id`, options),

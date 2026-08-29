@@ -38,6 +38,7 @@ import {
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
 } from '@pdf-core/nativePdfMutationPolicy';
+import {appendPdfNativeAnnotationIdentityBindings} from '@contracts/nativePdfIdentityBindings';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
@@ -264,11 +265,9 @@ function assertPdfSerializedCommitCallbacks(
 }
 
 const PDF_OBJECT_REF_PATTERN = /^\d+\s+\d+\s+R$/;
-
 function assertPdfNativeStagedCommitOptions(value: unknown, label: string): IPdfNativeStagedCommitOptions {
-    return assertPdfSerializedSaveOptions(value, label);
+    return appendPdfNativeAnnotationIdentityBindings(assertPdfSerializedSaveOptions(value, label), value, label);
 }
-
 function assertPdfOptimizeOptions(value: unknown, label: string): IPdfOptimizeOptions {
     if (!isRecord(value)) {
         throw new TypeError(`${label} must be an object`);

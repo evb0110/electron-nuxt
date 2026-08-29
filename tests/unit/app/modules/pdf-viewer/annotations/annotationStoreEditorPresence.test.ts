@@ -122,6 +122,30 @@ describe('AnnotationStore editor presence reconciliation', () => {
         });
     });
 
+    it('tombstones a persisted annotation whose editor disappeared during history replay', () => {
+        const store = new AnnotationStore();
+        const persisted = {
+            ...stickyNote('history-persisted-note', {
+                pdfjsUid: 'editor-12',
+                pdfRef: '12R',
+            }),
+            persistedRevision: 0,
+        };
+        store.import(persisted);
+
+        store.reconcileEditorPresence(
+            new Set(),
+            {changedExternalIds: new Set(['editor-12'])},
+        );
+
+        expect(store.get(persisted.identity.id)).toMatchObject({
+            deleted: true,
+            identity: {pdfRef: '12R'},
+            modifiedAt: persisted.modifiedAt,
+            revision: 1,
+        });
+    });
+
     it('restores a tombstoned annotation the editor layer still renders', () => {
         const store = new AnnotationStore();
         const persisted = {
@@ -135,6 +159,20 @@ describe('AnnotationStore editor presence reconciliation', () => {
 
         expect(store.get(persisted.identity.id)).toMatchObject({deleted: false});
         expect(store.resolveExternal({elementId: 'element-3'})).toBe(persisted.identity.id);
+    });
+
+    it('recognizes a rendered annotation by its PDF name identity', () => {
+        const store = new AnnotationStore();
+        const persisted = {
+            ...stickyNote('named-note', {pdfName: 'named-annotation-3'}),
+            persistedRevision: 0,
+            deleted: true,
+        };
+        store.import(persisted);
+
+        store.reconcileEditorPresence(new Set(['named-annotation-3']));
+
+        expect(store.get(persisted.identity.id)).toMatchObject({deleted: false});
     });
 
     it('never judges a shape by editor presence', () => {

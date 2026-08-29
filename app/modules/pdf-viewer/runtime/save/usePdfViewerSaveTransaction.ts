@@ -20,6 +20,7 @@ import {
     collectNewPdfJsAnnotationStorageEditorOrder,
     collectLivePdfJsAnnotationChangeIds,
     mergeLivePdfJsAnnotationChanges,
+    normalizeLivePdfJsAnnotationChangesAgainstSavedFingerprint,
 } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import type {TPdfSaveRouteDecision} from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
 import { classifyPdfSaveRoute } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
@@ -627,6 +628,14 @@ export const usePdfViewerSaveTransaction = (
             'collect-live-changes-after-commit',
             collectLiveAnnotationChanges,
         );
+        const routedPdfjsLiveChangesBeforeCommit = normalizeLivePdfJsAnnotationChangesAgainstSavedFingerprint(
+            pdfjsLiveChangesBeforeCommit,
+            request.savedPdfjsAnnotationFingerprint,
+        );
+        const routedCapturedPdfjsLiveChanges = normalizeLivePdfJsAnnotationChangesAgainstSavedFingerprint(
+            capturedPdfjsLiveChanges,
+            request.savedPdfjsAnnotationFingerprint,
+        );
         const canonicalSave = prepareAnnotationSave(capturedTarget);
         // Complete the annotation frontier into the global immutable save plan
         // before route selection. From this point onward no backend is allowed to
@@ -680,6 +689,9 @@ export const usePdfViewerSaveTransaction = (
                 );
                 assertSaveTargetCurrent();
             },
+            ...(canonicalSave?.recordMaterializedIdentityBinding
+                ? {recordMaterializedIdentityBinding: canonicalSave.recordMaterializedIdentityBinding}
+                : {}),
             commitAnnotationSave: () => {
                 // Persistence may legitimately advance the document revision and
                 // open fence. The frozen store frontier still performs semantic
@@ -718,8 +730,8 @@ export const usePdfViewerSaveTransaction = (
             dirtyState: request.dirtyState,
             documentStructure: request.documentStructure,
             liveAnnotationChanges: mergeLivePdfJsAnnotationChanges(
-                pdfjsLiveChangesBeforeCommit,
-                capturedPdfjsLiveChanges,
+                routedPdfjsLiveChangesBeforeCommit,
+                routedCapturedPdfjsLiveChanges,
             ),
             hasLoadedSource: Boolean(request.source),
             forcePdfjsMaterialize: request.forcePdfjsMaterialize === true,

@@ -19,6 +19,7 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import type {TDocumentRef} from '@contracts/documentRef';
+import type {ICanonicalAnnotationIdentityBinding} from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings';
 
 export type TPdfViewerSaveTransactionMode =
     | 'persist'
@@ -166,6 +167,8 @@ export interface IPdfViewerSaveTransactionRequest {
     saveFlowMode?: 'save' | 'save_as';
     forceRewrite?: boolean;
     forcePdfjsMaterialize?: boolean;
+    /** Exact saved fingerprint for a preserved live PDF.js session. */
+    savedPdfjsAnnotationFingerprint?: string | null;
     includeManagedShapes?: boolean;
     rewriteShapeState?: boolean;
     planOnly?: boolean;
@@ -200,6 +203,7 @@ export interface IPdfViewerSaveTransactionResult {
     verifyAnnotationSave?(bytes: Uint8Array): Promise<void>;
     verifyAnnotationSavePath?(path: string, knownSize: number): Promise<void>;
     assertAnnotationSaveCurrent?(): Promise<void> | void;
+    recordMaterializedIdentityBinding?(binding: ICanonicalAnnotationIdentityBinding): void;
     commitAnnotationSave?(): void;
     /**
      * Executes the exact classifier-owned fallback captured by a plan-only

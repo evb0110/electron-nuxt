@@ -247,20 +247,30 @@ describe('usePdfViewerSaveTransaction', () => {
 
     it('carries the canonical save frontier verification and commit callbacks', async () => {
         const verify = vi.fn(async () => undefined);
+        const recordMaterializedIdentityBinding = vi.fn();
         const commit = vi.fn();
         const {runSaveTransaction} = usePdfViewerSaveTransaction({
             materializePdfJsDocumentForInternalUse: vi.fn(async () => new Uint8Array([1])),
             prepareAnnotationSave: () => ({
                 verify,
+                recordMaterializedIdentityBinding,
                 commit,
             }),
         });
 
         const result = await runSaveTransaction({mode: 'persist'});
         await result.verifyAnnotationSave?.(new Uint8Array([2]));
+        result.recordMaterializedIdentityBinding?.({
+            annotationId: 'app-annotation-1',
+            pdfRef: '700R0',
+        });
         result.commitAnnotationSave?.();
 
         expect(verify).toHaveBeenCalledOnce();
+        expect(recordMaterializedIdentityBinding).toHaveBeenCalledWith({
+            annotationId: 'app-annotation-1',
+            pdfRef: '700R0',
+        });
         expect(commit).toHaveBeenCalledOnce();
     });
 

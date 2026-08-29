@@ -17,6 +17,7 @@ import type {
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePlan';
 
 interface IWorkspaceSaveTransactionRequestDependencies {
+    annotations: {getSavedPdfJsAnnotationFingerprint?: () => string | null};
     metadata: {
         pageLabelRanges: {value: IPdfPageLabelRange[]};
         bookmarkItems: {value: IPdfBookmarkEntry[]};
@@ -85,6 +86,7 @@ export function buildSaveTransactionRequest(
         saveFlowMode: getSaveFlow(plan),
         forcePdfjsMaterialize: plan.dirtyState.preservedAnnotationSource
             || plan.dirtyState.savedPdfjsAnnotationBaseline,
+        savedPdfjsAnnotationFingerprint: deps.annotations.getSavedPdfJsAnnotationFingerprint?.() ?? null,
         includeManagedShapes: body.includeManagedShapes,
         rewriteShapeState: plan.dirtyState.shapes,
         forceRewrite: body.forceRewrite,

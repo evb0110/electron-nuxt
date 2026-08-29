@@ -748,6 +748,31 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         highlight,
         crud,
     };
+    function collectRenderedEditorExternalIds() {
+        const manager = annotationUiManager.value;
+        if (!manager) {
+            return new Set<string>();
+        }
+        const presentExternalIds = new Set<string>();
+        const relevantPageIndexes = new Set(
+            annotationApplication.value.store.list({includeDeleted: true})
+                .filter(entity => entity.kind !== 'shape')
+                .map(entity => entity.pageIndex),
+        );
+        for (const pageIndex of relevantPageIndexes) {
+            getEditorsOnPage(manager, pageIndex).forEach((editor) => {
+                if (editor.uid) presentExternalIds.add(editor.uid);
+                if (editor.annotationElementId) presentExternalIds.add(editor.annotationElementId);
+            });
+        }
+        return presentExternalIds;
+    }
+
+    let editorExternalIdsBeforeReplay = new Set<string>();
+    appAnnotationHistory.setBeforeReplayEffect(() => {
+        editorExternalIdsBeforeReplay = collectRenderedEditorExternalIds();
+    });
+    let deferredCommentSyncTimer: ReturnType<typeof setTimeout> | null = null;
     appAnnotationHistory.setReplayEffect(() => {
         // A replay retires or restores canonical entities and their PDF.js
         // editors together. A comment sync that already scanned the editor
@@ -755,29 +780,34 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         // an undone annotation back from the editor it no longer has, so its
         // outcome is dropped here; the resync below re-reads the settled layer.
         annotations.commentSync.discardInFlightSync();
-        const manager = annotationUiManager.value;
-        if (manager) {
-            const presentExternalIds = new Set<string>();
-            const relevantPageIndexes = new Set(
-                annotationApplication.value.store.list({includeDeleted: true})
-                    .filter(entity => entity.kind !== 'shape')
-                    .map(entity => entity.pageIndex),
-            );
-            for (const pageIndex of relevantPageIndexes) {
-                getEditorsOnPage(manager, pageIndex).forEach((editor) => {
-                    if (editor.uid) presentExternalIds.add(editor.uid);
-                    if (editor.annotationElementId) presentExternalIds.add(editor.annotationElementId);
-                });
-            }
-            annotationApplication.value.reconcilePdfjsEditorPresence(presentExternalIds);
-        }
+        const presentExternalIds = collectRenderedEditorExternalIds();
+        const changedExternalIds = new Set([
+            ...editorExternalIdsBeforeReplay,
+            ...presentExternalIds,
+        ].filter(id => (
+            editorExternalIdsBeforeReplay.has(id) !== presentExternalIds.has(id)
+        )));
+        annotationApplication.value.reconcilePdfjsEditorPresence(
+            presentExternalIds,
+            {changedExternalIds},
+        );
         // Layer teardown/rebuild and annotation-storage bookkeeping can finish
         // in the next task. Refresh the richer comment snapshot once that settles.
-        setTimeout(() => {
+        if (deferredCommentSyncTimer !== null) {
+            clearTimeout(deferredCommentSyncTimer);
+        }
+        deferredCommentSyncTimer = setTimeout(() => {
+            deferredCommentSyncTimer = null;
             void annotations.commentSync.syncAnnotationComments();
         }, 0);
     });
-    onScopeDispose(() => appAnnotationHistory.setReplayEffect(null));
+    onScopeDispose(() => {
+        if (deferredCommentSyncTimer !== null) {
+            clearTimeout(deferredCommentSyncTimer);
+        }
+        appAnnotationHistory.setBeforeReplayEffect(null);
+        appAnnotationHistory.setReplayEffect(null);
+    });
 
     const highlightComposable = annotations.highlight;
     const commentCrud = annotations.crud;

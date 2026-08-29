@@ -92,6 +92,7 @@ export interface IWorkspaceSaveDependencies {
         hasChanges: () => boolean;
         hasLivePdfJsChanges?: () => boolean;
         hasSavedPdfJsBaselineChanges?: () => boolean;
+        getSavedPdfJsAnnotationFingerprint?: () => string | null;
         hasPreservedSourceChanges?: () => boolean;
         hasPendingDeletes?: () => boolean;
         openNoteCount: Ref<number>;
@@ -677,6 +678,15 @@ async function executeNativeMutationSave(
     }
     if (projection.hasShapeMutations && canMarkShapeStateSaved) {
         deps.shapes.adoptPersistedStateOnReload?.();
+    }
+    if (persisted.materializedIdentityBindings?.length) {
+        const recordMaterializedIdentityBinding = saveTransaction.recordMaterializedIdentityBinding;
+        if (!recordMaterializedIdentityBinding) {
+            throw new Error('Native save returned identity bindings without an annotation save session');
+        }
+        for (const binding of persisted.materializedIdentityBindings) {
+            recordMaterializedIdentityBinding(binding);
+        }
     }
     saveTransaction.commitAnnotationSave?.();
     const preparedShapeState = preparedShapeStateSnapshot;

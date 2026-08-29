@@ -1,12 +1,16 @@
 import {
     mkdtemp,
+    readFile,
     rm,
     stat,
     writeFile,
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import { performance } from 'perf_hooks';
-import { join } from 'path';
+import {
+    dirname,
+    join,
+} from 'path';
 import type {
     IDocumentMutationRevisionOptions,
     IPdfNativeMutationSet,
@@ -17,6 +21,7 @@ import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import {
     normalizePdfNativeModifiedAt,
+    normalizePdfNativeAnnotationIdentityBindings,
     normalizePdfNativeMutationSet,
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
@@ -74,6 +79,7 @@ interface INativeNoteCommandOptions {
     payloadFlag: '--updates-file' | '--changes-file' | '--mutations-file';
     payload: unknown;
     commandLabel: string;
+    identityBindingsFileName?: string;
 }
 
 interface INativeNotePhaseTiming {
@@ -159,6 +165,18 @@ function normalizeNativeMutationSet(rawMutations: unknown): IPdfNativeMutationSe
     return normalizePdfNativeMutationSet(rawMutations, 'native PDF mutations', {errorKind: 'error'});
 }
 
+function needsNativeMarkupIdentityBindingsReport(mutations: IPdfNativeMutationSet) {
+    return (mutations.markup?.hints ?? []).some(hint => {
+        const appAnnotationId = hint.appAnnotationId?.trim();
+        const annotationId = hint.annotationId?.trim();
+        return Boolean(
+            appAnnotationId
+            && (hint.source === 'editor' || hint.source === 'editor-live')
+            && !(annotationId && /^\d+R\d*$/iu.test(annotationId)),
+        );
+    });
+}
+
 function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number): string {
     const originalPath = getWorkingCopyOriginalPath(workingPath, senderWebContentsId)?.originalPath;
     if (!originalPath) {
@@ -239,6 +257,12 @@ async function prepareNativeNoteMutation(options: {
                 options.tempPath,
                 options.command.payloadFlag,
                 options.payloadFilePath,
+                ...(options.command.identityBindingsFileName
+                    ? [
+                        '--identity-bindings-file',
+                        join(dirname(options.payloadFilePath), options.command.identityBindingsFileName),
+                    ]
+                    : []),
                 '--qpdf',
                 getPdfNativeToolPaths().qpdf,
                 '--modified-at',
@@ -253,7 +277,23 @@ async function prepareNativeNoteMutation(options: {
         ));
     await measureNativeNotePhase(options.phaseTimings, 'assert-output', () =>
         assertNativeOutputReady(options.tempPath));
-    return createNativeValidationResult();
+    if (!options.command.identityBindingsFileName) {
+        return {validation: createNativeValidationResult()};
+    }
+    const identityBindingsPath = join(dirname(options.payloadFilePath), options.command.identityBindingsFileName);
+    const identityBindings = await measureNativeNotePhase(
+        options.phaseTimings,
+        'read-identity-bindings',
+        async () => normalizePdfNativeAnnotationIdentityBindings(
+            JSON.parse(await readFile(identityBindingsPath, 'utf8')),
+            'native identity bindings',
+            {errorKind: 'error'},
+        ),
+    );
+    return {
+        validation: createNativeValidationResult(),
+        identityBindings,
+    };
 }
 
 async function syncNativeOutputToRequestingWorkingCopy(
@@ -304,9 +344,10 @@ async function runNativeNoteCommand(
         const tempDir = await mkdtemp(join(tmpdir(), 'pdf-note-text-'));
         const payloadFilePath = join(tempDir, options.payloadFileName);
         let committedValidation: IPdfNativeNoteTextSaveResult['validation'] = null;
+        let committedIdentityBindings: IPdfNativeNoteTextSaveResult['identityBindings'];
         let committed = false;
         try {
-            const validation = await prepareNativeNoteMutation({
+            const prepared = await prepareNativeNoteMutation({
                 binaryPath,
                 command: options,
                 context,
@@ -317,6 +358,11 @@ async function runNativeNoteCommand(
                 sourcePath: normalizedWorkingPath,
                 tempPath,
             });
+            const {
+                validation,
+                identityBindings,
+            } = prepared;
+            committedIdentityBindings = identityBindings;
             const transition = await transitionOriginalAndWorkingCopyRevision({
                 workingCopyPath: normalizedWorkingPath,
                 originalPath,
@@ -349,6 +395,7 @@ async function runNativeNoteCommand(
             return {
                 applied: true,
                 validation,
+                ...(identityBindings === undefined ? {} : {identityBindings}),
             };
         } catch (error) {
             log.debug(`Native note text update failed, falling back to pdf-lib: ${JSON.stringify({
@@ -362,6 +409,7 @@ async function runNativeNoteCommand(
                     applied: true,
                     validation: committedValidation,
                     syncError: getErrorMessage(error),
+                    ...(committedIdentityBindings === undefined ? {} : {identityBindings: committedIdentityBindings}),
                 };
             }
             return createNotAppliedResult(error);
@@ -416,7 +464,7 @@ async function runNativeWorkingCopyCommand(
         const payloadFilePath = join(tempDir, options.payloadFileName);
         let staged = false;
         try {
-            const validation = await prepareNativeNoteMutation({
+            const prepared = await prepareNativeNoteMutation({
                 binaryPath,
                 command: options,
                 context,
@@ -427,6 +475,10 @@ async function runNativeWorkingCopyCommand(
                 sourcePath: normalizedWorkingPath,
                 tempPath,
             });
+            const {
+                validation,
+                identityBindings,
+            } = prepared;
 
             const stagedOutput = await createOpaqueNativePdfStagedArtifact(context, tempPath, {
                 qpdfCheck: false,
@@ -448,6 +500,7 @@ async function runNativeWorkingCopyCommand(
                 validation,
                 nativeMutationPostconditionsVerified: true,
                 stagedOutput,
+                ...(identityBindings === undefined ? {} : {identityBindings}),
             };
         } catch (error) {
             log.warn(`Native working-copy mutation failed: ${JSON.stringify({
@@ -522,6 +575,9 @@ export async function handleCommitStagedPdfNativeMutations(
                 ? {
                     applied: true,
                     validation: createNativeValidationResult(),
+                    ...(revisionOptions?.identityBindings === undefined
+                        ? {}
+                        : {identityBindings: revisionOptions.identityBindings}),
                 }
                 : createNotAppliedResult();
 
@@ -613,6 +669,9 @@ export async function handleNativePdfMutationsSave(
         payloadFlag: '--mutations-file',
         payload: mutations,
         commandLabel: 'evb-pdf-page-ops(save-mutations)',
+        ...(needsNativeMarkupIdentityBindingsReport(mutations)
+            ? {identityBindingsFileName: 'identity-bindings.json'}
+            : {}),
     });
 }
 
@@ -630,5 +689,8 @@ export async function handleNativePdfMutationsApplyToWorkingCopy(
         payloadFlag: '--mutations-file',
         payload: mutations,
         commandLabel: 'evb-pdf-page-ops(save-mutations-working-copy)',
+        ...(needsNativeMarkupIdentityBindingsReport(mutations)
+            ? {identityBindingsFileName: 'identity-bindings.json'}
+            : {}),
     });
 }

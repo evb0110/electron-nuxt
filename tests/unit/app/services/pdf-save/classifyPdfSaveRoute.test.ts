@@ -127,11 +127,16 @@ function editorMarkupWithPdfAliases(
     };
 }
 
-function deletedMarkup(id: string, pdfRef: string): AnnotationEntity {
+function deletedMarkup(
+    id: string,
+    pdfRef: string,
+    elementId?: string,
+): AnnotationEntity {
     return {
         ...editorMarkup(id),
         identity: {
             id: asAnnotationId(id),
+            ...(elementId ? {elementId} : {}),
             pdfRef,
         },
         deleted: true,
@@ -1281,6 +1286,98 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         expect(decision.replayableAnnotationMutationsAllowed).toBe(true);
         expect(decision.pdfjsMaterializeForced).toBe(true);
         expect(decision.fallback.route).toBe('pdfjs-materialize');
+    });
+
+    it('covers a dirty saved PDF.js baseline with the exact canonical native delete', () => {
+        const decision = classifyPdfSaveRoute(
+            planOf([deletedMarkup('anno_deleted', '12R', 'pdfjs_internal_editor_0')]),
+            capabilities({
+                forcePdfjsMaterialize: true,
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: true,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_deleted',
+                        'pdfjs_internal_editor_0',
+                        '12R',
+                    ]),
+                    hasChanges: true,
+                    fingerprint: 'exact-native-delete-aliases',
+                }),
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.annotationDeletes).toEqual([{
+            pageIndex: 0,
+            objectNumber: 12,
+            generationNumber: 0,
+        }]);
+    });
+
+    it('keeps an unrelated live runtime ID on the materializing route beside an exact native delete', () => {
+        const decision = classifyPdfSaveRoute(
+            planOf([deletedMarkup('anno_deleted', '12R', 'pdfjs_internal_editor_0')]),
+            capabilities({
+                forcePdfjsMaterialize: true,
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: true,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_deleted',
+                        'pdfjs_internal_editor_0',
+                        '12R',
+                        'unrelated-runtime-id',
+                    ]),
+                    hasChanges: true,
+                    fingerprint: 'native-delete-plus-unrelated-runtime-id',
+                }),
+            }),
+        );
+
+        expect(decision.route).not.toBe('native-append');
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('saved-pdfjs-baseline-dirty-requires-materialization');
+    });
+
+    it('rejects a native delete when the tombstone has no exact native target', () => {
+        const unresolvedDelete: AnnotationEntity = {
+            ...editorMarkup('anno_unresolved'),
+            deleted: true,
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([unresolvedDelete]),
+            capabilities(),
+        );
+
+        expect(decision.route).not.toBe('native-append');
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('pending-deletes-not-covered-by-native-mutations');
+    });
+
+    it('rejects duplicate tombstones that collapse onto one native delete target', () => {
+        const decision = classifyPdfSaveRoute(
+            planOf([
+                deletedMarkup('anno_deleted_a', '12R'),
+                deletedMarkup('anno_deleted_b', '12R'),
+            ]),
+            capabilities(),
+        );
+
+        expect(decision.route).not.toBe('native-append');
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('pending-deletes-not-covered-by-native-mutations');
     });
 
     it('refuses the native route when the plan forces a rewrite backend', () => {

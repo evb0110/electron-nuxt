@@ -1,5 +1,6 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { IPdfNativeAnnotationIdentityBinding } from '@contracts/electronApiDocuments';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import { pageNumberToPageIndex } from '@contracts/pageNumbers';
 import type { IDocumentPageRange } from '@app/utils/document-viewer/documentPageRange';
@@ -128,6 +129,8 @@ export interface IPdfPersistResult {
     outPath: TDocumentRef | null;
     saveMode: TPdfSaveMode;
     didSaveAs: boolean;
+    /** Native incremental saves may bind newly authored app identities to PDF refs. */
+    materializedIdentityBindings?: readonly IPdfNativeAnnotationIdentityBinding[];
     /**
      * Why a `success: false` result stopped when nothing went wrong:
      * `cancelled` for a dismissed Save As dialog, `stale` for a document that

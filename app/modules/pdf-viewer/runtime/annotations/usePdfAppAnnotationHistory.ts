@@ -36,10 +36,21 @@ export const usePdfAppAnnotationHistory = (options: {
     let transactionDepth = 0;
     let transactionCommands: IPdfAppAnnotationHistoryCommand[] = [];
     let workspaceCommandSink: IWorkspaceCommandSink | null = null;
+    let beforeReplayEffect: (() => void) | null = null;
     let replayEffect: (() => void) | null = null;
+
+    function setBeforeReplayEffect(effect: (() => void) | null) {
+        beforeReplayEffect = effect;
+    }
 
     function setReplayEffect(effect: (() => void) | null) {
         replayEffect = effect;
+    }
+
+    function beginReplay() {
+        if (beforeReplayEffect) {
+            notifyAfterReplay('capture annotation projections before replay', beforeReplayEffect);
+        }
     }
 
     function finishReplay() {
@@ -273,6 +284,7 @@ export const usePdfAppAnnotationHistory = (options: {
     ) {
         const rollbacks: Array<() => void> = [];
         try {
+            beginReplay();
             withRoutedPdfjsHistory(() => apply(rollback => rollbacks.unshift(rollback)));
             finishReplay();
             return true;
@@ -289,6 +301,7 @@ export const usePdfAppAnnotationHistory = (options: {
         const redoBefore = [...redoStack];
         const rollbacks: Array<() => void> = [];
         try {
+            beginReplay();
             withRoutedPdfjsHistory(() => apply(rollback => rollbacks.unshift(rollback)));
             rollbacks.unshift(() => {
                 undoStack.splice(0, undoStack.length, ...undoBefore);
@@ -351,6 +364,7 @@ export const usePdfAppAnnotationHistory = (options: {
         redo,
         clear,
         emitCombinedState,
+        setBeforeReplayEffect,
         setWorkspaceCommandSink,
         setReplayEffect,
     };

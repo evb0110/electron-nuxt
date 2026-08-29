@@ -100,24 +100,40 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
     let appended = read_append_mutations(&config.operation)
         .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
     if let Some((mutations, modified_at)) = appended {
+        let identity_bindings_path = match &config.operation {
+            Operation::SaveMutations {
+                identity_bindings_file,
+                ..
+            } => identity_bindings_file.as_deref(),
+            _ => None,
+        };
         return append_native_mutations_with_qpdf(
             &config.input_path,
             &config.output_path,
             &mutations,
             modified_at,
             config.qpdf_path.as_deref(),
+            identity_bindings_path,
         );
     }
 
     if let Some((mutations, modified_at)) = read_non_append_mutations(&config.operation)
         .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?
     {
+        let identity_bindings_path = match &config.operation {
+            Operation::SaveMutations {
+                identity_bindings_file,
+                ..
+            } => identity_bindings_file.as_deref(),
+            _ => None,
+        };
         return write_native_mutations_path(
             &config.input_path,
             &config.output_path,
             &mutations,
             modified_at,
             config.qpdf_path.as_deref(),
+            identity_bindings_path,
         );
     }
 
@@ -167,6 +183,7 @@ fn read_append_mutations(operation: &Operation) -> Result<Option<(NativeMutation
             mutations_file,
             modified_at,
             append: true,
+            ..
         } => (read_native_mutations(mutations_file)?, modified_at.as_str()),
         _ => return Ok(None),
     };
@@ -206,6 +223,7 @@ fn read_non_append_mutations(operation: &Operation) -> Result<Option<(NativeMuta
             mutations_file,
             modified_at,
             append: false,
+            ..
         } => (read_native_mutations(mutations_file)?, modified_at.as_str()),
         _ => return Ok(None),
     };

@@ -1235,6 +1235,7 @@ fn reports_an_unreadable_append_payload_as_an_invalid_request() {
             mutations_file: mutations_path.clone(),
             modified_at: "D:20260609123456Z".to_string(),
             append: true,
+            identity_bindings_file: None,
         },
         input_path: pdf_path.clone(),
         output_path: pdf_path.clone(),

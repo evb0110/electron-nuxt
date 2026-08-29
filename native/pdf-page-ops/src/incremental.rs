@@ -204,6 +204,24 @@ pub(crate) fn apply_native_mutations(
     mutations: &NativeMutationsFile,
     modified_at: &str,
 ) -> Result<()> {
+    apply_native_mutations_internal(document, mutations, modified_at, None)
+}
+
+pub(crate) fn apply_native_mutations_with_bindings(
+    document: &mut Document,
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+) -> Result<()> {
+    apply_native_mutations_internal(document, mutations, modified_at, Some(identity_bindings))
+}
+
+fn apply_native_mutations_internal(
+    document: &mut Document,
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
+) -> Result<()> {
     let mut annotation_visits = 0usize;
     if !mutations.updates.is_empty() {
         update_note_text(document, &mutations.updates, modified_at)?;
@@ -237,7 +255,10 @@ pub(crate) fn apply_native_mutations(
         apply_shape_annotations(document, shapes, modified_at)?;
     }
     if let Some(markup) = &mutations.markup {
-        apply_markup_mutations(document, markup)?;
+        match identity_bindings.as_mut() {
+            Some(bindings) => apply_markup_mutations_with_bindings(document, markup, bindings)?,
+            None => apply_markup_mutations(document, markup)?,
+        }
     }
     if !mutations.placed_images.is_empty() {
         let image_bytes = take_or_validate_placed_image_payloads(mutations)?;
@@ -250,6 +271,29 @@ pub(crate) fn apply_native_mutations_incremental(
     incremental: &mut IncrementalDocument,
     mutations: &NativeMutationsFile,
     modified_at: &str,
+) -> Result<()> {
+    apply_native_mutations_incremental_internal(incremental, mutations, modified_at, None)
+}
+
+pub(crate) fn apply_native_mutations_incremental_with_bindings(
+    incremental: &mut IncrementalDocument,
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+) -> Result<()> {
+    apply_native_mutations_incremental_internal(
+        incremental,
+        mutations,
+        modified_at,
+        Some(identity_bindings),
+    )
+}
+
+fn apply_native_mutations_incremental_internal(
+    incremental: &mut IncrementalDocument,
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
 ) -> Result<()> {
     let mut annotation_visits = 0usize;
     if !mutations.updates.is_empty() {
@@ -284,7 +328,12 @@ pub(crate) fn apply_native_mutations_incremental(
         apply_shape_annotations_incremental(incremental, shapes, modified_at)?;
     }
     if let Some(markup) = &mutations.markup {
-        apply_markup_mutations_incremental(incremental, markup)?;
+        match identity_bindings.as_mut() {
+            Some(bindings) => {
+                apply_markup_mutations_incremental_with_bindings(incremental, markup, bindings)?;
+            }
+            None => apply_markup_mutations_incremental(incremental, markup)?,
+        }
     }
     if !mutations.placed_images.is_empty() {
         let image_bytes = take_or_validate_placed_image_payloads(mutations)?;
@@ -305,7 +354,7 @@ pub(crate) fn append_native_mutations(
     mutations: &NativeMutationsFile,
     modified_at: &str,
 ) -> Result<()> {
-    append_native_mutations_with_qpdf(input_path, output_path, mutations, modified_at, None)
+    append_native_mutations_with_qpdf(input_path, output_path, mutations, modified_at, None, None)
 }
 
 pub(crate) fn append_native_mutations_with_qpdf(
@@ -314,6 +363,7 @@ pub(crate) fn append_native_mutations_with_qpdf(
     mutations: &NativeMutationsFile,
     modified_at: &str,
     qpdf_path: Option<&Path>,
+    identity_bindings_path: Option<&Path>,
 ) -> Result<()> {
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
@@ -352,6 +402,7 @@ pub(crate) fn append_native_mutations_with_qpdf(
             modified_at,
             true,
             Some(output_path),
+            identity_bindings_path,
         )
     })
 }
@@ -364,9 +415,20 @@ fn write_native_mutations_revision(
     modified_at: &str,
     seeded_output: bool,
     destination_fence: Option<&Path>,
+    identity_bindings_path: Option<&Path>,
 ) -> Result<()> {
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
-    apply_native_mutations_incremental(incremental, mutations, modified_at)?;
+    let mut identity_bindings = Vec::new();
+    if identity_bindings_path.is_some() {
+        apply_native_mutations_incremental_with_bindings(
+            incremental,
+            mutations,
+            modified_at,
+            &mut identity_bindings,
+        )?;
+    } else {
+        apply_native_mutations_incremental(incremental, mutations, modified_at)?;
+    }
 
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
@@ -408,8 +470,53 @@ fn write_native_mutations_revision(
                 previous_xref_start,
             )?;
         }
+        if let Some(path) = identity_bindings_path {
+            write_markup_identity_bindings_report(path, &identity_bindings)?;
+        }
     }
     result
+}
+
+pub(crate) fn write_markup_identity_bindings_report(
+    path: &Path,
+    bindings: &[MarkupIdentityBinding],
+) -> Result<()> {
+    if bindings.len() > MAX_MARKUP_SUBTYPE_HINTS {
+        return Err("Native markup identity binding report exceeds its item limit".into());
+    }
+    let mut annotation_ids = HashSet::new();
+    let mut pdf_refs = HashSet::new();
+    for binding in bindings {
+        if binding.annotation_id.trim().is_empty()
+            || binding.annotation_id.len() > 2_048
+            || !annotation_ids.insert(binding.annotation_id.as_str())
+            || !pdf_refs.insert(binding.pdf_ref.as_str())
+        {
+            return Err(
+                "Native markup identity binding report contains a duplicate or invalid binding"
+                    .into(),
+            );
+        }
+        let mut ref_parts = binding.pdf_ref.split(' ');
+        let object_number = ref_parts.next().and_then(|value| value.parse::<u64>().ok());
+        let generation_number = ref_parts.next().and_then(|value| value.parse::<u64>().ok());
+        if object_number.is_none()
+            || object_number == Some(0)
+            || generation_number.is_none()
+            || ref_parts.next() != Some("R")
+            || ref_parts.next().is_some()
+        {
+            return Err(
+                "Native markup identity binding report contains an invalid PDF reference".into(),
+            );
+        }
+    }
+    let bytes = serde_json::to_vec(bindings)?;
+    if bytes.len() > 256 * 1024 {
+        return Err("Native markup identity binding report is too large".into());
+    }
+    fs::write(path, bytes)?;
+    Ok(())
 }
 
 /// The non-append CLI form still has path-backed semantics. Seed its requested
@@ -421,6 +528,7 @@ pub(crate) fn write_native_mutations_path(
     mutations: &NativeMutationsFile,
     modified_at: &str,
     qpdf_path: Option<&Path>,
+    identity_bindings_path: Option<&Path>,
 ) -> Result<()> {
     // Keep the old whole-document writer for compatibility-sized inputs. Its
     // object-graph behavior is part of the byte-input contract; only the
@@ -437,7 +545,17 @@ pub(crate) fn write_native_mutations_path(
                 "Encrypted PDFs are not supported by native page ops",
             ));
         }
-        apply_native_mutations(&mut document, mutations, modified_at)?;
+        let mut identity_bindings = Vec::new();
+        if identity_bindings_path.is_some() {
+            apply_native_mutations_with_bindings(
+                &mut document,
+                mutations,
+                modified_at,
+                &mut identity_bindings,
+            )?;
+        } else {
+            apply_native_mutations(&mut document, mutations, modified_at)?;
+        }
         let mut staged = AtomicOutput::create(output_path)
             .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
         document
@@ -447,6 +565,9 @@ pub(crate) fn write_native_mutations_path(
                     .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?,
             )
             .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+        if let Some(path) = identity_bindings_path {
+            write_markup_identity_bindings_report(path, &identity_bindings)?;
+        }
         return staged
             .publish_if_unchanged()
             .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()));
@@ -469,6 +590,7 @@ pub(crate) fn write_native_mutations_path(
             modified_at,
             true,
             None,
+            identity_bindings_path,
         )
     })
 }

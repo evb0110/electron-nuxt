@@ -231,12 +231,14 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         const hasSaveableOpenNotes = deps.hasOpenAnnotationNotes?.value === true;
         if (
             !deps.hasPdf.value
-            || (!deps.canSave.value && !hasSaveableOpenNotes)
             || deps.isAnySaving.value
             || deps.isHistoryBusy.value
             || !viewerCapabilities().save
         ) {
             return false;
+        }
+        if (!deps.canSave.value && !hasSaveableOpenNotes) {
+            return true;
         }
 
         return deps.handleSave();

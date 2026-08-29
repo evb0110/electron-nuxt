@@ -15,6 +15,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut updates_file = None;
     let mut changes_file = None;
     let mut mutations_file = None;
+    let mut identity_bindings_file = None;
     let mut instructions_file = None;
     let mut modified_at = None;
     let mut top = None;
@@ -54,6 +55,12 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             "--mutations-file" => {
                 mutations_file = Some(PathBuf::from(
                     args.next().ok_or("Missing --mutations-file value")?,
+                ))
+            }
+            "--identity-bindings-file" => {
+                identity_bindings_file = Some(PathBuf::from(
+                    args.next()
+                        .ok_or("Missing --identity-bindings-file value")?,
                 ))
             }
             "--instructions-file" => {
@@ -106,6 +113,10 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         }
     }
 
+    if identity_bindings_file.is_some() && command != "save-mutations" {
+        return Err("--identity-bindings-file is only valid for save-mutations".into());
+    }
+
     let operation = match command.as_str() {
         "split-pages" => Operation::SplitPages {
             instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
@@ -140,6 +151,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             mutations_file: mutations_file.ok_or("Missing --mutations-file value")?,
             modified_at: modified_at.ok_or("Missing --modified-at value")?,
             append,
+            identity_bindings_file,
         },
         "annotation-index" | "annotation-name-index" => Operation::AnnotationNameIndex,
         "embedded-shape-index" | "shape-index" => Operation::EmbeddedShapeIndex,

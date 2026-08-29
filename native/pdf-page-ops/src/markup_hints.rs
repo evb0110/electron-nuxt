@@ -399,6 +399,10 @@ pub(crate) fn merge_subtype_hints(
             .markup_geometry
             .clone()
             .or_else(|| incoming.markup_geometry.clone()),
+        app_annotation_id: existing
+            .app_annotation_id
+            .clone()
+            .or_else(|| incoming.app_annotation_id.clone()),
         annotation_id: existing
             .annotation_id
             .clone()

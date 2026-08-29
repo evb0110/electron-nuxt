@@ -45,6 +45,33 @@ export function mergeLivePdfJsAnnotationChanges(
     };
 }
 
+/**
+ * A preserved PDF.js session can keep serializable editor records after their
+ * modified state returns to the exact saved baseline. Only an authoritative,
+ * known fingerprint match proves those records are not live save work.
+ */
+export function normalizeLivePdfJsAnnotationChangesAgainstSavedFingerprint(
+    summary: IPdfLiveAnnotationChangeSummary,
+    savedFingerprint: string | null | undefined,
+): IPdfLiveAnnotationChangeSummary {
+    if (
+        !savedFingerprint
+        || savedFingerprint === 'unknown'
+        || summary.hasUnknownChanges
+        || summary.fingerprint !== savedFingerprint
+    ) {
+        return summary;
+    }
+    return {
+        ids: new Set(),
+        replayableEditorNoteIds: new Set(),
+        nativeFreeTextEditors: new Map(),
+        hasChanges: false,
+        hasUnknownChanges: false,
+        fingerprint: EMPTY_ANNOTATION_CHANGE_FINGERPRINT,
+    };
+}
+
 const PDFJS_FREETEXT_ANNOTATION_EDITOR_TYPE = 3;
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 const EMPTY_ANNOTATION_CHANGE_FINGERPRINT = 'empty';

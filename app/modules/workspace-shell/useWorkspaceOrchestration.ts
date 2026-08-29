@@ -309,6 +309,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasLivePdfJsAnnotationChanges,
         hasSavedPdfJsAnnotationBaselineChanges,
         hasPreservedLivePdfjsAnnotationSession,
+        getSavedPdfJsAnnotationFingerprint,
         annotationTool,
         annotationKeepActive,
         annotationPlacingPageNote,
@@ -377,8 +378,17 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         preservedAnnotationSourceDirty.value = dirty;
     }
 
-    function hasPreservedAnnotationSourceChanges(): boolean {
-        return preservedAnnotationSourceDirty.value;
+    function hasPreservedAnnotationSourceChanges() { return preservedAnnotationSourceDirty.value; }
+
+    function reconcilePreservedAnnotationSourceDirty() {
+        if (
+            preservedAnnotationSourceDirty.value
+            && !annotationDirty.value
+            && !hasAnnotationChanges()
+            && getSavedPdfJsAnnotationFingerprint() !== null
+        ) {
+            preservedAnnotationSourceDirty.value = false;
+        }
     }
 
     function markAnnotationSavedAndClearPreservedSource(opts?: { preserveLivePdfjsSession?: boolean }) {
@@ -460,7 +470,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasAnnotationChanges,
         hasLivePdfJsAnnotationChanges,
         hasSavedPdfJsAnnotationBaselineChanges,
+        getSavedPdfJsAnnotationFingerprint,
         hasPreservedAnnotationSourceChanges,
+        reconcilePreservedAnnotationSourceDirty,
         markAnnotationSaved: markAnnotationSavedAndClearPreservedSource,
         getAnnotationSaveStateToken,
         markPageLabelsSaved,

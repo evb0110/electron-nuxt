@@ -320,7 +320,8 @@ describe('AnnotationStore external identity history', () => {
             '12R',
         ]]));
 
-        expect(store.get(note.identity.id)?.identity.pdfRef).toBe('12R');
+        expect(store.get(note.identity.id)).toMatchObject({persistedRevision: -1});
+        expect(store.get(note.identity.id)?.identity.pdfRef).toBeUndefined();
         expect(store.resolveExternal({pdfRef: '12R'})).toBeNull();
     });
 

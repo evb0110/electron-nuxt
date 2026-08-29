@@ -5,12 +5,15 @@ import {
 } from 'vitest';
 import {
     collectLivePdfJsAnnotationChangeIds,
+    normalizeLivePdfJsAnnotationChangesAgainstSavedFingerprint,
     resetLivePdfJsAnnotationStorageModifiedIds,
     resetLivePdfJsAnnotationStorageModifiedState,
 } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import { AnnotationStore } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/engine/annotations/bridge/getPdfjsEditorFacadeState';
+import type { IPdfNativeFreeTextEditor } from '@contracts/electronApiDocuments';
+import { requirePageIndex } from '@contracts/pageNumbers';
 
 const MARKER_RECT = {
     left: 0.1,
@@ -98,6 +101,75 @@ function createPersistedCommentMarkerAnchorFixture() {
 }
 
 describe('collectLivePdfJsAnnotationChangeIds', () => {
+    it('normalizes a known exact saved fingerprint to no live work', () => {
+        const pendingEditor: IPdfNativeFreeTextEditor = {
+            pageIndex: requirePageIndex(0),
+            stableKey: 'pdfjs_internal_editor_0',
+            text: 'Saved editor',
+            rect: [
+                10,
+                20,
+                110,
+                60,
+            ],
+            rotation: 0,
+            fontSize: 16,
+            color: [
+                245,
+                158,
+                11,
+            ],
+        };
+        const summary = {
+            ids: new Set(['pdfjs_internal_editor_0']),
+            replayableEditorNoteIds: new Set(['pdfjs_internal_editor_0']),
+            nativeFreeTextEditors: new Map([[
+                'pdfjs_internal_editor_0',
+                pendingEditor,
+            ]]),
+            hasChanges: true,
+            hasUnknownChanges: false,
+            fingerprint: 'saved-fingerprint',
+        };
+
+        expect(normalizeLivePdfJsAnnotationChangesAgainstSavedFingerprint(
+            summary,
+            'saved-fingerprint',
+        )).toMatchObject({
+            ids: new Set(),
+            replayableEditorNoteIds: new Set(),
+            nativeFreeTextEditors: new Map(),
+            hasChanges: false,
+            hasUnknownChanges: false,
+            fingerprint: 'empty',
+        });
+    });
+
+    it('keeps changed and unknown storage fail-closed against a saved fingerprint', () => {
+        const changed = {
+            ids: new Set(['pdfjs_internal_editor_0']),
+            replayableEditorNoteIds: new Set<string>(),
+            nativeFreeTextEditors: new Map(),
+            hasChanges: true,
+            hasUnknownChanges: false,
+            fingerprint: 'changed-fingerprint',
+        };
+        const unknown = {
+            ...changed,
+            hasUnknownChanges: true,
+            fingerprint: 'unknown',
+        };
+
+        expect(normalizeLivePdfJsAnnotationChangesAgainstSavedFingerprint(
+            changed,
+            'saved-fingerprint',
+        )).toBe(changed);
+        expect(normalizeLivePdfJsAnnotationChangesAgainstSavedFingerprint(
+            unknown,
+            'unknown',
+        )).toBe(unknown);
+    });
+
     it('exposes named bridge helpers for PDF.js annotation storage resets', () => {
         let resetModifiedCalls = 0;
         let resetModifiedIdsCalls = 0;

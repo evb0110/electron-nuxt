@@ -13,6 +13,7 @@ export interface IMarkupSubtypeHint {
     /** One marker rectangle per source PDF text-markup quad. */
     markupGeometry?: readonly IAnnotationMarkerRect[] | null;
     consumed: boolean;
+    appAnnotationId?: string | null;
     annotationId?: string | null;
     color?: string | null;
     id?: string | null;

@@ -38,7 +38,11 @@ import {
     createPdfjsDocumentOptions,
 } from '@app/services/pdfjs/runtimeLib';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
-import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
+import {
+    formatPdfJsAnnotationRef,
+    normalizePdfJsAnnotationId,
+    parsePdfJsAnnotationRef,
+} from '@app/utils/pdfAnnotationRefs';
 import {
     computeSummaryStableKey,
     getReplayableFreeTextNoteName,
@@ -70,6 +74,29 @@ interface IAnnotationPathVerificationTiming {
 
 function roundAnnotationVerificationDuration(durationMs: number) {
     return Math.round(durationMs * 10) / 10;
+}
+
+function parseNativePdfObjectRef(pdfRef: string) {
+    const match = pdfRef.trim().match(/^([1-9]\d*) ([0-9]+) R$/u);
+    if (!match) {
+        return null;
+    }
+
+    const objectNumber = Number(match[1]);
+    const generationNumber = Number(match[2]);
+    if (
+        !Number.isSafeInteger(objectNumber)
+        || !Number.isSafeInteger(generationNumber)
+        || objectNumber <= 0
+        || generationNumber < 0
+    ) {
+        return null;
+    }
+
+    return {
+        objectNumber,
+        generationNumber,
+    };
 }
 
 export interface IAnnotationReadModel {
@@ -280,10 +307,13 @@ export class AnnotationApplication {
         }
     }
 
-    reconcilePdfjsEditorPresence(presentExternalIds: ReadonlySet<string>) {
+    reconcilePdfjsEditorPresence(
+        presentExternalIds: ReadonlySet<string>,
+        options: {changedExternalIds?: ReadonlySet<string>} = {},
+    ) {
         // Forward the rendered external ids as a proposal; the store alone
         // decides canonical restoration and transient tombstoning.
-        this.store.reconcileEditorPresence(presentExternalIds);
+        this.store.reconcileEditorPresence(presentExternalIds, options);
     }
 
     /**
@@ -521,11 +551,16 @@ export class AnnotationApplication {
         if (!session.frontier.revisions.has(canonicalId)) {
             throw new Error(`Unexpected materialized annotation identity ${annotationId}`);
         }
+        const parsedPdfRef = parseNativePdfObjectRef(pdfRef) ?? parsePdfJsAnnotationRef(pdfRef);
+        if (!parsedPdfRef) {
+            throw new Error(`Malformed materialized PDF ref for ${annotationId}`);
+        }
+        const normalizedPdfRef = formatPdfJsAnnotationRef(parsedPdfRef);
         const existing = session.materializedPdfRefs.get(canonicalId);
-        if (existing && normalizePdfJsAnnotationId(existing) !== normalizePdfJsAnnotationId(pdfRef)) {
+        if (existing && normalizePdfJsAnnotationId(existing) !== normalizedPdfRef) {
             throw new Error(`Conflicting materialized PDF refs for ${annotationId}`);
         }
-        session.materializedPdfRefs.set(canonicalId, pdfRef);
+        session.materializedPdfRefs.set(canonicalId, normalizedPdfRef);
     }
 
     async verifyAndAcknowledgeSave(

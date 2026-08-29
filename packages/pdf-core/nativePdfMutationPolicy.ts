@@ -1,4 +1,5 @@
 export {
+    normalizePdfNativeAnnotationIdentityBindings,
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
     normalizePdfNativeNoteChanges,

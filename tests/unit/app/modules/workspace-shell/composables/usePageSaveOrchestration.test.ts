@@ -178,6 +178,32 @@ describe('usePageSaveOrchestration', () => {
         expect(orchestration.canSave.value).toBe(true);
     });
 
+    it('treats an already clean save command as a successful no-op', async () => {
+        const orchestration = usePageSaveOrchestration(createDeps());
+
+        await expect(orchestration.handleSave()).resolves.toBe(true);
+        expect(saveMocks.handleSave).not.toHaveBeenCalled();
+    });
+
+    it('reconciles a preserved source signal only when a save command runs', async () => {
+        const preservedSourceDirty = ref(true);
+        const reconcilePreservedAnnotationSourceDirty = vi.fn(() => {
+            preservedSourceDirty.value = false;
+        });
+        const orchestration = usePageSaveOrchestration(createDeps({
+            hasPendingUnsavedChanges: undefined,
+            hasPreservedAnnotationSourceChanges: () => preservedSourceDirty.value,
+            reconcilePreservedAnnotationSourceDirty,
+        }));
+
+        expect(orchestration.canSave.value).toBe(true);
+        expect(reconcilePreservedAnnotationSourceDirty).not.toHaveBeenCalled();
+        await expect(orchestration.handleSave()).resolves.toBe(true);
+        expect(reconcilePreservedAnnotationSourceDirty).toHaveBeenCalledOnce();
+        expect(orchestration.canSave.value).toBe(false);
+        expect(saveMocks.handleSave).not.toHaveBeenCalled();
+    });
+
     it('exposes the viewer editor commit before workspace save planning', async () => {
         const commitPdfEditorsForSave = vi.fn(async () => undefined);
         usePageSaveOrchestration(createDeps({pdfViewerRef: ref({

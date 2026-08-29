@@ -9,6 +9,7 @@ import { ref } from 'vue';
 import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
 import { createDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
 import type { TTranslateFn } from '@i18n-app';
 import {requireDocumentRevisionToken} from '@contracts';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
@@ -105,6 +106,32 @@ function createPersistenceHarness(isDesktopRuntime = false) {
         state,
     };
 }
+
+function createNativeMarkupMutations(): IPdfNativeMutationSet {
+    return {markup: {
+        overrides: [],
+        hints: [{
+            subtype: 'Highlight',
+            pageIndex: requirePageIndex(0),
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.2,
+            },
+            appAnnotationId: 'app-annotation-1',
+            annotationId: 'editor-markup-1',
+            color: '#ffff00',
+            id: 'markup-1',
+            source: 'editor',
+        }],
+    }};
+}
+
+const nativeMarkupIdentityBinding = {
+    annotationId: 'app-annotation-1',
+    pdfRef: '700 0 R',
+};
 
 function expectBroadFilePersistenceFacadeNotUsed() {
     expect(mocks.documentsCapability.optimizePdfAsCopy).not.toHaveBeenCalled();
@@ -569,6 +596,111 @@ describe('createDocumentPersistence', () => {
         expect(verifyPathBeforeExpose).not.toHaveBeenCalled();
         expect(assertBeforeExpose).toHaveBeenCalledOnce();
         expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        [
+            'missing',
+            undefined,
+        ],
+        [
+            'malformed',
+            [{
+                annotationId: 'app-annotation-1',
+                pdfRef: '700R',
+            }],
+        ],
+        [
+            'duplicate',
+            [
+                nativeMarkupIdentityBinding,
+                nativeMarkupIdentityBinding,
+            ],
+        ],
+        [
+            'unexpected',
+            [{
+                annotationId: 'other-annotation',
+                pdfRef: '700 0 R',
+            }],
+        ],
+    ])('rejects %s native markup identity bindings before staged publication', async (_label, identityBindings) => {
+        const { persistence } = createPersistenceHarness();
+        mocks.documentFilesCapability.applyPdfNativeMutationsToWorkingCopy.mockResolvedValueOnce({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native' as const,
+                errors: [],
+                warnings: [],
+            },
+            nativeMutationPostconditionsVerified: true,
+            stagedOutput: {
+                path: '/tmp/staged-native.pdf',
+                size: 3,
+                sha256: 'a'.repeat(64),
+                leaseId: 'staged-native-lease',
+                revision: TEST_DOCUMENT_REVISION_TOKEN,
+            },
+            identityBindings,
+        });
+
+        await expect(persistence.trySavePdfNativeMutations(createNativeMarkupMutations(), {
+            saveMode: 'rewrite',
+            expectedWorkingPath: '/tmp/old-working.pdf',
+            modifiedAt: 'D:20260628123456+03\'00\'',
+        })).rejects.toThrow();
+
+        expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).not.toHaveBeenCalled();
+        expect(mocks.documentFilesCapability.releaseManagedTempFileHandle)
+            .toHaveBeenCalledWith('staged-native-lease');
+    });
+
+    it('rejects native markup identity drift between staging and commit', async () => {
+        const { persistence } = createPersistenceHarness();
+        mocks.documentFilesCapability.applyPdfNativeMutationsToWorkingCopy.mockResolvedValueOnce({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native' as const,
+                errors: [],
+                warnings: [],
+            },
+            nativeMutationPostconditionsVerified: true,
+            stagedOutput: {
+                path: '/tmp/staged-native.pdf',
+                size: 3,
+                sha256: 'a'.repeat(64),
+                leaseId: 'staged-native-lease',
+                revision: TEST_DOCUMENT_REVISION_TOKEN,
+            },
+            identityBindings: [nativeMarkupIdentityBinding],
+        });
+        mocks.documentFilesCapability.commitStagedPdfNativeMutations.mockResolvedValueOnce({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native' as const,
+                errors: [],
+                warnings: [],
+            },
+            identityBindings: [{
+                annotationId: 'app-annotation-1',
+                pdfRef: '701 0 R',
+            }],
+        });
+
+        await expect(persistence.trySavePdfNativeMutations(createNativeMarkupMutations(), {
+            saveMode: 'rewrite',
+            expectedWorkingPath: '/tmp/old-working.pdf',
+            modifiedAt: 'D:20260628123456+03\'00\'',
+        })).rejects.toThrow('changed between staging and commit');
+
+        expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            expect.objectContaining({leaseId: 'staged-native-lease'}),
+            expect.objectContaining({identityBindings: [nativeMarkupIdentityBinding]}),
+        );
     });
 
     it('propagates staged commit failures instead of returning the serialized-save fallback signal', async () => {

@@ -61,7 +61,9 @@ interface IPageSaveOrchestrationDeps {
     hasAnnotationChanges: () => boolean;
     hasLivePdfJsAnnotationChanges?: () => boolean;
     hasSavedPdfJsAnnotationBaselineChanges?: () => boolean;
+    getSavedPdfJsAnnotationFingerprint?: () => string | null;
     hasPreservedAnnotationSourceChanges?: () => boolean;
+    reconcilePreservedAnnotationSourceDirty?: () => void;
     markAnnotationSaved: (opts?: { preserveLivePdfjsSession?: boolean }) => void;
     getAnnotationSaveStateToken?: () => unknown;
     markPageLabelsSaved: () => void;
@@ -117,7 +119,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         hasAnnotationChanges,
         hasLivePdfJsAnnotationChanges,
         hasSavedPdfJsAnnotationBaselineChanges,
+        getSavedPdfJsAnnotationFingerprint,
         hasPreservedAnnotationSourceChanges,
+        reconcilePreservedAnnotationSourceDirty,
         markAnnotationSaved,
         getAnnotationSaveStateToken,
         markPageLabelsSaved,
@@ -190,6 +194,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             ...(hasLivePdfJsAnnotationChanges ? {hasLivePdfJsChanges: hasLivePdfJsAnnotationChanges} : {}),
             ...(hasSavedPdfJsAnnotationBaselineChanges
                 ? {hasSavedPdfJsBaselineChanges: hasSavedPdfJsAnnotationBaselineChanges}
+                : {}),
+            ...(getSavedPdfJsAnnotationFingerprint
+                ? {getSavedPdfJsAnnotationFingerprint}
                 : {}),
             ...(hasPreservedAnnotationSourceChanges
                 ? {hasPreservedSourceChanges: hasPreservedAnnotationSourceChanges}
@@ -323,14 +330,21 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     ));
 
     async function handleSave() {
-        return handleSaveWithReload();
+        reconcilePreservedAnnotationSourceDirty?.();
+        // Save is an idempotent command. A history round trip can reconcile
+        // the last dirty signal immediately before the command arrives; in
+        // that case there is nothing to write, but the requested save still
+        // completed successfully.
+        return canSave.value ? handleSaveWithReload() : true;
     }
 
     async function handleRepairSave() {
+        reconcilePreservedAnnotationSourceDirty?.();
         return handleRepairSaveWithReload();
     }
 
     async function handleOptimizePdfForInteraction() {
+        reconcilePreservedAnnotationSourceDirty?.();
         if (canSave.value) {
             const saved = await handleSaveWithReload();
             if (!saved) {
@@ -342,6 +356,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     }
 
     async function handleOptimizePdfAsCopy(options: IPdfOptimizeOptions, requestId?: string) {
+        reconcilePreservedAnnotationSourceDirty?.();
         if (canSave.value) {
             const saved = await handleSaveWithReload();
             if (!saved) {
@@ -353,10 +368,12 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     }
 
     async function handleSaveAs() {
+        reconcilePreservedAnnotationSourceDirty?.();
         return handleSaveAsWithReload(deps.optimizePdfOnSaveAs?.value === true);
     }
 
     function saveForExternalRead() {
+        reconcilePreservedAnnotationSourceDirty?.();
         return handleSaveWithReload();
     }
 
@@ -376,6 +393,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 (hasPreservedAnnotationSourceChanges?.() ?? false)
                 || (hasSavedPdfJsAnnotationBaselineChanges?.() ?? false)
             ),
+            savedPdfjsAnnotationFingerprint: getSavedPdfJsAnnotationFingerprint?.() ?? null,
             nativeCapabilities: {
                 hasNativePdfMutationCapability: canStageNativeMutation,
                 canPersistNativeMetadataMutations: canStageNativeMutation && canConsumeNativeMutation,

@@ -41,7 +41,11 @@ import type {
     IPdfViewerSaveTransactionNativeCapabilities,
     TNativeSaveRouteRejection,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
-import { buildNativeAnnotationDeletesForSave } from '@app/modules/pdf-viewer/runtime/save/buildNativeAnnotationDeletesForSave';
+import {
+    buildNativeAnnotationDeletesForSave,
+    getNativeAnnotationDeleteCommentTargetKey,
+    getNativeAnnotationDeleteRequestTargetKey,
+} from '@app/modules/pdf-viewer/runtime/save/buildNativeAnnotationDeletesForSave';
 import {
     buildNativeFreeTextNotesForSave,
     isReplayableEditorOnlyFreeTextNote,
@@ -482,7 +486,7 @@ function isTextMarkupComment(comment: IAnnotationCommentSummary) {
 }
 
 function markupHintMatchesComment(
-    hint: Pick<IMarkupSubtypeHint, 'id' | 'annotationId' | 'subtype'>,
+    hint: Pick<IMarkupSubtypeHint, 'appAnnotationId' | 'id' | 'annotationId' | 'subtype'>,
     comment: IAnnotationCommentSummary,
 ) {
     if (
@@ -495,6 +499,7 @@ function markupHintMatchesComment(
         return false;
     }
     const hintIdentities = [
+        hint.appAnnotationId,
         hint.id,
         hint.annotationId,
     ];
@@ -532,6 +537,7 @@ function markupOverrideMatchesComment(
 
 function collectProjectedNativeAnnotationIds(input: {
     changedComments: IAnnotationCommentSummary[];
+    deletedComments: readonly IAnnotationCommentSummary[];
     persistedComments: IAnnotationCommentSummary[];
     replayableEditorNoteIds: ReadonlySet<string>;
     noteTextUpdates: Array<{
@@ -559,6 +565,7 @@ function collectProjectedNativeAnnotationIds(input: {
             addCommentIdentityAliases(ids, comment);
         }
     });
+    input.deletedComments.forEach(comment => addCommentIdentityAliases(ids, comment));
     input.nativeFreeTextEditors.forEach((editor, id) => {
         addReplayableAnnotationId(ids, id);
         addEditorRuntimeAnnotationIdFromStableKey(ids, editor.stableKey);
@@ -632,6 +639,20 @@ function buildClassifiedNativeMutationProjection(
         ? Array.from(canonical.liveAnnotationChanges.nativeFreeTextEditors.values())
         : [];
     const annotationDeletes = annotationDeletesResult?.value ?? [];
+    const pendingDeleteTargetKeys = canonical.pendingDeletes
+        .map(getNativeAnnotationDeleteCommentTargetKey);
+    const projectedDeleteTargetKeys = annotationDeletes
+        .map(getNativeAnnotationDeleteRequestTargetKey);
+    const pendingDeleteTargetSet = new Set(pendingDeleteTargetKeys);
+    const projectedDeleteTargetSet = new Set(projectedDeleteTargetKeys);
+    const hasExactNativeDeleteCoverage = (
+        pendingDeleteTargetKeys.length === annotationDeletes.length
+        && pendingDeleteTargetKeys.every((key): key is string => key !== null)
+        && projectedDeleteTargetKeys.every((key): key is string => key !== null)
+        && pendingDeleteTargetSet.size === pendingDeleteTargetKeys.length
+        && projectedDeleteTargetSet.size === projectedDeleteTargetKeys.length
+        && pendingDeleteTargetKeys.every(key => projectedDeleteTargetSet.has(key))
+    );
     const annotationWorkDirty = hasNonShapeAnnotationWork(plan);
     const markup = buildNativeMarkupMutationForSave({
         canonicalComments: canonical.comments,
@@ -642,6 +663,12 @@ function buildClassifiedNativeMutationProjection(
     const hasMarkupMutations = Boolean(markup);
     const projectedNativeAnnotationIds = collectProjectedNativeAnnotationIds({
         changedComments,
+        // A delete covers its canonical aliases only when every requested
+        // deletion produced one exact native mutation. Partial or collapsed
+        // projections stay fail-closed at the baseline guard below.
+        deletedComments: hasExactNativeDeleteCoverage
+            ? canonical.pendingDeletes
+            : [],
         persistedComments,
         replayableEditorNoteIds: canonical.liveAnnotationChanges.replayableEditorNoteIds,
         noteTextUpdates,
@@ -658,8 +685,6 @@ function buildClassifiedNativeMutationProjection(
     const savedLiveAnnotationAliasesAreNativelyReplayable = (
         canonical.liveAnnotationChanges.hasChanges
         && !canonical.liveAnnotationChanges.hasUnknownChanges
-        && canonical.pendingDeletes.length === 0
-        && annotationDeletes.length === 0
         && projectedNativeAnnotationIds.size > 0
         && [...canonical.liveAnnotationChanges.ids].every(id =>
             projectedNativeAnnotationIds.has(id))
@@ -688,7 +713,7 @@ function buildClassifiedNativeMutationProjection(
     })) {
         return 'pending-texts-not-covered-by-native-mutations';
     }
-    if (canonical.pendingDeletes.length > 0 && annotationDeletes.length !== canonical.pendingDeletes.length) {
+    if (canonical.pendingDeletes.length > 0 && !hasExactNativeDeleteCoverage) {
         return 'pending-deletes-not-covered-by-native-mutations';
     }
     if (

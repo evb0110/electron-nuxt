@@ -195,7 +195,7 @@ describe('createWorkspaceExpose', () => {
         });
         const exposed = createWorkspaceExpose(deps);
 
-        await exposed.handleSave();
+        await expect(exposed.handleSave()).resolves.toBe(true);
 
         expect(deps.handleSave).not.toHaveBeenCalled();
     });

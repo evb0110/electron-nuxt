@@ -38,6 +38,7 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
                         height: 0.3,
                     },
                     markup_geometry: None,
+                    app_annotation_id: None,
                     annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
                     color: Some("#00ff00".to_string()),
                     id: None,
@@ -110,6 +111,7 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
             vec![marker_rect]
         }),
         annotation_id: None,
+        app_annotation_id: None,
         color: Some(color.to_string()),
         id: Some(id.to_string()),
         page_markup_index: None,
@@ -167,6 +169,135 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
 }
 
 #[test]
+fn emits_exact_identity_binding_for_new_native_markup() {
+    let (document, page_id) = create_test_document();
+    let mut incremental = IncrementalDocument::from_document(document, 0, None);
+    let mutation = MarkupMutation {
+        overrides: Vec::new(),
+        hints: vec![MarkupSubtypeHint {
+            subtype: "Highlight".to_string(),
+            page_index: 0,
+            marker_rect: MarkerRect {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.1,
+            },
+            markup_geometry: None,
+            app_annotation_id: Some("app-annotation-1".to_string()),
+            annotation_id: None,
+            color: Some("#ff0000".to_string()),
+            id: Some("new-highlight".to_string()),
+            page_markup_index: None,
+            source: Some("editor".to_string()),
+        }],
+    };
+    let mut bindings = Vec::new();
+    apply_markup_mutations_incremental_with_bindings(
+        &mut incremental,
+        &mutation,
+        &mut bindings,
+    )
+    .expect("native markup should produce an identity binding");
+
+    assert_eq!(bindings.len(), 1);
+    let annots = get_page_annots(&AppendedRevision::new(&incremental), page_id).unwrap();
+    let object_id = annots[0].as_reference().unwrap();
+    assert_eq!(
+        bindings[0],
+        MarkupIdentityBinding {
+            annotation_id: "app-annotation-1".to_string(),
+            pdf_ref: format!("{} {} R", object_id.0, object_id.1),
+        }
+    );
+
+    let report_path = temp_pdf_path("markup-identity-report").with_extension("json");
+    write_markup_identity_bindings_report(&report_path, &bindings).unwrap();
+    assert_eq!(
+        read(&report_path).unwrap(),
+        format!(
+            "[{{\"annotationId\":\"app-annotation-1\",\"pdfRef\":\"{} {} R\"}}]",
+            object_id.0, object_id.1,
+        )
+        .as_bytes()
+    );
+    let _ = remove_file(report_path);
+}
+
+#[test]
+fn rejects_new_native_markup_without_a_canonical_identity_binding() {
+    let (document, _page_id) = create_test_document();
+    let mut incremental = IncrementalDocument::from_document(document, 0, None);
+    let mutation = MarkupMutation {
+        overrides: Vec::new(),
+        hints: vec![MarkupSubtypeHint {
+            subtype: "Highlight".to_string(),
+            page_index: 0,
+            marker_rect: MarkerRect {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.1,
+            },
+            markup_geometry: None,
+            app_annotation_id: None,
+            annotation_id: None,
+            color: Some("#ff0000".to_string()),
+            id: Some("new-highlight".to_string()),
+            page_markup_index: None,
+            source: Some("editor".to_string()),
+        }],
+    };
+    let error = apply_markup_mutations_incremental_with_bindings(
+        &mut incremental,
+        &mutation,
+        &mut Vec::new(),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("missing canonical annotation identity"));
+}
+
+#[test]
+fn rejects_malformed_or_duplicate_native_markup_identity_reports() {
+    let report_path = temp_pdf_path("invalid-markup-identity-report").with_extension("json");
+    let reject = |bindings: Vec<MarkupIdentityBinding>| {
+        assert!(write_markup_identity_bindings_report(&report_path, &bindings).is_err());
+    };
+
+    reject(vec![MarkupIdentityBinding {
+        annotation_id: String::new(),
+        pdf_ref: "700 0 R".to_string(),
+    }]);
+    reject(vec![MarkupIdentityBinding {
+        annotation_id: "app-annotation-1".to_string(),
+        pdf_ref: "700R".to_string(),
+    }]);
+    reject(vec![
+        MarkupIdentityBinding {
+            annotation_id: "app-annotation-1".to_string(),
+            pdf_ref: "700 0 R".to_string(),
+        },
+        MarkupIdentityBinding {
+            annotation_id: "app-annotation-1".to_string(),
+            pdf_ref: "701 0 R".to_string(),
+        },
+    ]);
+    reject(vec![
+        MarkupIdentityBinding {
+            annotation_id: "app-annotation-1".to_string(),
+            pdf_ref: "700 0 R".to_string(),
+        },
+        MarkupIdentityBinding {
+            annotation_id: "app-annotation-2".to_string(),
+            pdf_ref: "700 0 R".to_string(),
+        },
+    ]);
+
+    let _ = remove_file(report_path);
+}
+
+#[test]
 fn appends_and_upserts_all_new_text_markup_subtypes() {
     let (mut document, page_id) = create_test_document();
     let input_path = temp_pdf_path("append-new-markup-input");
@@ -202,6 +333,7 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
                 page_index: 0,
                 marker_rect,
                 markup_geometry: Some(vec![marker_rect]),
+                app_annotation_id: None,
                 annotation_id: None,
                 color: Some(color.to_string()),
                 id: Some(id.to_string()),
@@ -286,6 +418,7 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
                         height: 0.3,
                     },
                     markup_geometry: None,
+                    app_annotation_id: None,
                     annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
                     color: Some("#ff0000".to_string()),
                     id: None,
@@ -342,6 +475,7 @@ fn rewrites_high_index_markup_by_page_hint_without_a_page_walk() {
                 height: 0.3,
             },
             markup_geometry: None,
+            app_annotation_id: None,
             annotation_id: None,
             color: Some("#336699".to_string()),
             id: Some("high-index-page-hint".to_string()),
@@ -418,6 +552,7 @@ fn stale_markup_page_hint_uses_the_annotation_owner_without_a_page_walk() {
                 height: 0.3,
             },
             markup_geometry: None,
+            app_annotation_id: None,
             annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
             color: Some("#00ff00".to_string()),
             id: Some("stale-markup-page-hint".to_string()),
@@ -621,6 +756,7 @@ fn test_markup_hint(index: usize) -> MarkupSubtypeHint {
             height: 1.0,
         },
         markup_geometry: None,
+        app_annotation_id: None,
         annotation_id: None,
         color: Some("#ffff00".to_string()),
         id: Some(format!("hint-{index}")),
@@ -756,6 +892,7 @@ fn spatial_markup_assignment_preserves_best_geometry_matches() {
             page_index: 0,
             marker_rect,
             markup_geometry: None,
+            app_annotation_id: None,
             annotation_id: None,
             color: Some("#336699".to_string()),
             id: Some(format!("spatial-{index}")),

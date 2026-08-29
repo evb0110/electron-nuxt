@@ -22,7 +22,10 @@ interface IPersistenceIdentity {
  * semantic fingerprint and `exactOptionalPropertyTypes` all read absence, not
  * an own undefined property, as unbound.
  */
-function rebaseIdentity(identity: AnnotationEntity['identity'], pdfRef: string | undefined) {
+export function rebaseAnnotationPersistenceIdentity(
+    identity: AnnotationEntity['identity'],
+    pdfRef: string | undefined,
+) {
     if (pdfRef !== undefined) {
         return pdfRef === identity.pdfRef ? identity : {
             ...identity,
@@ -92,13 +95,28 @@ export class AnnotationPersistenceIdentityLedger {
     /** Returns the snapshot with the persistence identity of record applied. */
     #rebase(snapshot: AnnotationEntity | null, live: AnnotationEntity | undefined) {
         if (!snapshot) {
+            if (
+                live
+                && !live.deleted
+                && (live.persistedRevision >= 0 || live.identity.pdfRef !== undefined)
+            ) {
+                // History recorded a creation as null -> entity. Once a save
+                // materializes that entity, undo must describe a persisted
+                // deletion so the next save can remove the object from the
+                // document. Removing it from the store would lose both the
+                // delete intent and the PDF object ref that keys the mutation.
+                return {
+                    ...live,
+                    deleted: true,
+                };
+            }
             return snapshot;
         }
         const persisted = this.#identityOf(snapshot.identity.id, live);
         if (!persisted) {
             return snapshot;
         }
-        const identity = rebaseIdentity(snapshot.identity, persisted.pdfRef);
+        const identity = rebaseAnnotationPersistenceIdentity(snapshot.identity, persisted.pdfRef);
         if (identity === snapshot.identity && persisted.persistedRevision === snapshot.persistedRevision) {
             return snapshot;
         }

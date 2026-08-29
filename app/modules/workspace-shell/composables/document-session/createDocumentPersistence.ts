@@ -4,8 +4,7 @@ import type { TTranslateFn } from '@i18n-app';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
-    IDocumentMutationRevisionOptions,
-    IPdfNativeStagedCommitOptions,
+    IPdfNativeAnnotationIdentityBinding,
     IPdfNativeAnnotationDelete,
     IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
@@ -38,6 +37,13 @@ import {
     hasNativePathBackedSource,
 } from '@app/modules/workspace-shell/composables/document-session/adoptPathBackedPersistedState';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
+import {
+    collectExpectedNativeMarkupIdentityIds,
+    createDocumentMutationRevisionOptions,
+    createNativeStagedCommitOptions,
+    haveSameNativeMarkupIdentityBindings,
+    validateNativeMarkupIdentityBindings,
+} from '@app/modules/workspace-shell/composables/document-session/nativePdfMutationCommit';
 
 interface IPdfPersistPhaseTiming {
     phase: string;
@@ -79,72 +85,6 @@ interface IWorkingCopyPersistOptions {
 }
 
 const MAX_IN_MEMORY_PDF_BYTES = BROWSER_MAX_FULL_READ_BYTES;
-
-function createDocumentMutationRevisionOptions(
-    expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
-): IDocumentMutationRevisionOptions | undefined {
-    if (expectedDocumentRevisionToken === null || expectedDocumentRevisionToken === undefined) {
-        return undefined;
-    }
-    return { expectedDocumentRevisionToken };
-}
-
-const MAX_TARGETED_PDF_OBJECT_REFS = 128;
-const CANONICAL_PDF_OBJECT_REF_PATTERN = /(?:^|\D)(\d+)\s+(\d+)\s+R(?:$|\D)/i;
-const COMPACT_PDF_OBJECT_REF_PATTERN = /(?:^|\D)(\d+)R(\d+)?(?:$|\D)/i;
-
-function collectChangedPdfObjectRefs(mutations: IPdfNativeMutationSet): string[] {
-    const refs = new Set<string>();
-    const add = (objectNumber: unknown, generationNumber: unknown) => {
-        if (
-            refs.size >= MAX_TARGETED_PDF_OBJECT_REFS
-            || typeof objectNumber !== 'number'
-            || typeof generationNumber !== 'number'
-            || !Number.isSafeInteger(objectNumber)
-            || !Number.isSafeInteger(generationNumber)
-            || objectNumber < 1
-            || generationNumber < 0
-        ) {
-            return;
-        }
-        refs.add(`${objectNumber} ${generationNumber} R`);
-    };
-    const addStableKey = (value: unknown) => {
-        if (typeof value !== 'string' || refs.size >= MAX_TARGETED_PDF_OBJECT_REFS) {
-            return;
-        }
-        const normalizedValue = value.trim();
-        const canonicalMatch = CANONICAL_PDF_OBJECT_REF_PATTERN.exec(normalizedValue);
-        if (canonicalMatch) {
-            add(Number(canonicalMatch[1]), Number(canonicalMatch[2]));
-            return;
-        }
-        const compactMatch = COMPACT_PDF_OBJECT_REF_PATTERN.exec(normalizedValue);
-        if (compactMatch) {
-            add(Number(compactMatch[1]), Number(compactMatch[2] ?? 0));
-        }
-    };
-    for (const update of mutations.updates ?? []) add(update.objectNumber, update.generationNumber);
-    // Deleted refs are expected to resolve to qpdf's `null`; the presence gate
-    // applies only to objects that must survive in the new xref.
-    for (const [key] of mutations.markup?.overrides ?? []) addStableKey(key);
-    return [...refs];
-}
-
-function createNativeStagedCommitOptions(
-    expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
-    mutations: IPdfNativeMutationSet,
-): IPdfNativeStagedCommitOptions | undefined {
-    const revision = createDocumentMutationRevisionOptions(expectedDocumentRevisionToken);
-    if (!revision) {
-        return undefined;
-    }
-    const changedObjectRefs = collectChangedPdfObjectRefs(mutations);
-    return {
-        ...revision,
-        ...(changedObjectRefs.length ? {changedObjectRefs} : {}),
-    };
-}
 
 class NativeMutationPreExposeError extends Error {}
 
@@ -791,6 +731,7 @@ export function createDocumentPersistence(
         const hasBookmarks = mutations.bookmarks !== undefined;
         const hasShapes = mutations.shapes !== undefined;
         const hasMarkup = mutations.markup !== undefined;
+        const expectedNativeMarkupIdentityIds = collectExpectedNativeMarkupIdentityIds(mutations);
         const placedImages = mutations.placedImages ?? [];
         const hasPlacedImages = placedImages.length > 0;
         if (
@@ -933,7 +874,13 @@ export function createDocumentPersistence(
                         if (!applied.stagedOutput) {
                             throw new NativeMutationPreExposeError('Native mutation did not return an immutable staged output');
                         }
+                        let appliedIdentityBindings: IPdfNativeAnnotationIdentityBinding[];
                         try {
+                            appliedIdentityBindings = validateNativeMarkupIdentityBindings(
+                                applied.identityBindings,
+                                expectedNativeMarkupIdentityIds,
+                                'Native staged identity bindings',
+                            );
                             // The native writer validates the projected mutation set against
                             // the staged appended revision before it returns. Reopening a large
                             // staged PDF in renderer PDF.js repeats those checks and can add
@@ -976,7 +923,11 @@ export function createDocumentPersistence(
                                 () => documentFiles.commitStagedPdfNativeMutations!(
                                     workingPath,
                                     applied.stagedOutput!,
-                                    createNativeStagedCommitOptions(expectedDocumentRevisionToken, mutations),
+                                    createNativeStagedCommitOptions(
+                                        expectedDocumentRevisionToken,
+                                        mutations,
+                                        appliedIdentityBindings,
+                                    ),
                                 ),
                             );
                         } catch (error) {
@@ -984,6 +935,14 @@ export function createDocumentPersistence(
                         }
                         if (!committed.applied || !committed.validation?.isValid) {
                             throw new NativeMutationPreExposeError('Targeted native mutation validation failed before commit');
+                        }
+                        const committedIdentityBindings = validateNativeMarkupIdentityBindings(
+                            committed.identityBindings,
+                            expectedNativeMarkupIdentityIds,
+                            'Native committed identity bindings',
+                        );
+                        if (!haveSameNativeMarkupIdentityBindings(appliedIdentityBindings, committedIdentityBindings)) {
+                            throw new NativeMutationPreExposeError('Native identity bindings changed between staging and commit');
                         }
                         return committed;
                     }
@@ -1012,6 +971,11 @@ export function createDocumentPersistence(
                 logRendererTimings('not-applied', {validation: result.validation});
                 return null;
             }
+            const materializedIdentityBindings = validateNativeMarkupIdentityBindings(
+                result.identityBindings,
+                expectedNativeMarkupIdentityIds,
+                'Native identity bindings',
+            );
             if (result.syncError) {
                 BrowserLogger.warn('workspace', 'Native PDF mutation committed with a working copy sync warning', {
                     workingPath,
@@ -1056,7 +1020,12 @@ export function createDocumentPersistence(
             }
             state.lastSaveMode.value = requestedSaveMode;
             logRendererTimings('applied');
-            return createPersistResult(true, requestedSaveMode, false);
+            return materializedIdentityBindings.length > 0
+                ? {
+                    ...createPersistResult(true, requestedSaveMode, false),
+                    materializedIdentityBindings,
+                }
+                : createPersistResult(true, requestedSaveMode, false);
         } catch (saveError) {
             if (saveError instanceof NativeMutationPreExposeError) {
                 throw saveError;

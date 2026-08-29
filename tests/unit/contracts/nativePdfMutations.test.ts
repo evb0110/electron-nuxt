@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     PDF_NATIVE_MUTATION_LIMITS,
+    normalizePdfNativeAnnotationIdentityBindings,
     normalizePdfNativeMutationSet,
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
@@ -83,6 +84,11 @@ const validImage = {
     },
 };
 
+const validIdentityBinding = {
+    annotationId: 'app-annotation-1',
+    pdfRef: '700 0 R',
+};
+
 interface INativeBookmarkTestItem {
     title: string;
     pageIndex: number | null;
@@ -118,6 +124,74 @@ function createDeepBookmarkItems(depth: number) {
 }
 
 describe('native PDF mutation contracts', () => {
+    it('normalizes native canonical identity bindings without changing their proof', () => {
+        expect(normalizePdfNativeAnnotationIdentityBindings([{
+            annotationId: '  app-annotation-1 ',
+            pdfRef: '700 0 R',
+        }])).toEqual([validIdentityBinding]);
+    });
+
+    it.each([
+        [
+            'non-array',
+            {
+                annotationId: 'app-annotation-1',
+                pdfRef: '700 0 R',
+            },
+        ],
+        [
+            'missing annotation id',
+            [{pdfRef: '700 0 R'}],
+        ],
+        [
+            'malformed PDF ref',
+            [{
+                annotationId: 'app-annotation-1',
+                pdfRef: '700R',
+            }],
+        ],
+        [
+            'zero object number',
+            [{
+                annotationId: 'app-annotation-1',
+                pdfRef: '0 0 R',
+            }],
+        ],
+        [
+            'unsafe object number',
+            [{
+                annotationId: 'app-annotation-1',
+                pdfRef: '9007199254740992 0 R',
+            }],
+        ],
+        [
+            'unexpected field',
+            [{
+                ...validIdentityBinding,
+                extra: true,
+            }],
+        ],
+    ])('rejects %s identity bindings', (_label, value) => {
+        expect(() => normalizePdfNativeAnnotationIdentityBindings(value)).toThrow();
+    });
+
+    it('rejects duplicate identity ids and duplicate PDF refs', () => {
+        expect(() => normalizePdfNativeAnnotationIdentityBindings([
+            validIdentityBinding,
+            {
+                annotationId: validIdentityBinding.annotationId,
+                pdfRef: '701 0 R',
+            },
+        ])).toThrow('duplicate annotation identity');
+        expect(() => normalizePdfNativeAnnotationIdentityBindings([
+            validIdentityBinding,
+            {
+                annotationId: 'app-annotation-2',
+                pdfRef: validIdentityBinding.pdfRef,
+            },
+        ])).toThrow('duplicate PDF object reference');
+    });
+
     it('normalizes every native mutation family for preload and native-tool payloads', () => {
         const rawMutations = {
             updates: [validNoteTextUpdate],
@@ -150,6 +224,7 @@ describe('native PDF mutation contracts', () => {
                 hints: [{
                     subtype: 'Squiggly',
                     pageIndex: 0,
+                    appAnnotationId: '  app-markup-1  ',
                     markerRect: {
                         left: 0.1,
                         top: 0.2,
@@ -183,6 +258,7 @@ describe('native PDF mutation contracts', () => {
             pageYRatio: 0.25,
         });
         expect(preloadPayload.freeTextEditors).toEqual([validFreeTextEditor]);
+        expect(preloadPayload.markup?.hints[0]?.appAnnotationId).toBe('app-markup-1');
     });
 
     it('enforces shared native mutation limits from the contracts source of truth', () => {
@@ -262,6 +338,21 @@ describe('native PDF mutation contracts', () => {
             ]],
             hints: [],
         }}, 'mutations')).toThrow('bounded annotation id');
+
+        expect(() => normalizePdfNativeMutationSet({markup: {
+            overrides: [],
+            hints: [{
+                subtype: 'Highlight',
+                pageIndex: 0,
+                appAnnotationId: '   ',
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.2,
+                },
+            }],
+        }}, 'mutations')).toThrow('appAnnotationId must be a non-empty string or null');
 
         expect(() => normalizePdfNativeMutationSet({markup: {
             overrides: [],

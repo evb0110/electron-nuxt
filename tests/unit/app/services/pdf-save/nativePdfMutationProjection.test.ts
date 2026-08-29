@@ -365,6 +365,45 @@ describe('native markup builders', () => {
         expect(nativeHint).not.toHaveProperty('markupGeometry');
     });
 
+    it('matches a live markup hint by its canonical app annotation identity', () => {
+        const markerRect = {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.4,
+        };
+        const mutation = buildNativeMarkupMutationForSave({
+            canonicalComments: [createComment({
+                appAnnotationId: 'app-markup-1',
+                id: 'current-runtime-id',
+                stableKey: 'src:editor:0:current-runtime-id',
+                subtype: 'Highlight',
+                source: 'editor',
+                annotationId: null,
+                markerRect,
+            })],
+            annotationWorkDirty: true,
+            markupSubtypeOverrides: undefined,
+            markupSubtypeHints: [{
+                appAnnotationId: 'app-markup-1',
+                subtype: 'Highlight',
+                pageIndex: 0,
+                markerRect,
+                annotationId: null,
+                color: '#ffee00',
+                id: 'stale-runtime-id',
+                pageMarkupIndex: null,
+                source: 'editor-live',
+                consumed: false,
+            }],
+        });
+
+        expect(mutation?.hints).toContainEqual(expect.objectContaining({
+            appAnnotationId: 'app-markup-1',
+            id: 'stale-runtime-id',
+        }));
+    });
+
     it('drops stale markup hints and overrides that no longer match current markup comments', () => {
         const markerRect = {
             left: 0.1,

@@ -366,6 +366,43 @@ describe('AnnotationApplication', () => {
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
     });
 
+    it('converts a native canonical PDF object ref before storing a materialized identity', () => {
+        const application = new AnnotationApplication('document');
+        const annotationId = asAnnotationId('anno_native_markup');
+        application.store.createTextMarkup(textMarkup({
+            identity: {
+                id: annotationId,
+                elementId: 'pdfjs_internal_editor_native_markup',
+            },
+            persistedRevision: -1,
+        }));
+
+        const session = application.beginSave();
+        application.recordMaterializedIdentityBinding(session, annotationId, '9 0 R');
+
+        expect(session.materializedPdfRefs.get(annotationId)).toBe('9R');
+    });
+
+    it.each([
+        'not-a-pdf-ref',
+        '0 0 R',
+        '9 0 Q',
+        '9007199254740992 0 R',
+    ])('rejects malformed native canonical PDF object ref %s', (pdfRef) => {
+        const application = new AnnotationApplication('document');
+        const annotationId = asAnnotationId('anno_malformed_native_markup');
+        application.store.createTextMarkup(textMarkup({
+            identity: {id: annotationId},
+            persistedRevision: -1,
+        }));
+
+        expect(() => application.recordMaterializedIdentityBinding(
+            application.beginSave(),
+            annotationId,
+            pdfRef,
+        )).toThrow('Malformed materialized PDF ref');
+    });
+
     it('verifies every text-markup QuadPoints region instead of its bounding rectangle', async () => {
         const application = new AnnotationApplication('document');
         application.store.createTextMarkup(textMarkup({

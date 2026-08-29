@@ -170,7 +170,11 @@ describe('AnnotationStore save identity rebase', () => {
         saveWithMaterializedRef(store, markup.identity.id, '31R');
 
         expect(store.undo()).toBe(true);
-        expect(store.get(markup.identity.id)).toBeNull();
+        expect(store.get(markup.identity.id)).toMatchObject({
+            deleted: true,
+            identity: {pdfRef: '31R'},
+            persistedRevision: 0,
+        });
 
         expect(store.redo()).toBe(true);
         expect(store.get(markup.identity.id)).toMatchObject({
@@ -182,6 +186,31 @@ describe('AnnotationStore save identity rebase', () => {
         // not a dirty transient the next save has to write again.
         expect(store.hasChangesSinceSavedBaseline()).toBe(false);
         expect(store.dirtyAt(store.beginSave())).toEqual([]);
+    });
+
+    it('keeps an undone saved create as a bound tombstone for the next save', () => {
+        const store = new AnnotationStore();
+        const markup = textMarkup('saved-markup-delete', 'markup-delete-editor');
+        store.createTextMarkup(markup);
+        saveWithMaterializedRef(store, markup.identity.id, '32R');
+
+        expect(store.undo()).toBe(true);
+        expect(store.get(markup.identity.id)).toMatchObject({
+            deleted: true,
+            identity: {pdfRef: '32R'},
+            persistedRevision: 0,
+        });
+
+        const frontier = store.beginSave();
+        const plan = buildSerializationPlan(
+            frontier,
+            store.dirtyAt(frontier),
+            store.list({includeDeleted: true}),
+        );
+        const deleteStep = plan.steps.find(step => step.operation === 'delete-annotation');
+
+        expect(deleteStep?.annotationId).toBe(markup.identity.id);
+        expect(deleteStep?.fields.identity).toMatchObject({pdfRef: '32R'});
     });
 
     it('keeps a redo entry captured before the acknowledgement on the saved identity', () => {
@@ -203,7 +232,7 @@ describe('AnnotationStore save identity rebase', () => {
         expect(store.hasChangesSinceSavedBaseline()).toBe(true);
     });
 
-    it('keeps the persisted identity on both sides of an acknowledged delete', () => {
+    it('retires the persisted identity when an acknowledged delete removes the object', () => {
         const store = new AnnotationStore();
         const note = {
             ...stickyNote('deleted-note', 'deleted-editor'),
@@ -221,16 +250,16 @@ describe('AnnotationStore save identity rebase', () => {
         expect(store.undo()).toBe(true);
         expect(store.get(note.identity.id)).toMatchObject({
             deleted: false,
-            identity: {pdfRef: '9R'},
-            persistedRevision: 1,
+            persistedRevision: -1,
         });
+        expect(store.get(note.identity.id)?.identity.pdfRef).toBeUndefined();
 
         expect(store.redo()).toBe(true);
         expect(store.get(note.identity.id)).toMatchObject({
             deleted: true,
-            identity: {pdfRef: '9R'},
-            persistedRevision: 1,
+            persistedRevision: -1,
         });
+        expect(store.get(note.identity.id)?.identity.pdfRef).toBeUndefined();
         expect(store.countDirtyPersistedDeletions()).toBe(0);
     });
 
@@ -273,10 +302,14 @@ describe('AnnotationStore save identity rebase', () => {
         expect(store.undo()).toBe(true);
         expect(store.get(existing.identity.id)).toMatchObject({
             deleted: false,
-            identity: {pdfRef: '7R'},
-            persistedRevision: 1,
+            persistedRevision: -1,
         });
-        expect(store.get(created.identity.id)).toBeNull();
+        expect(store.get(existing.identity.id)?.identity.pdfRef).toBeUndefined();
+        expect(store.get(created.identity.id)).toMatchObject({
+            deleted: true,
+            identity: {pdfRef: '8R'},
+            persistedRevision: 0,
+        });
 
         expect(store.redo()).toBe(true);
         expect(store.get(created.identity.id)).toMatchObject({
@@ -285,9 +318,9 @@ describe('AnnotationStore save identity rebase', () => {
         });
         expect(store.get(existing.identity.id)).toMatchObject({
             deleted: true,
-            identity: {pdfRef: '7R'},
-            persistedRevision: 1,
+            persistedRevision: -1,
         });
+        expect(store.get(existing.identity.id)?.identity.pdfRef).toBeUndefined();
     });
 
     it('leaves a never-acknowledged annotation transient through undo and redo', () => {

@@ -92,6 +92,7 @@ export {
     validateSearchQuery,
 } from '@pdf-core/pdfSearchCore';
 export {
+    normalizePdfNativeAnnotationIdentityBindings,
     PDF_NATIVE_DATE_PATTERN,
     PDF_NATIVE_MUTATION_ENUM_VALUES,
     PDF_NATIVE_MUTATION_LIMITS,
