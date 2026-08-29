@@ -765,6 +765,81 @@ describe('useWorkspacePrint', () => {
         }
     });
 
+    it.each([
+        [
+            'single pages with portrait orientation',
+            'single',
+            'portrait',
+        ],
+        [
+            'single pages with landscape orientation',
+            'single',
+            'landscape',
+        ],
+        [
+            'facing pages with automatic orientation',
+            'facing',
+            'auto',
+        ],
+        [
+            'facing pages with portrait orientation',
+            'facing',
+            'portrait',
+        ],
+        [
+            'facing pages with landscape orientation',
+            'facing',
+            'landscape',
+        ],
+        [
+            'first page single with automatic orientation',
+            'facing-first-single',
+            'auto',
+        ],
+        [
+            'first page single with portrait orientation',
+            'facing-first-single',
+            'portrait',
+        ],
+        [
+            'first page single with landscape orientation',
+            'facing-first-single',
+            'landscape',
+        ],
+    ] as const)('does not hand unsupported path-print controls to native printing (%s)', async (
+        _label,
+        viewMode,
+        orientation,
+    ) => {
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({sourcePdf: {
+            kind: 'path',
+            path: '/tmp/path-options.pdf',
+            size: 3 * 1024 * 1024 * 1024,
+        }});
+
+        try {
+            expect(state.supportsAdvancedPrintOptions.value).toBe(false);
+
+            await state.handlePrintDialogSubmit({
+                viewMode,
+                orientation,
+            }, {reopenDialogOnError: false});
+
+            expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: expect.stringContaining('native path handoff'),
+            }));
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('fails closed when native path printing is unavailable for a clean path source', async () => {
         documentsCapabilityMock.printPdfPath.mockResolvedValue({
             success: false,
