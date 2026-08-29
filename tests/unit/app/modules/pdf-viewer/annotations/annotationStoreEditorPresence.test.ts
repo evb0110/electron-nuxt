@@ -125,7 +125,7 @@ describe('AnnotationStore editor presence reconciliation', () => {
         });
     });
 
-    it('does not tombstone a persisted annotation from an incomplete replay snapshot', () => {
+    it('tombstones a persisted annotation whose editor disappeared during replay', () => {
         const store = new AnnotationStore();
         const persisted = {
             ...stickyNote('history-persisted-note', {
@@ -142,9 +142,10 @@ describe('AnnotationStore editor presence reconciliation', () => {
         );
 
         expect(store.get(persisted.identity.id)).toMatchObject({
-            deleted: false,
+            deleted: true,
             identity: {pdfRef: '12R'},
-            revision: 0,
+            modifiedAt: persisted.modifiedAt,
+            revision: 1,
         });
     });
 
@@ -167,7 +168,10 @@ describe('AnnotationStore editor presence reconciliation', () => {
             persistedRevision: -1,
         });
 
-        store.reconcileEditorPresence(new Set());
+        store.reconcileEditorPresence(
+            new Set(),
+            {changedExternalIds: new Set()},
+        );
 
         expect(store.get(persisted.identity.id)?.deleted).toBe(false);
     });
