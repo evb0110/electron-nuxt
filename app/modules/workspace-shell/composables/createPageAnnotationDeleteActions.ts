@@ -70,6 +70,30 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
         return !deleted && shouldUseEmbeddedDeletePath(comment);
     }
 
+    async function deleteLiveEditorBeforeEmbeddedDelete(
+        viewer: TViewer,
+        comment: IAnnotationCommentSummary,
+    ) {
+        const deleteEditor = viewer.deleteReopenedEditorAnnotation;
+        if (deleteEditor) {
+            return {
+                deleted: await deleteEditor(comment) === true,
+                canonicalDeleteHandled: true,
+            };
+        }
+        const legacyDeleteEditor = viewer.deleteAnnotationEditor;
+        if (!legacyDeleteEditor) {
+            return {
+                deleted: false,
+                canonicalDeleteHandled: false,
+            };
+        }
+        return {
+            deleted: await legacyDeleteEditor(comment) === true,
+            canonicalDeleteHandled: false,
+        };
+    }
+
     function queueDeferredEmbeddedDelete(comment: IAnnotationCommentSummary) {
         const viewer = pdfViewerRef.value;
         if (!viewer) {
@@ -128,8 +152,11 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
         if (shouldUseEmbeddedDeletePath(comment)) {
             if (shouldRemoveLiveEditorBeforeEmbeddedDelete(comment)) {
                 let deleted = false;
+                let canonicalDeleteHandled = false;
                 try {
-                    deleted = await viewer.deleteReopenedEditorAnnotation?.(comment) === true;
+                    const deletion = await deleteLiveEditorBeforeEmbeddedDelete(viewer, comment);
+                    deleted = deletion.deleted;
+                    canonicalDeleteHandled = deletion.canonicalDeleteHandled;
                 } catch (error) {
                     BrowserLogger.debug(
                         'annotations',
@@ -138,6 +165,10 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
                     );
                 }
                 if (!deleted) {
+                    handleAnnotationDeleteFailure(comment);
+                    return;
+                }
+                if (!canonicalDeleteHandled && viewer.deleteEmbeddedAnnotationDeferred?.(comment) !== true) {
                     handleAnnotationDeleteFailure(comment);
                     return;
                 }

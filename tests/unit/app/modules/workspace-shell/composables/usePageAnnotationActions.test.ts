@@ -1191,6 +1191,38 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
     });
 
+    it('falls back to the legacy live editor delete when the atomic API is unavailable', async () => {
+        const {
+            viewer,
+            actions,
+        } = createHarness();
+        const events: string[] = [];
+        const comment = createPdfFreeTextComment({
+            annotationId: '44R',
+            subtype: 'FreeText',
+        });
+        Reflect.deleteProperty(viewer, 'deleteReopenedEditorAnnotation');
+        viewer.deleteAnnotationEditor.mockImplementationOnce(async () => {
+            events.push('live-editor');
+            return true;
+        });
+        viewer.deleteEmbeddedAnnotationDeferred.mockImplementationOnce(() => {
+            events.push('canonical');
+            return true;
+        });
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(events).toEqual([
+            'live-editor',
+            'canonical',
+        ]);
+        expect(viewer.deleteAnnotationEditor).toHaveBeenCalledWith(comment);
+        expect(viewer.deleteEmbeddedAnnotationDeferred).toHaveBeenCalledWith(comment);
+        expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(comment);
+        expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
+    });
+
     it.each([
         [
             'returns false',
