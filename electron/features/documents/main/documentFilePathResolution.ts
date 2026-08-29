@@ -12,11 +12,13 @@ import {
     describeReadPathValidationForDiagnostics,
     isAllowedReadPath,
     resolveAllowedReadPath,
+    getManagedTempPathAccessDecision,
 } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
     findWorkingCopyPathByOriginalPath,
     getWorkingCopyBackingEntry,
+    getWorkingCopyOwnerWebContentsId,
 } from '@electron/file-access/workingCopyStore';
 import { isAllowedDjvuViewingPath } from '@electron/djvu/viewing';
 import { requireOpenPath } from '@electron/file-access/openPathCapabilities';
@@ -106,11 +108,25 @@ function isOriginalBackedManagedRef(
         || entry?.backingState === 'materializing';
 }
 
+function isReadablePathAllowedForSender(path: string, senderId?: number) {
+    if (getManagedTempPathAccessDecision(
+        senderId === undefined ? {} : {senderId},
+        path,
+    ) === null) {
+        return false;
+    }
+    const owner = getWorkingCopyOwnerWebContentsId(path);
+    return owner === undefined || owner === senderId;
+}
+
 export async function resolveReadablePath(
     normalizedPath: string,
     extension: string,
     senderId?: number,
 ) {
+    if (!isReadablePathAllowedForSender(normalizedPath, senderId)) {
+        return null;
+    }
     if (isOriginalBackedManagedRef(normalizedPath, senderId)) {
         return normalizedPath;
     }
@@ -124,13 +140,13 @@ export async function resolveReadablePath(
     }
 
     const directResolvedPath = await resolveAllowedReadPath(normalizedPath);
-    if (directResolvedPath) {
+    if (directResolvedPath && isReadablePathAllowedForSender(directResolvedPath, senderId)) {
         return directResolvedPath;
     }
 
     if (await ensureWorkingCopyDirectory(normalizedPath, senderId)) {
         const restoredWorkingCopyPath = await resolveAllowedReadPath(normalizedPath);
-        if (restoredWorkingCopyPath) {
+        if (restoredWorkingCopyPath && isReadablePathAllowedForSender(restoredWorkingCopyPath, senderId)) {
             return restoredWorkingCopyPath;
         }
     }
@@ -143,7 +159,11 @@ export async function resolveReadablePath(
     }
 
     const mappedResolvedPath = await resolveAllowedReadPath(mappedWorkingCopyPath);
-    if (mappedResolvedPath) {
+    if (
+        mappedResolvedPath
+        && isReadablePathAllowedForSender(mappedWorkingCopyPath, senderId)
+        && isReadablePathAllowedForSender(mappedResolvedPath, senderId)
+    ) {
         return mappedResolvedPath;
     }
 
@@ -243,6 +263,9 @@ export async function resolveExistingReadablePdfPath(filePath: unknown, senderId
 }
 
 export function resolveReadablePathSync(normalizedPath: string, senderId?: number) {
+    if (!isReadablePathAllowedForSender(normalizedPath, senderId)) {
+        return null;
+    }
     if (isOriginalBackedManagedRef(normalizedPath, senderId)) {
         return normalizedPath;
     }
@@ -255,7 +278,11 @@ export function resolveReadablePathSync(normalizedPath: string, senderId?: numbe
         return mappedWorkingCopyPath;
     }
 
-    if (isAllowedReadPath(normalizedPath) && existsSync(normalizedPath)) {
+    if (
+        isAllowedReadPath(normalizedPath)
+        && existsSync(normalizedPath)
+        && isReadablePathAllowedForSender(normalizedPath, senderId)
+    ) {
         return normalizedPath;
     }
 
@@ -263,7 +290,11 @@ export function resolveReadablePathSync(normalizedPath: string, senderId?: numbe
         return null;
     }
 
-    if (!isAllowedReadPath(mappedWorkingCopyPath) || !existsSync(mappedWorkingCopyPath)) {
+    if (
+        !isAllowedReadPath(mappedWorkingCopyPath)
+        || !existsSync(mappedWorkingCopyPath)
+        || !isReadablePathAllowedForSender(mappedWorkingCopyPath, senderId)
+    ) {
         return null;
     }
 

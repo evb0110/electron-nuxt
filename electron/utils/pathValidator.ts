@@ -21,6 +21,26 @@ interface IPathOps {
     sep: string;
 }
 
+type TManagedTempPathAccessValidator = (
+    context: {senderId?: number},
+    filePath: unknown,
+) => string | null | undefined;
+
+let managedTempPathAccessValidator: TManagedTempPathAccessValidator | null = null;
+
+export function setManagedTempPathAccessValidator(
+    validator: TManagedTempPathAccessValidator,
+) {
+    managedTempPathAccessValidator = validator;
+}
+
+export function getManagedTempPathAccessDecision(
+    context: {senderId?: number},
+    filePath: unknown,
+) {
+    return managedTempPathAccessValidator?.(context, filePath);
+}
+
 const defaultPathOps: IPathOps = {
     dirname,
     isAbsolute,

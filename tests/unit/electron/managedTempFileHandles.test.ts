@@ -140,6 +140,24 @@ describe('managed temporary file handles', () => {
         await expect(resolveManagedTempFileHandle({senderId: 42}, handle)).rejects.toThrow('content or revision changed');
     });
 
+    it('authorizes every app-temp path operation only for its live owner and revokes it on teardown', async () => {
+        const {
+            assertManagedTempPathAccess,
+            createManagedTempFileHandle,
+            revokeManagedTempFileHandlesForSender,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+        const handle = await createManagedTempFileHandle({senderId: 42}, mocks.path);
+        const aliasPath = join(directory, 'alias.pdf');
+        symlinkSync(mocks.path, aliasPath);
+
+        expect(assertManagedTempPathAccess({senderId: 42}, mocks.path)).toBe(mocks.path);
+        expect(assertManagedTempPathAccess({senderId: 42}, aliasPath)).toBe(mocks.path);
+        expect(assertManagedTempPathAccess({senderId: 7}, aliasPath)).toBeNull();
+        revokeManagedTempFileHandlesForSender(42);
+        expect(assertManagedTempPathAccess({senderId: 42}, mocks.path)).toBeNull();
+        expect(handle.leaseId).toEqual(expect.any(String));
+    });
+
     it('keeps typed staged artifact evidence authoritative for its owner-bound lease', async () => {
         const {
             createTypedStagedArtifact,

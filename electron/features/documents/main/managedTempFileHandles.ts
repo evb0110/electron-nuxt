@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {realpathSync} from 'node:fs';
 import {
     lstat,
     rm,
@@ -19,13 +20,14 @@ import {
     type TArtifactFileIdentity,
 } from '@contracts/stagedArtifacts';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import { readWorkingCopyRevisionSidecar } from '@electron/file-access/documentRevisionSidecar';
+import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
+import {isAllowedOriginalSavePath} from '@electron/file-access/isAllowedOriginalSavePath';
+import {setManagedTempPathAccessValidator} from '@electron/utils/pathValidator';
 import {
     resolveExistingReadableBinaryPath,
     resolveExistingReadableDocumentOrImagePath,
 } from '@electron/features/documents/main/documentFilePathResolution';
-import { readWorkingCopyRevisionSidecar } from '@electron/file-access/documentRevisionSidecar';
-import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
-import {isAllowedOriginalSavePath} from '@electron/file-access/isAllowedOriginalSavePath';
 
 const MANAGED_HANDLE_TTL_MS = 5 * 60 * 1_000;
 
@@ -52,7 +54,56 @@ interface IArtifactStatWitness {
 }
 
 const leases = new Map<string, IMainManagedTempFileLease | IMainStagedArtifactLease>();
+const leaseIdsByCanonicalPath = new Map<string, string>();
 let leaseSweepTimer: ReturnType<typeof setTimeout> | null = null;
+
+function canonicalizeLeasePath(path: string) {
+    try {
+        return realpathSync.native(path);
+    } catch {
+        return path;
+    }
+}
+
+function registerLeasePath(leaseId: string, path: string) {
+    leaseIdsByCanonicalPath.set(canonicalizeLeasePath(path), leaseId);
+}
+
+/**
+ * Returns null for a known path that this sender cannot use, undefined for an
+ * unregistered path, and the canonical path for an active owned lease.
+ */
+export function assertManagedTempPathAccess(
+    context: IDocumentsSenderIdContext,
+    filePath: unknown,
+): string | null | undefined {
+    if (typeof filePath !== 'string') {
+        return null;
+    }
+    sweepExpiredLeases();
+    const canonicalPath = canonicalizeLeasePath(filePath);
+    const leaseId = leaseIdsByCanonicalPath.get(canonicalPath);
+    if (!leaseId) {
+        return undefined;
+    }
+    const lease = leases.get(leaseId);
+    if (!lease || lease.invalidated || lease.ownerId !== context.senderId) {
+        return null;
+    }
+    lease.expiresAt = Date.now() + MANAGED_HANDLE_TTL_MS;
+    return canonicalPath;
+}
+
+setManagedTempPathAccessValidator(assertManagedTempPathAccess);
+
+function registerLease(
+    leaseId: string,
+    lease: IMainManagedTempFileLease | IMainStagedArtifactLease,
+) {
+    leases.set(leaseId, lease);
+    registerLeasePath(leaseId, lease.path);
+    ensureLeaseSweep();
+}
 
 function cloneTypedStagedArtifact(artifact: ITypedStagedArtifact): ITypedStagedArtifact {
     const cloned = {
@@ -208,7 +259,7 @@ export async function createManagedTempFileHandle(
         readWorkingCopyRevisionSidecar(path),
     ]);
     const leaseId = randomUUID();
-    leases.set(leaseId, {
+    registerLease(leaseId, {
         ownerId: context.senderId,
         path,
         expiresAt: Date.now() + MANAGED_HANDLE_TTL_MS,
@@ -254,7 +305,7 @@ function registerTypedStagedArtifact(
         throw new Error(options.invalidReceiptMessage);
     }
     const authoritativeArtifact = freezeTypedStagedArtifact(artifact);
-    leases.set(authoritativeArtifact.leaseId, {
+    registerLease(authoritativeArtifact.leaseId, {
         ownerId: context.senderId,
         path: authoritativeArtifact.path,
         expiresAt: Date.now() + MANAGED_HANDLE_TTL_MS,
@@ -589,10 +640,29 @@ export async function rebindTypedStagedArtifactPath(
 
 export function clearManagedTempFileHandlesForTests() {
     leases.clear();
+    leaseIdsByCanonicalPath.clear();
     if (leaseSweepTimer) {
         clearInterval(leaseSweepTimer);
         leaseSweepTimer = null;
     }
+}
+
+export function revokeManagedTempFileHandlesForSender(senderId: number) {
+    for (const [
+        leaseId,
+        lease,
+    ] of leases) {
+        if (lease.ownerId !== senderId) {
+            continue;
+        }
+        if (lease.cleanupOnRelease) {
+            lease.invalidated = true;
+            cleanupLeaseFile(leaseId, lease);
+        } else {
+            leases.delete(leaseId);
+        }
+    }
+    sweepExpiredLeases();
 }
 
 export function getManagedTempFileCleanupStateForTests(leaseId: string) {
