@@ -103,8 +103,18 @@ function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
         && (entity.identity.pdfRef || entity.identity.pdfName)
         ? 'pdf'
         : 'editor';
-    const id = entity.identity.elementId ?? entity.identity.pdfjsUid ?? entity.identity.pdfRef ?? entity.identity.id;
-    const annotationId = entity.identity.pdfRef ?? null;
+    // A replayed editor can briefly retain the object ref retired by the
+    // preceding native delete. A managed name identifies that canonical
+    // editor record, so the ref must not be reused as a native target. Keep
+    // ordinary editor aliases intact because they may still be live refs.
+    const retiredEditorPdfRef = source === 'editor'
+        && Boolean(entity.identity.pdfName)
+        && Boolean(entity.identity.pdfRef);
+    const id = entity.identity.elementId
+        ?? entity.identity.pdfjsUid
+        ?? entity.identity.pdfRef
+        ?? entity.identity.id;
+    const annotationId = retiredEditorPdfRef ? null : entity.identity.pdfRef ?? null;
     const uid = entity.identity.pdfjsUid ?? null;
     const common = {
         appAnnotationId: entity.identity.id,

@@ -683,7 +683,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         expect(decision.nativeMutationProjection.hasMarkupMutations).toBe(true);
     });
 
-    it('materializes an undone saved markup with no retired PDF ref', () => {
+    it('drops a retired PDF ref when rematerializing an undone saved markup', () => {
         const markup: AnnotationEntity = {
             ...editorMarkupWithRuntimeIdentity('anno_saved_highlight_undo'),
             revision: 0,
@@ -691,6 +691,11 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             identity: {
                 id: asAnnotationId('anno_saved_highlight_undo'),
                 elementId: '9R',
+                // A late PDF.js/editor snapshot can put the ref retired by
+                // the preceding delete back on the canonical entity. A
+                // transient replay must create a new object instead of
+                // targeting that now-null ref.
+                pdfRef: '9R0',
                 pdfName: 'evb-markup:pdfjs_internal_editor_0',
                 pdfjsUid: 'pdfjs_saved_highlight_undo',
             },
@@ -733,6 +738,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         expect(decision.canonical.comments[0]).toMatchObject({
             annotationName: 'evb-markup:pdfjs_internal_editor_0',
             source: 'editor',
+            annotationId: null,
         });
         const hints = decision.nativeMutationProjection.mutations.markup?.hints ?? [];
         expect(hints).not.toContainEqual(expect.objectContaining({annotationId: '9R0'}));
