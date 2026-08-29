@@ -8,6 +8,7 @@ import {mainJobBroker} from '@electron/resources/jobBroker';
 import {decodeDocumentSaveUtilityResult} from '@electron/features/documents/main/documentSaveUtilityProtocol';
 import {abortErrorFromSignal} from '@electron/utils/abort';
 import {DOCUMENT_FINGERPRINT_SERVICE_NAME} from '@electron/processDeathRecovery';
+import {terminateProcessTree} from '@electron/utils/processTree';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ADMISSION_TIMEOUT_MS = 15_000;
@@ -38,7 +39,18 @@ export async function runDocumentSaveUtilityProcess(options: {
             stdio: 'ignore',
         });
         let settled = false;
-        const finish = (error?: Error, result?: {
+        const stopChild = async () => {
+            const pid = child.pid;
+            if (pid === undefined) {
+                return;
+            }
+            await terminateProcessTree(pid, {
+                graceMs: 2_500,
+                isTargetAlive: () => child.pid !== undefined,
+                preferProcessGroup: process.platform !== 'win32',
+            });
+        };
+        const finish = async (error?: Error, result?: {
             bytes: number;
             sha256: string;
         }) => {
@@ -48,12 +60,16 @@ export async function runDocumentSaveUtilityProcess(options: {
             settled = true;
             clearTimeout(timeout);
             options.signal?.removeEventListener('abort', abort);
-            if (child.pid !== undefined) child.kill();
+            await stopChild();
             if (error) reject(error); else resolve(result!);
         };
-        const abort = () => finish(abortErrorFromSignal(options.signal!));
+        const abort = () => {
+            void finish(abortErrorFromSignal(options.signal!));
+        };
         const timeout = setTimeout(
-            () => finish(new Error(`${options.utilityName} timed out`)),
+            () => {
+                void finish(new Error(`${options.utilityName} timed out`));
+            },
             options.timeoutMs,
         );
         timeout.unref?.();
@@ -62,19 +78,25 @@ export async function runDocumentSaveUtilityProcess(options: {
         child.once('message', (value) => {
             const result = decodeDocumentSaveUtilityResult(value);
             if (!result) {
-                return finish(new Error(`${options.utilityName} returned an invalid result`));
+                void finish(new Error(`${options.utilityName} returned an invalid result`));
+                return;
             }
             if (!result.ok) {
-                return finish(new Error(result.error));
+                void finish(new Error(result.error));
+                return;
             }
-            finish(undefined, {
+            void finish(undefined, {
                 bytes: result.bytes,
                 sha256: result.sha256,
             });
         });
-        child.once('error', (_type, location) => finish(new Error(`${options.utilityName} failed at ${location}`)));
+        child.once('error', (_type, location) => {
+            void finish(new Error(`${options.utilityName} failed at ${location}`));
+        });
         child.once('exit', code => {
-            if (!settled) finish(new Error(`${options.utilityName} exited before completion (${code})`));
+            if (!settled) {
+                void finish(new Error(`${options.utilityName} exited before completion (${code})`));
+            }
         });
     });
 }

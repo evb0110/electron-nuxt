@@ -8,8 +8,6 @@ import {
     unlink,
 } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import {
     decodeDocumentSaveUtilityRequest,
     getDocumentSaveUtilityReusePlan,
@@ -18,8 +16,11 @@ import {
 import {fingerprintFileBounded} from '@electron/features/documents/main/fingerprintFileBounded';
 import {validateTargetedPdfObjects} from '@electron/features/documents/main/validateTargetedPdfObjects';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
+import {
+    cancelNativeCommandGroup,
+    runNativeCommand,
+} from '@electron/native-tools/runNativeCommand';
 
-const execFileAsync = promisify(execFile);
 const {parentPort} = process;
 
 if (!parentPort) {
@@ -76,19 +77,57 @@ async function inspectPdf(
     return fingerprint;
 }
 
+let validationSequence = 0;
+const activeValidationGroups = new Set<string>();
+
+function cancelActiveValidationGroups() {
+    for (const cancelGroup of activeValidationGroups) {
+        cancelNativeCommandGroup(cancelGroup);
+    }
+}
+
+process.once('SIGTERM', () => {
+    cancelActiveValidationGroups();
+    const exitTimer = setTimeout(() => process.exit(143), 2_500);
+    exitTimer.unref?.();
+});
+
+async function runValidationCommand(
+    validationBinary: string,
+    args: string[],
+    allowedExitCodes: number[],
+) {
+    const cancelGroup = `document-save-utility:${process.pid}:${validationSequence++}`;
+    activeValidationGroups.add(cancelGroup);
+    try {
+        return await runNativeCommand(validationBinary, args, {
+            allowedExitCodes,
+            cancelGroup,
+            timeoutMs: 5 * 60_000,
+            maxStdoutBytes: 4 * 1024 * 1024,
+            maxStderrBytes: 4 * 1024 * 1024,
+            windowsHide: true,
+        });
+    } finally {
+        activeValidationGroups.delete(cancelGroup);
+    }
+}
+
 async function validatePdf(path: string, validationBinary?: string) {
     if (!validationBinary) {
         return;
     }
     try {
-        await execFileAsync(validationBinary, [
+        const result = await runValidationCommand(validationBinary, [
             '--check',
             path,
-        ], {
-            timeout: 5 * 60_000,
-            maxBuffer: 4 * 1024 * 1024,
-            windowsHide: true,
-        });
+        ], [
+            0,
+            3,
+        ]);
+        if (result.exitCode === 3) {
+            return;
+        }
     } catch (error) {
         const exitCode: unknown = (error as {code?: unknown}).code;
         if (exitCode !== 3 && exitCode !== '3') {
