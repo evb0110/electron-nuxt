@@ -2,7 +2,6 @@ import {
     compact,
     uniq,
 } from 'es-toolkit/array';
-import { range } from 'es-toolkit/math';
 export type { TPrintOrientation } from '@contracts/shared';
 
 export const BROWSER_PRINT_ROOT_SELECTOR = '[data-browser-print-root]';
@@ -121,10 +120,6 @@ function normalizeTotalPages(value: number) {
     return Math.max(0, Math.floor(value));
 }
 
-function buildAllPageNumbers(totalPages: number) {
-    return range(1, totalPages + 1);
-}
-
 export function parsePrintPageRangeInput(input: string, totalPages: number): number[] | null {
     const normalizedTotalPages = normalizeTotalPages(totalPages);
     if (normalizedTotalPages <= 0) {
@@ -182,23 +177,6 @@ export function parsePrintPageRangeInput(input: string, totalPages: number): num
     return uniq([...pages]).sort((left, right) => left - right);
 }
 
-export function normalizePrintPageNumbers(
-    pageNumbers: number[] | undefined,
-    totalPages: number,
-) {
-    const normalizedTotalPages = normalizeTotalPages(totalPages);
-    if (normalizedTotalPages <= 0) {
-        return [];
-    }
-
-    if (!pageNumbers || pageNumbers.length === 0) {
-        return buildAllPageNumbers(normalizedTotalPages);
-    }
-
-    return uniq(pageNumbers)
-        .filter(page => Number.isInteger(page) && page >= 1 && page <= normalizedTotalPages)
-        .sort((left, right) => left - right);
-}
 
 const HTML_TEXT_ENTITIES: Record<string, string> = {
     '&': '&amp;',
@@ -209,3 +187,5 @@ const HTML_TEXT_ENTITIES: Record<string, string> = {
 function escapeHtmlText(value: string) {
     return value.replace(/[&<>]/g, character => HTML_TEXT_ENTITIES[character] ?? character);
 }
+
+export { normalizePrintPageNumbers } from '@pdf-core';
