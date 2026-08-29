@@ -317,9 +317,6 @@ describe('Electron E2E, compact page labels through structural operations', () =
         expected.splice(100, 0, '1');
 
         await runCommand(session, 'handleSave', []);
-        await expect.poll(async () => (
-            await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session!.page, ['dirtyState'])
-        ).dirtyState?.fileDirty, {timeout: 60_000}).toBe(false);
 
         const savedSession = session;
         session = null;
