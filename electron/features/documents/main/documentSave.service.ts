@@ -83,6 +83,23 @@ function markSaveAsWorkingCopySyncRequired(workingPath: string, error: unknown) 
     );
 }
 
+async function promptForPdfSaveAsTarget(
+    context: IDocumentsDialogContext,
+    workingPath: string,
+    showSaveDialogWithExtension: TShowSaveDialogWithExtension,
+) {
+    const originalPath = getWorkingCopyOriginalPath(workingPath, context.senderId)?.originalPath;
+    const suggestedName = originalPath
+        ? basename(originalPath)
+        : basename(workingPath);
+    return showSaveDialogWithExtension(context, {
+        title: te('dialogs.savePdfAs'),
+        defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,
+        filterName: te('dialogs.pdfFiles'),
+        extension: 'pdf',
+    });
+}
+
 export async function savePdfAs(
     context: IDocumentsDialogContext,
     workingPath: string,
@@ -108,17 +125,11 @@ export async function savePdfAs(
     }
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
 
-    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, context.senderId)?.originalPath;
-    const suggestedName = originalPath
-        ? basename(originalPath)
-        : basename(normalizedWorkingPath);
-
-    const targetPath = await showSaveDialogWithExtension(context, {
-        title: te('dialogs.savePdfAs'),
-        defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,
-        filterName: te('dialogs.pdfFiles'),
-        extension: 'pdf',
-    });
+    const targetPath = await promptForPdfSaveAsTarget(
+        context,
+        normalizedWorkingPath,
+        showSaveDialogWithExtension,
+    );
     if (!targetPath) {
         return null;
     }
@@ -195,17 +206,11 @@ export async function savePdfDataAs(
     }
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(serializedSaveOptions);
 
-    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, context.senderId)?.originalPath;
-    const suggestedName = originalPath
-        ? basename(originalPath)
-        : basename(normalizedWorkingPath);
-
-    const targetPath = await showSaveDialogWithExtension(context, {
-        title: te('dialogs.savePdfAs'),
-        defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,
-        filterName: te('dialogs.pdfFiles'),
-        extension: 'pdf',
-    });
+    const targetPath = await promptForPdfSaveAsTarget(
+        context,
+        normalizedWorkingPath,
+        showSaveDialogWithExtension,
+    );
     if (!targetPath) {
         return {
             path: null,

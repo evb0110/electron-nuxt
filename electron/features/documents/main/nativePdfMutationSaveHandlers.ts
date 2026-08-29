@@ -89,6 +89,53 @@ interface INativeNotePhaseTiming {
     durationMs: number;
 }
 
+function resolveNativeNoteCommandExecution(
+    context: IDocumentsSenderIdContext,
+    workingPath: unknown,
+    rawModifiedAt: unknown,
+    revisionOptions: IDocumentMutationRevisionOptions | undefined,
+) {
+    const senderId = requireSenderId(context);
+    const normalizedWorkingPath = normalizeWorkingPath(workingPath);
+    const modifiedAt = normalizeModifiedAt(rawModifiedAt);
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
+    if (isNativePageOpsDisabled()) {
+        return null;
+    }
+    const binaryPath = resolveNativePageOpsPath();
+    if (!binaryPath) {
+        return null;
+    }
+    return {
+        senderId,
+        normalizedWorkingPath,
+        modifiedAt,
+        expectedDocumentRevisionToken,
+        binaryPath,
+    };
+}
+
+async function enterQueuedNativeNoteCommand(
+    workingPath: string,
+    senderId: number,
+    expectedDocumentRevisionToken: ReturnType<typeof normalizeExpectedDocumentRevisionToken>,
+) {
+    const phaseTimings: INativeNotePhaseTiming[] = [];
+    const operationStart = performance.now();
+    await assertQueuedWorkingCopyMutationPreconditions(
+        workingPath,
+        expectedDocumentRevisionToken,
+    );
+    await ensureWorkingCopyMaterialized(workingPath, {
+        ownerWebContentsId: senderId,
+        reason: 'native-mutation',
+    });
+    return {
+        phaseTimings,
+        operationStart,
+    };
+}
+
 async function materializeNativeBinarySidecars(
     context: IDocumentsSenderIdContext,
     payload: IPdfNativeMutationSet | unknown,
@@ -341,31 +388,27 @@ async function runNativeNoteCommand(
     revisionOptions: IDocumentMutationRevisionOptions | undefined,
     options: INativeNoteCommandOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
-    const senderId = requireSenderId(context);
-    const normalizedWorkingPath = normalizeWorkingPath(workingPath);
-    const modifiedAt = normalizeModifiedAt(rawModifiedAt);
-    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
-
-    if (isNativePageOpsDisabled()) {
+    const execution = resolveNativeNoteCommandExecution(context, workingPath, rawModifiedAt, revisionOptions);
+    if (!execution) {
         return createNotAppliedResult();
     }
-
-    const binaryPath = resolveNativePageOpsPath();
-    if (!binaryPath) {
-        return createNotAppliedResult();
-    }
+    const {
+        senderId,
+        normalizedWorkingPath,
+        modifiedAt,
+        expectedDocumentRevisionToken,
+        binaryPath,
+    } = execution;
 
     return enqueueWorkingCopyMutation(normalizedWorkingPath, async (mutationOperation) => {
-        const phaseTimings: INativeNotePhaseTiming[] = [];
-        const operationStart = performance.now();
-        await assertQueuedWorkingCopyMutationPreconditions(
+        const {
+            phaseTimings,
+            operationStart,
+        } = await enterQueuedNativeNoteCommand(
             normalizedWorkingPath,
+            senderId,
             expectedDocumentRevisionToken,
         );
-        await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
-            ownerWebContentsId: senderId,
-            reason: 'native-mutation',
-        });
         const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
 
         const tempPath = makeSiblingTempPath(originalPath);
@@ -461,31 +504,27 @@ async function runNativeWorkingCopyCommand(
     revisionOptions: IDocumentMutationRevisionOptions,
     options: INativeNoteCommandOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
-    const senderId = requireSenderId(context);
-    const normalizedWorkingPath = normalizeWorkingPath(workingPath);
-    const modifiedAt = normalizeModifiedAt(rawModifiedAt);
-    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
-
-    if (isNativePageOpsDisabled()) {
+    const execution = resolveNativeNoteCommandExecution(context, workingPath, rawModifiedAt, revisionOptions);
+    if (!execution) {
         return createNotAppliedResult();
     }
-
-    const binaryPath = resolveNativePageOpsPath();
-    if (!binaryPath) {
-        return createNotAppliedResult();
-    }
+    const {
+        senderId,
+        normalizedWorkingPath,
+        modifiedAt,
+        expectedDocumentRevisionToken,
+        binaryPath,
+    } = execution;
 
     return enqueueWorkingCopyMutation(normalizedWorkingPath, async (mutationOperation) => {
-        const phaseTimings: INativeNotePhaseTiming[] = [];
-        const operationStart = performance.now();
-        await assertQueuedWorkingCopyMutationPreconditions(
+        const {
+            phaseTimings,
+            operationStart,
+        } = await enterQueuedNativeNoteCommand(
             normalizedWorkingPath,
+            senderId,
             expectedDocumentRevisionToken,
         );
-        await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
-            ownerWebContentsId: senderId,
-            reason: 'native-mutation',
-        });
 
         // Managed binary handles validate the artifact type from its extension.
         // Keep this staging path recognizable as a PDF even though it is also a
