@@ -1,0 +1,26 @@
+tests/unit/app/modules/workspace-shell/composables/usePageAnnotationActions.test.ts
+  s_b2ece6dfe48478::t_2e0219aeef9635 1199,1205-1212
+  s_b2ece6dfe48478::t_b4fd40552694e8 1221
+  s_b2ece6dfe48478::t_0eb8c51f710f7a 1216-1219
+  s_b2ece6dfe48478::t_86dbcee858d1fe 1194-1198,1200-1204,1213-1215,1220,1222-1225
+app/modules/workspace-shell/composables/createPageAnnotationDeleteActions.ts
+  s_b2ece6dfe48478::t_b4fd40552694e8 77-82,84-94,155,157-159,171
+  s_b2ece6dfe48478::t_f9d2d20749b710 73-76,83,95-96
+  s_b2ece6dfe48478::t_03f72e5367d818 172-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0064bf875aff86ad5be3ce1d7613e16ad4c1f2df",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
