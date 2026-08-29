@@ -111,9 +111,9 @@ export interface ICreateWorkspaceExposeDeps extends
     handlePageReorder: (order: number[]) => void;
     handlePageMove: (move: TPageMoveOperation) => void;
     ensurePdfProjectionForEdit?: () => Promise<boolean>;
-    pageLabels: Ref<string[] | null>;
-    pageLabelRanges: Ref<IPdfPageLabelRange[]>;
-    pageLabelsResolved: Ref<boolean>;
+    pageLabels?: Ref<string[] | null>;
+    pageLabelRanges?: Ref<IPdfPageLabelRange[]>;
+    pageLabelsResolved?: Ref<boolean>;
     totalPages: Ref<number>;
     isDjvuMode: Ref<boolean>;
     viewerCapabilities?: Ref<IWorkspaceViewerCapabilities>;
@@ -382,9 +382,9 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             annotationCommentsStatus: deps.annotationCommentsStatus.value,
             annotationInventory: cloneAnnotationInventory(deps.annotationInventory.value),
             annotationDirty: deps.annotationDirty.value,
-            pageLabels: deps.pageLabels.value,
-            pageLabelRanges: structuredClone(deps.pageLabelRanges.value),
-            pageLabelsResolved: deps.pageLabelsResolved.value,
+            pageLabels: deps.pageLabels?.value ?? null,
+            pageLabelRanges: structuredClone(deps.pageLabelRanges?.value ?? []),
+            pageLabelsResolved: deps.pageLabelsResolved?.value ?? false,
             isPageOperationInProgress: deps.isPageOperationInProgress?.value ?? false,
             totalPages: deps.totalPages.value,
             dirtyState: {
@@ -567,7 +567,17 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
 
         if (descriptor.real === 'passthrough') {
             const handler = depsHandlers[descriptor.name];
-            return handler ? createWorkspaceExposeCommandRunner(handler) : null;
+            if (handler) {
+                return createWorkspaceExposeCommandRunner(handler);
+            }
+            if (descriptor.group === 'pageOps') {
+                return createWorkspaceExposeCommandRunner(() => (
+                    descriptor.kind === 'async' && descriptor.deferred === 'mountWaitBoolean'
+                        ? Promise.resolve(false)
+                        : undefined
+                ));
+            }
+            return null;
         }
 
         return null;
