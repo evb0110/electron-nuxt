@@ -68,13 +68,17 @@ export interface IPdfOptimizePageRange {
 }
 
 interface IOptimizeProgressContext {
+    cancelGroup?: string;
     requestId: string;
     preset: TPdfOptimizePreset;
+    signal?: AbortSignal;
     emit?: (progress: IPdfOptimizeProgress) => void;
 }
 
 interface IOptimizePdfToFileOptions {
+    cancelGroup?: string;
     requestId: string;
+    signal?: AbortSignal;
     onProgress?: (progress: IPdfOptimizeProgress) => void;
 }
 
@@ -179,11 +183,15 @@ async function renderPdfRangeToJpegPages(
     renderDir: string,
     range: IPdfOptimizePageRange,
     preset: IPdfRasterOptimizePreset,
+    signal?: AbortSignal,
+    cancelGroup?: string,
 ) {
     const paths = getPdfNativeToolPaths();
     const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
         timeoutMs: PDF_OPTIMIZE_RENDER_TIMEOUT_MS,
         commandLabel: 'pdftoppm(pdf-optimize)',
+        ...(signal ? {signal} : {}),
+        ...(cancelGroup ? {cancelGroup} : {}),
     };
     const popplerEnv = buildPopplerEnv(paths);
     if (popplerEnv !== undefined) {
@@ -230,6 +238,7 @@ async function assembleImageChunk(
             pageOffset + progress.processed,
             pageCount,
         ),
+        ...(context.signal ? {signal: context.signal} : {}),
     });
     if (!ok) {
         throw new Error('Native PDF image assembler is unavailable');
@@ -238,7 +247,7 @@ async function assembleImageChunk(
     await assertNonEmptyPdfOutput(chunkPath, 'Optimizing scanned PDF chunk');
 }
 
-async function mergePdfChunks(chunkPaths: string[], outputPath: string) {
+async function mergePdfChunks(chunkPaths: string[], outputPath: string, context: IOptimizeProgressContext) {
     if (chunkPaths.length === 1) {
         await copyFile(chunkPaths[0]!, outputPath);
         await assertNonEmptyPdfOutput(outputPath, 'Optimizing scanned PDF');
@@ -258,6 +267,8 @@ async function mergePdfChunks(chunkPaths: string[], outputPath: string) {
         timeoutMs: Math.max(QPDF_TIMEOUT_MS, PDF_OPTIMIZE_MERGE_TIMEOUT_MS),
         allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
         commandLabel: 'qpdf(pdf-optimize-merge)',
+        ...(context.signal ? {signal: context.signal} : {}),
+        ...(context.cancelGroup ? {cancelGroup: context.cancelGroup} : {}),
     });
     await assertNonEmptyPdfOutput(outputPath, 'Optimizing scanned PDF');
 }
@@ -280,10 +291,15 @@ async function finalizeOptimizedPdf(
         force: true,
         skipSemanticPreflight: true,
         label: 'qpdf(pdf-optimize-final)',
+        ...(context.signal ? {signal: context.signal} : {}),
+        ...(context.cancelGroup ? {cancelGroup: context.cancelGroup} : {}),
     });
 
     emitProgress(context, 'validating', pageCount, pageCount);
-    const validation = await validatePdfFile(tempPath);
+    const validation = await validatePdfFile(tempPath, {
+        ...(context.signal ? {signal: context.signal} : {}),
+        ...(context.cancelGroup ? {cancelGroup: context.cancelGroup} : {}),
+    });
     if (!validation.isValid) {
         return validation;
     }
@@ -320,7 +336,14 @@ async function optimizeRasterCopy(
         for (const range of createPageRanges(pageCount)) {
             const actualRenderDir = await mkdtemp(join(tempDir, 'render-pages-'));
             try {
-                const renderedPages = await renderPdfRangeToJpegPages(inputPath, actualRenderDir, range, preset);
+                const renderedPages = await renderPdfRangeToJpegPages(
+                    inputPath,
+                    actualRenderDir,
+                    range,
+                    preset,
+                    context.signal,
+                    context.cancelGroup,
+                );
                 processedPages += renderedPages.length;
                 emitProgress(context, 'rendering', processedPages, pageCount);
 
@@ -341,7 +364,7 @@ async function optimizeRasterCopy(
             }
         }
 
-        await mergePdfChunks(chunkPaths, tempOutputPath);
+        await mergePdfChunks(chunkPaths, tempOutputPath, context);
         return await finalizeOptimizedPdf(tempOutputPath, outputPath, context, pageCount);
     } finally {
         await rm(tempDir, {
@@ -360,14 +383,19 @@ export async function optimizePdfToFile(
     const normalizedOptions = normalizePdfOptimizeOptions(options);
     const requestId = optimizeOptions.requestId.trim() || randomUUID();
     const context: IOptimizeProgressContext = {
+        ...(optimizeOptions.cancelGroup ? {cancelGroup: optimizeOptions.cancelGroup} : {}),
         requestId,
         preset: normalizedOptions.preset,
+        ...(optimizeOptions.signal ? {signal: optimizeOptions.signal} : {}),
         ...(optimizeOptions.onProgress ? {emit: optimizeOptions.onProgress} : {}),
     };
     const originalBytes = await stat(inputPath).then(stats => stats.size).catch(() => null);
     const pageCount = normalizedOptions.preset === 'lossless'
         ? null
-        : await getPdfPageCount(inputPath);
+        : await getPdfPageCount(inputPath, {
+            ...(optimizeOptions.signal ? {signal: optimizeOptions.signal} : {}),
+            ...(optimizeOptions.cancelGroup ? {cancelGroup: optimizeOptions.cancelGroup} : {}),
+        });
     const tempOutputPath = makeSiblingTempPath(outputPath);
     let replaced = false;
 
@@ -378,7 +406,10 @@ export async function optimizePdfToFile(
                 inputPath,
                 tempOutputPath,
                 outputPath,
-                pageCount ?? await getPdfPageCount(inputPath),
+                pageCount ?? await getPdfPageCount(inputPath, {
+                    ...(optimizeOptions.signal ? {signal: optimizeOptions.signal} : {}),
+                    ...(optimizeOptions.cancelGroup ? {cancelGroup: optimizeOptions.cancelGroup} : {}),
+                }),
                 getRasterPreset(normalizedOptions.preset),
                 context,
             );

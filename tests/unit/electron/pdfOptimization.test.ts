@@ -264,6 +264,38 @@ describe('pdfOptimization', () => {
         ]));
     });
 
+    it('passes cancellation through rendering, merging, optimization, and validation', async () => {
+        const inputPath = join(tempRoot, 'cancel-input.pdf');
+        const outputPath = join(tempRoot, 'cancel-output.pdf');
+        const controller = new AbortController();
+        writeFileSync(inputPath, 'cancel-input');
+        const { optimizePdfToFile } = await import('@electron/features/documents/main/pdfOptimization');
+
+        await optimizePdfToFile(inputPath, outputPath, {preset: 'smallScanned'}, {
+            requestId: 'cancel-opt',
+            signal: controller.signal,
+            cancelGroup: 'pdf-optimize:cancel-opt',
+        });
+
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/native/pdftoppm',
+            expect.any(Array),
+            expect.objectContaining({signal: controller.signal, cancelGroup: 'pdf-optimize:cancel-opt'}),
+        );
+        expect(mocks.runQpdfCommand).toHaveBeenCalledWith(
+            expect.any(Array),
+            expect.objectContaining({signal: controller.signal, cancelGroup: 'pdf-optimize:cancel-opt'}),
+        );
+        expect(mocks.optimizePdfForSave).toHaveBeenCalledWith(
+            `${outputPath}.tmp`,
+            expect.objectContaining({signal: controller.signal, cancelGroup: 'pdf-optimize:cancel-opt'}),
+        );
+        expect(mocks.validatePdfFile).toHaveBeenCalledWith(
+            `${outputPath}.tmp`,
+            expect.objectContaining({signal: controller.signal, cancelGroup: 'pdf-optimize:cancel-opt'}),
+        );
+    });
+
     it('plans past former page-count limits in bounded lazy ranges', async () => {
         const { createPageRanges } = await import('@electron/features/documents/main/pdfOptimization');
 

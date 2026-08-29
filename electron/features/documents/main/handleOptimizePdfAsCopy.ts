@@ -97,7 +97,7 @@ export async function handleOptimizePdfAsCopy(
         };
     }
 
-    const result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+    const result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async operation => {
         await assertQueuedWorkingCopyMutationPreconditions(
             normalizedWorkingPath,
             expectedDocumentRevisionToken,
@@ -112,6 +112,8 @@ export async function handleOptimizePdfAsCopy(
             options,
             {
                 requestId,
+                signal: operation.signal,
+                cancelGroup: operation.cancelGroup,
                 onProgress: createOptimizeProgressReporter(context, requestId),
             },
         );

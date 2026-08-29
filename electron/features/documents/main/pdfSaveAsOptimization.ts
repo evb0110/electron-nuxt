@@ -43,6 +43,7 @@ const LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES = parseIntegerEnv(
 );
 
 interface IPdfSaveOptimizationOptions {
+    cancelGroup?: string;
     force?: boolean;
     minBytes?: number;
     skipSemanticPreflight?: boolean;
@@ -100,6 +101,7 @@ async function rewritePdfLosslessly(
     outputPath: string,
     label: string,
     signal?: AbortSignal,
+    cancelGroup?: string,
 ) {
     await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
         '--linearize',
@@ -115,6 +117,7 @@ async function rewritePdfLosslessly(
         commandLabel: label,
         timeoutMs: QPDF_SAVE_AS_OPTIMIZE_TIMEOUT_MS,
         ...(signal ? { signal } : {}),
+        ...(cancelGroup ? {cancelGroup} : {}),
     });
 }
 
@@ -154,11 +157,14 @@ async function optimizePdf(
     let consumedOptimizedPath = false;
     try {
         throwIfAborted(options.signal);
-        await rewritePdfLosslessly(tempPath, optimizedPath, label, options.signal);
+        await rewritePdfLosslessly(tempPath, optimizedPath, label, options.signal, options.cancelGroup);
         throwIfAborted(options.signal);
         const optimizedStats = await stat(optimizedPath);
 
-        const validation = await validatePdfFile(optimizedPath);
+        const validation = await validatePdfFile(optimizedPath, {
+            ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+        });
         throwIfAborted(options.signal);
         if (!validation.isValid) {
             logger.warn(

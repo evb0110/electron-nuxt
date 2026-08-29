@@ -12,7 +12,10 @@ const mocks = vi.hoisted(() => ({
     allowOpenPath: vi.fn(),
     assertQueuedWorkingCopyMutationPreconditions: vi.fn(async () => undefined),
     ensureWorkingCopyDirectory: vi.fn(async () => true),
-    enqueueWorkingCopyMutation: vi.fn(async (_workingPath: string, operation: () => Promise<unknown>) => operation()),
+    enqueueWorkingCopyMutation: vi.fn(async (_workingPath: string, operation: (value: unknown) => Promise<unknown>) => operation({
+        cancelGroup: 'test-cancel-group',
+        signal: new AbortController().signal,
+    })),
     getWorkingCopyOriginalPath: vi.fn(() => ({originalPath: '/tmp/source.pdf'})),
     optimizePdfToFile: vi.fn(async () => ({
         path: '/tmp/optimized.pdf',
