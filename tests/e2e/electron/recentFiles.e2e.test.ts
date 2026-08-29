@@ -565,7 +565,7 @@ async function waitForRecentDjvuOpen(session: IElectronE2ESession, sourcePath: s
             sawOpenAttempt = true;
         }
 
-        if (sawOpenAttempt && state.recentRowVisible && !state.hasLoader) {
+        if (sawOpenAttempt && state.recentRowVisible && !state.hasViewer && !state.hasLoader) {
             throw new Error(`Recent DjVu "${sourcePath}" returned to the placeholder instead of opening: ${describeRecentOpenDomState(state)}`);
         }
 
