@@ -34,6 +34,7 @@ import {
     resolveDocumentContinuousScrollWindow,
 } from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
+import type { IDocumentZoomPageLayout } from '@app/utils/document-viewer/zoomAnchor';
 import { resolveDocumentPageSourceRenderDemand } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderDemand';
 import { resolveDocumentPageSourceRenderQueue } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderQueue';
 import {
@@ -211,6 +212,15 @@ export function resolveDocumentPageLayoutsBounded(
         height: layout.height,
     }));
 }
+export function resolveDocumentPageZoomAnchorLayoutsBounded(
+    pageLayouts: TDocumentPageSourceCollection<IDocumentZoomPageLayout>,
+    resolvePageLeft: (pageWidth: number) => number,
+) {
+    return mapDocumentPageSourceCollectionBounded(pageLayouts, layout => ({
+        ...layout,
+        left: resolvePageLeft(layout.width),
+    }));
+}
 export function shouldRetainInactiveDocumentPageSourceLease(
     retainWarmLease: boolean,
     pressureLevel: TWorkspaceResourcePressureLevel,
@@ -379,12 +389,9 @@ export const useDocumentPageSourceRuntime = (options: {
     function resolvePageLeft(pageWidth: number) {
         return Math.max(DOCUMENT_PAGE_GUTTER_PX, (containerWidth.value - pageWidth) / 2);
     }
-    const zoomAnchorPageLayouts = computed(() => mapDocumentPageSourceCollectionBounded(
+    const zoomAnchorPageLayouts = computed(() => resolveDocumentPageZoomAnchorLayoutsBounded(
         pageLayouts.value,
-        layout => ({
-            ...layout,
-            left: resolvePageLeft(layout.width),
-        }),
+        resolvePageLeft,
     ));
     function getPageStyle(pageNumber: number) {
         const layout = pageLayouts.value[pageNumber - 1];
