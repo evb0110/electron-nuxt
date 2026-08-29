@@ -1,0 +1,51 @@
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_1f0952d2813e9c::t_879abc164e6f0a 721
+electron/features/page-ops/main/pageMetadataRemap.ts
+  s_1f0952d2813e9c::t_0818863d47c501 18,79-83,85,99,103-104,106,108-112,114-115,121,123-146,148-157,159-161,163-169,176-178
+  s_1f0952d2813e9c::t_5e1fcd9eef555d 89-94
+  s_1f0952d2813e9c::t_83c3d9a9265a10 102
+  s_1f0952d2813e9c::t_7c6d6e9fb137df 186
+  s_1f0952d2813e9c::t_db1c9948ddef5c 175,179-182,194-199
+  s_1f0952d2813e9c::t_a1c92822f961f1 87-88,95-98,100-101
+  s_1f0952d2813e9c::t_dcdef165ff827a 162
+  s_1f0952d2813e9c::t_1cb0b2495cbf5b 105,113,116-120,122
+app/modules/workspace-shell/composables/usePageOpsHandlers.ts
+  s_1f0952d2813e9c::t_879abc164e6f0a 8,47,91,142
+tests/unit/contracts/pageOps.test.ts
+  s_1f0952d2813e9c::t_6fa6234eef9bb8 92-97,116-121
+  s_1f0952d2813e9c::t_361c937b8c5f53 114-115,122
+  s_1f0952d2813e9c::t_f8610310710f53 126-132,150-152
+  s_1f0952d2813e9c::t_5e1fcd9eef555d 133-149
+packages/contracts/pageOpsPlatformFeature.ts
+  s_1f0952d2813e9c::t_ffef164851f580 15,273
+  s_1f0952d2813e9c::t_a1c92822f961f1 240,246,248-250,261
+  s_1f0952d2813e9c::t_d3294f7f3fb664 245,260
+  s_1f0952d2813e9c::t_c20bb6d1316888 234-239,242,247,251-255,257-259,262-267
+  s_1f0952d2813e9c::t_a97918166ad794 244
+packages/contracts/electronApiPageOps.ts
+  s_1f0952d2813e9c::t_cb0d9b3cedbf55 7,14-15
+app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations.ts
+  s_1f0952d2813e9c::t_879abc164e6f0a 8,103,126,168,173-174
+app/modules/workspace-shell/composables/useWorkspaceDocumentControls.ts
+  s_1f0952d2813e9c::t_879abc164e6f0a 59,130
+tests/unit/electron/pageMetadataRemap.test.ts
+  s_1f0952d2813e9c::t_5e1fcd9eef555d 190-195,208-219
+  s_1f0952d2813e9c::t_a088f28f481e3c 131-138,140-144,146-163,165-169,171-175,177-181,183-186
+  s_1f0952d2813e9c::t_a1c92822f961f1 187-189,196-207,220-222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "de25dea4cf8f7a5121064af901901f8221e17915",
+  "prompts": {},
+  "sessions": {
+    "s_1f0952d2813e9c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04e2c-3a78-7250-80c2-d7481c084e67",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
