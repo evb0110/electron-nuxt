@@ -572,6 +572,10 @@ describe('documents print', () => {
             sourcePdfPath,
             `${tempRoot}/print-pages-print-job-id-source.pdf`,
             [4],
+            expect.objectContaining({
+                cancelGroup: expect.any(String),
+                signal: expect.any(AbortSignal),
+            }),
         );
         expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
             pathToFileURL(`${tempRoot}/print-pages-print-job-id-source.pdf`).toString(),

@@ -14,6 +14,8 @@ import {
 import { randomUUID } from 'crypto';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
+import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { extractPages } from '@electron/features/page-ops/public';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import type {
@@ -150,11 +152,12 @@ async function openPdfInDefaultApp(path: string): Promise<IOpenPdfInDefaultAppRe
     }
 }
 
-async function resolveReadablePdfPathForSender(filePath: string, senderId?: number) {
+async function resolveReadablePdfPathForSender(filePath: string, senderId?: number, signal?: AbortSignal) {
     const resolvedPath = await resolveExistingReadablePdfPath(filePath, senderId);
     const materialized = await ensureWorkingCopyMaterialized(resolvedPath, {
         reason: 'print-external',
         ...(senderId === undefined ? {} : {ownerWebContentsId: senderId}),
+        ...(signal ? {signal} : {}),
     });
     return materialized.physicalWorkingCopyPath;
 }
@@ -249,9 +252,18 @@ export async function handlePrintPdfPath(
 
     const tempFileName = `${PRINT_PAGE_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(_fileName)}`;
     const tempPath = join(getAppTempDir(), tempFileName);
+    const cancelGroup = `print-selected-pages:${randomUUID()}`;
+    const operation = registerMainOperation({
+        kind: 'abortable-work',
+        ...(context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId}),
+        cancel: () => cancelNativeCommandGroup(cancelGroup),
+    });
     let shouldRetainTempPdf = false;
     try {
-        await extractPages(resolvedPath, tempPath, normalizedPageNumbers);
+        await extractPages(resolvedPath, tempPath, normalizedPageNumbers, {
+            cancelGroup,
+            signal: operation.signal,
+        });
         const result = await openNativePrintDialogForPath(ownerWindow, tempPath, {pageRanges: [{
             from: 0,
             to: normalizedPageNumbers.length - 1,
@@ -262,6 +274,7 @@ export async function handlePrintPdfPath(
         }
         return result;
     } finally {
+        operation.complete();
         if (!shouldRetainTempPdf) {
             await cleanupPrintTempPath(tempPath);
         }
