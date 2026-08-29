@@ -4,12 +4,15 @@ import type {
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 
 export type TPageOpsRotationAngle = 90 | 180 | 270;
 
 export interface IPageOpsMetadataSnapshot {
     /** Omitted until the viewer has read the document's page labels. */
     pageLabels?: string[] | null;
+    /** Compact page-label source of truth, including when pageLabels is null. */
+    pageLabelRanges?: IPdfPageLabelRange[];
     /** Omitted until the viewer has read the document's outline tree. */
     bookmarks?: IPdfBookmarkEntry[];
     untitledBookmarkLabel: string;

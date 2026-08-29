@@ -5,6 +5,7 @@ import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import type {
     IPageOpsMutationOptions,
     IPageOpsResult,
@@ -99,6 +100,7 @@ export const usePageOperations = (deps: {
     workingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     pageLabels?: Ref<string[] | null>;
+    pageLabelRanges?: Ref<IPdfPageLabelRange[]>;
     pageLabelsResolved?: Ref<boolean>;
     bookmarkItems?: Ref<IPdfBookmarkEntry[]>;
     bookmarksResolved?: Ref<boolean>;
@@ -121,6 +123,7 @@ export const usePageOperations = (deps: {
         workingCopyPath,
         documentRevisionToken,
         pageLabels,
+        pageLabelRanges,
         pageLabelsResolved,
         bookmarkItems,
         bookmarksResolved,
@@ -162,10 +165,13 @@ export const usePageOperations = (deps: {
 
     function capturePageMutationOptions(): IPageOpsMutationOptions | undefined {
         const token = documentRevisionToken?.value;
-        const metadataSnapshot = pageLabels || bookmarkItems
+        const metadataSnapshot = pageLabels || pageLabelRanges || bookmarkItems
             ? {
                 ...(pageLabelsResolved?.value === false ? {} : pageLabels
                     ? {pageLabels: pageLabels.value ? [...pageLabels.value] : null}
+                    : {}),
+                ...(pageLabelsResolved?.value === false ? {} : pageLabelRanges
+                    ? {pageLabelRanges: structuredClone(pageLabelRanges.value)}
                     : {}),
                 ...(bookmarksResolved?.value === false ? {} : bookmarkItems
                     ? {bookmarks: structuredClone(bookmarkItems.value)}

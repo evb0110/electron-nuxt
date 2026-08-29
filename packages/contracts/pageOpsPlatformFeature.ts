@@ -12,6 +12,7 @@ import type {
 import type { IPageMoveRangeSegment } from '@contracts/pageNumbers';
 import { createPageMoveRanges } from '@contracts/pageNumbers';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import {
     isDocumentRevisionInfo,
@@ -230,11 +231,46 @@ function decodeMetadataSnapshot(value: unknown): IPageOpsMetadataSnapshot {
     ) {
         throw new Error('options.metadataSnapshot.pageLabels must be a string array, null, or omitted');
     }
+    const pageLabelRanges = value.pageLabelRanges;
+    if (
+        pageLabelRanges !== undefined
+        && (
+            !Array.isArray(pageLabelRanges)
+            || pageLabelRanges.length > 100_000
+            || !pageLabelRanges.every((range, index) => {
+                if (!isRecord(range)) {
+                    return false;
+                }
+                const previousRange: unknown = index === 0 ? undefined : pageLabelRanges[index - 1];
+                return typeof range.startPage === 'number'
+                    && Number.isSafeInteger(range.startPage)
+                    && range.startPage >= 1
+                    && (!isRecord(previousRange)
+                        || typeof previousRange.startPage !== 'number'
+                        || range.startPage > previousRange.startPage)
+                    && (range.style === null || [
+                        'D',
+                        'R',
+                        'r',
+                        'A',
+                        'a',
+                    ].includes(range.style as string))
+                    && typeof range.prefix === 'string'
+                    && range.prefix.length <= 4_096
+                    && typeof range.startNumber === 'number'
+                    && Number.isSafeInteger(range.startNumber)
+                    && range.startNumber >= 1;
+            })
+        )
+    ) {
+        throw new Error('options.metadataSnapshot.pageLabelRanges must be a compact page-label range array or omitted');
+    }
     if (typeof value.untitledBookmarkLabel !== 'string') {
         throw new Error('options.metadataSnapshot.untitledBookmarkLabel must be a string');
     }
     return {
         ...(pageLabels === undefined ? {} : {pageLabels}),
+        ...(pageLabelRanges === undefined ? {} : {pageLabelRanges: pageLabelRanges as IPdfPageLabelRange[]}),
         ...(value.bookmarks === undefined ? {} : {bookmarks: decodeBookmarkEntries(value.bookmarks)}),
         untitledBookmarkLabel: value.untitledBookmarkLabel,
     };

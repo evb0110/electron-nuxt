@@ -718,6 +718,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         workingCopyPath,
         documentRevisionToken,
         pageLabels,
+        pageLabelRanges,
         pageLabelsResolved,
         bookmarkItems,
         bookmarksResolved,

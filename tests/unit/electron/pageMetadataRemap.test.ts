@@ -128,6 +128,98 @@ describe('page metadata remap', () => {
         expect(result.bookmarks).toBeUndefined();
     });
 
+    it('remaps compact ranges without materializing the compatibility label array', () => {
+        const result = remapPageMetadata({
+            pageLabels: null,
+            pageLabelRanges: [
+                {
+                    startPage: 1,
+                    style: 'r',
+                    prefix: '',
+                    startNumber: 1,
+                },
+                {
+                    startPage: 3,
+                    style: 'D',
+                    prefix: 'A-',
+                    startNumber: 1,
+                },
+            ],
+            untitledBookmarkLabel: 'Untitled',
+        }, {
+            previousPageCount: 4,
+            pages: [
+                {fromPageNumber: 4},
+                {insertedId: 'inserted'},
+                {fromPageNumber: 1},
+                {fromPageNumber: 3},
+            ],
+        });
+
+        expect(result.pageLabels?.ranges).toEqual([
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: 'A-',
+                startNumber: 2,
+            },
+            {
+                startPage: 2,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: 3,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: 4,
+                style: 'D',
+                prefix: 'A-',
+                startNumber: 1,
+            },
+        ]);
+    });
+
+    it('keeps implicit decimal labels before a sparse first compact range', () => {
+        const result = remapPageMetadata({
+            pageLabels: null,
+            pageLabelRanges: [{
+                startPage: 3,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            }],
+            untitledBookmarkLabel: 'Untitled',
+        }, {
+            previousPageCount: 4,
+            pages: [
+                {fromPageNumber: 1},
+                {fromPageNumber: 2},
+                {fromPageNumber: 3},
+                {fromPageNumber: 4},
+            ],
+        });
+
+        expect(result.pageLabels?.ranges).toEqual([
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: 3,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
+    });
+
     it('writes the remapped metadata as an incremental append', async () => {
         const workingCopyPath = join(tempRoot, 'working.pdf');
         writeFileSync(workingCopyPath, 'pdf');

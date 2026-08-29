@@ -56,6 +56,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         workingCopyPath,
         documentRevisionToken,
         pageLabels,
+        pageLabelRanges,
         pageLabelsResolved,
         bookmarkItems,
         bookmarksResolved,
@@ -126,6 +127,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
     const pageOpsHandlers = usePageOpsHandlers({
         workingCopyPath,
         pageLabels,
+        ...(pageLabelRanges !== undefined ? {pageLabelRanges} : {}),
         ...(pageLabelsResolved !== undefined ? {pageLabelsResolved} : {}),
         bookmarkItems,
         ...(bookmarksResolved !== undefined ? {bookmarksResolved} : {}),

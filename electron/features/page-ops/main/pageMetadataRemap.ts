@@ -15,6 +15,7 @@ import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
 import {splitPdfNativeMutationSetIntoBoundedChunks} from '@contracts/nativePdfMutations';
 import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import {
     isNativePageOpsDisabled,
     resolveNativePageOpsPath,
@@ -75,25 +76,114 @@ function remapKnownPageLabels(
     return remapped.map((label, index) => label ?? String(index + 1));
 }
 
+function remapCompactPageLabelRanges(
+    pageLabelRanges: readonly IPdfPageLabelRange[],
+    delta: IPageIdentityDelta,
+    nextPageCount: number | undefined,
+) {
+    if (pageLabelRanges.length === 0 || nextPageCount === undefined) {
+        return undefined;
+    }
+    const normalizedPageLabelRanges = pageLabelRanges[0]!.startPage > 1
+        ? [
+            {
+                startPage: 1,
+                style: 'D' as const,
+                prefix: '',
+                startNumber: 1,
+            },
+            ...pageLabelRanges,
+        ]
+        : pageLabelRanges;
+    const sourceRanges = normalizedPageLabelRanges.map((range, index) => ({
+        ...range,
+        endPage: normalizedPageLabelRanges[index + 1]
+            ? normalizedPageLabelRanges[index + 1]!.startPage - 1
+            : delta.previousPageCount,
+    }));
+    const remapped: IPdfPageLabelRange[] = [];
+    let lastRangeCount = 0;
+    const append = (range: IPdfPageLabelRange, count: number) => {
+        if (count <= 0) {
+            return;
+        }
+        const previous = remapped.at(-1);
+        if (
+            previous
+            && previous.startPage + lastRangeCount === range.startPage
+            && previous.style === range.style
+            && previous.prefix === range.prefix
+            && previous.startNumber + lastRangeCount === range.startNumber
+        ) {
+            lastRangeCount += count;
+            return;
+        }
+        remapped.push(range);
+        lastRangeCount = count;
+    };
+    const appendMappedRange = (sourceStartPage: number, destinationStartPage: number, count: number) => {
+        const sourceEndPage = sourceStartPage + count - 1;
+        for (const sourceRange of sourceRanges) {
+            const overlapStart = Math.max(sourceStartPage, sourceRange.startPage);
+            const overlapEnd = Math.min(sourceEndPage, sourceRange.endPage);
+            if (overlapStart > overlapEnd) continue;
+            append({
+                startPage: destinationStartPage + overlapStart - sourceStartPage,
+                style: sourceRange.style,
+                prefix: sourceRange.prefix,
+                startNumber: sourceRange.startNumber + overlapStart - sourceRange.startPage,
+            }, overlapEnd - overlapStart + 1);
+        }
+    };
+    if (delta.pages !== undefined) {
+        delta.pages.forEach((page, index) => {
+            if ('fromPageNumber' in page) {
+                appendMappedRange(page.fromPageNumber, index + 1, 1);
+            } else {
+                append({
+                    startPage: index + 1,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 1,
+                }, 1);
+            }
+        });
+    } else {
+        for (const range of delta.ranges ?? []) {
+            if (range.kind === 'insert') {
+                append({
+                    startPage: range.toPageNumber,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 1,
+                }, range.count);
+            } else if (range.kind === 'touch') {
+                appendMappedRange(range.toPageNumber, range.toPageNumber, range.count);
+            } else if (range.kind === 'retain' || range.kind === 'move') {
+                appendMappedRange(range.fromPageNumber, range.toPageNumber, range.count);
+            }
+        }
+    }
+    return remapped.length > 0 && remapped[0]!.startPage === 1 ? remapped : undefined;
+}
+
 export function remapPageMetadata(
     metadata: IPageOpsMetadataSnapshot,
     delta: IPageIdentityDelta,
 ) {
     const nextPageCount = delta.nextPageCount ?? delta.pages?.length;
-    const labels = metadata.pageLabels === undefined
-        ? undefined
-        : metadata.pageLabels === null
-            ? []
-            : remapKnownPageLabels(metadata.pageLabels, delta, nextPageCount);
+    const compactRanges = metadata.pageLabels === undefined || metadata.pageLabels === null
+        ? metadata.pageLabelRanges === undefined
+            ? undefined
+            : remapCompactPageLabelRanges(metadata.pageLabelRanges, delta, nextPageCount)
+        : undefined;
+    const labels = metadata.pageLabels !== undefined && metadata.pageLabels !== null
+        ? remapKnownPageLabels(metadata.pageLabels, delta, nextPageCount)
+        : undefined;
     const result: {
         pageLabels?: {
             totalPages: number;
-            ranges: Array<{
-                startPage: number;
-                style: null;
-                prefix: string;
-                startNumber: number;
-            }>;
+            ranges: IPdfPageLabelRange[];
         };
         bookmarks?: {
             totalPages: number;
@@ -101,6 +191,12 @@ export function remapPageMetadata(
             items: IPdfBookmarkEntry[];
         };
     } = {};
+    if (compactRanges !== undefined) {
+        result.pageLabels = {
+            totalPages: nextPageCount ?? 0,
+            ranges: compactRanges,
+        };
+    }
     if (labels !== undefined) {
         result.pageLabels = {
             totalPages: nextPageCount ?? 0,

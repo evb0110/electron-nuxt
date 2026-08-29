@@ -89,6 +89,12 @@ describe('page ops platform feature schemas', () => {
                 expectedDocumentRevisionToken: ' drt1:test ',
                 metadataSnapshot: {
                     pageLabels: ['i'],
+                    pageLabelRanges: [{
+                        startPage: 1,
+                        style: 'r',
+                        prefix: '',
+                        startNumber: 1,
+                    }],
                     bookmarks: [],
                     untitledBookmarkLabel: 'Untitled',
                 },
@@ -105,8 +111,43 @@ describe('page ops platform feature schemas', () => {
         ]);
         expect(decoded[4]).toMatchObject({
             expectedDocumentRevisionToken: 'drt1:test',
-            metadataSnapshot: {pageLabels: ['i']},
+            metadataSnapshot: {
+                pageLabels: ['i'],
+                pageLabelRanges: [{
+                    startPage: 1,
+                    style: 'r',
+                    prefix: '',
+                    startNumber: 1,
+                }],
+            },
         });
+    });
+
+    it('rejects unordered compact page-label ranges at the IPC boundary', () => {
+        const codec = codecs[channels.rotate]!;
+        expect(() => codec.decodeArgs(codec.encodeArgs([
+            '/tmp/work.pdf',
+            [1],
+            3,
+            90,
+            {metadataSnapshot: {
+                pageLabelRanges: [
+                    {
+                        startPage: 2,
+                        style: 'D',
+                        prefix: '',
+                        startNumber: 1,
+                    },
+                    {
+                        startPage: 2,
+                        style: 'D',
+                        prefix: '',
+                        startNumber: 2,
+                    },
+                ],
+                untitledBookmarkLabel: 'Untitled',
+            }},
+        ]))).toThrow('pageLabelRanges');
     });
 
     it('accepts a 10,001-item outline for structural page operations', () => {

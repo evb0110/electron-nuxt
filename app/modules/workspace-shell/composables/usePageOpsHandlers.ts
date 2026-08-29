@@ -5,6 +5,7 @@ import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import {
     getPageIdentityDeltaNextPageCount,
     mapPageNumberThroughPageIdentityDelta,
@@ -43,6 +44,7 @@ export interface IPageOpsHandlersDeps {
     workingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     pageLabels: Ref<string[] | null>;
+    pageLabelRanges?: Ref<IPdfPageLabelRange[]>;
     pageLabelsResolved?: Ref<boolean>;
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
     bookmarksResolved?: Ref<boolean>;
@@ -86,6 +88,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         workingCopyPath,
         documentRevisionToken,
         pageLabels,
+        pageLabelRanges,
         pageLabelsResolved,
         bookmarkItems,
         bookmarksResolved,
@@ -136,6 +139,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         workingCopyPath,
         ...(documentRevisionToken !== undefined ? { documentRevisionToken } : {}),
         pageLabels,
+        ...(pageLabelRanges !== undefined ? {pageLabelRanges} : {}),
         ...(pageLabelsResolved !== undefined ? {pageLabelsResolved} : {}),
         bookmarkItems,
         ...(bookmarksResolved !== undefined ? {bookmarksResolved} : {}),
