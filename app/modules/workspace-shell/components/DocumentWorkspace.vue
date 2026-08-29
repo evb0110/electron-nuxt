@@ -1229,7 +1229,6 @@ const {
 } = useDocumentWorkspacePageOperationHandlers({
     documentControls,
     handleExportImages,
-    ensurePdfProjectionForEdit: ensureEditProjection,
     selectedThumbnailPages,
     selectedPageSelection,
     totalPages,
@@ -1390,6 +1389,7 @@ const {
 });
 const workspaceExpose = createWorkspaceExposeFromOwners({
     orchestration,
+    ensurePdfProjectionForEdit: ensureEditProjection,
     handleSave: handleSaveWithAutomationEvent,
     handleOptimizePdfForInteraction: () => Promise.resolve(openOptimizePdfForInteractionDialog()),
     handleSaveAs,

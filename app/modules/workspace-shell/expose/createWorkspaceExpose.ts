@@ -107,6 +107,7 @@ export interface ICreateWorkspaceExposeDeps extends
     pageOpsReorder: (order: number[]) => Promise<boolean>;
     pageOpsMove: (move: TPageMoveOperation) => Promise<boolean>;
     handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
+    ensurePdfProjectionForEdit?: () => Promise<boolean>;
     pageLabels: Ref<string[] | null>;
     pageLabelRanges: Ref<IPdfPageLabelRange[]>;
     pageLabelsResolved: Ref<boolean>;
@@ -164,6 +165,7 @@ export interface ICreateWorkspaceExposeFromOwnersOptions {
     waitForDocumentOpenSettled: ICreateWorkspaceExposeDeps['waitForDocumentOpenSettled'];
     runAgentAction: ICreateWorkspaceExposeDeps['runAgentAction'];
     readAgentResource: ICreateWorkspaceExposeDeps['readAgentResource'];
+    ensurePdfProjectionForEdit?: ICreateWorkspaceExposeDeps['ensurePdfProjectionForEdit'];
 }
 
 function getSelectedPages(selectedThumbnailPages: Ref<number[]>) {
@@ -419,7 +421,28 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         };
     }
 
+    async function runPageOperation(operation: () => Promise<boolean>) {
+        if (deps.ensurePdfProjectionForEdit && !await deps.ensurePdfProjectionForEdit()) {
+            return false;
+        }
+        return operation();
+    }
+
     const customHandlers: Partial<TWorkspaceExposeCommandHandlerMap> = {
+        pageOpsDelete: (pages, totalPages) => runPageOperation(
+            () => deps.pageOpsDelete(pages, totalPages),
+        ),
+        handlePageRotate: (pages, angle) => runPageOperation(
+            () => deps.handlePageRotate(pages, angle),
+        ),
+        pageOpsInsert: (totalPages, afterPage) => runPageOperation(
+            () => deps.pageOpsInsert(totalPages, afterPage),
+        ),
+        pageOpsReorder: order => runPageOperation(() => deps.pageOpsReorder(order)),
+        pageOpsMove: move => runPageOperation(() => deps.pageOpsMove(move)),
+        handleCropPages: (pages, margins) => runPageOperation(
+            () => deps.handleCropPages(pages, margins),
+        ),
         handleSave: handleSaveFromCommandSurface,
         handleRepairSave: handleRepairSaveFromCommandSurface,
         handleOptimizePdfForInteraction: handleOptimizePdfForInteractionFromCommandSurface,
@@ -612,6 +635,9 @@ export function createWorkspaceExposeFromOwners(
         waitForDocumentOpenSettled: options.waitForDocumentOpenSettled,
         runAgentAction: options.runAgentAction,
         readAgentResource: options.readAgentResource,
+        ...(options.ensurePdfProjectionForEdit === undefined
+            ? {}
+            : {ensurePdfProjectionForEdit: options.ensurePdfProjectionForEdit}),
         pdfAutomationViewerRef: viewerShell.pdfViewerRef,
         hasPreservedAnnotationSourceChanges: annotationSession.hasPreservedAnnotationSourceChanges,
         handleOcrComplete: payload => saveWorkflow.handleOcrComplete(
