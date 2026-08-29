@@ -228,10 +228,11 @@ pub(crate) fn validate_page_labels_mutation(page_labels: &PageLabelsMutation) ->
 }
 
 pub(crate) fn count_bookmark_items(items: &[BookmarkEntry]) -> usize {
-    items
-        .iter()
-        .map(|item| 1 + count_bookmark_items(&item.items))
-        .sum()
+    items.iter().fold(0usize, |total, item| {
+        total
+            .saturating_add(1)
+            .saturating_add(count_bookmark_items(&item.items))
+    })
 }
 
 pub(crate) fn validate_bookmark_items(items: &[BookmarkEntry], depth: usize) -> Result<()> {
@@ -395,9 +396,26 @@ pub(crate) fn validate_shapes_mutation(shapes: &ShapesMutation) -> Result<()> {
         if shape.page_index >= shapes.total_pages {
             return Err("Shape page index is outside the mutation page count".into());
         }
-        point_count += shape.points.len();
-        point_count += shape.strokes.iter().map(Vec::len).sum::<usize>();
-        if point_count > 20_000 {
+        if shape.strokes.len() > MAX_SHAPE_MUTATION_STROKES {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Too many shape strokes per shape",
+            ));
+        }
+        let shape_stroke_point_count = shape
+            .strokes
+            .iter()
+            .try_fold(0usize, |total, stroke| total.checked_add(stroke.len()))
+            .unwrap_or(usize::MAX);
+        let shape_point_count = shape.points.len().saturating_add(shape_stroke_point_count);
+        if shape_point_count > MAX_SHAPE_MUTATION_POINTS {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Too many shape points per shape",
+            ));
+        }
+        point_count = point_count.saturating_add(shape_point_count);
+        if point_count > MAX_COLLECTION_ITEMS {
             return Err(domain_error(
                 NativeErrorCode::TooLarge,
                 "Too many shape points",
@@ -593,6 +611,7 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
         parsed.deletes.len(),
         parsed.placed_images.len(),
     ])?;
+    validate_native_mutation_collection_budget(&parsed)?;
     validate_native_mutation_text_budget(&parsed)?;
     Ok(parsed)
 }
@@ -607,6 +626,60 @@ fn validate_mutation_collection_budget(lengths: &[usize]) -> Result<()> {
             NativeErrorCode::TooLarge,
             format!(
                 "Mutation collections exceed the {MAX_COLLECTION_ITEMS}-item admission ceiling"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn count_native_mutation_items(mutations: &NativeMutationsFile) -> usize {
+    let mut total = 0usize;
+    let mut add = |count: usize| {
+        total = total
+            .saturating_add(count)
+            .min(MAX_COLLECTION_ITEMS.saturating_add(1));
+    };
+
+    add(mutations.updates.len());
+    add(mutations.geometry_updates.len());
+    add(mutations.free_text_notes.len());
+    add(mutations.free_text_editors.len());
+    add(mutations.deletes.len());
+    if let Some(page_labels) = &mutations.page_labels {
+        add(page_labels.ranges.len());
+    }
+    if let Some(bookmarks) = &mutations.bookmarks {
+        add(count_bookmark_items(&bookmarks.items));
+    }
+    if let Some(shapes) = &mutations.shapes {
+        add(shapes.shapes.len());
+        add(shapes.deleted_annotation_ids.len());
+        add(shapes.deleted_stable_keys.len());
+        for shape in &shapes.shapes {
+            add(shape.strokes.len());
+            add(shape.points.len());
+            for stroke in &shape.strokes {
+                add(stroke.len());
+            }
+        }
+    }
+    if let Some(markup) = &mutations.markup {
+        add(markup.overrides.len());
+        add(markup.hints.len());
+        for hint in &markup.hints {
+            add(hint.markup_geometry.as_ref().map_or(0, Vec::len));
+        }
+    }
+    add(mutations.placed_images.len());
+    total
+}
+
+fn validate_native_mutation_collection_budget(mutations: &NativeMutationsFile) -> Result<()> {
+    if count_native_mutation_items(mutations) > MAX_COLLECTION_ITEMS {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!(
+                "Native mutation sidecar exceeds the {MAX_COLLECTION_ITEMS}-item aggregate admission ceiling"
             ),
         ));
     }
@@ -853,6 +926,36 @@ mod bounded_input_tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn ink_shape_with_strokes(strokes: Vec<Vec<ShapePoint>>) -> ShapeAnnotation {
+        ShapeAnnotation {
+            shape_type: "polyline".to_string(),
+            page_index: 0,
+            x: 0.1,
+            y: 0.1,
+            width: 0.3,
+            height: 0.3,
+            x2: None,
+            y2: None,
+            color: "#336699".to_string(),
+            fill_color: None,
+            opacity: 1.0,
+            stroke_width: 1.0,
+            points: Vec::new(),
+            strokes,
+            annotation_id: None,
+            stable_key: Some("sec-006-ink".to_string()),
+            pdf_subtype: Some("Ink".to_string()),
+            line_start_style: None,
+            line_end_style: None,
+            created_at: None,
+            modified_at: None,
+        }
+    }
+
+    fn unit_shape_points(count: usize) -> Vec<ShapePoint> {
+        (0..count).map(|_| ShapePoint { x: 0.2, y: 0.2 }).collect()
+    }
+
     fn temp_path(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -909,5 +1012,65 @@ mod bounded_input_tests {
             native_error.message
         );
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn native_mutation_collection_budget_counts_nested_shape_geometry() {
+        let shapes = (0..5)
+            .map(|_| ink_shape_with_strokes(vec![unit_shape_points(MAX_SHAPE_MUTATION_POINTS - 1)]))
+            .collect::<Vec<_>>();
+        let mutations = NativeMutationsFile {
+            shapes: Some(ShapesMutation {
+                total_pages: 1,
+                rewrite_shape_state: true,
+                shapes,
+                deleted_annotation_ids: vec!["deleted-shape".to_string()],
+                deleted_stable_keys: Vec::new(),
+            }),
+            ..NativeMutationsFile::default()
+        };
+
+        validate_shapes_mutation(mutations.shapes.as_ref().unwrap())
+            .expect("each shape and the aggregate point count should be individually bounded");
+        let error = validate_native_mutation_collection_budget(&mutations)
+            .expect_err("nested shape geometry must count toward the request budget");
+        let native_error = error
+            .downcast_ref::<NativeError>()
+            .expect("aggregate budget errors should carry a native error");
+        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
+        assert!(native_error.message.contains("aggregate admission ceiling"));
+    }
+
+    #[test]
+    fn native_ink_shape_limits_bound_strokes_and_points_per_shape() {
+        let point = ShapePoint { x: 0.2, y: 0.2 };
+        let too_many_strokes = ink_shape_with_strokes(vec![
+            vec![point.clone(), point.clone()];
+            MAX_SHAPE_MUTATION_STROKES + 1
+        ]);
+        let stroke_error = validate_shapes_mutation(&ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: vec![too_many_strokes],
+            deleted_annotation_ids: Vec::new(),
+            deleted_stable_keys: Vec::new(),
+        })
+        .expect_err("an ink shape must reject an oversized stroke collection");
+        assert!(stroke_error.to_string().contains("shape strokes"));
+
+        let half_point_count = MAX_SHAPE_MUTATION_POINTS / 2 + 1;
+        let too_many_points = ink_shape_with_strokes(vec![
+            unit_shape_points(half_point_count),
+            unit_shape_points(half_point_count),
+        ]);
+        let point_error = validate_shapes_mutation(&ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: vec![too_many_points],
+            deleted_annotation_ids: Vec::new(),
+            deleted_stable_keys: Vec::new(),
+        })
+        .expect_err("an ink shape must reject an oversized per-shape point collection");
+        assert!(point_error.to_string().contains("points per shape"));
     }
 }

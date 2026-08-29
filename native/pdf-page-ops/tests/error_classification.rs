@@ -53,6 +53,19 @@ fn run_append(input: &Path, output: &Path, updates: &Path) -> Output {
         .unwrap()
 }
 
+fn run_save_mutations(input: &Path, output: &Path, mutations: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["save-mutations", "--input"])
+        .arg(input)
+        .arg("--output")
+        .arg(output)
+        .arg("--mutations-file")
+        .arg(mutations)
+        .args(["--modified-at", "D:20260809120000Z", "--append"])
+        .output()
+        .unwrap()
+}
+
 fn run_crop(input: &Path, output: &Path, pages: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
         .args(["crop", "--input"])
@@ -348,4 +361,69 @@ fn page_geometry_reports_inherited_boxes_and_rotation() {
 
     let _ = remove_file(input);
     let _ = remove_file(output);
+}
+
+#[test]
+fn save_mutations_reports_typed_aggregate_limit_for_nested_shape_sidecar() {
+    let input = path("aggregate-shapes-input", "pdf");
+    let output = path("aggregate-shapes-output", "pdf");
+    let mutations = path("aggregate-shapes-mutations", "json");
+    let mut document = Document::with_version("1.4");
+    let pages_id = document.new_object_id();
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+    });
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    document.trailer.set("Root", catalog_id);
+    document.save(&input).unwrap();
+
+    let point = r#"{"x":0.2,"y":0.2}"#;
+    let points = std::iter::repeat_n(point, 19_999)
+        .collect::<Vec<_>>()
+        .join(",");
+    let shape = format!(
+        r##"{{"type":"polyline","pageIndex":0,"x":0.1,"y":0.1,"width":0.3,"height":0.3,"color":"#336699","opacity":1,"strokeWidth":1,"pdfSubtype":"Ink","strokes":[[{points}]]}}"##,
+    );
+    let shapes = std::iter::repeat_n(shape.as_str(), 5)
+        .collect::<Vec<_>>()
+        .join(",");
+    let source = format!(
+        r#"{{"shapes":{{"totalPages":1,"rewriteShapeState":true,"shapes":[{shapes}],"deletedAnnotationIds":["deleted-shape"],"deletedStableKeys":[]}}}}"#,
+    );
+    write(&mutations, source.as_bytes()).unwrap();
+
+    let result = run_save_mutations(&input, &output, &mutations);
+    assert_eq!(
+        error_code(&result),
+        "too-large",
+        "native stderr: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let envelope: Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert!(envelope["message"]
+        .as_str()
+        .unwrap()
+        .contains("aggregate admission ceiling"));
+    assert!(
+        !output.exists(),
+        "validation must fail before native output"
+    );
+
+    let _ = remove_file(input);
+    let _ = remove_file(output);
+    let _ = remove_file(mutations);
 }

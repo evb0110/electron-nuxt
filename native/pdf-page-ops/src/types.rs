@@ -31,7 +31,101 @@ fn deserialize_shape_points<'de, D>(
 where
     D: serde::Deserializer<'de>,
 {
-    deserialize_bounded_vec::<D, ShapePoint, 20_000>(deserializer)
+    deserialize_bounded_vec::<D, ShapePoint, MAX_SHAPE_MUTATION_POINTS>(deserializer)
+}
+
+struct BoundedShapeStrokeSeed {
+    remaining_points: usize,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for BoundedShapeStrokeSeed {
+    type Value = Vec<ShapePoint>;
+
+    fn deserialize<D>(self, deserializer: D) -> std::result::Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct BoundedShapeStrokeVisitor {
+            remaining_points: usize,
+        }
+
+        impl<'de> serde::de::Visitor<'de> for BoundedShapeStrokeVisitor {
+            type Value = Vec<ShapePoint>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("an array of bounded shape points")
+            }
+
+            fn visit_seq<A>(self, mut sequence: A) -> std::result::Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let capacity = sequence.size_hint().unwrap_or(0).min(self.remaining_points);
+                let mut points = Vec::with_capacity(capacity);
+                while let Some(point) = sequence.next_element::<ShapePoint>()? {
+                    if points.len() == self.remaining_points {
+                        return Err(serde::de::Error::custom(format!(
+                            "shape strokes exceed the {MAX_SHAPE_MUTATION_POINTS}-point admission ceiling"
+                        )));
+                    }
+                    points.push(point);
+                }
+                Ok(points)
+            }
+        }
+
+        deserializer.deserialize_seq(BoundedShapeStrokeVisitor {
+            remaining_points: self.remaining_points,
+        })
+    }
+}
+
+struct ShapeStrokesVisitor;
+
+impl<'de> serde::de::Visitor<'de> for ShapeStrokesVisitor {
+    type Value = Vec<Vec<ShapePoint>>;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("an array containing bounded shape strokes")
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> std::result::Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let capacity = sequence
+            .size_hint()
+            .unwrap_or(0)
+            .min(MAX_SHAPE_MUTATION_STROKES);
+        let mut strokes = Vec::with_capacity(capacity);
+        let mut point_count = 0usize;
+        while strokes.len() < MAX_SHAPE_MUTATION_STROKES {
+            let remaining_points = MAX_SHAPE_MUTATION_POINTS.saturating_sub(point_count);
+            let Some(stroke) =
+                sequence.next_element_seed(BoundedShapeStrokeSeed { remaining_points })?
+            else {
+                return Ok(strokes);
+            };
+            point_count = point_count.saturating_add(stroke.len());
+            strokes.push(stroke);
+        }
+
+        if sequence.next_element::<serde::de::IgnoredAny>()?.is_some() {
+            return Err(serde::de::Error::custom(format!(
+                "array exceeds the {MAX_SHAPE_MUTATION_STROKES}-item admission ceiling"
+            )));
+        }
+        Ok(strokes)
+    }
+}
+
+fn deserialize_shape_strokes<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<Vec<ShapePoint>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserializer.deserialize_seq(ShapeStrokesVisitor)
 }
 
 fn deserialize_placed_images<'de, D>(
@@ -66,6 +160,8 @@ pub(crate) enum NativeMutationContinuationFamily {
 }
 
 pub(crate) const MAX_MARKUP_GEOMETRY_ITEMS: usize = 512;
+pub(crate) const MAX_SHAPE_MUTATION_POINTS: usize = 20_000;
+pub(crate) const MAX_SHAPE_MUTATION_STROKES: usize = 4_096;
 
 fn deserialize_optional_markup_geometry<'de, D>(
     deserializer: D,
@@ -957,7 +1053,7 @@ pub(crate) struct ShapeAnnotation {
     #[serde(deserialize_with = "deserialize_shape_points")]
     pub(crate) points: Vec<ShapePoint>,
     #[serde(default)]
-    #[serde(deserialize_with = "deserialize_shape_items")]
+    #[serde(deserialize_with = "deserialize_shape_strokes")]
     pub(crate) strokes: Vec<Vec<ShapePoint>>,
     #[serde(default)]
     pub(crate) annotation_id: Option<String>,
@@ -997,5 +1093,44 @@ mod protocol_schema_tests {
 
         let with_unknown = source.replacen("{", r#"{"unknownField":true,"#, 1);
         assert!(serde_json::from_str::<NativeMutationsFile>(&with_unknown).is_err());
+    }
+
+    #[test]
+    fn shape_stroke_sidecars_reject_an_oversized_nested_collection() {
+        let strokes = std::iter::repeat_n("[]", MAX_SHAPE_MUTATION_STROKES + 1)
+            .collect::<Vec<_>>()
+            .join(",");
+        let source = format!(
+            r##"{{"type":"polyline","pageIndex":0,"x":0.1,"y":0.1,"width":0.3,"height":0.3,"color":"#336699","opacity":1,"strokeWidth":1,"strokes":[{strokes}]}}"##,
+        );
+
+        let error = match serde_json::from_str::<ShapeAnnotation>(&source) {
+            Ok(_) => panic!("the nested ink stroke array must be bounded during decoding"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("4096-item admission ceiling"));
+    }
+
+    #[test]
+    fn shape_stroke_sidecars_reject_cumulative_points_during_decoding() {
+        let point = r#"{"x":0.2,"y":0.2}"#;
+        let stroke_point_count = MAX_SHAPE_MUTATION_POINTS / 2 + 1;
+        let stroke = format!(
+            "[{}]",
+            std::iter::repeat_n(point, stroke_point_count)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let source = format!(
+            r##"{{"type":"polyline","pageIndex":0,"x":0.1,"y":0.1,"width":0.3,"height":0.3,"color":"#336699","opacity":1,"strokeWidth":1,"strokes":[{stroke},{stroke}]}}"##,
+        );
+
+        let error = match serde_json::from_str::<ShapeAnnotation>(&source) {
+            Ok(_) => panic!("cumulative stroke points must be bounded during decoding"),
+            Err(error) => error,
+        };
+        assert!(error
+            .to_string()
+            .contains("shape strokes exceed the 20000-point admission ceiling"));
     }
 }
