@@ -427,6 +427,41 @@ describe('workingCopyMaterialization', () => {
         });
     });
 
+    it('refuses before opening a materialization target when the destination lacks capacity', async () => {
+        const openedPaths: string[] = [];
+        vi.doMock('node:fs/promises', async (importOriginal) => {
+            const original = await importOriginal<typeof FsPromises>();
+            return {
+                ...original,
+                open: async (...args: Parameters<typeof original.open>) => {
+                    openedPaths.push(String(args[0]));
+                    return original.open(...args);
+                },
+                statfs: vi.fn(async () => ({
+                    bavail: 1n,
+                    bsize: 512n,
+                })),
+            };
+        });
+        resetModulesAfterTest = true;
+        vi.resetModules();
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(1024 * 1024, 33));
+        const {ensureWorkingCopyMaterialized} = await import(
+            '@electron/file-access/workingCopyMaterialization'
+        );
+
+        await expect(ensureWorkingCopyMaterialized(fixture.workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'save',
+        })).rejects.toMatchObject({
+            code: 'WORKING_COPY_MATERIALIZATION_NO_SPACE',
+            retryable: true,
+        });
+        expect(existsSync(fixture.workingPath)).toBe(false);
+        expect(openedPaths.some(path => path.includes('.materializing-'))).toBe(false);
+        expect(materializingArtifacts(fixture.workingPath)).toEqual([]);
+    });
+
     it('blocks materialization when the source changed before copying', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(1024, 37));
         const changedTime = new Date(Date.now() + 5_000);

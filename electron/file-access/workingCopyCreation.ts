@@ -22,6 +22,7 @@ import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import {
     attemptWorkingCopyClone,
     copyFileCopyOnWrite,
+    copyFileFromStableSource,
     createWorkingDirectory,
     isWorkingCopyDirectoryName,
     safeRemoveDirectory,
@@ -51,6 +52,7 @@ import { readWorkingCopySyncRequiredJournalEntry } from '@electron/file-access/d
 import {schedulePageIdentityStoreInitialization} from '@electron/file-access/pageIdentityStore';
 import {
     startBackgroundWorkingCopyMaterialization,
+    ensureWorkingCopyMaterialized,
     WorkingCopyMaterializationError,
 } from '@electron/file-access/workingCopyMaterialization';
 
@@ -114,7 +116,7 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
                 attemptWorkingCopyClone(originalPath, workingPath));
             if (cloneOutcome === 'known-unsupported') {
                 await measureWorkingCopyPhase(phaseTimings, 'eager-copy', () =>
-                    copyFile(originalPath, workingPath));
+                    copyFileFromStableSource(originalPath, workingPath));
             }
             if (isPdf) {
                 encrypted = await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
@@ -332,6 +334,18 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
         return false;
     }
     const { originalPath } = mapping;
+    const backingEntry = getWorkingCopyBackingEntry(normalizedWorkingPath, senderWebContentsId);
+
+    if (
+        backingEntry?.backingState === 'lazy-original'
+        || backingEntry?.backingState === 'materializing'
+    ) {
+        await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
+            ownerWebContentsId: senderWebContentsId,
+            reason: 'page-operation',
+        });
+        return true;
+    }
 
     const tempDir = normalizePathForLookup(getAppTempDir());
     const parentDir = normalizePathForLookup(dirname(normalizedWorkingPath));

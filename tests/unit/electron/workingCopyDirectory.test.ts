@@ -1,6 +1,16 @@
 import { constants as fsConstants } from 'fs';
+import {
+    mkdtempSync,
+    readFileSync,
+    renameSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
 import {EventEmitter} from 'node:events';
 import {PassThrough} from 'node:stream';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import type * as FsPromises from 'node:fs/promises';
 import {
     afterEach,
     describe,
@@ -163,5 +173,48 @@ describe('workingCopyDirectory', () => {
             fsConstants.COPYFILE_FICLONE_FORCE,
         );
         expect(copyFile).toHaveBeenNthCalledWith(2, '/source.pdf', '/target.pdf');
+    });
+
+    it('rejects a source replacement during the streamed unsupported-clone fallback', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-stable-copy-test-'));
+        const sourcePath = join(root, 'source.pdf');
+        const targetPath = join(root, 'target.pdf');
+        const replacementPath = join(root, 'replacement.pdf');
+        writeFileSync(sourcePath, Buffer.alloc(3 * 1024 * 1024 + 17, 41));
+        writeFileSync(replacementPath, Buffer.alloc(3 * 1024 * 1024 + 17, 97));
+        try {
+            vi.doMock('fs/promises', async importOriginal => {
+                const original = await importOriginal<typeof FsPromises>();
+                return {
+                    ...original,
+                    open: async (...args: Parameters<typeof original.open>) => {
+                        const handle = await original.open(...args);
+                        if (args[0] === sourcePath && args[1] === 'r') {
+                            const read = handle.read.bind(handle);
+                            handle.read = (async (...readArgs: Parameters<typeof handle.read>) => {
+                                await new Promise<void>(resolveRead => setImmediate(resolveRead));
+                                return read(...readArgs);
+                            }) as typeof handle.read;
+                        }
+                        return handle;
+                    },
+                };
+            });
+            vi.resetModules();
+            const {copyFileFromStableSource} = await import('@electron/file-access/workingCopyDirectory');
+            const copy = copyFileFromStableSource(sourcePath, targetPath);
+            setImmediate(() => {
+                renameSync(sourcePath, join(root, 'old-source.pdf'));
+                renameSync(replacementPath, sourcePath);
+            });
+
+            await expect(copy).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+            expect(() => readFileSync(targetPath)).toThrow();
+        } finally {
+            rmSync(root, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 });

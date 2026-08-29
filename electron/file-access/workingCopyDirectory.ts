@@ -7,7 +7,9 @@ import {
 } from 'fs';
 import {
     copyFile,
+    open,
     rm,
+    stat,
 } from 'fs/promises';
 import {join} from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
@@ -201,6 +203,63 @@ export async function attemptWorkingCopyClone(
 export async function copyFileCopyOnWrite(sourcePath: string, targetPath: string) {
     const outcome = await attemptWorkingCopyClone(sourcePath, targetPath);
     if (outcome === 'known-unsupported') {
-        await copyFile(sourcePath, targetPath);
+        await copyFileFromStableSource(sourcePath, targetPath);
+    }
+}
+
+/**
+ * Copies one source revision into a new target. The source handle prevents a
+ * replacement from changing the bytes mid-stream, while the identity checks
+ * reject publishing an older handle after the source path was replaced.
+ */
+export async function copyFileFromStableSource(sourcePath: string, targetPath: string) {
+    const sourceHandle = await open(sourcePath, 'r');
+    let targetHandle: Awaited<ReturnType<typeof open>> | undefined;
+    let copied = false;
+    try {
+        const sourceStat = await sourceHandle.stat({bigint: true});
+        if (!sourceStat.isFile()) {
+            throw new Error('Working-copy source is not a regular file');
+        }
+        targetHandle = await open(targetPath, 'wx');
+        const buffer = Buffer.allocUnsafe(1024 * 1024);
+        let offset = 0n;
+        while (offset < sourceStat.size) {
+            const length = Number(
+                sourceStat.size - offset > BigInt(buffer.byteLength)
+                    ? BigInt(buffer.byteLength)
+                    : sourceStat.size - offset,
+            );
+            const result = await sourceHandle.read(buffer, 0, length, offset);
+            if (result.bytesRead !== length) {
+                throw Object.assign(new Error('The source changed while it was being copied'), {code: 'SOURCE_BACKING_CHANGED'});
+            }
+            await targetHandle.write(buffer, 0, length, offset);
+            offset += BigInt(length);
+            if (offset < sourceStat.size) {
+                await new Promise<void>(resolveCopyYield => setImmediate(resolveCopyYield));
+            }
+        }
+        const currentHandleStat = await sourceHandle.stat({bigint: true});
+        const currentPathStat = await stat(sourcePath, {bigint: true});
+        if (
+            currentHandleStat.dev !== sourceStat.dev
+            || currentHandleStat.ino !== sourceStat.ino
+            || currentHandleStat.size !== sourceStat.size
+            || currentHandleStat.mtimeNs !== sourceStat.mtimeNs
+            || currentPathStat.dev !== sourceStat.dev
+            || currentPathStat.ino !== sourceStat.ino
+            || currentPathStat.size !== sourceStat.size
+            || currentPathStat.mtimeNs !== sourceStat.mtimeNs
+        ) {
+            throw Object.assign(new Error('The source changed while it was being copied'), {code: 'SOURCE_BACKING_CHANGED'});
+        }
+        copied = true;
+    } finally {
+        await targetHandle?.close().catch(() => undefined);
+        await sourceHandle.close().catch(() => undefined);
+        if (targetHandle && !copied) {
+            await rm(targetPath, {force: true}).catch(() => undefined);
+        }
     }
 }

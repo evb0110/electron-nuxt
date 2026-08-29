@@ -82,6 +82,43 @@ describe('workingCopy', () => {
         }
     });
 
+    it('serializes explicit directory ensures with background materialization', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
+        const {
+            createWorkingCopy,
+            ensureWorkingCopyDirectory,
+        } = await import(
+            '@electron/file-access/workingCopyCreation'
+        );
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {onWorkingCopyMaterializationProgress} = await import(
+            '@electron/file-access/workingCopyMaterialization'
+        );
+        const originalPath = join(tempRoot, 'serialized-ensure.pdf');
+        writeFileSync(originalPath, Buffer.alloc(1024 * 1024 + 17, 23));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+        const operationIds = new Set<string>();
+        const removeProgressListener = onWorkingCopyMaterializationProgress(event => {
+            if (event.phase === 'copying') {
+                operationIds.add(event.operationId);
+            }
+        });
+
+        try {
+            await Promise.all([
+                ensureWorkingCopyDirectory(workingPath, 7),
+                ensureWorkingCopyDirectory(workingPath, 7),
+            ]);
+        } finally {
+            removeProgressListener();
+        }
+
+        expect(operationIds.size).toBe(1);
+        expect(readFileSync(workingPath)).toEqual(readFileSync(originalPath));
+    }, 30_000);
+
     it('uses background materialization by default after publishing lazy state', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');

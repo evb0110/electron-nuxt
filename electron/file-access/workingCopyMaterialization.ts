@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
+import {dirname} from 'node:path';
 import {
     open,
     rm,
+    statfs,
 } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { isErrnoException } from '@contracts/runtimeGuards';
@@ -375,6 +377,15 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
         });
         throwIfAborted(signal);
         await assertSourceSnapshot(flight.originalPath, flight.admissionSnapshot);
+        const filesystem = await statfs(dirname(flight.logicalRef), {bigint: true});
+        const availableBytes = filesystem.bavail * filesystem.bsize;
+        if (availableBytes < flight.admissionSnapshot.size) {
+            throw new WorkingCopyMaterializationError(
+                'WORKING_COPY_MATERIALIZATION_NO_SPACE',
+                'Not enough disk space to prepare the working copy',
+                {retryable: true},
+            );
+        }
         sourceHandle = await open(flight.originalPath, 'r');
         await assertSourceHandleSnapshot(sourceHandle, flight.admissionSnapshot);
         outputHandle = await open(tempPath, 'wx');
