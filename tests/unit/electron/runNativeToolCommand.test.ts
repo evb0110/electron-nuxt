@@ -109,9 +109,7 @@ describe('runNativeToolCommand', () => {
         const {runNativeToolCommand} = await loadModule();
         const caller = new AbortController();
 
-        const result = runNativeToolCommand('/tools/evb-pdf-search', ['search'], {
-            signal: caller.signal,
-        });
+        const result = runNativeToolCommand('/tools/evb-pdf-search', ['search'], {signal: caller.signal});
         const handshakeSignal = mocks.runNativeCommand.mock.calls[0]?.[2]?.signal as AbortSignal;
 
         caller.abort(new DOMException('caller canceled', 'AbortError'));
