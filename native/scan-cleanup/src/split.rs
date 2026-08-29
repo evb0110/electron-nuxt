@@ -53,6 +53,10 @@ const FOLD_SUPPORT_MAX_COMPONENT_AREA_FRACTION: f64 = 0.003;
 const FOLD_SUPPORT_AMBIGUOUS_FILL: f64 = 0.20;
 const FOLD_SUPPORT_MIN_REPEATED_ROWS: usize = 3;
 const FOLD_SUPPORT_PIXEL_CONTRAST: f64 = 24.0;
+// A broad connected run inside the fold corridor is scanner texture, even
+// when thresholding fragments it into many small components. Real glyph rows
+// stay short relative to the page height.
+const FOLD_SUPPORT_MAX_ROW_HEIGHT_FRACTION: f64 = 0.05;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -2851,8 +2855,8 @@ fn fold_endpoint_support(gray: &GrayImage, left: usize, right: usize) -> FoldEnd
     let mut support_mask = BinaryImage::new(width, height);
     let mut column_dark = vec![0usize; width];
     let mut dark_pixels = 0usize;
-    let mut min_x = right;
-    let mut max_x = left;
+    let mut min_x = width;
+    let mut max_x = 0;
     let mut row_has_support = vec![false; height];
     // A fold shadow can lower the whole corridor enough that its aggregate
     // quantile contrast looks flat even when a glyph is present. Use the
@@ -2931,13 +2935,24 @@ fn fold_endpoint_support(gray: &GrayImage, left: usize, right: usize) -> FoldEnd
                 && component.area <= max_component_area
         })
         .count();
+    let max_row_height = (height as f64 * FOLD_SUPPORT_MAX_ROW_HEIGHT_FRACTION)
+        .ceil()
+        .max(3.0) as usize;
+    let short_support_rows = row_bands
+        .iter()
+        .all(|&(top, bottom)| bottom.saturating_sub(top) <= max_row_height);
+    // Require separated, glyph-sized rows for confident support. This keeps a
+    // textured scanner shadow from shrinking the measured fold band.
     let repeated_rows = row_bands.len() >= FOLD_SUPPORT_MIN_REPEATED_ROWS
-        && row_bands.len() as f64 / height as f64 <= 0.55;
-    let glyph_like = glyph_like_components >= 2;
+        && row_bands.len() as f64 / height as f64 <= 0.55
+        && short_support_rows;
+    let glyph_like = glyph_like_components >= 2 && short_support_rows;
     let confident = repeated_rows || glyph_like;
     let fill = dark_pixels as f64 / (width * height) as f64;
     let ambiguous = !confident
         && fill <= FOLD_SUPPORT_AMBIGUOUS_FILL
+        && glyph_like_components <= 2
+        && short_support_rows
         && components.components().iter().any(|component| {
             component.right < width
                 && component.left < width
@@ -4294,7 +4309,7 @@ mod tests {
     #[test]
     fn ambiguous_fold_corridor_support_retains_the_cutter_edge() {
         let mut page = fold_shadow_page(1000, 600, 500, 20, 60);
-        for y in 240..304 {
+        for y in 260..284 {
             for x in 482..487 {
                 page.set(x, y, 145);
             }
@@ -4302,6 +4317,19 @@ mod tests {
         let (left, right) = gutter_shadow_band(&page, 500.0).unwrap();
         assert_eq!(left, 500.0);
         assert!(right > 500.0);
+    }
+
+    #[test]
+    fn tall_fold_corridor_support_does_not_shrink_the_measured_band() {
+        let mut page = fold_shadow_page(1000, 600, 500, 20, 60);
+        for y in 240..304 {
+            for x in 482..487 {
+                page.set(x, y, 145);
+            }
+        }
+
+        let raw = gutter_shadow_band_unprotected(&page, 500.0).unwrap();
+        assert_eq!(gutter_shadow_band(&page, 500.0), Some(raw));
     }
 
     #[test]
