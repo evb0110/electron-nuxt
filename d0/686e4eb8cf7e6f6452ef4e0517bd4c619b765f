@@ -1,0 +1,83 @@
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_b2ece6dfe48478::t_a2bfcf18ee6eeb 859-860
+  s_b2ece6dfe48478::t_d300a66190c4c4 28,136-140,839-858,861-863,934
+app/modules/workspace-shell/components/WorkspaceSaveDialogHost.vue
+  s_b2ece6dfe48478::t_ede761d222db86 19,107
+electron/features/image-export/main/export.ts
+  s_b2ece6dfe48478::t_6e211a3c8b2f6d 79-82,506-510,514,529-532
+  s_b2ece6dfe48478::t_56e15bf3368c5e 543-546
+  s_b2ece6dfe48478::t_84e04bd569109e 533-535,540-542
+  s_b2ece6dfe48478::t_a0bda6ef6e5826 536-539
+electron/file-access/recoverTwoTargetDocumentTransition.ts
+  s_b2ece6dfe48478::t_fd50175e6b64e1 9,11,37-56,59-61
+  s_b2ece6dfe48478::t_4bf921677e9506 8,10,12-13,67
+  s_b2ece6dfe48478::t_4c340925060ad7 62-66,68-70
+electron/utils/atomicReplace.ts
+  s_b2ece6dfe48478::t_75c321e2860d9c 15,114-115
+electron/features/documents/main/originalPathSaveBaseMatches.ts
+  s_b2ece6dfe48478::t_841cc70574c096 48,181,207,254-271,276-277,298-321
+  s_b2ece6dfe48478::t_fd50175e6b64e1 26-35,46,139-180,272-275,283-297
+  s_b2ece6dfe48478::t_3f8947878888c5 44,213,223-224
+  s_b2ece6dfe48478::t_c256346a62a899 182
+  s_b2ece6dfe48478::t_0596e47da3553d 322
+tests/unit/electron/transitionOriginalAndWorkingCopyRevision.test.ts
+  s_b2ece6dfe48478::t_99e43e3b7a46e5 188
+  s_b2ece6dfe48478::t_7ac6598a9ac01b 161-187,189-193
+electron/features/documents/main/transitionOriginalAndWorkingCopyRevision.ts
+  s_b2ece6dfe48478::t_3f8947878888c5 129
+  s_b2ece6dfe48478::t_4bf921677e9506 166-169
+  s_b2ece6dfe48478::t_11a4bc6981e4a6 105-109
+  s_b2ece6dfe48478::t_241d69cad3f25d 114
+  s_b2ece6dfe48478::t_4e0f6bd83880ae 126-128,130
+app/modules/pdf-viewer/components/PdfPrintDialog.vue
+  s_b2ece6dfe48478::t_1fd03f331d2453 37-40,159,168,338
+tests/unit/electron/imageExport.test.ts
+  s_b2ece6dfe48478::t_56e15bf3368c5e 59-62,65-76,219-220,233,243-246,252-264,266,319-323,604-613
+  s_b2ece6dfe48478::t_3b731230895a75 58,614-629
+electron/features/image-export/main/parsePdfInfoPageSizes.ts
+  s_b2ece6dfe48478::t_6e211a3c8b2f6d 1-51
+tests/unit/electron/twoTargetDocumentTransitionRecoveryFence.test.ts
+  s_b2ece6dfe48478::t_c34c63f6645b77 23
+  s_b2ece6dfe48478::t_fcdacf498663f7 31
+  s_b2ece6dfe48478::t_dccbcc2ed1732e 20,34
+  s_b2ece6dfe48478::t_9b2696710b1ab1 106-108,113
+  s_b2ece6dfe48478::t_4bf921677e9506 24-30
+  s_b2ece6dfe48478::t_fd50175e6b64e1 19,118-146
+  s_b2ece6dfe48478::t_987fe1204bb4a0 1-18,21-22,32-33,35-105,109-112,114-117,147-148
+tests/unit/electron/atomicReplace.test.ts
+  s_b2ece6dfe48478::t_1c2cf162880035 162-180,185-187
+  s_b2ece6dfe48478::t_07446da9385b35 2
+  s_b2ece6dfe48478::t_4bf921677e9506 181-184
+  s_b2ece6dfe48478::t_68198b7783cc5b 3-8
+  s_b2ece6dfe48478::t_5a294eae727faa 1
+app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary.ts
+  s_b2ece6dfe48478::t_9e768b28b9cf96 26,89
+tests/unit/app/composables/annotations/useAnnotationSyncHelpers.test.ts
+  s_b2ece6dfe48478::t_40abad9f8696b3 579
+  s_b2ece6dfe48478::t_4c9e600403b205 13,544-578,580-587,592-601
+  s_b2ece6dfe48478::t_29459e6611d4cf 588-591
+  s_b2ece6dfe48478::t_e24ff6a4690964 602-603
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_b2ece6dfe48478::t_78509afff268e9 546-551
+  s_b2ece6dfe48478::t_8e36035ec9d021 1003
+  s_b2ece6dfe48478::t_11c4a40f996677 211,247,545,552-561,1455-1487
+  s_b2ece6dfe48478::t_7492d0fda404fa 1488
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_b2ece6dfe48478::t_3286176d414133 360,827
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d0686e4eb8cf7e6f6452ef4e0517bd4c619b765f",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
