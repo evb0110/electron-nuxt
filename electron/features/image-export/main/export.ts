@@ -1140,7 +1140,7 @@ export async function exportPdfAsMultiPageTiff(
             const orderedPagePaths = pageFiles
                 .sort((left, right) => left.page - right.page)
                 .map(pageFile => pageFile.path);
-            const tiffPageDescriptors = await readTiffPageDescriptors(orderedPagePaths);
+            const tiffPageDescriptors = await readTiffPageDescriptors(orderedPagePaths, options.signal);
             const tiffPageGroups = splitTiffPageDescriptorsForClassicLimit(tiffPageDescriptors)
                 .map(group => group.map(page => page.path));
             const outputPaths = resolveOutputPathConflicts(buildMultiPageTiffOutputPaths(targetPath, tiffPageGroups.length));

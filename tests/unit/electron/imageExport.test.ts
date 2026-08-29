@@ -56,6 +56,7 @@ const mocks = vi.hoisted(() => ({
     pageHeightPts: 670,
     renderedRasterSizes: [] as IRenderedRasterSize[],
     requestedRenderDpis: [] as number[],
+    tiffDescriptorReadCount: 0,
     pageSizeOverrides: {} as Record<number, {
         widthPts: number;
         heightPts: number
@@ -81,6 +82,9 @@ vi.mock('fs/promises', async () => {
         readFile: async (path: Parameters<typeof actual.readFile>[0], ...args: Parameters<typeof actual.readFile> extends [unknown, ...infer Rest] ? Rest : never) => {
             if (String(path) === '/tmp/input.pdf') {
                 return Buffer.from('%PDF-1.7\n%%EOF\n');
+            }
+            if (String(path).includes('/render-pages-') && /\.tif{1,2}$/u.test(String(path))) {
+                mocks.tiffDescriptorReadCount += 1;
             }
             return actual.readFile(path, ...args);
         },
@@ -217,6 +221,7 @@ describe('image export', () => {
         mocks.pageHeightPts = 670;
         mocks.renderedRasterSizes.length = 0;
         mocks.requestedRenderDpis.length = 0;
+        mocks.tiffDescriptorReadCount = 0;
         mocks.pageSizeOverrides = {};
         mocks.stat.mockImplementation(async () => ({
             isFile: () => true,
@@ -510,6 +515,29 @@ describe('image export', () => {
             total: 1,
             percent: 100,
         });
+    });
+
+    it('stops multi-page TIFF descriptor planning after rendering is canceled', async () => {
+        mocks.renderPageCount = 4;
+        mocks.pdfPageCount = 4;
+        const controller = new AbortController();
+        const outputPath = join(tempDir, 'descriptor-planning-canceled.tiff');
+
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {
+            signal: controller.signal,
+            onProgress: progress => {
+                if (progress.phase === 'rendering' && progress.processed === progress.total) {
+                    controller.abort(new DOMException('descriptor planning canceled', 'AbortError'));
+                }
+            },
+        })).rejects.toMatchObject({
+            name: 'AbortError',
+            message: 'descriptor planning canceled',
+        });
+
+        expect(mocks.tiffDescriptorReadCount).toBe(0);
+        expect(existsSync(outputPath)).toBe(false);
+        expect(existsSync(`${outputPath}.tmp`)).toBe(false);
     });
 
     it('renders every page at its source resolution instead of upscaling it', async () => {
