@@ -495,7 +495,10 @@ async function runNativeNoteCommand(
                 force: true,
             }).catch(() => undefined);
         }
-    }, {kind: `native-pdf-mutation-original:${options.command}`});
+    }, {
+        kind: `native-pdf-mutation-original:${options.command}`,
+        ownerWebContentsId: senderId,
+    });
 }
 
 async function runNativeWorkingCopyCommand(
@@ -588,7 +591,10 @@ async function runNativeWorkingCopyCommand(
                 force: true,
             }).catch(() => undefined);
         }
-    }, {kind: `native-pdf-mutation-working-copy:${options.command}`});
+    }, {
+        kind: `native-pdf-mutation-working-copy:${options.command}`,
+        ownerWebContentsId: senderId,
+    });
 }
 
 /** Promotes a verified immutable native artifact to original and WC exactly once. */
@@ -675,7 +681,10 @@ export async function handleCommitStagedPdfNativeMutations(
                 }
             }
             return queuedResult;
-        }, {kind: 'native-pdf-mutation-staged-commit'});
+        }, {
+            kind: 'native-pdf-mutation-staged-commit',
+            ownerWebContentsId: senderId,
+        });
     } finally {
         if (!stagedArtifactCleaned) {
             releaseManagedTempFileHandle(context, stagedOutput.leaseId);

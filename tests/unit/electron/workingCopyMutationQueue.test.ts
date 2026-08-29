@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     complete: vi.fn(),
     nextOperationId: 0,
     registrations: [] as Array<Record<string, unknown>>,
+    controllers: [] as AbortController[],
 }));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
@@ -22,16 +23,27 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({normalizePathForLookup: (path: string) => path.trim().toLowerCase()}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({cancelNativeCommandGroup: vi.fn()}));
-vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({registerMainOperation: (registration: Record<string, unknown>) => {
-    mocks.registrations.push(registration);
-    mocks.nextOperationId += 1;
-    return {
-        id: `operation-${mocks.nextOperationId}`,
-        signal: new AbortController().signal,
-        markCommitStarted: vi.fn(),
-        complete: (...args: unknown[]) => mocks.complete(...args),
-    };
-}}));
+vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({
+    registerMainOperation: (registration: Record<string, unknown>) => {
+        mocks.registrations.push(registration);
+        mocks.nextOperationId += 1;
+        const controller = new AbortController();
+        mocks.controllers.push(controller);
+        return {
+            id: `operation-${mocks.nextOperationId}`,
+            signal: controller.signal,
+            markCommitStarted: vi.fn(),
+            complete: (...args: unknown[]) => mocks.complete(...args),
+        };
+    },
+    cancelMainOperationsForOwner: (ownerWebContentsId: number) => {
+        mocks.registrations.forEach((registration, index) => {
+            if (registration.ownerWebContentsId === ownerWebContentsId) {
+                mocks.controllers[index]?.abort(new Error('renderer lifecycle ended'));
+            }
+        });
+    },
+}));
 vi.mock('@electron/file-access/workingCopyMutationCommitSignal', () => ({runWithWorkingCopyMutationCommitSignal: (_operation: unknown, callback: () => Promise<unknown>) => callback()}));
 vi.mock('@electron/search/searchIndexSidecar', () => ({getCompactSearchIndexPath: (path: string) => `${path}.compact-index`}));
 
@@ -59,6 +71,7 @@ describe('workingCopyMutationQueue telemetry', () => {
         vi.clearAllMocks();
         mocks.nextOperationId = 0;
         mocks.registrations.length = 0;
+        mocks.controllers.length = 0;
     });
 
     it('keeps its critical write out of working-copy close cancellation', async () => {
@@ -118,5 +131,29 @@ describe('workingCopyMutationQueue telemetry', () => {
         });
         await third;
         expect(mocks.complete).toHaveBeenCalledTimes(3);
+    });
+
+    it('fails a queued stage closed when its renderer owner ends', async () => {
+        const {cancelMainOperationsForOwner} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
+        const blocker = deferred<undefined>();
+        const secondStage = vi.fn(async () => undefined);
+        const first = enqueueWorkingCopyMutation('/tmp/Book.pdf', () => blocker.promise, {
+            ownerWebContentsId: 42,
+            kind: 'first-stage',
+        });
+        await Promise.resolve();
+        const second = enqueueWorkingCopyMutation('/tmp/Book.pdf', secondStage, {
+            ownerWebContentsId: 42,
+            kind: 'queued-stage',
+        });
+
+        cancelMainOperationsForOwner(42, 'renderer lifecycle ended');
+        blocker.resolve(undefined);
+
+        await expect(first).resolves.toBeUndefined();
+        await expect(second).rejects.toThrow('renderer lifecycle ended');
+        expect(secondStage).not.toHaveBeenCalled();
+        expect(mocks.complete).toHaveBeenCalledTimes(2);
     });
 });

@@ -155,7 +155,10 @@ export async function handleReplaceWorkingCopyFromStagedPdfNativeMutation(
                     await unlink(tempPath).catch(() => undefined);
                 }
             }
-        }, {kind: 'native-pdf-mutation-staged-working-copy'});
+        }, {
+            kind: 'native-pdf-mutation-staged-working-copy',
+            ...(context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId}),
+        });
     } finally {
         releaseManagedTempFileHandle(context, stagedOutput.leaseId);
         await cleanupStagedPath(stagedOutput.path);

@@ -21,7 +21,10 @@ interface IWorkingCopyMutationQueueEntry {
     depth: number;
 }
 
-export interface IWorkingCopyMutationQueueOptions {kind?: string;}
+export interface IWorkingCopyMutationQueueOptions {
+    kind?: string;
+    ownerWebContentsId?: number;
+}
 
 const workingCopyMutationQueue = new Map<string, IWorkingCopyMutationQueueEntry>();
 const activeWorkingCopyMutations = new Map<string, IWorkingCopyMutationQueueEntry>();
@@ -102,6 +105,7 @@ export function enqueueWorkingCopyMutation<T>(
     let cancelGroup = '';
     const lifecycleOperation = registerMainOperation({
         kind: 'critical-write',
+        ownerWebContentsId: options.ownerWebContentsId,
         workingCopyPath,
         cancel: () => {
             if (cancelGroup) {

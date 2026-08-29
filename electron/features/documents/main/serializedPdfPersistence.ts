@@ -732,7 +732,7 @@ async function commitSession(
                 targetWriteCommitted = true;
             }
         }
-    });
+    }, {ownerWebContentsId: session.senderId});
 
     return {
         validation: conflictValidation ?? syncWarningValidation ?? committedValidation,
