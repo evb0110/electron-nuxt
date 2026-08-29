@@ -1,0 +1,19 @@
+docs/reliability/issue-123-linux-acceptance-2026-08-29.md
+  s_26eea9fc3075a9::t_a37a67ba0f6ad0 56-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "908af40c3ee83a0ec3783639a2ad0b23582654e6",
+  "prompts": {},
+  "sessions": {
+    "s_26eea9fc3075a9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f75-48d0-78a1-ad57-c7a0c9d44e35",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
