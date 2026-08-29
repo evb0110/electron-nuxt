@@ -5,7 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { PDFDocument } from 'pdf-lib';
+import {
+    PDFDocument,
+    PDFName,
+} from 'pdf-lib';
 import {
     buildPrintSpreadGroups,
     buildPrintablePdfData,
@@ -69,6 +72,31 @@ async function createCroppedSourcePdf(
         page.drawText(`Page ${index + 1}`, {
             x: 12,
             y: Math.max(12, pageOptions.mediaSize[1] - 24),
+            size: 12,
+        });
+    }
+    return pdf.save();
+}
+
+async function createSourcePdfWithBlankPagesWithoutContents(
+    pageSizes: Array<[number, number]>,
+    blankPageNumbers: ReadonlySet<number>,
+) {
+    const pdf = await PDFDocument.create();
+    for (const [
+        index,
+        size,
+    ] of pageSizes.entries()) {
+        const page = pdf.addPage(size);
+        const pageNumber = index + 1;
+        if (blankPageNumbers.has(pageNumber)) {
+            page.node.delete(PDFName.of('Contents'));
+            continue;
+        }
+
+        page.drawText(`Page ${pageNumber}`, {
+            x: 12,
+            y: Math.max(12, size[1] - 24),
             size: 12,
         });
     }
@@ -258,6 +286,98 @@ describe('pdfPrint', () => {
             height: 595.28,
         });
         expect(printablePdf.getPage(1)?.getSize()).toEqual({
+            width: 595.28,
+            height: 841.89,
+        });
+    });
+
+    it('prints a valid blank page without a Contents stream in a facing spread', async () => {
+        const sourcePdfData = await createSourcePdfWithBlankPagesWithoutContents([
+            [
+                100,
+                200,
+            ],
+            [
+                120,
+                200,
+            ],
+            [
+                90,
+                180,
+            ],
+        ], new Set([2]));
+
+        const printablePdfData = await buildPrintablePdfData(sourcePdfData, {
+            pageNumbers: [
+                1,
+                2,
+                3,
+            ],
+            viewMode: 'facing',
+            orientation: 'auto',
+        });
+
+        const printablePdf = await PDFDocument.load(printablePdfData!);
+        expect(printablePdf.getPageCount()).toBe(2);
+    });
+
+    it('keeps blank pages in first-single spreads and selected-page printing', async () => {
+        const sourcePdfData = await createSourcePdfWithBlankPagesWithoutContents([
+            [
+                100,
+                200,
+            ],
+            [
+                120,
+                200,
+            ],
+            [
+                90,
+                180,
+            ],
+        ], new Set([
+            1,
+            3,
+        ]));
+
+        const firstSinglePdfData = await buildPrintablePdfData(sourcePdfData, {
+            viewMode: 'facing-first-single',
+            orientation: 'auto',
+        });
+        const firstSinglePdf = await PDFDocument.load(firstSinglePdfData!);
+        expect(firstSinglePdf.getPageCount()).toBe(2);
+
+        const selectedBlankPdfData = await buildPrintablePdfData(sourcePdfData, {
+            pageNumbers: [3],
+            viewMode: 'facing',
+            orientation: 'auto',
+        });
+        const selectedBlankPdf = await PDFDocument.load(selectedBlankPdfData!);
+        expect(selectedBlankPdf.getPageCount()).toBe(1);
+    });
+
+    it('preserves a blank page CropBox when fitting it onto a print sheet', async () => {
+        const sourcePdf = await PDFDocument.load(await createCroppedSourcePdf([{
+            mediaSize: [
+                800,
+                200,
+            ],
+            cropBox: [
+                0,
+                0,
+                100,
+                200,
+            ],
+        }]));
+        sourcePdf.getPage(0).node.delete(PDFName.of('Contents'));
+
+        const printablePdfData = await buildPrintablePdfData(await sourcePdf.save(), {
+            pageNumbers: [1],
+            viewMode: 'single',
+            orientation: 'auto',
+        });
+        const printablePdf = await PDFDocument.load(printablePdfData!);
+        expect(printablePdf.getPage(0)?.getSize()).toEqual({
             width: 595.28,
             height: 841.89,
         });

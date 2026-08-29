@@ -1,4 +1,7 @@
-import { PDFDocument } from 'pdf-lib';
+import {
+    PDFDocument,
+    PDFName,
+} from 'pdf-lib';
 import type {
     PDFEmbeddedPage,
     PDFPage,
@@ -256,6 +259,18 @@ async function embedPrintablePages(
     pageNumbers: number[],
 ) {
     const sourcePages = pageNumbers.map(pageNumber => sourcePdf.getPage(pageNumber - 1));
+    const blankContentsRef = sourcePdf.context.register(
+        sourcePdf.context.flateStream(new Uint8Array()),
+    );
+
+    for (const sourcePage of sourcePages) {
+        // pdf-lib cannot embed a valid blank page without a Contents entry.
+        // The source document is detached in memory, so this stays print-only.
+        if (!sourcePage.node.get(PDFName.of('Contents'))) {
+            sourcePage.node.set(PDFName.of('Contents'), blankContentsRef);
+        }
+    }
+
     const visibleBoxes = sourcePages.map(resolvePdfLibPageViewBox);
     const embeddedPages = await targetPdf.embedPages(
         sourcePages,
