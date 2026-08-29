@@ -1,5 +1,5 @@
 use super::*;
-use evb_native_support::output::AtomicOutput;
+use evb_native_support::output::{AtomicOutput, PathRevisionWitness};
 
 const SEED_COMPARE_CHUNK_BYTES: usize = 64 * 1024;
 const MAX_CLASSIC_XREF_OFFSET: u64 = 9_999_999_999;
@@ -171,6 +171,19 @@ pub(crate) fn with_staged_incremental_output(
     output_path: &Path,
     write_revisions: impl FnOnce(&Path) -> Result<()>,
 ) -> Result<()> {
+    with_staged_incremental_output_for_revision(input_path, output_path, None, write_revisions)
+}
+
+fn with_staged_incremental_output_for_revision(
+    input_path: &Path,
+    output_path: &Path,
+    source_witness: Option<&PathRevisionWitness>,
+    write_revisions: impl FnOnce(&Path) -> Result<()>,
+) -> Result<()> {
+    source_witness
+        .map(PathRevisionWitness::assert_current)
+        .transpose()
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     let mut staged = AtomicOutput::create(output_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     let cloned = staged
@@ -187,6 +200,10 @@ pub(crate) fn with_staged_incremental_output(
         )
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     }
+    source_witness
+        .map(PathRevisionWitness::assert_current)
+        .transpose()
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     staged
         .file_mut()
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
@@ -197,6 +214,24 @@ pub(crate) fn with_staged_incremental_output(
     staged
         .publish_if_unchanged()
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))
+}
+
+#[cfg(test)]
+fn with_staged_incremental_output_after_admission(
+    input_path: &Path,
+    output_path: &Path,
+    after_admission: impl FnOnce(),
+    write_revisions: impl FnOnce(&Path) -> Result<()>,
+) -> Result<()> {
+    let source_witness = PathRevisionWitness::capture(input_path)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    after_admission();
+    with_staged_incremental_output_for_revision(
+        input_path,
+        output_path,
+        Some(&source_witness),
+        write_revisions,
+    )
 }
 
 pub(crate) fn apply_native_mutations(
@@ -378,6 +413,8 @@ pub(crate) fn append_native_mutations_with_qpdf(
     qpdf_path: Option<&Path>,
     identity_bindings_path: Option<&Path>,
 ) -> Result<()> {
+    let source_witness = PathRevisionWitness::capture(input_path)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     if incremental.get_prev_documents().is_encrypted() {
@@ -406,18 +443,23 @@ pub(crate) fn append_native_mutations_with_qpdf(
         previous_xref_start,
     )?;
 
-    with_staged_incremental_output(input_path, output_path, |staged_output_path| {
-        write_native_mutations_revision(
-            &mut incremental,
-            input_path,
-            staged_output_path,
-            mutations,
-            modified_at,
-            true,
-            Some(output_path),
-            identity_bindings_path,
-        )
-    })
+    with_staged_incremental_output_for_revision(
+        input_path,
+        output_path,
+        Some(&source_witness),
+        |staged_output_path| {
+            write_native_mutations_revision(
+                &mut incremental,
+                input_path,
+                staged_output_path,
+                mutations,
+                modified_at,
+                true,
+                Some(output_path),
+                identity_bindings_path,
+            )
+        },
+    )
 }
 
 fn write_native_mutations_revision(
@@ -586,6 +628,8 @@ pub(crate) fn write_native_mutations_path(
             .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()));
     }
 
+    let source_witness = PathRevisionWitness::capture(input_path)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     if incremental.get_prev_documents().is_encrypted() {
@@ -594,18 +638,23 @@ pub(crate) fn write_native_mutations_path(
             "Encrypted PDFs are not supported by native page ops",
         ));
     }
-    with_staged_incremental_output(input_path, output_path, |staged_output_path| {
-        write_native_mutations_revision(
-            &mut incremental,
-            input_path,
-            staged_output_path,
-            mutations,
-            modified_at,
-            true,
-            None,
-            identity_bindings_path,
-        )
-    })
+    with_staged_incremental_output_for_revision(
+        input_path,
+        output_path,
+        Some(&source_witness),
+        |staged_output_path| {
+            write_native_mutations_revision(
+                &mut incremental,
+                input_path,
+                staged_output_path,
+                mutations,
+                modified_at,
+                true,
+                None,
+                identity_bindings_path,
+            )
+        },
+    )
 }
 
 pub(crate) fn write_incremental_revision(
@@ -1190,6 +1239,36 @@ mod writer_boundary_tests {
             .filter_map(|entry| entry.ok())
             .any(|entry| entry.file_name().to_string_lossy().starts_with(&prefix)));
         fs::remove_file(input).unwrap();
+        fs::remove_file(output).unwrap();
+    }
+
+    #[test]
+    fn staging_rejects_source_replaced_after_structural_admission() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let input = std::env::temp_dir().join(format!("evb-admitted-source-{nonce}"));
+        let displaced = std::env::temp_dir().join(format!("evb-admitted-source-old-{nonce}"));
+        let output = std::env::temp_dir().join(format!("evb-admitted-output-{nonce}"));
+        fs::write(&input, b"admitted-pdf-tail").unwrap();
+        fs::write(&output, b"existing-output").unwrap();
+
+        let result = with_staged_incremental_output_after_admission(
+            &input,
+            &output,
+            || {
+                fs::rename(&input, &displaced).unwrap();
+                fs::write(&input, b"external-pdf-tail").unwrap();
+            },
+            |_staged_path| Ok(()),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(&input).unwrap(), b"external-pdf-tail");
+        assert_eq!(fs::read(&output).unwrap(), b"existing-output");
+        fs::remove_file(input).unwrap();
+        fs::remove_file(displaced).unwrap();
         fs::remove_file(output).unwrap();
     }
 }

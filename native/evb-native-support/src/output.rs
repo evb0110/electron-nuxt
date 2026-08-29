@@ -56,9 +56,8 @@ pub struct AtomicOutput {
 }
 
 struct DestinationState {
-    file: File,
     permissions: fs::Permissions,
-    snapshot: DestinationSnapshot,
+    witness: PathRevisionWitness,
 }
 
 struct DestinationSnapshot {
@@ -68,6 +67,56 @@ struct DestinationSnapshot {
     sample: Vec<u8>,
     #[cfg(unix)]
     changed: (i64, i64),
+}
+
+/// Keeps one regular-file revision admitted across a path-backed native operation.
+///
+/// The witness retains the admitted file descriptor and compares it with a
+/// fresh open of the same path. Its samples are bounded, so admission does not
+/// become proportional to a multi-gigabyte input.
+pub struct PathRevisionWitness {
+    file: File,
+    path: PathBuf,
+    snapshot: DestinationSnapshot,
+}
+
+impl PathRevisionWitness {
+    pub fn capture(path: &Path) -> io::Result<Self> {
+        let path_metadata = fs::symlink_metadata(path)?;
+        if !path_metadata.file_type().is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Revision witness path must be a regular file, not a symlink",
+            ));
+        }
+        let file = open_destination_without_following_symlinks(path)?;
+        let snapshot = capture_destination_snapshot(&file)?;
+        let witness = Self {
+            file,
+            path: path.to_path_buf(),
+            snapshot,
+        };
+        witness.assert_current()?;
+        Ok(witness)
+    }
+
+    pub fn assert_current(&self) -> io::Result<()> {
+        let path_metadata = fs::symlink_metadata(&self.path)?;
+        if !path_metadata.file_type().is_file() {
+            return Err(io::Error::other(
+                "Revision witness path changed into a symlink or non-file",
+            ));
+        }
+        let path_file = open_destination_without_following_symlinks(&self.path)?;
+        let held_snapshot = capture_destination_snapshot(&self.file)?;
+        let path_snapshot = capture_destination_snapshot(&path_file)?;
+        if !destination_snapshots_match(&self.snapshot, &held_snapshot)
+            || !destination_snapshots_match(&self.snapshot, &path_snapshot)
+        {
+            return Err(io::Error::other("Revision witness path changed"));
+        }
+        Ok(())
+    }
 }
 
 impl AtomicOutput {
@@ -85,12 +134,10 @@ impl AtomicOutput {
                         "Atomic output destination must be a regular file, not a symlink",
                     ));
                 }
-                let file = open_destination_without_following_symlinks(destination)?;
-                let snapshot = capture_destination_snapshot(&file)?;
+                let witness = PathRevisionWitness::capture(destination)?;
                 Some(DestinationState {
-                    file,
                     permissions: path_metadata.permissions(),
-                    snapshot,
+                    witness,
                 })
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => None,
@@ -265,18 +312,7 @@ impl AtomicOutput {
             (Some(_), Ok(metadata)) if !metadata.file_type().is_file() => Err(io::Error::other(
                 "Destination changed into a symlink or non-file during atomic output",
             )),
-            (Some(state), Ok(_)) => {
-                let path_file =
-                    open_destination_without_following_symlinks(&self.destination_path)?;
-                let held_snapshot = capture_destination_snapshot(&state.file)?;
-                let path_snapshot = capture_destination_snapshot(&path_file)?;
-                if !destination_snapshots_match(&state.snapshot, &held_snapshot)
-                    || !destination_snapshots_match(&state.snapshot, &path_snapshot)
-                {
-                    return Err(io::Error::other("Destination changed during atomic output"));
-                }
-                Ok(())
-            }
+            (Some(state), Ok(_)) => state.witness.assert_current(),
         }
     }
 }
