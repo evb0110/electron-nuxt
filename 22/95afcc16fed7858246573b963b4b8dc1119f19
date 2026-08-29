@@ -1,0 +1,35 @@
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_1f0952d2813e9c::t_caf565746bce07 12-13,107-109
+  s_1f0952d2813e9c::t_0ee096c0c88fa4 14,110-112
+  s_1f0952d2813e9c::t_f391f53c514a62 377-379
+tests/e2e/electron/helpers/fixtures.ts
+  s_1f0952d2813e9c::t_6431b3d8d9c829 25-26,572-577,582-586,591,597,602,608-610
+  s_1f0952d2813e9c::t_9a993d508780d9 578-581,587-590,592-596,598-601,603-607
+tests/e2e/electron/compactPageLabelsStructuralOperations.e2e.test.ts
+  s_1f0952d2813e9c::t_9a993d508780d9 8,26-49,54-105,109-112,159-163,201-204,207-210,215-221,226-234,237-242,248-251
+  s_1f0952d2813e9c::t_fae5f1141585c1 1-7,9-25,50-53,106-108,113-158,164-200,205-206,211-214,222-225,235-236,243-247,252-272
+app/types/workspaceExpose.ts
+  s_1f0952d2813e9c::t_ac9285dfd41ad1 251-255
+  s_1f0952d2813e9c::t_c609b0ca0f6454 202-204
+  s_1f0952d2813e9c::t_caf565746bce07 2-3,205-207
+  s_1f0952d2813e9c::t_759dfed02ac7e9 249-250,256
+app/modules/workspace-shell/expose/workspaceExposeDescriptors.ts
+  s_1f0952d2813e9c::t_caf565746bce07 506-512,534-546
+  s_1f0952d2813e9c::t_c609b0ca0f6454 513-533
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2295afcc16fed7858246573b963b4b8dc1119f19",
+  "prompts": {},
+  "sessions": {
+    "s_1f0952d2813e9c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04e2c-3a78-7250-80c2-d7481c084e67",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
