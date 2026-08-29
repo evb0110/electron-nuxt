@@ -1,0 +1,51 @@
+packages/i18n-app/messages/nl.ts
+  s_b2ece6dfe48478::t_1a10c4c099adde 901
+packages/i18n-app/messages/de.ts
+  s_b2ece6dfe48478::t_1a10c4c099adde 901
+packages/i18n-app/messages/it.ts
+  s_b2ece6dfe48478::t_1a10c4c099adde 901
+packages/i18n-app/messages/es.ts
+  s_b2ece6dfe48478::t_1a10c4c099adde 901
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_b2ece6dfe48478::t_7db3512ccab3f1 1553,1564-1568,1581-1582,1592
+  s_b2ece6dfe48478::t_59e8b7c4584824 1554-1563
+  s_b2ece6dfe48478::t_78f87578b6e56c 1569-1580,1583-1591,1593-1595
+  s_b2ece6dfe48478::t_a634350245743b 1550-1552
+packages/i18n-app/messages/en.ts
+  s_b2ece6dfe48478::t_1a10c4c099adde 901
+packages/i18n-app/messages/fr.ts
+  s_b2ece6dfe48478::t_1a10c4c099adde 902
+packages/i18n-app/messages/ptBr.ts
+  s_b2ece6dfe48478::t_1a10c4c099adde 902
+packages/i18n-app/messages/ru.ts
+  s_b2ece6dfe48478::t_1a10c4c099adde 908
+app/modules/pdf-viewer/annotations/annotationApplication.ts
+  s_b2ece6dfe48478::t_51e04b1076d248 180-184,382-386
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_b2ece6dfe48478::t_24be885d59762d 157-167,840
+  s_b2ece6dfe48478::t_1a10c4c099adde 36,841
+  s_b2ece6dfe48478::t_f403880a40b712 842
+packages/i18n-app/messages/pt.ts
+  s_b2ece6dfe48478::t_1a10c4c099adde 902
+tests/unit/app/composables/annotations/useAnnotationSyncHelpers.test.ts
+  s_b2ece6dfe48478::t_f58b7e47b939bc 639,674,676-677,681-682,688-694
+  s_b2ece6dfe48478::t_8ce3d6270cd61a 615,630,654
+  s_b2ece6dfe48478::t_bd571fd188edc4 650-653
+  s_b2ece6dfe48478::t_9652a7178bac6d 604-614,616-629,631-638,640-649,655-673,675,678-680,683-687,695-702
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "925872307c01ea7b991c3392b961f59e8bce534e",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
