@@ -1,0 +1,9 @@
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  ai_agent 231-238,253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f1afac4ffa9a29f711cf7a1bed1cd433a4c893fd",
+  "prompts": {}
+}
