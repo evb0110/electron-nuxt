@@ -232,8 +232,8 @@ describe('workingCopyDirectory', () => {
                     open: async (...args: Parameters<typeof original.open>) => {
                         const handle = await original.open(...args);
                         if (args[0] === sourcePath && args[1] === 'r') {
-                            const read = handle.read.bind(handle);
-                            handle.read = (async (...readArgs: Parameters<typeof handle.read>) => {
+                            const read = handle.read.bind(handle) as (...readArgs: unknown[]) => Promise<{bytesRead: number}>;
+                            handle.read = (async (...readArgs: unknown[]) => {
                                 readLengths.push(readArgs[2] as number);
                                 return read(...readArgs);
                             }) as typeof handle.read;
