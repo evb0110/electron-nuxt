@@ -1,0 +1,35 @@
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  ai_agent 369,579
+tests/unit/electron/workingCopySave.test.ts
+  ai_agent 247-274
+tests/unit/electron/documentsSavePdfAs.test.ts
+  s_a6be87511b72e4::t_906e0aa4f6515b 287,318,328,331,350,360
+app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts
+  ai_agent 1089,1092-1100
+electron/features/documents/main/serializedPdfPersistence.ts
+  ai_agent 92,628-667
+tests/unit/electron/serializedPdfPersistence.test.ts
+  ai_agent 13,62,105-106,265-279,763-826,919-920
+tests/unit/app/modules/workspace-shell/composables/createDocumentPersistence.test.ts
+  ai_agent 36,207-210,450-483
+tests/unit/electron/handleNativeNoteTextSave.test.ts
+  ai_agent 1183-1224
+electron/features/documents/main/workingCopySave.ts
+  ai_agent 267,305,447
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7b718012072ce471c919efa741b393316372dcd4",
+  "prompts": {},
+  "sessions": {
+    "s_a6be87511b72e4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04e2d-1e47-7f92-8046-4c588629e133",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
