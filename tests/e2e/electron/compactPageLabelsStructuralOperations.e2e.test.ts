@@ -209,6 +209,8 @@ async function runCommand<T>(session: IElectronE2ESession, name: string, args: u
     expect(called, `${name} should be exposed`).toBe(true);
     if (name !== 'handleSave') {
         await waitForPageOperation(session);
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
     }
     return null as T | null;
 }
