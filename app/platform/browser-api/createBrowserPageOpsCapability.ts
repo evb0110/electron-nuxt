@@ -320,11 +320,13 @@ export function createBrowserPageOpsCapability(
         workingCopyPath: string,
         data: Uint8Array,
         pageCount: number,
+        mutationOptions: IPageOpsMutationOptions | undefined,
     ): Promise<IStoredPageMutationResult> {
-        await browserDocumentStore.write(
-            workingCopyPath,
-            data,
-        );
+        if (mutationOptions === undefined) {
+            await browserDocumentStore.write(workingCopyPath, data);
+        } else {
+            await browserDocumentStore.write(workingCopyPath, data, mutationOptions);
+        }
         await options.clearSearchCaches();
         return {
             success: true,
@@ -353,6 +355,7 @@ export function createBrowserPageOpsCapability(
                     workingCopyPath,
                     result.data,
                     result.pageCount,
+                    mutationOptions,
                 );
             });
         },
@@ -453,6 +456,7 @@ export function createBrowserPageOpsCapability(
                     workingCopyPath,
                     result.data,
                     result.pageCount,
+                    mutationOptions,
                 );
             });
         },
@@ -614,6 +618,7 @@ export function createBrowserPageOpsCapability(
                     workingCopyPath,
                     result.data,
                     result.pageCount,
+                    mutationOptions,
                 );
             });
         },
@@ -638,6 +643,7 @@ export function createBrowserPageOpsCapability(
                     workingCopyPath,
                     result.data,
                     result.pageCount,
+                    mutationOptions,
                 );
             });
         },
@@ -663,6 +669,7 @@ export function createBrowserPageOpsCapability(
                     workingCopyPath,
                     result.data,
                     result.pageCount,
+                    mutationOptions,
                 );
             });
         },
@@ -686,6 +693,7 @@ export function createBrowserPageOpsCapability(
                     workingCopyPath,
                     result.data,
                     result.pageCount,
+                    mutationOptions,
                 );
             });
         },
