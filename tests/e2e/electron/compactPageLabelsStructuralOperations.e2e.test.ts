@@ -30,19 +30,19 @@ const initialRanges: IPdfPageLabelRange[] = [
         startNumber: 1,
     },
     {
-        startPage: 40,
+        startPage: 41,
         style: 'D',
         prefix: 'Main-',
         startNumber: 1,
     },
     {
-        startPage: 100,
+        startPage: 101,
         style: 'R',
         prefix: '',
         startNumber: 1,
     },
     {
-        startPage: 150,
+        startPage: 151,
         style: 'a',
         prefix: 'Appendix-',
         startNumber: 1,
