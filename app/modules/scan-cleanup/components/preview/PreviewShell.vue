@@ -1514,6 +1514,7 @@ function scheduleDetailRequest() {
         || props.lossless === true
         || !presentationResult.value
         || presentationResult.value.outputs.length === 0
+        || !displayedCleanedFrameCurrent.value
         || props.loading
         || isStalePage.value
         || !detailDensityExceeded.value
@@ -1583,6 +1584,8 @@ watch([
     () => dragTransaction.active.value,
     () => props.loading,
     () => presentationResult.value?.pageNumber,
+    displayedCleanedFrameCurrent,
+    () => displayedCleanedFrame.value?.transitionKey,
 ], scheduleDetailRequest);
 onMounted(() => {
     window.addEventListener('resize', handleDevicePixelScaleChange);

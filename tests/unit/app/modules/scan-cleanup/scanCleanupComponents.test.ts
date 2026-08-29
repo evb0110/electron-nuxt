@@ -16,6 +16,7 @@ import {
     reactive,
     ref,
     shallowRef,
+    type Ref,
 } from 'vue';
 import type {
     IScanCleanupManualZones,
@@ -887,6 +888,8 @@ function settingsPanelProps(
 function mountPreviewZoomHarness(options: {
     canvasRect?: (index: number, scale: number, panX: number, panY: number) => DOMRect;
     detailResult?: IScanCleanupPreviewResult | null;
+    detailResultRef?: Ref<IScanCleanupPreviewResult | null>;
+    layoutDetectionCompleteRef?: Ref<boolean>;
     manualZones?: IScanCleanupManualZones;
     onUpdateManualZones?: (value: IScanCleanupManualZones) => void;
     onRequestDetail?: (
@@ -894,6 +897,9 @@ function mountPreviewZoomHarness(options: {
     ) => void;
     rawResult?: IScanCleanupRawPreviewResult | null;
     result?: IScanCleanupPreviewResult | null;
+    resultCurrentRef?: Ref<boolean>;
+    resultPresentationKeyRef?: Ref<string>;
+    resultRef?: Ref<IScanCleanupPreviewResult | null>;
     disabled?: boolean;
     viewMode?: 'original' | 'cleaned';
     zoneEditing?: boolean;
@@ -903,7 +909,7 @@ function mountPreviewZoomHarness(options: {
     const splitUpdates: IScanCleanupNormalizedSplit[] = [];
     const previewResult = options.result === undefined ? spreadPreviewResult() : options.result;
     const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-        result: previewResult,
+        result: options.resultRef ? options.resultRef.value : previewResult,
         rawResult: options.rawResult ?? null,
         loading: false,
         error: '',
@@ -917,7 +923,18 @@ function mountPreviewZoomHarness(options: {
         disabled: disabled.value,
         readingOrder: 'ltr',
         zoneEditing: options.zoneEditing,
-        detailResult: options.detailResult ?? null,
+        detailResult: options.detailResultRef
+            ? options.detailResultRef.value
+            : options.detailResult ?? null,
+        ...(options.layoutDetectionCompleteRef
+            ? {layoutDetectionComplete: options.layoutDetectionCompleteRef.value}
+            : {}),
+        ...(options.resultCurrentRef
+            ? {resultCurrent: options.resultCurrentRef.value}
+            : {}),
+        ...(options.resultPresentationKeyRef
+            ? {resultPresentationKey: options.resultPresentationKeyRef.value}
+            : {}),
         ...(options.onUpdateManualZones ? {'onUpdate:manualZones': options.onUpdateManualZones} : {}),
         ...(options.onRequestDetail ? {onRequestDetail: options.onRequestDetail} : {}),
         'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {
@@ -3740,6 +3757,70 @@ describe('Scan cleanup components', () => {
             expect(viewport.xNormalized + viewport.widthNormalized).toBeLessThanOrEqual(1);
             expect(viewport.yNormalized + viewport.heightNormalized).toBeLessThanOrEqual(1);
             expect(viewport.widthNormalized).toBeGreaterThan(0.2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('re-admits detail after a pinned cleaned frame becomes current without another zoom', async () => {
+        vi.useFakeTimers();
+        try {
+            const result = shallowRef(spreadPreviewResult());
+            const resultCurrent = ref(true);
+            const resultPresentationKey = ref('session-1:page-1:user-0');
+            const layoutDetectionComplete = ref(true);
+            const requestDetail = vi.fn<(
+                viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
+            ) => void>();
+            const harness = mountPreviewZoomHarness({
+                layoutDetectionCompleteRef: layoutDetectionComplete,
+                onRequestDetail: requestDetail,
+                resultCurrentRef: resultCurrent,
+                resultPresentationKeyRef: resultPresentationKey,
+                resultRef: result,
+                viewMode: 'cleaned',
+            });
+
+            // The settled first frame is pinned. A later live result cannot
+            // replace it until a new presentation identity is committed.
+            const staleResult = structuredClone(result.value);
+            for (const output of staleResult.outputs) {
+                output.imageData = new Uint8Array([2]);
+            }
+            resultCurrent.value = false;
+            result.value = staleResult;
+            await nextTick();
+
+            harness.surface.dispatchEvent(previewZoomWheel({
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+                deltaY: -1_200,
+                metaKey: true,
+            }));
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(300);
+            expect(requestDetail).not.toHaveBeenCalled();
+
+            // Publishing the current frame is enough to retry admission. No
+            // second zoom or pan event is needed.
+            const currentResult = structuredClone(staleResult);
+            for (const output of currentResult.outputs) {
+                output.imageData = new Uint8Array([3]);
+            }
+            resultPresentationKey.value = 'session-1:page-1:user-1';
+            resultCurrent.value = true;
+            result.value = currentResult;
+            await nextTick();
+            expect(harness.host.querySelectorAll('.preview-cleaned-pixel-preload')).toHaveLength(2);
+
+            await loadPendingCleanedFrame(harness.host);
+            await vi.advanceTimersByTimeAsync(299);
+            expect(requestDetail).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(1);
+            await nextTick();
+            expect(requestDetail).toHaveBeenCalledOnce();
         } finally {
             vi.useRealTimers();
         }
