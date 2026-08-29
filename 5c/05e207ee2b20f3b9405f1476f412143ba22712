@@ -1,0 +1,32 @@
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_b2ece6dfe48478::t_e3737b18f8ed54 56,1784-1787
+  s_b2ece6dfe48478::t_dd4ab734dd95a8 61,1638-1639
+tests/unit/electron/managedTempFileHandles.test.ts
+  s_b2ece6dfe48478::t_9206b91fd94e2f 164
+tests/unit/app/utils/docxStreaming.test.ts
+  s_b2ece6dfe48478::t_8a993d58735901 6,9-25
+  s_b2ece6dfe48478::t_558ec977270702 26
+tests/unit/app/components/toolbarAndOcrExportCoverage.test.ts
+  s_b2ece6dfe48478::t_57c9c76e436ff5 168,214
+  s_b2ece6dfe48478::t_8a993d58735901 1-19,30-33,36-48,53-57,62-71,76-118,120-127,132-167,169-213,215-242
+  s_b2ece6dfe48478::t_01c26454e0897e 20-29,34-35,49-52,58-61,72-75,119,128-131
+tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts
+  s_b2ece6dfe48478::t_dd4ab734dd95a8 384,1303,1307,1387-1388,1392,1394
+  s_b2ece6dfe48478::t_01c26454e0897e 380-383
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5c05e207ee2b20f3b9405f1476f412143ba22712",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
