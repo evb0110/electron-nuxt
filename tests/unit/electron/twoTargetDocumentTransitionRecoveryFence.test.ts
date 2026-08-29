@@ -16,7 +16,6 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-import {capturePathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import type * as DocumentFileWriteAtomicModule from '@electron/file-access/documentFileWriteAtomic';
 import {writeWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
 
@@ -103,9 +102,10 @@ describe('two-target document transition recovery fencing', () => {
         });
         const {recoverTwoTargetDocumentTransition} = await import('@electron/file-access/recoverTwoTargetDocumentTransition');
 
+        const {OriginalPathSaveConflictError} = await import('@electron/file-access/originalPathSaveWitness');
         await expect(recoverTwoTargetDocumentTransition(workingCopyPath))
             .rejects
-            .toThrow('Original file changed on disk; save skipped to avoid overwriting external edits');
+            .toBeInstanceOf(OriginalPathSaveConflictError);
 
         expect(mocks.copyFileAtomic).toHaveBeenCalledWith(
             originalBackupPath,
@@ -123,6 +123,10 @@ describe('two-target document transition recovery fencing', () => {
             originalPath,
             originalBackupPath,
         } = await prepare();
+        const {
+            capturePathSaveWitness,
+            OriginalPathSaveConflictError,
+        } = await import('@electron/file-access/originalPathSaveWitness');
         const witness = await capturePathSaveWitness(originalPath);
         expect(witness).not.toBeNull();
         const publishedOriginalSnapshot = witness!.getSnapshotForJournal();
@@ -141,7 +145,42 @@ describe('two-target document transition recovery fencing', () => {
         const {recoverTwoTargetDocumentTransition} = await import('@electron/file-access/recoverTwoTargetDocumentTransition');
         await expect(recoverTwoTargetDocumentTransition(workingCopyPath))
             .rejects
-            .toThrow('Original file changed on disk; save skipped to avoid overwriting external edits');
+            .toBeInstanceOf(OriginalPathSaveConflictError);
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('external-before-recovery');
+        await expect(readFile(originalBackupPath, 'utf8')).resolves.toBe('old-original');
+    });
+
+    it('rejects an external replacement before recovering a prepared transition', async () => {
+        const {
+            workingCopyPath,
+            originalPath,
+            originalBackupPath,
+        } = await prepare();
+        await writeFile(originalPath, 'old-original');
+        await writeFile(originalBackupPath, 'old-original');
+        const {
+            capturePathSaveWitness,
+            OriginalPathSaveConflictError,
+        } = await import('@electron/file-access/originalPathSaveWitness');
+        const witness = await capturePathSaveWitness(originalPath);
+        expect(witness).not.toBeNull();
+        const preparedOriginalSnapshot = witness!.getSnapshotForJournal();
+        await witness!.close();
+        await writeFile(originalPath, 'external-before-recovery');
+        await writeFile(`${workingCopyPath}.evb-two-target-transition.json`, JSON.stringify({
+            version: 1,
+            state: 'prepared',
+            workingCopyPath,
+            originalPath,
+            originalBackupPath,
+            nextRevisionToken: requireDocumentRevisionToken('drt1:test:next'),
+            preparedOriginalSnapshot,
+        }));
+
+        const {recoverTwoTargetDocumentTransition} = await import('@electron/file-access/recoverTwoTargetDocumentTransition');
+        await expect(recoverTwoTargetDocumentTransition(workingCopyPath))
+            .rejects
+            .toBeInstanceOf(OriginalPathSaveConflictError);
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('external-before-recovery');
         await expect(readFile(originalBackupPath, 'utf8')).resolves.toBe('old-original');
     });

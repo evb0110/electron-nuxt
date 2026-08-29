@@ -16,6 +16,28 @@ function journalPath(workingCopyPath: string) {
     return `${workingCopyPath}.evb-two-target-transition.json`;
 }
 
+function parseJournalSnapshot(value: unknown) {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (
+        !value
+        || typeof value !== 'object'
+        || [
+            'ctimeNs',
+            'deviceId',
+            'inode',
+            'linkCount',
+            'mtimeNs',
+            'sampleSha256',
+            'size',
+        ].some(name => typeof (value as Record<string, unknown>)[name] !== 'string')
+    ) {
+        throw new Error('Invalid two-target document transition journal');
+    }
+    return value as IOriginalPathSaveJournalSnapshot;
+}
+
 export async function recoverTwoTargetDocumentTransition(workingCopyPath: string) {
     const path = journalPath(workingCopyPath);
     const value: unknown = await readFile(path, 'utf8')
@@ -34,30 +56,15 @@ export async function recoverTwoTargetDocumentTransition(workingCopyPath: string
     ) {
         throw new Error('Invalid two-target document transition journal');
     }
-    let publishedOriginalSnapshot: IOriginalPathSaveJournalSnapshot | undefined;
-    if (value.publishedOriginalSnapshot !== undefined) {
-        const snapshot = value.publishedOriginalSnapshot;
-        if (
-            !snapshot
-            || typeof snapshot !== 'object'
-            || [
-                'ctimeNs',
-                'deviceId',
-                'inode',
-                'linkCount',
-                'mtimeNs',
-                'sampleSha256',
-                'size',
-            ].some(field => typeof (snapshot as Record<string, unknown>)[field] !== 'string')
-        ) {
-            throw new Error('Invalid two-target document transition journal');
-        }
-        publishedOriginalSnapshot = snapshot as IOriginalPathSaveJournalSnapshot;
-    }
+    const preparedOriginalSnapshot = parseJournalSnapshot(value.preparedOriginalSnapshot);
+    const publishedOriginalSnapshot = parseJournalSnapshot(value.publishedOriginalSnapshot);
     const revision = await readWorkingCopyRevisionSidecar(workingCopyPath);
     if (revision?.token !== value.nextRevisionToken) {
-        if (publishedOriginalSnapshot !== undefined) {
-            await assertPathMatchesSaveWitnessSnapshot(value.originalPath, publishedOriginalSnapshot);
+        const expectedOriginalSnapshot = value.state === 'prepared'
+            ? preparedOriginalSnapshot
+            : publishedOriginalSnapshot;
+        if (expectedOriginalSnapshot !== undefined) {
+            await assertPathMatchesSaveWitnessSnapshot(value.originalPath, expectedOriginalSnapshot);
         }
         const witness = await capturePathSaveWitness(value.originalPath);
         if (!witness) {

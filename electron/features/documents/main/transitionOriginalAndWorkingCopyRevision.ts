@@ -91,6 +91,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         originalPath: input.originalPath,
                         originalBackupPath,
                         nextRevisionToken: nextRevision.token,
+                        ...(witness === null ? {} : {preparedOriginalSnapshot: witness.getSnapshotForJournal()}),
                     } as const;
                     await measureTransitionPhase('transition-journal-prepared', input.onPhase, () =>
                         writeJournal(journalPath(input.workingCopyPath), record));
@@ -165,7 +166,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                 if (!committed && shouldRestoreOriginal && backupCreated) {
                     const restoreOptions = witness === null
                         ? {}
-                        : {assertDestinationCurrent: () => witness.assertCurrent()};
+                        : {assertDestinationCurrent: () => witness.assertCurrent({allowBackupMetadataChange: true})};
                     await copyFileAtomic(originalBackupPath, input.originalPath, restoreOptions);
                     originalRestored = true;
                 }
