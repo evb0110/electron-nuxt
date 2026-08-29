@@ -28,9 +28,10 @@ export class ImageExportOutputBudgetError extends RangeError {
     }
 }
 
-export function assertImageExportOutputPathBudget(paths: readonly string[]) {
-    if (paths.length > IMAGE_EXPORT_MAX_OUTPUT_PATHS) {
-        throw new ImageExportOutputBudgetError(paths.length);
+export function assertImageExportOutputPathBudget(paths: readonly string[] | number) {
+    const pathCount = typeof paths === 'number' ? paths : paths.length;
+    if (pathCount > IMAGE_EXPORT_MAX_OUTPUT_PATHS) {
+        throw new ImageExportOutputBudgetError(pathCount);
     }
 }
 

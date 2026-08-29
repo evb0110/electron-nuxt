@@ -771,6 +771,34 @@ describe('image export', () => {
         await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toHaveLength(60);
     });
 
+    it('refuses a PDF image export above the output-path budget before rendering', async () => {
+        mocks.pdfPageCount = 100_001;
+        const defaultRunCommand = mocks.runCommand.getMockImplementation();
+        if (!defaultRunCommand) {
+            throw new Error('Expected default command mock');
+        }
+        mocks.runCommand.mockImplementation(async (
+            command: string,
+            args: string[],
+            options?: {onStdout?: (chunk: string) => void},
+        ) => {
+            if (command === '/mock/pdftoppm') {
+                throw new Error('PDF rendering must not start for an oversized output');
+            }
+            return defaultRunCommand(command, args, options);
+        });
+
+        const outputPath = join(tempDir, 'oversized-output-path-budget.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).rejects.toMatchObject({name: 'ImageExportOutputBudgetError'});
+        expect(mocks.runCommand).not.toHaveBeenCalledWith(
+            '/mock/pdftoppm',
+            expect.any(Array),
+            expect.anything(),
+        );
+        expect(readdirSync(tempDir)).toEqual([]);
+    });
+
     it('keeps an oversized page inside the PPM read limit instead of scaling it up past the limit', async () => {
         mocks.pdfimagesPath = '/mock/pdfimages';
         mocks.sourceImageDpi = 1200;

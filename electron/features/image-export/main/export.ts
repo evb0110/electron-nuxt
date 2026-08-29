@@ -67,6 +67,7 @@ import {
 } from '@electron/utils/managedScratchTemp';
 import {
     addStagedImageFileBytes,
+    assertImageExportOutputPathBudget,
     type IExportPageSize,
     IMAGE_EXPORT_MAX_NETPBM_READ_BYTES,
     resolveExportRenderDpi,
@@ -862,6 +863,7 @@ export async function exportPdfPagesAsImages(
             pageCount,
             renderDpi,
         } = await planExportRender(preparedSourcePdf, options);
+        assertImageExportOutputPathBudget(pageCount);
         const exportedPaths: string[] = [];
 
         const stagedFiles: Array<{
@@ -1186,7 +1188,6 @@ export async function exportPdfAsMultiPageTiff(
             });
             throwIfAborted(options.signal);
             await promoteStagedFiles(stagedFiles, options.signal);
-
             for (const outputPath of outputPaths) {
                 if (!existsSync(outputPath)) {
                     throw new Error('Multi-page TIFF export did not produce an output file');
