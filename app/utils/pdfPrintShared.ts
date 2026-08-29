@@ -2,7 +2,14 @@ import {
     compact,
     uniq,
 } from 'es-toolkit/array';
+import type { TPageSelection } from '@contracts/pageNumbers';
+import {
+    createExplicitPageSelection,
+    createRangePageSelection,
+} from '@contracts/pageNumbers';
 export type { TPrintOrientation } from '@contracts/shared';
+
+const PRINT_PAGE_RANGE_MATERIALIZATION_LIMIT = 100_000;
 
 export const BROWSER_PRINT_ROOT_SELECTOR = '[data-browser-print-root]';
 
@@ -169,12 +176,49 @@ export function parsePrintPageRangeInput(input: string, totalPages: number): num
 
         const start = Math.min(first, second);
         const end = Math.max(first, second);
+        if (pages.size + end - start + 1 > PRINT_PAGE_RANGE_MATERIALIZATION_LIMIT) {
+            return null;
+        }
         for (let page = start; page <= end; page += 1) {
             pages.add(page);
         }
     }
 
     return uniq([...pages]).sort((left, right) => left - right);
+}
+
+export function parsePrintPageRangeSelectionInput(
+    input: string,
+    totalPages: number,
+): TPageSelection | null {
+    const normalizedTotalPages = normalizeTotalPages(totalPages);
+    const normalizedInput = input
+        .trim()
+        .replace(/[–—]/g, '-')
+        .replace(/\.\./g, '-')
+        .replace(/\s+/g, '');
+    const contiguousRange = /^(\d+)(?:-(\d+))?$/.exec(normalizedInput);
+    if (normalizedTotalPages > 0 && contiguousRange) {
+        const first = Number.parseInt(contiguousRange[1] ?? '', 10);
+        const second = Number.parseInt(contiguousRange[2] ?? contiguousRange[1] ?? '', 10);
+        if (
+            Number.isSafeInteger(first)
+            && Number.isSafeInteger(second)
+            && first >= 1
+            && second >= 1
+            && first <= normalizedTotalPages
+            && second <= normalizedTotalPages
+        ) {
+            return createRangePageSelection(
+                normalizedTotalPages,
+                Math.min(first, second),
+                Math.max(first, second),
+            );
+        }
+    }
+
+    const pages = parsePrintPageRangeInput(input, normalizedTotalPages);
+    return pages ? createExplicitPageSelection(normalizedTotalPages, pages) : null;
 }
 
 

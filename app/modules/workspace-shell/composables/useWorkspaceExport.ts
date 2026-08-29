@@ -19,20 +19,32 @@ import { getErrorMessage } from '@app/utils/error';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TPageSelection } from '@contracts/pageNumbers';
 import {
+    createAllPageSelection,
+    createExplicitPageSelection,
     materializePageSelection,
     pageSelectionCount,
 } from '@contracts/pageNumbers';
 
 type TExportDialogMode = 'images' | 'multipage-tiff';
 type TPageSelectionInput = number[] | TPageSelection;
-
 const EXPORT_SELECTION_MATERIALIZATION_LIMIT = 100_000;
+
+function resolveExportPageNumbers(selection: TPageSelection): number[] | undefined | null {
+    const selectedCount = pageSelectionCount(selection);
+    if (selectedCount === selection.pageCount) {
+        return undefined;
+    }
+    if (selectedCount > EXPORT_SELECTION_MATERIALIZATION_LIMIT) {
+        return null;
+    }
+    return materializePageSelection(selection);
+}
 
 type TExportSelectionResolution =
     | {kind: 'all'}
     | {
-        kind: 'explicit';
-        pages: number[];
+        kind: 'selection';
+        selection: TPageSelection;
     }
     | {
         kind: 'refused';
@@ -78,7 +90,8 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     const exportScopeDialogOpen = ref(false);
     const exportScopeDialogMode = ref<TExportDialogMode>('images');
     const exportScopeDialogSelectedPages = ref<number[]>([]);
-    let exportScopeDialogResolver: ((selection: number[] | undefined | null) => void) | null = null;
+    const exportScopeDialogPageSelection = shallowRef<TPageSelection | null>(null);
+    let exportScopeDialogResolver: ((selection: TPageSelection | undefined | null) => void) | null = null;
     let exportProgressCleanup: (() => void) | null = null;
     let exportGeneration = 0;
     let isDisposed = false;
@@ -211,9 +224,10 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     }
 
     function resolveExportSelection(selectedPages: TPageSelectionInput): TExportSelectionResolution {
-        const selectedPageCount = Array.isArray(selectedPages)
-            ? selectedPages.length
-            : pageSelectionCount(selectedPages);
+        const selection = Array.isArray(selectedPages)
+            ? createExplicitPageSelection(totalPages.value, normalizeExportSelectedPages(selectedPages))
+            : selectedPages;
+        const selectedPageCount = pageSelectionCount(selection);
         if (selectedPageCount === totalPages.value) {
             return {kind: 'all'};
         }
@@ -224,23 +238,15 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             };
         }
         return {
-            kind: 'explicit',
-            pages: Array.isArray(selectedPages)
-                ? selectedPages
-                : materializePageSelection(selectedPages),
+            kind: 'selection',
+            selection,
         };
     }
 
-    function showExportSelectionRefusalToast(
-        mode: TExportDialogMode,
-        selectedPageCount: number,
-    ) {
+    function showExportSelectionRefusalToast() {
         toast.add({
             color: 'error',
-            title: mode === 'images'
-                ? t('errors.export.images')
-                : t('errors.export.multiPageTiff'),
-            description: `Selected page count ${selectedPageCount} exceeds the export limit of ${EXPORT_SELECTION_MATERIALIZATION_LIMIT} pages.`,
+            title: t('export.selectionTooLarge'),
         });
     }
 
@@ -302,7 +308,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         showExportSuccess('images', selectedPageCount);
     }
 
-    function resolveExportScopeDialog(selection: number[] | undefined | null) {
+    function resolveExportScopeDialog(selection: TPageSelection | undefined | null) {
         const resolver = exportScopeDialogResolver;
         exportScopeDialogResolver = null;
         exportScopeDialogOpen.value = false;
@@ -313,14 +319,18 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
 
     function openExportScopeDialog(
         mode: TExportDialogMode,
-        selectedPages: number[] = [],
-    ): Promise<number[] | undefined | null> {
+        selectedPageSelection: TPageSelection | null,
+    ): Promise<TPageSelection | undefined | null> {
         if (exportScopeDialogResolver) {
             resolveExportScopeDialog(null);
         }
 
         exportScopeDialogMode.value = mode;
-        exportScopeDialogSelectedPages.value = normalizeExportSelectedPages(selectedPages);
+        exportScopeDialogPageSelection.value = selectedPageSelection;
+        exportScopeDialogSelectedPages.value = selectedPageSelection
+            && pageSelectionCount(selectedPageSelection) <= EXPORT_SELECTION_MATERIALIZATION_LIMIT
+            ? materializePageSelection(selectedPageSelection)
+            : [];
         exportScopeDialogOpen.value = true;
 
         return new Promise((resolve) => {
@@ -328,8 +338,13 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         });
     }
 
-    function handleExportScopeDialogSubmit(payload: { pageNumbers?: number[] }) {
-        resolveExportScopeDialog(payload.pageNumbers);
+    function handleExportScopeDialogSubmit(payload: {
+        pageNumbers?: number[];
+        pageSelection?: TPageSelection;
+    }) {
+        resolveExportScopeDialog(payload.pageSelection ?? (payload.pageNumbers
+            ? createExplicitPageSelection(totalPages.value, payload.pageNumbers)
+            : undefined));
     }
 
     function handleExportScopeDialogOpenChange(isOpen: boolean) {
@@ -528,14 +543,24 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         if (!sourcePath.value) {
             return;
         }
-        const selection = resolveExportSelection(selectedPages);
-        if (selection.kind === 'refused') {
-            showExportSelectionRefusalToast('images', selection.selectedPageCount);
+        const resolvedSelection = resolveExportSelection(selectedPages);
+        if (resolvedSelection.kind === 'refused') {
+            showExportSelectionRefusalToast();
             return;
         }
-        const initialPages = selection.kind === 'all' ? [] : selection.pages;
-        const pageNumbers = await openExportScopeDialog('images', initialPages);
+        const initialSelection = resolvedSelection.kind === 'all'
+            ? createAllPageSelection(totalPages.value)
+            : resolvedSelection.selection;
+        const selection = await openExportScopeDialog('images', initialSelection);
+        if (selection === null) {
+            return;
+        }
+        const pageNumbers = selection === undefined ? undefined : resolveExportPageNumbers(selection);
         if (pageNumbers === null) {
+            toast.add({
+                color: 'error',
+                title: t('export.selectionTooLarge'),
+            });
             return;
         }
         await runImageExport(pageNumbers);
@@ -545,14 +570,24 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         if (!sourcePath.value) {
             return;
         }
-        const selection = resolveExportSelection(selectedPages);
-        if (selection.kind === 'refused') {
-            showExportSelectionRefusalToast('multipage-tiff', selection.selectedPageCount);
+        const resolvedSelection = resolveExportSelection(selectedPages);
+        if (resolvedSelection.kind === 'refused') {
+            showExportSelectionRefusalToast();
             return;
         }
-        const initialPages = selection.kind === 'all' ? [] : selection.pages;
-        const pageNumbers = await openExportScopeDialog('multipage-tiff', initialPages);
+        const initialSelection = resolvedSelection.kind === 'all'
+            ? createAllPageSelection(totalPages.value)
+            : resolvedSelection.selection;
+        const selection = await openExportScopeDialog('multipage-tiff', initialSelection);
+        if (selection === null) {
+            return;
+        }
+        const pageNumbers = selection === undefined ? undefined : resolveExportPageNumbers(selection);
         if (pageNumbers === null) {
+            toast.add({
+                color: 'error',
+                title: t('export.selectionTooLarge'),
+            });
             return;
         }
         await runMultiPageTiffExport(pageNumbers);
@@ -574,6 +609,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         exportScopeDialogOpen,
         exportScopeDialogMode,
         exportScopeDialogSelectedPages,
+        exportScopeDialogPageSelection,
         handleExportScopeDialogSubmit,
         handleExportScopeDialogOpenChange,
         handleExportImages,

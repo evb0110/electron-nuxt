@@ -44,6 +44,7 @@ function createSelectionHarness(options: {
     });
     const focusPageElement = vi.fn();
     const onGoToPage = vi.fn();
+    const onContextMenu = vi.fn();
     const scrollPageIntoKeyboardView = vi.fn(options.scrollPageIntoKeyboardView);
     const selection = usePdfThumbnailSelection({
         consumeClickSkip: () => false,
@@ -52,7 +53,7 @@ function createSelectionHarness(options: {
         isDragging: ref(false),
         isExternalDragOver: ref(false),
         markUserInteraction: vi.fn(),
-        onContextMenu: vi.fn(),
+        onContextMenu,
         onGoToPage,
         onSelectionRefused,
         onSelectedPagesChange,
@@ -71,6 +72,7 @@ function createSelectionHarness(options: {
         currentPage,
         focusPageElement,
         onGoToPage,
+        onContextMenu,
         onPageSelectionChange,
         onSelectionRefused,
         onSelectedPagesChange,
@@ -92,6 +94,28 @@ function keyEvent(key: string, init: KeyboardEventInit = {}) {
 }
 
 describe('usePdfThumbnailSelection', () => {
+    it('keeps a compact multi-page selection for a context action', () => {
+        const pageSelection = {
+            kind: 'range',
+            pageCount: 1_000_000,
+            startPage: 2,
+            endPage: 100_002,
+        } satisfies TPageSelection;
+        const {
+            onContextMenu,
+            selection,
+        } = createSelectionHarness({
+            pageSelection,
+            totalPages: 1_000_000,
+        });
+
+        selection.handleThumbnailContextMenu(new MouseEvent('contextmenu'), 50_000);
+
+        expect(onContextMenu).toHaveBeenCalledWith(expect.objectContaining({
+            clickedPage: 50_000,
+            selection: pageSelection,
+        }));
+    });
     it('renormalizes selected pages when total pages shrinks', async () => {
         const {
             onSelectedPagesChange,

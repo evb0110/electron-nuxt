@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { TPdfViewMode } from '@contracts/shared';
+import type { TPageSelection } from '@contracts/pageNumbers';
 import type { ICropMargins } from '@app/types/crop';
 import type {
     IPdfBookmarkEntry,
@@ -66,7 +67,7 @@ export interface IUseDocumentWorkspaceAgentOptions {
     handleUndo: () => Promise<unknown> | unknown;
     handleRedo: () => Promise<unknown> | unknown;
     handlePageLabelRangesUpdate: (ranges: IPdfPageLabelRange[]) => void;
-    handlePageRotate: (pages: number[], degrees: TWorkspaceAgentRotateAngle) => Promise<unknown>;
+    handlePageRotate: (pages: number[] | TPageSelection, degrees: TWorkspaceAgentRotateAngle) => Promise<unknown>;
     handlePrint: () => void;
     handlePrintCurrentPage: () => Promise<unknown>;
     handleQuickNoteAction: () => Promise<unknown>;
@@ -88,13 +89,14 @@ export interface IUseDocumentWorkspaceAgentOptions {
     pageLabelModel?: Ref<IDocumentPageLabelModel | null> | undefined;
     pageLabelsResolved?: Ref<boolean> | undefined;
     pageLabelsDirty: Ref<boolean>;
-    pageOpsDelete: (pages: number[], totalPages: number) => Promise<unknown>;
-    pageOpsExtract: (pages: number[]) => Promise<unknown>;
+    pageOpsDelete: (pages: number[] | TPageSelection, totalPages: number) => Promise<unknown>;
+    pageOpsExtract: (pages: number[] | TPageSelection) => Promise<unknown>;
     pageOpsInsert: (totalPages: number, afterPage: number) => Promise<unknown>;
     handleCropPages: (pages: number[], margins: ICropMargins) => Promise<unknown>;
     handleRemoveCrop: (pages: number[]) => Promise<unknown>;
     pdfViewerRef: Ref<IWorkspacePdfViewerAgentPort | null>;
     selectedThumbnailPages: Ref<number[]>;
+    selectedPageSelection?: Ref<TPageSelection | null>;
     showConvertDialog: Ref<boolean>;
     showSidebar: Ref<boolean>;
     sidebarTab: Ref<TWorkspaceAgentSidebarTab>;

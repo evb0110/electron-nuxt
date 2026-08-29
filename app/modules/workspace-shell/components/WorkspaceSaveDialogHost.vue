@@ -6,6 +6,7 @@
             :total-pages="totalPages"
             :current-page="currentPage"
             :selected-pages="exportScopeDialogSelectedPages"
+            :selected-page-selection="exportScopeDialogPageSelection"
             @submit="handleExportSubmit"
             @update:open="handleExportOpenChange"
         />
@@ -15,6 +16,7 @@
             :total-pages="totalPages"
             :current-page="currentPage"
             :selected-pages="printDialogSelectedPages"
+            :selected-page-selection="printDialogPageSelection"
             :default-view-mode="viewMode"
             :supports-advanced-print-options="supportsAdvancedPrintOptions"
             :is-preparing="isPreparingPrint"
@@ -83,8 +85,10 @@ defineProps<{
     exportScopeDialogOpen: boolean;
     exportScopeDialogMode: TPdfExportScopeDialogProps['mode'];
     exportScopeDialogSelectedPages: number[];
+    exportScopeDialogPageSelection?: TPageSelection | null;
     printDialogOpen: boolean;
     printDialogSelectedPages: number[];
+    printDialogPageSelection?: TPageSelection | null;
     printStatus: TPdfPrintDialogProps['status'];
     printError: TPdfPrintDialogProps['error'];
     isPreparingPrint: boolean;

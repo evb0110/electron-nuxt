@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     createAllPageNumbers,
+    createPageSelectionFromRange,
     expandPageRange,
     normalizeSelectedPageNumbers,
     resolveThumbnailContextMenuPages,
@@ -42,6 +43,18 @@ describe('pdf page selection helpers', () => {
 
     it('keeps null page ranges null', () => {
         expect(expandPageRange(null)).toBeNull();
+    });
+
+    it('keeps a million-page parsed range compact', () => {
+        expect(createPageSelectionFromRange({
+            startPage: 1,
+            endPage: 1_000_000,
+        }, 1_000_000)).toEqual({
+            kind: 'range',
+            pageCount: 1_000_000,
+            startPage: 1,
+            endPage: 1_000_000,
+        });
     });
 
     it('creates one-based page numbers', () => {

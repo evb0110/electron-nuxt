@@ -21,6 +21,7 @@ import {
 import {
     buildBrowserPrintFrameMarkup,
     parsePrintPageRangeInput,
+    parsePrintPageRangeSelectionInput,
     type IBrowserPrintDocument,
 } from '@app/utils/pdfPrintShared';
 
@@ -119,6 +120,15 @@ describe('pdfPrint', () => {
             11,
             12,
         ]);
+    });
+
+    it('keeps a million-page print range compact', () => {
+        expect(parsePrintPageRangeSelectionInput('1-1000000', 1_000_000)).toEqual({
+            kind: 'range',
+            pageCount: 1_000_000,
+            startPage: 1,
+            endPage: 1_000_000,
+        });
     });
 
     it('rejects invalid page ranges', () => {

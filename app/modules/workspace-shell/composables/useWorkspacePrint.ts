@@ -16,6 +16,12 @@ import {
     getDocumentPdfCapability,
     isNativePrintCapabilityUnavailable,
 } from '@app/utils/platformDocuments';
+import type { TPageSelection } from '@contracts/pageNumbers';
+import {
+    createExplicitPageSelection,
+    materializePageSelection,
+    pageSelectionCount,
+} from '@contracts/pageNumbers';
 
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
@@ -26,6 +32,7 @@ const BROWSER_PRINT_FRAME_MIN_HEIGHT_PX = 1600;
 const PDF_MIME_TYPE = 'application/pdf';
 const NATIVE_PRINT_REQUIRED_REASON = 'requires-native-backend' as const;
 const PDF_LIB_PRINT_PAGE_COUNT_LIMIT = 5_000;
+const PRINT_SELECTION_MATERIALIZATION_LIMIT = 100_000;
 
 class NativePrintRequiredError extends Error {
     readonly code = 'native-print-required' as const;
@@ -79,6 +86,7 @@ interface IWorkspacePrintDeps {
     totalPages: Readonly<Ref<number>>;
     currentPage: Readonly<Ref<number>>;
     selectedPages: Readonly<Ref<number[]>>;
+    selectedPageSelection?: Readonly<Ref<TPageSelection | null>>;
     sourcePdf: Readonly<Ref<TPdfSource | null>>;
     workingCopyPath: Readonly<Ref<string | null>>;
     fileName: Readonly<Ref<string | null>>;
@@ -106,6 +114,7 @@ interface IWorkspacePrintDeps {
 
 interface IPrintDialogSubmitPayload {
     pageNumbers?: number[];
+    pageSelection?: TPageSelection;
     viewMode: TPdfViewMode;
     orientation: TPrintOrientation;
 }
@@ -115,6 +124,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     const toast = useToast();
     const printDialogOpen = ref(false);
     const printDialogSelectedPages = ref<number[]>([]);
+    const printDialogPageSelection = shallowRef<TPageSelection | null>(null);
     const isPreparingPrint = ref(false);
     const activePrintAction = ref<'default' | 'current-page' | null>(null);
     const printError = ref<string | null>(null);
@@ -252,6 +262,14 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             .sort((left, right) => left - right);
     }
 
+    function resolveCurrentPageSelection() {
+        const selection = deps.selectedPageSelection?.value;
+        if (selection?.pageCount === deps.totalPages.value) {
+            return selection;
+        }
+        return createExplicitPageSelection(deps.totalPages.value, normalizeSelectedPages());
+    }
+
     function normalizeCurrentPage() {
         const page = deps.getCurrentPrintPage?.() ?? deps.currentPage.value;
         if (!Number.isInteger(page) || page < 1 || page > deps.totalPages.value) {
@@ -275,12 +293,14 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     function handlePrint() {
         closeDialogForSystemPrint = false;
         printDialogSelectedPages.value = normalizeSelectedPages();
+        printDialogPageSelection.value = resolveCurrentPageSelection();
         resetPrintError();
         printDialogOpen.value = true;
     }
 
     async function handleQuickPrint() {
         printDialogSelectedPages.value = normalizeSelectedPages();
+        printDialogPageSelection.value = resolveCurrentPageSelection();
         resetPrintError();
         const defaultPayload = {
             viewMode: 'single',
@@ -789,6 +809,22 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
 
         try {
+            if (payload.pageSelection) {
+                const selection = payload.pageSelection.pageCount === deps.totalPages.value
+                    ? payload.pageSelection
+                    : resolveCurrentPageSelection();
+                const selectedCount = pageSelectionCount(selection);
+                if (selectedCount > PRINT_SELECTION_MATERIALIZATION_LIMIT) {
+                    throw new Error(t('print.selectionTooLarge'));
+                }
+                payload = {
+                    viewMode: payload.viewMode,
+                    orientation: payload.orientation,
+                    ...(selectedCount === deps.totalPages.value
+                        ? {}
+                        : {pageNumbers: materializePageSelection(selection)}),
+                };
+            }
             throwIfPrintAborted(signal);
             if (deps.ensurePrintReady && !await deps.ensurePrintReady()) {
                 throw new Error('Annotation notes could not be persisted for printing');
@@ -927,6 +963,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     return {
         printDialogOpen,
         printDialogSelectedPages,
+        printDialogPageSelection,
         isPreparingPrint,
         isPreparingCurrentPagePrint,
         printError,

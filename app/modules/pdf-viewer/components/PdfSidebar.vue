@@ -275,7 +275,9 @@ const emit = defineEmits<{
     'page-context-menu': [payload: {
         clientX: number;
         clientY: number;
-        pages: number[]
+        clickedPage: number;
+        pages: number[];
+        selection: TPageSelection;
     }];
     'page-rotate-cw': [pages: TPageSelectionInput];
     'page-rotate-ccw': [pages: TPageSelectionInput];
@@ -453,7 +455,9 @@ function goToPage(page: number, options?: IScrollToPageOptions) {
 function openPageContextMenu(payload: {
     clientX: number;
     clientY: number;
+    clickedPage: number;
     pages: number[];
+    selection: TPageSelection;
 }) {
     emit('page-context-menu', payload);
 }

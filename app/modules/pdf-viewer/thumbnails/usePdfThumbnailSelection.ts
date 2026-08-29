@@ -11,7 +11,7 @@ import {
     materializePageSelection,
     pageSelectionCount,
     normalizeSelectedPageNumbers,
-    resolveThumbnailContextMenuPages,
+    resolveThumbnailContextMenuSelection,
     shouldSelectPageFromThumbnailClick,
     togglePageSelection,
 } from '@app/utils/pdfPageSelection';
@@ -21,7 +21,7 @@ import type { TPageSelection } from '@app/utils/pdfPageSelection';
 const PAGE_KEYBOARD_STEP = 5;
 const LEGACY_SELECTION_MATERIALIZATION_LIMIT = 100_000;
 
-export interface IPdfThumbnailSelectionRefusal {
+interface IPdfThumbnailSelectionRefusal {
     kind: 'page-count-limit';
     pageCount: number;
     limit: number;
@@ -55,7 +55,9 @@ interface IUsePdfThumbnailSelectionOptions {
     onContextMenu: (payload: {
         clientX: number;
         clientY: number;
+        clickedPage: number;
         pages: number[];
+        selection: TPageSelection;
     }) => void;
     onGoToPage: (page: number) => void;
     onSelectionRefused?: (reason: IPdfThumbnailSelectionRefusal) => void;
@@ -264,15 +266,19 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
     }
 
     function handleThumbnailContextMenu(event: MouseEvent, page: number) {
-        const pages = resolveThumbnailContextMenuPages(
+        const selection = resolveThumbnailContextMenuSelection(
             page,
-            selectedPages.value,
+            getPageSelection(),
             totalPages.value,
         );
         onContextMenu({
             clientX: event.clientX,
             clientY: event.clientY,
-            pages,
+            clickedPage: page,
+            pages: pageSelectionCount(selection) <= 100_000
+                ? materializePageSelection(selection)
+                : [],
+            selection,
         });
     }
 

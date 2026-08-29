@@ -13,6 +13,7 @@ import {requireDocumentRevisionToken} from '@contracts';
 import {
     createPageMoveRange,
     createPageMoveRanges,
+    createRangePageSelection,
 } from '@contracts/pageNumbers';
 
 const pageOpsApi = {
@@ -146,6 +147,49 @@ beforeEach(() => {
 });
 
 describe('usePageOperations', () => {
+    it.each([
+        [
+            'rotate',
+            (pageOps: ReturnType<typeof usePageOperations>, selection: ReturnType<typeof createRangePageSelection>) => pageOps.rotatePages(selection, 200_000, 90),
+        ],
+        [
+            'crop',
+            (pageOps: ReturnType<typeof usePageOperations>, selection: ReturnType<typeof createRangePageSelection>) => pageOps.cropPages(selection, 200_000, {
+                top: 1,
+                right: 1,
+                bottom: 1,
+                left: 1,
+            }),
+        ],
+        [
+            'removeCrop',
+            (pageOps: ReturnType<typeof usePageOperations>, selection: ReturnType<typeof createRangePageSelection>) => pageOps.removeCrop(selection, 200_000),
+        ],
+    ] as const)('sends one compact selection request for a large %s operation', async (apiMethod, invoke) => {
+        pageOpsApi[apiMethod].mockResolvedValueOnce({success: true});
+        const {
+            pageOps,
+            ensureHistoryBaselineForMutation,
+            reloadWorkingCopyIntoHistory,
+        } = createHarness(
+            '/tmp/work.pdf',
+            {documentRevisionToken: requireDocumentRevisionToken('drt1:before')},
+        );
+        const selection = createRangePageSelection(200_000, 2, 150_001);
+
+        await expect(invoke(pageOps, selection)).resolves.toBe(true);
+
+        expect(pageOpsApi[apiMethod]).toHaveBeenCalledOnce();
+        expect(pageOpsApi[apiMethod].mock.calls[0]?.[1]).toEqual({
+            pageCount: 200_000,
+            ranges: [{
+                startPage: 2,
+                endPage: 150_001,
+            }],
+        });
+        expect(ensureHistoryBaselineForMutation).toHaveBeenCalledOnce();
+        expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledOnce();
+    });
     it.each([
         {
             name: 'rotate',

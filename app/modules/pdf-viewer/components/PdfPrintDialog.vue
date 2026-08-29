@@ -143,10 +143,12 @@
 <script setup lang="ts">
 import type { TPdfViewMode } from '@contracts/shared';
 import {
-    parsePrintPageRangeInput,
+    parsePrintPageRangeSelectionInput,
     type TPrintOrientation,
 } from '@app/utils/pdfPrintShared';
 import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
+import type { TPageSelection } from '@contracts/pageNumbers';
+import { pageSelectionCount } from '@contracts/pageNumbers';
 
 const open = defineModel<boolean>('open', { required: true });
 
@@ -154,6 +156,7 @@ const {
     currentPage,
     defaultViewMode,
     isPreparing,
+    selectedPageSelection = null,
     selectedPages,
     totalPages,
     supportsAdvancedPrintOptions,
@@ -161,6 +164,7 @@ const {
     totalPages: number;
     currentPage: number;
     selectedPages: number[];
+    selectedPageSelection?: TPageSelection | null | undefined;
     defaultViewMode: TPdfViewMode;
     isPreparing: boolean;
     status: string | null;
@@ -169,7 +173,7 @@ const {
 }>();
 
 const emit = defineEmits<{submit: [payload: {
-    pageNumbers?: number[];
+    pageSelection?: TPageSelection;
     viewMode: TPdfViewMode;
     orientation: TPrintOrientation;
 }];}>();
@@ -203,19 +207,20 @@ const optionButtonClass = 'min-w-0 justify-start wrap-anywhere text-start';
 const viewMode = ref<TPdfViewMode>('single');
 const orientation = ref<TPrintOrientation>('auto');
 
-const rangePages = computed(() => parsePrintPageRangeInput(rangeInput.value, totalPages));
+const rangeSelection = computed(() => parsePrintPageRangeSelectionInput(rangeInput.value, totalPages));
 const {
-    scope,
     rangeInput,
+    normalizedSelectedPageSelection,
     rangeTouched,
-    normalizedSelectedPages,
+    resolveScopedPageSelection,
     resetScopeForOpen,
-    resolveScopedPageNumbers,
+    scope,
 } = usePdfPageScopeSelection({
-    totalPages: () => totalPages,
     currentPage: () => currentPage,
+    resolveRangeSelection: () => rangeSelection.value,
+    selectedPageSelection: () => selectedPageSelection ?? null,
     selectedPages: () => selectedPages,
-    resolveRangePages: () => rangePages.value,
+    totalPages: () => totalPages,
 });
 
 const scopeOptions = computed(() => {
@@ -230,10 +235,10 @@ const scopeOptions = computed(() => {
         },
     ];
 
-    if (normalizedSelectedPages.value.length > 0) {
+    if (pageSelectionCount(normalizedSelectedPageSelection.value) > 0) {
         options.push({
             value: 'selected',
-            label: t('print.scopeSelected', { count: normalizedSelectedPages.value.length }),
+            label: t('print.scopeSelected', { count: pageSelectionCount(normalizedSelectedPageSelection.value) }),
         });
     }
 
@@ -249,7 +254,7 @@ const rangeError = computed(() => (
     scope.value === 'range'
     && rangeTouched.value
     && rangeInput.value.trim().length > 0
-    && rangePages.value === null
+    && rangeSelection.value === null
         ? t('print.invalidRange')
         : false
 ));
@@ -262,9 +267,9 @@ const printPageCount = computed(() => {
         return totalPages > 0 ? 1 : 0;
     }
     if (scope.value === 'selected') {
-        return normalizedSelectedPages.value.length;
+        return pageSelectionCount(normalizedSelectedPageSelection.value);
     }
-    return rangePages.value?.length ?? 0;
+    return rangeSelection.value ? pageSelectionCount(rangeSelection.value) : 0;
 });
 
 const layoutOptions = computed<Array<{
@@ -312,18 +317,18 @@ const printSummary = computed(() => t('print.summary', {
 const canSubmit = computed(() => (
     totalPages > 0
     && !isPreparing
-    && (scope.value !== 'range' || rangePages.value !== null)
+    && (scope.value !== 'range' || rangeSelection.value !== null)
 ));
 
 function handleSubmit() {
-    const pageNumbers = resolveScopedPageNumbers();
-    if (!canSubmit.value || pageNumbers === null) {
+    const pageSelection = resolveScopedPageSelection();
+    if (!canSubmit.value || pageSelection === null) {
         rangeTouched.value = true;
         return;
     }
 
     emit('submit', {
-        ...(pageNumbers !== undefined ? { pageNumbers } : {}),
+        ...(pageSelection !== undefined ? { pageSelection } : {}),
         viewMode: viewMode.value,
         orientation: orientation.value,
     });

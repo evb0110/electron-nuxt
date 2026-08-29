@@ -336,8 +336,10 @@
             :export-scope-dialog-open="exportScopeDialogOpen"
             :export-scope-dialog-mode="exportScopeDialogMode"
             :export-scope-dialog-selected-pages="exportScopeDialogSelectedPages"
+            :export-scope-dialog-page-selection="exportScopeDialogPageSelection"
             :print-dialog-open="printDialogOpen"
             :print-dialog-selected-pages="printDialogSelectedPages"
+            :print-dialog-page-selection="printDialogPageSelection"
             :print-status="printStatus"
             :print-error="printError"
             :is-preparing-print="isPreparingPrint"
@@ -737,6 +739,7 @@ const {
     exportOverlay,
     exportScopeDialogOpen,
     exportScopeDialogMode,
+    exportScopeDialogPageSelection,
     exportScopeDialogSelectedPages,
     handleExportImages,
     handleExportMultiPageTiff,
@@ -821,6 +824,7 @@ const {
     handlePrintDialogSubmit,
     isPreparingPrint,
     printDialogOpen,
+    printDialogPageSelection,
     printDialogSelectedPages,
     printError,
     printStatus,
@@ -1375,6 +1379,7 @@ const {
     handleCropPages: documentControls.handleCropPages,
     handleRemoveCrop: documentControls.handleRemoveCrop,
     pdfViewerRef,
+    selectedPageSelection,
     selectedThumbnailPages,
     showConvertDialog,
     showSidebar,

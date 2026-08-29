@@ -14,6 +14,10 @@ import { range } from 'es-toolkit/math';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
+import {
+    createRangePageSelection,
+    type TPageSelection,
+} from '@contracts/pageNumbers';
 
 type TShouldPrintPageMetricsDirectly = (
     metrics: Array<{
@@ -214,6 +218,7 @@ function createState(options?: {
     fileName?: string | null;
     hasPendingUnsavedChanges?: boolean;
     hasPendingPrintSerializationChanges?: boolean;
+    selectedPageSelection?: TPageSelection;
     getQuickPrintPageMetrics?: () => Promise<Array<{
         width: number;
         height: number;
@@ -251,6 +256,9 @@ function createState(options?: {
             1,
             3,
         ]),
+        ...(options?.selectedPageSelection
+            ? {selectedPageSelection: ref(options.selectedPageSelection)}
+            : {}),
         sourcePdf: ref(options?.sourcePdf ?? null),
         workingCopyPath: ref(options?.workingCopyPath ?? '/tmp/document.pdf'),
         fileName: ref(options?.fileName ?? 'document.pdf'),
@@ -343,6 +351,59 @@ describe('useWorkspacePrint', () => {
                 return 1;
             },
         });
+    });
+
+    it('refuses a large partial compact selection instead of printing all pages', async () => {
+        const selection = createRangePageSelection(1_000_000, 2, 100_002);
+        const {
+            scope,
+            state,
+        } = createState({
+            totalPages: 1_000_000,
+            selectedPageSelection: selection,
+        });
+
+        try {
+            state.handlePrint();
+            expect(state.printDialogPageSelection.value).toEqual(selection);
+
+            await state.handlePrintDialogSubmit({
+                pageSelection: selection,
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+
+            expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
+            expect(state.printError.value).toContain('print.selectionTooLarge');
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('falls back to the current dense selection when the compact selection is stale', () => {
+        const staleSelection = createRangePageSelection(9, 2, 8);
+        const {
+            scope,
+            state,
+        } = createState({
+            totalPages: 10,
+            selectedPageSelection: staleSelection,
+        });
+
+        try {
+            state.handlePrint();
+
+            expect(state.printDialogPageSelection.value).toEqual({
+                kind: 'explicit',
+                pageCount: 10,
+                pages: [
+                    1,
+                    3,
+                ],
+            });
+        } finally {
+            scope.stop();
+        }
     });
 
     it('keeps print preparation strict single-flight under reentrant commands', async () => {

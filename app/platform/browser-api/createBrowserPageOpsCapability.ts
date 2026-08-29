@@ -1,4 +1,7 @@
-import type {IPageOpsMutationOptions} from '@contracts/electronApiPageOps';
+import type {
+    IPageOpsMutationOptions,
+    TPageOpsPageSelection,
+} from '@contracts/electronApiPageOps';
 import type {
     PAGE_OPS_PLATFORM_FEATURE,
     IPageOpsCapability,
@@ -96,7 +99,7 @@ const BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES = 96 * 1024 * 1024;
  * no corresponding page-count cap.
  */
 export const BROWSER_PAGE_OP_MOVE_MAX_PAGES = 10_000;
-export const BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES = 10_000;
+export const BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES = 10_000;
 
 type TBrowserPageOpsCoreModule = typeof BrowserPageOpsCoreModule;
 
@@ -129,14 +132,15 @@ function assertBrowserPageOpsSource(path: string, operation: string) {
 function materializePageRanges(
     ranges: readonly IPageMoveRangeSegment[],
     totalPages: number,
+    operation = 'Deleting page ranges',
 ) {
     const selectedCount = ranges.reduce(
         (count, range) => count + range.endPage - range.startPage + 1,
         0,
     );
-    if (selectedCount <= 0 || selectedCount > BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES) {
+    if (selectedCount <= 0 || selectedCount > BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES) {
         throw new Error(
-            `Deleting page ranges in the browser is limited to ${BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES} pages; use the desktop app for larger documents`,
+            `${operation} in the browser is limited to ${BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES} pages; use the desktop app for larger documents`,
         );
     }
     const pages: number[] = [];
@@ -146,9 +150,36 @@ function materializePageRanges(
         }
     }
     if (pages.some(page => page < 1 || page > totalPages)) {
-        throw new Error('Deleting page ranges received an out-of-range page');
+        throw new Error(`${operation} received an out-of-range page`);
     }
     return pages;
+}
+
+function materializePageSelection(
+    selection: TPageOpsPageSelection,
+    totalPages: number,
+    operation: string,
+) {
+    if (!Array.isArray(selection) && selection.pageCount !== totalPages) {
+        throw new Error(`${operation} received a selection for a different document`);
+    }
+    const selectedCount = Array.isArray(selection)
+        ? selection.length
+        : selection.ranges.reduce(
+            (count, range) => count + range.endPage - range.startPage + 1,
+            0,
+        );
+    if (selectedCount <= 0 || selectedCount > BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES) {
+        throw new PdfPageOpsCapabilityError(
+            'too-large',
+            `${operation} in the browser is limited to ${BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES} selected pages; use the desktop app for larger documents`,
+            {operation},
+        );
+    }
+    if (Array.isArray(selection)) {
+        return selection;
+    }
+    return materializePageRanges(selection.ranges, totalPages, operation);
 }
 
 export function createBrowserPageOpsCapability(
@@ -336,6 +367,7 @@ export function createBrowserPageOpsCapability(
 
     const pageOps: IPageOpsCapability = {
         async delete(workingCopyPath, pages, _totalPages, mutationOptions) {
+            const selectedPages = materializePageSelection(pages, _totalPages, 'Deleting pages');
             return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
@@ -344,11 +376,11 @@ export function createBrowserPageOpsCapability(
                     type: 'deletePages',
                     createPayload: (data) => ({
                         data,
-                        pages,
+                        pages: selectedPages,
                     }),
                     runDirect: async (data) => {
                         const { deletePdfPages } = await loadBrowserPageOpsCore();
-                        return deletePdfPages(data, pages);
+                        return deletePdfPages(data, selectedPages);
                     },
                 });
                 return writePageMutationResult(
@@ -364,6 +396,11 @@ export function createBrowserPageOpsCapability(
             return pageOps.delete(workingCopyPath, pages, _totalPages, mutationOptions);
         },
         async extract(workingCopyPath, pages) {
+            const selectedPages = materializePageSelection(
+                pages,
+                Array.isArray(pages) ? Number.MAX_SAFE_INTEGER : pages.pageCount,
+                'Extracting pages',
+            );
             const sourceName = getBrowserDocumentFileName(workingCopyPath).replace(
                 /\.pdf$/iu,
                 '',
@@ -386,11 +423,11 @@ export function createBrowserPageOpsCapability(
                 type: 'extractPages',
                 createPayload: (data) => ({
                     data,
-                    pages,
+                    pages: selectedPages,
                 }),
                 runDirect: async (data) => {
                     const { extractPdfPages } = await loadBrowserPageOpsCore();
-                    return extractPdfPages(data, pages);
+                    return extractPdfPages(data, selectedPages);
                 },
             });
             const outputBytes = result.data;
@@ -623,6 +660,7 @@ export function createBrowserPageOpsCapability(
             });
         },
         async rotate(workingCopyPath, pages, _totalPages, angle, mutationOptions) {
+            const selectedPages = materializePageSelection(pages, _totalPages, 'Rotating pages');
             return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
@@ -631,12 +669,12 @@ export function createBrowserPageOpsCapability(
                     type: 'rotate',
                     createPayload: (data) => ({
                         data,
-                        pages,
+                        pages: selectedPages,
                         angle,
                     }),
                     runDirect: async (data) => {
                         const { rotatePdfBytes } = await loadBrowserPageOpsCore();
-                        return rotatePdfBytes(data, pages, angle);
+                        return rotatePdfBytes(data, selectedPages, angle);
                     },
                 });
                 return writePageMutationResult(
@@ -648,6 +686,7 @@ export function createBrowserPageOpsCapability(
             });
         },
         async crop(workingCopyPath, pages, _totalPages, margins, mutationOptions) {
+            const selectedPages = materializePageSelection(pages, _totalPages, 'Cropping pages');
             const normalizedMargins = normalizeCropMargins(margins);
             return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
@@ -657,12 +696,12 @@ export function createBrowserPageOpsCapability(
                     type: 'crop',
                     createPayload: (data) => ({
                         data,
-                        pages,
+                        pages: selectedPages,
                         margins: normalizedMargins,
                     }),
                     runDirect: async (data) => {
                         const { cropPdfBytes } = await loadBrowserPageOpsCore();
-                        return cropPdfBytes(data, pages, normalizedMargins);
+                        return cropPdfBytes(data, selectedPages, normalizedMargins);
                     },
                 });
                 return writePageMutationResult(
@@ -674,6 +713,7 @@ export function createBrowserPageOpsCapability(
             });
         },
         async removeCrop(workingCopyPath, pages, _totalPages, mutationOptions) {
+            const selectedPages = materializePageSelection(pages, _totalPages, 'Removing crop');
             return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
@@ -682,11 +722,11 @@ export function createBrowserPageOpsCapability(
                     type: 'removeCrop',
                     createPayload: (data) => ({
                         data,
-                        pages,
+                        pages: selectedPages,
                     }),
                     runDirect: async (data) => {
                         const { removeCropPdfBytes } = await loadBrowserPageOpsCore();
-                        return removeCropPdfBytes(data, pages);
+                        return removeCropPdfBytes(data, selectedPages);
                     },
                 });
                 return writePageMutationResult(

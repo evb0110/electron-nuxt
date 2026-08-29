@@ -58,8 +58,10 @@
 <script setup lang="ts">
 
 import { parsePageRangeInput } from '@app/utils/pdfPageLabels';
-import { expandPageRange } from '@app/utils/pdfPageSelection';
+import { createPageSelectionFromRange } from '@app/utils/pdfPageSelection';
 import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
+import type { TPageSelection } from '@contracts/pageNumbers';
+import { pageSelectionCount } from '@contracts/pageNumbers';
 
 type TExportMode = 'images' | 'multipage-tiff';
 
@@ -68,6 +70,7 @@ const open = defineModel<boolean>('open', { required: true });
 const {
     currentPage,
     mode,
+    selectedPageSelection = null,
     selectedPages,
     totalPages,
 } = defineProps<{
@@ -75,9 +78,10 @@ const {
     totalPages: number;
     currentPage: number;
     selectedPages: number[];
+    selectedPageSelection?: TPageSelection | null | undefined;
 }>();
 
-const emit = defineEmits<{submit: [payload: { pageNumbers?: number[] }];}>();
+const emit = defineEmits<{submit: [payload: { pageSelection?: TPageSelection }];}>();
 
 const { t } = useTypedI18n();
 
@@ -102,22 +106,24 @@ const dialogActionLabel = computed(() => (
         : t('export.exportTiffAction')
 ));
 
-const rangePages = computed(() => {
-    return expandPageRange(parsePageRangeInput(rangeInput.value, totalPages));
-});
+const rangeSelection = computed(() => createPageSelectionFromRange(
+    parsePageRangeInput(rangeInput.value, totalPages),
+    totalPages,
+));
 
 const {
     scope,
     rangeInput,
     rangeTouched,
-    normalizedSelectedPages,
+    normalizedSelectedPageSelection,
     resetScopeForOpen,
-    resolveScopedPageNumbers,
+    resolveScopedPageSelection,
 } = usePdfPageScopeSelection({
     totalPages: () => totalPages,
     currentPage: () => currentPage,
     selectedPages: () => selectedPages,
-    resolveRangePages: () => rangePages.value,
+    selectedPageSelection: () => selectedPageSelection ?? null,
+    resolveRangeSelection: () => rangeSelection.value,
 });
 
 const scopeOptions = computed(() => {
@@ -136,10 +142,10 @@ const scopeOptions = computed(() => {
         },
     ];
 
-    if (normalizedSelectedPages.value.length > 0) {
+    if (pageSelectionCount(normalizedSelectedPageSelection.value) > 0) {
         options.push({
             value: 'selected',
-            label: t('export.scopeSelected', { count: normalizedSelectedPages.value.length }),
+            label: t('export.scopeSelected', { count: pageSelectionCount(normalizedSelectedPageSelection.value) }),
         });
     }
 
@@ -150,7 +156,7 @@ const rangeError = computed(() => (
     scope.value === 'range'
     && rangeTouched.value
     && rangeInput.value.trim().length > 0
-    && rangePages.value === null
+    && rangeSelection.value === null
         ? t('export.invalidRange')
         : false
 ));
@@ -163,10 +169,10 @@ const exportSummary = computed(() => {
         return t('export.summaryCurrent', { page: currentPage });
     }
     if (scope.value === 'selected') {
-        return t('export.summarySelected', { count: normalizedSelectedPages.value.length });
+        return t('export.summarySelected', { count: pageSelectionCount(normalizedSelectedPageSelection.value) });
     }
-    if (rangePages.value) {
-        return t('export.summaryRange', { count: rangePages.value.length });
+    if (rangeSelection.value) {
+        return t('export.summaryRange', { count: pageSelectionCount(rangeSelection.value) });
     }
     return t('export.summaryRangeHint');
 });
@@ -176,18 +182,18 @@ function handleSubmit() {
         return;
     }
 
-    if (scope.value === 'range' && !rangePages.value) {
+    if (scope.value === 'range' && !rangeSelection.value) {
         rangeTouched.value = true;
         return;
     }
 
-    const pageNumbers = resolveScopedPageNumbers();
-    if (pageNumbers === null) {
+    const pageSelection = resolveScopedPageSelection();
+    if (pageSelection === null) {
         rangeTouched.value = true;
         return;
     }
 
-    emit('submit', {...(pageNumbers !== undefined ? { pageNumbers } : {})});
+    emit('submit', {...(pageSelection !== undefined ? { pageSelection } : {})});
     open.value = false;
 }
 

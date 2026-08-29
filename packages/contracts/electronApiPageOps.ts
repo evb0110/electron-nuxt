@@ -5,8 +5,16 @@ import type {
 } from '@contracts/documentRevision';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
+import type {IPageMoveRangeSegment} from '@contracts/pageNumbers';
 
 export type TPageOpsRotationAngle = 90 | 180 | 270;
+
+export interface IPageOpsCompactSelection {
+    pageCount: number;
+    ranges: IPageMoveRangeSegment[];
+}
+
+export type TPageOpsPageSelection = number[] | IPageOpsCompactSelection;
 
 export interface IPageOpsMetadataSnapshot {
     /** Omitted until the viewer has read the document's page labels. */

@@ -1,4 +1,5 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type { TPageSelection } from '@contracts/pageNumbers';
 
 export interface IAnnotationContextMenuState {
     visible: boolean;
@@ -16,5 +17,7 @@ export interface IPageContextMenuState {
     visible: boolean;
     x: number;
     y: number;
+    clickedPage: number | null;
     pages: number[];
+    selection: TPageSelection | null;
 }

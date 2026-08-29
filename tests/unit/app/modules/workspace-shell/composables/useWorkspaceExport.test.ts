@@ -116,7 +116,7 @@ describe('useWorkspaceExport', () => {
             expect(exportImagesMock).not.toHaveBeenCalled();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
-                description: expect.stringContaining('100001'),
+                title: 'export.selectionTooLarge',
             }));
         } finally {
             scope.stop();
@@ -137,11 +137,32 @@ describe('useWorkspaceExport', () => {
             expect(exportTiffMock).not.toHaveBeenCalled();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
-                description: expect.stringContaining('100001'),
+                title: 'export.selectionTooLarge',
             }));
         } finally {
             scope.stop();
             await exportPromise;
+        }
+    });
+
+    it('keeps an accepted compact selection intact through dialog setup', async () => {
+        const {
+            scope,
+            state,
+        } = createComposable({totalPages: 200_000});
+        const selection = createRangePageSelection(200_000, 2, 100_001);
+        const exportPromise = state.handleExportImages(selection);
+
+        try {
+            expect(state.exportScopeDialogOpen.value).toBe(true);
+            expect(state.exportScopeDialogPageSelection.value).toBe(selection);
+
+            state.handleExportScopeDialogOpenChange(false);
+            await exportPromise;
+
+            expect(exportImagesMock).not.toHaveBeenCalled();
+        } finally {
+            scope.stop();
         }
     });
 

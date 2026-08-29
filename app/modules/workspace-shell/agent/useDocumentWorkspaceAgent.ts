@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- The agent registry keeps action IDs, policies, and execution together. */
 import type { TAnnotationTool } from '@app/types/annotations';
 import { isAgentRecord } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 import type {
@@ -18,6 +19,7 @@ import {
     type IAgentActionExecutionPolicy,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentActionRegistry';
 import { createDocumentWorkspaceAgentParsers } from '@app/modules/workspace-shell/agent/createDocumentWorkspaceAgentParsers';
+import { pageSelectionCount } from '@contracts/pageNumbers';
 export type { IOcrPopupAgentExpose } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 export const DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS = [
     'ui.open_sidebar_tab',
@@ -178,6 +180,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         handleCropPages,
         handleRemoveCrop,
         pdfViewerRef,
+        selectedPageSelection,
         selectedThumbnailPages,
         showConvertDialog,
         showSidebar,
@@ -193,6 +196,22 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         workingCopyPath,
         zoom,
     } = options;
+
+    function getSelectedPagePayload() {
+        const selection = selectedPageSelection?.value;
+        return selection?.pageCount === totalPages.value
+            ? selection
+            : selectedThumbnailPages.value;
+    }
+
+    function describeSelectedPagePayload(payload: ReturnType<typeof getSelectedPagePayload>) {
+        return Array.isArray(payload)
+            ? {selectedPages: payload}
+            : {
+                selectedPageCount: pageSelectionCount(payload),
+                selectedPageSelection: payload,
+            };
+    }
 
     const pageLabelsAgent = createDocumentAgentPageLabels({
         handlePageLabelRangesUpdate,
@@ -972,8 +991,9 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: parseEmptyAgentActionInput,
             async run(_input, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
-                    await pageOpsDelete(selectedThumbnailPages.value, totalPages.value);
-                    return {selectedPages: selectedThumbnailPages.value};
+                    const selection = getSelectedPagePayload();
+                    await pageOpsDelete(selection, totalPages.value);
+                    return describeSelectedPagePayload(selection);
                 }, context);
             },
         },
@@ -983,8 +1003,9 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: parseEmptyAgentActionInput,
             async run(_input, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
-                    await pageOpsExtract(selectedThumbnailPages.value);
-                    return {selectedPages: selectedThumbnailPages.value};
+                    const selection = getSelectedPagePayload();
+                    await pageOpsExtract(selection);
+                    return describeSelectedPagePayload(selection);
                 }, context);
             },
         },
@@ -994,8 +1015,9 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: parseEmptyAgentActionInput,
             async run(_input, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
-                    await handlePageRotate(selectedThumbnailPages.value, 90);
-                    return {selectedPages: selectedThumbnailPages.value};
+                    const selection = getSelectedPagePayload();
+                    await handlePageRotate(selection, 90);
+                    return describeSelectedPagePayload(selection);
                 }, context);
             },
         },
@@ -1005,8 +1027,9 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: parseEmptyAgentActionInput,
             async run(_input, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
-                    await handlePageRotate(selectedThumbnailPages.value, 270);
-                    return {selectedPages: selectedThumbnailPages.value};
+                    const selection = getSelectedPagePayload();
+                    await handlePageRotate(selection, 270);
+                    return describeSelectedPagePayload(selection);
                 }, context);
             },
         },

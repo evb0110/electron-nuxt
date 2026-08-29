@@ -9,6 +9,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import type { TPdfViewMode } from '@contracts/shared';
+import { createRangePageSelection } from '@contracts/pageNumbers';
 import { AGENT_CAPABILITY_TEMPLATES } from '@electron/features/agent/mcp/agentCapabilityTemplates';
 import { validateJsonObjectAgainstSchema } from '@electron/features/agent/mcp/mcpToolDefinitions';
 import type {
@@ -1358,6 +1359,23 @@ describe('useDocumentWorkspaceAgent', () => {
             stableKey: comment.stableKey,
             text: 'Updated note',
         }), 'Updated note');
+    });
+
+    it('passes an exact compact selection to page-operation actions', async () => {
+        const selection = createRangePageSelection(1_000_000, 2, 100_002);
+        const pageOpsDelete = vi.fn(async () => undefined);
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            totalPages: ref(1_000_000),
+            selectedThumbnailPages: ref([]),
+            selectedPageSelection: ref(selection),
+            pageOpsDelete,
+        }));
+
+        await expect(agent.runAgentAction('page_ops.delete_selected', {})).resolves.toMatchObject({
+            selectedPageCount: 100_001,
+            selectedPageSelection: selection,
+        });
+        expect(pageOpsDelete).toHaveBeenCalledWith(selection, 1_000_000);
     });
 
     it('blocks PDF page-operation actions in DjVu mode while keeping convert-to-PDF available', async () => {

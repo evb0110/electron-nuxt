@@ -480,6 +480,60 @@ function createPageTouchIdentityDelta(
     return createLargeIdentityDelta(pageCount, pages, reason);
 }
 
+function createPageRangeTouchIdentityDelta(
+    pageCount: number,
+    pageRanges: readonly IPageMoveRangeSegment[],
+    reason: IPageIdentityRangeTouch['reason'],
+) {
+    assertPageCount(pageCount, 'pageCount');
+    let previousEnd = 0;
+    let selectedPageCount = 0;
+    for (const range of pageRanges) {
+        assertPositivePageNumber(range.startPage, 'startPage');
+        assertPositivePageNumber(range.endPage, 'endPage');
+        if (
+            range.startPage <= previousEnd
+            || range.endPage < range.startPage
+            || range.endPage > pageCount
+        ) {
+            throw new Error('Page touch ranges must be sorted, disjoint, and within the document');
+        }
+        selectedPageCount += range.endPage - range.startPage + 1;
+        previousEnd = range.endPage;
+    }
+    if (selectedPageCount === 0) {
+        throw new Error('Page touch ranges must select at least one page');
+    }
+    if (pageCount <= PAGE_IDENTITY_INLINE_PAGE_COUNT) {
+        const pages = pageRanges.flatMap(range => Array.from(
+            {length: range.endPage - range.startPage + 1},
+            (_value, index) => range.startPage + index,
+        ));
+        return createPageTouchIdentityDelta(pageCount, pages, reason);
+    }
+    if (pageRanges.length + 1 > PAGE_IDENTITY_MAX_RANGE_OPERATIONS) {
+        throw new Error('Page touch ranges exceed the identity operation limit');
+    }
+    return {
+        previousPageCount: pageCount,
+        nextPageCount: pageCount,
+        ranges: [
+            {
+                kind: 'retain',
+                fromPageNumber: 1,
+                toPageNumber: 1,
+                count: pageCount,
+            },
+            ...pageRanges.map(range => ({
+                kind: 'touch' as const,
+                toPageNumber: range.startPage,
+                count: range.endPage - range.startPage + 1,
+                reason,
+            })),
+        ],
+    } satisfies IPageIdentityDelta;
+}
+
 export const createRotateIdentityDelta = (
     pageCount: number,
     pages: readonly number[],
@@ -494,6 +548,21 @@ export const createRemoveCropIdentityDelta = (
     pageCount: number,
     pages: readonly number[],
 ) => createPageTouchIdentityDelta(pageCount, pages, 'remove-crop');
+
+export const createRotateRangesIdentityDelta = (
+    pageCount: number,
+    ranges: readonly IPageMoveRangeSegment[],
+) => createPageRangeTouchIdentityDelta(pageCount, ranges, 'rotate');
+
+export const createCropRangesIdentityDelta = (
+    pageCount: number,
+    ranges: readonly IPageMoveRangeSegment[],
+) => createPageRangeTouchIdentityDelta(pageCount, ranges, 'crop');
+
+export const createRemoveCropRangesIdentityDelta = (
+    pageCount: number,
+    ranges: readonly IPageMoveRangeSegment[],
+) => createPageRangeTouchIdentityDelta(pageCount, ranges, 'remove-crop');
 
 export function createDeleteIdentityDelta(pageCount: number, deletedPages: readonly number[]): IPageIdentityDelta {
     assertPageCount(pageCount, 'pageCount');

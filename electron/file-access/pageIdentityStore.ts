@@ -81,6 +81,7 @@ const PAGE_IDENTITY_SIDECAR_VERSION = 2;
 
 export {
     createCropIdentityDelta,
+    createCropRangesIdentityDelta,
     createDeleteIdentityDelta,
     createDeleteRangeIdentityDelta,
     createDeleteRangesIdentityDelta,
@@ -89,8 +90,10 @@ export {
     createMoveIdentityDelta,
     createPageMoveRangesIdentityDelta,
     createRemoveCropIdentityDelta,
+    createRemoveCropRangesIdentityDelta,
     createReorderIdentityDelta,
     createRotateIdentityDelta,
+    createRotateRangesIdentityDelta,
 } from '@electron/file-access/pageIdentityDelta';
 
 const PAGE_IDENTITY_STREAMING_SIDECAR_BYTES = 4 * 1024 * 1024;

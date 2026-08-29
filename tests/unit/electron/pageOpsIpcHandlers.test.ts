@@ -52,6 +52,7 @@ const mocks = vi.hoisted(() => ({
     deletePages: vi.fn(),
     deletePageRanges: vi.fn(),
     extractPages: vi.fn(),
+    extractPageRanges: vi.fn(),
     getPdfPageCount: vi.fn(),
     reorderPages: vi.fn(),
     rotatePages: vi.fn(),
@@ -106,7 +107,10 @@ vi.mock('electron', () => ({
     } },
 }));
 
-vi.mock('fs', () => ({existsSync: (path: string) => mocks.existsSync(path)}));
+vi.mock('fs', () => ({
+    existsSync: (path: string) => mocks.existsSync(path),
+    lstatSync: vi.fn(() => ({isSymbolicLink: () => false})),
+}));
 vi.mock('fs/promises', () => ({
     writeFile: (...args: unknown[]) => mocks.writeFile(...args),
     open: (...args: unknown[]) => mocks.open(...args),
@@ -144,6 +148,7 @@ vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     deletePageRanges: (...args: unknown[]) => mocks.deletePageRanges(...args),
     deletePages: (...args: unknown[]) => mocks.deletePages(...args),
     extractPages: (...args: unknown[]) => mocks.extractPages(...args),
+    extractPageRanges: (...args: unknown[]) => mocks.extractPageRanges(...args),
     getPdfPageCount: (...args: unknown[]) => mocks.getPdfPageCount(...args),
     reorderPages: (...args: unknown[]) => mocks.reorderPages(...args),
     runQpdfCommand: (...args: unknown[]) => mocks.runCommand(...args),
@@ -266,6 +271,7 @@ describe('page ops main bindings', () => {
         mocks.deletePages.mockResolvedValue({pageCount: 1});
         mocks.deletePageRanges.mockResolvedValue({pageCount: 1});
         mocks.extractPages.mockResolvedValue(undefined);
+        mocks.extractPageRanges.mockResolvedValue(undefined);
         mocks.getPdfPageCount.mockResolvedValue(3);
         mocks.reorderPages.mockResolvedValue({pageCount: 1});
         mocks.rotatePages.mockResolvedValue(undefined);
@@ -475,6 +481,64 @@ describe('page ops main bindings', () => {
         );
     });
 
+    it('runs a large compact rotate in bounded native batches under one revision', async () => {
+        const handler = getHandler('page-ops:rotate');
+        mocks.getPdfPageCount.mockResolvedValue(110_000);
+
+        await expect(handler(
+            {sender: {id: 1}},
+            '/tmp/large-rotate.pdf',
+            {
+                pageCount: 110_000,
+                ranges: [{
+                    startPage: 1,
+                    endPage: 100_001,
+                }],
+            },
+            110_000,
+            90,
+            REVISION_OPTIONS,
+        )).resolves.toMatchObject({success: true});
+
+        expect(mocks.rotatePages).toHaveBeenCalledTimes(11);
+        expect(mocks.rotatePages.mock.calls.every(call => call[1].length <= 10_000)).toBe(true);
+        expect(mocks.rotatePages.mock.calls.flatMap(call => call[1])).toEqual(
+            Array.from({length: 100_001}, (_, index) => index + 1),
+        );
+        expect(mocks.rotatePages.mock.calls.at(-1)?.[1]).toEqual([100_001]);
+        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalledOnce();
+        expect(mocks.applyPageMetadataRemap).toHaveBeenCalledOnce();
+        expect(mocks.commitPageIdentityDelta).toHaveBeenCalledOnce();
+    });
+
+    it('does not publish a revision when a later rotate batch fails', async () => {
+        const handler = getHandler('page-ops:rotate');
+        mocks.getPdfPageCount.mockResolvedValue(30_000);
+        mocks.rotatePages
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(new Error('second batch failed'));
+
+        await expect(handler(
+            {sender: {id: 1}},
+            '/tmp/failed-large-rotate.pdf',
+            {
+                pageCount: 30_000,
+                ranges: [{
+                    startPage: 1,
+                    endPage: 25_001,
+                }],
+            },
+            30_000,
+            90,
+            REVISION_OPTIONS,
+        )).rejects.toThrow('second batch failed');
+
+        expect(mocks.rotatePages).toHaveBeenCalledTimes(2);
+        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalledOnce();
+        expect(mocks.applyPageMetadataRemap).not.toHaveBeenCalled();
+        expect(mocks.commitPageIdentityDelta).not.toHaveBeenCalled();
+    });
+
     it('deletes a million-page select-all range without a legacy page array', async () => {
         const handler = getHandler('page-ops:delete-ranges');
         mocks.getPdfPageCount
@@ -671,6 +735,41 @@ describe('page ops main bindings', () => {
         expect(mocks.cropPages).not.toHaveBeenCalled();
     });
 
+    it('does not publish a revision when a later compact crop batch fails', async () => {
+        mocks.getPdfPageCount.mockResolvedValue(3_000);
+        mocks.cropPages
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(new Error('second crop batch failed'));
+        const handler = getHandler('page-ops:crop');
+
+        await expect(handler(
+            {sender: {id: 1}},
+            '/tmp/failed-large-crop.pdf',
+            {
+                pageCount: 3_000,
+                ranges: [{
+                    startPage: 1,
+                    endPage: 2_049,
+                }],
+            },
+            3_000,
+            {
+                top: 0,
+                bottom: 0,
+                left: 0,
+                right: 0,
+            },
+            REVISION_OPTIONS,
+        )).rejects.toThrow('second crop batch failed');
+
+        expect(mocks.cropPages).toHaveBeenCalledTimes(2);
+        expect(mocks.cropPages.mock.calls[0]?.[1]).toHaveLength(1_024);
+        expect(mocks.cropPages.mock.calls[1]?.[1]).toHaveLength(1_024);
+        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalledOnce();
+        expect(mocks.applyPageMetadataRemap).not.toHaveBeenCalled();
+        expect(mocks.commitPageIdentityDelta).not.toHaveBeenCalled();
+    });
+
     it('rejects stale remove-crop page selections inside the mutation queue', async () => {
         mocks.getPdfPageCount.mockResolvedValueOnce(2);
         const handler = getHandler('page-ops:remove-crop');
@@ -757,6 +856,41 @@ describe('page ops main bindings', () => {
         expect(mocks.extractPages.mock.invocationCallOrder[0]).toBeLessThan(
             mocks.allowOpenPath.mock.invocationCallOrder[0]!,
         );
+    });
+
+    it('extracts a large compact selection through one dialog and one native lifecycle', async () => {
+        mocks.getPdfPageCount.mockResolvedValueOnce(50_000);
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: '/tmp/large-extract.pdf',
+        });
+        const handler = getHandler('page-ops:extract');
+        const ranges = [{
+            startPage: 5_000,
+            endPage: 35_000,
+        }];
+
+        await expect(handler(
+            {sender: {id: 1}},
+            '/tmp/work.pdf',
+            {
+                pageCount: 50_000,
+                ranges,
+            },
+        )).resolves.toEqual({
+            success: true,
+            destPath: '/tmp/large-extract.pdf',
+        });
+
+        expect(mocks.showSaveDialog).toHaveBeenCalledOnce();
+        expect(mocks.extractPageRanges).toHaveBeenCalledOnce();
+        expect(mocks.extractPageRanges).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            '/tmp/large-extract.pdf',
+            ranges,
+            expectNativeMutationOptions(),
+        );
+        expect(mocks.extractPages).not.toHaveBeenCalled();
     });
 
     it('recovers the working copy before validating an extract request', async () => {

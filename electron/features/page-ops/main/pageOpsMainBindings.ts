@@ -22,6 +22,7 @@ import { DOCUMENT_OPEN_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeat
 import type {
     IPageOpsMutationOptions,
     IPageIdentityDelta,
+    TPageOpsPageSelection,
 } from '@contracts/electronApiPageOps';
 import type { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
@@ -37,6 +38,7 @@ import {
 import {
     deletePageRanges,
     deletePages,
+    extractPageRanges,
     extractPages,
     getPdfPageCount,
     movePageRanges,
@@ -71,14 +73,17 @@ import {
     awaitPageIdentityStoreInitialization,
     commitPageIdentityDelta,
     createCropIdentityDelta,
+    createCropRangesIdentityDelta,
     createDeleteIdentityDelta,
     createDeleteRangesIdentityDelta,
     createInsertIdentityDelta,
     createMoveIdentityDelta,
     createPageMoveRangesIdentityDelta,
     createRemoveCropIdentityDelta,
+    createRemoveCropRangesIdentityDelta,
     createReorderIdentityDelta,
     createRotateIdentityDelta,
+    createRotateRangesIdentityDelta,
 } from '@electron/file-access/pageIdentityStore';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
@@ -94,6 +99,81 @@ interface IPageOpsOperationContext {
     sender: WebContents;
     senderId: number;
     parentWindow: BrowserWindow | null;
+}
+
+const QPDF_PAGE_BATCH_SIZE = 10_000;
+const CROP_PAGE_BATCH_SIZE = 1_024;
+
+function isCompactPageSelection(
+    selection: TPageOpsPageSelection,
+): selection is Exclude<TPageOpsPageSelection, number[]> {
+    return !Array.isArray(selection);
+}
+
+function pageNumbersToRanges(pages: readonly number[]) {
+    const sortedPages = [...pages].sort((left, right) => left - right);
+    const ranges: IPageMoveRangeSegment[] = [];
+    for (const page of sortedPages) {
+        const previous = ranges.at(-1);
+        if (previous && page === previous.endPage + 1) {
+            previous.endPage = page;
+        } else {
+            ranges.push({
+                startPage: page,
+                endPage: page,
+            });
+        }
+    }
+    return ranges;
+}
+
+function validatePageOpsSelection(
+    selection: TPageOpsPageSelection,
+    totalPages: number,
+    operation: string,
+) {
+    if (Array.isArray(selection)) {
+        validatePageNumbers(selection, operation, {
+            totalPages,
+            requireUnique: true,
+        });
+        return pageNumbersToRanges(selection);
+    }
+    if (selection.pageCount !== totalPages) {
+        throw new Error('Renderer page count is stale');
+    }
+    validatePageDeleteRanges(selection.ranges, totalPages);
+    return selection.ranges;
+}
+
+function* iteratePageRangeBatches(
+    ranges: readonly IPageMoveRangeSegment[],
+    batchSize: number,
+) {
+    let batch: number[] = [];
+    for (const range of ranges) {
+        for (let page = range.startPage; page <= range.endPage; page += 1) {
+            batch.push(page);
+            if (batch.length === batchSize) {
+                yield batch;
+                batch = [];
+            }
+        }
+    }
+    if (batch.length > 0) yield batch;
+}
+
+function formatSelectionLabel(ranges: readonly IPageMoveRangeSegment[]) {
+    if (ranges.length > 8) {
+        const selectedCount = ranges.reduce(
+            (count, range) => count + range.endPage - range.startPage + 1,
+            0,
+        );
+        return `${selectedCount} pages`;
+    }
+    return ranges.map(range => range.startPage === range.endPage
+        ? String(range.startPage)
+        : `${range.startPage}-${range.endPage}`).join(',');
 }
 
 function createOpenBatchProgressReporter(
@@ -270,7 +350,7 @@ function validateExpectedTotalPages(totalPages: unknown) {
 async function handlePageOpsDelete(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
-    pages: number[],
+    pages: TPageOpsPageSelection,
     totalPages: number,
     options?: IPageOpsMutationOptions,
 ) {
@@ -287,19 +367,21 @@ async function handlePageOpsDelete(
         if (mainTotalPages !== expectedTotalPages) {
             throw new Error('Renderer page count is stale');
         }
-        validatePageNumbers(pages, 'deletePages', {
-            totalPages: mainTotalPages,
-            requireUnique: true,
-        });
+        const ranges = validatePageOpsSelection(pages, mainTotalPages, 'deletePages');
         return transitionPageMutation({
             workingCopyPath: queuedWorkingCopyPath,
             senderId: context.senderId,
             operation,
             options,
-            mutate: async () => ({
-                value: await deletePages(queuedWorkingCopyPath, pages, expectedTotalPages, context.senderId, nativeOptions),
-                delta: createDeleteIdentityDelta(expectedTotalPages, pages),
-            }),
+            mutate: async () => isCompactPageSelection(pages)
+                ? {
+                    value: await deletePageRanges(queuedWorkingCopyPath, ranges, expectedTotalPages, context.senderId, nativeOptions),
+                    delta: createDeleteRangesIdentityDelta(expectedTotalPages, ranges),
+                }
+                : {
+                    value: await deletePages(queuedWorkingCopyPath, pages, expectedTotalPages, context.senderId, nativeOptions),
+                    delta: createDeleteIdentityDelta(expectedTotalPages, pages),
+                },
         });
     });
     return {
@@ -360,13 +442,16 @@ async function handlePageOpsDeleteRanges(
 async function handlePageOpsExtract(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
-    pages: number[],
+    pages: TPageOpsPageSelection,
 ) {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
-    validatePageNumbers(pages, 'extractPages', {requireUnique: true});
+    const actualPageCount = await getPdfPageCount(normalizedWorkingCopyPath);
+    const ranges = validatePageOpsSelection(pages, actualPageCount, 'extractPages');
 
     const baseName = basename(normalizedWorkingCopyPath, extname(normalizedWorkingCopyPath));
-    const rangeLabel = formatPageRange(pages);
+    const rangeLabel = Array.isArray(pages)
+        ? formatPageRange(pages)
+        : formatSelectionLabel(ranges);
     const suggestedName = `${baseName} (${rangeLabel}).pdf`;
     const dialogOptions = {
         title: te('dialogs.extractPages'),
@@ -394,10 +479,15 @@ async function handlePageOpsExtract(
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
-        await extractPages(queuedWorkingCopyPath, destPath, pages, {
+        const nativeOptions = {
             ...createNativeOperationOptions(operation),
             senderWebContentsId: context.senderId,
-        });
+        };
+        if (Array.isArray(pages)) {
+            await extractPages(queuedWorkingCopyPath, destPath, pages, nativeOptions);
+        } else {
+            await extractPageRanges(queuedWorkingCopyPath, destPath, ranges, nativeOptions);
+        }
     });
     allowOpenPath(destPath, context.sender);
     return {
@@ -637,7 +727,7 @@ async function handlePageOpsInsert(
 async function handlePageOpsRotate(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
-    pages: number[],
+    pages: TPageOpsPageSelection,
     totalPages: number,
     angle: TRotationAngle,
     options?: IPageOpsMutationOptions,
@@ -645,8 +735,6 @@ async function handlePageOpsRotate(
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
-    validatePageNumbers(pages, 'rotatePages', {requireUnique: true});
-
     if (![
         90,
         180,
@@ -664,20 +752,21 @@ async function handlePageOpsRotate(
         if (mainTotalPages !== expectedTotalPages) {
             throw new Error('Renderer page count is stale');
         }
-        validatePageNumbers(pages, 'rotatePages', {
-            totalPages: mainTotalPages,
-            requireUnique: true,
-        });
+        const ranges = validatePageOpsSelection(pages, mainTotalPages, 'rotatePages');
         return transitionPageMutation({
             workingCopyPath: queuedWorkingCopyPath,
             senderId: context.senderId,
             operation,
             options,
             mutate: async () => {
-                await rotatePages(queuedWorkingCopyPath, pages, angle, context.senderId, nativeOptions);
+                for (const batch of iteratePageRangeBatches(ranges, QPDF_PAGE_BATCH_SIZE)) {
+                    await rotatePages(queuedWorkingCopyPath, batch, angle, context.senderId, nativeOptions);
+                }
                 return {
                     value: undefined,
-                    delta: createRotateIdentityDelta(mainTotalPages, pages),
+                    delta: isCompactPageSelection(pages)
+                        ? createRotateRangesIdentityDelta(mainTotalPages, ranges)
+                        : createRotateIdentityDelta(mainTotalPages, pages),
                 };
             },
         });
@@ -742,7 +831,7 @@ async function handlePageOpsInsertFile(
 async function handlePageOpsCrop(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
-    pages: number[],
+    pages: TPageOpsPageSelection,
     totalPages: number,
     margins: ICropMargins,
     options?: IPageOpsMutationOptions,
@@ -750,7 +839,6 @@ async function handlePageOpsCrop(
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
-    validatePageNumbers(pages, 'cropPages', {requireUnique: true});
     const normalizedMargins = normalizeCropMargins(margins);
 
     const mutation = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
@@ -761,20 +849,21 @@ async function handlePageOpsCrop(
         if (mainTotalPages !== expectedTotalPages) {
             throw new Error('Renderer page count is stale');
         }
-        validatePageNumbers(pages, 'cropPages', {
-            totalPages: mainTotalPages,
-            requireUnique: true,
-        });
+        const ranges = validatePageOpsSelection(pages, mainTotalPages, 'cropPages');
         return transitionPageMutation({
             workingCopyPath: queuedWorkingCopyPath,
             senderId: context.senderId,
             operation,
             options,
             mutate: async () => {
-                await cropPages(queuedWorkingCopyPath, pages, normalizedMargins, context.senderId, operation.signal);
+                for (const batch of iteratePageRangeBatches(ranges, CROP_PAGE_BATCH_SIZE)) {
+                    await cropPages(queuedWorkingCopyPath, batch, normalizedMargins, context.senderId, operation.signal);
+                }
                 return {
                     value: undefined,
-                    delta: createCropIdentityDelta(mainTotalPages, pages),
+                    delta: isCompactPageSelection(pages)
+                        ? createCropRangesIdentityDelta(mainTotalPages, ranges)
+                        : createCropIdentityDelta(mainTotalPages, pages),
                 };
             },
         });
@@ -789,14 +878,13 @@ async function handlePageOpsCrop(
 async function handlePageOpsRemoveCrop(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
-    pages: number[],
+    pages: TPageOpsPageSelection,
     totalPages: number,
     options?: IPageOpsMutationOptions,
 ) {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
-    validatePageNumbers(pages, 'removeCrop', {requireUnique: true});
 
     const mutation = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
         const {
@@ -806,20 +894,21 @@ async function handlePageOpsRemoveCrop(
         if (mainTotalPages !== expectedTotalPages) {
             throw new Error('Renderer page count is stale');
         }
-        validatePageNumbers(pages, 'removeCrop', {
-            totalPages: mainTotalPages,
-            requireUnique: true,
-        });
+        const ranges = validatePageOpsSelection(pages, mainTotalPages, 'removeCrop');
         return transitionPageMutation({
             workingCopyPath: queuedWorkingCopyPath,
             senderId: context.senderId,
             operation,
             options,
             mutate: async () => {
-                await removeCropFromPages(queuedWorkingCopyPath, pages, context.senderId, operation.signal);
+                for (const batch of iteratePageRangeBatches(ranges, CROP_PAGE_BATCH_SIZE)) {
+                    await removeCropFromPages(queuedWorkingCopyPath, batch, context.senderId, operation.signal);
+                }
                 return {
                     value: undefined,
-                    delta: createRemoveCropIdentityDelta(mainTotalPages, pages),
+                    delta: isCompactPageSelection(pages)
+                        ? createRemoveCropRangesIdentityDelta(mainTotalPages, ranges)
+                        : createRemoveCropIdentityDelta(mainTotalPages, pages),
                 };
             },
         });

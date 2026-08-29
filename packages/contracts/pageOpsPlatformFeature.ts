@@ -5,6 +5,7 @@ import type {
     IPageOpsMetadataSnapshot,
     IPageOpsMutationOptions,
     IPageOpsResult,
+    TPageOpsPageSelection,
     TPageIdentityDeltaPage,
     TPageIdentityRangeOperation,
     TPageOpsRotationAngle,
@@ -38,11 +39,12 @@ import {
 } from '@contracts/runtimeGuards';
 
 const MAX_COLLECTION_ITEMS = 100_000;
+const MAX_PAGE_SELECTION_ITEMS = 1_000_000;
 const METHOD_TIMEOUT_MS = 30 * 60 * 1_000;
 
-type TDeleteArgs = [string, number[], number, IPageOpsMutationOptions | undefined];
+type TDeleteArgs = [string, TPageOpsPageSelection, number, IPageOpsMutationOptions | undefined];
 type TDeleteRangesArgs = [string, IPageMoveRangeSegment[], number, IPageOpsMutationOptions | undefined];
-type TExtractArgs = [string, number[]];
+type TExtractArgs = [string, TPageOpsPageSelection];
 type TReorderArgs = [string, number[], IPageOpsMutationOptions | undefined];
 type TMoveArgs = [string, number, number, number, number, IPageOpsMutationOptions | undefined];
 type TMoveRangesArgs = [string, IPageMoveRangeSegment[], number, number, IPageOpsMutationOptions | undefined];
@@ -55,9 +57,9 @@ type TInsertFileArgs = [
     string | undefined,
     IPageOpsMutationOptions | undefined,
 ];
-type TRotateArgs = [string, number[], number, TPageOpsRotationAngle, IPageOpsMutationOptions | undefined];
-type TCropArgs = [string, number[], number, ICropMargins, IPageOpsMutationOptions | undefined];
-type TRemoveCropArgs = [string, number[], number, IPageOpsMutationOptions | undefined];
+type TRotateArgs = [string, TPageOpsPageSelection, number, TPageOpsRotationAngle, IPageOpsMutationOptions | undefined];
+type TCropArgs = [string, TPageOpsPageSelection, number, ICropMargins, IPageOpsMutationOptions | undefined];
+type TRemoveCropArgs = [string, TPageOpsPageSelection, number, IPageOpsMutationOptions | undefined];
 type TGetPageGeometryArgs = [string, number];
 
 function requireArgumentCount(value: unknown, count: number): asserts value is unknown[] {
@@ -98,13 +100,39 @@ function decodePositiveIntegerArray(args: unknown[], index: number, fieldName: s
     if (!Array.isArray(value) || value.length === 0) {
         throw new Error(`${fieldName} must be a non-empty array`);
     }
-    if (value.length > MAX_COLLECTION_ITEMS) {
-        throw new Error(`${fieldName} exceeds maximum item count (${MAX_COLLECTION_ITEMS})`);
+    if (value.length > MAX_PAGE_SELECTION_ITEMS) {
+        throw new Error(`${fieldName} exceeds maximum item count (${MAX_PAGE_SELECTION_ITEMS})`);
     }
     if (value.some(item => typeof item !== 'number' || !Number.isSafeInteger(item) || item < 1)) {
         throw new Error(`${fieldName} must contain positive safe integers`);
     }
     return value as number[];
+}
+
+function decodePageSelection(args: unknown[], index: number, fieldName: string): TPageOpsPageSelection {
+    const value = args[index];
+    if (Array.isArray(value)) {
+        return decodePositiveIntegerArray(args, index, fieldName);
+    }
+    if (!isRecord(value)) {
+        throw new Error(`${fieldName} must be a page array or compact selection`);
+    }
+    const pageCount = value.pageCount;
+    if (typeof pageCount !== 'number' || !Number.isSafeInteger(pageCount) || pageCount < 1) {
+        throw new Error(`${fieldName}.pageCount must be a positive safe integer`);
+    }
+    const ranges = decodePageMoveRangeSegments([value.ranges], 0, `${fieldName}.ranges`);
+    let previousEnd = 0;
+    for (const range of ranges) {
+        if (range.startPage <= previousEnd || range.endPage > pageCount) {
+            throw new Error(`${fieldName}.ranges must be sorted, disjoint, and within the document`);
+        }
+        previousEnd = range.endPage;
+    }
+    return {
+        pageCount,
+        ranges,
+    };
 }
 
 function decodePageMoveRangeSegments(args: unknown[], index: number, fieldName: string) {
@@ -662,7 +690,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             'page-ops:delete',
             args<TDeleteArgs>(4, value => [
                 decodeString(value, 0, 'workingCopyPath'),
-                decodePositiveIntegerArray(value, 1, 'pages'),
+                decodePageSelection(value, 1, 'pages'),
                 decodeSafeInteger(value, 2, 'totalPages', 1),
                 decodeMutationOptions(value[3]),
             ], () => [
@@ -674,7 +702,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             pageOpsResult,
             (
                 workingCopyPath: string,
-                pages: number[],
+                pages: TPageOpsPageSelection,
                 totalPages: number,
                 options?: IPageOpsMutationOptions,
             ): TDeleteArgs => [
@@ -722,13 +750,13 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             'page-ops:extract',
             args<TExtractArgs>(2, value => [
                 decodeString(value, 0, 'workingCopyPath'),
-                decodePositiveIntegerArray(value, 1, 'pages'),
+                decodePageSelection(value, 1, 'pages'),
             ], () => [
                 '/tmp/fixture.pdf',
                 [1],
             ]),
             extractResult,
-            (workingCopyPath: string, pages: number[]): TExtractArgs => [
+            (workingCopyPath: string, pages: TPageOpsPageSelection): TExtractArgs => [
                 workingCopyPath,
                 pages,
             ],
@@ -900,7 +928,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             'page-ops:rotate',
             args<TRotateArgs>(5, value => [
                 decodeString(value, 0, 'workingCopyPath'),
-                decodePositiveIntegerArray(value, 1, 'pages'),
+                decodePageSelection(value, 1, 'pages'),
                 decodeSafeInteger(value, 2, 'totalPages', 1),
                 decodeRotationAngle(value, 3),
                 decodeMutationOptions(value[4]),
@@ -914,7 +942,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             pageOpsResult,
             (
                 workingCopyPath: string,
-                pages: number[],
+                pages: TPageOpsPageSelection,
                 totalPages: number,
                 angle: TPageOpsRotationAngle,
                 options?: IPageOpsMutationOptions,
@@ -931,7 +959,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             'page-ops:crop',
             args<TCropArgs>(5, value => [
                 decodeString(value, 0, 'workingCopyPath'),
-                decodePositiveIntegerArray(value, 1, 'pages'),
+                decodePageSelection(value, 1, 'pages'),
                 decodeSafeInteger(value, 2, 'totalPages', 1),
                 normalizeCropMargins(value[3]),
                 decodeMutationOptions(value[4]),
@@ -950,7 +978,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             pageOpsResult,
             (
                 workingCopyPath: string,
-                pages: number[],
+                pages: TPageOpsPageSelection,
                 totalPages: number,
                 margins: ICropMargins,
                 options?: IPageOpsMutationOptions,
@@ -967,7 +995,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             'page-ops:remove-crop',
             args<TRemoveCropArgs>(4, value => [
                 decodeString(value, 0, 'workingCopyPath'),
-                decodePositiveIntegerArray(value, 1, 'pages'),
+                decodePageSelection(value, 1, 'pages'),
                 decodeSafeInteger(value, 2, 'totalPages', 1),
                 decodeMutationOptions(value[3]),
             ], () => [
@@ -979,7 +1007,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             pageOpsResult,
             (
                 workingCopyPath: string,
-                pages: number[],
+                pages: TPageOpsPageSelection,
                 totalPages: number,
                 options?: IPageOpsMutationOptions,
             ): TRemoveCropArgs => [

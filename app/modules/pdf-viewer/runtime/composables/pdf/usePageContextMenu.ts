@@ -7,7 +7,9 @@ export const usePageContextMenu = () => {
             visible: false,
             x: 0,
             y: 0,
+            clickedPage: null,
             pages: [],
+            selection: null,
         };
     }
     const {
@@ -23,7 +25,9 @@ export const usePageContextMenu = () => {
     function showPageContextMenu(payload: {
         clientX: number;
         clientY: number;
+        clickedPage: number;
         pages: number[];
+        selection: IPageContextMenuState['selection'];
     }) {
         const fallbackWidth = 300;
         const estimatedHeight = 280;
@@ -36,7 +40,9 @@ export const usePageContextMenu = () => {
                 visible: true,
                 x: position.x,
                 y: position.y,
+                clickedPage: payload.clickedPage,
                 pages: payload.pages,
+                selection: payload.selection,
             }),
         });
     }

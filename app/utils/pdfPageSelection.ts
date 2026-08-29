@@ -1,6 +1,12 @@
 import { uniq } from 'es-toolkit/array';
 import { range as createRange } from 'es-toolkit/math';
 import type { IPdfPageRange } from '@app/types/pdfUi';
+import type { TPageSelection } from '@contracts/pageNumbers';
+import {
+    createExplicitPageSelection as createCompactExplicitPageSelection,
+    createRangePageSelection as createCompactRangePageSelection,
+    isPageSelected as isPageInSelection,
+} from '@contracts/pageNumbers';
 export type {
     IAllPageSelection,
     IComplementPageSelection,
@@ -72,6 +78,17 @@ export function resolveThumbnailContextMenuPages(
     return normalizeSelectedPageNumbers([page], totalPages);
 }
 
+export function resolveThumbnailContextMenuSelection(
+    page: number,
+    selection: TPageSelection,
+    totalPages: number,
+): TPageSelection {
+    if (selection.pageCount === totalPages && isPageInSelection(selection, page)) {
+        return selection;
+    }
+    return createCompactExplicitPageSelection(totalPages, [page]);
+}
+
 export function normalizeSelectedPageNumbers(selectedPages: number[], totalPages: number): number[] {
     return uniq(selectedPages)
         .filter(page => Number.isInteger(page) && page >= 1 && page <= totalPages)
@@ -91,6 +108,16 @@ export function expandPageRange(range: IPdfPageRange | null): number[] | null {
     }
 
     return createRange(range.startPage, range.endPage + 1);
+}
+
+export function createPageSelectionFromRange(
+    range: IPdfPageRange | null,
+    totalPages: number,
+): TPageSelection | null {
+    if (!range) {
+        return null;
+    }
+    return createCompactRangePageSelection(totalPages, range.startPage, range.endPage);
 }
 
 export function createAllPageNumbers(totalPages: number): number[] {

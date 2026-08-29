@@ -136,10 +136,14 @@ describe('usePageOpsHandlers crop reload strategy', () => {
         expect(invalidateThumbnailPages).not.toHaveBeenCalled();
         expect(invalidatePages).not.toHaveBeenCalled();
         expect(preparePdfReloadWaiter).toHaveBeenCalledWith(4, { captureScrollSnapshot: false });
-        expect(operationMocks.rotatePages).toHaveBeenCalledWith([
-            2,
-            3,
-        ], 10, 90);
+        expect(operationMocks.rotatePages).toHaveBeenCalledWith({
+            kind: 'explicit',
+            pageCount: 10,
+            pages: [
+                2,
+                3,
+            ],
+        }, 10, 90);
     });
 
     it('cancels the page-only reload waiter when rotation fails', async () => {
@@ -274,7 +278,7 @@ describe('usePageOpsHandlers crop reload strategy', () => {
         });
     });
 
-    it('batches a million-page select-all toolbar rotation without materializing the selection', async () => {
+    it('sends a million-page toolbar rotation as one compact user operation', async () => {
         const selectedPageSelection = ref<TPageSelection>(createAllPageSelection(1_000_000));
         const { handlers } = createHarness({
             selectedPageSelection,
@@ -283,15 +287,11 @@ describe('usePageOpsHandlers crop reload strategy', () => {
 
         await expect(handlers.handlePageRotate(selectedPageSelection.value, 90)).resolves.toBe(true);
 
-        expect(operationMocks.rotatePages).toHaveBeenCalledTimes(100);
-        expect(operationMocks.rotatePages.mock.calls.every(([pages]) => (
-            Array.isArray(pages) && pages.length <= 10_000
-        ))).toBe(true);
-        expect(operationMocks.rotatePages.mock.calls[0]?.[0]).toEqual(
-            Array.from({length: 10_000}, (_, index) => index + 1),
-        );
-        expect(operationMocks.rotatePages.mock.calls.at(-1)?.[0]).toEqual(
-            Array.from({length: 10_000}, (_, index) => 990_001 + index),
+        expect(operationMocks.rotatePages).toHaveBeenCalledOnce();
+        expect(operationMocks.rotatePages).toHaveBeenCalledWith(
+            selectedPageSelection.value,
+            1_000_000,
+            90,
         );
     });
 

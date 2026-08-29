@@ -10,7 +10,11 @@ import type {
 } from '@app/types/annotations';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { ICropMargins } from '@app/types/crop';
-import type { TPageMoveOperation } from '@contracts/pageNumbers';
+import type {
+    TPageMoveOperation,
+    TPageSelection,
+} from '@contracts/pageNumbers';
+import { pageSelectionCount } from '@contracts/pageNumbers';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import type {
     TFitMode,
@@ -99,10 +103,11 @@ export interface ICreateWorkspaceExposeDeps extends
     handleInsertImageFromFile: () => Promise<void>;
     handlePasteImageFromClipboard: () => Promise<void>;
     selectedThumbnailPages: Ref<number[]>;
+    selectedPageSelection?: Ref<TPageSelection | null>;
     isPageOperationInProgress?: Ref<boolean>;
-    pageOpsDelete: (pages: number[], totalPages: number) => Promise<boolean>;
-    pageOpsExtract: (pages: number[]) => Promise<boolean>;
-    handlePageRotate: (pages: number[], angle: 90 | 270) => Promise<boolean>;
+    pageOpsDelete: (pages: number[] | TPageSelection, totalPages: number) => Promise<boolean>;
+    pageOpsExtract: (pages: number[] | TPageSelection) => Promise<boolean>;
+    handlePageRotate: (pages: number[] | TPageSelection, angle: 90 | 270) => Promise<boolean>;
     pageOpsInsert: (totalPages: number, afterPage: number) => Promise<boolean>;
     pageOpsReorder: (order: number[]) => Promise<boolean>;
     pageOpsMove: (move: TPageMoveOperation) => Promise<boolean>;
@@ -176,6 +181,20 @@ export interface ICreateWorkspaceExposeFromOwnersOptions {
 
 function getSelectedPages(selectedThumbnailPages: Ref<number[]>) {
     return selectedThumbnailPages.value;
+}
+
+function getSelectedPagePayload(deps: Pick<
+    ICreateWorkspaceExposeDeps,
+    'selectedPageSelection' | 'selectedThumbnailPages' | 'totalPages'
+>) {
+    const selection = deps.selectedPageSelection?.value;
+    return selection?.pageCount === deps.totalPages.value
+        ? selection
+        : getSelectedPages(deps.selectedThumbnailPages);
+}
+
+function selectedPagePayloadCount(payload: number[] | TPageSelection) {
+    return Array.isArray(payload) ? payload.length : pageSelectionCount(payload);
 }
 
 function normalizeToolbarSnapshotPage(page: number | undefined) {
@@ -332,7 +351,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             viewMode: deps.viewMode.value,
             currentPage,
             totalPages,
-            selectedPageCount: deps.selectedThumbnailPages.value.length,
+            selectedPageCount: selectedPagePayloadCount(getSelectedPagePayload(deps)),
             isPageOperationInProgress: deps.isPageOperationInProgress?.value ?? false,
         };
     }
@@ -510,26 +529,26 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             deps.viewMode.value = 'facing-first-single';
         },
         handleDeletePages: () => {
-            const pages = getSelectedPages(deps.selectedThumbnailPages);
-            if (pages.length > 0) {
+            const pages = getSelectedPagePayload(deps);
+            if (selectedPagePayloadCount(pages) > 0) {
                 void deps.pageOpsDelete(pages, deps.totalPages.value);
             }
         },
         handleExtractPages: () => {
-            const pages = getSelectedPages(deps.selectedThumbnailPages);
-            if (pages.length > 0) {
+            const pages = getSelectedPagePayload(deps);
+            if (selectedPagePayloadCount(pages) > 0) {
                 void deps.pageOpsExtract(pages);
             }
         },
         handleRotateCw: (explicitPages?: number[]) => {
-            const pages = explicitPages ?? getSelectedPages(deps.selectedThumbnailPages);
-            if (pages.length > 0) {
+            const pages = explicitPages ?? getSelectedPagePayload(deps);
+            if (selectedPagePayloadCount(pages) > 0) {
                 void deps.handlePageRotate(pages, 90);
             }
         },
         handleRotateCcw: (explicitPages?: number[]) => {
-            const pages = explicitPages ?? getSelectedPages(deps.selectedThumbnailPages);
-            if (pages.length > 0) {
+            const pages = explicitPages ?? getSelectedPagePayload(deps);
+            if (selectedPagePayloadCount(pages) > 0) {
                 void deps.handlePageRotate(pages, 270);
             }
         },

@@ -112,6 +112,14 @@ function formatPageList(pages: number[]) {
     return ranges.join(',');
 }
 
+function formatPageRangeList(ranges: readonly IPageMoveRangeSegment[]) {
+    return ranges
+        .map(range => range.startPage === range.endPage
+            ? String(range.startPage)
+            : `${range.startPage}-${range.endPage}`)
+        .join(',');
+}
+
 function formatComplementPageList(pagesToRemove: number[], totalPages: number) {
     const removePages = [...new Set(pagesToRemove)]
         .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= totalPages)
@@ -251,10 +259,11 @@ export async function assertNonEmptyPdfOutput(outputPath: string, operationLabel
     }
 }
 
-export async function extractPages(
+async function extractPageList(
     srcPath: string,
     destPath: string,
-    pages: number[],
+    pageList: string,
+    commandLabel: string,
     options: IQpdfOperationOptions = {},
 ) {
     const physicalReadPath = getWorkingCopyBackingEntry(srcPath, options.senderWebContentsId)
@@ -271,13 +280,13 @@ export async function extractPages(
             physicalReadPath,
             '--pages',
             physicalReadPath,
-            formatPageList(pages),
+            pageList,
             '--',
             qpdfOutput.outputPath,
         ], {
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-            commandLabel: 'qpdf(extract-pages)',
+            commandLabel,
             ...(options.signal ? { signal: options.signal } : {}),
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
@@ -292,6 +301,37 @@ export async function extractPages(
     } finally {
         await cleanupManagedQpdfOutput(qpdfOutput.tempDir);
     }
+}
+
+export async function extractPages(
+    srcPath: string,
+    destPath: string,
+    pages: number[],
+    options: IQpdfOperationOptions = {},
+) {
+    return extractPageList(
+        srcPath,
+        destPath,
+        formatPageList(pages),
+        'qpdf(extract-pages)',
+        options,
+    );
+}
+
+/** Extracts validated page ranges without expanding them into a dense page array. */
+export async function extractPageRanges(
+    srcPath: string,
+    destPath: string,
+    ranges: readonly IPageMoveRangeSegment[],
+    options: IQpdfOperationOptions = {},
+) {
+    return extractPageList(
+        srcPath,
+        destPath,
+        formatPageRangeList(ranges),
+        'qpdf(extract-page-ranges)',
+        options,
+    );
 }
 
 export async function deletePages(

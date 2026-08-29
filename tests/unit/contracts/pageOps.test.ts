@@ -57,6 +57,28 @@ describe('page ops platform feature schemas', () => {
         expect(codec.decodeArgs(codec.encodeArgs([...input]))).toEqual([...input]);
     });
 
+    it.each([
+        'delete',
+        'extract',
+    ] as const)('decodes 100,001 valid pages for %s transport', (method) => {
+        const pages = Array.from({length: 100_001}, (_, index) => index + 1);
+        const channel = channels[method];
+        const codec = codecs[channel]!;
+        const input = method === 'delete'
+            ? [
+                '/tmp/work.pdf',
+                pages,
+                100_002,
+                undefined,
+            ]
+            : [
+                '/tmp/work.pdf',
+                pages,
+            ];
+
+        expect(codec.decodeArgs(codec.encodeArgs(input))[1]).toEqual(pages);
+    });
+
     it('round-trips compact non-contiguous move ranges', () => {
         const input = [
             '/tmp/work.pdf',

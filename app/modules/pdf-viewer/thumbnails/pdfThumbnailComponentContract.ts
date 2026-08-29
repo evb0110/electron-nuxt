@@ -38,7 +38,9 @@ export interface IPdfThumbnailsEmits {
     'page-context-menu': [payload: {
         clientX: number;
         clientY: number;
+        clickedPage: number;
         pages: number[];
+        selection: TPageSelection;
     }];
     reorder: [newOrder: number[]];
     move: [move: TPageMoveOperation];

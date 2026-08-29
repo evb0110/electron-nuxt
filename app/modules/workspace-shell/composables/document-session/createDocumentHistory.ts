@@ -78,6 +78,8 @@ interface ICreateDocumentHistoryDeps {
     toPdfBlob: (snapshot: Uint8Array) => Blob;
 }
 
+// Retain 20 file states, so at most 19 page-operation transitions can be
+// undone. A batched page operation contributes one state after it succeeds.
 const MAX_HISTORY_ENTRIES = 20;
 // Annotation commands use the other 16 MiB half of the app-wide 32 MiB undo cap.
 const MAX_FILE_HISTORY_BYTES = 16 * 1024 * 1024;

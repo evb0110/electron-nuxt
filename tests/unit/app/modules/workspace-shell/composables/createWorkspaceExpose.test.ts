@@ -16,6 +16,7 @@ import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/creat
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentViewerNavigationPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { cast } from '@tests/helpers/cast';
+import { createRangePageSelection } from '@contracts/pageNumbers';
 
 function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[0]> = {}) {
     return cast<Parameters<typeof createWorkspaceExpose>[0]>({
@@ -106,6 +107,24 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
 }
 
 describe('createWorkspaceExpose', () => {
+    it('keeps a compact selection available to snapshots and page actions', () => {
+        const selection = createRangePageSelection(1_000_000, 2, 100_002);
+        const deps = createDeps({
+            totalPages: ref(1_000_000),
+            selectedThumbnailPages: ref([]),
+            selectedPageSelection: ref(selection),
+        });
+        const exposed = createWorkspaceExpose(deps);
+
+        expect(exposed.getToolbarSnapshot().selectedPageCount).toBe(100_001);
+        exposed.handleDeletePages();
+        exposed.handleExtractPages();
+        exposed.handleRotateCw();
+
+        expect(deps.pageOpsDelete).toHaveBeenCalledWith(selection, 1_000_000);
+        expect(deps.pageOpsExtract).toHaveBeenCalledWith(selection);
+        expect(deps.handlePageRotate).toHaveBeenCalledWith(selection, 90);
+    });
     it('reports inventory completeness beside the annotation list it qualifies', () => {
         const incompleteInventory: IAnnotationInventoryCompleteness = {
             complete: false,

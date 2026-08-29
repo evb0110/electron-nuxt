@@ -21,7 +21,6 @@ import {
     createExplicitPageSelection,
     createMappedPageSelection,
     invertPageSelection,
-    iteratePageSelectionBatches,
     iteratePageSelectionRanges,
     materializePageSelection,
     mapPageNumberAfterPageMove,
@@ -32,7 +31,6 @@ import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runDetached } from '@app/utils/asyncGuard';
 
 type TPageSelectionInput = number[] | TPageSelection;
-const PAGE_OPERATION_BATCH_SIZE = 10_000;
 const PAGE_OPERATION_RANGE_LIMIT = 100_000;
 
 interface IPdfViewerForPageOps {
@@ -58,7 +56,9 @@ export interface IPageOpsHandlersDeps {
     pdfViewerRef: Ref<IPdfViewerForPageOps | null>;
     pageContextMenu: Ref<{
         visible: boolean;
-        pages: number[]
+        clickedPage?: number | null;
+        pages: number[];
+        selection?: TPageSelection | null;
     }>;
     closePageContextMenu: () => void;
     onExportPages: (pages: TPageSelectionInput) => void;
@@ -176,16 +176,6 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
             : createExplicitPageSelection(expectedTotalPages, []);
     }
 
-    function iteratePageOperationBatches(
-        pages: TPageSelectionInput,
-        expectedTotalPages = totalPages.value,
-    ) {
-        return iteratePageSelectionBatches(
-            normalizePageSelectionInput(pages, expectedTotalPages),
-            {batchSize: PAGE_OPERATION_BATCH_SIZE},
-        );
-    }
-
     function publishPageSelection(selection: TPageSelection) {
         if (hasPageSelectionModel) {
             setSelectedPageSelection(selection);
@@ -291,26 +281,16 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                 return true;
             }
 
-            let deletedCount = 0;
-            for (const batch of iteratePageOperationBatches(selection, expectedTotalPages)) {
-                const pagesAfterPriorDeletes = batch.map(page => page - deletedCount);
-                const didDelete = await runStructuralPageMutation(
-                    () => pageOpsDelete(
-                        pagesAfterPriorDeletes,
-                        expectedTotalPages - deletedCount,
-                    ),
-                );
-                if (!didDelete) {
-                    return false;
-                }
-                deletedCount += batch.length;
+            const didDelete = await runStructuralPageMutation(
+                () => pageOpsDelete(selection, expectedTotalPages),
+            );
+            if (didDelete) {
+                publishPageSelection({
+                    kind: 'none',
+                    pageCount: expectedTotalPages - selectedCount,
+                });
             }
-
-            publishPageSelection({
-                kind: 'none',
-                pageCount: Math.max(0, expectedTotalPages - deletedCount),
-            });
-            return true;
+            return didDelete;
         }
         const deleted = new Set(pages);
         return runStructuralPageMutation(
@@ -372,33 +352,28 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (pageSelectionCount(selection) === 0) {
             return false;
         }
-        for (const batch of iteratePageOperationBatches(selection)) {
-            if (!await pageOpsExtract(batch)) {
-                return false;
-            }
-        }
-        return true;
+        return pageOpsExtract(selection);
     }
 
     function handlePageContextMenuDelete() {
-        const pages = pageContextMenu.value.pages;
+        const pages = pageContextMenu.value.selection ?? pageContextMenu.value.pages;
         closePageContextMenu();
         runPageOperationDetached('delete PDF pages', () => pageOpsDeleteAndClearSelection(pages, totalPages.value));
     }
 
     function handlePageContextMenuExtract() {
-        const pages = pageContextMenu.value.pages;
+        const pages = pageContextMenu.value.selection ?? pageContextMenu.value.pages;
         closePageContextMenu();
         runPageOperationDetached('extract PDF pages', () => pageOpsExtractWithDjvuGuard(pages));
     }
 
     function handlePageContextMenuExport() {
-        const pages = pageContextMenu.value.pages;
+        const pages = pageContextMenu.value.selection ?? pageContextMenu.value.pages;
         closePageContextMenu();
         if (isPdfPageOperationBlocked()) {
             return;
         }
-        onExportPages([...pages]);
+        onExportPages(Array.isArray(pages) ? [...pages] : pages);
     }
 
     async function handlePageRotate(pages: TPageSelectionInput, angle: 90 | 180 | 270) {
@@ -406,22 +381,16 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
             return false;
         }
         const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
-        let didRotate = true;
-        if (Array.isArray(pages)) {
-            didRotate = await pageOpsRotate(pages, totalPages.value, angle);
-        } else {
-            const selection = normalizePageSelectionInput(pages);
-            if (pageSelectionCount(selection) === 0) {
-                reloadWaiter.cancel();
-                return false;
-            }
-            for (const batch of iteratePageOperationBatches(selection)) {
-                if (!await pageOpsRotate(batch, totalPages.value, angle)) {
-                    didRotate = false;
-                    break;
-                }
-            }
+        const selection = normalizePageSelectionInput(pages);
+        if (pageSelectionCount(selection) === 0) {
+            reloadWaiter.cancel();
+            return false;
         }
+        const didRotate = await pageOpsRotate(
+            selection,
+            totalPages.value,
+            angle,
+        );
         if (!didRotate) {
             reloadWaiter.cancel();
             return false;
@@ -431,38 +400,38 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     }
 
     function handlePageContextMenuRotateCw() {
-        const pages = pageContextMenu.value.pages;
+        const pages = pageContextMenu.value.selection ?? pageContextMenu.value.pages;
         closePageContextMenu();
         runPageOperationDetached('rotate PDF pages', () => handlePageRotate(pages, 90));
     }
 
     function handlePageContextMenuRotateCcw() {
-        const pages = pageContextMenu.value.pages;
+        const pages = pageContextMenu.value.selection ?? pageContextMenu.value.pages;
         closePageContextMenu();
         runPageOperationDetached('rotate PDF pages', () => handlePageRotate(pages, 270));
     }
 
     function handlePageContextMenuInsertBefore() {
-        const pages = pageContextMenu.value.pages;
+        const clickedPage = pageContextMenu.value.clickedPage ?? pageContextMenu.value.pages[0];
         closePageContextMenu();
-        if (pages.length === 0) {
+        if (clickedPage === undefined) {
             return;
         }
         runPageOperationDetached(
             'insert PDF pages',
-            () => pageOpsInsertAndClearSelection(totalPages.value, Math.min(...pages) - 1),
+            () => pageOpsInsertAndClearSelection(totalPages.value, clickedPage - 1),
         );
     }
 
     function handlePageContextMenuInsertAfter() {
-        const pages = pageContextMenu.value.pages;
+        const clickedPage = pageContextMenu.value.clickedPage ?? pageContextMenu.value.pages[0];
         closePageContextMenu();
-        if (pages.length === 0) {
+        if (clickedPage === undefined) {
             return;
         }
         runPageOperationDetached(
             'insert PDF pages',
-            () => pageOpsInsertAndClearSelection(totalPages.value, Math.max(...pages)),
+            () => pageOpsInsertAndClearSelection(totalPages.value, clickedPage),
         );
     }
 

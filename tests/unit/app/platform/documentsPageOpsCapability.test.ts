@@ -10,7 +10,7 @@ import {
     degrees,
 } from 'pdf-lib';
 import {
-    BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES,
+    BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES,
     BROWSER_PAGE_OP_MOVE_MAX_PAGES,
     createBrowserPageOpsCapability,
 } from '@app/platform/browser-api/createBrowserPageOpsCapability';
@@ -182,6 +182,19 @@ describe('createBrowserPageOpsCapability', () => {
         expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
     });
 
+    it('applies the browser materialization cap to dense page selections', async () => {
+        const pageOps = createPageOps({});
+        const pages = Array.from({length: 10_001}, (_, index) => index + 1);
+
+        await expect(pageOps.rotate(
+            'browser://documents/work.pdf',
+            pages,
+            10_001,
+            90,
+        )).rejects.toMatchObject({code: 'too-large'});
+        expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
+    });
+
     it('rejects non-permutation reorder payloads instead of partially reordering pages', async () => {
         const pdfDocument = await PDFDocument.create();
         pdfDocument.addPage();
@@ -224,11 +237,11 @@ describe('createBrowserPageOpsCapability', () => {
             'browser://documents/work.pdf',
             [{
                 startPage: 2,
-                endPage: BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES + 2,
+                endPage: BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES + 2,
             }],
-            BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES + 2,
+            BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES + 2,
         )).rejects.toThrow(
-            `Deleting page ranges in the browser is limited to ${BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES} pages`,
+            `Deleting page ranges in the browser is limited to ${BROWSER_PAGE_OP_SELECTION_MATERIALIZATION_MAX_PAGES} pages`,
         );
         expect(browserDocumentStoreMock.stat).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();

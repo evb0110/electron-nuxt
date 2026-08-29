@@ -102,7 +102,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         emit,
     } = deps;
     const { t } = useTypedI18n();
-
     const fileLifecycle = useWorkspaceFileLifecycleController({
         analyticsDocumentScope: deps.analyticsDocumentScope,
         openSurface: deps.openSurface,
@@ -858,6 +857,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         totalPages,
         currentPage,
         selectedPages: selectedThumbnailPages,
+        selectedPageSelection,
         sourcePdf: pdfSrc,
         workingCopyPath,
         fileName,
