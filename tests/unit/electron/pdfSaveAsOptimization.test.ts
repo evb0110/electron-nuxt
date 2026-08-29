@@ -121,7 +121,7 @@ describe('pdfSaveAsOptimization', () => {
             ],
             expect.objectContaining({ commandLabel: 'qpdf(save-as-optimize)' }),
         );
-        expect(mocks.validatePdfFile).toHaveBeenCalledWith(optimizedPath);
+        expect(mocks.validatePdfFile).toHaveBeenCalledWith(optimizedPath, {});
         expect(mocks.atomicReplace).toHaveBeenCalledWith(optimizedPath, tempPath);
         expect(readFileSyncUtf8(tempPath)).toBe('small');
         expect(existsSync(optimizedPath)).toBe(false);
@@ -140,7 +140,7 @@ describe('pdfSaveAsOptimization', () => {
             .resolves
             .toMatchObject({ isValid: true });
 
-        expect(mocks.validatePdfFile).toHaveBeenCalledWith(optimizedPath);
+        expect(mocks.validatePdfFile).toHaveBeenCalledWith(optimizedPath, {});
         expect(mocks.atomicReplace).toHaveBeenCalledWith(optimizedPath, tempPath);
         expect(readFileSyncUtf8(tempPath)).toBe('larger-pdf');
         expect(existsSync(optimizedPath)).toBe(false);

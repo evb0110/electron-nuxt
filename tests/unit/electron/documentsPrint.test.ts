@@ -309,7 +309,7 @@ describe('documents print', () => {
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps the macOS PDF plugin window hidden until its surface settles', async () => {
+    it.runIf(process.platform === 'darwin')('keeps the macOS PDF plugin window hidden until its surface settles', async () => {
         vi.useFakeTimers();
         const resultPromise = handlePrintPdfPath(
             windowContext,
