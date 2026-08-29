@@ -186,7 +186,7 @@ describe('workingCopy', () => {
             getWorkingCopyRole,
         } = await import('@electron/file-access/workingCopyStore');
         const {originalPathSaveBaseMatches} = await import(
-            '@electron/features/documents/main/originalPathSaveBaseMatches'
+            '@electron/file-access/originalPathSaveWitness'
         );
         const originalPath = join(tempRoot, 'witness-original.pdf');
         const originalBytes = Buffer.from('%PDF-1.7\noriginal witness\n');

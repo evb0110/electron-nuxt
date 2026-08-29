@@ -60,7 +60,7 @@ import {
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import {captureOriginalPathSaveWitness} from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import {createNativeIncrementalMutationSemanticScopeSha256} from '@electron/features/documents/main/documentSaveUtilityProtocol';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';

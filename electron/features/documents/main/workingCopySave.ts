@@ -46,7 +46,7 @@ import {
     assertQueuedWorkingCopyMutationPreconditionsForResync,
 } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
-import {captureOriginalPathSaveWitness} from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';

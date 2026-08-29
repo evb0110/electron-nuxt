@@ -35,7 +35,7 @@ async function fsyncPath(filePath: string) {
     }
 }
 
-async function fsyncParentDirectory(filePath: string) {
+export async function fsyncParentDirectory(filePath: string) {
     if (process.platform === 'win32') {
         return;
     }

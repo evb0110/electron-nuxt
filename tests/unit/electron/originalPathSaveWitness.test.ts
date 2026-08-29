@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({getWorkingCopyOriginalFileExpectation: vi.fn()}
 
 vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyOriginalFileExpectation: mocks.getWorkingCopyOriginalFileExpectation}));
 
-const {originalPathSaveBaseMatches} = await import('@electron/features/documents/main/originalPathSaveBaseMatches');
+const {originalPathSaveBaseMatches} = await import('@electron/file-access/originalPathSaveWitness');
 
 async function captureExpectation(path: string) {
     const fileStat = await stat(path, {bigint: true});

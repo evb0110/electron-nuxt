@@ -54,7 +54,7 @@ import {
     normalizePathForLookup,
     refreshWorkingCopyOriginalFileExpectation,
 } from '@electron/file-access/workingCopyStore';
-import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import { originalPathSaveBaseMatches } from '@electron/file-access/originalPathSaveWitness';
 import { findPendingOcrResultFileForPath } from '@electron/ocr/createPendingResultFileStore';
 import { rebindDocumentTextCatalogRevision } from '@electron/ocr/documentTextCatalog';
 import {parseOcrCatalogV4PreparedDescriptor} from '@contracts/ocrIndex';

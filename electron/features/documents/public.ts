@@ -17,6 +17,3 @@ export { sweepStalePdfAnnotationIndexArtifacts } from '@electron/features/docume
 export { sweepStalePdfEmbeddedShapeIndexArtifacts } from '@electron/features/documents/main/pdfEmbeddedShapeIndex';
 export { registerDocumentRevisionEventBridge } from '@electron/features/documents/main/registerDocumentRevisionEventBridge';
 export { registerDocumentRevisionInvalidationEffects } from '@electron/features/documents/main/registerDocumentRevisionInvalidationEffects';
-export {
-    assertPathMatchesSaveWitnessSnapshot, capturePathSaveWitness, type IOriginalPathSaveJournalSnapshot, OriginalPathSaveConflictError, 
-} from '@electron/features/documents/main/originalPathSaveBaseMatches';

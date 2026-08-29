@@ -15,7 +15,7 @@ import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import {
     OriginalPathSaveConflictError,
     type IOriginalPathSaveWitness,
-} from '@electron/features/documents/main/originalPathSaveBaseMatches';
+} from '@electron/file-access/originalPathSaveWitness';
 
 function journalPath(workingCopyPath: string) {
     return `${workingCopyPath}.evb-two-target-transition.json`;

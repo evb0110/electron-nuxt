@@ -106,7 +106,7 @@ vi.mock('@electron/file-access/documentMutationGuards', () => ({
         options?.expectedDocumentRevisionToken?.trim() ?? null,
 }));
 
-vi.mock('@electron/features/documents/main/originalPathSaveBaseMatches', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
+vi.mock('@electron/file-access/originalPathSaveWitness', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
 
 vi.mock('@electron/ocr/documentTextCatalog', () => ({rebindDocumentTextCatalogRevision: (...args: unknown[]) => mocks.rebindDocumentTextCatalogRevision(...args)}));
 

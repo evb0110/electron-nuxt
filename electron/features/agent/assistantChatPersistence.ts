@@ -49,6 +49,7 @@ import {
     type TAssistantTurnOwnerState,
     isAssistantTurnActive,
 } from '@electron/features/agent/assistantTurnLifecycle';
+import {fsyncParentDirectory} from '@electron/utils/atomicReplace';
 
 const ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION = 1;
 const ASSISTANT_CHAT_STORAGE_DIR = 'assistant-chat';
@@ -134,7 +135,7 @@ interface IPendingAssistantChatSnapshot {
     timer: ReturnType<typeof setTimeout> | null;
 }
 
-function readBoundedIntegerEnv(name: string, fallback: number, minimum: number, maximum?: number) {
+export function readBoundedIntegerEnv(name: string, fallback: number, minimum: number, maximum?: number) {
     const parsed = Number.parseInt(process.env[name] ?? `${fallback}`, 10);
     if (!Number.isFinite(parsed) || parsed < minimum) {
         return fallback;
@@ -221,22 +222,6 @@ function fsyncSyncBestEffort(fd: number) {
         fsyncSync(fd);
     } catch {
         // best effort
-    }
-}
-
-async function fsyncParentDirectory(filePath: string) {
-    if (process.platform === 'win32') {
-        return;
-    }
-
-    let handle: Awaited<ReturnType<typeof open>> | null = null;
-    try {
-        handle = await open(dirname(filePath), fsConstants.O_RDONLY);
-        await handle.sync();
-    } catch {
-        return;
-    } finally {
-        await handle?.close().catch(() => undefined);
     }
 }
 

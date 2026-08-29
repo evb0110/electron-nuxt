@@ -31,7 +31,10 @@ import {
     type IAssistantSessionScopeBinding,
     type TAssistantTurnOwnerState,
 } from '@electron/features/agent/assistantTurnLifecycle';
-import { AssistantChatPersistence } from '@electron/features/agent/assistantChatPersistence';
+import {
+    AssistantChatPersistence,
+    readBoundedIntegerEnv,
+} from '@electron/features/agent/assistantChatPersistence';
 
 export interface IAssistantChatSession {
     provider: TAgentAssistantProviderId;
@@ -73,14 +76,6 @@ const DEFAULT_SELECTION = {
     effort: ASSISTANT_DEFAULT_EFFORT,
     speedMode: ASSISTANT_DEFAULT_SPEED_MODE,
 } as const satisfies IAssistantSelection;
-
-function readBoundedIntegerEnv(name: string, fallback: number, minimum: number, maximum?: number) {
-    const parsed = Number.parseInt(process.env[name] ?? `${fallback}`, 10);
-    if (!Number.isFinite(parsed) || parsed < minimum) {
-        return fallback;
-    }
-    return maximum === undefined ? parsed : Math.min(parsed, maximum);
-}
 
 function readAssistantChatSessionMaxEntries() {
     return readBoundedIntegerEnv('EVB_ASSISTANT_CHAT_SESSION_MAX_ENTRIES', 32, 1, 512);

@@ -85,7 +85,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
         const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
         const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
-        const {originalPathSaveBaseMatches} = await import('@electron/features/documents/main/originalPathSaveBaseMatches');
+        const {originalPathSaveBaseMatches} = await import('@electron/file-access/originalPathSaveWitness');
 
         await expect(transitionOriginalAndWorkingCopyRevision({
             workingCopyPath,
@@ -167,7 +167,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         const externalPath = join(tempRoot, 'external.pdf');
         await writeFile(externalPath, 'external-original');
         const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
-        const {captureOriginalPathSaveWitness} = await import('@electron/features/documents/main/originalPathSaveBaseMatches');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
         const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
 
         await expect(transitionOriginalAndWorkingCopyRevision({
@@ -310,7 +310,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
         const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
         const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
-        const {captureOriginalPathSaveWitness} = await import('@electron/features/documents/main/originalPathSaveBaseMatches');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
 
         await expect(transitionOriginalAndWorkingCopyRevision({
             workingCopyPath,
@@ -367,7 +367,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         const releasePublication = deferred();
         const {atomicReplace} = await import('@electron/utils/atomicReplace');
         const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
-        const {captureOriginalPathSaveWitness} = await import('@electron/features/documents/main/originalPathSaveBaseMatches');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
 
         const transition = transitionOriginalAndWorkingCopyRevision({
             workingCopyPath,

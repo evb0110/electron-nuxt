@@ -16,7 +16,7 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-import {capturePathSaveWitness} from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import {capturePathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import type * as DocumentFileWriteAtomicModule from '@electron/file-access/documentFileWriteAtomic';
 import {writeWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
 

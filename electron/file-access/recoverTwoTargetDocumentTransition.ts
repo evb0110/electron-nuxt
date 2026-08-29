@@ -10,7 +10,7 @@ import {
     capturePathSaveWitness,
     type IOriginalPathSaveJournalSnapshot,
     OriginalPathSaveConflictError,
-} from '@electron/features/documents/public';
+} from '@electron/file-access/originalPathSaveWitness';
 
 function journalPath(workingCopyPath: string) {
     return `${workingCopyPath}.evb-two-target-transition.json`;

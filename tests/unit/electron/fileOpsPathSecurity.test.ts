@@ -154,7 +154,7 @@ vi.mock('@electron/file-access/documentMutationGuards', () => ({
     normalizeExpectedDocumentRevisionToken: (options?: { expectedDocumentRevisionToken?: string | null; } | null) =>
         options?.expectedDocumentRevisionToken?.trim() ?? null,
 }));
-vi.mock('@electron/features/documents/main/originalPathSaveBaseMatches', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
+vi.mock('@electron/file-access/originalPathSaveWitness', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
 vi.mock('@electron/djvu/viewing', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 vi.mock('@electron/ocr/createPendingResultFileStore', () => ({findPendingOcrResultFileForPath: mocks.findPendingOcrResultFileForPath}));
 vi.mock('@electron/ocr/documentTextCatalog', () => ({rebindDocumentTextCatalogRevision: vi.fn()}));

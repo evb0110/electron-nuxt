@@ -76,7 +76,7 @@ import {
 } from '@electron/file-access/documentRevisionStore';
 import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
-import {captureOriginalPathSaveWitness} from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
 import {
