@@ -199,6 +199,9 @@ export interface IWorkspacePageOpsPort {
     handleRotateCw: (pages?: number[]) => void;
     handleRotateCcw: (pages?: number[]) => void;
     handleInsertPages: () => void;
+    handlePageDelete: (pages: number[]) => void;
+    handlePageReorder: (order: number[]) => void;
+    handlePageMove: (move: TPageMoveOperation) => void;
     pageOpsDelete: (pages: number[], totalPages: number) => Promise<boolean>;
     handlePageRotate: (pages: number[], angle: 90 | 270) => Promise<boolean>;
     pageOpsInsert: (totalPages: number, afterPage: number) => Promise<boolean>;

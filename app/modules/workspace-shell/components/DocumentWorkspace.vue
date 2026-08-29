@@ -1390,6 +1390,9 @@ const {
 const workspaceExpose = createWorkspaceExposeFromOwners({
     orchestration,
     ensurePdfProjectionForEdit: ensureEditProjection,
+    handlePageDelete,
+    handlePageReorder,
+    handlePageMove,
     handleSave: handleSaveWithAutomationEvent,
     handleOptimizePdfForInteraction: () => Promise.resolve(openOptimizePdfForInteractionDialog()),
     handleSaveAs,

@@ -107,6 +107,9 @@ export interface ICreateWorkspaceExposeDeps extends
     pageOpsReorder: (order: number[]) => Promise<boolean>;
     pageOpsMove: (move: TPageMoveOperation) => Promise<boolean>;
     handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
+    handlePageDelete: (pages: number[]) => void;
+    handlePageReorder: (order: number[]) => void;
+    handlePageMove: (move: TPageMoveOperation) => void;
     ensurePdfProjectionForEdit?: () => Promise<boolean>;
     pageLabels: Ref<string[] | null>;
     pageLabelRanges: Ref<IPdfPageLabelRange[]>;
@@ -166,6 +169,9 @@ export interface ICreateWorkspaceExposeFromOwnersOptions {
     runAgentAction: ICreateWorkspaceExposeDeps['runAgentAction'];
     readAgentResource: ICreateWorkspaceExposeDeps['readAgentResource'];
     ensurePdfProjectionForEdit?: ICreateWorkspaceExposeDeps['ensurePdfProjectionForEdit'];
+    handlePageDelete: ICreateWorkspaceExposeDeps['handlePageDelete'];
+    handlePageReorder: ICreateWorkspaceExposeDeps['handlePageReorder'];
+    handlePageMove: ICreateWorkspaceExposeDeps['handlePageMove'];
 }
 
 function getSelectedPages(selectedThumbnailPages: Ref<number[]>) {
@@ -638,6 +644,9 @@ export function createWorkspaceExposeFromOwners(
         ...(options.ensurePdfProjectionForEdit === undefined
             ? {}
             : {ensurePdfProjectionForEdit: options.ensurePdfProjectionForEdit}),
+        handlePageDelete: options.handlePageDelete,
+        handlePageReorder: options.handlePageReorder,
+        handlePageMove: options.handlePageMove,
         pdfAutomationViewerRef: viewerShell.pdfViewerRef,
         hasPreservedAnnotationSourceChanges: annotationSession.hasPreservedAnnotationSourceChanges,
         handleOcrComplete: payload => saveWorkflow.handleOcrComplete(

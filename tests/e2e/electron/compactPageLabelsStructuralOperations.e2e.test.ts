@@ -221,9 +221,20 @@ async function waitForTotalPages(session: IElectronE2ESession, totalPages: numbe
 }
 
 async function runCommand<T>(session: IElectronE2ESession, name: string, args: unknown[]) {
-    if (name === 'handleSave') {
+    if ([
+        'handleSave',
+        'handlePageDelete',
+        'handlePageReorder',
+        'handlePageMove',
+    ].includes(name)) {
         const result = await callWorkspaceCommand<T>(session.page, name, args);
         expect(result.called, `${name} should be exposed`).toBe(true);
+        if (name === 'handleSave') {
+            return result.value;
+        }
+        await waitForPageOperation(session);
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
         return result.value;
     }
     const called = await session.page.evaluate((payload: {
@@ -278,10 +289,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
         ]);
         await waitForPageOperationComplete(session);
 
-        await runCommand(session, 'pageOpsDelete', [
-            [20],
-            PAGE_COUNT,
-        ]);
+        await runCommand(session, 'handlePageDelete', [[20]]);
         expected = expected.filter((_, index) => index !== 19);
         await waitForTotalPages(session, expected.length);
 
@@ -294,7 +302,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
             reorder[29]!,
         ];
         expected = reorder.map(page => expected[page - 1]!);
-        await runCommand(session, 'pageOpsReorder', [reorder]);
+        await runCommand(session, 'handlePageReorder', [reorder]);
 
         await runCommand(session, 'handleCropPages', [
             [40],
@@ -314,7 +322,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
         };
         const moved = expected.splice(move.startPage - 1, 1)[0]!;
         expected.splice(move.insertAt - 1, 0, moved);
-        await runCommand(session, 'pageOpsMove', [move]);
+        await runCommand(session, 'handlePageMove', [move]);
 
         await runCommand(session, 'pageOpsInsert', [
             expected.length,

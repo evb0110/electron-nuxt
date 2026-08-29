@@ -510,6 +510,27 @@ export const workspaceExposeCommandRegistry = defineWorkspaceExposeCommandRegist
         deferred: 'mountWaitBoolean',
     },
     {
+        name: 'handlePageDelete',
+        kind: 'async',
+        group: 'pageOps',
+        real: 'passthrough',
+        deferred: 'mountWaitVoid',
+    },
+    {
+        name: 'handlePageReorder',
+        kind: 'async',
+        group: 'pageOps',
+        real: 'passthrough',
+        deferred: 'mountWaitVoid',
+    },
+    {
+        name: 'handlePageMove',
+        kind: 'async',
+        group: 'pageOps',
+        real: 'passthrough',
+        deferred: 'mountWaitVoid',
+    },
+    {
         name: 'pageOpsDelete',
         kind: 'async',
         group: 'pageOps',
