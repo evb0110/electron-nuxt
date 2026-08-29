@@ -9,6 +9,7 @@ import { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/m
 import type { TWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { shouldProjectDocumentViewportScroll } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentViewportSessionState } from '@app/utils/document-viewer/chassis/documentOpenSurfaceReducer';
 import { createDocumentViewportWritePort } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
 import {
     createColdOpenProvisionalDocumentPageMetrics,
@@ -60,6 +61,17 @@ export function shouldRetainInactiveDocumentPageSourceLease(
         'healthy',
         'guarded',
     ].includes(pressureLevel);
+}
+export function resolveDocumentPageSourceReadyEdgeSemanticPage(
+    viewportSession: Pick<
+        IDocumentViewportSessionState,
+        'lifecycle' | 'requestedPage' | 'committedPage' | 'observedPage'
+    >,
+) {
+    if (viewportSession.lifecycle !== 'ready' || viewportSession.observedPage !== null) {
+        return null;
+    }
+    return viewportSession.committedPage ?? viewportSession.requestedPage;
 }
 export const useDocumentPageSourceRuntime = (options: {
     emit: IDocumentPageSourceFeaturePackEmit;
@@ -507,6 +519,19 @@ export const useDocumentPageSourceRuntime = (options: {
                 viewportSession[0] === 'ready'
                 && previousViewportSession?.[0] !== 'ready'
             ) {
+                const semanticPage = chassisAuthority
+                    ? resolveDocumentPageSourceReadyEdgeSemanticPage(
+                        chassisAuthority.openSurface.viewportSession.value,
+                    )
+                    : null;
+                if (semanticPage !== null) {
+                    // The target render and viewport have just crossed their
+                    // ready fence. Its physical offset may still reflect
+                    // provisional geometry, so keep the committed semantic
+                    // page until trusted input records an observation.
+                    emit('update:currentPage', semanticPage);
+                    return;
+                }
                 syncCurrentPageFromViewport(false, true);
             }
         },
