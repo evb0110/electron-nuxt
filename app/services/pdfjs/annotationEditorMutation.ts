@@ -21,6 +21,67 @@ export function getStoredAnnotationEditor(
     return getAnnotationStorageEditor(pdfDocument, annotationElementId);
 }
 
+function editorAttachmentState(editor: IPdfjsEditor): boolean | null {
+    const isAttachedToDOM: unknown = Reflect.get(editor, 'isAttachedToDOM');
+    if (typeof isAttachedToDOM === 'boolean') {
+        return isAttachedToDOM;
+    }
+
+    const parent: unknown = Reflect.get(editor, 'parent');
+    if (parent !== undefined) {
+        return parent !== null;
+    }
+
+    const div = editor.div;
+    if (div) {
+        return div.isConnected;
+    }
+
+    return null;
+}
+
+function removeEditorWithFallback(
+    editor: IPdfjsEditor,
+    logDebug: (message: string, error: unknown) => void,
+) {
+    let removeAttempted = false;
+    try {
+        const remove = editor.remove;
+        if (typeof remove === 'function') {
+            removeAttempted = true;
+            remove.call(editor);
+        }
+        if (removeAttempted && editorAttachmentState(editor) !== true) {
+            return true;
+        }
+    }
+    catch (removeError) {
+        logDebug('editor.remove failed for annotation comment', removeError);
+    }
+
+    let deleteAttempted = false;
+    try {
+        const deleteMethod = editor.delete;
+        if (typeof deleteMethod === 'function') {
+            deleteAttempted = true;
+            deleteMethod.call(editor);
+        }
+        if (deleteAttempted && editorAttachmentState(editor) !== true) {
+            return true;
+        }
+    }
+    catch (legacyDeleteError) {
+        logDebug('editor.delete fallback failed for annotation comment', legacyDeleteError);
+    }
+
+    return (removeAttempted || deleteAttempted) && editorAttachmentState(editor) !== true;
+}
+
+function selectedEditorState(uiManager: AnnotationEditorUIManager): boolean | null {
+    const hasSelection: unknown = Reflect.get(uiManager, 'hasSelection');
+    return typeof hasSelection === 'boolean' ? hasSelection : null;
+}
+
 export function deleteEditorWithUiManager(
     uiManager: AnnotationEditorUIManager,
     editor: IPdfjsEditor | null,
@@ -40,31 +101,23 @@ export function deleteEditorWithUiManager(
             if (typeof commitOrRemove === 'function') {
                 commitOrRemove.call(uiManager);
             }
-            setSelectedEditor(uiManager, editor);
-            // PDF.js private uiManager.delete removes the selected annotation editor.
-            uiManager.delete();
-            deleted = true;
+            const selected = setSelectedEditor(uiManager, editor);
+            if (selected) {
+                // PDF.js private uiManager.delete removes the selected annotation editor.
+                uiManager.delete();
+                deleted = editorAttachmentState(editor) !== true;
+            }
+            if (!deleted) {
+                // Some bundled PDF.js managers can return normally without deleting when
+                // selection was lost during commit. Never report a canonical tombstone
+                // while the live editor is still attached.
+                deleted = removeEditorWithFallback(editor, options.logDebug);
+            }
         }
     }
     catch (deleteError) {
         options.logDebug('uiManager.delete failed for annotation comment', deleteError);
-        try {
-            // PDF.js private editor.remove is the modern direct removal fallback.
-            editor?.remove?.();
-            deleted = true;
-        }
-        catch (removeError) {
-            options.logDebug('editor.remove failed for annotation comment', removeError);
-            try {
-                // PDF.js private editor.delete is retained for older bundled editor implementations.
-                editor?.delete?.();
-                deleted = true;
-            }
-            catch (legacyDeleteError) {
-                options.logDebug('editor.delete fallback failed for annotation comment', legacyDeleteError);
-                deleted = false;
-            }
-        }
+        deleted = editor ? removeEditorWithFallback(editor, options.logDebug) : false;
     }
 
     return deleted;
@@ -75,9 +128,12 @@ export function deleteSelectedEditorWithUiManager(
     logDebug: (message: string, error: unknown) => void,
 ) {
     try {
+        if (selectedEditorState(uiManager) === false) {
+            return false;
+        }
         // PDF.js private uiManager.delete removes the currently selected annotation editor/comment.
         uiManager.delete();
-        return true;
+        return selectedEditorState(uiManager) !== true;
     } catch (selectionDeleteError) {
         logDebug('uiManager.delete failed for selected comment fallback', selectionDeleteError);
         return false;

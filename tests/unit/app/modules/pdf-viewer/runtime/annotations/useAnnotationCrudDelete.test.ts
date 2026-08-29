@@ -59,6 +59,7 @@ interface IFakeEditor {
     uid: string | null;
     annotationElementId: string | null;
     parentPageIndex: number;
+    isAttachedToDOM?: boolean;
     _editorType?: number | undefined;
     comment: string | { text?: string };
     div: HTMLElement | undefined;
@@ -71,6 +72,7 @@ interface IFakeEditor {
 interface IFakeUiManager {
     getMode: ReturnType<typeof vi.fn>;
     getEditors: ReturnType<typeof vi.fn>;
+    hasSelection?: boolean;
     getEditor?: ReturnType<typeof vi.fn>;
     getLayer?: ReturnType<typeof vi.fn>;
     setSelected: ReturnType<typeof vi.fn>;
@@ -87,6 +89,9 @@ function createFakeEditor(overrides: Partial<IFakeEditor> = {}): IFakeEditor {
         uid: overrides.uid ?? 'editor-1',
         annotationElementId: overrides.annotationElementId ?? null,
         parentPageIndex: overrides.parentPageIndex ?? 0,
+        ...(overrides.isAttachedToDOM === undefined
+            ? {}
+            : {isAttachedToDOM: overrides.isAttachedToDOM}),
         _editorType: overrides._editorType,
         comment: overrides.comment ?? '',
         div: overrides.div,
@@ -462,6 +467,36 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         expect(harness.emitAnnotationModified).toHaveBeenCalledTimes(1);
     });
 
+    it('removes a still-attached editor when uiManager.delete is a no-op', async () => {
+        const editor = createFakeEditor({
+            id: '44R',
+            uid: '44R',
+            annotationElementId: '44R',
+            parentPageIndex: 0,
+            isAttachedToDOM: true,
+        });
+        editor.remove.mockImplementation(() => {
+            editor.isAttachedToDOM = false;
+        });
+        const harness = await createHarness({ editors: [editor] });
+        harness.uiManager!.delete.mockImplementation(() => {});
+        const comment = createComment({
+            id: '44R',
+            stableKey: 'ann:0:44R',
+            annotationId: '44R',
+            uid: null,
+            source: 'pdf',
+            subtype: 'FreeText',
+        });
+
+        const result = await harness.crud.deleteAnnotationComment(comment);
+
+        expect(result).toBe(true);
+        expect(harness.uiManager?.delete).toHaveBeenCalledTimes(1);
+        expect(editor.remove).toHaveBeenCalledTimes(1);
+        expect(editor.isAttachedToDOM).toBe(false);
+    });
+
     it('falls back to legacy editor.delete when uiManager.delete and editor.remove both throw', async () => {
         const editor = createFakeEditor({
             id: 'editor-1',
@@ -650,6 +685,21 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         expect(result).toBe(true);
         expect(harness.uiManager?.delete).toHaveBeenCalled();
         expect(harness.emitAnnotationModified).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not report a selection fallback when PDF.js has no selected editor', async () => {
+        const harness = await createHarness({
+            editors: [],
+            commentToReturnFromCache: null,
+        });
+        harness.uiManager?.selectComment?.mockReturnValue(true);
+        harness.uiManager!.hasSelection = false;
+
+        const result = await harness.crud.deleteAnnotationComment(createComment());
+
+        expect(result).toBe(false);
+        expect(harness.uiManager?.delete).not.toHaveBeenCalled();
+        expect(harness.emitAnnotationModified).not.toHaveBeenCalled();
     });
 
     it('updates an imported PDF note through annotationStorage editor lookup', async () => {
