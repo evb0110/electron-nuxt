@@ -152,15 +152,24 @@ function labelsFromRanges(totalPages: number, ranges: readonly IPdfPageLabelRang
 
 async function waitForLabels(session: IElectronE2ESession, expected: readonly string[]) {
     await expect.poll(async () => {
-        const state = await readWorkspaceStateValues<{
+        let state: {
             pageLabels?: string[] | null;
             pageLabelRanges?: IPdfPageLabelRange[];
             pageLabelsResolved?: boolean;
-        }>(session.page, [
-            'pageLabels',
-            'pageLabelRanges',
-            'pageLabelsResolved',
-        ]);
+        };
+        try {
+            state = await readWorkspaceStateValues<{
+                pageLabels?: string[] | null;
+                pageLabelRanges?: IPdfPageLabelRange[];
+                pageLabelsResolved?: boolean;
+            }>(session.page, [
+                'pageLabels',
+                'pageLabelRanges',
+                'pageLabelsResolved',
+            ]);
+        } catch {
+            return null;
+        }
         if (state.pageLabelsResolved !== true || state.pageLabels !== null) {
             return null;
         }
