@@ -216,6 +216,32 @@ function createNativePlacedImage() {
     };
 }
 
+function createUnboundNativeMarkupMutation() {
+    return {markup: {
+        overrides: [],
+        hints: [{
+            subtype: 'Highlight' as const,
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.2,
+            },
+            color: '#facc15',
+            id: 'markup-identity-1',
+            pageMarkupIndex: 0,
+            source: 'editor-live' as const,
+            appAnnotationId: 'app-markup-identity-1',
+        }],
+    }};
+}
+
+const nativeMarkupIdentityBinding = {
+    annotationId: 'app-markup-identity-1',
+    pdfRef: '84 0 R',
+};
+
 function createOpaqueStagedArtifact(path: string): ITypedStagedArtifact {
     return {
         receiptVersion: 2,
@@ -878,6 +904,50 @@ describe('handleNativeNoteTextSave', () => {
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
 
+    it('returns the native identity report for newly allocated markup', async () => {
+        const {
+            requestedWorkingPath,
+            latestWorkingPath,
+            tempPath,
+        } = createOriginalMutationFixture();
+        mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            const identityBindingsPath = args[args.indexOf('--identity-bindings-file') + 1];
+            if (!identityBindingsPath) {
+                throw new Error('Missing identity bindings output path');
+            }
+            await Promise.all([
+                appendFile(tempPath, '\n% native markup identity'),
+                writeFile(identityBindingsPath, JSON.stringify([nativeMarkupIdentityBinding])),
+            ]);
+        });
+        const {handleNativePdfMutationsSave} = await import(
+            '@electron/features/documents/main/nativePdfMutationSaveHandlers'
+        );
+
+        const result = await handleNativePdfMutationsSave(
+            context,
+            requestedWorkingPath,
+            createUnboundNativeMarkupMutation(),
+            'D:20260609133855+03\'00\'',
+            revisionOptions,
+        );
+
+        expect(result).toMatchObject({
+            applied: true,
+            identityBindings: [nativeMarkupIdentityBinding],
+        });
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/native/evb-pdf-page-ops',
+            expect.arrayContaining([
+                '--identity-bindings-file',
+                expect.stringMatching(/identity-bindings\.json$/u),
+            ]),
+            expect.any(Object),
+        );
+        expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native markup identity');
+        expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
+    });
+
     it('refreshes only the requesting working copy when another current copy is queued', async () => {
         const {
             requestedWorkingPath,
@@ -1068,6 +1138,66 @@ describe('handleNativeNoteTextSave', () => {
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledTimes(2);
         expect(mocks.releaseManagedTempFileHandle.mock.invocationCallOrder[0])
             .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[1]!);
+    });
+
+    it('preserves native markup identity bindings through staged publication', async () => {
+        const workingPath = join(tempRoot, 'identity-staged-working.pdf');
+        const originalPath = join(tempRoot, 'identity-staged-original.pdf');
+        writeFileSync(workingPath, 'base-before');
+        writeFileSync(originalPath, 'base-before');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(workingPath);
+        mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            const outputPath = args[args.indexOf('--output') + 1];
+            const identityBindingsPath = args[args.indexOf('--identity-bindings-file') + 1];
+            if (!outputPath || !identityBindingsPath) {
+                throw new Error('Missing native staged identity output path');
+            }
+            await Promise.all([
+                appendFile(outputPath, '\n% staged native markup identity'),
+                writeFile(identityBindingsPath, JSON.stringify([nativeMarkupIdentityBinding])),
+            ]);
+        });
+        const {
+            handleCommitStagedPdfNativeMutations,
+            handleNativePdfMutationsApplyToWorkingCopy,
+        } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
+
+        const staged = await handleNativePdfMutationsApplyToWorkingCopy(
+            context,
+            workingPath,
+            createUnboundNativeMarkupMutation(),
+            'D:20260609133855+03\'00\'',
+            revisionOptions,
+        );
+
+        expect(staged).toMatchObject({
+            applied: true,
+            identityBindings: [nativeMarkupIdentityBinding],
+        });
+        if (!staged.stagedOutput) {
+            throw new Error('Expected native staged markup output');
+        }
+        if (!staged.identityBindings) {
+            throw new Error('Expected native staged markup identity bindings');
+        }
+
+        const committed = await handleCommitStagedPdfNativeMutations(
+            context,
+            workingPath,
+            staged.stagedOutput,
+            {
+                ...revisionOptions,
+                identityBindings: staged.identityBindings,
+            },
+        );
+
+        expect(committed).toMatchObject({
+            applied: true,
+            identityBindings: [nativeMarkupIdentityBinding],
+        });
+        expect(readFileSyncUtf8(workingPath)).toContain('% staged native markup identity');
+        expect(readFileSyncUtf8(originalPath)).toContain('% staged native markup identity');
     });
 
     it('reports a post-commit expectation refresh failure after releasing the staged artifact', async () => {
