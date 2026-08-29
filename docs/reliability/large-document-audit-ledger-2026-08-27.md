@@ -46,6 +46,11 @@ assign and sequence the work.
 
 Distinct finding count: **103**.
 
+Acceptance follow-up for issue #134: the strict FreeText pointer helper now
+uses the shared 30-second readiness timeout for slow large-fixture editor
+creation and text visibility. Exact-fixture timing and heartbeat evidence
+remain open until quiet-host runs complete.
+
 Ambiguous deduplication decisions:
 
 - `SAV-008` combines the full-audit original-path race with the native report's

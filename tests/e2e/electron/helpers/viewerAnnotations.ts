@@ -1331,7 +1331,7 @@ export async function createFreeTextAnnotationWithPointer(
         const editor = editors[editors.length - 1];
         const editable = editor?.querySelector<HTMLElement>('[contenteditable="true"], .internal[contenteditable="true"]');
         return Boolean(editable && (editable === document.activeElement || editable.contains(document.activeElement)));
-    }, {timeout: 10_000}, before);
+    }, {timeout: DEFAULT_TIMEOUT_MS}, before);
 
     await page.keyboard.type(text, {delay: 10});
     await page.waitForFunction((expectedText: string) => {
@@ -1341,7 +1341,7 @@ export async function createFreeTextAnnotationWithPointer(
         ) ?? []);
         const latest = editors[editors.length - 1];
         return (latest?.textContent ?? '').replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText;
-    }, {timeout: 10_000}, text);
+    }, {timeout: DEFAULT_TIMEOUT_MS}, text);
     await page.keyboard.press('Escape');
 
     return getOrdinaryFreeTextEditorCount(page);
