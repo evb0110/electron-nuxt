@@ -1,0 +1,109 @@
+tests/e2e/electron/squigglyMarkup.e2e.test.ts
+  s_b2ece6dfe48478::t_81c9382326ee28 7,76,164,169
+  s_b2ece6dfe48478::t_10e81c2ce2c707 100-104,106-123,133-144,184-199,234
+  s_b2ece6dfe48478::t_fc629af95c001d 183,200,207,213,217-218,227-233,235-236,259
+  s_b2ece6dfe48478::t_33b92da9fc4e2b 219-224,237-242
+  s_b2ece6dfe48478::t_d281e8d5c24c24 105,124-132
+  s_b2ece6dfe48478::t_0756fee8ddb237 225-226,243-244
+packages/contracts/nativePdfMutations.ts
+  s_b2ece6dfe48478::t_d1be9f70ba75a2 56,211-225,834
+  s_b2ece6dfe48478::t_0127a3dcc842e2 226-238,859-865
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts
+  s_b2ece6dfe48478::t_725770dce809f2 77,408-411,441
+native/pdf-page-ops/src/input.rs
+  s_b2ece6dfe48478::t_e5e73c07329c4e 411-423
+  s_b2ece6dfe48478::t_4684df879abf32 379-392
+  s_b2ece6dfe48478::t_25846afe1cb849 393-394,424-425
+packages/contracts/electronApiDocuments.ts
+  s_b2ece6dfe48478::t_d1be9f70ba75a2 644-645
+app/modules/pdf-viewer/runtime/save/nativeMarkupMutations.ts
+  s_b2ece6dfe48478::t_af2e7fd6d5e808 78-81,86-87
+  s_b2ece6dfe48478::t_24d32ab05d1742 88
+  s_b2ece6dfe48478::t_adf9f2edc448dc 75,77
+  s_b2ece6dfe48478::t_bd22cec6f189c6 13,69-74
+  s_b2ece6dfe48478::t_abe4153aff555b 76
+tests/unit/app/composables/pdfSerializationSubtypeHints.test.ts
+  s_b2ece6dfe48478::t_a1f8aa537e33e8 41-54,101-107
+  s_b2ece6dfe48478::t_3b192cf687feca 108-114
+app/modules/pdf-viewer/annotations/annotationApplication.ts
+  s_b2ece6dfe48478::t_9c0e808fa3a710 403-405,451
+app/modules/pdf-viewer/engine/serialization/pdf-serialization-markup/applyMarkupSubtypeRewrites.ts
+  s_b2ece6dfe48478::t_24d32ab05d1742 122
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_b2ece6dfe48478::t_3793e612f48040 103-112,347-372,377-407
+  s_b2ece6dfe48478::t_ff369aa5eeda45 373-376
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_b2ece6dfe48478::t_8b45b6af5edbc0 480
+  s_b2ece6dfe48478::t_43bcea27d25663 488-494
+  s_b2ece6dfe48478::t_e49cbb62414dbf 485,545
+  s_b2ece6dfe48478::t_b11c5ceda379c2 497-500
+  s_b2ece6dfe48478::t_0ea09b4819c18b 581,596-600
+  s_b2ece6dfe48478::t_c7bca9d20093b8 575-576
+  s_b2ece6dfe48478::t_a147a3c11fbd27 141
+  s_b2ece6dfe48478::t_060664a943c463 467-479,481-484,486-487,495-496,501-532,543-544,546
+  s_b2ece6dfe48478::t_a25e3ce93f7325 636-643,651,666-672,693-696
+  s_b2ece6dfe48478::t_e7a1ea158fc391 574,577-580,582-595
+native/pdf-page-ops/src/types.rs
+  s_b2ece6dfe48478::t_dd4dd308e5f9b2 46-53,77,80-81,856
+  s_b2ece6dfe48478::t_9d9a39a63146f6 54-76,78-79
+  s_b2ece6dfe48478::t_294d825c419b1a 857-858
+  s_b2ece6dfe48478::t_c944875e5f7e6b 82-131,828
+native/pdf-page-ops/src/markup.rs
+  s_b2ece6dfe48478::t_c57087d77dfe96 256-307,314-315,317-324,327-329,331-361,365-454
+  s_b2ece6dfe48478::t_c89717e273ae17 309-313,316,325
+  s_b2ece6dfe48478::t_b6ab3511faf243 635-644,704-718,721-727,754-769,832-860,898-901,953-962
+  s_b2ece6dfe48478::t_48f70936857e44 308,330
+  s_b2ece6dfe48478::t_af2e7fd6d5e808 326,362-364,719-720,895-897
+  s_b2ece6dfe48478::t_feeb178f2b2268 631-634
+native/pdf-page-ops/src/tests/markup_shapes.rs
+  s_b2ece6dfe48478::t_dd2d677e7ae49d 99-111,146,156-162
+  s_b2ece6dfe48478::t_cb20ba840d6101 79-98,112-145,163-169
+  s_b2ece6dfe48478::t_f0daa661e1ef1f 223
+  s_b2ece6dfe48478::t_4817d96ede6450 78,647-655,658-664
+  s_b2ece6dfe48478::t_d3fa5f86a3621b 219,224
+  s_b2ece6dfe48478::t_294d825c419b1a 40,288,344,420,623,758
+  s_b2ece6dfe48478::t_7e63e48121d5eb 665-687
+  s_b2ece6dfe48478::t_41193ad6a4fb09 1-7,147-155,245-249
+  s_b2ece6dfe48478::t_7eaa746b6e63d4 170-218,225-244,250-257
+  s_b2ece6dfe48478::t_199ed7ac891f01 656-657
+  s_b2ece6dfe48478::t_ea2f02e3c97d30 220-222
+tests/unit/app/services/pdf-save/nativePdfMutationProjection.test.ts
+  s_b2ece6dfe48478::t_2c67b8d63d4c69 297,336
+  s_b2ece6dfe48478::t_3d9fcd11c03285 269,280
+  s_b2ece6dfe48478::t_cd904da5bd58d8 27,341-365
+  s_b2ece6dfe48478::t_96c5b6683ddadc 366-367
+native/pdf-page-ops/src/postconditions.rs
+  s_b2ece6dfe48478::t_af2e7fd6d5e808 838-844,846,848-849,851,904-906
+  s_b2ece6dfe48478::t_c89717e273ae17 847
+  s_b2ece6dfe48478::t_6c901d4169e032 830,845,850,852-903,908-910
+tests/unit/contracts/nativePdfMutations.test.ts
+  s_b2ece6dfe48478::t_863e2ce6d49cdf 266-287,315
+  s_b2ece6dfe48478::t_33b92da9fc4e2b 301
+  s_b2ece6dfe48478::t_057e548428fef9 159-172,288-296,314
+  s_b2ece6dfe48478::t_94fa48b0086255 297-300,302-313
+app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes.ts
+  s_b2ece6dfe48478::t_015baf15d3ebe1 13-14
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState.ts
+  s_b2ece6dfe48478::t_6eadcfadb1722b 47,836,846-848
+  s_b2ece6dfe48478::t_c02b8d82bce4f7 1052-1054
+app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/collectMarkupSubtypeHints.ts
+  s_b2ece6dfe48478::t_015baf15d3ebe1 67,93-96
+native/pdf-page-ops/src/markup_hints.rs
+  s_b2ece6dfe48478::t_a30c81e6c613bf 398-401
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e711d0465734bfb33b9788e835d560888e978d49",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

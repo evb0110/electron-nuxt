@@ -1,0 +1,21 @@
+tests/e2e/electron/savePipeline.e2e.test.ts
+  s_b2ece6dfe48478::t_1f5e734a4f8afd 56-60
+  s_b2ece6dfe48478::t_5001a2299d7d08 268-272,277-278,291
+  s_b2ece6dfe48478::t_57584316d0b8b7 191-197,215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ca83c329e0151ab493ca596f36cc40a7f44bba31",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

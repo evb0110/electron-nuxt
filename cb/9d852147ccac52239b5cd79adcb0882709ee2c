@@ -1,0 +1,19 @@
+tests/unit/electron/ocrDocumentTextCatalogV4Consumer.test.ts
+  s_3f273936057f92::t_be8f6f9462a3e2 2,37-44,74,221-348
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "cb9d852147ccac52239b5cd79adcb0882709ee2c",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

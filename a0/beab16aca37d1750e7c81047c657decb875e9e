@@ -1,0 +1,19 @@
+tests/unit/electron/pageIdentitySidecarStreaming.test.ts
+  s_3f273936057f92::t_a0e996c6263afa 1-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a0beab16aca37d1750e7c81047c657decb875e9e",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

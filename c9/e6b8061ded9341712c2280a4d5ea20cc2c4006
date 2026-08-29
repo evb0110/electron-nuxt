@@ -1,0 +1,46 @@
+app/modules/pdf-viewer/annotations/domain/annotationStore.ts
+  s_b2ece6dfe48478::t_b091fc0c27124a 565-568
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_b2ece6dfe48478::t_2b7407e0e3007b 635-641,644-659,661-670,673-681,691,693-695
+  s_b2ece6dfe48478::t_338e0e7feb11b7 642-643,660,672,682-685,687,690
+  s_b2ece6dfe48478::t_1828ffedeb27c4 686,688-689,692
+  s_b2ece6dfe48478::t_d1700bfb3c5833 671
+tests/unit/app/modules/pdf-viewer/annotations/annotationApplication.test.ts
+  s_b2ece6dfe48478::t_a811f3bb171fd2 246-253
+  s_b2ece6dfe48478::t_633c04714b40c5 199-202
+  s_b2ece6dfe48478::t_874353b12b111e 211-245,254
+  s_b2ece6dfe48478::t_7566eea6a31742 210
+app/modules/pdf-viewer/annotations/annotationApplication.ts
+  s_b2ece6dfe48478::t_3cad30a3cb2fb3 205-210
+app/modules/pdf-viewer/runtime/save/nativeMarkupMutations.ts
+  s_b2ece6dfe48478::t_e92e969d326bf5 172-174
+  s_b2ece6dfe48478::t_2171ecb9ed1777 8-11,79-81,175
+  s_b2ece6dfe48478::t_9886533824f135 54-68,91-92
+  s_b2ece6dfe48478::t_f731ce6b4f10a2 75-78,82-88,90,93-96
+  s_b2ece6dfe48478::t_d1700bfb3c5833 89
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreEditorPresence.test.ts
+  s_b2ece6dfe48478::t_e5b7d0724b7e39 69,77-78,80,91-94
+  s_b2ece6dfe48478::t_0df7b5d50aa579 128,145,147
+  s_b2ece6dfe48478::t_a168cf0bc4af35 151-174
+  s_b2ece6dfe48478::t_881dfc2da781a7 216,219-222
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_b2ece6dfe48478::t_55d0f7726bbf6a 101
+app/modules/pdf-viewer/annotations/domain/projectAnnotationEditorPresence.ts
+  s_b2ece6dfe48478::t_e5b7d0724b7e39 20-25,27,31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c9e6b8061ded9341712c2280a4d5ea20cc2c4006",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

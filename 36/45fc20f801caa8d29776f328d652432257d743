@@ -1,0 +1,19 @@
+tests/unit/app/platform/browserPageOpsWasm.test.ts
+  s_3f273936057f92::t_ffd12580028824 18-19,22,24,599-853
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3645fc20f801caa8d29776f328d652432257d743",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

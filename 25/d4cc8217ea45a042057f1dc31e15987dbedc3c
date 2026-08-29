@@ -1,0 +1,31 @@
+tests/unit/app/utils/document-viewer/documentPageSource.test.ts
+  s_b2ece6dfe48478::t_0b83aa985ecbc1 315-365
+app/utils/document-viewer/thumbnails/useDocumentThumbnailController.ts
+  s_b2ece6dfe48478::t_79d581b607c3e1 371,604
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_b2ece6dfe48478::t_79d581b607c3e1 179
+app/utils/document-viewer/source/createDjvuPageSource.ts
+  s_b2ece6dfe48478::t_729f5f2d8ac138 150-161,172
+tests/helpers/document-viewer/documentThumbnailListHarness.ts
+  s_b2ece6dfe48478::t_6ab13561ed6597 59,273-276,278,286,304-306
+tests/unit/app/modules/document-viewer/documentThumbnailMetricsBudget.test.ts
+  s_b2ece6dfe48478::t_6ab13561ed6597 62-76
+app/modules/workspace-shell/components/DocumentSourceSidebar.vue
+  s_b2ece6dfe48478::t_79d581b607c3e1 17,80,108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "25d4cc8217ea45a042057f1dc31e15987dbedc3c",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

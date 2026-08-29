@@ -1,0 +1,19 @@
+tests/e2e/electron/helpers/fixtures.ts
+  s_b2ece6dfe48478::t_f364710e6823a2 1289-1290
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4f8004b35f12a5c06dad7955d89c09558370370c",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

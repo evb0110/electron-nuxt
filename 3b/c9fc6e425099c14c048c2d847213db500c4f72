@@ -1,0 +1,23 @@
+electron/file-access/pageIdentityStore.ts
+  s_3f273936057f92::t_7b0cdce932d2a5 57
+  s_3f273936057f92::t_159cabfc7f570b 492-493
+  s_3f273936057f92::t_aad1f0115c2837 506-515
+electron/file-access/pageIdentitySidecarStreaming.ts
+  s_3f273936057f92::t_18bcaecca80a64 90-105,113,130,148,153,164-172,191-194,224-225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3bc9fc6e425099c14c048c2d847213db500c4f72",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

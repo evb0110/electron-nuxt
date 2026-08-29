@@ -1,0 +1,25 @@
+native/pdf-page-ops/src/annotation_index.rs
+  s_3f273936057f92::t_1603e5b2e39f5e 426-441
+native/pdf-page-ops/src/input.rs
+  s_3f273936057f92::t_5860a4a7f1a635 670-809
+native/pdf-page-ops/src/page_sizes.rs
+  s_3f273936057f92::t_1f14924e775656 1133-1155
+tests/unit/contracts/nativePdfMutations.test.ts
+  s_3f273936057f92::t_e2e3ad94121c0c 294-415
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f786dca04fbc90ee7ca62c3199dee178ac08f828",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

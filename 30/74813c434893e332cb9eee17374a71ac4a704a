@@ -1,0 +1,48 @@
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_b2ece6dfe48478::t_649c21f7e5d643 52,265
+  s_b2ece6dfe48478::t_715048ed8d4c62 264
+  s_b2ece6dfe48478::t_b5e66761783e34 66,170
+  s_b2ece6dfe48478::t_15744b7caa23e1 266
+tests/unit/app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence.test.ts
+  s_b2ece6dfe48478::t_d4c29d8c2eada2 200-261
+app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence.ts
+  s_b2ece6dfe48478::t_2ae6f59b672e43 125-140
+app/modules/pdf-viewer/runtime/viewport/createPdfViewportUserNavigationEpochs.ts
+  s_b2ece6dfe48478::t_b5e66761783e34 10,50-51,54
+tests/unit/app/modules/pdf-viewer/runtime/viewport/createPdfViewportUserNavigationEpochs.test.ts
+  s_b2ece6dfe48478::t_b5e66761783e34 12,14,23-24,30
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_b2ece6dfe48478::t_b5e66761783e34 320,784-789
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfViewportSessionBehavior.test.ts
+  s_b2ece6dfe48478::t_649c21f7e5d643 600-603,612,617
+  s_b2ece6dfe48478::t_18d30c9bf3cae8 17,647
+  s_b2ece6dfe48478::t_ce457d6cf351bb 648
+app/modules/pdf-viewer/runtime/viewport/createViewportAuthority.ts
+  s_b2ece6dfe48478::t_b5e66761783e34 94-96,132,168
+  s_b2ece6dfe48478::t_649c21f7e5d643 58
+  s_b2ece6dfe48478::t_dfb91ce731efc5 86-93,97-131,206-208,212,221,228
+  s_b2ece6dfe48478::t_e7c01621de694e 54
+tests/unit/app/modules/pdf-viewer/viewportAuthority.test.ts
+  s_b2ece6dfe48478::t_ab4d0342529ba2 236-238
+  s_b2ece6dfe48478::t_649c21f7e5d643 205,207
+  s_b2ece6dfe48478::t_b5e66761783e34 183-196,208-216,239-240,244-245
+  s_b2ece6dfe48478::t_dfb91ce731efc5 179-182,197-204,206,218-230,232-234,241-243
+  s_b2ece6dfe48478::t_ce457d6cf351bb 217,231
+  s_b2ece6dfe48478::t_18d30c9bf3cae8 235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3074813c434893e332cb9eee17374a71ac4a704a",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

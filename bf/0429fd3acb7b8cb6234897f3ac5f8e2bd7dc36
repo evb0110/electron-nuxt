@@ -1,0 +1,19 @@
+tests/e2e/electron/helpers/createElectronE2ESessionFixture.ts
+  s_3f273936057f92::t_53cc1fa7f56450 75,157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "bf0429fd3acb7b8cb6234897f3ac5f8e2bd7dc36",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

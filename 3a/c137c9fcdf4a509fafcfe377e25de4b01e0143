@@ -1,0 +1,43 @@
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_5ac4a3281ca4f3::t_291b90e60978e3 149-159,791-857,859-860
+  s_5ac4a3281ca4f3::t_70921bb0cc95a3 2270-2271,2275-2284,2300
+  s_5ac4a3281ca4f3::t_cdef9496b36550 2326-2330,2522
+  s_5ac4a3281ca4f3::t_cb7e70499de93b 2291
+  s_5ac4a3281ca4f3::t_f95a3380344ad1 61,2261,2269,2272-2274
+  s_5ac4a3281ca4f3::t_515adc7b09fd62 1647-1655,1709-1715
+  s_5ac4a3281ca4f3::t_ea5485c5d6c22f 677-680,682-689
+  s_5ac4a3281ca4f3::t_7d20d183aa1f41 681
+  s_5ac4a3281ca4f3::t_34aa18ad11fa75 2246-2248,2285-2290,2292-2298,2349-2373,2411-2430,2531-2572,2574-2607
+  s_5ac4a3281ca4f3::t_1c9b490fedd821 1609-1616,1728-1730
+  s_5ac4a3281ca4f3::t_615897020d5db5 2260,2301-2304,2332,2347-2348,2523-2530
+  s_5ac4a3281ca4f3::t_4b024e8f6fba02 1672-1673,1682-1685,2299,2333-2345
+  s_5ac4a3281ca4f3::t_3b377b8679c96f 858
+  s_5ac4a3281ca4f3::t_f39a57d38b597f 861
+  s_5ac4a3281ca4f3::t_35ca39f9e2e723 1716
+app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.ts
+  s_5ac4a3281ca4f3::t_cdf5d22c268e6e 247
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_5ac4a3281ca4f3::t_f3cf9577d9937f 1278-1279,1362-1364
+  s_5ac4a3281ca4f3::t_23aef656293236 1277,1353
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_5ac4a3281ca4f3::t_09b3591e19f103 468-469,495-503,518-520,541-542
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_5ac4a3281ca4f3::t_56aaf5af9899e1 76-83,614-663
+  s_5ac4a3281ca4f3::t_200cde6c934c39 664-665
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3ac137c9fcdf4a509fafcfe377e25de4b01e0143",
+  "prompts": {},
+  "sessions": {
+    "s_5ac4a3281ca4f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03ed8-910f-7e80-beb6-34560db4138d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

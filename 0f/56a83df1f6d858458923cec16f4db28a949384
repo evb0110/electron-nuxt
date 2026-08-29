@@ -1,0 +1,35 @@
+app/modules/pdf-viewer/runtime/save/nativeNoteTextUpdates.ts
+  s_3f273936057f92::t_35f53954578b8d 8-9,58-62,68-85,144,148
+native/pdf-page-ops/src/annotations.rs
+  s_3f273936057f92::t_957ca46a45e3e6 11-13,1225,1231,1246-1307,1313,1329-1331,1343-1347,1361,1378-1380,1392-1397
+native/pdf-page-ops/src/input.rs
+  s_3f273936057f92::t_02a922bc242387 75,81-93,179,498
+native/pdf-page-ops/src/tests/notes.rs
+  s_3f273936057f92::t_d8a09677cac6be 19,50-57,75,97,143,181,232,343,1086,1133,1144,1203
+native/pdf-page-ops/src/types.rs
+  s_3f273936057f92::t_4209090708dcf2 652-655
+native/pdf-page-ops/tests/note_geometry.rs
+  s_3f273936057f92::t_403c531e44a073 4,97,117-181
+packages/contracts/electronApiDocuments.ts
+  s_3f273936057f92::t_42511a4238c917 547-549
+packages/contracts/nativePdfMutations.ts
+  s_3f273936057f92::t_ef6d4b5600c8cb 1042-1055,1060-1061
+tests/unit/app/services/pdf-save/nativePdfMutationProjection.test.ts
+  s_3f273936057f92::t_867d0da0448e88 155,159,175,179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0f56a83df1f6d858458923cec16f4db28a949384",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

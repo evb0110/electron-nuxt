@@ -1,0 +1,49 @@
+app/modules/pdf-viewer/runtime/composables/pdf/useBookmarkState.ts
+  s_3f273936057f92::t_215ebd4eb2e149 4-5,18-20,24-30,40-45,47,67,71
+app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations.ts
+  s_3f273936057f92::t_da281330bdb2c9 102-103,123,162,165-167
+app/modules/workspace-shell/composables/useDocumentTransitions.ts
+  s_3f273936057f92::t_0ed3acb0f541e0 33-34,89,162,192
+app/modules/workspace-shell/composables/usePageOpsHandlers.ts
+  s_3f273936057f92::t_20d120a8be2d48 46-47,88,136
+app/modules/workspace-shell/composables/useWorkspaceDocumentControls.ts
+  s_3f273936057f92::t_d5be3ca9d200b9 59,127
+app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.ts
+  s_3f273936057f92::t_fa201e314758be 73,172
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_3f273936057f92::t_e6b0349f12031f 267,271,715,950
+electron/features/page-ops/main/pageMetadataRemap.ts
+  s_3f273936057f92::t_70cb08ab922492 75-84,95
+native/pdf-page-ops/src/tests/catalog.rs
+  s_3f273936057f92::t_bcf690c8d1ac0c 96-165
+packages/contracts/electronApiPageOps.ts
+  s_3f273936057f92::t_ed2b917b060938 12-17
+packages/contracts/pageOpsPlatformFeature.ts
+  s_3f273936057f92::t_a89dbac0d25d82 237
+tests/unit/app/modules/pdf-viewer/composables/usePageOperations.test.ts
+  s_3f273936057f92::t_f6d7bd49aab79a 115
+tests/unit/app/modules/workspace-shell/composables/useDocumentTransitions.test.ts
+  s_3f273936057f92::t_5828488eee140f 54,115
+tests/unit/app/modules/workspace-shell/composables/usePageOpsHandlers.test.ts
+  s_3f273936057f92::t_f9c656f1bf00e5 74
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceDocumentControls.test.ts
+  s_3f273936057f92::t_c02d3fa168c98d 102
+tests/unit/electron/pageMetadataRemap.test.ts
+  s_3f273936057f92::t_bd2aa6da1cf9b1 96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "2ef5178a3d8a4eedd98d842f510555d00ac0ab10",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

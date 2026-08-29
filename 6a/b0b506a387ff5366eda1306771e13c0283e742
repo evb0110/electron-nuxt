@@ -1,0 +1,20 @@
+tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts
+  s_b2ece6dfe48478::t_906d36c8d5a950 750-751,1145-1148
+  s_b2ece6dfe48478::t_6769d6c745d232 78-79,235-236,274-288,335-340,346,720,728,757,761,800,803-804,872,970,997,1024,1026,1053,1084,1204,1207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "6ab0b506a387ff5366eda1306771e13c0283e742",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

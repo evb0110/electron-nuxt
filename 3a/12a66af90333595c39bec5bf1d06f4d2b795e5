@@ -1,0 +1,21 @@
+tests/unit/architecture/electronFixtureSourcePolicy.test.ts
+  s_3f273936057f92::t_9d9d4a6a98e074 13,67-82
+tests/unit/scripts/unitSuiteFailClosedPolicy.test.ts
+  s_3f273936057f92::t_a56264805c3098 1-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3a12a66af90333595c39bec5bf1d06f4d2b795e5",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

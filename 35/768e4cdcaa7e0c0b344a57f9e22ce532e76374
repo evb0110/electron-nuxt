@@ -1,0 +1,30 @@
+tests/unit/app/modules/workspace-shell/composables/usePageOpsHandlers.test.ts
+  s_b2ece6dfe48478::t_eac36f217d748b 24,26,32,34,42,44,50,52,124,126,129,131,289,298-319
+tests/unit/app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection.test.ts
+  s_b2ece6dfe48478::t_eac36f217d748b 45,54,56,93-120
+tests/unit/contracts/pageOps.test.ts
+  s_b2ece6dfe48478::t_c055429b10aa8a 65-87,131
+  s_b2ece6dfe48478::t_eac36f217d748b 17,24,26,28,32,64,88-130
+  s_b2ece6dfe48478::t_34eced3b139cc3 132
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.test.ts
+  s_b2ece6dfe48478::t_eac36f217d748b 38,205-220
+tests/unit/app/modules/workspace-shell/composables/createWorkspaceExpose.test.ts
+  s_b2ece6dfe48478::t_eac36f217d748b 19,369-384
+  s_b2ece6dfe48478::t_e8b993d0047f9f 385-386
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "35768e4cdcaa7e0c0b344a57f9e22ce532e76374",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

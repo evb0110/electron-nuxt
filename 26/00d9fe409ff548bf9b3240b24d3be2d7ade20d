@@ -1,0 +1,21 @@
+scripts/electron-run/electronRunProcessTree.ts
+  s_3f273936057f92::t_7fec61797d9a8d 3,250-275,285,288-290
+scripts/electron-run/stopSession.ts
+  s_3f273936057f92::t_9fcbf4e1d2697c 96-103,254-257,260-262,265-270,272
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "2600d9fe409ff548bf9b3240b24d3be2d7ade20d",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

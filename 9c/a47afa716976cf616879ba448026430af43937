@@ -1,0 +1,19 @@
+scripts/electron-run/rendererReadiness.ts
+  s_b2ece6dfe48478::t_437f679e03ef6b 152-160,162,172,175,177,184-187,202,214-217,272-284,286,477-479,481-495,497,499,616-623
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9ca47afa716976cf616879ba448026430af43937",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

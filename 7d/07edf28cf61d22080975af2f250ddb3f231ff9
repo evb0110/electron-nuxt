@@ -1,0 +1,33 @@
+electron/ocr/worker/writeOcrIndexes.ts
+  s_b2ece6dfe48478::t_6b32da45ae1e1d 52-55,63
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_b2ece6dfe48478::t_192a32e7907f46 237-240
+electron/features/documents/main/documentFileWriteHandlers.ts
+  s_b2ece6dfe48478::t_c13c1610b923a4 54,341
+  s_b2ece6dfe48478::t_648a185423c9c4 333-334,337-338
+  s_b2ece6dfe48478::t_5cd54dcfe15703 342-348
+tests/unit/electron/ocrReplacementOwnershipAlias.test.ts
+  s_b2ece6dfe48478::t_db8cffda5d0101 11,87
+  s_b2ece6dfe48478::t_5de4bbe7e4c8ac 243-256,258-281,284-287
+  s_b2ece6dfe48478::t_f83b5f16bae6e8 257
+  s_b2ece6dfe48478::t_9004a017f8fbdc 282-283
+  s_b2ece6dfe48478::t_8b2d31255702b1 24-25,36,77-83,117,152-153,171,205,207-218,226-234,237-240
+  s_b2ece6dfe48478::t_676c7804b3fb63 26,43-57,64,86,154-157,206,219-225,235-236
+  s_b2ece6dfe48478::t_fe92b54e7f8760 241-242,288-289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7d07edf28cf61d22080975af2f250ddb3f231ff9",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

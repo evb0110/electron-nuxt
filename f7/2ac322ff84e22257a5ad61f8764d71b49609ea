@@ -1,0 +1,33 @@
+native/evb-native-support/src/bounded_io.rs
+  s_3f273936057f92::t_b4ddf4660f1d75 109-114,248-259
+native/pdf-page-ops/src/annotation_index.rs
+  s_3f273936057f92::t_463722e52dce39 73,77,129,133,137,215,219-224,243,291,441-445,534-535
+native/pdf-page-ops/src/input.rs
+  s_3f273936057f92::t_259e7c9e2c0406 3-12,15,98-101,103-107,207-211,218-224,236,245-246,277-279,368,374-380,390,462,464,772-773,794,804-821
+native/pdf-page-ops/src/lib.rs
+  s_3f273936057f92::t_d9e65a44615ee5 54-86
+native/pdf-page-ops/src/page_sizes.rs
+  s_3f273936057f92::t_8df2ed2edd37ea 18-19,427,444,463,467,475,490,509,594,604,623,704,1056-1057,1156-1160,1188-1190,1219
+native/pdf-page-ops/src/shape_index.rs
+  s_3f273936057f92::t_09f319046b4dfd 1077,1098,1146
+native/pdf-page-ops/src/types.rs
+  s_3f273936057f92::t_f454cd812dbed9 37-50,825
+packages/contracts/nativePdfMutations.ts
+  s_3f273936057f92::t_96340a42f1d97b 50,54,97-100,128-138,140-141,175-176,307-315,340,382,488,618-621,912-913,966-969
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f72ac322ff84e22257a5ad61f8764d71b49609ea",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

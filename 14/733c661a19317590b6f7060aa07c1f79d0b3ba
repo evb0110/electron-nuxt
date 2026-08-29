@@ -1,0 +1,27 @@
+electron/features/ocr/main/ocrOperations.ts
+  s_3f273936057f92::t_edcb6cb2e55e56 34,65,71-74,77,89,97-100,103,112-116,126-151
+electron/ocr/documentTextCatalog.ts
+  s_3f273936057f92::t_a1acb07b38a565 393,416,440-441,445,447,460,475,477,489,503
+electron/ocr/worker/main.ts
+  s_3f273936057f92::t_a92846e0196649 69,71,350,358-360,365,393-394,743-745,1032,1056
+electron/ocr/worker/popplerStage.ts
+  s_3f273936057f92::t_00012c9f344216 1-4,6,15,18-19,25-27,41-95
+tests/unit/electron/ocrWorkerPopplerStage.test.ts
+  s_3f273936057f92::t_4fbc78963a5b07 359
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "14733c661a19317590b6f7060aa07c1f79d0b3ba",
+  "prompts": {},
+  "sessions": {
+    "s_3f273936057f92": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86ca2b83-9801-469b-b8e4-73d106074538",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

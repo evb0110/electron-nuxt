@@ -1,0 +1,22 @@
+app/modules/scan-cleanup/components/preview/PreviewShell.vue
+  s_b2ece6dfe48478::t_aa65e3ea8fd45e 1517,1587-1588
+tests/unit/app/modules/scan-cleanup/scanCleanupComponents.test.ts
+  s_b2ece6dfe48478::t_e22115cc58dc34 19,891-892,900-902,912,926-937
+  s_b2ece6dfe48478::t_1dd893093cd1f1 3765-3828
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "2434fbe69ecb42a4aa1f4fedd01ec45250053a73",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

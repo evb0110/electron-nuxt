@@ -1,0 +1,33 @@
+tests/unit/app/modules/agent-panel/assistantImageComposer.test.ts
+  s_a894d53b3b0855::t_0c3694acf568da 70
+  s_a894d53b3b0855::t_f19bab0b34449a 193-226
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_a894d53b3b0855::t_670a16fdcc09b0 670,689-697
+app/modules/workspace-shell/agent/createDocumentAgentPageLabels.ts
+  s_a894d53b3b0855::t_670a16fdcc09b0 851,857
+app/modules/agent-panel/utils/createAssistantSteering.ts
+  s_a894d53b3b0855::t_f19bab0b34449a 103
+tests/unit/app/modules/agent-panel/assistantPanelMountedLifecycle.test.ts
+  s_a894d53b3b0855::t_0c3694acf568da 375,382-383
+  s_a894d53b3b0855::t_f19bab0b34449a 373-374,376-381,384-392
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.test.ts
+  s_a894d53b3b0855::t_670a16fdcc09b0 450-499
+app/modules/agent-panel/composables/useAssistantImageComposer.ts
+  s_a894d53b3b0855::t_f19bab0b34449a 83-84,87,93-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e2edaaa46aa3860554e97819345595687208dcbe",
+  "prompts": {},
+  "sessions": {
+    "s_a894d53b3b0855": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a08-78c2-7052-bbff-16fdfa5dbe66",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

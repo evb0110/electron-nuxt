@@ -1,0 +1,20 @@
+tests/unit/app/modules/pdf-viewer/usePdfViewerRerenderCoordinator.test.ts
+  s_b2ece6dfe48478::t_9ec21a5d6b591c 320-338,340-344
+  s_b2ece6dfe48478::t_9cc5264bab6f57 339
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c215e257217d859daa7d1d5b09953e782f55748f",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
