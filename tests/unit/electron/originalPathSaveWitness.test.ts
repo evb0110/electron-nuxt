@@ -20,7 +20,10 @@ const mocks = vi.hoisted(() => ({getWorkingCopyOriginalFileExpectation: vi.fn()}
 
 vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyOriginalFileExpectation: mocks.getWorkingCopyOriginalFileExpectation}));
 
-const {originalPathSaveBaseMatches} = await import('@electron/file-access/originalPathSaveWitness');
+const {
+    capturePathSaveWitness,
+    originalPathSaveBaseMatches,
+} = await import('@electron/file-access/originalPathSaveWitness');
 
 async function captureExpectation(path: string) {
     const fileStat = await stat(path, {bigint: true});
@@ -81,6 +84,39 @@ describe('originalPathSaveBaseMatches', () => {
         await rename(replacementPath, originalPath);
 
         await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
+    });
+
+    it('records a bounded full hash for small Windows witnesses', async () => {
+        const originalPlatform = process.platform;
+        Object.defineProperty(process, 'platform', {
+            configurable: true,
+            value: 'win32',
+        });
+        try {
+            const originalPath = join(tempDir, 'original.pdf');
+            const bytes = Buffer.alloc(256 * 1024, 7);
+            await writeFile(originalPath, bytes);
+            const admitted = await capturePathSaveWitness(originalPath);
+            expect(admitted).not.toBeNull();
+            const admittedSnapshot = admitted!.getSnapshotForJournal();
+            await admitted!.close();
+
+            bytes[70_000] = 8;
+            await writeFile(originalPath, bytes);
+            const changed = await capturePathSaveWitness(originalPath);
+            expect(changed).not.toBeNull();
+            const changedSnapshot = changed!.getSnapshotForJournal();
+            await changed!.close();
+
+            expect(admittedSnapshot.sampleSha256).toBe(changedSnapshot.sampleSha256);
+            expect(admittedSnapshot.fullSha256).toMatch(/^[0-9a-f]{64}$/u);
+            expect(changedSnapshot.fullSha256).not.toBe(admittedSnapshot.fullSha256);
+        } finally {
+            Object.defineProperty(process, 'platform', {
+                configurable: true,
+                value: originalPlatform,
+            });
+        }
     });
 
     it('keeps legacy size and mtime expectations compatible without reading bytes', async () => {

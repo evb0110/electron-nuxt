@@ -12,6 +12,11 @@ import {
 import {isErrnoException} from '@contracts/runtimeGuards';
 
 const SAVE_WITNESS_SAMPLE_BYTES = 64 * 1024;
+// Windows does not expose a portable change-time signal that survives every
+// same-size in-place rewrite. Hash small files fully, while keeping large
+// document saves bounded by the existing sample strategy.
+const SAVE_WITNESS_FULL_HASH_MAX_BYTES = 64 * 1024 * 1024;
+const SAVE_WITNESS_HASH_CHUNK_BYTES = 1024 * 1024;
 
 interface IOriginalPathSaveSnapshot {
     ctimeNs: bigint;
@@ -19,6 +24,7 @@ interface IOriginalPathSaveSnapshot {
     inode: bigint;
     linkCount: bigint;
     mtimeNs: bigint;
+    fullSha256?: string;
     sampleSha256: string;
     size: bigint;
 }
@@ -29,6 +35,7 @@ export interface IOriginalPathSaveJournalSnapshot {
     inode: string;
     linkCount: string;
     mtimeNs: string;
+    fullSha256?: string;
     sampleSha256: string;
     size: string;
 }
@@ -76,6 +83,9 @@ function snapshotsMatch(
     return left.deviceId === right.deviceId
         && left.inode === right.inode
         && left.mtimeNs === right.mtimeNs
+        && (left.fullSha256 === undefined
+            || right.fullSha256 === undefined
+            || left.fullSha256 === right.fullSha256)
         && left.sampleSha256 === right.sampleSha256
         && left.size === right.size
         && (options.allowBackupMetadataChange === true || (
@@ -109,28 +119,60 @@ async function sampleFileHandle(handle: FileHandle, size: bigint) {
     return hash.digest('hex');
 }
 
+async function hashWholeFileHandle(handle: FileHandle, size: bigint) {
+    const numericSize = Number(size);
+    if (!Number.isSafeInteger(numericSize) || numericSize < 0) {
+        throw new OriginalPathSaveConflictError();
+    }
+    const hash = createHash('sha256');
+    const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(numericSize, SAVE_WITNESS_HASH_CHUNK_BYTES)));
+    let offset = 0;
+    while (offset < numericSize) {
+        const length = Math.min(buffer.byteLength, numericSize - offset);
+        let readOffset = 0;
+        while (readOffset < length) {
+            const {bytesRead} = await handle.read(buffer, readOffset, length - readOffset, offset + readOffset);
+            if (bytesRead <= 0) {
+                throw new OriginalPathSaveConflictError();
+            }
+            hash.update(buffer.subarray(readOffset, readOffset + bytesRead));
+            readOffset += bytesRead;
+        }
+        offset += length;
+    }
+    return hash.digest('hex');
+}
+
 async function captureHandleSnapshot(handle: FileHandle): Promise<IOriginalPathSaveSnapshot> {
     const before = await handle.stat({bigint: true});
     if (!before.isFile()) {
         throw new OriginalPathSaveConflictError();
     }
     const sampleSha256 = await sampleFileHandle(handle, before.size);
+    const fullSha256 = process.platform === 'win32' && before.size <= BigInt(SAVE_WITNESS_FULL_HASH_MAX_BYTES)
+        ? await hashWholeFileHandle(handle, before.size)
+        : undefined;
     const after = await handle.stat({bigint: true});
-    const beforeSnapshot = createSnapshot(before, sampleSha256);
-    const afterSnapshot = createSnapshot(after, sampleSha256);
+    const beforeSnapshot = createSnapshot(before, sampleSha256, fullSha256);
+    const afterSnapshot = createSnapshot(after, sampleSha256, fullSha256);
     if (!snapshotsMatch(beforeSnapshot, afterSnapshot)) {
         throw new OriginalPathSaveConflictError();
     }
     return afterSnapshot;
 }
 
-function createSnapshot(fileStat: BigIntStats, sampleSha256: string): IOriginalPathSaveSnapshot {
+function createSnapshot(
+    fileStat: BigIntStats,
+    sampleSha256: string,
+    fullSha256?: string,
+): IOriginalPathSaveSnapshot {
     return {
         ctimeNs: fileStat.ctimeNs,
         deviceId: fileStat.dev,
         inode: fileStat.ino,
         linkCount: fileStat.nlink,
         mtimeNs: fileStat.mtimeNs,
+        ...(fullSha256 === undefined ? {} : {fullSha256}),
         sampleSha256,
         size: fileStat.size,
     };
@@ -143,6 +185,7 @@ function serializeSnapshot(snapshot: IOriginalPathSaveSnapshot): IOriginalPathSa
         inode: snapshot.inode.toString(),
         linkCount: snapshot.linkCount.toString(),
         mtimeNs: snapshot.mtimeNs.toString(),
+        ...(snapshot.fullSha256 === undefined ? {} : {fullSha256: snapshot.fullSha256}),
         sampleSha256: snapshot.sampleSha256,
         size: snapshot.size.toString(),
     };
@@ -165,6 +208,9 @@ function deserializeSnapshot(value: unknown): IOriginalPathSaveSnapshot | null {
     if (fields.some(field => typeof candidate[field] !== 'string')) {
         return null;
     }
+    if (candidate.fullSha256 !== undefined && typeof candidate.fullSha256 !== 'string') {
+        return null;
+    }
     try {
         return {
             ctimeNs: BigInt(candidate.ctimeNs as string),
@@ -172,6 +218,7 @@ function deserializeSnapshot(value: unknown): IOriginalPathSaveSnapshot | null {
             inode: BigInt(candidate.inode as string),
             linkCount: BigInt(candidate.linkCount as string),
             mtimeNs: BigInt(candidate.mtimeNs as string),
+            ...(candidate.fullSha256 === undefined ? {} : {fullSha256: candidate.fullSha256}),
             sampleSha256: candidate.sampleSha256 as string,
             size: BigInt(candidate.size as string),
         };
