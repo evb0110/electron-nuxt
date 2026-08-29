@@ -127,11 +127,16 @@ vi.mock('crypto', async (importOriginal) => {
 });
 vi.mock('pdf-lib', () => ({ PDFDocument: { load: (...args: unknown[]) => mocks.pdfDocumentLoad(...args) } }));
 
-vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
+vi.mock('@electron/utils/pathValidator', () => ({
+    getManagedTempPathAccessDecision: () => undefined,
+    resolveAllowedReadPath: mocks.resolveAllowedReadPath,
+    setManagedTempPathAccessValidator: () => undefined,
+}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({
     findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
     getWorkingCopyBackingEntry: () => null,
+    getWorkingCopyOwnerWebContentsId: () => undefined,
 }));
 vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: (...args: unknown[]) => mocks.ensureWorkingCopyMaterialized(...args)}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({extractPages: mocks.extractPages}));

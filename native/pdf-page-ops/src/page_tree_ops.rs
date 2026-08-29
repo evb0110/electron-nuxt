@@ -710,9 +710,14 @@ impl PageCloneContext<'_> {
         object: Object,
     ) -> Result<Object> {
         match object {
-            Object::Reference(object_id) => Ok(Object::Reference(
-                self.clone_indirect_object(source_index, object_id)?,
-            )),
+            Object::Reference(object_id) => {
+                if self.is_unretained_page_tree_object(source_index, object_id)? {
+                    return Ok(Object::Null);
+                }
+                Ok(Object::Reference(
+                    self.clone_indirect_object(source_index, object_id)?,
+                ))
+            }
             Object::Array(items) => Ok(Object::Array(
                 items
                     .into_iter()
@@ -743,6 +748,29 @@ impl PageCloneContext<'_> {
             );
         }
         Ok(cloned_dictionary)
+    }
+
+    /// Catalog metadata such as outlines can point at pages the operation
+    /// removed. Cloning one would drag its `Parent` chain and every sibling
+    /// page back into the output, so unretained page-tree objects become null.
+    fn is_unretained_page_tree_object(
+        &self,
+        source_index: usize,
+        object_id: ObjectId,
+    ) -> Result<bool> {
+        if self.object_map.contains_key(&(source_index, object_id)) {
+            return Ok(false);
+        }
+        let Ok(dictionary) = self.source(source_index)?.get_dictionary(object_id) else {
+            return Ok(false);
+        };
+        Ok(matches!(
+            dictionary
+                .get(b"Type")
+                .ok()
+                .and_then(|value| value.as_name().ok()),
+            Some(b"Page" | b"Pages")
+        ))
     }
 
     pub(crate) fn source(&self, source_index: usize) -> Result<&Document> {

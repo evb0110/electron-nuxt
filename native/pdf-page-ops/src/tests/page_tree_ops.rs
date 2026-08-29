@@ -1,4 +1,91 @@
 #[test]
+fn deleting_an_outlined_page_does_not_resurrect_it() {
+    let mut source = Document::with_version("1.4");
+    let pages_id = source.new_object_id();
+    let page_ids = [200i64, 300, 400]
+        .iter()
+        .map(|width| {
+            source.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), (*width).into(), 100.into()],
+            })
+        })
+        .collect::<Vec<_>>();
+    source.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+            "Count" => page_ids.len() as i64,
+        },
+    );
+    let outline_item = source.add_object(dictionary! {
+        "Title" => Object::string_literal("Deleted page"),
+        "Dest" => vec![Object::Reference(page_ids[1]), Object::Name(b"Fit".to_vec())],
+    });
+    let outlines = source.add_object(dictionary! {
+        "Type" => "Outlines",
+        "First" => outline_item,
+        "Last" => outline_item,
+        "Count" => 1,
+    });
+    source
+        .get_dictionary_mut(outline_item)
+        .unwrap()
+        .set("Parent", outlines);
+    let catalog = source.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+        "Outlines" => outlines,
+    });
+    source.trailer.set("Root", catalog);
+    let mut source_bytes = Vec::new();
+    source.save_to(&mut source_bytes).unwrap();
+
+    let result = delete_browser_pdf_pages(&source_bytes, &[2]).unwrap();
+    let output = Document::load_mem(&result.data).unwrap();
+
+    let page_object_count = output
+        .objects
+        .values()
+        .filter(|object| {
+            object
+                .as_dict()
+                .ok()
+                .and_then(|dictionary| dictionary.get(b"Type").ok())
+                .and_then(|value| value.as_name().ok())
+                == Some(b"Page")
+        })
+        .count();
+    assert_eq!(page_object_count, 2);
+    assert_eq!(output.get_pages().len(), 2);
+    let outlines_id = output
+        .catalog()
+        .unwrap()
+        .get(b"Outlines")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let first_id = output
+        .get_dictionary(outlines_id)
+        .unwrap()
+        .get(b"First")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let destination = output
+        .get_dictionary(first_id)
+        .unwrap()
+        .get(b"Dest")
+        .unwrap()
+        .as_array()
+        .unwrap()[0]
+        .clone();
+    assert_eq!(destination, Object::Null);
+}
+
+#[test]
 fn page_subset_operations_preserve_and_remap_outlines_and_page_labels() {
     fn document_with_pages(widths: &[i64]) -> (Document, ObjectId, Vec<ObjectId>) {
         let mut document = Document::with_version("1.4");

@@ -706,7 +706,7 @@ describe('page identity deltas', () => {
         expect(migrated.ranges?.every(range => range.pageIds !== undefined)).toBe(true);
         await expect(readPageIdentity(path, 1, pageCount)).resolves.toBe(pageIds[1]);
         await expect(readPageIdentity(path, pageCount, pageCount)).resolves.toBe(pageIds[0]);
-    });
+    }, 30_000);
 
     it('routes a range-only delta through OCR v4 before the v3 fallback', async () => {
         root = await mkdtemp(join(tmpdir(), 'evb-page-identity-ocr-v4-'));

@@ -154,8 +154,12 @@ describe('managed temporary file handles', () => {
         expect(assertManagedTempPathAccess({senderId: 42}, aliasPath)).toBe(mocks.path);
         expect(assertManagedTempPathAccess({senderId: 7}, aliasPath)).toBeNull();
         revokeManagedTempFileHandlesForSender(42);
-        expect(assertManagedTempPathAccess({senderId: 42}, mocks.path)).toBeNull();
+        expect(assertManagedTempPathAccess({senderId: 42}, mocks.path)).toBeUndefined();
+        expect(assertManagedTempPathAccess({senderId: 7}, aliasPath)).toBeUndefined();
         expect(handle.leaseId).toEqual(expect.any(String));
+        const renewed = await createManagedTempFileHandle({senderId: 42}, mocks.path);
+        expect(renewed.leaseId).not.toBe(handle.leaseId);
+        expect(assertManagedTempPathAccess({senderId: 42}, aliasPath)).toBe(mocks.path);
     });
 
     it('keeps typed staged artifact evidence authoritative for its owner-bound lease', async () => {

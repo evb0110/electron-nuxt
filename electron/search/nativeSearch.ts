@@ -429,6 +429,11 @@ async function isNativeSearchIndexFresh(
         return null;
     }
 
+    if (metadata.partialCoverage || metadata.truncatedCoverage) {
+        log.debug(`Native search skipped: sidecar covers only part of ${pdfPath}`);
+        return null;
+    }
+
     if (
         typeof expectedPageCount === 'number'
         && expectedPageCount > 0

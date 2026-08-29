@@ -90,7 +90,11 @@ vi.mock('@electron/file-access/openPathCapabilities', () => ({
     logRejectedOpenPath: vi.fn(),
     requireOpenPath: vi.fn((path: string) => path),
 }));
-vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: vi.fn(async () => null)}));
+vi.mock('@electron/utils/pathValidator', () => ({
+    getManagedTempPathAccessDecision: () => undefined,
+    resolveAllowedReadPath: vi.fn(async () => null),
+    setManagedTempPathAccessValidator: () => undefined,
+}));
 vi.mock('@electron/te', () => ({te: (key: string) => key}));
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     debug: vi.fn(),

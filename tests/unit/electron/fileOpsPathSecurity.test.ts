@@ -89,6 +89,8 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('@electron/utils/pathValidator', () => ({
     describeReadPathValidationForDiagnostics: () => 'validator-diagnostics-stub',
+    getManagedTempPathAccessDecision: () => undefined,
+    setManagedTempPathAccessValidator: () => undefined,
     isAllowedReadPath: mocks.isAllowedReadPath,
     isAllowedWritePath: mocks.isAllowedWritePath,
     resolveAllowedReadPath: mocks.resolveAllowedReadPath,
@@ -104,6 +106,7 @@ vi.mock('@electron/file-access/docxExportPaths', () => ({consumeAllowedDocxWrite
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({
     captureWorkingCopyAdmissionSnapshot: mocks.captureWorkingCopyAdmissionSnapshot,
+    getWorkingCopyOwnerWebContentsId: () => undefined,
     findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
     getWorkingCopyBackingEntry: mocks.getWorkingCopyBackingEntry,
     getWorkingCopyOriginalPath: mocks.getWorkingCopyOriginalPath,

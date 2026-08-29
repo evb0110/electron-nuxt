@@ -14,9 +14,11 @@ import {
     COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE,
     COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE,
     COMPACT_SEARCH_INDEX_STREAMING_FOOTER_MAGIC,
+    COMPACT_SEARCH_INDEX_STREAMING_FLAG_TRUNCATED_COVERAGE,
     COMPACT_SEARCH_INDEX_STREAMING_FOOTER_SIZE,
-    COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION,
     COMPACT_SEARCH_INDEX_STREAMING_HEADER_SIZE,
+    COMPACT_SEARCH_INDEX_STREAMING_MAGIC,
+    COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION,
 } from '@contracts/searchIndexSidecar';
 import { requireDocumentRevisionToken } from '@contracts';
 import { isNativeSearchSupportedOptions } from '@electron/search/nativeSearch';
@@ -114,7 +116,7 @@ function createStreamingSearchIndexFile(flags: number) {
     const footerOffset = textDataOffset;
     const fileSize = footerOffset + COMPACT_SEARCH_INDEX_STREAMING_FOOTER_SIZE;
     const header = Buffer.alloc(COMPACT_SEARCH_INDEX_STREAMING_HEADER_SIZE);
-    header.write('EVBSSIDX', 0, 'ascii');
+    header.write(COMPACT_SEARCH_INDEX_STREAMING_MAGIC, 0, 'ascii');
     header.writeUInt32LE(COMPACT_SEARCH_INDEX_STREAMING_SCHEMA_VERSION, 8);
     header.writeUInt32LE(COMPACT_SEARCH_INDEX_STREAMING_HEADER_SIZE, 12);
     header.writeUInt32LE(pageCount, 16);
@@ -227,10 +229,29 @@ describe('native search geometry attachment', () => {
         }));
     });
 
+    it('searches a complete streaming sidecar', async () => {
+        const {tryRunNativeSearch} = await import('@electron/search/nativeSearch');
+        mocks.open.mockResolvedValueOnce(createStreamingSearchIndexFile(COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE));
+        mocks.tryRunPersistentNativeSearch.mockResolvedValue(createNativeSearchResult(0));
+
+        const result = await tryRunNativeSearch({
+            pdfPath: '/tmp/file.pdf',
+            documentRevision: DOCUMENT_REVISION,
+            query: 'needle',
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+            pageCount: 4,
+        });
+
+        expect(result?.response.results).toEqual([]);
+        expect(mocks.tryRunPersistentNativeSearch).toHaveBeenCalledOnce();
+    });
+
     it.each([
-        COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE,
         COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE | COMPACT_SEARCH_INDEX_STREAMING_FLAG_PARTIAL_COVERAGE,
-    ])('rejects a sidecar marked partial even when its page count is complete', async (flags) => {
+        COMPACT_SEARCH_INDEX_STREAMING_FLAG_COMPLETE | COMPACT_SEARCH_INDEX_STREAMING_FLAG_TRUNCATED_COVERAGE,
+    ])('rejects a sidecar marked partial or truncated even when its page count is complete', async (flags) => {
         const {tryRunNativeSearch} = await import('@electron/search/nativeSearch');
         mocks.open.mockResolvedValueOnce(createStreamingSearchIndexFile(flags));
 

@@ -69,6 +69,18 @@ function registerLeasePath(leaseId: string, path: string) {
     leaseIdsByCanonicalPath.set(canonicalizeLeasePath(path), leaseId);
 }
 
+function unregisterLease(leaseId: string) {
+    leases.delete(leaseId);
+    for (const [
+        canonicalPath,
+        pathLeaseId,
+    ] of leaseIdsByCanonicalPath) {
+        if (pathLeaseId === leaseId) {
+            leaseIdsByCanonicalPath.delete(canonicalPath);
+        }
+    }
+}
+
 /**
  * Returns null for a known path that this sender cannot use, undefined for an
  * unregistered path, and the canonical path for an active owned lease.
@@ -87,7 +99,11 @@ export function assertManagedTempPathAccess(
         return undefined;
     }
     const lease = leases.get(leaseId);
-    if (!lease || lease.invalidated || lease.ownerId !== context.senderId) {
+    if (!lease) {
+        leaseIdsByCanonicalPath.delete(canonicalPath);
+        return undefined;
+    }
+    if (lease.invalidated || lease.ownerId !== context.senderId) {
         return null;
     }
     lease.expiresAt = Date.now() + MANAGED_HANDLE_TTL_MS;
@@ -193,7 +209,7 @@ function invalidateStagedArtifactLease(leaseId: string) {
         lease.invalidated = true;
         cleanupLeaseFile(leaseId, lease);
     } else {
-        leases.delete(leaseId);
+        unregisterLease(leaseId);
     }
     sweepExpiredLeases();
 }
@@ -212,7 +228,7 @@ function cleanupLeaseFile(leaseId: string, lease: IMainManagedTempFileLease) {
     lease.cleanupPending = true;
     void rm(lease.path, {force: true}).then(() => {
         if (leases.get(leaseId) === lease) {
-            leases.delete(leaseId);
+            unregisterLease(leaseId);
         }
     }).catch(() => {
         if (leases.get(leaseId) === lease) {
@@ -233,7 +249,7 @@ function sweepExpiredLeases() {
                 lease.invalidated = true;
                 cleanupLeaseFile(leaseId, lease);
             } else {
-                leases.delete(leaseId);
+                unregisterLease(leaseId);
             }
         }
     }
@@ -494,7 +510,7 @@ export function releaseManagedTempFileHandle(
         lease.invalidated = true;
         cleanupLeaseFile(leaseId, lease);
     } else {
-        leases.delete(leaseId);
+        unregisterLease(leaseId);
     }
     sweepExpiredLeases();
     return true;
@@ -632,6 +648,7 @@ export async function rebindTypedStagedArtifactPath(
         path: nextPath,
     });
     lease.path = nextPath;
+    registerLeasePath(artifact.leaseId, nextPath);
     lease.artifact = freezeTypedStagedArtifact(cloneTypedStagedArtifact(reboundArtifact));
     lease.statWitness = statWitness;
     lease.expiresAt = Date.now() + MANAGED_HANDLE_TTL_MS;
@@ -659,7 +676,7 @@ export function revokeManagedTempFileHandlesForSender(senderId: number) {
             lease.invalidated = true;
             cleanupLeaseFile(leaseId, lease);
         } else {
-            leases.delete(leaseId);
+            unregisterLease(leaseId);
         }
     }
     sweepExpiredLeases();
