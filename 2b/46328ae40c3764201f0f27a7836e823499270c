@@ -1,0 +1,43 @@
+tests/unit/electron/workingCopyMaterialization.test.ts
+  s_fcd079d587dca4::t_f63b4e517d5fc2 430,432-435,444-459,462-464
+  s_fcd079d587dca4::t_2645e3b7d7573c 460
+  s_fcd079d587dca4::t_d761d574e8e43c 440-443
+  s_fcd079d587dca4::t_d33e4724b0bf26 431,436-439,461
+electron/file-access/workingCopyCreation.ts
+  s_fcd079d587dca4::t_768f51ea3fc23e 25,119
+  s_fcd079d587dca4::t_6be280d6286b87 55,338-339,342-348
+  s_fcd079d587dca4::t_ea9b7751642589 337,340-341
+electron/file-access/workingCopyMaterialization.ts
+  s_fcd079d587dca4::t_34628a000d186e 381
+  s_fcd079d587dca4::t_303f7513b0bfd2 7,380,382-388
+  s_fcd079d587dca4::t_d761d574e8e43c 3
+electron/file-access/workingCopyDirectory.ts
+  s_fcd079d587dca4::t_d761d574e8e43c 235,255
+  s_fcd079d587dca4::t_e7757e9b4591fd 10,206-217,219-234,236-243,245-254,256,258-260,262-263
+  s_fcd079d587dca4::t_7532c1723e2946 12,218,244,257,261
+tests/unit/electron/workingCopy.test.ts
+  s_fcd079d587dca4::t_647c88bb721f15 85-87,92-108,117-121
+  s_fcd079d587dca4::t_d761d574e8e43c 88-91
+  s_fcd079d587dca4::t_d33e4724b0bf26 109-116
+tests/unit/electron/workingCopyDirectory.test.ts
+  s_fcd079d587dca4::t_b5baec49ab3914 2-8,11-12,177-185,204-213,218
+  s_fcd079d587dca4::t_443ba5f6f63e37 214-217
+  s_fcd079d587dca4::t_fd86a82a921417 13,187
+  s_fcd079d587dca4::t_4f87a2cdfa29a9 186,188-203
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2b46328ae40c3764201f0f27a7836e823499270c",
+  "prompts": {},
+  "sessions": {
+    "s_fcd079d587dca4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04e9e-6c47-7d21-a031-eba660a68956",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
