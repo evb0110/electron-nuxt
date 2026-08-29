@@ -173,7 +173,9 @@ parentPort.once('message', (event) => {
                 changedObjectRefs,
             );
         }
-        await atomicReplace(request.sourcePath, request.targetPath, {...(reuse.fileSync ? {fileSync: true} : {})});
+        if (request.validateOnly !== true) {
+            await atomicReplace(request.sourcePath, request.targetPath, {...(reuse.fileSync ? {fileSync: true} : {})});
+        }
         const result: TDocumentSaveUtilityResult = {
             type: 'result',
             ok: true,

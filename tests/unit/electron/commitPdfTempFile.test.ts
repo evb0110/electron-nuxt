@@ -1,5 +1,5 @@
 import {
-    afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -10,6 +10,7 @@ import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTe
 const mocks = vi.hoisted(() => ({
     acquire: vi.fn(),
     atomicReplace: vi.fn(),
+    runDocumentSaveUtilityProcess: vi.fn(),
     stat: vi.fn(),
     resolveTypedStagedArtifact: vi.fn(),
 }));
@@ -23,11 +24,18 @@ vi.mock('@electron/file-access/workingCopyMutationCommitSignal', () => ({markAct
 vi.mock('@electron/resources/jobBroker', () => ({mainJobBroker: {acquire: mocks.acquire}}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: vi.fn(() => ({qpdf: '/tmp/qpdf'}))}));
 vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({resolveTypedStagedArtifact: mocks.resolveTypedStagedArtifact}));
+vi.mock('@electron/features/documents/main/fingerprintFileWithUtilityProcess', () => ({runDocumentSaveUtilityProcess: mocks.runDocumentSaveUtilityProcess}));
 
 describe('commitPdfTempFile', () => {
-    afterEach(() => {
+    beforeEach(() => {
         vi.clearAllMocks();
         mocks.resolveTypedStagedArtifact.mockImplementation(async (_context, artifact) => artifact);
+        mocks.acquire.mockResolvedValue({release: vi.fn()});
+        mocks.atomicReplace.mockResolvedValue(undefined);
+        mocks.runDocumentSaveUtilityProcess.mockResolvedValue({
+            bytes: 100,
+            sha256: 'a'.repeat(64),
+        });
     });
 
     it('rejects a source stat failure', async () => {
@@ -140,5 +148,26 @@ describe('commitPdfTempFile', () => {
             artifact,
             context: {senderId: 42},
         }})).rejects.toThrow('does not identify');
+    });
+
+    it('validates utility-process saves before publishing with the live destination witness', async () => {
+        const assertDestinationCurrent = vi.fn().mockResolvedValue(undefined);
+
+        await expect(commitPdfTempFile('/tmp/source.pdf', '/tmp/output.pdf', {
+            expectedBytes: 100,
+            changedObjectRefs: ['1 0 R'],
+            assertDestinationCurrent,
+        })).resolves.toEqual({
+            bytes: 100,
+            sha256: 'a'.repeat(64),
+        });
+
+        expect(mocks.runDocumentSaveUtilityProcess).toHaveBeenCalledWith(expect.objectContaining({request: expect.objectContaining({
+            type: 'commit',
+            validateOnly: true,
+        })}));
+        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/source.pdf', '/tmp/output.pdf', {assertDestinationCurrent});
+        expect(mocks.runDocumentSaveUtilityProcess.mock.invocationCallOrder[0])
+            .toBeLessThan(mocks.atomicReplace.mock.invocationCallOrder[0]!);
     });
 });

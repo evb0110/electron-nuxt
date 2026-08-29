@@ -13,6 +13,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 
 describe('documentFileWriteAtomic immutable-source fallback', () => {
@@ -73,5 +74,23 @@ describe('documentFileWriteAtomic immutable-source fallback', () => {
             'copy',
             'rename',
         ]));
+    });
+
+    it('checks the destination witness on the immutable publication fallback', async () => {
+        const sourcePath = join(tempRoot, 'staged.pdf');
+        const targetPath = join(tempRoot, 'original.pdf');
+        await Promise.all([
+            writeFile(sourcePath, 'renderer bytes'),
+            writeFile(targetPath, 'external bytes'),
+        ]);
+        const conflict = new Error('original changed');
+        const assertDestinationCurrent = vi.fn().mockRejectedValue(conflict);
+        const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+
+        await expect(publishImmutableFileAtomic(sourcePath, targetPath, {assertDestinationCurrent})).rejects.toBe(conflict);
+
+        expect(assertDestinationCurrent).toHaveBeenCalledOnce();
+        await expect(readFile(targetPath, 'utf8')).resolves.toBe('external bytes');
+        await expect(readFile(sourcePath, 'utf8')).resolves.toBe('renderer bytes');
     });
 });

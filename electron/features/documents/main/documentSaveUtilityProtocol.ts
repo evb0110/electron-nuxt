@@ -17,6 +17,7 @@ export interface IDocumentSaveUtilityCommitRequest {
     validationBinary?: string;
     changedObjectRefs?: string[];
     stagedArtifact?: ITypedStagedArtifact;
+    validateOnly?: true;
 }
 
 export interface IDocumentSaveUtilityInspectRequest {
@@ -76,6 +77,7 @@ export function decodeDocumentSaveUtilityRequest(value: unknown): TDocumentSaveU
         || !isAbsolute(value.targetPath)
         || dirname(value.sourcePath) !== dirname(value.targetPath)
         || value.sourcePath === value.targetPath
+        || (value.validateOnly !== undefined && value.validateOnly !== true)
         || (value.validationBinary !== undefined && (typeof value.validationBinary !== 'string' || !isAbsolute(value.validationBinary)))
         || (value.changedObjectRefs !== undefined && (
             !Array.isArray(value.changedObjectRefs)
@@ -113,6 +115,7 @@ export function decodeDocumentSaveUtilityRequest(value: unknown): TDocumentSaveU
         ...(stagedArtifact === undefined || stagedArtifact === null
             ? {}
             : {stagedArtifact}),
+        ...(value.validateOnly === true ? {validateOnly: true as const} : {}),
     };
 }
 

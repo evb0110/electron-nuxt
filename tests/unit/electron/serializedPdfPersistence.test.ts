@@ -196,17 +196,21 @@ describe('serializedPdfPersistence', () => {
         mocks.transitionOriginalAndWorkingCopyRevision.mockImplementation(async (input: {
             workingCopyPath: string;
             originalPath: string;
-            assertOriginalCurrent?: () => Promise<boolean>;
-            publishOriginal: () => Promise<void>;
+            captureOriginalWitness?: () => Promise<{
+                assertCurrent: () => Promise<void>;
+                close: () => Promise<void>;
+            } | null>;
+            publishOriginal: (assertDestinationCurrent?: () => Promise<void>) => Promise<void>;
             afterWorkingCopySync?: () => Promise<void>;
         }) => {
-            if (input.assertOriginalCurrent && !await input.assertOriginalCurrent()) {
+            const witness = await input.captureOriginalWitness?.() ?? null;
+            if (input.captureOriginalWitness && !witness) {
                 return null;
             }
             const originalBefore = await readFile(input.originalPath);
             const workingBefore = await readFile(input.workingCopyPath);
             try {
-                await input.publishOriginal();
+                await input.publishOriginal(witness ? () => witness.assertCurrent() : undefined);
                 await mocks.copyFileCopyOnWrite(input.originalPath, input.workingCopyPath);
                 await input.afterWorkingCopySync?.();
             } catch (error) {
@@ -215,6 +219,8 @@ describe('serializedPdfPersistence', () => {
                     writeFile(input.workingCopyPath, workingBefore),
                 ]);
                 throw error;
+            } finally {
+                await witness?.close();
             }
             return {token: requireDocumentRevisionToken('drt1:test:committed')};
         });

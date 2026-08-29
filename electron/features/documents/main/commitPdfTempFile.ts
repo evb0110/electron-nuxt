@@ -25,6 +25,7 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
     signal?: AbortSignal;
     ownerId?: string;
     changedObjectRefs?: string[];
+    assertDestinationCurrent?: () => Promise<void>;
     receipt?: {
         artifact: ITypedStagedArtifact;
         context: IDocumentsSenderIdContext;
@@ -54,7 +55,11 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
             ?? (await stat(sourcePath)).size;
         if (!shouldUseDocumentSaveUtility(expectedBytes) && !options.changedObjectRefs?.length) {
             const {atomicReplace} = await import('@electron/utils/atomicReplace');
-            await atomicReplace(sourcePath, targetPath);
+            if (options.assertDestinationCurrent === undefined) {
+                await atomicReplace(sourcePath, targetPath);
+            } else {
+                await atomicReplace(sourcePath, targetPath, {assertDestinationCurrent: options.assertDestinationCurrent});
+            }
             return null;
         }
         lease = await mainJobBroker.acquire({
@@ -69,7 +74,9 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
             },
             ...(signal ? {signal} : {}),
         });
-        markActiveWorkingCopyMutationCommitStarted();
+        if (options.assertDestinationCurrent === undefined) {
+            markActiveWorkingCopyMutationCommitStarted();
+        }
         const result = await runDocumentSaveUtilityProcess({
             cwd: dirname(sourcePath),
             serviceName: DOCUMENT_SAVE_SERVICE_NAME,
@@ -84,8 +91,13 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
                 validationBinary: getPdfNativeToolPaths().qpdf,
                 ...(options.changedObjectRefs?.length ? {changedObjectRefs: options.changedObjectRefs} : {}),
                 ...(stagedArtifact === undefined ? {} : {stagedArtifact}),
+                ...(options.assertDestinationCurrent === undefined ? {} : {validateOnly: true}),
             },
         });
+        if (options.assertDestinationCurrent !== undefined) {
+            const {atomicReplace} = await import('@electron/utils/atomicReplace');
+            await atomicReplace(sourcePath, targetPath, {assertDestinationCurrent: options.assertDestinationCurrent});
+        }
         return result;
     } finally {
         lease?.release();

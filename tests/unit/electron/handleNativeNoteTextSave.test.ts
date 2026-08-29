@@ -87,11 +87,11 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({
     markWorkingCopySyncRequired: (...args: unknown[]) => mocks.markWorkingCopySyncRequired(...args),
 }));
 vi.mock('@electron/utils/atomicReplace', () => ({
-    atomicReplace: (...args: [string, string]) => mocks.atomicReplace(...args),
+    atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
-vi.mock('@electron/file-access/documentFileWriteAtomic', () => ({publishImmutableFileAtomic: (...args: [string, string]) => mocks.publishImmutableFileAtomic(...args)}));
+vi.mock('@electron/file-access/documentFileWriteAtomic', () => ({publishImmutableFileAtomic: (...args: unknown[]) => mocks.publishImmutableFileAtomic(...args)}));
 vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({
     createOpaqueNativePdfStagedArtifact: (...args: unknown[]) =>
         mocks.createOpaqueNativePdfStagedArtifact(...args),
@@ -333,7 +333,12 @@ describe('handleNativeNoteTextSave', () => {
             await copyFile(sourcePath, targetPath);
             await unlink(sourcePath).catch(() => undefined);
         });
-        mocks.publishImmutableFileAtomic.mockImplementation(async (sourcePath: string, targetPath: string) => {
+        mocks.publishImmutableFileAtomic.mockImplementation(async (
+            sourcePath: string,
+            targetPath: string,
+            options?: {assertDestinationCurrent?: () => Promise<void>},
+        ) => {
+            await options?.assertDestinationCurrent?.();
             await copyFile(sourcePath, targetPath);
         });
         mocks.createOpaqueNativePdfStagedArtifact.mockImplementation(async (
@@ -394,19 +399,23 @@ describe('handleNativeNoteTextSave', () => {
         mocks.transitionOriginalAndWorkingCopyRevision.mockImplementation(async (input: {
             workingCopyPath: string;
             originalPath: string;
-            assertOriginalCurrent?: () => Promise<boolean>;
-            publishOriginal: () => Promise<void>;
+            captureOriginalWitness?: () => Promise<{
+                assertCurrent: () => Promise<void>;
+                close: () => Promise<void>;
+            } | null>;
+            publishOriginal: (assertDestinationCurrent?: () => Promise<void>) => Promise<void>;
             afterWorkingCopySync?: () => Promise<void>;
             onPhase?: (phase: string, durationMs: number) => void;
         }) => {
             input.onPhase?.('test-transition', 1);
-            if (input.assertOriginalCurrent && !await input.assertOriginalCurrent()) {
+            const witness = await input.captureOriginalWitness?.() ?? null;
+            if (input.captureOriginalWitness && !witness) {
                 return null;
             }
             const originalBefore = await readFile(input.originalPath);
             const workingBefore = await readFile(input.workingCopyPath);
             try {
-                await input.publishOriginal();
+                await input.publishOriginal(witness ? () => witness.assertCurrent() : undefined);
                 await copyFile(input.originalPath, input.workingCopyPath);
                 await input.afterWorkingCopySync?.();
             } catch (error) {
@@ -415,6 +424,8 @@ describe('handleNativeNoteTextSave', () => {
                     writeFile(input.workingCopyPath, workingBefore),
                 ]);
                 throw error;
+            } finally {
+                await witness?.close();
             }
             return {token: requireDocumentRevisionToken('revision-after-native-mutation')};
         });
@@ -425,7 +436,12 @@ describe('handleNativeNoteTextSave', () => {
                 : null;
         });
         mocks.refreshWorkingCopyOriginalFileExpectation.mockReturnValue(true);
-        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+        mocks.atomicReplace.mockImplementation(async (
+            sourcePath: string,
+            targetPath: string,
+            options?: {assertDestinationCurrent?: () => Promise<void>},
+        ) => {
+            await options?.assertDestinationCurrent?.();
             await copyFile(sourcePath, targetPath);
             await unlink(sourcePath);
         });
@@ -491,7 +507,11 @@ describe('handleNativeNoteTextSave', () => {
                 signal: expect.any(AbortSignal),
             }),
         );
-        expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(
+            tempPath,
+            originalPath,
+            expect.objectContaining({assertDestinationCurrent: expect.any(Function)}),
+        );
         expect(mocks.copyFileCopyOnWrite).not.toHaveBeenCalledWith(originalPath, requestedWorkingPath);
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native incremental update');
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
@@ -556,7 +576,11 @@ describe('handleNativeNoteTextSave', () => {
                 message: 'sync failed',
             },
         });
-        expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(
+            tempPath,
+            originalPath,
+            expect.objectContaining({assertDestinationCurrent: expect.any(Function)}),
+        );
         expect(readFileSyncUtf8(originalPath)).toBe('original-before');
         expect(readFileSyncUtf8(requestedWorkingPath)).toBe('working-before');
     });
@@ -674,7 +698,11 @@ describe('handleNativeNoteTextSave', () => {
             ]),
             expect.objectContaining({commandLabel: 'evb-pdf-page-ops(save-note-changes)'}),
         );
-        expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(
+            tempPath,
+            originalPath,
+            expect.objectContaining({assertDestinationCurrent: expect.any(Function)}),
+        );
         expect(mocks.copyFileCopyOnWrite).not.toHaveBeenCalledWith(originalPath, requestedWorkingPath);
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native note changes');
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
@@ -898,7 +926,11 @@ describe('handleNativeNoteTextSave', () => {
             ]),
             expect.objectContaining({commandLabel: 'evb-pdf-page-ops(save-mutations)'}),
         );
-        expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(
+            tempPath,
+            originalPath,
+            expect.objectContaining({assertDestinationCurrent: expect.any(Function)}),
+        );
         expect(mocks.copyFileCopyOnWrite).not.toHaveBeenCalledWith(originalPath, requestedWorkingPath);
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native metadata changes');
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
@@ -969,7 +1001,11 @@ describe('handleNativeNoteTextSave', () => {
             text: 'Updated note',
         }], 'D:20260609133855+03\'00\'', revisionOptions);
         await expect(savePromise).resolves.toMatchObject({applied: true});
-        expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(
+            tempPath,
+            originalPath,
+            expect.objectContaining({assertDestinationCurrent: expect.any(Function)}),
+        );
         expect(mocks.copyFileCopyOnWrite).not.toHaveBeenCalledWith(originalPath, requestedWorkingPath);
         expect(mocks.copyFileCopyOnWrite).not.toHaveBeenCalledWith(originalPath, latestWorkingPath);
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native incremental update');
@@ -1131,7 +1167,11 @@ describe('handleNativeNoteTextSave', () => {
         expect(readFileSyncUtf8(originalPath)).toContain('% staged mutation');
         expect(mocks.transitionOriginalAndWorkingCopyRevision).toHaveBeenCalledOnce();
         expect(mocks.resolveTypedStagedArtifact).toHaveBeenCalledTimes(2);
-        expect(mocks.publishImmutableFileAtomic).toHaveBeenCalledWith(staged.stagedOutput.path, originalPath);
+        expect(mocks.publishImmutableFileAtomic).toHaveBeenCalledWith(
+            staged.stagedOutput.path,
+            originalPath,
+            expect.objectContaining({assertDestinationCurrent: expect.any(Function)}),
+        );
         expect(mocks.commitPdfTempFile).not.toHaveBeenCalled();
         expect(mocks.releaseManagedTempFileHandle).toHaveBeenCalledWith(context, 'staged-native-output');
         expect(mocks.releaseManagedTempFileHandle).toHaveBeenCalledTimes(1);

@@ -46,7 +46,7 @@ import {
     assertQueuedWorkingCopyMutationPreconditionsForResync,
 } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
-import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import {captureOriginalPathSaveWitness} from '@electron/features/documents/main/originalPathSaveBaseMatches';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
@@ -183,12 +183,12 @@ async function replaceOriginalWithValidatedTemp(
             originalPath,
             reason: 'save-sync',
             senderId: senderWebContentsId,
-            assertOriginalCurrent: () => originalPathSaveBaseMatches(
+            captureOriginalWitness: () => captureOriginalPathSaveWitness(
                 workingPath,
                 originalPath,
                 senderWebContentsId,
             ),
-            publishOriginal: () => atomicReplace(tempPath, originalPath),
+            publishOriginal: assertDestinationCurrent => atomicReplace(tempPath, originalPath, {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
             afterWorkingCopySync: () => refreshWorkingCopyOriginalFileExpectationForSave(
                 workingPath,
                 senderWebContentsId,

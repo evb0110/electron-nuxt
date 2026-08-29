@@ -90,6 +90,29 @@ describe('document save utility protocol', () => {
         });
     });
 
+    it('preserves a validation-only commit request for main-process publication', () => {
+        expect(decodeDocumentSaveUtilityRequest({
+            type: 'commit',
+            sourcePath: '/tmp/.document.tmp',
+            targetPath: '/tmp/document.pdf',
+            expectedBytes: 123,
+            validateOnly: true,
+        })).toEqual({
+            type: 'commit',
+            sourcePath: '/tmp/.document.tmp',
+            targetPath: '/tmp/document.pdf',
+            expectedBytes: 123,
+            validateOnly: true,
+        });
+        expect(decodeDocumentSaveUtilityRequest({
+            type: 'commit',
+            sourcePath: '/tmp/.document.tmp',
+            targetPath: '/tmp/document.pdf',
+            expectedBytes: 123,
+            validateOnly: false,
+        })).toBeNull();
+    });
+
     it('accepts a bounded inspection request without a target path', () => {
         expect(decodeDocumentSaveUtilityRequest({
             type: 'inspect',
