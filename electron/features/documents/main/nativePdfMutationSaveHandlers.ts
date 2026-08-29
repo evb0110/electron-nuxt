@@ -355,7 +355,6 @@ async function runNativeNoteCommand(
         return createNotAppliedResult();
     }
 
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
     return enqueueWorkingCopyMutation(normalizedWorkingPath, async (mutationOperation) => {
         const phaseTimings: INativeNotePhaseTiming[] = [];
         const operationStart = performance.now();
@@ -367,6 +366,7 @@ async function runNativeNoteCommand(
             ownerWebContentsId: senderId,
             reason: 'native-mutation',
         });
+        const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
 
         const tempPath = makeSiblingTempPath(originalPath);
         const tempDir = await mkdtemp(join(tmpdir(), 'pdf-note-text-'));
@@ -562,7 +562,6 @@ export async function handleCommitStagedPdfNativeMutations(
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
     const stagedOutput = await resolveTypedStagedArtifact(context, stagedArtifact);
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
     const phaseTimings: INativeNotePhaseTiming[] = [];
     const operationStart = performance.now();
     let result: IPdfNativeNoteTextSaveResult | null = null;
@@ -577,6 +576,7 @@ export async function handleCommitStagedPdfNativeMutations(
                 ownerWebContentsId: senderId,
                 reason: 'native-mutation',
             });
+            const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
             // Typed PDF receipts validate the artifact extension as part of the
             // main-process trust boundary.
             const transition = await transitionOriginalAndWorkingCopyRevision({

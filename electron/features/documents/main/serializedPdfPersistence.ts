@@ -89,6 +89,7 @@ import {
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {
     createTypedStagedArtifact,
+    createTypedStagedArtifactForTrustedSiblingCopy,
     releaseManagedTempFileHandle,
 } from '@electron/features/documents/main/managedTempFileHandles';
 
@@ -199,11 +200,6 @@ function withWorkingCopySyncWarning(validation: IPdfValidationResult, error: unk
     const message = `Saved target file, but failed to refresh the working copy: ${getErrorMessage(error)}`;
     return {
         ...validation,
-        isValid: false,
-        errors: [
-            ...validation.errors,
-            message,
-        ],
         warnings: [
             ...validation.warnings,
             message,
@@ -615,10 +611,6 @@ async function commitSession(
         throw new Error('Serialized PDF persistence session does not match the staged artifact');
     }
     const committedValidation = session.stagedValidation;
-    const receipt = {
-        artifact: stagedOutput,
-        context: {senderId: session.senderId},
-    };
     let conflictValidation: IPdfValidationResult | null = null;
     let syncWarningValidation: IPdfValidationResult | null = null;
     let targetWriteCommitted = false;
@@ -632,6 +624,47 @@ async function commitSession(
             ownerWebContentsId: session.senderId,
             reason: 'serialized-persistence',
         });
+
+        let commitArtifact = stagedOutput;
+        if (session.mode === 'save') {
+            const currentTargetPath = getValidatedOriginalPath(session.workingPath, session.senderId);
+            if (currentTargetPath !== session.targetPath) {
+                const reboundTempPath = `${makeSiblingTempPath(currentTargetPath)}.pdf`;
+                try {
+                    await copyFileCopyOnWrite(session.tempPath, reboundTempPath);
+                    const reboundHandle = await open(reboundTempPath, 'r+');
+                    try {
+                        await syncFileHandleForDurability(reboundHandle);
+                    } finally {
+                        await reboundHandle.close();
+                    }
+                    if (allowOpenPath(reboundTempPath, session.sender) === null) {
+                        throw new Error('Rebound serialized PDF staging path could not be granted for verification');
+                    }
+                    commitArtifact = await createTypedStagedArtifactForTrustedSiblingCopy(
+                        {senderId: session.senderId},
+                        stagedOutput,
+                        reboundTempPath,
+                        currentTargetPath,
+                        stagedOutput.validations,
+                    );
+                } catch (error) {
+                    removeAllowedOpenPath(reboundTempPath);
+                    await rm(reboundTempPath, {force: true}).catch(() => undefined);
+                    throw error;
+                }
+                releaseManagedTempFileHandle({senderId: session.senderId}, stagedOutput.leaseId);
+                removeAllowedOpenPath(session.tempPath);
+                await rm(session.tempPath, {force: true}).catch(() => undefined);
+                session.tempPath = reboundTempPath;
+                session.targetPath = currentTargetPath;
+                session.stagedOutput = commitArtifact;
+            }
+        }
+        const receipt = {
+            artifact: commitArtifact,
+            context: {senderId: session.senderId},
+        };
 
         if (session.mode === 'working_copy') {
             await commitPdfTempFile(session.tempPath, session.workingPath, {

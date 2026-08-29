@@ -69,11 +69,6 @@ function withWorkingCopySyncWarning(validation: IPdfValidationResult, error: unk
     const message = `Saved target file, but failed to refresh the working copy: ${getErrorMessage(error)}`;
     return {
         ...validation,
-        isValid: false,
-        errors: [
-            ...validation.errors,
-            message,
-        ],
         warnings: [
             ...validation.warnings,
             message,
@@ -157,7 +152,6 @@ export async function savePdfAs(
                 }
             } catch (syncError) {
                 markSaveAsWorkingCopySyncRequired(normalizedWorkingPath, syncError);
-                throw new Error(`Target file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`);
             }
         } finally {
             if (!replaced) {

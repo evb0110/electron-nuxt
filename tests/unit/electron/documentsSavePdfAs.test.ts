@@ -284,7 +284,7 @@ describe('handleSavePdfAs', () => {
         expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(workingPath, 'save-sync', 42);
     });
 
-    it('rejects optimized Save As copyback failure after committing the target path', async () => {
+    it('returns the committed target when optimized Save As copyback fails', async () => {
         const workingPath = join(tempRoot, 'copyback-fail-working.pdf');
         const targetPath = join(tempRoot, 'copyback-fail-saved.pdf');
         writeFileSync(workingPath, 'unoptimized-pdf');
@@ -315,9 +315,7 @@ describe('handleSavePdfAs', () => {
             workingPath,
             { optimizeLossless: true },
             revisionOptions,
-        ))
-            .rejects
-            .toThrow('Target file was saved, but the working copy refresh failed: copy-back failed');
+        )).resolves.toBe(targetPath);
 
         expect(readFileSyncUtf8(targetPath)).toBe('optimized-pdf');
         expect(readFileSyncUtf8(workingPath)).toBe('unoptimized-pdf');
@@ -327,10 +325,10 @@ describe('handleSavePdfAs', () => {
             expect.stringContaining('copy-back failed'),
         );
         expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
-        expect(mocks.allowOpenPath).not.toHaveBeenCalled();
+        expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, sender);
     });
 
-    it('rejects Save As remap failure after committing the target path', async () => {
+    it('returns the committed target when Save As remapping fails', async () => {
         const workingPath = join(tempRoot, 'remap-fail-working.pdf');
         const targetPath = join(tempRoot, 'remap-fail-saved.pdf');
         writeFileSync(workingPath, 'new-pdf');
@@ -349,9 +347,7 @@ describe('handleSavePdfAs', () => {
             workingPath,
             undefined,
             revisionOptions,
-        ))
-            .rejects
-            .toThrow('Target file was saved, but the working copy refresh failed: remap failed');
+        )).resolves.toBe(targetPath);
 
         expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
         expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
@@ -361,7 +357,7 @@ describe('handleSavePdfAs', () => {
             expect.stringContaining('remap failed'),
         );
         expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
-        expect(mocks.allowOpenPath).not.toHaveBeenCalled();
+        expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, sender);
     });
 
     it('does not copy the working PDF when validation fails', async () => {

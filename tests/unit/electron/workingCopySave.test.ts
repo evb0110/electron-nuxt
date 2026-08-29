@@ -244,6 +244,34 @@ describe('workingCopySave', () => {
         expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
     });
 
+    it('resolves the original mapping when a queued save starts executing', async () => {
+        const workingPath = join(tempRoot, 'remapped-working.pdf');
+        const firstOriginalPath = join(tempRoot, 'remapped-first-original.pdf');
+        const secondOriginalPath = join(tempRoot, 'remapped-second-original.pdf');
+        writeFileSync(workingPath, 'queued-working');
+        writeFileSync(firstOriginalPath, 'first-original');
+        writeFileSync(secondOriginalPath, 'second-original');
+        let currentOriginalPath = firstOriginalPath;
+        mocks.getWorkingCopyOriginalPath.mockImplementation(() => ({originalPath: currentOriginalPath}));
+        const queuedMutation = deferred<undefined>();
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
+        const blockingMutation = enqueueWorkingCopyMutation(workingPath, () => queuedMutation.promise);
+        const {handleFileSaveStructured} = await import('@electron/features/documents/main/workingCopySave');
+
+        const savePromise = handleFileSaveStructured(context, workingPath, revisionOptions);
+        await waitForSettledQueueTurn();
+        currentOriginalPath = secondOriginalPath;
+        queuedMutation.resolve(undefined);
+        await blockingMutation;
+
+        await expect(savePromise).resolves.toMatchObject({
+            ok: true,
+            externalWriteCommitted: true,
+        });
+        expect(readFileSyncUtf8(firstOriginalPath)).toBe('first-original');
+        expect(readFileSyncUtf8(secondOriginalPath)).toBe('queued-working');
+    });
+
     it('returns a structured success result for working-copy saves', async () => {
         const workingPath = join(tempRoot, 'structured-working.pdf');
         const originalPath = join(tempRoot, 'structured-original.pdf');

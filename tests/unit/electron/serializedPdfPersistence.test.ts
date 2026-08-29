@@ -10,6 +10,7 @@ import {
 import { delay } from 'es-toolkit/promise';
 import {
     existsSync,
+    mkdirSync,
     mkdtempSync,
     readFileSync,
     rmSync,
@@ -58,6 +59,7 @@ const mocks = vi.hoisted(() => ({
     copyFileCopyOnWrite: vi.fn(),
     transitionOriginalAndWorkingCopyRevision: vi.fn(),
     createTypedStagedArtifact: vi.fn(),
+    createTypedStagedArtifactForTrustedSiblingCopy: vi.fn(),
     releaseManagedTempFileHandle: vi.fn(),
     removeAllowedOpenPath: vi.fn(),
     ensureWorkingCopyMaterialized: vi.fn(),
@@ -100,6 +102,8 @@ vi.mock('@electron/features/documents/main/commitPdfTempFile', () => ({commitPdf
 vi.mock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision', () => ({transitionOriginalAndWorkingCopyRevision: (...args: unknown[]) => mocks.transitionOriginalAndWorkingCopyRevision(...args)}));
 vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({
     createTypedStagedArtifact: (...args: unknown[]) => mocks.createTypedStagedArtifact(...args),
+    createTypedStagedArtifactForTrustedSiblingCopy: (...args: unknown[]) =>
+        mocks.createTypedStagedArtifactForTrustedSiblingCopy(...args),
     releaseManagedTempFileHandle: (...args: unknown[]) => mocks.releaseManagedTempFileHandle(...args),
 }));
 vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: (...args: unknown[]) => mocks.ensureWorkingCopyMaterialized(...args)}));
@@ -257,6 +261,21 @@ describe('serializedPdfPersistence', () => {
             validations,
             leaseId: `lease:${path}`,
             revision: null,
+        }));
+        mocks.createTypedStagedArtifactForTrustedSiblingCopy.mockImplementation(async (
+            _context: unknown,
+            sourceArtifact: {
+                size: number;
+                sha256: string;
+            },
+            path: string,
+            _originalPath: string,
+            validations: Record<string, unknown>,
+        ) => ({
+            ...sourceArtifact,
+            path,
+            validations,
+            leaseId: `lease:${path}`,
         }));
         mocks.releaseManagedTempFileHandle.mockReturnValue(true);
     });
@@ -741,6 +760,70 @@ describe('serializedPdfPersistence', () => {
             .toBeLessThan(firstInvocationOrder(mocks.refreshWorkingCopyOriginalFileExpectation));
     });
 
+    it('resolves and rehomes a streamed original save when its queued mapping changes', async () => {
+        const workingPath = join(tempRoot, 'queued-stream-working.pdf');
+        const firstDirectory = join(tempRoot, 'first-target');
+        const secondDirectory = join(tempRoot, 'second-target');
+        const firstOriginalPath = join(firstDirectory, 'original.pdf');
+        const secondOriginalPath = join(secondDirectory, 'original.pdf');
+        mkdirSync(firstDirectory);
+        mkdirSync(secondDirectory);
+        writeFileSync(workingPath, 'working-before');
+        writeFileSync(firstOriginalPath, 'first-before');
+        writeFileSync(secondOriginalPath, 'second-before');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath: firstOriginalPath});
+        const {
+            attachSerializedPdfPersistencePort,
+            beginSerializedPdfSaveToOriginal,
+            commitStagedSerializedPdf,
+        } = await importSerializedPdfPersistence();
+        const sender = new FakeSender();
+        const beginResult = await beginSerializedPdfSaveToOriginal(
+            createInvokeEvent(sender),
+            workingPath,
+            Buffer.byteLength('streamed-new'),
+            SERIALIZED_TEST_REVISION_OPTIONS,
+        );
+        const port = new FakeMessagePort();
+        const stagedPromise = port.nextResult();
+        attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
+        port.emit('message', {data: {
+            type: 'chunk',
+            seq: 0,
+            bytes: Buffer.from('streamed-new'),
+        }});
+        port.emit('message', {data: {type: 'complete'}});
+        const staged = await stagedPromise;
+        if (!isStagedPortMessage(staged)) {
+            throw new Error('Expected staged serialized PDF result');
+        }
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
+        const blockedMutation = deferred<undefined>();
+        const queuedMutation = enqueueWorkingCopyMutation(workingPath, () => blockedMutation.promise);
+
+        const commitPromise = commitStagedSerializedPdf(
+            {senderId: sender.id},
+            staged.sessionId,
+            staged.stagedOutput,
+        );
+        await waitForSettledQueueTurn();
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath: secondOriginalPath});
+        blockedMutation.resolve(undefined);
+        await queuedMutation;
+
+        await expect(commitPromise).resolves.toMatchObject({path: secondOriginalPath});
+        expect(readFileSyncUtf8(firstOriginalPath)).toBe('first-before');
+        expect(readFileSyncUtf8(secondOriginalPath)).toBe('streamed-new');
+        expect(readFileSyncUtf8(workingPath)).toBe('streamed-new');
+        expect(mocks.createTypedStagedArtifactForTrustedSiblingCopy).toHaveBeenCalledWith(
+            {senderId: 42},
+            staged.stagedOutput,
+            `${secondOriginalPath}.tmp.pdf`,
+            secondOriginalPath,
+            staged.stagedOutput.validations,
+        );
+    });
+
     it('streams a snapshot into the managed working copy without publishing the original', async () => {
         const workingPath = join(tempRoot, 'snapshot-working.pdf');
         const originalPath = join(tempRoot, 'snapshot-original.pdf');
@@ -833,8 +916,8 @@ describe('serializedPdfPersistence', () => {
             type: 'result',
             path: targetPath,
             validation: {
-                isValid: false,
-                errors: [expect.stringContaining('copy-back failed')],
+                isValid: true,
+                errors: [],
                 warnings: [expect.stringContaining('copy-back failed')],
             },
         });

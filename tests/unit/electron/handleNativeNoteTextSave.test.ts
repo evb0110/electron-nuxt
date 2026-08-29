@@ -1180,6 +1180,48 @@ describe('handleNativeNoteTextSave', () => {
             .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[1]!);
     });
 
+    it('resolves the original mapping when a queued staged commit starts executing', async () => {
+        const workingPath = join(tempRoot, 'queued-staged-working.pdf');
+        const firstOriginalPath = join(tempRoot, 'queued-staged-first.pdf');
+        const secondOriginalPath = join(tempRoot, 'queued-staged-second.pdf');
+        const stagedPath = join(tempRoot, 'queued-staged-output.pdf');
+        writeFileSync(workingPath, 'working-before');
+        writeFileSync(firstOriginalPath, 'first-before');
+        writeFileSync(secondOriginalPath, 'second-before');
+        writeFileSync(stagedPath, 'staged-output');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath: firstOriginalPath});
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(workingPath);
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
+        const blockedMutation = deferred<undefined>();
+        const queuedMutation = enqueueWorkingCopyMutation(workingPath, () => blockedMutation.promise);
+        const {handleCommitStagedPdfNativeMutations} = await import(
+            '@electron/features/documents/main/nativePdfMutationSaveHandlers'
+        );
+
+        const commitPromise = handleCommitStagedPdfNativeMutations(
+            context,
+            workingPath,
+            createOpaqueStagedArtifact(stagedPath),
+            revisionOptions,
+        );
+        await waitForSettledQueueTurn();
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath: secondOriginalPath});
+        blockedMutation.resolve(undefined);
+        await queuedMutation;
+
+        await expect(commitPromise).resolves.toMatchObject({applied: true});
+        expect(readFileSyncUtf8(firstOriginalPath)).toBe('first-before');
+        expect(readFileSyncUtf8(secondOriginalPath)).toBe('staged-output');
+        expect(mocks.transitionOriginalAndWorkingCopyRevision).toHaveBeenCalledWith(
+            expect.objectContaining({originalPath: secondOriginalPath}),
+        );
+        expect(mocks.publishImmutableFileAtomic).toHaveBeenCalledWith(
+            stagedPath,
+            secondOriginalPath,
+            expect.objectContaining({assertDestinationCurrent: expect.any(Function)}),
+        );
+    });
+
     it('preserves native markup identity bindings through staged publication', async () => {
         const workingPath = join(tempRoot, 'identity-staged-working.pdf');
         const originalPath = join(tempRoot, 'identity-staged-original.pdf');

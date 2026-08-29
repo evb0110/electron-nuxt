@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => {
             repairPdf: vi.fn(),
             saveFileStructured: vi.fn(),
             savePdfAs: vi.fn(),
+            savePdfDataAs: vi.fn(),
             savePdfNativeMutations: vi.fn(),
             savePdfNoteChanges: vi.fn(),
             savePdfNoteTextUpdates: vi.fn(),
@@ -203,6 +204,10 @@ describe('createDocumentPersistence', () => {
             validation: null,
         });
         mocks.documentFilesCapability.savePdfAs.mockResolvedValue('/tmp/saved.pdf');
+        mocks.documentFilesCapability.savePdfDataAs.mockResolvedValue({
+            path: '/tmp/saved.pdf',
+            validation: validPdfResult,
+        });
         mocks.documentFilesCapability.savePdfNativeMutations.mockResolvedValue({
             applied: true,
             validation: validPdfResult,
@@ -440,6 +445,42 @@ describe('createDocumentPersistence', () => {
         expect(mocks.documentWorkingCopyCapability.cleanupFile).toHaveBeenCalledWith('/tmp/old-working.pdf');
         expectBroadFilePersistenceFacadeNotUsed();
         expectBroadWorkingCopyFacadeNotUsed();
+    });
+
+    it('adopts a committed Save As path before reporting a post-commit validation failure', async () => {
+        const {
+            persistence,
+            state,
+        } = createPersistenceHarness();
+        mocks.documentFilesCapability.savePdfDataAs.mockResolvedValueOnce({
+            path: '/tmp/committed.pdf',
+            validation: {
+                isValid: false,
+                tool: 'native',
+                errors: ['copy-back failed'],
+                warnings: ['copy-back failed'],
+            },
+        });
+
+        const saveAsResult = await persistence.saveWorkingCopyAs(new Uint8Array([1]));
+
+        expect(saveAsResult).toMatchObject({
+            success: false,
+            outPath: '/tmp/committed.pdf',
+        });
+        expect(state.originalPath.value).toBe('/tmp/committed.pdf');
+        expect(state.workingCopyPath.value).toBe('/tmp/old-working.pdf');
+        expect(state.isDirty.value).toBe(true);
+
+        const nextSaveResult = await persistence.saveWorkingCopy();
+        expect(nextSaveResult).toMatchObject({
+            success: true,
+            outPath: '/tmp/committed.pdf',
+        });
+        expect(mocks.documentFilesCapability.saveFileStructured).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
+        );
     });
 
     it('cleans a stale Save As working copy through the split working-copy capability', async () => {

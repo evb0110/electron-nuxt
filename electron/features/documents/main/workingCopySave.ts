@@ -255,7 +255,6 @@ async function runNativePdfSaveMutation(
     }
 
     const normalizedWorkingPath = workingPath.trim();
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
     try {
@@ -265,6 +264,7 @@ async function runNativePdfSaveMutation(
                 ownerWebContentsId: senderId,
                 reason: 'native-mutation',
             });
+            const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
 
             const queuedSave = await replaceOriginalWithValidatedTemp(
                 originalPath,
@@ -295,7 +295,6 @@ export async function handleFileSaveStructured(
         }
 
         const normalizedWorkingPath = workingPath.trim();
-        const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
         const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
         const saveResult = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
             await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
@@ -303,6 +302,7 @@ export async function handleFileSaveStructured(
                 ownerWebContentsId: senderId,
                 reason: 'save',
             });
+            const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
 
             const queuedSave = await replaceOriginalWithValidatedTemp(
                 originalPath,
@@ -434,7 +434,6 @@ export async function handleSerializedPdfSave(
     }
 
     const normalizedWorkingPath = workingPath.trim();
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
     const payload = normalizeIpcWritePayload(data);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
@@ -445,6 +444,7 @@ export async function handleSerializedPdfSave(
                 ownerWebContentsId: senderId,
                 reason: 'serialized-persistence',
             });
+            const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
 
             const queuedSave = await replaceOriginalWithValidatedTemp(
                 originalPath,

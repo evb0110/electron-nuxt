@@ -1086,8 +1086,18 @@ export function createDocumentPersistence(
                     ),
                     validation: null,
                 };
+            const savedPath = saveAsResult.path;
             if (saveAsResult.validation && !saveAsResult.validation.isValid) {
                 state.error.value = saveAsResult.validation.errors.join('\n') || deps.t('errors.file.save');
+                if (savedPath && state.isActiveWorkingCopy(previousWorkingPath)) {
+                    // A legacy or compatibility main process can report a
+                    // post-commit refresh error as invalid validation. The
+                    // target is already durable, so keep renderer path state
+                    // aligned while leaving the working copy dirty for retry.
+                    state.originalPath.value = savedPath;
+                    state.requiresSaveAsOnFirstSave.value = false;
+                    return createPersistResult(false, requestedSaveMode, true, savedPath);
+                }
                 return createFailedPersistResult(requestedSaveMode, true);
             }
             if (!state.isActiveWorkingCopy(previousWorkingPath)) {
@@ -1099,7 +1109,6 @@ export function createDocumentPersistence(
                 });
                 return createStalePersistResult(requestedSaveMode, true);
             }
-            const savedPath = saveAsResult.path;
             if (savedPath) {
                 let savedWorkingPath = previousWorkingPath;
                 if (shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
