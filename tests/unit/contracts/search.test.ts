@@ -217,6 +217,11 @@ describe('collapseRepeatedPdfSearchPageText', () => {
         expect(collapseRepeatedPdfSearchPageText(pageText.repeat(3))).toBe(pageText);
     });
 
+    it('refuses normalized page text that exceeds the output budget', () => {
+        expect(() => contractsSearch.normalizeSearchText('\uFB03'.repeat(8), 16))
+            .toThrow('normalized search text exceeds 16 bytes');
+    });
+
     it('collapses OCR overlay stacks with more than four copies', () => {
         const pageText = 'В. 0. Гиргас АРАВСКО-РУССКИЙ СЛОВАРЬ К ВОТАНО и ХАДИСАМ\n';
 
