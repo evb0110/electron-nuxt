@@ -1465,17 +1465,17 @@ describe('Electron E2E - Viewer Smoke', () => {
         });
         await dismissScanCleanupFirstRunGuidance(session.page);
         await session.page.evaluate(() => {
-            const bw = Array.from(document.querySelectorAll<HTMLButtonElement>('button[role="radio"]'))
-                .find(button => button.getAttribute('aria-label') === 'Black and white'
-                    || (button.textContent ?? '').trim() === 'B&W');
-            if (!bw) {
-                throw new Error('Scan Cleanup black-and-white output control was not found');
+            const color = Array.from(document.querySelectorAll<HTMLButtonElement>('button[role="radio"]'))
+                .find(button => button.getAttribute('aria-label') === 'Color'
+                    || (button.textContent ?? '').trim() === 'Color');
+            if (!color) {
+                throw new Error('Scan Cleanup color output control was not found');
             }
-            bw.click();
+            color.click();
         });
         await waitForFunctionInPage(session.page, () => Array.from(
             document.querySelectorAll<HTMLButtonElement>('button[role="radio"]'),
-        ).some(button => button.getAttribute('aria-label') === 'Black and white'
+        ).some(button => button.getAttribute('aria-label') === 'Color'
             && button.getAttribute('aria-checked') === 'true'), {timeout: 10_000});
         await session.page.waitForSelector(
             '.preview-result-layer img.cleaned-image.preview-pixel:not(.is-outgoing):not(.is-incoming)',
