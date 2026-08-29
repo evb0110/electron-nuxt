@@ -35,24 +35,33 @@
                 </div>
 
                 <div class="grid gap-4 sm:grid-cols-2">
-                    <div class="flex flex-col gap-2">
+                    <div class="flex min-w-0 flex-col gap-2">
                         <p class="m-0 text-xs text-muted">
                             {{ t('print.layoutLabel') }}
                         </p>
                         <div class="grid gap-2">
+                            <!--
+                                The option text goes in the default slot, not `label`: the
+                                button theme's label slot is `truncate`, whose `nowrap` makes
+                                the button's min-content width the whole option name. A grid
+                                item that wide escapes its `1fr` column and paints over the
+                                next one, which is what the longer non-English option names do.
+                            -->
                             <UButton
                                 v-for="option in layoutOptions"
                                 :key="option.value"
-                                :label="option.label"
                                 :color="viewMode === option.value ? 'primary' : 'neutral'"
                                 :variant="viewMode === option.value ? 'soft' : 'outline'"
-                                class="justify-start"
+                                :aria-pressed="viewMode === option.value"
+                                :class="optionButtonClass"
                                 @click="viewMode = option.value"
-                            />
+                            >
+                                {{ option.label }}
+                            </UButton>
                         </div>
                     </div>
 
-                    <div class="flex flex-col gap-2">
+                    <div class="flex min-w-0 flex-col gap-2">
                         <p class="m-0 text-xs text-muted">
                             {{ t('print.orientationLabel') }}
                         </p>
@@ -60,12 +69,14 @@
                             <UButton
                                 v-for="option in orientationOptions"
                                 :key="option.value"
-                                :label="option.label"
                                 :color="orientation === option.value ? 'primary' : 'neutral'"
                                 :variant="orientation === option.value ? 'soft' : 'outline'"
-                                class="justify-start"
+                                :aria-pressed="orientation === option.value"
+                                :class="optionButtonClass"
                                 @click="orientation = option.value"
-                            />
+                            >
+                                {{ option.label }}
+                            </UButton>
                         </div>
                     </div>
                 </div>
@@ -163,6 +174,11 @@ const radioGroupUi = {
 } as const;
 
 const rangeFieldUi = { error: 'mt-1 text-xs' } as const;
+
+// `min-w-0` lets the button shrink to its column, `break-words` keeps a single
+// long word inside it, and `text-start` overrides the centring a `<button>`
+// element applies to the extra lines a wrapped option name produces.
+const optionButtonClass = 'min-w-0 justify-start break-words text-start';
 
 const viewMode = ref<TPdfViewMode>('single');
 const orientation = ref<TPrintOrientation>('auto');

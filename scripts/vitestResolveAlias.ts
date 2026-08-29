@@ -3,6 +3,9 @@ import { resolve } from 'node:path';
 const projectRoot = resolve(__dirname, '..');
 
 export const vitestResolveAlias = {
+    // Nuxt's own alias for the generated build directory, so a test can read the
+    // resolved component themes the app runs against instead of a copy of them.
+    '#build': resolve(projectRoot, '.nuxt'),
     '@app': resolve(projectRoot, 'app'),
     '@electron': resolve(projectRoot, 'electron'),
     '@electron-worker-bundles': resolve(projectRoot, 'packages/electron-worker-bundles'),

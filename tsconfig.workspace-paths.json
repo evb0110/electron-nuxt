@@ -1,6 +1,8 @@
 {
     "compilerOptions": {
         "paths": {
+            "#build": ["./.nuxt"],
+            "#build/*": ["./.nuxt/*"],
             "@app/*": ["./app/*"],
             "@contracts": ["./packages/contracts/index.ts"],
             "@contracts/*": ["./packages/contracts/*"],
