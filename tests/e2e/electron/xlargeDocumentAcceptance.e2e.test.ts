@@ -1402,7 +1402,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             expect(saveReceipt?.barrierFinished).toBe(true);
             expect(saveReceipt?.stagedArtifact).toMatchObject({
                 artifactKind: 'pdf',
-                receiptVersion: 1,
+                receiptVersion: 2,
             });
             const saveReceiptPayloadBytes = await sessionB.page.evaluate(() => {
                 const receipt = (window as ISaveReceiptProbeWindow).__saveReceiptProbe;
