@@ -1,0 +1,26 @@
+tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts
+  s_3eede23e5e56b0::t_573ae554191f1c 321-322,482,486,490-491
+  s_3eede23e5e56b0::t_278ae6e827cc81 1600-1608
+  s_3eede23e5e56b0::t_1f67e551625af3 688-704,710-721,723,726-732,739-747,749,752-784,789-809,825-828,830-836,844-855
+  s_3eede23e5e56b0::t_d63f93d2224543 785-788,837
+  s_3eede23e5e56b0::t_87ed56c6798f2b 242-259,264,267-273,365-371,409-415
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_3eede23e5e56b0::t_5ca5197ad86ee7 90-91,265,269,273-274,576-577,591-592,624,710-711
+  s_3eede23e5e56b0::t_a7afe0a992b61e 538
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2e2f5745e98e99de9549fe0cd4b56fcb8aa676ca",
+  "prompts": {},
+  "sessions": {
+    "s_3eede23e5e56b0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f36-11e7-7321-be47-8fe3bd1aa08b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}
