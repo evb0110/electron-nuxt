@@ -40,6 +40,10 @@ function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) throw abortErrorFromSignal(signal);
 }
 
+async function removeSourcePages(pagePaths: string[]) {
+    await Promise.all(pagePaths.map(pagePath => rm(pagePath, {force: true}).catch(() => undefined)));
+}
+
 interface IIndexedArrayBufferView extends ArrayBufferView {
     readonly length: number;
     readonly [index: number]: unknown;
@@ -310,6 +314,9 @@ export async function combinePagesIntoMultiPageTiffLocal(
     }
     throwIfAborted(signal);
     if (await tryCombinePagesWithNativeTiffCombiner(pagePaths, outputPath, signal)) {
+        if (deleteSourcePages) {
+            await removeSourcePages(pagePaths);
+        }
         return;
     }
 
@@ -367,7 +374,7 @@ export async function combinePagesIntoMultiPageTiffLocal(
         await atomicReplace(tempOutputPath, outputPath);
         replacedOutput = true;
         if (deleteSourcePages) {
-            await Promise.all(pages.map(page => rm(page.path, {force: true}).catch(() => undefined)));
+            await removeSourcePages(pages.map(page => page.path));
         }
     } catch (error) {
         stream.destroy();

@@ -11,6 +11,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import type * as FsPromises from 'fs/promises';
+import type * as WorkerTask from '@electron/utils/workerTask';
 import * as utifModule from 'utif';
 import { decode as decodePng } from 'fast-png';
 import {
@@ -57,6 +58,14 @@ const mocks = vi.hoisted(() => ({
     renderedRasterSizes: [] as IRenderedRasterSize[],
     requestedRenderDpis: [] as number[],
     tiffDescriptorReadCount: 0,
+    tiffWorkerPath: null as string | null,
+    tiffWorkerPageGroups: [] as string[][],
+    tiffWorkerStarted: false,
+    tiffWorkerBlock: false,
+    nativeTiffCombineEnabled: false,
+    nativeTiffCombinePageGroups: [] as string[][],
+    nativeTiffCombineStarted: false,
+    nativeTiffCombineBlock: false,
     pageSizeOverrides: {} as Record<number, {
         widthPts: number;
         heightPts: number
@@ -107,6 +116,82 @@ vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({
     isNativePdfImageCombineDisabled: () => mocks.nativeImageCombinePath === null,
     resolveNativePdfImageCombinePath: () => mocks.nativeImageCombinePath,
 }));
+vi.mock('@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner', async () => {
+    const actual = await vi.importActual<typeof FsPromises>('fs/promises');
+    return {tryCombinePagesWithNativeTiffCombiner: async (
+        pagePaths: string[],
+        outputPath: string,
+        signal?: AbortSignal,
+    ) => {
+        if (!mocks.nativeTiffCombineEnabled) {
+            return false;
+        }
+
+        mocks.nativeTiffCombinePageGroups.push([...pagePaths]);
+        mocks.nativeTiffCombineStarted = true;
+        if (mocks.nativeTiffCombineBlock) {
+            await new Promise<void>((resolve, reject) => {
+                const handleAbort = () => {
+                    signal?.removeEventListener('abort', handleAbort);
+                    reject(signal?.reason ?? new DOMException('TIFF combine canceled', 'AbortError'));
+                };
+                if (signal?.aborted) {
+                    handleAbort();
+                    return;
+                }
+                signal?.addEventListener('abort', handleAbort, {once: true});
+            });
+        }
+
+        await actual.writeFile(outputPath, Buffer.from('mock-native-tiff'));
+        return true;
+    }};
+});
+vi.mock('@electron/utils/workerTask', async () => {
+    const actual = await vi.importActual<typeof WorkerTask>('@electron/utils/workerTask');
+    return {
+        ...actual,
+        resolveUnpackedWorkerPath: (...args: Parameters<typeof actual.resolveUnpackedWorkerPath>) =>
+            mocks.tiffWorkerPath ?? actual.resolveUnpackedWorkerPath(...args),
+        runResultWorkerTask: async (options: {
+            signal?: AbortSignal;
+            workerData: unknown;
+        }) => {
+            const workerData = options.workerData as {
+                deleteSourcePages?: unknown;
+                outputPath?: unknown;
+                pagePaths?: unknown;
+            };
+            if (typeof workerData.outputPath !== 'string' || !Array.isArray(workerData.pagePaths)
+                || !workerData.pagePaths.every((path): path is string => typeof path === 'string')) {
+                throw new Error('Invalid mock TIFF worker payload');
+            }
+
+            mocks.tiffWorkerPageGroups.push([...workerData.pagePaths]);
+            mocks.tiffWorkerStarted = true;
+            if (mocks.tiffWorkerBlock) {
+                await new Promise<void>((resolve, reject) => {
+                    const handleAbort = () => {
+                        options.signal?.removeEventListener('abort', handleAbort);
+                        reject(options.signal?.reason ?? new DOMException('TIFF combine canceled', 'AbortError'));
+                    };
+                    if (options.signal?.aborted) {
+                        handleAbort();
+                        return;
+                    }
+                    options.signal?.addEventListener('abort', handleAbort, {once: true});
+                });
+            }
+
+            const actualFs = await vi.importActual<typeof FsPromises>('fs/promises');
+            await actualFs.writeFile(workerData.outputPath, Buffer.from('mock-worker-tiff'));
+            if (workerData.deleteSourcePages === true) {
+                await Promise.all(workerData.pagePaths.map(path => actualFs.rm(path, {force: true})));
+            }
+            return undefined;
+        },
+    };
+});
 vi.mock('pdf-lib', () => ({PDFDocument: {load: vi.fn(async () => ({ getPageCount: () => mocks.pdfPageCount }))}}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
@@ -222,6 +307,14 @@ describe('image export', () => {
         mocks.renderedRasterSizes.length = 0;
         mocks.requestedRenderDpis.length = 0;
         mocks.tiffDescriptorReadCount = 0;
+        mocks.tiffWorkerPath = null;
+        mocks.tiffWorkerPageGroups.length = 0;
+        mocks.tiffWorkerStarted = false;
+        mocks.tiffWorkerBlock = false;
+        mocks.nativeTiffCombineEnabled = false;
+        mocks.nativeTiffCombinePageGroups.length = 0;
+        mocks.nativeTiffCombineStarted = false;
+        mocks.nativeTiffCombineBlock = false;
         mocks.pageSizeOverrides = {};
         mocks.stat.mockImplementation(async () => ({
             isFile: () => true,
@@ -540,6 +633,72 @@ describe('image export', () => {
         expect(existsSync(`${outputPath}.tmp`)).toBe(false);
     });
 
+    it('combines each TIFF render window before rendering the next window', async () => {
+        mocks.renderPageCount = 50;
+        mocks.pdfPageCount = 50;
+        mocks.tiffWorkerPath = join(tempDir, 'mock-tiff-worker.js');
+        await writeFile(mocks.tiffWorkerPath, 'mock worker');
+        let firstWindowReleasedBeforeSecondRender = false;
+        const defaultRunCommand = mocks.runCommand.getMockImplementation();
+        if (!defaultRunCommand) {
+            throw new Error('Expected default command mock');
+        }
+        mocks.runCommand.mockImplementation(async (
+            command: string,
+            args: string[],
+            options?: Record<string, unknown>,
+        ) => {
+            if (command === '/mock/pdftoppm') {
+                const firstPageArgIndex = args.indexOf('-f');
+                const firstPage = firstPageArgIndex >= 0
+                    ? Number.parseInt(String(args[firstPageArgIndex + 1]), 10)
+                    : 1;
+                if (firstPage > 1) {
+                    const firstWindowPaths = mocks.tiffWorkerPageGroups[0] ?? [];
+                    firstWindowReleasedBeforeSecondRender = firstWindowPaths.length > 0
+                        && firstWindowPaths.every(pagePath => !existsSync(pagePath));
+                }
+            }
+            return defaultRunCommand(command, args, options);
+        });
+
+        const outputPath = join(tempDir, 'windowed.tiff');
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath)).resolves.toEqual([
+            join(tempDir, 'windowed-part-001.tiff'),
+            join(tempDir, 'windowed-part-002.tiff'),
+        ]);
+
+        expect(mocks.tiffWorkerPageGroups).toHaveLength(2);
+        expect(mocks.tiffWorkerPageGroups.map(group => group.length)).toEqual([
+            25,
+            25,
+        ]);
+        expect(firstWindowReleasedBeforeSecondRender).toBe(true);
+        expect(mocks.tiffWorkerPageGroups.flat().every(pagePath => !existsSync(pagePath))).toBe(true);
+    });
+
+    it('cancels a TIFF combine without publishing output or retaining scratch', async () => {
+        mocks.renderPageCount = 2;
+        mocks.pdfPageCount = 2;
+        mocks.tiffWorkerPath = join(tempDir, 'mock-tiff-worker.js');
+        await writeFile(mocks.tiffWorkerPath, 'mock worker');
+        mocks.tiffWorkerBlock = true;
+        const controller = new AbortController();
+        const outputPath = join(tempDir, 'combine-canceled.tiff');
+        const exportPromise = exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {signal: controller.signal});
+
+        await vi.waitFor(() => expect(mocks.tiffWorkerStarted).toBe(true));
+        controller.abort(new DOMException('combine canceled', 'AbortError'));
+
+        await expect(exportPromise).rejects.toMatchObject({
+            name: 'AbortError',
+            message: 'combine canceled',
+        });
+        expect(existsSync(outputPath)).toBe(false);
+        expect(existsSync(`${outputPath}.tmp`)).toBe(false);
+        expect(mocks.tiffWorkerPageGroups).toHaveLength(1);
+    });
+
     it('renders every page at its source resolution instead of upscaling it', async () => {
         mocks.pdfimagesPath = '/mock/pdfimages';
         mocks.renderPageCount = 6;
@@ -736,6 +895,23 @@ describe('image export', () => {
             0,
             255,
         ]);
+    });
+
+    it('removes local TIFF source pages after a successful native combine', async () => {
+        mocks.nativeTiffCombineEnabled = true;
+        const pagePaths = [
+            join(tempDir, 'native-page-1.tif'),
+            join(tempDir, 'native-page-2.tif'),
+            join(tempDir, 'native-page-3.tif'),
+        ];
+        await Promise.all(pagePaths.map(pagePath => writeFile(pagePath, 'source')));
+        const outputPath = join(tempDir, 'native-combined.tiff');
+
+        await combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath, {deleteSourcePages: true});
+
+        expect(existsSync(outputPath)).toBe(true);
+        expect(pagePaths.every(pagePath => !existsSync(pagePath))).toBe(true);
+        expect(mocks.nativeTiffCombinePageGroups).toEqual([pagePaths]);
     });
 
     it('honors an already-aborted signal before the local TIFF fallback reads pages', async () => {

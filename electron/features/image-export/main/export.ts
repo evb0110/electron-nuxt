@@ -1103,7 +1103,6 @@ export async function exportPdfAsMultiPageTiff(
                 pageCount,
                 renderDpi,
             } = await planExportRender(preparedSourcePdf, options);
-            const pageFiles: IRenderedPageFile[] = [];
             let renderedPageCount = 0;
             emitExportProgress(options, {
                 phase: 'rendering',
@@ -1111,81 +1110,82 @@ export async function exportPdfAsMultiPageTiff(
                 total: pageCount,
                 percent: 0,
             });
+            const stagedGroupPaths: string[] = [];
+            let combinedGroupCount = 0;
+            const expectedRenderWindowCount = Math.max(1, Math.ceil(pageCount / PDF_EXPORT_RENDER_CHUNK_PAGES));
             for (const pageRange of createPageRanges(pageCount)) {
                 throwIfAborted(options.signal);
                 const renderDir = await mkdtemp(join(tempDir, 'render-pages-'));
-                const renderedPageFiles = await renderPdfToTempPages(
-                    preparedSourcePdf,
-                    'tiff',
-                    pageRange,
-                    renderDir,
-                    renderDpi,
-                    options.signal,
-                    options.cancelGroup,
-                );
-                let stagedPageBytes = 0;
-                for (const renderedPageFile of renderedPageFiles) {
-                    stagedPageBytes = await addStagedImageFileBytes(stagedPageBytes, renderedPageFile.path,
-                        'Multi-page TIFF export exceeds the 2 GiB scratch limit for one render window');
-                }
-                pageFiles.push(...renderedPageFiles);
-                renderedPageCount += renderedPageFiles.length;
-                emitExportProgress(options, {
-                    phase: 'rendering',
-                    processed: renderedPageCount,
-                    total: pageCount,
-                    percent: (renderedPageCount / pageCount) * 90,
-                });
-            }
-            const orderedPagePaths = pageFiles
-                .sort((left, right) => left.page - right.page)
-                .map(pageFile => pageFile.path);
-            const tiffPageDescriptors = await readTiffPageDescriptors(orderedPagePaths, options.signal);
-            const tiffPageGroups = splitTiffPageDescriptorsForClassicLimit(tiffPageDescriptors)
-                .map(group => group.map(page => page.path));
-            const outputPaths = resolveOutputPathConflicts(buildMultiPageTiffOutputPaths(targetPath, tiffPageGroups.length));
-            emitExportProgress(options, {
-                phase: 'combining',
-                processed: 0,
-                total: Math.max(1, tiffPageGroups.length),
-                percent: 90,
-            });
-            const stagedFiles: Array<{
-                stagedPath: string;
-                targetPath: string;
-                targetExisted: boolean;
-            }> = [];
-
-            try {
-                for (const [
-                    index,
-                    tiffPageGroup,
-                ] of tiffPageGroups.entries()) {
-                    throwIfAborted(options.signal);
-                    const targetOutputPath = outputPaths[index];
-                    if (!targetOutputPath) {
-                        throw new Error('Multi-page TIFF export target path is missing');
+                try {
+                    const renderedPageFiles = await renderPdfToTempPages(
+                        preparedSourcePdf,
+                        'tiff',
+                        pageRange,
+                        renderDir,
+                        renderDpi,
+                        options.signal,
+                        options.cancelGroup,
+                    );
+                    let stagedPageBytes = 0;
+                    for (const renderedPageFile of renderedPageFiles) {
+                        stagedPageBytes = await addStagedImageFileBytes(stagedPageBytes, renderedPageFile.path,
+                            'Multi-page TIFF export exceeds the 2 GiB scratch limit for one render window');
                     }
-                    const stagedPath = makeSiblingTempPath(targetOutputPath);
-                    await combinePagesIntoMultiPageTiff(tiffPageGroup, stagedPath, options.signal, true);
-                    stagedFiles.push({
-                        stagedPath,
-                        targetPath: targetOutputPath,
-                        targetExisted: existsSync(targetOutputPath),
-                    });
+                    renderedPageCount += renderedPageFiles.length;
                     emitExportProgress(options, {
-                        phase: 'combining',
-                        processed: index + 1,
-                        total: tiffPageGroups.length,
-                        percent: 90 + (((index + 1) / tiffPageGroups.length) * 10),
+                        phase: 'rendering',
+                        processed: renderedPageCount,
+                        total: pageCount,
+                        percent: (renderedPageCount / pageCount) * 90,
                     });
+
+                    const tiffPageDescriptors = await readTiffPageDescriptors(
+                        renderedPageFiles.map(pageFile => pageFile.path),
+                        options.signal,
+                    );
+                    const tiffPageGroups = splitTiffPageDescriptorsForClassicLimit(tiffPageDescriptors);
+                    for (const tiffPageGroup of tiffPageGroups) {
+                        throwIfAborted(options.signal);
+                        const stagedPath = join(
+                            tempDir,
+                            `tiff-group-${String(combinedGroupCount + 1).padStart(6, '0')}.tiff`,
+                        );
+                        await combinePagesIntoMultiPageTiff(
+                            tiffPageGroup.map(page => page.path),
+                            stagedPath,
+                            options.signal,
+                            true,
+                        );
+                        stagedGroupPaths.push(stagedPath);
+                        combinedGroupCount += 1;
+                        emitExportProgress(options, {
+                            phase: 'combining',
+                            processed: combinedGroupCount,
+                            total: Math.max(expectedRenderWindowCount, combinedGroupCount),
+                            percent: 90 + ((combinedGroupCount / Math.max(expectedRenderWindowCount, combinedGroupCount)) * 10),
+                        });
+                    }
+                } finally {
+                    await rm(renderDir, {
+                        recursive: true,
+                        force: true,
+                    }).catch(() => undefined);
                 }
-                throwIfAborted(options.signal);
-                await promoteStagedFiles(stagedFiles, options.signal);
-            } catch (error) {
-                await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
-                throw error;
             }
+            const outputPaths = resolveOutputPathConflicts(buildMultiPageTiffOutputPaths(targetPath, stagedGroupPaths.length));
+            const stagedFiles = stagedGroupPaths.map((stagedPath, index) => {
+                const targetOutputPath = outputPaths[index];
+                if (!targetOutputPath) {
+                    throw new Error('Multi-page TIFF export target path is missing');
+                }
+                return {
+                    stagedPath,
+                    targetPath: targetOutputPath,
+                    targetExisted: existsSync(targetOutputPath),
+                };
+            });
+            throwIfAborted(options.signal);
+            await promoteStagedFiles(stagedFiles, options.signal);
 
             for (const outputPath of outputPaths) {
                 if (!existsSync(outputPath)) {
