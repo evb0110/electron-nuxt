@@ -1,23 +1,19 @@
 packages/pdf-core/pdfPrintLayout.ts
-  s_b2ece6dfe48478::t_cb003da8752452 267-268
-  s_b2ece6dfe48478::t_4cb025b79c3500 262-266,269-273
-  s_b2ece6dfe48478::t_46aa2f53bb74bc 1-4
+  s_39174c1b595540::t_86ec6a376cafd9 271-272
 tests/unit/app/utils/pdfPrint.test.ts
-  s_b2ece6dfe48478::t_7a00306713248c 81-85,90-105,294-295,308-309,316-317,319,352,377-379
-  s_b2ece6dfe48478::t_89354ad4c72344 86-89,296-307,311-315,326-341,361-370
-  s_b2ece6dfe48478::t_b5d27126d09851 9-11,310,318,320-325,342-351,353-360,371-376,380-384
-  s_b2ece6dfe48478::t_8fd82679ffe4bb 8,385
+  s_39174c1b595540::t_38c9a89b579b93 9-11,85,93,95-96,102-105,290-293,309-310,316-323,342,344-346,349,357-358,373,375,377-383
+  ai_agent 311-313,315,329,365-367,370
 ---
 {
   "schema_version": "authorship/3.0.0",
-  "git_ai_version": "1.7.0",
+  "git_ai_version": "1.5.2",
   "base_commit_sha": "fcc33d4691e6490dd023660237947b7413b1a6cc",
   "prompts": {},
   "sessions": {
-    "s_b2ece6dfe48478": {
+    "s_39174c1b595540": {
       "agent_id": {
         "tool": "codex",
-        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "id": "01a04e64-0be8-7100-9777-57138529bedb",
         "model": "gpt-5.6-luna"
       },
       "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"

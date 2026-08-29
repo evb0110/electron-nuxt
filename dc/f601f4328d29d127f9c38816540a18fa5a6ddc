@@ -1,16 +1,16 @@
-tests/unit/app/utils/pdfPrint.test.ts
-  s_39174c1b595540::t_38c9a89b579b93 9-11,81-129,318-418
+tests/e2e/electron/helpers/fixtures.ts
+  s_1f0952d2813e9c::t_38f6f6b2e7929c 576,579,583-588
 ---
 {
   "schema_version": "authorship/3.0.0",
   "git_ai_version": "1.5.2",
-  "base_commit_sha": "6fe6f1e4477454bbb21f70c2c61e73c3ac5e1897",
+  "base_commit_sha": "dcf601f4328d29d127f9c38816540a18fa5a6ddc",
   "prompts": {},
   "sessions": {
-    "s_39174c1b595540": {
+    "s_1f0952d2813e9c": {
       "agent_id": {
         "tool": "codex",
-        "id": "01a04e64-0be8-7100-9777-57138529bedb",
+        "id": "01a04e2c-3a78-7250-80c2-d7481c084e67",
         "model": "gpt-5.6-luna"
       },
       "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
