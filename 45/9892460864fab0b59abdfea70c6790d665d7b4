@@ -1,0 +1,40 @@
+tests/unit/electron/managedTempFileHandles.test.ts
+  s_155040a006f55f::t_f04fb7334745d6 150-151,154-155
+  s_155040a006f55f::t_1db15f6f240b10 143-149,152-153,156-160
+electron/features/documents/registerDocumentsIpcAdapter.ts
+  s_155040a006f55f::t_60a115d2cc046d 56,165
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_155040a006f55f::t_acc154e7bf356d 261
+electron/features/documents/main/managedTempFileHandles.ts
+  s_155040a006f55f::t_242a6f9d404a8b 97-98
+  s_155040a006f55f::t_c0b6ea4e97c3c3 26
+  s_155040a006f55f::t_1521ed67d722f5 57,60-96,99-106
+  s_155040a006f55f::t_82d5c8bd259e60 2,651-654
+  s_155040a006f55f::t_4f716a35fd89a3 262,308,643,650,655-665
+electron/features/documents/main/documentFilePathResolution.ts
+  s_155040a006f55f::t_94bb9165744d9e 267-268,281-283,285,293-295,297
+  s_155040a006f55f::t_cfdcff76d79b5f 21,128-129,162-163,166
+  s_155040a006f55f::t_5343028276804f 111,116-121,127,143,149,164-165,266,284,296
+  s_155040a006f55f::t_bb643c055e8c1b 112-115
+  s_155040a006f55f::t_99a62f9b6ccc04 15
+electron/utils/pathValidator.ts
+  s_155040a006f55f::t_99a62f9b6ccc04 37
+  s_155040a006f55f::t_c0b6ea4e97c3c3 24,26-36,39-43
+  s_155040a006f55f::t_bb643c055e8c1b 25,38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "459892460864fab0b59abdfea70c6790d665d7b4",
+  "prompts": {},
+  "sessions": {
+    "s_155040a006f55f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d46-39eb-79b0-860b-802f73f6343d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
