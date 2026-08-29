@@ -28,6 +28,7 @@ import {
     updatePdfjsAnnotationManagerParams,
 } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 
 const FREE_TEXT_FONT_SIZE_MIN = 8;
@@ -427,6 +428,13 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
                 if (targetFont === null) {
                     return;
                 }
+                logPdfRenderTrace('freetext-resize', {
+                    phase: 'resizing',
+                    editorIdentity: editorHistoryKey(editor),
+                    width: editor.width ?? null,
+                    height: editor.height ?? null,
+                    targetFont,
+                });
                 if (!resizeStartSnapshots.has(editor)) {
                     resizeStartSnapshots.set(editor, captureResizeSnapshot(
                         editor,
@@ -447,6 +455,13 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
                 applyFreeTextInternalFontSize(editor, targetFont);
                 updateFreeTextResizerSize(editor);
                 scheduleFreeTextFontSync(editor, targetFont);
+                logPdfRenderTrace('freetext-resize', {
+                    phase: 'resized',
+                    editorIdentity: editorHistoryKey(editor),
+                    width: editor.width ?? null,
+                    height: editor.height ?? null,
+                    targetFont,
+                });
                 if (before && registerHistoryCommand) {
                     const after = captureResizeSnapshot(editor, targetFont);
                     const target = editorHistoryTarget(editor);
@@ -525,6 +540,13 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
                 !disposed
                 && syncInternalFontSize(currentEditor, targetFont)
             ) {
+                logPdfRenderTrace('freetext-resize', {
+                    phase: 'font-committed',
+                    editorIdentity: editorHistoryKey(currentEditor),
+                    width: currentEditor.width ?? null,
+                    height: currentEditor.height ?? null,
+                    targetFont,
+                });
                 emitAnnotationSetting({
                     key: 'textSize',
                     value: targetFont,

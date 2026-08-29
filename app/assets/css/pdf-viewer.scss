@@ -285,12 +285,17 @@
 }
 
 .pdfViewer.pdfViewer--resize-transition .text-layer,
-.pdfViewer.pdfViewer--resize-transition .textLayer,
+.pdfViewer.pdfViewer--resize-transition .textLayer {
+    opacity: 0;
+    pointer-events: none;
+}
+
 .pdfViewer.pdfViewer--resize-transition .annotation-layer,
 .pdfViewer.pdfViewer--resize-transition .annotationLayer,
 .pdfViewer.pdfViewer--resize-transition .annotation-editor-layer,
 .pdfViewer.pdfViewer--resize-transition .annotationEditorLayer {
-    opacity: 0;
+    /* Keep PDF.js annotation pixels painted while resize rendering catches up.
+       The canvas snapshot does not contain live editor layers. */
     pointer-events: none;
 }
 

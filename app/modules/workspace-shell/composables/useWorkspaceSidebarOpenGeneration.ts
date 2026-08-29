@@ -3,6 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import type { IDocumentOpenSurfaceSnapshot } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
@@ -77,20 +78,29 @@ export const useWorkspaceSidebarOpenGeneration = (
             if (explicitlyOpenedSidebar) {
                 sidebarSuspendedForDocumentOpen.value = false;
             }
-            if (!sidebarSuspendedForDocumentOpen.value) {
-                return;
-            }
             // The claiming generation either committed its own pixels, failed
             // and handed the surface back to the previous document, or was
             // abandoned before it ever owned one.
             if (
-                next.openingPreviewReady
-                || next.ready && !next.opening
-                || next.failed
-                || next.idle
+                sidebarSuspendedForDocumentOpen.value
+                && (
+                    next.openingPreviewReady
+                    || next.ready && !next.opening
+                    || next.failed
+                    || next.idle
+                )
             ) {
                 sidebarSuspendedForDocumentOpen.value = false;
             }
+            logPdfRenderTrace('workspace-sidebar-generation', {
+                generation: next.generation,
+                phase: options.openSurfaceSnapshot.value.phase,
+                opening: next.opening,
+                previewReady: next.openingPreviewReady,
+                visualReady: next.generationVisualReady,
+                presentationEnabled: next.presentationEnabled,
+                suspended: sidebarSuspendedForDocumentOpen.value,
+            });
         },
         {
             flush: 'sync',

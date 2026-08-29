@@ -349,6 +349,79 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         document.body.replaceChildren();
     });
 
+    it('retains all FreeText visuals until the replacement annotation layers are complete', () => {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({drawImage: vi.fn()} as never);
+        const animationFrames: FrameRequestCallback[] = [];
+        vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+            animationFrames.push(callback);
+            return animationFrames.length;
+        });
+        const viewer = document.createElement('div');
+        const page = document.createElement('div');
+        page.className = 'page_container page_container--rendered';
+        page.dataset.page = '4';
+        const pageCanvas = document.createElement('div');
+        pageCanvas.className = 'page_canvas';
+        const renderLayer = document.createElement('div');
+        renderLayer.className = 'page_canvas__render-layer';
+        const sourceCanvas = document.createElement('canvas');
+        sourceCanvas.width = 640;
+        sourceCanvas.height = 960;
+        renderLayer.append(sourceCanvas);
+        pageCanvas.append(renderLayer);
+        const annotationLayer = document.createElement('div');
+        annotationLayer.className = 'annotationLayer';
+        for (let index = 0; index < 4; index += 1) {
+            const annotation = document.createElement('section');
+            annotation.className = 'freeTextAnnotation';
+            annotation.dataset.annotationId = `persisted-${index}`;
+            annotationLayer.append(annotation);
+        }
+        const editorLayer = document.createElement('div');
+        editorLayer.className = 'annotationEditorLayer';
+        const editor = document.createElement('div');
+        editor.className = 'freeTextEditor';
+        editor.dataset.editorId = 'transient';
+        editorLayer.append(editor);
+        page.append(pageCanvas, annotationLayer, editorLayer);
+        viewer.append(page);
+        document.body.append(viewer);
+        const { lifecycle } = createResizeLifecycle(ref(true), {viewerContainer: ref(viewer)});
+        const anchor = lifecycle.buildResizeAnchorContext();
+
+        lifecycle.captureResizeVisualSnapshots(anchor);
+
+        expect(page.querySelectorAll('.pdf-layer-preserve-snapshot .freeTextAnnotation')).toHaveLength(4);
+        expect(page.querySelectorAll('.pdf-layer-preserve-snapshot .freeTextEditor')).toHaveLength(1);
+
+        annotationLayer.replaceChildren();
+        const replacementEditor = document.createElement('div');
+        replacementEditor.className = 'freeTextEditor';
+        replacementEditor.dataset.editorId = 'transient';
+        editorLayer.replaceChildren(replacementEditor);
+        const replacementCanvas = document.createElement('canvas');
+        replacementCanvas.width = 640;
+        replacementCanvas.height = 960;
+        renderLayer.replaceChildren(replacementCanvas);
+        animationFrames.shift()?.(0);
+        animationFrames.shift()?.(16);
+
+        expect(page.querySelectorAll('.pdf-layer-preserve-snapshot .freeTextAnnotation')).toHaveLength(4);
+        expect(page.querySelectorAll('.pdf-layer-preserve-snapshot .freeTextEditor')).toHaveLength(1);
+
+        for (let index = 0; index < 4; index += 1) {
+            const annotation = document.createElement('section');
+            annotation.className = 'freeTextAnnotation';
+            annotation.dataset.annotationId = `persisted-${index}`;
+            annotationLayer.append(annotation);
+        }
+        animationFrames.shift()?.(32);
+
+        expect(page.querySelector('.pdf-layer-preserve-snapshot')).toBeNull();
+        lifecycle.cleanupResizeLifecycle();
+        document.body.replaceChildren();
+    });
+
     it('renews a zoom snapshot lease until the final replacement canvas is presentation-ready', async () => {
         vi.useFakeTimers();
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({drawImage: vi.fn()} as never);

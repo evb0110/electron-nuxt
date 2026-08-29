@@ -31,6 +31,7 @@
 import type { CSSProperties } from 'vue';
 import { useResizeObserver } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 const {
     isResizingSidebar,
@@ -56,6 +57,12 @@ const sidebarPresentationStyle = computed<CSSProperties>(() => ({
 useResizeObserver(workspaceMainRef, (entries) => {
     const width = entries[0]?.contentRect.width;
     if (width !== undefined) {
+        logPdfRenderTrace('workspace-sidebar-host', {
+            phase: 'container-resize',
+            width,
+            showSidebar,
+            isResizingSidebar,
+        });
         emit('container-resize', width);
     }
 });
@@ -104,6 +111,12 @@ watch(
                 previous: prevResizing,
                 next: nextResizing, 
             },
+        });
+        logPdfRenderTrace('workspace-sidebar-host', {
+            phase: 'presentation-changed',
+            showSidebar: nextShowSidebar,
+            width: nextWidth ?? null,
+            isResizingSidebar: nextResizing,
         });
     },
     { immediate: true },
