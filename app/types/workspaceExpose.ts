@@ -254,6 +254,7 @@ export interface IWorkspaceAutomationStateSnapshot {
         startNumber: number;
     }>;
     pageLabelsResolved?: boolean;
+    isPageOperationInProgress?: boolean;
     annotationComments: IAnnotationCommentSummary[];
     annotationCommentsStatus: TAnnotationCommentsStatus;
     /**

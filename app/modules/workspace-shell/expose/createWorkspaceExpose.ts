@@ -377,6 +377,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             pageLabels: deps.pageLabels.value,
             pageLabelRanges: structuredClone(deps.pageLabelRanges.value),
             pageLabelsResolved: deps.pageLabelsResolved.value,
+            isPageOperationInProgress: deps.isPageOperationInProgress?.value ?? false,
             dirtyState: {
                 annotationDirty: deps.annotationDirty.value,
                 bookmarksDirty: deps.bookmarksDirty?.value ?? false,

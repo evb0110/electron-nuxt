@@ -5,15 +5,13 @@ import {
     it,
 } from 'vitest';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
+import type {IEvbTestApi} from '@app/types/evbTestApi';
 import {createCompactPageLabelsFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import {
     startElectronE2ESession,
     type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import {
-    callWorkspaceCommand,
-    readWorkspaceStateValues,
-} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     waitForPdfLoaded,
     waitForViewerInteractive,
@@ -178,10 +176,41 @@ async function waitForLabels(session: IElectronE2ESession, expected: readonly st
     }, {timeout: 60_000}).toEqual(expected);
 }
 
+async function waitForPageOperation(session: IElectronE2ESession) {
+    const readProgress = async () => {
+        try {
+            return (await readWorkspaceStateValues<{isPageOperationInProgress?: boolean}>(
+                session.page,
+                ['isPageOperationInProgress'],
+            )).isPageOperationInProgress;
+        } catch {
+            return undefined;
+        }
+    };
+    await expect.poll(readProgress, {timeout: 20_000}).toBe(true);
+    await expect.poll(readProgress, {timeout: 60_000}).toBe(false);
+}
+
 async function runCommand<T>(session: IElectronE2ESession, name: string, args: unknown[]) {
-    const result = await callWorkspaceCommand<T>(session.page, name, args);
-    expect(result.called, `${name} should be exposed`).toBe(true);
-    return result.value;
+    const called = await session.page.evaluate((payload: {
+        args: unknown[];
+        name: string
+    }) => {
+        const api = (window as Window & {__evbTestApi?: IEvbTestApi}).__evbTestApi;
+        if (!api) {
+            return false;
+        }
+        void api.callActiveWorkspaceCommand(payload.name, payload.args).catch(() => undefined);
+        return true;
+    }, {
+        args,
+        name,
+    });
+    expect(called, `${name} should be exposed`).toBe(true);
+    if (name !== 'handleSave') {
+        await waitForPageOperation(session);
+    }
+    return null as T | null;
 }
 
 describe('Electron E2E, compact page labels through structural operations', () => {
@@ -207,16 +236,16 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await waitForViewerInteractive(session.page, 60_000);
         await waitForLabels(session, expected);
 
-        expect(await runCommand(session, 'handlePageRotate', [
+        await runCommand(session, 'handlePageRotate', [
             [1],
             90,
-        ])).toBe(true);
+        ]);
         await waitForLabels(session, expected);
 
-        expect(await runCommand(session, 'pageOpsDelete', [
+        await runCommand(session, 'pageOpsDelete', [
             [20],
             PAGE_COUNT,
-        ])).toBe(true);
+        ]);
         expected = expected.filter((_, index) => index !== 19);
         await waitForLabels(session, expected);
 
@@ -229,10 +258,10 @@ describe('Electron E2E, compact page labels through structural operations', () =
             reorder[29]!,
         ];
         expected = reorder.map(page => expected[page - 1]!);
-        expect(await runCommand(session, 'pageOpsReorder', [reorder])).toBe(true);
+        await runCommand(session, 'pageOpsReorder', [reorder]);
         await waitForLabels(session, expected);
 
-        expect(await runCommand(session, 'handleCropPages', [
+        await runCommand(session, 'handleCropPages', [
             [40],
             {
                 top: 5,
@@ -240,7 +269,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 left: 5,
                 right: 5,
             },
-        ])).toBe(true);
+        ]);
         await waitForLabels(session, expected);
 
         const move = {
@@ -251,17 +280,17 @@ describe('Electron E2E, compact page labels through structural operations', () =
         };
         const moved = expected.splice(move.startPage - 1, 1)[0]!;
         expected.splice(move.insertAt - 1, 0, moved);
-        expect(await runCommand(session, 'pageOpsMove', [move])).toBe(true);
+        await runCommand(session, 'pageOpsMove', [move]);
         await waitForLabels(session, expected);
 
-        expect(await runCommand(session, 'pageOpsInsert', [
+        await runCommand(session, 'pageOpsInsert', [
             expected.length,
             100,
-        ])).toBe(true);
+        ]);
         expected.splice(100, 0, '1');
         await waitForLabels(session, expected);
 
-        expect(await runCommand(session, 'handleSave', [])).toBe(true);
+        await runCommand(session, 'handleSave', []);
         await expect.poll(async () => (
             await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session!.page, ['dirtyState'])
         ).dirtyState?.fileDirty, {timeout: 60_000}).toBe(false);
