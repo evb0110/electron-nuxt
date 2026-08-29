@@ -359,6 +359,106 @@ describe('usePdfImagePlacement', () => {
         }
     });
 
+    it('keeps a shared native source handle leased across overlapping starts and draft replacement', async () => {
+        const firstProbe = createDeferred<{
+            bytes: Uint8Array;
+            width: number;
+            height: number;
+            frameCount: number;
+            mimeType: string;
+        }>();
+        const secondProbe = createDeferred<{
+            bytes: Uint8Array;
+            width: number;
+            height: number;
+            frameCount: number;
+            mimeType: string;
+        }>();
+        const thirdProbe = createDeferred<{
+            bytes: Uint8Array;
+            width: number;
+            height: number;
+            frameCount: number;
+            mimeType: string;
+        }>();
+        const probeImage = vi.fn()
+            .mockReturnValueOnce(firstProbe.promise)
+            .mockReturnValueOnce(secondProbe.promise)
+            .mockReturnValueOnce(thirdProbe.promise);
+        const sharedHandleFile = (name: string) => createImageFileWithNativeSourceHandle(name, 'shared-lease');
+
+        const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
+        const scope = effectScope();
+        const imagePlacement = scope.run(() => usePdfImagePlacement({
+            viewerContainer,
+            currentPage: ref(1),
+            numPages: ref(4),
+            effectiveScale: ref(2),
+            emitFinalize: vi.fn(),
+            probeImage,
+            createPreview: createPreviewForTest,
+        }));
+
+        if (!imagePlacement) {
+            throw new Error('Failed to create image placement composable');
+        }
+
+        try {
+            const firstStart = imagePlacement.startImagePlacement(sharedHandleFile('first.jpg'));
+            const secondStart = imagePlacement.startImagePlacement(sharedHandleFile('second.jpg'));
+
+            firstProbe.resolve({
+                bytes: new Uint8Array([1]),
+                width: 400,
+                height: 200,
+                frameCount: 1,
+                mimeType: 'image/jpeg',
+            });
+            await expect(firstStart).resolves.toBe(false);
+
+            secondProbe.resolve({
+                bytes: new Uint8Array([2]),
+                width: 400,
+                height: 200,
+                frameCount: 1,
+                mimeType: 'image/jpeg',
+            });
+            await expect(secondStart).resolves.toBe(true);
+
+            expect(platformMocks.releaseManagedTempFileHandle)
+                .not.toHaveBeenCalledWith('shared-lease');
+            expect(imagePlacement.pendingImagePlacement.value?.nativeSourceHandle?.leaseId)
+                .toBe('shared-lease');
+
+            const thirdStart = imagePlacement.startImagePlacement(sharedHandleFile('third.jpg'));
+            thirdProbe.resolve({
+                bytes: new Uint8Array([3]),
+                width: 400,
+                height: 200,
+                frameCount: 1,
+                mimeType: 'image/jpeg',
+            });
+            await expect(thirdStart).resolves.toBe(true);
+
+            expect(platformMocks.releaseManagedTempFileHandle)
+                .not.toHaveBeenCalledWith('shared-lease');
+            expect(imagePlacement.pendingImagePlacement.value?.fileName)
+                .toBe('third.jpg');
+
+            imagePlacement.clearPendingImagePlacement();
+
+            expect(platformMocks.releaseManagedTempFileHandle)
+                .toHaveBeenCalledOnce();
+            expect(platformMocks.releaseManagedTempFileHandle)
+                .toHaveBeenCalledWith('shared-lease');
+            scope.stop();
+            expect(platformMocks.releaseManagedTempFileHandle)
+                .toHaveBeenCalledOnce();
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('finalizes with target pixel dimensions derived from the rendered page size', async () => {
         vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
             width: 400,

@@ -108,17 +108,40 @@ function resolvePlacementCoordinate(value: number | null | undefined) {
     return clamp(Number.isFinite(value) ? Number(value) : 0.5, 0, 1);
 }
 
-function releaseNativeSourceHandle(handle: IManagedTempFileHandle | null | undefined) {
-    if (!handle) {
+interface INativeSourceHandleLease {
+    handle: IManagedTempFileHandle;
+    owners: Set<symbol>;
+}
+
+const nativeSourceHandleLeases = new Map<string, INativeSourceHandleLease>();
+
+function retainNativeSourceHandle(handle: IManagedTempFileHandle) {
+    const owner = Symbol('native-source-handle-owner');
+    const lease = nativeSourceHandleLeases.get(handle.leaseId);
+    if (lease) {
+        lease.owners.add(owner);
+    } else {
+        nativeSourceHandleLeases.set(handle.leaseId, {
+            handle,
+            owners: new Set([owner]),
+        });
+    }
+    return owner;
+}
+
+function releaseNativeSourceHandle(handle: IManagedTempFileHandle, owner: symbol) {
+    const lease = nativeSourceHandleLeases.get(handle.leaseId);
+    if (!lease || !lease.owners.delete(owner) || lease.owners.size > 0) {
         return;
     }
 
+    nativeSourceHandleLeases.delete(handle.leaseId);
     try {
         const releaseHandle = getDocumentFilesCapability().releaseManagedTempFileHandle;
         if (typeof releaseHandle !== 'function') {
             return;
         }
-        void releaseHandle(handle.leaseId).catch(() => false);
+        void releaseHandle(lease.handle.leaseId).catch(() => false);
     } catch {
         // The source handle is only available on desktop-picked files. If the
         // capability disappears while the placement is being torn down, there
@@ -141,6 +164,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
     const isPendingImagePlacementFinalizing = ref(false);
     let latestImagePlacementRequestId = 0;
     let imagePlacementAbortController: AbortController | null = null;
+    let pendingNativeSourceHandleOwner: symbol | null = null;
 
     function revokePendingImagePlacementPreview() {
         const previewUrl = pendingImagePlacement.value?.previewUrl;
@@ -156,10 +180,14 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             imagePlacementAbortController = null;
         }
         const nativeSourceHandle = pendingImagePlacement.value?.nativeSourceHandle;
+        const nativeSourceHandleOwner = pendingNativeSourceHandleOwner;
+        pendingNativeSourceHandleOwner = null;
         revokePendingImagePlacementPreview();
         pendingImagePlacement.value = null;
         isPendingImagePlacementFinalizing.value = false;
-        releaseNativeSourceHandle(nativeSourceHandle);
+        if (nativeSourceHandle && nativeSourceHandleOwner) {
+            releaseNativeSourceHandle(nativeSourceHandle, nativeSourceHandleOwner);
+        }
     }
 
     function restorePendingImagePlacement() {
@@ -209,7 +237,9 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         imagePlacementAbortController = abortController;
         const target = getImagePlacementTarget(optionsOverride);
         const nativeSourceHandle = (file as File & {nativeSourceHandle?: IManagedTempFileHandle}).nativeSourceHandle;
-        let ownsNativeSourceHandle = Boolean(nativeSourceHandle);
+        let nativeSourceHandleOwner = nativeSourceHandle
+            ? retainNativeSourceHandle(nativeSourceHandle)
+            : null;
         let initialDimensions: IImagePlacementDimensions | null;
         let bytes: Uint8Array;
         let previewBlob: Blob;
@@ -251,7 +281,8 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
                     ? {nativeSourceHandle}
                     : {}),
             };
-            ownsNativeSourceHandle = false;
+            pendingNativeSourceHandleOwner = nativeSourceHandleOwner;
+            nativeSourceHandleOwner = null;
             isPendingImagePlacementFinalizing.value = false;
             return true;
         } catch {
@@ -260,8 +291,8 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             if (imagePlacementAbortController === abortController) {
                 imagePlacementAbortController = null;
             }
-            if (ownsNativeSourceHandle) {
-                releaseNativeSourceHandle(nativeSourceHandle);
+            if (nativeSourceHandle && nativeSourceHandleOwner) {
+                releaseNativeSourceHandle(nativeSourceHandle, nativeSourceHandleOwner);
             }
         }
     }
