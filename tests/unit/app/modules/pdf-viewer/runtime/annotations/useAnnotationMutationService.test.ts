@@ -146,6 +146,43 @@ describe('useAnnotationMutationService canonical command ordering', () => {
         );
     });
 
+    it('joins persisted PDF FreeText editor removal to its canonical tombstone', async () => {
+        const events: string[] = [];
+        let editorAttached = true;
+        const comment: IAnnotationCommentSummary = {
+            ...createComment(),
+            id: '44R',
+            stableKey: 'ann:0:44R',
+            annotationId: '44R',
+            source: 'pdf',
+            subtype: 'FreeText',
+        };
+        const options = createOptions({
+            deleteAnnotationComment: vi.fn(async (input) => {
+                events.push(`editor:${input.annotationId}`);
+                editorAttached = false;
+                return true;
+            }),
+            deleteCanonicalAnnotation: vi.fn(() => {
+                events.push('canonical');
+            }),
+        });
+        const service = useAnnotationMutationService(options);
+
+        await expect(service.deleteReopenedEditorAnnotation(
+            {comment},
+            {source: 'user'},
+        )).resolves.toBe(true);
+
+        expect(editorAttached).toBe(false);
+        expect(events).toEqual([
+            'editor:44R',
+            'canonical',
+        ]);
+        expect(options.deleteAnnotationComment).toHaveBeenCalledWith(comment);
+        expect(options.deleteCanonicalAnnotation).toHaveBeenCalledWith(asAnnotationId('canonical-annotation'));
+    });
+
     it.each([
         [
             'returns false',
