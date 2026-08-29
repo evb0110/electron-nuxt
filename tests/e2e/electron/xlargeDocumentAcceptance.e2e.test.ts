@@ -1254,7 +1254,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             const baselineStructuralSummary = await timed(
                 telemetry,
                 'session-a-read-baseline-structural-summary',
-                () => readStructuralObjectSummary(sessionAPath, baselineIndex),
+                () => readStructuralObjectSummary(stagedFixture!.stagedPath, baselineIndex),
             );
             recordAnnotationIndexPayloads(telemetry, 'A', baselineIndex);
 
