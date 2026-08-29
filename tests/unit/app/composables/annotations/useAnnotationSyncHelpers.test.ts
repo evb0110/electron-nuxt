@@ -663,7 +663,10 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
 
         expect(links).toHaveLength(0);
         expect(comments).toHaveLength(1);
-        const [summary] = comments;
+        const summary = comments[0];
+        if (!summary) {
+            throw new Error('Expected one imported FreeText summary');
+        }
         expect(summary).toMatchObject({
             source: 'pdf',
             subtype: 'FreeText',
