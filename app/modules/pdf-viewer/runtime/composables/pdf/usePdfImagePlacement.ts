@@ -10,6 +10,7 @@ import type {
     IPdfPlacedImageFinalizePayload,
 } from '@app/types/pdfImagePlacement';
 import type {IManagedTempFileHandle} from '@contracts/electronApiDocuments';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {
     createStaticBrowserImagePreview,
     PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS,
@@ -107,6 +108,24 @@ function resolvePlacementCoordinate(value: number | null | undefined) {
     return clamp(Number.isFinite(value) ? Number(value) : 0.5, 0, 1);
 }
 
+function releaseNativeSourceHandle(handle: IManagedTempFileHandle | null | undefined) {
+    if (!handle) {
+        return;
+    }
+
+    try {
+        const releaseHandle = getDocumentFilesCapability().releaseManagedTempFileHandle;
+        if (typeof releaseHandle !== 'function') {
+            return;
+        }
+        void releaseHandle(handle.leaseId).catch(() => false);
+    } catch {
+        // The source handle is only available on desktop-picked files. If the
+        // capability disappears while the placement is being torn down, there
+        // is no renderer-side cleanup left to perform.
+    }
+}
+
 export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
     const {
         viewerContainer,
@@ -136,9 +155,11 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             imagePlacementAbortController?.abort(new Error('Image placement superseded'));
             imagePlacementAbortController = null;
         }
+        const nativeSourceHandle = pendingImagePlacement.value?.nativeSourceHandle;
         revokePendingImagePlacementPreview();
         pendingImagePlacement.value = null;
         isPendingImagePlacementFinalizing.value = false;
+        releaseNativeSourceHandle(nativeSourceHandle);
     }
 
     function restorePendingImagePlacement() {
@@ -187,6 +208,8 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         const abortController = new AbortController();
         imagePlacementAbortController = abortController;
         const target = getImagePlacementTarget(optionsOverride);
+        const nativeSourceHandle = (file as File & {nativeSourceHandle?: IManagedTempFileHandle}).nativeSourceHandle;
+        let ownsNativeSourceHandle = Boolean(nativeSourceHandle);
         let initialDimensions: IImagePlacementDimensions | null;
         let bytes: Uint8Array;
         let previewBlob: Blob;
@@ -204,40 +227,43 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             );
             bytes = image.bytes;
             previewBlob = await createPreview(image, 2_048, abortController.signal);
+            if (!initialDimensions) {
+                return false;
+            }
+            if (requestId !== latestImagePlacementRequestId) {
+                return false;
+            }
+
+            const previewUrl = URL.createObjectURL(previewBlob);
+            const placementRect = getInitialImagePlacementRect(target, initialDimensions);
+
+            clearPendingImagePlacement({ invalidatePendingStarts: false });
+            pendingImagePlacement.value = {
+                stableKey: optionsOverride?.stableKey ?? `placed-image-${crypto.randomUUID()}`,
+                ...(optionsOverride?.annotationId ? {annotationId: optionsOverride.annotationId} : {}),
+                ...placementRect,
+                rotationDegrees: 0,
+                previewUrl,
+                fileName: file.name,
+                mimeType: file.type || 'image/png',
+                bytes,
+                ...(nativeSourceHandle
+                    ? {nativeSourceHandle}
+                    : {}),
+            };
+            ownsNativeSourceHandle = false;
+            isPendingImagePlacementFinalizing.value = false;
+            return true;
         } catch {
             return false;
         } finally {
             if (imagePlacementAbortController === abortController) {
                 imagePlacementAbortController = null;
             }
+            if (ownsNativeSourceHandle) {
+                releaseNativeSourceHandle(nativeSourceHandle);
+            }
         }
-        if (!initialDimensions) {
-            return false;
-        }
-        if (requestId !== latestImagePlacementRequestId) {
-            return false;
-        }
-
-        const previewUrl = URL.createObjectURL(previewBlob);
-        const placementRect = getInitialImagePlacementRect(target, initialDimensions);
-
-        clearPendingImagePlacement({ invalidatePendingStarts: false });
-        const nativeSourceHandle = (file as File & {nativeSourceHandle?: IManagedTempFileHandle}).nativeSourceHandle;
-        pendingImagePlacement.value = {
-            stableKey: optionsOverride?.stableKey ?? `placed-image-${crypto.randomUUID()}`,
-            ...(optionsOverride?.annotationId ? {annotationId: optionsOverride.annotationId} : {}),
-            ...placementRect,
-            rotationDegrees: 0,
-            previewUrl,
-            fileName: file.name,
-            mimeType: file.type || 'image/png',
-            bytes,
-            ...(nativeSourceHandle
-                ? {nativeSourceHandle}
-                : {}),
-        };
-        isPendingImagePlacementFinalizing.value = false;
-        return true;
     }
 
     function updatePendingImagePlacementRect(update: IPdfImagePlacementRectUpdate) {

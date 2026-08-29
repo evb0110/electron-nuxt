@@ -13,6 +13,10 @@ import {
 import { usePdfImagePlacement } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfImagePlacement';
 import { getInitialImagePlacementRect } from '@app/modules/pdf-viewer/engine/image-placement/getInitialImagePlacementRect';
 
+const platformMocks = vi.hoisted(() => ({releaseManagedTempFileHandle: vi.fn(async () => true)}));
+
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => platformMocks}));
+
 function toElement<T extends object>(value: T) {
     return value as HTMLElement;
 }
@@ -92,6 +96,30 @@ describe('usePdfImagePlacement', () => {
 
     const createPreviewForTest = async () => new Blob(['preview'], {type: 'image/png'});
 
+    function createNativeSourceHandle(leaseId: string) {
+        return {
+            path: `/tmp/${leaseId}.jpg` as const,
+            size: 3,
+            sha256: 'a'.repeat(64),
+            leaseId,
+            revision: null,
+        };
+    }
+
+    function createImageFileWithNativeSourceHandle(
+        name: string,
+        leaseId: string,
+    ) {
+        return Object.assign(
+            new File([new Uint8Array([
+                1,
+                2,
+                3,
+            ])], name, {type: 'image/jpeg'}),
+            {nativeSourceHandle: createNativeSourceHandle(leaseId)},
+        );
+    }
+
     it('clamps the initial placement rect to page bounds', () => {
         expect(getInitialImagePlacementRect({
             pageNumber: 2,
@@ -135,16 +163,95 @@ describe('usePdfImagePlacement', () => {
 
         try {
             const didStart = await imagePlacement.startImagePlacement(
-                new File([new Uint8Array([
-                    1,
-                    2,
-                    3,
-                ])], 'broken.png', { type: 'image/png' }),
+                createImageFileWithNativeSourceHandle('broken.png', 'decode-failure-lease'),
             );
 
             expect(didStart).toBe(false);
             expect(imagePlacement.pendingImagePlacement.value).toBeNull();
             expect(finalized).not.toHaveBeenCalled();
+            expect(platformMocks.releaseManagedTempFileHandle)
+                .toHaveBeenCalledWith('decode-failure-lease');
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('releases the native source handle when preview creation fails', async () => {
+        vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
+            width: 400,
+            height: 200,
+            close: vi.fn(),
+        })));
+        const createPreview = vi.fn(async () => {
+            throw new Error('preview failed');
+        });
+
+        const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
+        const scope = effectScope();
+        const imagePlacement = scope.run(() => usePdfImagePlacement({
+            viewerContainer,
+            currentPage: ref(1),
+            numPages: ref(4),
+            effectiveScale: ref(2),
+            emitFinalize: vi.fn(),
+            probeImage: probeImageForTest,
+            createPreview,
+        }));
+
+        if (!imagePlacement) {
+            throw new Error('Failed to create image placement composable');
+        }
+
+        try {
+            await expect(imagePlacement.startImagePlacement(
+                createImageFileWithNativeSourceHandle('preview-failure.jpg', 'preview-failure-lease'),
+            )).resolves.toBe(false);
+            expect(platformMocks.releaseManagedTempFileHandle)
+                .toHaveBeenCalledWith('preview-failure-lease');
+            expect(imagePlacement.pendingImagePlacement.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('releases the native source handle when an in-flight placement is canceled', async () => {
+        const deferredProbe = createDeferred<{
+            bytes: Uint8Array;
+            width: number;
+            height: number;
+            frameCount: number;
+            mimeType: string;
+        }>();
+        const probeImage = vi.fn((_file: File, _limits: unknown, signal?: AbortSignal) => {
+            signal?.addEventListener('abort', () => deferredProbe.reject(signal.reason), {once: true});
+            return deferredProbe.promise;
+        });
+
+        const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
+        const scope = effectScope();
+        const imagePlacement = scope.run(() => usePdfImagePlacement({
+            viewerContainer,
+            currentPage: ref(1),
+            numPages: ref(4),
+            effectiveScale: ref(2),
+            emitFinalize: vi.fn(),
+            probeImage,
+            createPreview: createPreviewForTest,
+        }));
+
+        if (!imagePlacement) {
+            throw new Error('Failed to create image placement composable');
+        }
+
+        try {
+            const start = imagePlacement.startImagePlacement(
+                createImageFileWithNativeSourceHandle('canceled.jpg', 'cancel-lease'),
+            );
+            imagePlacement.clearPendingImagePlacement();
+
+            await expect(start).resolves.toBe(false);
+            expect(platformMocks.releaseManagedTempFileHandle)
+                .toHaveBeenCalledWith('cancel-lease');
         } finally {
             scope.stop();
         }
@@ -206,6 +313,47 @@ describe('usePdfImagePlacement', () => {
             await expect(slowStart).resolves.toBe(false);
             expect(imagePlacement.pendingImagePlacement.value?.fileName).toBe('fast.png');
             expect(revokeObjectURL).not.toHaveBeenCalledWith('blob:preview');
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('releases the replaced native source handle while retaining the latest draft', async () => {
+        vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
+            width: 400,
+            height: 200,
+            close: vi.fn(),
+        })));
+
+        const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
+        const scope = effectScope();
+        const imagePlacement = scope.run(() => usePdfImagePlacement({
+            viewerContainer,
+            currentPage: ref(1),
+            numPages: ref(4),
+            effectiveScale: ref(2),
+            emitFinalize: vi.fn(),
+            probeImage: probeImageForTest,
+            createPreview: createPreviewForTest,
+        }));
+
+        if (!imagePlacement) {
+            throw new Error('Failed to create image placement composable');
+        }
+
+        try {
+            await expect(imagePlacement.startImagePlacement(
+                createImageFileWithNativeSourceHandle('first.jpg', 'first-lease'),
+            )).resolves.toBe(true);
+            await expect(imagePlacement.startImagePlacement(
+                createImageFileWithNativeSourceHandle('second.jpg', 'second-lease'),
+            )).resolves.toBe(true);
+
+            expect(platformMocks.releaseManagedTempFileHandle)
+                .toHaveBeenCalledWith('first-lease');
+            expect(platformMocks.releaseManagedTempFileHandle)
+                .not.toHaveBeenCalledWith('second-lease');
+            expect(imagePlacement.pendingImagePlacement.value?.fileName).toBe('second.jpg');
         } finally {
             scope.stop();
         }
@@ -355,19 +503,49 @@ describe('usePdfImagePlacement', () => {
 
         try {
             await imagePlacement.startImagePlacement(
-                new File([new Uint8Array([
-                    1,
-                    2,
-                    3,
-                ])], 'image.png', { type: 'image/png' }),
+                createImageFileWithNativeSourceHandle('image.png', 'clear-lease'),
             );
 
             imagePlacement.clearPendingImagePlacement();
 
             expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview');
+            expect(platformMocks.releaseManagedTempFileHandle)
+                .toHaveBeenCalledWith('clear-lease');
             expect(imagePlacement.pendingImagePlacement.value).toBeNull();
         } finally {
             scope.stop();
         }
+    });
+
+    it('releases the native source handle when its scope is disposed', async () => {
+        vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
+            width: 400,
+            height: 200,
+            close: vi.fn(),
+        })));
+
+        const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
+        const scope = effectScope();
+        const imagePlacement = scope.run(() => usePdfImagePlacement({
+            viewerContainer,
+            currentPage: ref(1),
+            numPages: ref(4),
+            effectiveScale: ref(2),
+            emitFinalize: vi.fn(),
+            probeImage: probeImageForTest,
+            createPreview: createPreviewForTest,
+        }));
+
+        if (!imagePlacement) {
+            throw new Error('Failed to create image placement composable');
+        }
+
+        await expect(imagePlacement.startImagePlacement(
+            createImageFileWithNativeSourceHandle('scope.jpg', 'scope-lease'),
+        )).resolves.toBe(true);
+        scope.stop();
+
+        expect(platformMocks.releaseManagedTempFileHandle)
+            .toHaveBeenCalledWith('scope-lease');
     });
 });
