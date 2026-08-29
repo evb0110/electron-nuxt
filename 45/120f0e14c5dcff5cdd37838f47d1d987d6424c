@@ -1,0 +1,34 @@
+electron/file-access/originalPathSaveWitness.ts
+  s_b2ece6dfe48478::t_df46b5e7972ba9 201-202
+tests/unit/electron/originalPathSaveWitness.test.ts
+  s_b2ece6dfe48478::t_5a59a53635f45b 8,39
+  s_b2ece6dfe48478::t_6b261e3e5cf1d1 20,22-38,40-53,79,190-213
+  s_b2ece6dfe48478::t_a8e404f3248a6d 214-216
+  s_b02259b9ab598f::t_ec6715d654d07e 217-220
+tests/unit/electron/workingCopy.test.ts
+  s_b2ece6dfe48478::t_df46b5e7972ba9 140-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "45120f0e14c5dcff5cdd37838f47d1d987d6424c",
+  "prompts": {},
+  "sessions": {
+    "s_b02259b9ab598f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04fb9-b89a-7b01-8dc9-c2e1736cedb7",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
