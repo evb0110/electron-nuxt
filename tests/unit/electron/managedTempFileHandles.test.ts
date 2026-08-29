@@ -193,6 +193,31 @@ describe('managed temporary file handles', () => {
         })).rejects.toThrow('altered');
     });
 
+    it('revokes a staged image-placement-style handle and permits a clean retry', async () => {
+        const {
+            createTypedStagedArtifact,
+            resolveTypedStagedArtifact,
+            revokeManagedTempFileHandlesForSender,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+        const staged = await createTypedStagedArtifact({senderId: 42}, mocks.path, {
+            qpdfCheck: false,
+            tailCheck: false,
+            semanticCheck: false,
+            fsynced: false,
+        });
+
+        revokeManagedTempFileHandlesForSender(42);
+        await expect(resolveTypedStagedArtifact({senderId: 42}, staged)).rejects.toThrow(/lease|managed|staged/iu);
+
+        const retry = await createTypedStagedArtifact({senderId: 42}, mocks.path, {
+            qpdfCheck: false,
+            tailCheck: false,
+            semanticCheck: false,
+            fsynced: false,
+        });
+        await expect(resolveTypedStagedArtifact({senderId: 42}, retry)).resolves.toEqual(retry);
+    });
+
     it('does not rehash an unchanged POSIX staged artifact', async () => {
         const {
             createTypedStagedArtifact,
