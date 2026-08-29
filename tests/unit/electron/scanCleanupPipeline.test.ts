@@ -704,6 +704,36 @@ describe('scan cleanup pipeline', () => {
         });
     });
 
+    it.each([
+        1_024,
+        1_025,
+    ])('keeps the compact-source budget explicit at the %s-page streaming boundary', (documentPageCount) => {
+        const sourceBytes = 40 * 1024 * 1024;
+        const budget = resolveScanCleanupCompactSourceBudget({
+            documentPageCount,
+            options: {
+                ...options,
+                outputMode: 'auto',
+            },
+            // The xlarge coordinator supplies this scalar after probing the
+            // pages in order. The policy must not require the old page-sized
+            // raster map to calculate a full-run budget.
+            pageRasterByNumber: new Map(),
+            compactLayeredPageCount: documentPageCount,
+            partialRun: false,
+            sourceBytes,
+        });
+
+        expect(budget).toMatchObject({
+            compactLayeredPages: documentPageCount,
+            sourceBytes,
+        });
+        expect(budget?.maxOutputBytes).toBe(Math.ceil(Math.max(
+            sourceBytes * SCAN_CLEANUP_COMPACT_SOURCE_MAX_BYTE_RATIO,
+            sourceBytes + SCAN_CLEANUP_COMPACT_SOURCE_FIXED_BYTE_ALLOWANCE,
+        )));
+    });
+
     it('does not apply the compact-source budget to partial, manual, or non-layered cleanup', () => {
         const layeredPages = new Map([[
             1,
