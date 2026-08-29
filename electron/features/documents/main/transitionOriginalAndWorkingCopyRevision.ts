@@ -109,7 +109,6 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         }));
                     await measureTransitionPhase('transition-sync-working-copy', input.onPhase, () =>
                         copyFileAtomic(input.originalPath, input.workingCopyPath, {
-                            durable: false,
                             // The published original is immutable from the app's point of view.
                             // Working-copy writers must keep staging a sibling and renaming it.
                             linkImmutableSource: true,
@@ -141,7 +140,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             await measureTransitionPhase('transition-cleanup', input.onPhase, () => Promise.all([
                 rm(originalBackupPath, {force: true}),
                 rm(journalPath(input.workingCopyPath), {force: true}),
-            ]));
+            ])).catch(() => undefined);
             return event;
         } catch (error) {
             if (error instanceof OriginalPathSaveConflictError) {
@@ -150,16 +149,21 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             }
             throw error;
         } finally {
-            if (!committed && shouldRestoreOriginal && backupCreated) {
-                await copyFileAtomic(originalBackupPath, input.originalPath).catch(() => undefined);
+            let originalRestored = !shouldRestoreOriginal;
+            try {
+                if (!committed && shouldRestoreOriginal && backupCreated) {
+                    await copyFileAtomic(originalBackupPath, input.originalPath);
+                    originalRestored = true;
+                }
+            } finally {
+                if (!committed && originalRestored) {
+                    await Promise.all([
+                        rm(originalBackupPath, {force: true}),
+                        rm(journalPath(input.workingCopyPath), {force: true}),
+                    ]);
+                }
+                await witness?.close();
             }
-            if (!committed) {
-                await Promise.all([
-                    rm(originalBackupPath, {force: true}),
-                    rm(journalPath(input.workingCopyPath), {force: true}),
-                ]);
-            }
-            await witness?.close();
         }
     });
 }

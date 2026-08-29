@@ -339,21 +339,22 @@ export async function transitionWorkingCopyContentRevision(
     try {
         await measureRevisionTransitionPhase('revision-commit-files', onPhase, () =>
             commit(toRevisionInfo(sidecar)));
+        // The atomic, durable sidecar rename is the transaction commit point.
+        // Unlike standalone revision bumps, this path already has a content
+        // recovery journal, so a second pending-revision journal would make a
+        // crash before this write look committed during recovery.
+        await measureRevisionTransitionPhase('revision-write-sidecar', onPhase, () =>
+            writeWorkingCopyRevisionSidecar(normalizedWorkingPath, sidecar));
     } catch (error) {
         await rollbackWorkingCopyContentTransition(contentJournal);
         throw error;
     }
-
-    stageWorkingCopyRevisionSidecarCommit(normalizedWorkingPath, sidecar, reason);
-    await measureRevisionTransitionPhase('revision-write-sidecar', onPhase, () =>
-        writeWorkingCopyRevisionSidecar(normalizedWorkingPath, sidecar));
     try {
-        clearWorkingCopyRevisionSidecarCommit(normalizedWorkingPath, sidecar.token);
+        await measureRevisionTransitionPhase('revision-complete-journal', onPhase, () =>
+            completeWorkingCopyContentTransition(contentJournal));
     } catch (error) {
-        log.debug(`Failed to clear document revision journal entry: ${getErrorMessage(error)}`);
+        log.debug(`Failed to clean committed content transition journal: ${getErrorMessage(error)}`);
     }
-    await measureRevisionTransitionPhase('revision-complete-journal', onPhase, () =>
-        completeWorkingCopyContentTransition(contentJournal));
 
     const event: IDocumentRevisionChangedEvent = {
         ...toRevisionInfo(sidecar),

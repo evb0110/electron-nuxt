@@ -11,6 +11,8 @@ import {execFile} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
+import type * as DocumentRevisionSidecarModule from '@electron/file-access/documentRevisionSidecar';
+import type * as WorkingCopyContentTransitionJournalModule from '@electron/file-access/workingCopyContentTransitionJournal';
 import {
     afterEach,
     beforeEach,
@@ -112,6 +114,12 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('new-committed-pdf');
         expect(phases).toContain('transition-sync-working-copy-link');
         expect(phases).not.toContain('transition-sync-working-copy-copy');
+        expect(phases.indexOf('transition-sync-working-copy-fsync-file')).toBeGreaterThan(-1);
+        expect(phases.indexOf('transition-sync-working-copy-fsync-directory')).toBeGreaterThan(-1);
+        expect(phases.indexOf('transition-sync-working-copy-fsync-file'))
+            .toBeLessThan(phases.indexOf('revision-write-sidecar'));
+        expect(phases.indexOf('transition-sync-working-copy-fsync-directory'))
+            .toBeLessThan(phases.indexOf('revision-write-sidecar'));
         await expect(originalPathSaveBaseMatches(workingCopyPath, originalPath, 7)).resolves.toBe(true);
 
         await appendFile(originalPath, '-external-change');
@@ -171,6 +179,91 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
 
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+    });
+
+    it('restores every durable record when revision sidecar publication fails', async () => {
+        vi.doMock('@electron/file-access/documentRevisionSidecar', async (importOriginal) => {
+            const actual = await importOriginal<typeof DocumentRevisionSidecarModule>();
+            return {
+                ...actual,
+                writeWorkingCopyRevisionSidecar: vi.fn(async (
+                    workingCopyPath: string,
+                    sidecar: DocumentRevisionSidecarModule.IWorkingCopyRevisionSidecar,
+                    options?: {markMutationCommitStarted?: boolean},
+                ) => {
+                    if (sidecar.contentRevision === 2) {
+                        throw new Error('sidecar publication failed');
+                    }
+                    return actual.writeWorkingCopyRevisionSidecar(workingCopyPath, sidecar, options);
+                }),
+            };
+        });
+        try {
+            const {
+                originalPath,
+                stagedPath,
+                workingCopyPath,
+            } = await prepare('old-original', 'old-working');
+            const sidecarPath = `${workingCopyPath}.evb-revision.json`;
+            const oldSidecar = JSON.parse(await readFile(sidecarPath, 'utf8')) as {token: string};
+            const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+
+            await expect(transitionOriginalAndWorkingCopyRevision({
+                workingCopyPath,
+                originalPath,
+                reason: 'native-mutation',
+                senderId: 7,
+                publishOriginal: () => publishImmutableFileAtomic(stagedPath, originalPath),
+            })).rejects.toThrow('sidecar publication failed');
+
+            await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+            const restoredSidecar = JSON.parse(await readFile(sidecarPath, 'utf8')) as {token: string};
+            expect(restoredSidecar.token).toBe(oldSidecar.token);
+            await expect(readFile(`${workingCopyPath}.evb-revision-journal.json`, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(readFile(`${workingCopyPath}.evb-content-transition.json`, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(readFile(`${workingCopyPath}.evb-two-target-transition.json`, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            vi.doUnmock('@electron/file-access/documentRevisionSidecar');
+        }
+    });
+
+    it('keeps a published revision when content-journal cleanup fails', async () => {
+        vi.doMock('@electron/file-access/workingCopyContentTransitionJournal', async (importOriginal) => {
+            const actual = await importOriginal<typeof WorkingCopyContentTransitionJournalModule>();
+            return {
+                ...actual,
+                completeWorkingCopyContentTransition: vi.fn(async () => {
+                    throw new Error('content journal cleanup failed');
+                }),
+            };
+        });
+        let workingCopyPath = '';
+        try {
+            const prepared = await prepare('old-original', 'old-working');
+            workingCopyPath = prepared.workingCopyPath;
+            const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+
+            await expect(transitionOriginalAndWorkingCopyRevision({
+                workingCopyPath,
+                originalPath: prepared.originalPath,
+                reason: 'native-mutation',
+                senderId: 7,
+                publishOriginal: () => publishImmutableFileAtomic(prepared.stagedPath, prepared.originalPath),
+            })).resolves.toMatchObject({contentRevision: 2});
+
+            await expect(readFile(prepared.originalPath, 'utf8')).resolves.toBe('new-committed-pdf');
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('new-committed-pdf');
+        } finally {
+            vi.doUnmock('@electron/file-access/workingCopyContentTransitionJournal');
+        }
+
+        vi.resetModules();
+        const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        await expect(ensureWorkingCopyRevision(workingCopyPath, 7)).resolves.toMatchObject({contentRevision: 2});
+        await expect(readFile(`${workingCopyPath}.evb-content-transition.json`, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
     });
 
     it('publishes a second witnessed save when the original and working copy share an inode', async () => {
