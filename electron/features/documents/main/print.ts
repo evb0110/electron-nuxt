@@ -256,7 +256,9 @@ export async function handlePrintPdfPath(
     const operation = registerMainOperation({
         kind: 'abortable-work',
         ...(context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId}),
-        cancel: () => cancelNativeCommandGroup(cancelGroup),
+        cancel: () => {
+            cancelNativeCommandGroup(cancelGroup);
+        },
     });
     let shouldRetainTempPdf = false;
     try {

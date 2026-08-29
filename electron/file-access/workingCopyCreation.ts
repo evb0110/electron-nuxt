@@ -341,7 +341,7 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
         || backingEntry?.backingState === 'materializing'
     ) {
         await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
-            ownerWebContentsId: senderWebContentsId,
+            ...(senderWebContentsId === undefined ? {} : {ownerWebContentsId: senderWebContentsId}),
             reason: 'page-operation',
         });
         return true;

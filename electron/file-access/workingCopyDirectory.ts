@@ -234,7 +234,7 @@ export async function copyFileFromStableSource(sourcePath: string, targetPath: s
             if (result.bytesRead !== length) {
                 throw Object.assign(new Error('The source changed while it was being copied'), {code: 'SOURCE_BACKING_CHANGED'});
             }
-            await targetHandle.write(buffer, 0, length, offset);
+            await targetHandle.write(buffer, 0, length, Number(offset));
             offset += BigInt(length);
             if (offset < sourceStat.size) {
                 await new Promise<void>(resolveCopyYield => setImmediate(resolveCopyYield));
