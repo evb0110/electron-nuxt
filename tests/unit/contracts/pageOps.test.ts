@@ -109,6 +109,34 @@ describe('page ops platform feature schemas', () => {
         });
     });
 
+    it('accepts a 10,001-item outline for structural page operations', () => {
+        const bookmarks = Array.from({length: 10_001}, (_, index) => ({
+            title: `Page ${index + 1}`,
+            pageIndex: index,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        }));
+        const codec = codecs[channels.reorder]!;
+
+        const decoded = codec.decodeArgs(codec.encodeArgs([
+            '/tmp/work.pdf',
+            [
+                2,
+                1,
+            ],
+            {metadataSnapshot: {
+                pageLabels: null,
+                bookmarks,
+                untitledBookmarkLabel: 'Untitled',
+            }},
+        ]));
+
+        expect(decoded[2]?.metadataSnapshot?.bookmarks).toHaveLength(10_001);
+    });
+
     it('preserves pageIdentityDelta through mutation and insert result decoders', () => {
         const reorderResult = codecs[channels.reorder]!.decodeResult({
             success: true,

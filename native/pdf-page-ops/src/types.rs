@@ -43,6 +43,28 @@ where
     deserialize_bounded_vec::<D, PlacedImage, 16>(deserializer)
 }
 
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct NativeMutationContinuation {
+    pub(crate) family: NativeMutationContinuationFamily,
+    pub(crate) chunk_index: u32,
+    pub(crate) chunk_count: u32,
+    #[serde(default)]
+    pub(crate) bookmark_path: Vec<u32>,
+}
+
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum NativeMutationContinuationFamily {
+    Notes,
+    FreeTextEditors,
+    PageLabels,
+    Bookmarks,
+    Shapes,
+    Markup,
+    PlacedImages,
+}
+
 pub(crate) const MAX_MARKUP_GEOMETRY_ITEMS: usize = 512;
 
 fn deserialize_optional_markup_geometry<'de, D>(
@@ -714,6 +736,8 @@ pub(crate) struct NativeMutationsFile {
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_placed_images")]
     pub(crate) placed_images: Vec<PlacedImage>,
+    #[serde(default)]
+    pub(crate) continuation: Option<NativeMutationContinuation>,
 }
 
 #[derive(Deserialize)]
@@ -750,6 +774,8 @@ pub(crate) struct FreeTextNote {
 pub(crate) struct FreeTextEditor {
     pub(crate) page_index: u32,
     pub(crate) stable_key: String,
+    #[serde(default)]
+    pub(crate) annotation_id: Option<String>,
     pub(crate) text: String,
     pub(crate) rect: [f64; 4],
     pub(crate) rotation: u16,
@@ -834,6 +860,10 @@ pub(crate) struct MarkupMutation {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct PlacedImage {
     pub(crate) page_index: u32,
+    #[serde(default)]
+    pub(crate) stable_key: Option<String>,
+    #[serde(default)]
+    pub(crate) annotation_id: Option<String>,
     pub(crate) x: f64,
     pub(crate) y: f64,
     pub(crate) width: f64,
@@ -862,6 +892,8 @@ pub(crate) struct MarkupSubtypeHint {
     pub(crate) app_annotation_id: Option<String>,
     #[serde(default)]
     pub(crate) color: Option<String>,
+    #[serde(default)]
+    pub(crate) contents: Option<String>,
     #[serde(default)]
     pub(crate) id: Option<String>,
     #[serde(default)]

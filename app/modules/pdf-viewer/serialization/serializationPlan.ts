@@ -168,6 +168,13 @@ const FIELDS = {
         'modifiedAt',
         'fidelity',
     ],
+    'placed-image': [
+        'rect',
+        'author',
+        'createdAt',
+        'modifiedAt',
+        'fidelity',
+    ],
     shape: [
         'geometry',
         'author',
@@ -226,6 +233,8 @@ export function buildSerializationPlan(
                 dependsOn: [prepareId],
                 fields: allowedFields(entity),
             });
+        } else if (entity.kind === 'placed-image') {
+            throw new Error('Placed-image writes require the dedicated image placement transaction');
         } else {
             steps.push({
                 id: `${prefix}:write`,

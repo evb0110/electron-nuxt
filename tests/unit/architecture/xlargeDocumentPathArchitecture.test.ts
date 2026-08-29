@@ -324,7 +324,7 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
         primitive: 'fs.readFile',
         occurrences: 1,
         maximumBytesClassifier:
-      'NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES, 512 MiB default legacy cap',
+      'PDF_COMBINE_MAX_OUTPUT_BYTES, shared 16 MiB output cap',
         reason:
       'The native image combiner reads its generated PDF output back into a byte array.',
         removalCondition:
@@ -335,7 +335,7 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
         primitive: 'fs.readFile',
         occurrences: 1,
         maximumBytesClassifier:
-      'Strict file-backed maxOutputBytes is Number.MAX_SAFE_INTEGER; byte-returning memory mode defaults to 512 MiB',
+      'PDF_COMBINE_MAX_OUTPUT_BYTES, shared 16 MiB cap for file-backed and byte-returning native paths',
         reason:
       'The native assembler compatibility API reads its generated PDF output for a byte-returning caller.',
         removalCondition:
@@ -712,7 +712,7 @@ describe('xlarge document path architecture', () => {
             'if (src.size <= PDFJS_BLOB_URL_MAX_BYTES)',
         );
         expect(browserDocumentConstants).toContain(
-            'BROWSER_MAX_FULL_READ_BYTES = 16 * 1024 * 1024',
+            'BROWSER_MAX_FULL_READ_BYTES = PDF_COMBINE_MAX_OUTPUT_BYTES',
         );
         expect(browserPdfValidationSource).toContain(
             'if (size > BROWSER_MAX_FULL_READ_BYTES)',
@@ -829,7 +829,7 @@ describe('xlarge document path architecture', () => {
         const combineSource = readSource(
             'electron/image/tryCreatePdfFromInputPathsNative.ts',
         );
-        const combineErrorSource = readSource('electron/image/pdfCombineErrors.ts');
+        const combineErrorSource = readSource('packages/contracts/pdfCombineErrors.ts');
         const nativeErrorSource = readSource('packages/contracts/nativeErrors.ts');
         const cropSource = readSource('electron/features/page-ops/main/crop.ts');
         const cropLocalSource = readSource('electron/features/page-ops/main/cropLocal.ts');

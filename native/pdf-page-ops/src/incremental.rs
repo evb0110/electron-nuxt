@@ -256,8 +256,10 @@ fn apply_native_mutations_internal(
     }
     if let Some(markup) = &mutations.markup {
         match identity_bindings.as_mut() {
-            Some(bindings) => apply_markup_mutations_with_bindings(document, markup, bindings)?,
-            None => apply_markup_mutations(document, markup)?,
+            Some(bindings) => {
+                apply_markup_mutations_with_bindings(document, markup, modified_at, bindings)?;
+            }
+            None => apply_markup_mutations(document, markup, modified_at)?,
         }
     }
     if !mutations.placed_images.is_empty() {
@@ -319,10 +321,16 @@ fn apply_native_mutations_incremental_internal(
         delete_annotations_incremental(incremental, &mutations.deletes)?;
     }
     if let Some(page_labels) = &mutations.page_labels {
-        set_page_labels_incremental(incremental, page_labels)?;
+        set_page_labels_incremental(
+            incremental,
+            page_labels,
+            mutations.continuation.as_ref().is_some_and(|continuation| {
+                continuation.family == NativeMutationContinuationFamily::PageLabels
+            }),
+        )?;
     }
     if let Some(bookmarks) = &mutations.bookmarks {
-        set_bookmarks_incremental(incremental, bookmarks)?;
+        set_bookmarks_incremental(incremental, bookmarks, mutations.continuation.as_ref())?;
     }
     if let Some(shapes) = &mutations.shapes {
         apply_shape_annotations_incremental(incremental, shapes, modified_at)?;
@@ -330,9 +338,14 @@ fn apply_native_mutations_incremental_internal(
     if let Some(markup) = &mutations.markup {
         match identity_bindings.as_mut() {
             Some(bindings) => {
-                apply_markup_mutations_incremental_with_bindings(incremental, markup, bindings)?;
+                apply_markup_mutations_incremental_with_bindings(
+                    incremental,
+                    markup,
+                    modified_at,
+                    bindings,
+                )?;
             }
-            None => apply_markup_mutations_incremental(incremental, markup)?,
+            None => apply_markup_mutations_incremental(incremental, markup, modified_at)?,
         }
     }
     if !mutations.placed_images.is_empty() {

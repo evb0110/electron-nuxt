@@ -37,6 +37,7 @@ import {
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {
     assertCanonicalPdfPageSizes,
     detectSourceDpiFromPageSizes,
@@ -69,9 +70,12 @@ import {
     SCAN_CLEANUP_STREAMING_BATCH_PAGES,
 } from '@scan-cleanup-core/pageBatches';
 import {
+    ScanCleanupContractError,
     ScanCleanupMissingOutputError,
     ScanCleanupNativeToolUnavailableError,
     ScanCleanupPdfValidationError,
+    SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE,
+    ScanCleanupStreamingEvidenceError,
 } from '@scan-cleanup-core/errors';
 import {createPdfCombineProgressHandler} from '@scan-cleanup-core/createPdfCombineProgressHandler';
 import {
@@ -205,20 +209,85 @@ type TScanCleanupDocumentCanvas = NonNullable<
     ReturnType<typeof resolveScanCleanupDocumentCanvasFromAccumulator>
 >;
 
+function hasCompletePageRasterCoverage(
+    pageRasterByNumber: ReadonlyMap<number, IDetectedPageRaster>,
+    documentPageCount: number,
+) {
+    if (pageRasterByNumber.size !== documentPageCount) {
+        return false;
+    }
+    for (let pageNumber = 1; pageNumber <= documentPageCount; pageNumber += 1) {
+        if (!pageRasterByNumber.has(pageNumber)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /**
  * The old pdfimages result is still accepted by direct callers. Production
  * retention can return the bounded accessor instead, which lets final page
  * work ask for one raster fact without retaining a document-sized Map.
  */
-function resolvePageRasterSource(source: TScanCleanupDpiDetails): IScanCleanupPageRasterSource {
+function resolvePageRasterSource(
+    source: TScanCleanupDpiDetails,
+    documentPageCount: number,
+): IScanCleanupPageRasterSource {
     if ('getPageRaster' in source) {
         return source;
     }
+    let compactLayeredPageCount = 0;
+    for (const raster of source.pageRasterByNumber.values()) {
+        if (
+            raster.hasBilevelLayer === true
+            && raster.backgroundDpi !== undefined
+            && Number.isFinite(raster.backgroundDpi)
+            && raster.backgroundDpi > 0
+        ) {
+            compactLayeredPageCount += 1;
+        }
+    }
+    const hasCompleteCoverage = hasCompletePageRasterCoverage(
+        source.pageRasterByNumber,
+        documentPageCount,
+    );
     return {
         detected: source.pageRasterByNumber.size > 0,
         documentDpi: source.documentDpi,
+        compactLayeredPageCount,
+        compactLayeredPageCountComplete: hasCompleteCoverage,
         getPageRaster: pageNumber => source.pageRasterByNumber.get(pageNumber),
     };
+}
+
+function scanCleanupUsesInkPlacement(
+    options: IRunScanCleanupPipelineRequest['options'],
+) {
+    if (!options.matchPageSize) {
+        return false;
+    }
+    if (options.pageAlignment === 'ink') {
+        return true;
+    }
+    if (Object.values(options.pageOverrideDefaults?.placementOverrides ?? {})
+        .some(alignment => alignment === 'ink')) {
+        return true;
+    }
+    return Object.values(options.pageOverrides).some(override => Object
+        .values(override.placementOverrides ?? {})
+        .some(alignment => alignment === 'ink'));
+}
+
+function assertScanCleanupInkAnchorCapacity(
+    pageCount: number,
+    options: IRunScanCleanupPipelineRequest['options'],
+) {
+    if (
+        pageCount > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
+        && scanCleanupUsesInkPlacement(options)
+    ) {
+        throw new ScanCleanupContractError(SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE);
+    }
 }
 
 interface IScanCleanupConversionContext {
@@ -664,7 +733,7 @@ function createNonClosingPageSizeStore(store: IPdfPageSizeStore): IPdfPageSizeSt
     };
 }
 
-async function mergeScanCleanupPdfPathSidecar({
+async function mergeScanCleanupPdfPathSidecarUnchecked({
     inputPath,
     inputCount,
     scratch,
@@ -764,20 +833,174 @@ async function mergeScanCleanupPdfPathSidecar({
     await copyFile(finalPath, stagedPdfPath);
 }
 
+export async function mergeScanCleanupPdfPathSidecar(
+    args: Parameters<typeof mergeScanCleanupPdfPathSidecarUnchecked>[0],
+) {
+    try {
+        return await mergeScanCleanupPdfPathSidecarUnchecked(args);
+    } catch (error) {
+        args.signal.throwIfAborted();
+        if (error instanceof ScanCleanupStreamingEvidenceError) {
+            throw error;
+        }
+        throw new ScanCleanupStreamingEvidenceError(
+            args.inputPath,
+            getErrorMessage(error),
+        );
+    }
+}
+
+export async function validateScanCleanupBatchSummarySidecar(
+    sidecarPath: string,
+    expectedBatchCount: number,
+    signal: AbortSignal,
+    expectedPageScope?: TScanCleanupPageScope,
+) {
+    let actualBatchCount = 0;
+    try {
+        if (!Number.isSafeInteger(expectedBatchCount) || expectedBatchCount < 0) {
+            throw new Error('declared batch count is invalid');
+        }
+        if (expectedPageScope !== undefined && expectedPageScope.length === 0) {
+            throw new Error('expected page scope is empty');
+        }
+        for await (const record of readJsonLines<Record<string, unknown>>(sidecarPath, signal)) {
+            if (
+                record === null
+                || typeof record !== 'object'
+                || Array.isArray(record)
+                || typeof record.batchIndex !== 'number'
+                || !Number.isSafeInteger(record.batchIndex)
+                || typeof record.firstPageNumber !== 'number'
+                || !Number.isSafeInteger(record.firstPageNumber)
+                || typeof record.inputPages !== 'number'
+                || !Number.isSafeInteger(record.inputPages)
+                || typeof record.outputPages !== 'number'
+                || !Number.isSafeInteger(record.outputPages)
+                || record.inputPages < 1
+                || record.outputPages < 0
+                || record.summary === null
+                || typeof record.summary !== 'object'
+                || Array.isArray(record.summary)
+            ) {
+                throw new Error('contains an invalid batch record');
+            }
+            if (record.batchIndex !== actualBatchCount) {
+                throw new Error(
+                    `contains out-of-order batch index ${String(record.batchIndex)}`,
+                );
+            }
+            const summary = record.summary as Record<string, unknown>;
+            if (
+                !Number.isSafeInteger(summary.inputPages)
+                || !Number.isSafeInteger(summary.outputPages)
+                || summary.inputPages !== record.inputPages
+                || summary.outputPages !== record.outputPages
+            ) {
+                throw new Error('contains a batch summary count mismatch');
+            }
+            if (expectedPageScope !== undefined) {
+                const expectedPageNumbers = collectScanCleanupPageScopeBatch(
+                    expectedPageScope,
+                    {
+                        batchIndex: actualBatchCount,
+                        startOffset: actualBatchCount * PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES,
+                        endOffsetExclusive: Math.min(
+                            expectedPageScope.length,
+                            (actualBatchCount + 1) * PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES,
+                        ),
+                    },
+                );
+                if (
+                    expectedPageNumbers.length === 0
+                    || record.firstPageNumber !== expectedPageNumbers[0]
+                    || record.inputPages !== expectedPageNumbers.length
+                ) {
+                    throw new Error('does not match the requested page scope');
+                }
+            }
+            actualBatchCount += 1;
+        }
+        if (actualBatchCount !== expectedBatchCount) {
+            throw new Error(
+                `declared ${String(expectedBatchCount)} batches but contained ${String(actualBatchCount)}`,
+            );
+        }
+    } catch (error) {
+        signal.throwIfAborted();
+        if (error instanceof ScanCleanupStreamingEvidenceError) {
+            throw error;
+        }
+        throw new ScanCleanupStreamingEvidenceError(
+            sidecarPath,
+            getErrorMessage(error),
+        );
+    }
+}
+
+export async function validateScanCleanupStreamingReport(
+    reportPath: string,
+    sidecarPath: string,
+    expectedBatchCount: number,
+    signal: AbortSignal,
+    expectedPageScope?: TScanCleanupPageScope,
+) {
+    try {
+        const report = JSON.parse(await readFile(reportPath, 'utf8')) as Record<string, unknown>;
+        if (
+            report === null
+            || report.outputMappingsSidecarPath !== sidecarPath
+            || report.pagesSidecarPath !== sidecarPath
+        ) {
+            throw new Error('representation report does not point to its batch-summary sidecar');
+        }
+        const sidecar = await stat(sidecarPath);
+        if (sidecar.size <= 0) {
+            throw new Error('representation report sidecar is empty');
+        }
+        // Read the sidecar again at the publication boundary. The first
+        // validation protects assembly, while this second read detects a
+        // deletion or truncation that happened while the report was being
+        // written and prevents an apparently successful empty report.
+        await validateScanCleanupBatchSummarySidecar(
+            sidecarPath,
+            expectedBatchCount,
+            signal,
+            expectedPageScope,
+        );
+    } catch (error) {
+        signal.throwIfAborted();
+        if (error instanceof ScanCleanupStreamingEvidenceError) {
+            throw error;
+        }
+        throw new ScanCleanupStreamingEvidenceError(
+            reportPath,
+            getErrorMessage(error),
+        );
+    }
+}
+
 function createLazyPageRasterSource({
     pdfPath,
     pdfimagesBinary,
     dependencies,
     log,
     signal,
+    documentPageCount,
 }: {
     pdfPath: string;
     pdfimagesBinary: string | undefined;
     dependencies: IRunScanCleanupPipelineDependencies;
     log: TScanCleanupLog;
     signal: AbortSignal;
+    documentPageCount: number;
 }): IScanCleanupPageRasterSource {
     const cache = new Map<number, Promise<IDetectedPageRaster | undefined>>();
+    let compactLayeredPageCount = 0;
+    let nextExpectedPageNumber = 1;
+    let rasterProbeFailed = false;
+    let observedLegacyRasterMap = false;
+    let legacyRasterMapCoverageComplete = true;
     let documentDpi: number | null = null;
     const getPageRaster = (pageNumber: number) => {
         const cached = cache.get(pageNumber);
@@ -786,8 +1009,33 @@ function createLazyPageRasterSource({
         }
         const pending = (async () => {
             signal.throwIfAborted();
+            const markObserved = (raster: IDetectedPageRaster | undefined) => {
+                // Full conversion probes pages in document order. A later
+                // child repeats the same pages after the parent's canvas pass,
+                // so a scalar high-water mark counts each page once without a
+                // document-sized Set or Map. Any other order is refused rather
+                // than turning the budget into an unverified partial count.
+                if (pageNumber < nextExpectedPageNumber) {
+                    return raster;
+                }
+                if (pageNumber !== nextExpectedPageNumber) {
+                    rasterProbeFailed = true;
+                    return raster;
+                }
+                nextExpectedPageNumber += 1;
+                if (
+                    raster?.hasBilevelLayer === true
+                    && raster.backgroundDpi !== undefined
+                    && Number.isFinite(raster.backgroundDpi)
+                    && raster.backgroundDpi > 0
+                ) {
+                    compactLayeredPageCount += 1;
+                }
+                return raster;
+            };
             if (pdfimagesBinary === undefined) {
-                return undefined;
+                rasterProbeFailed = true;
+                return markObserved(undefined);
             }
             try {
                 const result = await dependencies.detectSourceDpi(
@@ -800,13 +1048,20 @@ function createLazyPageRasterSource({
                 );
                 documentDpi = Math.max(documentDpi ?? 0, result.documentDpi ?? 0) || null;
                 if ('getPageRaster' in result) {
-                    return await result.getPageRaster(pageNumber);
+                    return markObserved(await result.getPageRaster(pageNumber));
                 }
-                return result.pageRasterByNumber.get(pageNumber);
+                observedLegacyRasterMap = true;
+                legacyRasterMapCoverageComplete = legacyRasterMapCoverageComplete
+                    && hasCompletePageRasterCoverage(
+                        result.pageRasterByNumber,
+                        documentPageCount,
+                    );
+                return markObserved(result.pageRasterByNumber.get(pageNumber));
             } catch (error) {
                 signal.throwIfAborted();
+                rasterProbeFailed = true;
                 log('debug', `Scan cleanup could not detect source raster for page ${String(pageNumber)}: ${getErrorMessage(error)}`);
-                return undefined;
+                return markObserved(undefined);
             }
         })();
         cache.set(pageNumber, pending);
@@ -822,6 +1077,14 @@ function createLazyPageRasterSource({
         },
         get documentDpi() {
             return documentDpi;
+        },
+        get compactLayeredPageCount() {
+            return compactLayeredPageCount;
+        },
+        get compactLayeredPageCountComplete() {
+            return !rasterProbeFailed
+                && nextExpectedPageNumber > documentPageCount
+                && (!observedLegacyRasterMap || legacyRasterMapCoverageComplete);
         },
         getPageRaster,
     };
@@ -991,6 +1254,7 @@ async function runStreamingScanCleanupConversion({
     // child advance through exactly its own range without reopening qpdf or
     // retaining all page records in JavaScript.
     const pageSizeStore = createPageSizeStoreFromGeometrySidecar(geometrySidecarPath, signal);
+    const boundedDpiSource = resolvePageRasterSource(dpiDetails, documentPageCount);
     const batchOutputsPath = join(scratch, 'scan-cleanup-batch-outputs.jsonl');
     const batchSummariesPath = join(scratch, 'scan-cleanup-batch-summaries.jsonl');
     const outputHandle = await open(batchOutputsPath, 'w');
@@ -1045,7 +1309,7 @@ async function runStreamingScanCleanupConversion({
                 getPageSizeStore: () => createNonClosingPageSizeStore(pageSizeStore),
                 // Reuse the parent's bounded source accessor. In the legacy
                 // test shape this adapter still reads only the current batch.
-                detectSourceDpi: () => Promise.resolve(dpiDetails),
+                detectSourceDpi: () => Promise.resolve(boundedDpiSource),
                 requirePublishedRaster,
             };
             const childSummary = await runScanCleanupConversion(
@@ -1063,7 +1327,7 @@ async function runStreamingScanCleanupConversion({
                 childDependencies,
                 {
                     documentCanvas,
-                    dpiDetails,
+                    dpiDetails: boundedDpiSource,
                     skipDocumentCanvasMeasurement: true,
                     skipPageSizeValidation: true,
                     smallCompatibilityRun: true,
@@ -1100,6 +1364,12 @@ async function runStreamingScanCleanupConversion({
         if (batchCount === 0 || summary.outputPages === 0) {
             throw new Error('evb-scan-cleanup produced no output pages');
         }
+        await validateScanCleanupBatchSummarySidecar(
+            batchSummariesPath,
+            batchCount,
+            signal,
+            pageNumbers,
+        );
         emitProgress('assembling', 0, summary.outputPages, []);
         await mergeScanCleanupPdfPathSidecar({
             inputPath: batchOutputsPath,
@@ -1120,6 +1390,29 @@ async function runStreamingScanCleanupConversion({
             stat(stagedPdfPath),
         ]);
         if (outputFile.size <= 0) throw new Error('PDF assembler produced an empty file');
+        const fullDocumentRun = request.sourcePageNumbers === undefined
+            && request.sourcePageRange === undefined;
+        if (
+            fullDocumentRun
+            && request.options.outputMode === 'auto'
+            && boundedDpiSource.compactLayeredPageCountComplete !== true
+        ) {
+            throw new ScanCleanupStreamingEvidenceError(
+                batchSummariesPath,
+                'Automatic scan cleanup could not establish a bounded compact-source budget for the full xlarge document; '
+                + 'source raster probing was incomplete, so publication was refused',
+            );
+        }
+        const compactSourceBudget = resolveScanCleanupCompactSourceBudget({
+            documentPageCount,
+            options: request.options,
+            pageRasterByNumber: new Map(),
+            partialRun: !fullDocumentRun,
+            sourceBytes: sourceFile.size,
+            ...(boundedDpiSource.compactLayeredPageCount === undefined
+                ? {}
+                : {compactLayeredPageCount: boundedDpiSource.compactLayeredPageCount}),
+        });
         // The detailed per-page report lives in the bounded batch summaries.
         // The top-level report remains a small descriptor, so diagnostics can
         // choose to consume the sidecar without forcing a whole-document parse.
@@ -1128,16 +1421,32 @@ async function runStreamingScanCleanupConversion({
             sourceBytes: sourceFile.size,
             outputBytes: outputFile.size,
             outputToSourceByteRatio: outputFile.size / sourceFile.size,
-            compactSourceBudget: null,
+            compactSourceBudget,
             outputMappings: [],
             pages: [],
             outputMappingsSidecarPath: batchSummariesPath,
             pagesSidecarPath: batchSummariesPath,
         };
+        const representationReportPath = join(scratch, 'scan-cleanup-representation-report.json');
         await writeFile(
-            join(scratch, 'scan-cleanup-representation-report.json'),
+            representationReportPath,
             `${JSON.stringify(representationReport, null, 2)}\n`,
         );
+        await validateScanCleanupStreamingReport(
+            representationReportPath,
+            batchSummariesPath,
+            batchCount,
+            signal,
+            pageNumbers,
+        );
+        try {
+            assertScanCleanupCompactSourceBudget(outputFile.size, compactSourceBudget);
+        } catch (error) {
+            throw new ScanCleanupStreamingEvidenceError(
+                batchSummariesPath,
+                getErrorMessage(error),
+            );
+        }
         await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, signal, log, dependencies.runCommand);
         emitProgress('handoff', 0, pageCount, []);
         await copyFile(stagedPdfPath, publishTempPath);
@@ -1200,6 +1509,11 @@ export async function runScanCleanupConversion(
             request.sourcePageRange,
         );
         const pageCount = pageNumbers.length;
+        // Ink anchors are currently transported as a bounded page-keyed
+        // record. Keep direct core callers on the same fail-closed contract
+        // as the renderer instead of allowing a large request to allocate an
+        // unbounded anchor map during save.
+        assertScanCleanupInkAnchorCapacity(pageCount, request.options);
         const largeStreamingRun = documentPageCount > PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES
             && context?.smallCompatibilityRun !== true;
         const warnings = [...prepared.warnings];
@@ -1359,6 +1673,7 @@ export async function runScanCleanupConversion(
                     dependencies,
                     log,
                     signal,
+                    documentPageCount,
                 })
                 : metadataDpiDetails !== null && paths.pdfimagesBinary === undefined
                     ? {
@@ -1375,11 +1690,11 @@ export async function runScanCleanupConversion(
                         Array.isArray(dpiProbePages) ? dpiProbePages : undefined,
                         (completedPages, totalPages) => emitProgress('probing', completedPages, totalPages),
                     ));
-        const structuralRasterSource = resolvePageRasterSource(structuralDpiDetails);
+        const structuralRasterSource = resolvePageRasterSource(structuralDpiDetails, documentPageCount);
         const dpiDetails = structuralRasterSource.detected
             ? structuralDpiDetails
             : metadataDpiDetails ?? structuralDpiDetails;
-        const dpiSource = resolvePageRasterSource(dpiDetails);
+        const dpiSource = resolvePageRasterSource(dpiDetails, documentPageCount);
         if (metadataDpiDetails && !structuralRasterSource.detected) {
             emitProgress('probing', dpiProbePageCount, dpiProbePageCount, dpiProbePages);
         }
@@ -1446,8 +1761,13 @@ export async function runScanCleanupConversion(
                             observedLayout,
                         );
                         const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, pageNumber);
+                        // Probe every page in the ordered geometry pass, even
+                        // when an override excludes its output. The full-run
+                        // Auto budget describes the source document, and the
+                        // scalar observer must not mistake an excluded page
+                        // for a failed or out-of-order raster probe.
+                        const sourceRaster = await dpiSource.getPageRaster(pageNumber);
                         if (!pageOverride.excluded) {
-                            const sourceRaster = await dpiSource.getPageRaster(pageNumber);
                             if (dpiSource.documentDpi !== undefined && dpiSource.documentDpi !== null) {
                                 documentDpi = Math.max(documentDpi, resolveSourceDpi(dpiSource.documentDpi));
                             }
@@ -3001,7 +3321,10 @@ export async function runScanCleanupConversion(
         emitProgress('handoff', pageCount, pageCount, pageNumbers);
         return summary;
     } catch (error) {
-        if (error instanceof ScanCleanupPdfValidationError) {
+        if (
+            error instanceof ScanCleanupPdfValidationError
+            || error instanceof ScanCleanupStreamingEvidenceError
+        ) {
             preserveScratchForDiagnostics = true;
         }
         throw error;

@@ -178,6 +178,7 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
     const onRunningChange = vi.fn();
     const onOcrComplete = vi.fn();
     const onExportDocx = vi.fn();
+    const onCancelDocxExport = vi.fn();
 
     const scope = effectScope();
     const presenter = scope.run(() => useOcrPopupPresenter({
@@ -199,6 +200,7 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
             onRunningChange,
             onOcrComplete,
             onExportDocx,
+            onCancelDocxExport,
         },
     }));
 
@@ -221,6 +223,7 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
             onRunningChange,
             onOcrComplete,
             onExportDocx,
+            onCancelDocxExport,
         },
     };
 }
@@ -340,6 +343,17 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.isOpen.value).toBe(false);
             expect(harness.ocr.clearResults).toHaveBeenCalled();
             expect(harness.ocr.clearRunSettingsHistory).toHaveBeenCalled();
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('forwards DOCX export cancellation to the workspace owner', () => {
+        const harness = createPresenterHarness();
+
+        try {
+            harness.presenter.handleCancelDocxExport();
+            expect(harness.events.onCancelDocxExport).toHaveBeenCalledOnce();
         } finally {
             stopHarness(harness.scope);
         }

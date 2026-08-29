@@ -6,6 +6,8 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 
 type TPageAnnotationDeleteViewer = Pick<WorkspaceOrchestration.IPdfViewerExpose,
     'deleteAnnotationComment'
+    | 'deleteAnnotationEditor'
+    | 'deleteReopenedEditorAnnotation'
     | 'removeAnnotationFromDom'
     | 'removeAnnotationFromInternalCache'
     | 'deleteEmbeddedAnnotationDeferred'
@@ -57,6 +59,11 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
     function shouldUseEmbeddedDeletePath(comment: IAnnotationCommentSummary) {
         return comment.source !== 'shape'
             && (comment.source === 'pdf' || Boolean(resolveEmbeddedPdfAnnotationId(comment)));
+    }
+
+    function shouldRemoveLiveEditorBeforeEmbeddedDelete(comment: IAnnotationCommentSummary) {
+        const subtype = comment.subtype?.trim().toLowerCase();
+        return subtype === 'freetext' || subtype === 'typewriter';
     }
 
     function shouldUseEmbeddedDeleteFallback(comment: IAnnotationCommentSummary, deleted: boolean) {
@@ -119,10 +126,30 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
         setAnnotationNoteWindowError(comment.stableKey, null);
         const commentsBeforeDelete = getAnnotationCommentsSnapshot();
         if (shouldUseEmbeddedDeletePath(comment)) {
-            const deleted = deleteAnnotationCommentWithFallbacks(comment, false);
-            if (!deleted) {
-                handleAnnotationDeleteFailure(comment);
-                return;
+            if (shouldRemoveLiveEditorBeforeEmbeddedDelete(comment)) {
+                let deleted = false;
+                try {
+                    deleted = await viewer.deleteReopenedEditorAnnotation?.(comment) === true;
+                } catch (error) {
+                    BrowserLogger.debug(
+                        'annotations',
+                        'Atomic reopened FreeText deletion failed',
+                        error,
+                    );
+                }
+                if (!deleted) {
+                    handleAnnotationDeleteFailure(comment);
+                    return;
+                }
+                viewer.removeAnnotationFromDom(comment);
+                viewer.removeAnnotationFromInternalCache(comment.stableKey);
+                invalidateAnnotationPage(comment);
+            } else {
+                const deleted = deleteAnnotationCommentWithFallbacks(comment, false);
+                if (!deleted) {
+                    handleAnnotationDeleteFailure(comment);
+                    return;
+                }
             }
             removeDeletedAnnotationState(comment, commentsBeforeDelete);
             return;

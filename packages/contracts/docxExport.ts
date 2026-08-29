@@ -7,6 +7,7 @@ export type TDocxExportChunkSource = Iterable<Uint8Array> | AsyncIterable<Uint8A
 export interface IDocxExportFileCapability {writeDocxFileChunks: (
     path: TDocumentRef,
     chunks: TDocxExportChunkSource,
+    signal?: AbortSignal,
 ) => Promise<boolean>;}
 
 export const DOCX_EXPORT_STREAM_CHANNELS = {

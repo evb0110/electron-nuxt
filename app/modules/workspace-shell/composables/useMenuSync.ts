@@ -68,11 +68,12 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
                 && !isDocumentBusy
                 && toolbar?.isPreparingPrint !== true,
             supportsExportDocx: capabilities?.pdfDocument === true,
-            canExportDocx: documentInteractive
+            canExportDocx: (documentInteractive
                 && toolbar?.canExportDocx === true
                 && !isAnySaving
-                && !isHistoryBusy
-                && toolbar?.isExportingDocx !== true,
+                && !isHistoryBusy)
+                || toolbar?.isExportingDocx === true,
+            isExportingDocx: toolbar?.isExportingDocx === true,
             supportsRasterExport: hasDocument,
             canExportRaster: documentInteractive && !isAnySaving && !isHistoryBusy,
             canUndo: documentInteractive

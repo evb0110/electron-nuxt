@@ -240,6 +240,9 @@ pub(crate) fn placed_image_annotation_name(
     index: usize,
     modified_at: &str,
 ) -> String {
+    if let Some(stable_key) = image.stable_key.as_deref() {
+        return stable_key.trim().to_string();
+    }
     format!(
         "placed-image-native:{}:{}:{}",
         image.page_index, index, modified_at
@@ -417,6 +420,82 @@ pub(crate) fn build_placed_image_stamp_dict(
     dict
 }
 
+fn resolve_placed_image_target(
+    document: &impl PdfObjectSource,
+    page_id: ObjectId,
+    image: &PlacedImage,
+    expected_name: &str,
+) -> Result<Option<ObjectId>> {
+    let annots = get_page_annots(document, page_id)?;
+    if let Some(annotation_id) = image.annotation_id.as_deref() {
+        let object_id = parse_pdfjs_annotation_object_id(annotation_id)
+            .ok_or("Invalid placed image annotation id")?;
+        if !annots
+            .iter()
+            .any(|annotation| annotation.as_reference().ok() == Some(object_id))
+        {
+            return Err("Placed image annotation is not owned by the requested page".into());
+        }
+        let dict = document.dictionary(object_id)?;
+        if annotation_subtype(dict) != "stamp" {
+            return Err("Placed image target is not a Stamp annotation".into());
+        }
+        if image.stable_key.is_some()
+            && dict.get(b"NM").ok().and_then(pdf_string_to_text).as_deref() != Some(expected_name)
+        {
+            return Err("Placed image stable identity does not match the target Stamp".into());
+        }
+        return Ok(Some(object_id));
+    }
+
+    let matches = annots
+        .iter()
+        .filter_map(|annotation| annotation.as_reference().ok())
+        .filter(|object_id| {
+            document
+                .dictionary(*object_id)
+                .ok()
+                .filter(|dict| annotation_subtype(dict) == "stamp")
+                .and_then(|dict| dict.get(b"NM").ok())
+                .and_then(pdf_string_to_text)
+                .as_deref()
+                == Some(expected_name)
+        })
+        .collect::<Vec<_>>();
+    if matches.len() > 1 {
+        return Err("Placed image stable identity matched more than one Stamp annotation".into());
+    }
+    Ok(matches.first().copied())
+}
+
+pub(crate) fn placed_image_appearance_refs(
+    document: &impl PdfObjectSource,
+    stamp_ref: ObjectId,
+) -> Option<(ObjectId, ObjectId)> {
+    fn object_dictionary(object: &Object) -> Option<&Dictionary> {
+        match object {
+            Object::Dictionary(dict) => Some(dict),
+            Object::Stream(stream) => Some(&stream.dict),
+            _ => None,
+        }
+    }
+
+    let stamp = document.dictionary(stamp_ref).ok()?;
+    let appearance = object_dictionary(document.resolved(stamp.get(b"AP").ok()?).ok()?)?;
+    let appearance_ref = appearance.get(b"N").ok()?.as_reference().ok()?;
+    let appearance_stream = object_dictionary(document.object(appearance_ref).ok()?)?;
+    let resources = object_dictionary(
+        document
+            .resolved(appearance_stream.get(b"Resources").ok()?)
+            .ok()?,
+    )?;
+    let xobjects = object_dictionary(document.resolved(resources.get(b"XObject").ok()?).ok()?)?;
+    let image_ref = xobjects
+        .iter()
+        .find_map(|(_, object)| object.as_reference().ok())?;
+    Some((appearance_ref, image_ref))
+}
+
 pub(crate) fn apply_placed_images(
     document: &mut Document,
     images: &[PlacedImage],
@@ -452,21 +531,37 @@ pub(crate) fn apply_placed_images(
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let jpeg_info = parse_jpeg_info(&image_bytes)?;
         let geometry = placed_image_geometry(image, page_view, page_rotation)?;
-        let image_ref = document.add_object(build_jpeg_image_stream(image_bytes, &jpeg_info));
+        let expected_name = placed_image_annotation_name(image, index, modified_at);
+        let existing_stamp_ref =
+            resolve_placed_image_target(document, page_id, image, &expected_name)?;
+        let existing_appearance = existing_stamp_ref
+            .and_then(|stamp_ref| placed_image_appearance_refs(document, stamp_ref));
+        let image_stream = build_jpeg_image_stream(image_bytes, &jpeg_info);
+        let image_ref = if let Some((_, image_ref)) = existing_appearance {
+            document.set_object(image_ref, Object::Stream(image_stream));
+            image_ref
+        } else {
+            document.add_object(image_stream)
+        };
         let image_name = format!("Im{}", image_ref.0);
-        let appearance_ref = document.add_object(build_placed_image_appearance_stream(
-            image_ref,
-            &geometry,
-            &image_name,
-        ));
-        let stamp_ref = document.new_object_id();
+        let appearance_stream =
+            build_placed_image_appearance_stream(image_ref, &geometry, &image_name);
+        let appearance_ref = if let Some((appearance_ref, _)) = existing_appearance {
+            document.set_object(appearance_ref, Object::Stream(appearance_stream));
+            appearance_ref
+        } else {
+            document.add_object(appearance_stream)
+        };
+        let stamp_ref = existing_stamp_ref.unwrap_or_else(|| document.new_object_id());
         let stamp_dict =
             build_placed_image_stamp_dict(image, &geometry, appearance_ref, index, modified_at);
         document.set_object(stamp_ref, Object::Dictionary(stamp_dict));
-        annotation_indexes
-            .get_mut(&page_id)
-            .expect("Placed-image pages are indexed before mutation")
-            .append_missing_refs(&[stamp_ref]);
+        if existing_stamp_ref.is_none() {
+            annotation_indexes
+                .get_mut(&page_id)
+                .expect("Placed-image pages are indexed before mutation")
+                .append_missing_refs(&[stamp_ref]);
+        }
     }
     for (page_id, index) in annotation_indexes {
         write_page_annotation_index(document, page_id, index)?;
@@ -509,28 +604,49 @@ pub(crate) fn apply_placed_images_incremental(
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let jpeg_info = parse_jpeg_info(&image_bytes)?;
         let geometry = placed_image_geometry(image, page_view, page_rotation)?;
-        let image_ref = incremental
-            .new_document
-            .add_object(build_jpeg_image_stream(image_bytes, &jpeg_info));
-        let image_name = format!("Im{}", image_ref.0);
-        let appearance_ref =
+        let expected_name = placed_image_annotation_name(image, index, modified_at);
+        let existing_stamp_ref = resolve_placed_image_target(
+            &AppendedRevision::new(incremental),
+            page_id,
+            image,
+            &expected_name,
+        )?;
+        let existing_appearance = existing_stamp_ref.and_then(|stamp_ref| {
+            placed_image_appearance_refs(&AppendedRevision::new(incremental), stamp_ref)
+        });
+        let image_stream = build_jpeg_image_stream(image_bytes, &jpeg_info);
+        let image_ref = if let Some((_, image_ref)) = existing_appearance {
             incremental
                 .new_document
-                .add_object(build_placed_image_appearance_stream(
-                    image_ref,
-                    &geometry,
-                    &image_name,
-                ));
-        let stamp_ref = incremental.new_document.new_object_id();
+                .set_object(image_ref, Object::Stream(image_stream));
+            image_ref
+        } else {
+            incremental.new_document.add_object(image_stream)
+        };
+        let image_name = format!("Im{}", image_ref.0);
+        let appearance_stream =
+            build_placed_image_appearance_stream(image_ref, &geometry, &image_name);
+        let appearance_ref = if let Some((appearance_ref, _)) = existing_appearance {
+            incremental
+                .new_document
+                .set_object(appearance_ref, Object::Stream(appearance_stream));
+            appearance_ref
+        } else {
+            incremental.new_document.add_object(appearance_stream)
+        };
+        let stamp_ref =
+            existing_stamp_ref.unwrap_or_else(|| incremental.new_document.new_object_id());
         let stamp_dict =
             build_placed_image_stamp_dict(image, &geometry, appearance_ref, index, modified_at);
         incremental
             .new_document
             .set_object(stamp_ref, Object::Dictionary(stamp_dict));
-        annotation_indexes
-            .get_mut(&page_id)
-            .expect("Placed-image pages are indexed before mutation")
-            .append_missing_refs(&[stamp_ref]);
+        if existing_stamp_ref.is_none() {
+            annotation_indexes
+                .get_mut(&page_id)
+                .expect("Placed-image pages are indexed before mutation")
+                .append_missing_refs(&[stamp_ref]);
+        }
     }
     for (page_id, index) in annotation_indexes {
         write_page_annotation_index_incremental(incremental, page_id, index)?;

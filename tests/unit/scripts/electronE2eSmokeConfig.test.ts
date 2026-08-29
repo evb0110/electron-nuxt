@@ -55,6 +55,9 @@ const vitestProjectNames = {
     electronE2ERapidNavigation: 'e2e-rapid-navigation',
     electronE2EVisibleWindow: 'e2e-visible-window',
     electronE2EQuarantine: 'e2e-quarantine',
+    electronE2ESavePipeline: 'e2e-save-pipeline',
+    electronE2ENativeSaveReopen: 'e2e-native-save-reopen',
+    electronE2EXlargePdf: 'e2e-xlarge-pdf',
 } as const;
 
 const unitCoreTestFiles = [
@@ -116,6 +119,17 @@ const electronE2ERapidNavigationTestFiles = [
 ];
 const electronE2EVisibleWindowTestFiles = ['tests/e2e/electron/visibleWindowLifecycle.e2e.test.ts'];
 const electronE2EQuarantineTestFiles = ['tests/e2e/electron/quarantine/**/*.e2e.test.ts'];
+const electronE2EQuarantineOperatorDiagnosticFiles = [
+    'tests/e2e/electron/quarantine/scanCleanupAppTruthProbe.e2e.test.ts',
+    'tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts',
+    'tests/e2e/electron/quarantine/scanCleanupUniformity.e2e.test.ts',
+];
+const electronE2ESavePipelineTestFiles = [
+    'tests/e2e/electron/savePipeline.e2e.test.ts',
+    'tests/e2e/electron/savePipelineBenchmark.e2e.test.ts',
+];
+const electronE2ENativeSaveReopenTestFiles = ['tests/e2e/electron/nativeSaveReopen.e2e.test.ts'];
+const electronE2EXlargePdfTestFiles = ['tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts'];
 
 let importNonce = 0;
 
@@ -166,6 +180,9 @@ function e2eProjectNames() {
         vitestProjectNames.electronE2ERapidNavigation,
         vitestProjectNames.electronE2EVisibleWindow,
         vitestProjectNames.electronE2EQuarantine,
+        vitestProjectNames.electronE2ESavePipeline,
+        vitestProjectNames.electronE2ENativeSaveReopen,
+        vitestProjectNames.electronE2EXlargePdf,
     ];
 }
 
@@ -227,6 +244,11 @@ describe('electron e2e Vitest project topology', () => {
         const ordinaryProjects = electronProjects.filter(name => name !== 'e2e-visible-window');
 
         for (const projectName of ordinaryProjects) {
+            if (projectName === 'e2e-quarantine') {
+                expect(packageScripts['test:e2e:electron:quarantine'])
+                    .toContain('pnpm exec tsx scripts/ci/runElectronQuarantine.ts');
+                continue;
+            }
             const routes = Object.entries(packageScripts)
                 .filter((entry): entry is [
                     string,
@@ -314,6 +336,12 @@ describe('electron e2e Vitest project topology', () => {
             .toEqual(electronE2ERapidNavigationTestFiles);
         expect(projectByName(config, vitestProjectNames.electronE2EVisibleWindow).test?.include)
             .toEqual(electronE2EVisibleWindowTestFiles);
+        expect(projectByName(config, vitestProjectNames.electronE2ESavePipeline).test?.include)
+            .toEqual(electronE2ESavePipelineTestFiles);
+        expect(projectByName(config, vitestProjectNames.electronE2ENativeSaveReopen).test?.include)
+            .toEqual(electronE2ENativeSaveReopenTestFiles);
+        expect(projectByName(config, vitestProjectNames.electronE2EXlargePdf).test?.include)
+            .toEqual(electronE2EXlargePdfTestFiles);
 
         for (const obsoleteEnvFlag of [
             'EVB_E2E_DRAW_SHAPES_EXTENDED',
@@ -378,7 +406,13 @@ describe('electron e2e quarantine Vitest project', () => {
         const quarantineProject = projectByName(config, vitestProjectNames.electronE2EQuarantine);
 
         expect(quarantineProject.test?.include).toEqual(electronE2EQuarantineTestFiles);
+        expect(quarantineProject.test?.exclude)
+            .toEqual(expect.arrayContaining(electronE2EQuarantineOperatorDiagnosticFiles));
+        expect(quarantineProject.test?.exclude)
+            .toHaveLength(electronE2EQuarantineOperatorDiagnosticFiles.length);
         expect(packageScripts['test:e2e:electron:quarantine'])
-            .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-quarantine --passWithNoTests');
+            .toContain('pnpm exec tsx scripts/ci/runElectronQuarantine.ts');
+        expect(packageScripts['test:e2e:electron:quarantine'])
+            .not.toContain('--passWithNoTests');
     });
 });

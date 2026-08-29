@@ -3,7 +3,7 @@
         <DocumentBookmarkToolbar
             v-if="isBookmarkToolbarVisible"
             :display-mode="displayMode"
-            editable
+            :editable="bookmarkStatus !== 'unpersistable'"
             :is-edit-mode="isEditMode"
             :selected-delete-count="selectedBookmarkDeleteCount"
             @set-display-mode="setDisplayMode"
@@ -46,6 +46,16 @@
                 />
             </template>
         </DocumentPanelEmptyState>
+
+        <div
+            v-if="bookmarkStatus === 'unpersistable'"
+            class="pdf-bookmarks-persistence-refusal"
+            data-bookmark-persistence-refusal
+            :data-bookmark-persistence-reason="outlinePersistenceRefusal?.reason"
+            role="status"
+        >
+            {{ outlinePersistenceRefusalMessage }}
+        </div>
 
         <div
             v-else-if="isEditMode"
@@ -121,6 +131,7 @@ import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
 import type {
     IDocumentBookmarkTreeItem,
+    TDocumentBookmarkPersistenceRefusal,
     TDocumentBookmarkStatus,
 } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
@@ -131,6 +142,7 @@ import {
     flattenBookmarks,
     parseOutlineItems,
     resolveActiveBookmarkForPage,
+    resolveMaxBookmarkDepth,
 } from '@app/utils/pdfOutlineHelpers';
 import { usePdfOutlineSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineSelection';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -147,6 +159,7 @@ import DocumentBookmarkTree from '@app/components/document-viewer/DocumentBookma
 import { navigateToBookmarkDestination } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination';
 import { createBookmarkIdentityFactory } from '@app/modules/pdf-viewer/engine/pdf-outline-identity/createBookmarkIdentityFactory';
 import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-bookmark-serialization/areBookmarkEntriesEqual';
+import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -182,6 +195,34 @@ const outlineError = ref(false);
 const activeItemId = ref<string | null>(null);
 const displayMode = ref<TBookmarkDisplayMode>('current-expanded');
 const expandedBookmarkIds = ref<Set<string>>(new Set());
+const nativeBookmarkDepthLimit = PDF_NATIVE_MUTATION_LIMITS.bookmarkDepth;
+const flatBookmarks = computed(() => flattenBookmarks(bookmarks.value));
+const outlinePersistenceRefusal = computed<{
+    count: number;
+    limit: number;
+    reason: TDocumentBookmarkPersistenceRefusal;
+} | null>(() => {
+    const count = flatBookmarks.value.length;
+    if (resolveMaxBookmarkDepth(bookmarks.value) >= nativeBookmarkDepthLimit) {
+        return {
+            count,
+            limit: nativeBookmarkDepthLimit,
+            reason: 'depth',
+        };
+    }
+    return null;
+});
+const outlinePersistenceBlocked = computed(() => outlinePersistenceRefusal.value !== null);
+const outlinePersistenceRefusalMessage = computed(() => {
+    const refusal = outlinePersistenceRefusal.value;
+    if (!refusal) {
+        return '';
+    }
+    return t('bookmarks.persistenceRefusalDepth', {
+        count: refusal.count,
+        limit: refusal.limit,
+    });
+});
 
 const bookmarkStatus = computed<TDocumentBookmarkStatus>(() => {
     if (isLoading.value) {
@@ -190,15 +231,37 @@ const bookmarkStatus = computed<TDocumentBookmarkStatus>(() => {
     if (outlineError.value) {
         return 'error';
     }
+    if (outlinePersistenceBlocked.value) {
+        return 'unpersistable';
+    }
     return bookmarks.value.length === 0 ? 'empty' : 'ready';
 });
 const isBookmarkToolbarVisible = computed(() => (
-    bookmarkStatus.value === 'ready' || bookmarkStatus.value === 'empty'
+    bookmarkStatus.value === 'ready'
+        || bookmarkStatus.value === 'empty'
+        || bookmarkStatus.value === 'unpersistable'
 ));
 
+watch(outlinePersistenceBlocked, blocked => {
+    if (blocked && props.isEditMode) {
+        emit('update:isEditMode', false);
+    }
+}, {flush: 'post'});
+
 const isEditMode = computed({
-    get: () => props.isEditMode,
-    set: (value: boolean) => emit('update:isEditMode', value),
+    get: () => props.isEditMode && !outlinePersistenceBlocked.value,
+    set: (value: boolean) => {
+        if (value && outlinePersistenceBlocked.value) {
+            BrowserLogger.warn('pdfOutline', 'Refused bookmark editing outside native persistence limits', {
+                itemCount: flatBookmarks.value.length,
+                maxDepth: nativeBookmarkDepthLimit,
+                reason: outlinePersistenceRefusal.value?.reason,
+            });
+            emit('update:isEditMode', false);
+            return;
+        }
+        emit('update:isEditMode', value);
+    },
 });
 
 const currentPageRef = computed(() => props.currentPage);
@@ -284,7 +347,20 @@ function createDraftBookmarkId() {
     return bookmarkIdentity.createDraftBookmarkId();
 }
 
-const flatBookmarks = computed(() => flattenBookmarks(bookmarks.value));
+function isBookmarkGrowthRefused() {
+    const refusal = outlinePersistenceRefusal.value;
+    if (!refusal) {
+        return false;
+    }
+
+    BrowserLogger.warn('pdfOutline', 'Refused bookmark mutation outside the native persistence limits', {
+        itemCount: flatBookmarks.value.length,
+        maxDepth: nativeBookmarkDepthLimit,
+        reason: refusal.reason,
+    });
+    return true;
+}
+
 const sharedBookmarkItems = computed<IDocumentBookmarkTreeItem[]>(() => {
     function mapItems(items: readonly IBookmarkItem[]): IDocumentBookmarkTreeItem[] {
         return items.map(item => ({
@@ -408,6 +484,9 @@ const editing = usePdfOutlineEditing(
 );
 
 function addRootBookmark() {
+    if (isBookmarkGrowthRefused()) {
+        return;
+    }
     editing.addRootBookmark();
 }
 
@@ -443,14 +522,23 @@ function startEditingBookmark(id: string) {
 }
 
 function addSiblingAbove(id: string) {
+    if (isBookmarkGrowthRefused()) {
+        return;
+    }
     editing.addSiblingAbove(id);
 }
 
 function addSiblingBelow(id: string) {
+    if (isBookmarkGrowthRefused()) {
+        return;
+    }
     editing.addSiblingBelow(id);
 }
 
 function addChildBookmark(id: string) {
+    if (isBookmarkGrowthRefused()) {
+        return;
+    }
     editing.addChildBookmark(id);
 }
 
@@ -881,6 +969,13 @@ onBeforeUnmount(() => {
     padding: var(--app-space-16xl);
     color: var(--ui-text-muted);
     text-align: center;
+}
+
+.pdf-bookmarks-persistence-refusal {
+    color: var(--ui-text-muted);
+    font-size: var(--app-sidebar-caption-font-size);
+    line-height: 1.3;
+    padding: 0 var(--app-space-3xl);
 }
 
 .pdf-bookmarks-tree {

@@ -8,6 +8,8 @@ interface IDjvuProjectionActionOptions {
     ensureProjection: (reason: 'edit' | 'ocr' | 'save-as-pdf') => Promise<boolean>;
     saveAs: () => Promise<boolean>;
     exportDocx: (selectedLanguages?: string[]) => Promise<void>;
+    isExportingDocx: Ref<boolean>;
+    cancelExportDocx: () => void;
     handleDropdownOpen: (
         dropdown: 'zoom' | 'page' | 'ocr' | 'overflow' | 'appMenu',
         isOpen: boolean,
@@ -52,6 +54,10 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
             ? ensureProjection('save-as-pdf')
             : options.saveAs(),
         async handleExportDocx(selectedLanguages?: string[]) {
+            if (options.isExportingDocx.value) {
+                options.cancelExportDocx();
+                return;
+            }
             if (await ensureProjection('ocr')) await options.exportDocx(selectedLanguages);
         },
         handleDropdownOpen(

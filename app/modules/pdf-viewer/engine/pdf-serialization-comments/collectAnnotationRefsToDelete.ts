@@ -1,8 +1,11 @@
 import type { PDFDocument } from 'pdf-lib';
 import {
     PDFDict,
+    PDFHexString,
     PDFName,
     PDFRef,
+    PDFStream,
+    PDFString,
 } from 'pdf-lib';
 import { getPdfDictSubtype } from '@app/utils/pdfDict';
 import { normalizeAnnotationSubtypeToken } from '@app/utils/textNormalization';
@@ -31,6 +34,28 @@ export function collectAnnotationRefsToDelete(doc: PDFDocument, targetRef: PDFRe
             const dict = doc.context.lookupMaybe(ref, PDFDict);
             if (!dict) {
                 return;
+            }
+
+            const subtype = normalizeAnnotationSubtypeToken(getPdfDictSubtype(dict));
+            const name = dict.get(PDFName.of('NM'));
+            const isManagedPlacedImage = subtype === 'stamp'
+                && (name instanceof PDFHexString || name instanceof PDFString)
+                && name.decodeText().startsWith('placed-image-');
+            if (isManagedPlacedImage) {
+                const appearanceRef = dict
+                    .lookupMaybe(PDFName.of('AP'), PDFDict)
+                    ?.get(PDFName.of('N'));
+                if (appearanceRef instanceof PDFRef) {
+                    enqueueRef(appearanceRef);
+                    const appearance = doc.context.lookupMaybe(appearanceRef, PDFStream);
+                    const resources = appearance?.dict.lookupMaybe(PDFName.of('Resources'), PDFDict);
+                    const xobjects = resources?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+                    xobjects?.values().forEach((value) => {
+                        if (value instanceof PDFRef) {
+                            enqueueRef(value);
+                        }
+                    });
+                }
             }
 
             const popupValue = dict.get(PDFName.of('Popup'));

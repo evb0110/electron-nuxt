@@ -5,7 +5,124 @@ import type {
     IDocumentTextCatalogWindow,
 } from '@contracts/documentTextCatalog';
 import { getOcrCapability } from '@app/utils/getOcrCapability';
-import { parseDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
+
+function throwIfAborted(signal?: AbortSignal) {
+    signal?.throwIfAborted();
+}
+
+function abortErrorFromSignal(signal: AbortSignal) {
+    return signal.reason instanceof Error
+        ? signal.reason
+        : new DOMException('DOCX export was canceled.', 'AbortError');
+}
+
+function createCatalogRequestId() {
+    return globalThis.crypto?.randomUUID?.()
+        ?? `ocr-catalog-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function withAbort<T>(
+    start: (requestId?: string) => Promise<T>,
+    cancelRequest: ((requestId: string) => Promise<unknown>) | undefined,
+    signal?: AbortSignal,
+) {
+    if (!signal) {
+        return start();
+    }
+    throwIfAborted(signal);
+    return new Promise<T>((resolve, reject) => {
+        const requestId = createCatalogRequestId();
+        let settled = false;
+        let cancelPromise: Promise<unknown> | null = null;
+        const cancelOnce = () => {
+            if (cancelPromise === null) {
+                if (!cancelRequest) {
+                    cancelPromise = Promise.resolve();
+                } else {
+                    try {
+                        cancelPromise = Promise.resolve(cancelRequest(requestId)).catch(() => undefined);
+                    } catch {
+                        cancelPromise = Promise.resolve();
+                    }
+                }
+            }
+            return cancelPromise;
+        };
+        const handleAbort = () => {
+            settled = true;
+            void cancelOnce();
+            cleanup();
+            reject(abortErrorFromSignal(signal));
+        };
+        const cleanup = () => signal.removeEventListener('abort', handleAbort);
+        signal.addEventListener('abort', handleAbort, {once: true});
+        let promise: Promise<T>;
+        try {
+            promise = start(requestId);
+        } catch (error) {
+            cleanup();
+            reject(error);
+            return;
+        }
+        promise.then(
+            value => {
+                cleanup();
+                if (!settled) {
+                    resolve(value);
+                }
+            },
+            error => {
+                cleanup();
+                if (!settled) {
+                    reject(error);
+                }
+            },
+        );
+    });
+}
+
+function loadDocumentTextCatalogWindow(
+    capability: ReturnType<typeof getOcrCapability>,
+    workingCopyPath: TDocumentRef,
+    revision: TDocumentRevisionToken,
+    firstPage: number,
+    lastPage: number,
+    pageCount: number,
+    signal?: AbortSignal,
+): Promise<IDocumentTextCatalogWindow> {
+    return withAbort(
+        requestId => {
+            if (signal === undefined) {
+                return capability.resolveDocumentTextCatalogWindow(
+                    workingCopyPath,
+                    revision,
+                    firstPage,
+                    lastPage,
+                    pageCount,
+                );
+            }
+            if (requestId === undefined) {
+                throw new Error('OCR catalog request ID was not allocated');
+            }
+            return capability.resolveDocumentTextCatalogWindow(
+                workingCopyPath,
+                revision,
+                firstPage,
+                lastPage,
+                pageCount,
+                requestId,
+            );
+        },
+        typeof capability.cancel === 'function'
+            ? requestId => capability.cancel(requestId)
+            : undefined,
+        signal,
+    );
+}
 
 /**
  * Reads the revision-keyed DocumentTextCatalog used by viewer and search.
@@ -15,8 +132,14 @@ import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 export async function loadOcrText(
     workingCopyPath: TDocumentRef,
     documentRevisionToken: string,
+    signal?: AbortSignal,
 ) {
-    const pages = await loadDocumentTextCatalogPages(workingCopyPath, documentRevisionToken);
+    const pages = await loadDocumentTextCatalogPages(
+        workingCopyPath,
+        documentRevisionToken,
+        undefined,
+        signal,
+    );
     if (!pages) {
         return null;
     }
@@ -28,17 +151,40 @@ export async function loadDocumentTextCatalogPages(
     workingCopyPath: TDocumentRef,
     documentRevisionToken: string,
     pageCount?: number,
+    signal?: AbortSignal,
 ): Promise<IDocumentTextCatalogPage[] | null> {
     try {
+        throwIfAborted(signal);
         const revision = parseDocumentRevisionToken(documentRevisionToken);
         if (revision === null) {
             return null;
         }
-        const snapshot = pageCount === undefined
-            ? await getOcrCapability().resolveDocumentTextCatalog(workingCopyPath, revision)
-            : await getOcrCapability().resolveDocumentTextCatalog(workingCopyPath, revision, pageCount);
+        const capability = getOcrCapability();
+        const snapshot = await withAbort(
+            requestId => {
+                if (signal === undefined) {
+                    return pageCount === undefined
+                        ? capability.resolveDocumentTextCatalog(workingCopyPath, revision)
+                        : capability.resolveDocumentTextCatalog(workingCopyPath, revision, pageCount);
+                }
+                if (requestId === undefined) {
+                    throw new Error('OCR catalog request ID was not allocated');
+                }
+                return pageCount === undefined
+                    ? capability.resolveDocumentTextCatalog(workingCopyPath, revision, undefined, requestId)
+                    : capability.resolveDocumentTextCatalog(workingCopyPath, revision, pageCount, requestId);
+            },
+            typeof capability.cancel === 'function'
+                ? requestId => capability.cancel(requestId)
+                : undefined,
+            signal,
+        );
+        throwIfAborted(signal);
         return snapshot.pages;
     } catch (error) {
+        if (signal?.aborted) {
+            throw error;
+        }
         BrowserLogger.warn('ocr', 'Failed to load DocumentTextCatalog for DOCX export', error);
         return null;
     }
@@ -54,7 +200,9 @@ export async function* iterateDocumentTextCatalogPages(
     workingCopyPath: TDocumentRef,
     documentRevisionToken: string,
     pageCount: number,
+    signal?: AbortSignal,
 ): AsyncGenerator<IDocumentTextCatalogPage> {
+    throwIfAborted(signal);
     const revision = parseDocumentRevisionToken(documentRevisionToken);
     if (revision === null) {
         return;
@@ -68,15 +216,20 @@ export async function* iterateDocumentTextCatalogPages(
         firstPage <= pageCount;
         firstPage += DOCUMENT_TEXT_CATALOG_PAGE_WINDOW
     ) {
+        throwIfAborted(signal);
         const lastPage = Math.min(pageCount, firstPage + DOCUMENT_TEXT_CATALOG_PAGE_WINDOW - 1);
-        const window: IDocumentTextCatalogWindow = await capability.resolveDocumentTextCatalogWindow(
+        const window = await loadDocumentTextCatalogWindow(
+            capability,
             workingCopyPath,
             revision,
             firstPage,
             lastPage,
             pageCount,
+            signal,
         );
+        throwIfAborted(signal);
         for (const page of window.pages) {
+            throwIfAborted(signal);
             yield page;
         }
     }
@@ -91,24 +244,30 @@ export async function prepareDocumentTextCatalogTextPages(
     workingCopyPath: TDocumentRef,
     documentRevisionToken: string,
     pageCount: number,
+    signal?: AbortSignal,
 ): Promise<AsyncIterable<string> | null> {
+    throwIfAborted(signal);
     const revision = parseDocumentRevisionToken(documentRevisionToken);
     if (revision === null || !Number.isSafeInteger(pageCount) || pageCount < 1) {
         return null;
     }
     const capability = getOcrCapability();
-    const loadWindow = (firstPage: number, lastPage: number) => capability.resolveDocumentTextCatalogWindow(
+    const loadWindow = (firstPage: number, lastPage: number) => loadDocumentTextCatalogWindow(
+        capability,
         workingCopyPath,
         revision,
         firstPage,
         lastPage,
         pageCount,
+        signal,
     );
     let bufferedWindow: IDocumentTextCatalogWindow | null = null;
     let bufferedFirstPage = 1;
     for (; bufferedFirstPage <= pageCount; bufferedFirstPage += DOCUMENT_TEXT_CATALOG_PAGE_WINDOW) {
+        throwIfAborted(signal);
         const lastPage = Math.min(pageCount, bufferedFirstPage + DOCUMENT_TEXT_CATALOG_PAGE_WINDOW - 1);
         const candidate = await loadWindow(bufferedFirstPage, lastPage);
+        throwIfAborted(signal);
         if (candidate.pages.some(page => page.text.trim().length > 0)) {
             bufferedWindow = candidate;
             break;
@@ -122,18 +281,21 @@ export async function prepareDocumentTextCatalogTextPages(
     return (async function* () {
         const emitWindow = function* (window: IDocumentTextCatalogWindow) {
             for (const page of window.pages) {
+                throwIfAborted(signal);
                 const text = page.text.trim();
                 if (text) {
                     yield text;
                 }
             }
         };
+        throwIfAborted(signal);
         yield* emitWindow(firstWindow);
         for (
             let firstPage = bufferedFirstPage + DOCUMENT_TEXT_CATALOG_PAGE_WINDOW;
             firstPage <= pageCount;
             firstPage += DOCUMENT_TEXT_CATALOG_PAGE_WINDOW
         ) {
+            throwIfAborted(signal);
             const lastPage = Math.min(pageCount, firstPage + DOCUMENT_TEXT_CATALOG_PAGE_WINDOW - 1);
             yield* emitWindow(await loadWindow(firstPage, lastPage));
         }

@@ -814,6 +814,10 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         pageNumber?: number | null,
         pageX?: number | null,
         pageY?: number | null,
+        existingImage?: {
+            stableKey: string;
+            annotationId: string;
+        } | null,
     ) {
         const viewer = pdfViewerRef.value;
         if (!viewer) {
@@ -830,6 +834,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 ...(pageNumber !== undefined ? { pageNumber } : {}),
                 ...(pageX !== undefined ? { pageX } : {}),
                 ...(pageY !== undefined ? { pageY } : {}),
+                ...(existingImage ?? {}),
             });
         } catch (error) {
             BrowserLogger.warn('annotations', 'Failed to insert image from file', error);
@@ -840,6 +845,10 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         pageNumber?: number | null,
         pageX?: number | null,
         pageY?: number | null,
+        existingImage?: {
+            stableKey: string;
+            annotationId: string;
+        } | null,
     ) {
         const viewer = pdfViewerRef.value;
         if (!viewer) {
@@ -857,6 +866,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 ...(pageNumber !== undefined ? { pageNumber } : {}),
                 ...(pageX !== undefined ? { pageX } : {}),
                 ...(pageY !== undefined ? { pageY } : {}),
+                ...(existingImage ?? {}),
             });
         } catch (error) {
             BrowserLogger.warn('annotations', 'Failed to paste image from clipboard', error);
@@ -1030,19 +1040,49 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeAnnotationContextMenu();
     }
 
+    function resolveContextMenuPlacedImageTarget() {
+        const comment = annotationContextMenu.value.comment;
+        const subtype = comment?.subtype?.trim().toLowerCase();
+        const stableKey = comment?.annotationName?.trim();
+        const annotationId = comment?.annotationId?.trim();
+        if (
+            !comment
+            || subtype !== 'stamp'
+            || !stableKey?.startsWith('placed-image-')
+            || !annotationId
+        ) {
+            return null;
+        }
+
+        const markerRect = comment.markerRect;
+        return {
+            pageNumber: comment.pageNumber,
+            pageX: markerRect ? markerRect.left + markerRect.width / 2 : annotationContextMenu.value.pageX,
+            pageY: markerRect ? markerRect.top + markerRect.height / 2 : annotationContextMenu.value.pageY,
+            identity: {
+                stableKey,
+                annotationId,
+            },
+        };
+    }
+
     async function insertContextMenuImageFromFile() {
+        const target = resolveContextMenuPlacedImageTarget();
         await insertImageFromFileAt(
-            annotationContextMenu.value.pageNumber,
-            annotationContextMenu.value.pageX,
-            annotationContextMenu.value.pageY,
+            target?.pageNumber ?? annotationContextMenu.value.pageNumber,
+            target?.pageX ?? annotationContextMenu.value.pageX,
+            target?.pageY ?? annotationContextMenu.value.pageY,
+            target?.identity ?? null,
         );
     }
 
     async function pasteContextMenuImageFromClipboard() {
+        const target = resolveContextMenuPlacedImageTarget();
         await pasteImageFromClipboardAt(
-            annotationContextMenu.value.pageNumber,
-            annotationContextMenu.value.pageX,
-            annotationContextMenu.value.pageY,
+            target?.pageNumber ?? annotationContextMenu.value.pageNumber,
+            target?.pageX ?? annotationContextMenu.value.pageX,
+            target?.pageY ?? annotationContextMenu.value.pageY,
+            target?.identity ?? null,
         );
     }
 

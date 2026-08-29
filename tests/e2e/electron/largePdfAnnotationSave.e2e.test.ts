@@ -65,6 +65,7 @@ import {
     waitForNoOpenNoteWindows,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import { workspaceCrashCheckpointPath } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import {resolveExactPdfFixtureExpectation} from '@scripts/ci/stageExactPdfFixture';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     collectDescendantPidsUnix,
@@ -86,9 +87,7 @@ const LARGE_PDF_SAVE_TIMEOUT_MS = 8_000;
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
 const execFileAsync = promisify(execFile);
 const EXACT_ZALIZNYAK_REQUIRED_ENV = 'EVB_E2E_REQUIRE_EXACT_ZALIZNYAK';
-const EXACT_ZALIZNYAK_SHA256 = '1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6';
-const EXACT_ZALIZNYAK_BYTES = 722_178_517;
-const EXACT_ZALIZNYAK_PAGES = 882;
+const EXACT_ZALIZNYAK_EXPECTATION = resolveExactPdfFixtureExpectation();
 const ANNOTATION_INDEX_CHUNK_BYTES = 512 * 1_024;
 const IPC_PAYLOAD_MAX_BYTES = 8 * 1_024 * 1_024;
 const LARGE_PDF_ARTIFACT_ROOT_ENV = 'EVB_E2E_LARGE_PDF_ARTIFACT_ROOT';
@@ -383,9 +382,9 @@ async function admitExactZaliznyakFixture(filePath: string) {
         sha256: await hashFileSha256(filePath),
     };
     expect(identity).toEqual({
-        bytes: EXACT_ZALIZNYAK_BYTES,
-        pages: EXACT_ZALIZNYAK_PAGES,
-        sha256: EXACT_ZALIZNYAK_SHA256,
+        bytes: EXACT_ZALIZNYAK_EXPECTATION.bytes,
+        pages: EXACT_ZALIZNYAK_EXPECTATION.pages,
+        sha256: EXACT_ZALIZNYAK_EXPECTATION.sha256,
     });
     await qpdfCheck(filePath);
     return identity;
@@ -681,7 +680,7 @@ async function verifyStickyNoteStructure(
 ): Promise<IVerifiedStickyNote> {
     const index = await readBoundedAnnotationIndex(page, indexPath, expectedRevisionToken);
     if (process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] === '1') {
-        expect(index.session.pageCount).toBe(EXACT_ZALIZNYAK_PAGES);
+        expect(index.session.pageCount).toBe(EXACT_ZALIZNYAK_EXPECTATION.pages);
     } else {
         expect(index.session.pageCount).toBeGreaterThan(0);
     }

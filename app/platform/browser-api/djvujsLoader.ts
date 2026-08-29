@@ -45,6 +45,7 @@ interface IDjvuPngObjectData {
 export interface IDjvuWorker {
     readonly doc: {
         getPagesSizes(): IDjvuWorkerTask<IDjvuPageSize[]>;
+        getPagesQuantity?(): IDjvuWorkerTask<number>;
         getContents(): IDjvuWorkerTask<IDjvuContentsItem[] | null>;
         getPageNumberByUrl(url: string): IDjvuWorkerTask<number | null>;
         getPage(pageNumber: number): IDjvuPageTask;

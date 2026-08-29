@@ -49,7 +49,6 @@ export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolba
         Boolean(options.workingCopyPath.value)
         && !options.isAnySaving.value
         && !options.isHistoryBusy.value
-        && !options.isExportingDocx.value
     ));
 
     function runToolbarAction(action: () => unknown) {

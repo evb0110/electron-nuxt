@@ -692,6 +692,7 @@ fn appends_and_updates_visible_free_text_editor_as_incremental_revision() {
                 free_text_editors: vec![FreeTextEditor {
                     page_index: 0,
                     stable_key: "pdfjs_internal_editor_0".to_string(),
+                    annotation_id: None,
                     text: text.to_string(),
                     rect: [2.0, 54.0, 59.0, 80.0],
                     rotation: 0,
@@ -749,6 +750,58 @@ fn appends_and_updates_visible_free_text_editor_as_incremental_revision() {
 }
 
 #[test]
+fn updates_imported_free_text_editor_by_pdf_reference_without_duplication() {
+    let (mut document, page_id) = create_test_document();
+    let imported_ref = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "FreeText",
+        "Rect" => vec![20.into(), 30.into(), 180.into(), 80.into()],
+        "Contents" => Object::string_literal("original imported text"),
+    });
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(imported_ref)]);
+    let pdf_path = temp_pdf_path("append-imported-free-text-editor");
+    let mut original_bytes = Vec::new();
+    document.save_to(&mut original_bytes).unwrap();
+    write(&pdf_path, &original_bytes).unwrap();
+
+    append_native_mutations(
+        &pdf_path,
+        &pdf_path,
+        &NativeMutationsFile {
+            free_text_editors: vec![FreeTextEditor {
+                page_index: 0,
+                stable_key: "pdf-ref-imported".to_string(),
+                annotation_id: Some(format_pdfjs_annotation_ref(imported_ref)),
+                text: "edited imported text".to_string(),
+                rect: [20.0, 30.0, 180.0, 80.0],
+                rotation: 0,
+                font_size: 18.0,
+                color: [17, 24, 39],
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260829120000+04'00'",
+    )
+    .unwrap();
+
+    let loaded = Document::load(&pdf_path).unwrap();
+    let annots = get_page_annots(&loaded, page_id).unwrap();
+    assert_eq!(annots, vec![Object::Reference(imported_ref)]);
+    let dict = loaded.get_dictionary(imported_ref).unwrap();
+    assert_eq!(
+        dict.get(b"Contents").unwrap().as_str().unwrap(),
+        encode_pdf_text_string("edited imported text"),
+    );
+    assert!(dict.get(b"NM").is_err());
+    assert!(dict.get(b"AP").is_ok());
+
+    let _ = remove_file(pdf_path);
+}
+
+#[test]
 fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
     let (mut document, page_id) = create_test_document();
     let pdf_path = temp_pdf_path("append-mixed-free-text-mutations");
@@ -778,6 +831,7 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
                 FreeTextEditor {
                     page_index: 0,
                     stable_key: "freetext-first".to_string(),
+                    annotation_id: None,
                     text: "first editor".to_string(),
                     rect: [2.0, 54.0, 59.0, 80.0],
                     rotation: 0,
@@ -787,6 +841,7 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
                 FreeTextEditor {
                     page_index: 0,
                     stable_key: "freetext-second".to_string(),
+                    annotation_id: None,
                     text: "second editor".to_string(),
                     rect: [62.0, 54.0, 119.0, 80.0],
                     rotation: 0,
@@ -826,6 +881,7 @@ fn accepts_pdfjs_free_text_border_rounding_past_the_page_edge() {
     let editor = FreeTextEditor {
         page_index: 0,
         stable_key: "pdfjs_internal_editor_0".to_string(),
+        annotation_id: None,
         text: "saved text".to_string(),
         rect: [20.0, 30.0, 202.0, 60.0],
         rotation: 0,

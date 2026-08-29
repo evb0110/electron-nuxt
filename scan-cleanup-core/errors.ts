@@ -1,6 +1,9 @@
 export const SCAN_CLEANUP_OUTPUT_MISSING_ERROR_CODE = 'SCAN_CLEANUP_OUTPUT_MISSING' as const;
 export const SCAN_CLEANUP_PDF_VALIDATION_ERROR_CODE = 'SCAN_CLEANUP_PDF_VALIDATION_FAILED' as const;
 export const SCAN_CLEANUP_CONTRACT_ERROR_CODE = 'SCAN_CLEANUP_CONTRACT_VIOLATION' as const;
+export const SCAN_CLEANUP_STREAMING_EVIDENCE_ERROR_CODE = 'SCAN_CLEANUP_STREAMING_EVIDENCE_INVALID' as const;
+export const SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE =
+    'Ink placement for documents over 20,000 pages is unavailable. Select a bounded page range or choose another alignment.';
 
 export class ScanCleanupMissingOutputError extends Error {
     readonly code = SCAN_CLEANUP_OUTPUT_MISSING_ERROR_CODE;
@@ -46,6 +49,17 @@ export class ScanCleanupContractError extends Error {
     constructor(detail: string) {
         super(`Scan cleanup contract violation: ${detail}`);
         this.name = 'ScanCleanupContractError';
+    }
+}
+
+export class ScanCleanupStreamingEvidenceError extends Error {
+    readonly code = SCAN_CLEANUP_STREAMING_EVIDENCE_ERROR_CODE;
+    readonly sidecarPath: string;
+
+    constructor(sidecarPath: string, detail: string) {
+        super(`Scan cleanup streaming evidence is invalid: ${sidecarPath} (${detail})`);
+        this.name = 'ScanCleanupStreamingEvidenceError';
+        this.sidecarPath = sidecarPath;
     }
 }
 

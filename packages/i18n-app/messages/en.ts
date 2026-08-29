@@ -1229,6 +1229,7 @@ export default {
     },
     'bookmarks': {
         'unavailable': 'Bookmarks unavailable',
+        'persistenceRefusalDepth': '{count} bookmarks exceed the native depth limit of {limit}; they are retained read-only because this depth cannot be persisted.',
         'noBookmarks': 'No bookmarks available',
         'loading': 'Loading bookmarks...',
         'enterEditMode': 'Enter bookmark edit mode',

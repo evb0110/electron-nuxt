@@ -33,7 +33,10 @@ interface IChangedAreaDefinition {
 
 interface IChangedAreaClassifierModule { classifyChangedFiles: (files: string[] | null) => Record<string, IChangedAreaClassification> }
 
-interface IReleasePolicyModule { getCiChangedAreaPolicy: () => Record<string, IChangedAreaDefinition> }
+interface IReleasePolicyModule {
+    getCiChangedAreaPolicy: () => Record<string, IChangedAreaDefinition>;
+    getNativePdfSaveDependencyPaths: () => string[];
+}
 
 function runGit(cwd: string, args: string[]) {
     const result = spawnSync('git', [
@@ -107,7 +110,10 @@ function runClassifierForRange(root: string, base: string, head: string, include
 const { classifyChangedFiles } = await import(
     pathToFileURL(classifierPath).href
 ) as IChangedAreaClassifierModule;
-const { getCiChangedAreaPolicy } = await import(
+const {
+    getCiChangedAreaPolicy,
+    getNativePdfSaveDependencyPaths,
+} = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/release/policy.mjs')).href
 ) as IReleasePolicyModule;
 
@@ -143,6 +149,48 @@ describe('changed-area classifier', () => {
             landing: { matched: false },
             native_or_build: { matched: false },
         });
+    });
+
+    it('routes native PDF save sources to the required Electron save and reopen lane', () => {
+        expect(getNativePdfSaveDependencyPaths()).toEqual(expect.arrayContaining([
+            'app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts',
+            'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
+            'app/services/pdf-file/savePdfBytesToWorkingCopy.ts',
+            'packages/contracts/documentsPersistenceSchemas.ts',
+            'packages/contracts/electronApiDocuments.ts',
+            'packages/pdf-core/nativePdfMutationPolicy.ts',
+            'app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts',
+            'native/evb-native-support/**',
+        ]));
+        expect(classifyChangedFiles(['native/pdf-page-ops/src/incremental.rs'])).toMatchObject({electron_save_reopen: {
+            area: 'nativePdfSave',
+            matched: true,
+            owner: 'pr_electron_native_save_reopen',
+        }});
+        expect(classifyChangedFiles(['electron/features/documents/main/documentFileWriteHandlers.ts']))
+            .toMatchObject({electron_save_reopen: {matched: true}});
+        expect(classifyChangedFiles(['native/pdf-search/src/main.rs']))
+            .toMatchObject({electron_save_reopen: {matched: false}});
+        expect(classifyChangedFiles(['tests/integration/native/nativePdfSave.test.ts']))
+            .toMatchObject({native_or_build: {matched: true}});
+        expect(classifyChangedFiles(['packages/contracts/electronApiDocuments.ts']))
+            .toMatchObject({electron_save_reopen: {matched: true}});
+        expect(classifyChangedFiles(['app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts']))
+            .toMatchObject({electron_save_reopen: {matched: true}});
+        for (const file of [
+            'app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts',
+            'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
+            'app/services/pdf-file/savePdfBytesToWorkingCopy.ts',
+            'packages/contracts/documentsPersistenceSchemas.ts',
+            'packages/pdf-core/nativePdfMutationPolicy.ts',
+            'native/evb-native-support/src/lib.rs',
+        ]) {
+            expect(classifyChangedFiles([file]), file).toMatchObject({
+                electron_save_reopen: {matched: true},
+                electron_smoke: {matched: true},
+                native_or_build: {matched: true},
+            });
+        }
     });
 
     it('runs browser journeys for their production graph without claiming unrelated platforms', () => {
@@ -258,6 +306,7 @@ describe('changed-area classifier', () => {
             expect(result.status, result.stderr).toBe(0);
             expect(readFileSync(outputPath, 'utf8').trim().split('\n').sort()).toEqual([
                 'browser_integration=false',
+                'electron_save_reopen=false',
                 'electron_smoke=false',
                 'landing=true',
                 'native_or_build=true',

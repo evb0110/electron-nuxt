@@ -1167,7 +1167,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         zoomRerenderQueue.cleanupZoomRerenderQueue();
         cleanupResizeLifecycle();
         await cancelRasterDemand();
-        await cleanupRenderedPages();
+        await cleanupRenderedPages(); pageRenderer.dispose?.();
     });
     return {
         ...pageRenderer,

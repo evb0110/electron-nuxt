@@ -13,6 +13,7 @@ import {
     type IDjvuContentsItem,
     type IDjvuNormalizedTextZone,
     type IDjvuPageSize,
+    type IDjvuWorker,
 } from '@app/platform/browser-api/djvujsLoader';
 import type { IPagePreviewOutlineItem } from '@app/utils/document-viewer/pagePreviewSource';
 import { getValidatedElectronPlatformApi } from '@app/utils/electronPlatformBridge';
@@ -34,6 +35,7 @@ import type { IOcrWord } from '@contracts/shared';
 import { createNativeDjvuTextSearchBridge } from '@app/platform/browser-api/createNativeDjvuTextSearchBridge';
 import { resolveDjvuPreviewResolutionPlan } from '@app/utils/djvuPreviewResolution';
 import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
+import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import {
     BROWSER_DJVU_INTERACTIVE_MAX_PAGES,
     DJVU_OUTLINE_MAX_DEPTH,
@@ -69,6 +71,13 @@ const sharedViewingWorkers = new Map<TDocumentRef, ISharedBrowserDjvuWorker>();
 
 type TDjvuDocumentFileReader = Pick<IDocumentsFileIoCapability, 'statFile' | 'readFile' | 'readFileRange'>;
 
+function nativeDjvuCapabilityError(operation: string, message: string, cause?: unknown) {
+    return new PdfCombineCapabilityError('native-unavailable', message, {
+        operation,
+        ...(cause === undefined ? {} : {cause}),
+    });
+}
+
 interface IDjvuRenderedPageObjectUrl {
     objectUrl: string;
     renderedPx: number;
@@ -100,12 +109,6 @@ async function readBrowserDocumentBytes(
         return new Uint8Array();
     }
 
-    if (size <= DJVU_READ_CHUNK_BYTES) {
-        const bytes = await browserDocumentStore.read(path);
-        throwIfCanceled(options.signal);
-        return bytes;
-    }
-
     const output = new Uint8Array(assertDocumentAllocationSize(size));
     let offset = 0;
     while (offset < size) {
@@ -113,25 +116,31 @@ async function readBrowserDocumentBytes(
         const chunkLength = Math.min(DJVU_READ_CHUNK_BYTES, size - offset);
         const chunk = await browserDocumentStore.readRange(path, offset, chunkLength);
         throwIfCanceled(options.signal);
-        output.set(chunk, offset);
-        offset += chunk.byteLength;
-        if (chunk.byteLength === 0) {
-            break;
+        if (chunk.byteLength !== chunkLength) {
+            throw new Error(`Browser DjVu source returned ${chunk.byteLength} bytes for requested ${chunkLength} byte range`);
         }
+        output.set(chunk, offset);
+        offset += chunkLength;
     }
 
-    return offset === size ? output : output.slice(0, offset);
+    return output;
 }
 
 function getDesktopDocumentsCapability(path: TDocumentRef) {
     const platform = getValidatedElectronPlatformApi();
     if (!platform) {
-        return null;
+        throw nativeDjvuCapabilityError(
+            'djvu-read',
+            `Native DjVu document file capability is unavailable for desktop path: ${path}`,
+        );
     }
 
     const documentFiles = platform.documentFiles;
     if (!documentFiles) {
-        throw new Error(`Browser document not found: ${path}`);
+        throw nativeDjvuCapabilityError(
+            'djvu-read',
+            `Native DjVu document file capability is unavailable for desktop path: ${path}`,
+        );
     }
     return documentFiles satisfies TDjvuDocumentFileReader;
 }
@@ -141,13 +150,25 @@ function getDesktopDjvuPreviewCapability(path: TDocumentRef) {
         return null;
     }
 
-    const djvu = getValidatedElectronPlatformApi()?.djvu;
+    const platform = getValidatedElectronPlatformApi();
+    if (!platform) {
+        throw nativeDjvuCapabilityError(
+            'djvu-preview',
+            `Native DjVu preview capability is unavailable for desktop path: ${path}`,
+        );
+    }
+    const djvu = platform.djvu;
     if (
-        typeof djvu?.getPageSourceInfo !== 'function'
+        typeof djvu?.getInfo !== 'function'
+        || typeof djvu.getPageSourceInfo !== 'function'
+        || typeof djvu.getPageSizes !== 'function'
         || typeof djvu.renderPagePreview !== 'function'
         || typeof djvu.cancelPagePreview !== 'function'
     ) {
-        return null;
+        throw nativeDjvuCapabilityError(
+            'djvu-preview',
+            `Native DjVu preview capability is unavailable for desktop path: ${path}`,
+        );
     }
     return djvu;
 }
@@ -160,13 +181,22 @@ async function shouldUseNativeDesktopDjvuPreview(path: TDocumentRef) {
 
     try {
         const documents = getDesktopDocumentsCapability(path);
-        if (!documents) {
+
+        const { size } = await documents.statFile(path);
+        if (size > DJVU_DESKTOP_DJVUJS_PREVIEW_MAX_BYTES) {
             return nativeDjvu;
         }
 
-        const { size } = await documents.statFile(path);
-        return size > DJVU_DESKTOP_DJVUJS_PREVIEW_MAX_BYTES ? nativeDjvu : null;
-    } catch {
+        // File size is not a safe proxy for DjVu complexity. A tiny bundled
+        // document may still have more pages than the browser renderer can
+        // represent, so obtain the scalar native page count before allowing
+        // the compatibility decoder to load the source bytes.
+        const info = await nativeDjvu.getInfo(path);
+        return info.pageCount > BROWSER_DJVU_INTERACTIVE_MAX_PAGES ? nativeDjvu : null;
+    } catch (error) {
+        if (error instanceof PdfCombineCapabilityError) {
+            throw error;
+        }
         return nativeDjvu;
     }
 }
@@ -176,9 +206,6 @@ async function readDesktopDocumentBytes(
     options: IDjvuWorkerReadOptions = {},
 ) {
     const documents = getDesktopDocumentsCapability(path);
-    if (!documents) {
-        return readBrowserDocumentBytes(path, options);
-    }
 
     throwIfCanceled(options.signal);
     const { size } = await documents.statFile(path);
@@ -214,6 +241,37 @@ function throwIfCanceled(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw new Error('DjVu conversion canceled');
     }
+}
+
+async function getDjvuWorkerPageCount(worker: IDjvuWorker) {
+    const getPagesQuantity = worker.doc.getPagesQuantity;
+    if (typeof getPagesQuantity !== 'function') {
+        return null;
+    }
+    const pageCount = await getPagesQuantity().run();
+    if (!Number.isSafeInteger(pageCount) || pageCount < 0) {
+        throw new Error('DjVu worker returned an invalid page count');
+    }
+    return pageCount;
+}
+
+export async function getDjvuWorkerPageSizes(worker: IDjvuWorker) {
+    const pageCount = await getDjvuWorkerPageCount(worker);
+    if (pageCount === null) {
+        const pageSizes = await worker.doc.getPagesSizes().run();
+        if (pageSizes.length > BROWSER_DJVU_INTERACTIVE_MAX_PAGES) {
+            throw new Error(`DjVu viewing is capped at ${BROWSER_DJVU_INTERACTIVE_MAX_PAGES} pages`);
+        }
+        return pageSizes;
+    }
+    if (pageCount > BROWSER_DJVU_INTERACTIVE_MAX_PAGES) {
+        throw new Error(`DjVu viewing is capped at ${BROWSER_DJVU_INTERACTIVE_MAX_PAGES} pages`);
+    }
+    const pageSizes = await worker.doc.getPagesSizes().run();
+    if (pageSizes.length !== pageCount) {
+        throw new Error(`DjVu worker returned ${pageSizes.length} page sizes for ${pageCount} pages`);
+    }
+    return pageSizes;
 }
 
 function buildBrowserDjvuSearchPage(
@@ -290,10 +348,7 @@ export async function searchDjvuWorkerText(
     options: IDjvuWorkerTextSearchOptions,
 ): Promise<IPdfSearchResponse> {
     validateSearchQuery(options.query, options.matchOptions);
-    const pageSizes = await worker.doc.getPagesSizes().run();
-    if (pageSizes.length > BROWSER_DJVU_INTERACTIVE_MAX_PAGES) {
-        throw new Error(`DjVu viewing is capped at ${BROWSER_DJVU_INTERACTIVE_MAX_PAGES} pages`);
-    }
+    const pageSizes = await getDjvuWorkerPageSizes(worker);
     const pageCount = Math.min(options.pageCount, pageSizes.length);
     const results: IPdfSearchResponse['results'] = [];
     let truncated = false;
@@ -391,10 +446,17 @@ export async function createDjvuWorkerFromPath(
     options: IDjvuWorkerReadOptions = {},
 ) {
     throwIfCanceled(options.signal);
+    const isBrowserRef = isBrowserDocumentRef(djvuPath);
+    // A native document ref must never reach the browser decoder when the
+    // desktop file bridge is absent. Check the bridge before loading DjVu.js,
+    // so the caller gets the typed capability error without creating a worker
+    // or attempting a weaker source read.
+    if (!isBrowserRef) {
+        getDesktopDocumentsCapability(djvuPath);
+    }
     const djvuGlobal = await loadDjvuJs();
     throwIfCanceled(options.signal);
     const worker = new djvuGlobal.Worker();
-    const isBrowserRef = isBrowserDocumentRef(djvuPath);
     let abortHandler: (() => void) | null = null;
 
     try {
@@ -747,12 +809,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
         return result;
     };
 
-    const pageSizesPromise = worker.doc.getPagesSizes().run().then((sizes) => {
-        if (sizes.length > BROWSER_DJVU_INTERACTIVE_MAX_PAGES) {
-            throw new Error(`DjVu viewing is capped at ${BROWSER_DJVU_INTERACTIVE_MAX_PAGES} pages`);
-        }
-        return sizes;
-    });
+    const pageSizesPromise = getDjvuWorkerPageSizes(worker);
     // The load starts eagerly, so a stale transition can terminate the preview
     // before any accessor awaits it. Attach a detached handler to keep a
     // rejection from surfacing as an unhandled rejection; real consumers still

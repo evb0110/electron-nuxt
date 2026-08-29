@@ -14,11 +14,16 @@ import { createDocumentViewportWritePort } from '@app/utils/document-viewer/chas
 import {
     createColdOpenProvisionalDocumentPageMetrics,
     createProvisionalDocumentPageMetrics,
+    isSparseDocumentPageMetrics,
     loadInitialDocumentPageMetric,
     type TDocumentPageMetricsCollection,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
 import { clampDocumentManualZoom } from '@app/utils/document-viewer/zoomPolicy';
-import { resolveDocumentPageDisplayLayouts } from '@app/utils/document-viewer/layout/resolveDocumentPageDisplayLayout';
+import {
+    resolveDocumentPageDisplayLayouts,
+    resolveDocumentPageDisplayScale,
+} from '@app/utils/document-viewer/layout/resolveDocumentPageDisplayLayout';
+import {createLazyIndexedCollection} from '@app/utils/document-viewer/virtualization/pageVirtualization';
 import {
     resolveNearestDocumentPageToViewportCenter,
     resolveDocumentContinuousScrollWindow,
@@ -52,7 +57,67 @@ const DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS = 12;
 const DOCUMENT_SOURCE_MAX_MOUNTED_PAGES = 40;
 const DOCUMENT_SOURCE_MAX_RESIDENT_PAGES = 5;
 const DOCUMENT_SOURCE_RENDER_CONCURRENCY = 2;
+const DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE = 256;
+const DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS = 32;
 export const DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS = 1_500;
+
+function resolveDocumentPageDisplayLayout(
+    metric: IDocumentPageMetrics,
+    availableHeight: number,
+    availableWidth: number,
+    manualZoom: number,
+    zoomMode: TDocumentPageSourceRuntimeProps['zoomMode'],
+) {
+    const scale = resolveDocumentPageDisplayScale({
+        availableHeight,
+        availableWidth,
+        manualZoom,
+        pageSize: {
+            height: metric.heightPoints,
+            width: metric.widthPoints,
+        },
+        zoomMode,
+    });
+    return {
+        height: Math.max(1, Math.round(metric.heightPoints * scale)),
+        scale,
+        width: Math.max(1, Math.round(metric.widthPoints * scale)),
+    };
+}
+
+export function resolveDocumentPageDisplayLayoutsBounded(
+    metrics: TDocumentPageMetricsCollection,
+    availableHeight: number,
+    availableWidth: number,
+    manualZoom: number,
+    zoomMode: TDocumentPageSourceRuntimeProps['zoomMode'],
+) {
+    if (!isSparseDocumentPageMetrics(metrics)) {
+        return resolveDocumentPageDisplayLayouts({
+            availableHeight,
+            availableWidth,
+            manualZoom,
+            pageSizes: metrics.map(metric => ({
+                height: metric.heightPoints,
+                width: metric.widthPoints,
+            })),
+            zoomMode,
+        });
+    }
+    return createLazyIndexedCollection({
+        cacheValues: false,
+        chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
+        getValue: index => resolveDocumentPageDisplayLayout(
+            metrics.get(index) ?? metrics[0]!,
+            availableHeight,
+            availableWidth,
+            manualZoom,
+            zoomMode,
+        ),
+        length: metrics.length,
+        maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
+    });
+}
 export function shouldRetainInactiveDocumentPageSourceLease(
     retainWarmLease: boolean,
     pressureLevel: TWorkspaceResourcePressureLevel,
@@ -110,16 +175,13 @@ export const useDocumentPageSourceRuntime = (options: {
         viewportScrollTop.value = viewerContainer.value?.scrollTop ?? 0;
     }
     useResizeObserver(viewerContainer, measureViewport);
-    const pageDisplayLayouts = computed(() => resolveDocumentPageDisplayLayouts({
-        availableHeight: Math.max(1, containerHeight.value - DOCUMENT_PAGE_GUTTER_PX * 2),
-        availableWidth: Math.max(1, containerWidth.value - DOCUMENT_PAGE_GUTTER_PX * 2),
-        manualZoom: clampDocumentManualZoom(props.value.zoom),
-        pageSizes: pageMetrics.value.map(metric => ({
-            height: metric.heightPoints,
-            width: metric.widthPoints,
-        })),
-        zoomMode: props.value.zoomMode,
-    }));
+    const pageDisplayLayouts = computed(() => resolveDocumentPageDisplayLayoutsBounded(
+        pageMetrics.value,
+        Math.max(1, containerHeight.value - DOCUMENT_PAGE_GUTTER_PX * 2),
+        Math.max(1, containerWidth.value - DOCUMENT_PAGE_GUTTER_PX * 2),
+        clampDocumentManualZoom(props.value.zoom),
+        props.value.zoomMode,
+    ));
     const effectiveZoom = computed(() => (
         pageDisplayLayouts.value[props.value.currentPage - 1]?.scale
         ?? clampDocumentManualZoom(props.value.zoom)
@@ -144,11 +206,54 @@ export const useDocumentPageSourceRuntime = (options: {
     });
     const pageHeights = computed(() => pageDisplayLayouts.value.map(layout => layout.height));
     const pageTops = computed(() => {
-        let top = DOCUMENT_PAGE_GUTTER_PX;
-        return pageHeights.value.map((height) => {
-            const value = top;
-            top += height + DOCUMENT_PAGE_GUTTER_PX;
-            return value;
+        const heights = pageHeights.value;
+        if (!isSparseDocumentPageMetrics(pageMetrics.value)) {
+            let top = DOCUMENT_PAGE_GUTTER_PX;
+            return heights.map((height) => {
+                const value = top;
+                top += height + DOCUMENT_PAGE_GUTTER_PX;
+                return value;
+            });
+        }
+        const prefixTops = new Map<number, number>([[
+            0,
+            DOCUMENT_PAGE_GUTTER_PX,
+        ]]);
+        const resolvePageTop = (index: number) => {
+            const cached = prefixTops.get(index);
+            if (cached !== undefined) {
+                return cached;
+            }
+            let nearestIndex = 0;
+            let top = DOCUMENT_PAGE_GUTTER_PX;
+            for (const [
+                cachedIndex,
+                cachedTop,
+            ] of prefixTops) {
+                if (cachedIndex <= index && cachedIndex >= nearestIndex) {
+                    nearestIndex = cachedIndex;
+                    top = cachedTop;
+                }
+            }
+            for (let pageIndex = nearestIndex; pageIndex < index; pageIndex += 1) {
+                top += (heights[pageIndex] ?? 0) + DOCUMENT_PAGE_GUTTER_PX;
+            }
+            prefixTops.set(index, top);
+            while (prefixTops.size > DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS) {
+                const oldest = [...prefixTops.keys()].find(key => key !== 0 && key !== index);
+                if (oldest === undefined) {
+                    break;
+                }
+                prefixTops.delete(oldest);
+            }
+            return top;
+        };
+        return createLazyIndexedCollection({
+            cacheValues: false,
+            chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
+            getValue: resolvePageTop,
+            length: heights.length,
+            maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
         });
     });
     const totalHeight = computed(() => Math.max(

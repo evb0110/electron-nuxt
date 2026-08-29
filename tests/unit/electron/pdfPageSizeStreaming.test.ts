@@ -17,6 +17,7 @@ import {
     PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION,
     PdfPageSizeStore,
     parsePdfPageSizeSidecarHeader,
+    readPdfPageSizeChunks,
     readPdfPageSizeSidecarChunks,
 } from '@scan-cleanup-core/pdfPageSizes';
 import {createFileBackedScanCleanupResultStore} from '@scan-cleanup-core/fileBackedResultStore';
@@ -94,6 +95,53 @@ describe('page-size sidecar reader', () => {
             reachablePageCount: 1,
             chunkBytes: 512,
         })).toThrow('declared 2 pages and reached 1 pages');
+    });
+
+    it('uses collision-proof native sidecar names for concurrent reads', async () => {
+        const nativeTempDir = await mkdtemp(join(tmpdir(), 'evb-page-size-native-'));
+        tempDir = nativeTempDir;
+        const outputPaths: string[] = [];
+        const release = Promise.withResolvers<undefined>();
+        let commandCalls = 0;
+        const runCommand = async (_command: string, args: string[]) => {
+            const outputPath = args[args.indexOf('--output') + 1];
+            if (outputPath === undefined) throw new Error('native output path is missing');
+            outputPaths.push(outputPath);
+            commandCalls += 1;
+            if (commandCalls === 2) release.resolve(undefined);
+            await release.promise;
+            await writeFile(outputPath, JSON.stringify({pages: [page(1)]}));
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        };
+        const read = async () => {
+            const chunks = [];
+            for await (const chunk of readPdfPageSizeChunks('/tmp/source.pdf', {
+                pdfPageOpsBinary: '/tmp/evb-pdf-page-ops',
+                tempDir: nativeTempDir,
+                log: () => undefined,
+                runCommand,
+            })) {
+                chunks.push(chunk);
+            }
+            return chunks;
+        };
+
+        const [
+            first,
+            second,
+        ] = await Promise.all([
+            read(),
+            read(),
+        ]);
+
+        expect(outputPaths).toHaveLength(2);
+        expect(new Set(outputPaths).size).toBe(2);
+        expect(first.flatMap(chunk => chunk.pages).map(value => value.pageNumber)).toEqual([1]);
+        expect(second.flatMap(chunk => chunk.pages).map(value => value.pageNumber)).toEqual([1]);
     });
 
     it('reads a chunk that crosses the bounded stream window without building a document array', async () => {
@@ -229,6 +277,78 @@ describe('page-size sidecar reader', () => {
         expect(largestChunk).toBe(1_024);
         await store.close();
         await expect(store.getPage(1)).rejects.toThrow('Page-size store is closed');
+    });
+
+    it('keeps concurrent sparse windows independent', async () => {
+        const pageCount = 4_097;
+        const store = new PdfPageSizeStore(async function* () {
+            for (let firstPageNumber = 1, chunkIndex = 0;
+                firstPageNumber <= pageCount;
+                firstPageNumber += 1_024, chunkIndex += 1) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+                yield {
+                    pageCount,
+                    chunkIndex,
+                    firstPageNumber,
+                    offset: 0,
+                    byteLength: 0,
+                    pages: Array.from(
+                        {length: Math.min(1_024, pageCount - firstPageNumber + 1)},
+                        (_, index) => page(firstPageNumber + index),
+                    ),
+                };
+            }
+        });
+
+        const [
+            first,
+            last,
+            range,
+        ] = await Promise.all([
+            store.getPage(1),
+            store.getPage(pageCount),
+            store.readRange(2_047, 2_050),
+        ]);
+
+        expect(first.pageNumber).toBe(1);
+        expect(last.pageNumber).toBe(pageCount);
+        expect(range.map(value => value.pageNumber)).toEqual([
+            2_047,
+            2_048,
+            2_049,
+        ]);
+        await store.close();
+    });
+
+    it('reuses a scalar cursor while forks advance independently', async () => {
+        let readerCount = 0;
+        const store = new PdfPageSizeStore(async function* () {
+            readerCount += 1;
+            yield {
+                pageCount: 3,
+                chunkIndex: 0,
+                firstPageNumber: 1,
+                offset: 0,
+                byteLength: 0,
+                pages: [
+                    page(1),
+                    page(2),
+                    page(3),
+                ],
+            };
+        });
+
+        await store.getPage(1);
+        await store.getPage(2);
+        await store.getPage(3);
+        expect(readerCount).toBe(1);
+
+        const fork = store.fork();
+        await expect(fork.getPage(3)).resolves.toMatchObject({pageNumber: 3});
+        expect(readerCount).toBe(2);
+
+        await fork.close();
+        await store.close();
     });
 
     it('uses a fixed-width index for sparse result reads without a document map', async () => {

@@ -153,12 +153,13 @@ const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
     isAnySaving,
     isHistoryBusy,
 }));
-const isExportDocxCommandDisabled = computed(() => !hasInteractiveDocument.value
+const isExportDocxCommandDisabled = computed(() => !isExportingDocx && (
+    !hasInteractiveDocument.value
+    || isDjvuMode
     || !canExportDocx
     || isAnySaving
     || isHistoryBusy
-    || isExportingDocx
-    || isDjvuMode);
+));
 const menuContentOptions = {
     side: 'bottom' as const,
     align: 'start' as const,
@@ -215,10 +216,15 @@ const appMenuItems = computed(() => {
         { type: 'separator' },
         createCommandItem('combine-files', t('menu.combineFiles'), 'i-ph-stack-plus'),
         { type: 'separator' },
-        createCommandItem('export-docx', t('menu.exportDocx'), getReaderCommandMenuIcon('export-docx'), {
-            disabled: isExportDocxCommandDisabled.value,
-            shortcut: shortcutLabels.value.exportDocx,
-        }),
+        createCommandItem(
+            'export-docx',
+            isExportingDocx ? t('ocr.cancel') : t('menu.exportDocx'),
+            isExportingDocx ? 'i-ph-stop' : getReaderCommandMenuIcon('export-docx'),
+            {
+                disabled: isExportDocxCommandDisabled.value,
+                shortcut: shortcutLabels.value.exportDocx,
+            },
+        ),
         createCommandItem('export-images', t('menu.exportImages'), 'i-ph-image', {disabled: !hasExportableRasterSource.value}),
         createCommandItem('export-multi-page-tiff', t('menu.exportMultiPageTiff'), 'i-ph-images', {disabled: !hasExportableRasterSource.value}),
     ];

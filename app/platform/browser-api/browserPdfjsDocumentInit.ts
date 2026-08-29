@@ -8,8 +8,10 @@ import {
     browserDocumentStore,
 } from '@app/platform/browserDocumentStore';
 import { toUint8Array } from '@app/platform/browser-api/browserBytes';
+import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
 
 const PDFJS_RANGE_CHUNK_SIZE = Math.max(512 * 1024, BROWSER_DOCUMENT_CHUNK_SIZE);
+const PDFJS_MAX_RANGE_REQUEST_BYTES = PDF_COMBINE_MAX_OUTPUT_BYTES;
 
 type TPdfjsLib = typeof PdfjsLibNamespace;
 type TPdfjsDocumentInit = Parameters<TPdfjsLib['getDocument']>[0];
@@ -131,6 +133,11 @@ async function readCompleteBrowserDocumentRange(
 ) {
     if (length <= 0) {
         return new Uint8Array();
+    }
+    if (length > PDFJS_MAX_RANGE_REQUEST_BYTES) {
+        throw new Error(
+            `Browser PDF range request exceeds the safe ${PDFJS_MAX_RANGE_REQUEST_BYTES} byte capacity`,
+        );
     }
 
     let cursor = begin;

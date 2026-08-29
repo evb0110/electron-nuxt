@@ -55,7 +55,8 @@ export interface IAnnotationSyncAutomationActivity {
 export type TAnnotationInventoryOmission =
     | 'page-cap'
     | 'record-cap'
-    | 'page-parse-failure';
+    | 'page-parse-failure'
+    | 'annotation-name-unavailable';
 
 export interface IAnnotationInventoryCompleteness {
     complete: boolean;
@@ -154,6 +155,8 @@ export interface IAnnotationEditorState {
     hasSomethingToUndo: boolean;
     hasSomethingToRedo: boolean;
     hasSelectedEditor: boolean;
+    /** True while a newly created FreeText editor still needs save-time commit. */
+    hasPendingFreeTextDraft?: boolean;
     // Separate app-routed history flags keep toolbar undo responsive when
     // PDF.js storage state events arrive after command registration.
     hasAppAnnotationUndoHistory?: boolean;

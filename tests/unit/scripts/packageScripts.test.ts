@@ -171,9 +171,9 @@ describe('package scripts', () => {
 
         expect(required.every(name => Boolean(scripts[name]))).toBe(true);
         // Keep the public surface bounded while retaining explicit operator
-        // entry points for the affected scan-cleanup, canonical-identity, and
-        // OCR-quality gates.
-        expect(Object.keys(scripts).length).toBeLessThanOrEqual(106);
+        // entry points for the affected scan-cleanup, canonical-identity,
+        // OCR-quality, and xlarge-PDF gates.
+        expect(Object.keys(scripts).length).toBeLessThanOrEqual(107);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);
@@ -373,8 +373,13 @@ describe('package scripts', () => {
             'test:e2e:electron:rapid-navigation',
             'test:e2e:electron:regression',
             'test:e2e:electron:save-pipeline',
+            'test:e2e:electron:xlarge',
         ]) {
             const commands = scriptCommands(scripts, scriptName);
+            if (scriptName === 'test:e2e:electron:quarantine') {
+                expect(scripts[scriptName]).toContain('scripts/ci/runElectronQuarantine.ts');
+                continue;
+            }
             const buildIndex = commands.findIndex(command => command.includes('build:electron'));
             const testIndex = commands.findIndex(command => command.includes('scripts/test-electron-e2e-headless.sh --no-build'));
             expect(buildIndex).toBeGreaterThanOrEqual(0);
@@ -393,6 +398,10 @@ describe('package scripts', () => {
         ]) {
             const commands = scriptCommands(scripts, scriptName);
             expect(commands).toContain('pnpm run build:native:e2e');
+            if (scriptName === 'test:e2e:electron:quarantine') {
+                expect(commands.at(-1)).toContain('scripts/ci/runElectronQuarantine.ts');
+                continue;
+            }
             expect(commands.at(-1)).toContain('EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build');
         }
         expect(scriptCommands(scripts, 'test:e2e:electron:blocking-smoke')).toEqual([
@@ -420,6 +429,11 @@ describe('package scripts', () => {
         expect(scripts['test:e2e:electron:headless']).toContain(
             'bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression',
         );
+        expect(scripts['test:e2e:electron:xlarge']).toContain(
+            'bash scripts/test-electron-e2e-headless.sh --no-build e2e-xlarge-pdf',
+        );
+        expect((scripts['test:e2e:electron:save-pipeline'] ?? '')
+            .match(/e2e-native-save-reopen/gu) ?? []).toHaveLength(1);
         expect(scripts['test:e2e:electron:blocking-smoke:headless']).toContain(
             'bash scripts/test-electron-e2e-headless.sh --no-build e2e-blocking-smoke',
         );
@@ -447,6 +461,11 @@ describe('package scripts', () => {
                 continue;
             }
             if (scriptName.startsWith('test:e2e:electron')) {
+                if (scriptName.startsWith('test:e2e:electron:quarantine')) {
+                    expect(command, `${scriptName} must use the fail-closed quarantine wrapper`)
+                        .toContain('scripts/ci/runElectronQuarantine.ts');
+                    continue;
+                }
                 expect(command, `${scriptName} bypasses the shared headless runner`)
                     .toContain('bash scripts/test-electron-e2e-headless.sh');
             }

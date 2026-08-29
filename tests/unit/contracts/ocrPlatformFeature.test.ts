@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
+import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import type { IpcRenderer } from 'electron';
 
@@ -12,6 +13,66 @@ const channels = OCR_PLATFORM_FEATURE.invokeChannels;
 const eventChannels = OCR_PLATFORM_FEATURE.eventChannels;
 
 describe('OCR platform feature', () => {
+    it('keeps optional catalog arguments in their declared slots', () => {
+        const revision = parseDocumentRevisionToken('drt1:ocr-fixture');
+        if (revision === null) throw new Error('fixture revision must be valid');
+        const catalogArgs = OCR_PLATFORM_FEATURE.methods.resolveDocumentTextCatalog.ipc.args;
+        const windowArgs = OCR_PLATFORM_FEATURE.methods.resolveDocumentTextCatalogWindow.ipc.args;
+
+        expect(catalogArgs.decode([
+            '/tmp/ocr-fixture.pdf',
+            revision,
+            undefined,
+            'ocr-catalog-1',
+        ])).toEqual([
+            '/tmp/ocr-fixture.pdf',
+            revision,
+            undefined,
+            'ocr-catalog-1',
+        ]);
+        expect(catalogArgs.decode([
+            '/tmp/ocr-fixture.pdf',
+            revision,
+            7,
+            'ocr-catalog-2',
+        ])).toEqual([
+            '/tmp/ocr-fixture.pdf',
+            revision,
+            7,
+            'ocr-catalog-2',
+        ]);
+        expect(windowArgs.decode([
+            '/tmp/ocr-fixture.pdf',
+            revision,
+            2,
+            4,
+            undefined,
+            'ocr-window-1',
+        ])).toEqual([
+            '/tmp/ocr-fixture.pdf',
+            revision,
+            2,
+            4,
+            undefined,
+            'ocr-window-1',
+        ]);
+        expect(windowArgs.decode([
+            '/tmp/ocr-fixture.pdf',
+            revision,
+            2,
+            4,
+            9,
+            'ocr-window-2',
+        ])).toEqual([
+            '/tmp/ocr-fixture.pdf',
+            revision,
+            2,
+            4,
+            9,
+            'ocr-window-2',
+        ]);
+    });
+
     it('preserves channels, timeouts, optional members, and registry replay policy', () => {
         expect(channels).toEqual({
             cancel: 'ocr:cancel',

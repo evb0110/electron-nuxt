@@ -1292,39 +1292,166 @@ describe('handleNativeNoteTextSave', () => {
         expect(() => statSync(stagedPath)).toThrow();
     });
 
-    it('rejects shared native mutation limit violations before native execution', async () => {
+    it('continues cap-plus-one note mutations with bounded native appends', async () => {
+        const {
+            requestedWorkingPath,
+            tempPath,
+        } = createOriginalMutationFixture();
+        const payloads: Array<{
+            command: string;
+            payload: Record<string, unknown>
+        }> = [];
+        mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            const payloadFlag = args[0] === 'update-note-text' ? '--updates-file' : '--changes-file';
+            const payloadPath = args[args.indexOf(payloadFlag) + 1];
+            if (!payloadPath) {
+                throw new Error(`Missing ${payloadFlag} path`);
+            }
+            payloads.push({
+                command: args[0]!,
+                payload: JSON.parse(readFileSync(payloadPath, 'utf8')) as Record<string, unknown>,
+            });
+            await appendFile(tempPath, '\n% native bounded note continuation');
+        });
         const {
             handleNativeNoteChangesSave,
-            handleNativePdfMutationsApplyToWorkingCopy,
-            handleNativePdfMutationsSave,
+            handleNativeNoteTextSave,
         } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
-        const workingPath = join(tempRoot, 'working.pdf');
         const modifiedAt = 'D:20260609133855+03\'00\'';
+
+        await expect(handleNativeNoteTextSave(
+            context,
+            requestedWorkingPath,
+            Array.from({length: PDF_NATIVE_MUTATION_LIMITS.noteTextUpdates + 1}, (_, index) => ({
+                objectNumber: index + 1,
+                generationNumber: 0,
+                text: `Updated note ${index}`,
+            })),
+            modifiedAt,
+            revisionOptions,
+        )).resolves.toMatchObject({applied: true});
 
         await expect(handleNativeNoteChangesSave(
             context,
-            workingPath,
+            requestedWorkingPath,
             {freeTextNotes: Array.from(
                 {length: PDF_NATIVE_MUTATION_LIMITS.noteChanges + 1},
                 createNativeFreeTextNote,
             )},
             modifiedAt,
-        )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.noteChanges} notes`);
+            revisionOptions,
+        )).resolves.toMatchObject({applied: true});
 
-        await expect(handleNativePdfMutationsSave(
+        expect(payloads.map(({
+            command,
+            payload,
+        }) => [
+            command,
+            (payload.updates as unknown[] | undefined)?.length ?? (payload.freeTextNotes as unknown[] | undefined)?.length,
+        ])).toEqual([
+            [
+                'update-note-text',
+                PDF_NATIVE_MUTATION_LIMITS.noteTextUpdates,
+            ],
+            [
+                'update-note-text',
+                1,
+            ],
+            [
+                'save-note-changes',
+                PDF_NATIVE_MUTATION_LIMITS.noteChanges,
+            ],
+            [
+                'save-note-changes',
+                1,
+            ],
+        ]);
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledTimes(4);
+        expect(mocks.transitionOriginalAndWorkingCopyRevision).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps a split generic mutation set in one revision and staged commit', async () => {
+        const {
+            requestedWorkingPath,
+            tempPath,
+        } = createOriginalMutationFixture();
+        const payloads: Array<Record<string, unknown>> = [];
+        mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            expect(args[0]).toBe('save-mutations');
+            expect(args).toEqual(expect.arrayContaining([
+                '--input',
+                tempPath,
+                '--output',
+                tempPath,
+                '--append',
+            ]));
+            const payloadPath = args[args.indexOf('--mutations-file') + 1];
+            if (!payloadPath) {
+                throw new Error('Missing mutations file path');
+            }
+            payloads.push(JSON.parse(readFileSync(payloadPath, 'utf8')) as Record<string, unknown>);
+            await appendFile(tempPath, '\n% native generic continuation');
+        });
+        const {handleNativePdfMutationsSave} = await import(
+            '@electron/features/documents/main/nativePdfMutationSaveHandlers'
+        );
+
+        const result = await handleNativePdfMutationsSave(
             context,
-            workingPath,
-            {pageLabels: {
-                totalPages: 3,
-                ranges: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges + 1}, () => ({
-                    startPage: 1,
-                    style: 'D',
-                    prefix: '',
-                    startNumber: 1,
-                })),
-            }},
-            modifiedAt,
-        )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges} ranges`);
+            requestedWorkingPath,
+            {
+                updates: Array.from(
+                    {length: PDF_NATIVE_MUTATION_LIMITS.noteChanges + 1},
+                    (_, index) => ({
+                        objectNumber: index + 1,
+                        generationNumber: 0,
+                        text: `Updated note ${index}`,
+                    }),
+                ),
+                freeTextNotes: Array.from(
+                    {length: PDF_NATIVE_MUTATION_LIMITS.noteChanges + 1},
+                    (_, index) => ({
+                        ...createNativeFreeTextNote(),
+                        stableKey: `note-${index}`,
+                    }),
+                ),
+            },
+            'D:20260609133855+03\'00\'',
+            revisionOptions,
+        );
+
+        expect(result).toMatchObject({applied: true});
+        expect(payloads).toHaveLength(3);
+        expect(payloads[0]!.continuation).toBeUndefined();
+        expect(payloads.slice(1).every(payload =>
+            (payload.continuation as {family?: string} | undefined)?.family === 'notes',
+        )).toBe(true);
+        expect(payloads.reduce(
+            (count, payload) => count + ((payload.updates as unknown[] | undefined)?.length ?? 0),
+            0,
+        )).toBe(PDF_NATIVE_MUTATION_LIMITS.noteChanges + 1);
+        expect(payloads.reduce(
+            (count, payload) => count + ((payload.freeTextNotes as unknown[] | undefined)?.length ?? 0),
+            0,
+        )).toBe(PDF_NATIVE_MUTATION_LIMITS.noteChanges + 1);
+        for (const payload of payloads) {
+            expect(
+                ((payload.updates as unknown[] | undefined)?.length ?? 0)
+                + ((payload.freeTextNotes as unknown[] | undefined)?.length ?? 0),
+            ).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.noteChanges);
+        }
+        expect(mocks.assertWorkingCopyRevisionCurrent).toHaveBeenCalledOnce();
+        expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledOnce();
+        expect(mocks.transitionOriginalAndWorkingCopyRevision).toHaveBeenCalledOnce();
+    });
+
+    it('rejects malformed and per-item native mutation limit violations before native execution', async () => {
+        const {
+            handleNativePdfMutationsApplyToWorkingCopy,
+            handleNativePdfMutationsSave,
+        } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
+        const workingPath = join(tempRoot, 'working.pdf');
+        const modifiedAt = 'D:20260609133855+03\'00\'';
 
         await expect(handleNativePdfMutationsSave(
             context,
@@ -1360,25 +1487,43 @@ describe('handleNativeNoteTextSave', () => {
             context,
             workingPath,
             {markup: {
-                overrides: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.markupItems + 1}, (_, index) => [
-                    `${index}R`,
-                    'Highlight',
-                ]),
-                hints: [],
+                overrides: [],
+                hints: [{
+                    subtype: 'Highlight',
+                    pageIndex: 0,
+                    markerRect: {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.2,
+                    },
+                    markupGeometry: Array.from(
+                        {length: PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems + 1},
+                        () => ({
+                            left: 0.1,
+                            top: 0.2,
+                            width: 0.1,
+                            height: 0.2,
+                        }),
+                    ),
+                }],
             }},
             modifiedAt,
-        )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.markupItems} items`);
+        )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems} rectangles`);
 
         await expect(handleNativePdfMutationsApplyToWorkingCopy(
             context,
             workingPath,
-            {placedImages: Array.from(
-                {length: PDF_NATIVE_MUTATION_LIMITS.placedImages + 1},
-                createNativePlacedImage,
-            )},
+            {placedImages: [{
+                ...createNativePlacedImage(),
+                source: {
+                    ...createNativePlacedImage().source,
+                    size: PDF_NATIVE_MUTATION_LIMITS.placedImageBytes + 1,
+                },
+            }]},
             modifiedAt,
             revisionOptions,
-        )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.placedImages} images`);
+        )).rejects.toThrow('bounded non-empty image bytes');
 
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
     });

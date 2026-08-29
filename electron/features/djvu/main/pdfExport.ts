@@ -79,7 +79,10 @@ import {
     printManagedTempPdfPath,
 } from '@electron/utils/printHandoff';
 import { getAppTempDir } from '@electron/utils/appTempDir';
-import { getDjvuPageSizesForViewing } from '@electron/features/djvu/main/pagePreview';
+import {
+    DJVU_PAGE_SIZE_ARRAY_MAX_PAGES,
+    getDjvuPageSizesForViewing,
+} from '@electron/features/djvu/main/pagePreview';
 import {
     canPrintSourcePdfDirectly,
     normalizePrintPageNumbers,
@@ -283,6 +286,13 @@ async function getDjvuConversionPageSizes(
     pageCount: number,
     signal: AbortSignal,
 ) {
+    if (pageCount > DJVU_PAGE_SIZE_ARRAY_MAX_PAGES) {
+        logger.debug(
+            `[${jobId}] Skipping dense DjVu page-size metadata for ${pageCount} pages; conversion policy will use bounded fallback metrics`,
+        );
+        return null;
+    }
+
     try {
         const pageSizes: IDjvuConversionPageMetrics[] = await getDjvuPageSizesForViewing(djvuPath, pageCount, { signal });
         return pageSizes;
@@ -677,9 +687,6 @@ async function runDjvuPrintPath(
             ]);
             throwIfCanceled(job.signal);
 
-            const pageSizes = await getDjvuConversionPageSizes(jobId, djvuPath, pageCount, job.signal);
-            throwIfCanceled(job.signal);
-
             const selectedPages = resolveDjvuPrintPages(options.pageNumbers, pageCount);
             if (selectedPages && selectedPages.length === 0) {
                 return {
@@ -688,6 +695,15 @@ async function runDjvuPrintPath(
                     error: 'No printable DjVu pages selected',
                 };
             }
+
+            // A selected print job only needs metadata for the selected output
+            // pages. The compact builder resolves those pages directly, and
+            // the legacy converter falls back to bounded page-count metrics.
+            // Do not scan a full document into a dense page-size array first.
+            const pageSizes = selectedPages
+                ? null
+                : await getDjvuConversionPageSizes(jobId, djvuPath, pageCount, job.signal);
+            throwIfCanceled(job.signal);
 
             const shouldPrintConvertedPdfDirectly = canPrintSourcePdfDirectly({
                 ...(selectedPages ? {pageNumbers: selectedPages} : {}),
@@ -719,7 +735,7 @@ async function runDjvuPrintPath(
                 : await (async () => {
                     const subsample = resolveSubsample(options.subsample);
                     const policy = evaluateDjvuPdfConversionPolicy({
-                        pageCount,
+                        pageCount: selectedPages?.length ?? pageCount,
                         sourceDpi,
                         pageSizes,
                     }, subsample);

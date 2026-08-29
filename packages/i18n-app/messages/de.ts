@@ -1229,6 +1229,7 @@ export default {
     },
     'bookmarks': {
         'unavailable': 'Lesezeichen nicht verfügbar',
+        'persistenceRefusalDepth': '{count} Lesezeichen überschreiten die native Tiefengrenze von {limit}; sie bleiben schreibgeschützt erhalten, weil diese Tiefe nicht gespeichert werden kann.',
         'noBookmarks': 'Keine Lesezeichen vorhanden',
         'loading': 'Lesezeichen werden geladen...',
         'enterEditMode': 'Lesezeichen-Bearbeitungsmodus aktivieren',

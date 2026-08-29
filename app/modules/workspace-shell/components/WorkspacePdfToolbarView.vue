@@ -135,6 +135,7 @@
                 @update:open="handleOcrPopupOpenUpdate"
                 @update:running="handleOcrRunningUpdate"
                 @export-docx="handleOcrExportDocx"
+                @cancel-docx-export="handleOcrCancelDocxExport"
                 @ocr-complete="handleOcrComplete"
             />
         </template>
@@ -374,6 +375,7 @@ const emit = defineEmits<{
     'combine-files': [];
     'export-docx': [];
     'ocr-export-docx': [selectedLanguages: string[]];
+    'ocr-cancel-docx-export': [];
     'export-images': [];
     'export-multi-page-tiff': [];
     'convert-to-pdf': [];
@@ -550,6 +552,10 @@ function handleExportDocx() {
 
 function handleOcrExportDocx(selectedLanguages: string[]) {
     emit('ocr-export-docx', selectedLanguages);
+}
+
+function handleOcrCancelDocxExport() {
+    emit('ocr-cancel-docx-export');
 }
 
 function handleExportImages() {

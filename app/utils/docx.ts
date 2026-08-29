@@ -73,11 +73,12 @@ function buildDocumentXml(text: string, isRtl?: boolean) {
         '</w:document>';
 }
 
-async function buildDocumentXmlCooperative(text: string, isRtl?: boolean) {
+async function buildDocumentXmlCooperative(text: string, isRtl?: boolean, signal?: AbortSignal) {
     const lines = text.replace(/\r\n/g, '\n').split('\n');
     const paragraphs: string[] = [];
 
     for (let index = 0; index < lines.length; index += 1) {
+        signal?.throwIfAborted();
         const line = lines[index] ?? '';
         const safe = escapeXml(line);
         if (isRtl) {
@@ -91,7 +92,9 @@ async function buildDocumentXmlCooperative(text: string, isRtl?: boolean) {
         }
     }
 
+    signal?.throwIfAborted();
     await yieldToBrowser();
+    signal?.throwIfAborted();
     return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
         '<w:body>' +
@@ -142,7 +145,8 @@ export function createDocxFromText(text: string, isRtl?: boolean) {
     ]);
 }
 
-export async function createDocxFromTextAsync(text: string, isRtl?: boolean) {
+export async function createDocxFromTextAsync(text: string, isRtl?: boolean, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
         '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
         '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
@@ -158,8 +162,10 @@ export async function createDocxFromTextAsync(text: string, isRtl?: boolean) {
     const docRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
 
-    const docXml = await buildDocumentXmlCooperative(text, isRtl);
+    const docXml = await buildDocumentXmlCooperative(text, isRtl, signal);
+    signal?.throwIfAborted();
     await yieldToBrowser();
+    signal?.throwIfAborted();
 
     return createZip([
         {

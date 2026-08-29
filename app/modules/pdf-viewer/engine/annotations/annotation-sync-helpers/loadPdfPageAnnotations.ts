@@ -26,7 +26,10 @@ type TLeasePdfAnnotationPage = (
     pageNumber: number,
 ) => Promise<IPdfPageAnnotationLease>;
 
-interface IPdfPageAnnotationLeaseOptions { leasePage?: TLeasePdfAnnotationPage }
+interface IPdfPageAnnotationLeaseOptions {
+    leasePage?: TLeasePdfAnnotationPage;
+    signal?: AbortSignal;
+}
 
 const MAX_BACKGROUND_PDF_ANNOTATIONS_PER_PAGE = 10_000;
 
@@ -113,13 +116,16 @@ export async function loadPdfPageAnnotations(
     let page: Awaited<ReturnType<PDFDocumentProxy['getPage']>> | null = null;
     let pageLease: Awaited<ReturnType<NonNullable<IPdfPageAnnotationLeaseOptions['leasePage']>>> | null = null;
     try {
+        pageLeaseOptions?.signal?.throwIfAborted();
         if (pageLeaseOptions?.leasePage) {
             pageLease = await pageLeaseOptions.leasePage(doc, pageNumber);
             page = pageLease.page;
         } else {
             page = await doc.getPage(pageNumber);
         }
+        pageLeaseOptions?.signal?.throwIfAborted();
         const rawAnnotations: unknown = await page.getAnnotations();
+        pageLeaseOptions?.signal?.throwIfAborted();
         if (
             Array.isArray(rawAnnotations)
             && rawAnnotations.length > MAX_BACKGROUND_PDF_ANNOTATIONS_PER_PAGE
@@ -139,6 +145,7 @@ export async function loadPdfPageAnnotations(
             textItems,
             textViewport,
         } = await loadPageTextPreviewData(page, pageNumber, annotations);
+        pageLeaseOptions?.signal?.throwIfAborted();
         return {
             annotations,
             pageView: getOptionalNumberArray(page, 'view'),

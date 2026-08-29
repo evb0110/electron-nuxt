@@ -200,6 +200,156 @@ const INTERIOR_COLOR_ANNOTATIONS: IFixtureAnnotation[] = [
     },
 ];
 
+const STALE_APPEARANCE_ANNOTATIONS: IFixtureAnnotation[] = [
+    {
+        stableKey: 'evb-shape:stale-square',
+        dict: {
+            Type: 'Annot',
+            Subtype: 'Square',
+            Rect: [
+                100,
+                100,
+                250,
+                250,
+            ],
+            C: [
+                1,
+                0,
+                0,
+            ],
+            CA: 1,
+            Border: [
+                0,
+                0,
+                2,
+            ],
+        },
+    },
+    {
+        stableKey: 'evb-shape:stale-circle',
+        dict: {
+            Type: 'Annot',
+            Subtype: 'Circle',
+            Rect: [
+                300,
+                100,
+                450,
+                250,
+            ],
+            C: [
+                1,
+                0,
+                0,
+            ],
+            CA: 1,
+            Border: [
+                0,
+                0,
+                2,
+            ],
+        },
+    },
+    {
+        stableKey: 'evb-shape:stale-line',
+        dict: {
+            Type: 'Annot',
+            Subtype: 'Line',
+            Rect: [
+                100,
+                300,
+                450,
+                450,
+            ],
+            L: [
+                100,
+                300,
+                450,
+                450,
+            ],
+            C: [
+                1,
+                0,
+                0,
+            ],
+            CA: 1,
+            Border: [
+                0,
+                0,
+                2,
+            ],
+        },
+    },
+    {
+        stableKey: 'evb-shape:stale-polyline',
+        dict: {
+            Type: 'Annot',
+            Subtype: 'PolyLine',
+            Rect: [
+                100,
+                500,
+                450,
+                700,
+            ],
+            Vertices: [
+                100,
+                500,
+                450,
+                550,
+                300,
+                700,
+            ],
+            C: [
+                1,
+                0,
+                0,
+            ],
+            CA: 1,
+            Border: [
+                0,
+                0,
+                2,
+            ],
+        },
+    },
+    {
+        stableKey: 'evb-shape:stale-polygon',
+        dict: {
+            Type: 'Annot',
+            Subtype: 'Polygon',
+            Rect: [
+                100,
+                500,
+                450,
+                700,
+            ],
+            Vertices: [
+                100,
+                500,
+                450,
+                550,
+                300,
+                700,
+            ],
+            C: [
+                1,
+                0,
+                0,
+            ],
+            IC: [
+                1,
+                0,
+                0,
+            ],
+            CA: 1,
+            Border: [
+                0,
+                0,
+                2,
+            ],
+        },
+    },
+];
+
 async function createShapeFixturePdf(annotations: IFixtureAnnotation[] = SQUARE_ANNOTATIONS) {
     const doc = await PDFDocument.create();
     const page = doc.addPage([
@@ -215,6 +365,35 @@ async function createShapeFixturePdf(annotations: IFixtureAnnotation[] = SQUARE_
         EVBShapeKey: PDFHexString.fromText(stableKey),
         NM: PDFHexString.fromText(stableKey),
     })));
+    page.node.set(PDFName.of('Annots'), doc.context.obj(refs));
+
+    return new Uint8Array(await doc.save());
+}
+
+async function createShapeFixturePdfWithStaleAppearances(annotations: IFixtureAnnotation[]) {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([
+        PAGE_WIDTH,
+        PAGE_HEIGHT,
+    ]);
+
+    const refs = annotations.map(({
+        stableKey,
+        dict,
+    }) => {
+        const appearanceRef = doc.context.register(doc.context.formXObject([], {BBox: doc.context.obj([
+            0,
+            0,
+            PAGE_WIDTH,
+            PAGE_HEIGHT,
+        ])}));
+        return doc.context.register(doc.context.obj({
+            ...dict,
+            EVBShapeKey: PDFHexString.fromText(stableKey),
+            NM: PDFHexString.fromText(stableKey),
+            AP: doc.context.obj({N: appearanceRef}),
+        }));
+    });
     page.node.set(PDFName.of('Annots'), doc.context.obj(refs));
 
     return new Uint8Array(await doc.save());
@@ -402,5 +581,69 @@ describe('embedded shape rect preservation on the serialized save route', () => 
         const polygonInteriorColor = dicts.get(POLYGON_KEY)?.lookupMaybe(PDFName.of('IC'), PDFArray);
         expect(polygonInteriorColor).toBeInstanceOf(PDFArray);
         expect(polygonInteriorColor?.toString()).toBe('[ 0 0 1 ]');
+    });
+
+    it('removes stale appearances when imported shapes change geometry or style', async () => {
+        const bytes = await createShapeFixturePdfWithStaleAppearances(STALE_APPEARANCE_ANNOTATIONS);
+        const imported = await importEmbeddedShapeAnnotations(bytes);
+        const before = await readShapeDictsByStableKey(bytes);
+        STALE_APPEARANCE_ANNOTATIONS.forEach(({stableKey}) => {
+            expect(before.get(stableKey)?.lookupMaybe(PDFName.of('AP'), PDFDict))
+                .toBeInstanceOf(PDFDict);
+        });
+
+        const shapes = imported.map((shape, index) => {
+            const edited: IShapeAnnotation = {
+                ...shape,
+                color: '#112233',
+                x: shape.x + 0.03,
+                y: shape.y + 0.03,
+            };
+            if (shape.type === 'line' || shape.type === 'arrow') {
+                edited.x2 = (shape.x2 ?? shape.x + shape.width) + 0.03;
+                edited.y2 = (shape.y2 ?? shape.y + shape.height) + 0.03;
+                edited.fillColor = undefined;
+            } else if (shape.type === 'polyline' || shape.type === 'polygon') {
+                edited.points = (shape.points ?? []).map((point, pointIndex) => ({
+                    x: point.x + 0.03 + pointIndex * 0.01,
+                    y: point.y + 0.03,
+                }));
+                if (shape.type === 'polyline') {
+                    edited.fillColor = undefined;
+                }
+            } else {
+                edited.width = shape.width + 0.03 + index * 0.005;
+                edited.height = shape.height + 0.03;
+            }
+            return edited;
+        });
+
+        const savedBytes = await saveWithShapes(bytes, shapes);
+        const saved = await readShapeDictsByStableKey(savedBytes);
+        STALE_APPEARANCE_ANNOTATIONS.forEach(({stableKey}) => {
+            expect(saved.get(stableKey)?.get(PDFName.of('AP'))).toBeUndefined();
+        });
+    });
+
+    it('preserves an untouched imported appearance when a sibling shape changes', async () => {
+        const bytes = await createShapeFixturePdfWithStaleAppearances([
+            STALE_APPEARANCE_ANNOTATIONS[0]!,
+            STALE_APPEARANCE_ANNOTATIONS[1]!,
+        ]);
+        const imported = await importEmbeddedShapeAnnotations(bytes);
+        const untouched = requireShape(imported, 'evb-shape:stale-square');
+        const edited = requireShape(imported, 'evb-shape:stale-circle');
+
+        const savedBytes = await saveWithShapes(bytes, [
+            untouched,
+            {
+                ...edited,
+                x: edited.x + 0.05,
+            },
+        ]);
+        const saved = await readShapeDictsByStableKey(savedBytes);
+
+        expect(saved.get('evb-shape:stale-square')?.get(PDFName.of('AP'))).toBeDefined();
+        expect(saved.get('evb-shape:stale-circle')?.get(PDFName.of('AP'))).toBeUndefined();
     });
 });

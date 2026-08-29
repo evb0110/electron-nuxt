@@ -172,6 +172,8 @@ function createHarness() {
         invalidatePages: vi.fn(),
         updateAnnotationComment: vi.fn(() => true),
         deleteAnnotationComment: vi.fn(async (_comment: IAnnotationCommentSummary) => true),
+        deleteAnnotationEditor: vi.fn(async (_comment: IAnnotationCommentSummary) => true),
+        deleteReopenedEditorAnnotation: vi.fn(async (_comment: IAnnotationCommentSummary) => true),
         registerAnnotationHistoryCommand: vi.fn(),
         removeAnnotationFromDom: vi.fn(),
         removeAnnotationFromInternalCache: vi.fn(),
@@ -204,6 +206,8 @@ function createHarness() {
                 pageNumber?: number | null;
                 pageX?: number | null;
                 pageY?: number | null;
+                stableKey?: string;
+                annotationId?: string | null;
             },
         ) => true),
         clearPendingImagePlacement: vi.fn(),
@@ -831,6 +835,45 @@ describe('usePageAnnotationActions', () => {
         expect(documentWorkingCopy.cleanupFile).not.toHaveBeenCalled();
     });
 
+    it('reopens an app-owned image replacement with its persisted stamp identity', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        installSplitImagePickerPlatform('/tmp/replacement.png');
+        deps.annotationContextMenu.value.comment = {
+            ...createComment('reopened-image'),
+            subtype: 'Stamp',
+            annotationName: 'placed-image-app-1',
+            annotationId: '44R',
+            pageIndex: 6,
+            pageNumber: 7,
+            markerRect: {
+                left: 0.2,
+                top: 0.3,
+                width: 0.4,
+                height: 0.2,
+            },
+        };
+        deps.annotationContextMenu.value.pageNumber = 7;
+        deps.annotationContextMenu.value.pageX = 0.9;
+        deps.annotationContextMenu.value.pageY = 0.9;
+
+        await actions.insertContextMenuImageFromFile();
+
+        expect(viewer.startImagePlacement).toHaveBeenCalledWith(
+            expect.any(File),
+            {
+                pageNumber: 7,
+                pageX: 0.4,
+                pageY: 0.4,
+                stableKey: 'placed-image-app-1',
+                annotationId: '44R',
+            },
+        );
+    });
+
     it('contains image picker read failures without tearing down the document workspace', async () => {
         const {
             viewer,
@@ -1119,11 +1162,62 @@ describe('usePageAnnotationActions', () => {
         await actions.handleDeleteAnnotationComment(comment);
 
         expect(viewer.deleteAnnotationComment).not.toHaveBeenCalled();
+        expect(viewer.deleteAnnotationEditor).not.toHaveBeenCalled();
+        expect(viewer.deleteReopenedEditorAnnotation).not.toHaveBeenCalled();
         expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(comment);
         expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
         expect(deps.invalidateThumbnailPages).toHaveBeenCalledWith([1]);
         expect(viewer.deleteEmbeddedAnnotationDeferred).toHaveBeenCalledWith(comment);
         expect(viewer.registerAnnotationHistoryCommand).not.toHaveBeenCalled();
+    });
+
+    it('uses the atomic reopened FreeText editor deletion transaction', async () => {
+        const {
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createPdfFreeTextComment({
+            annotationId: '44R',
+            subtype: 'FreeText',
+        });
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(viewer.deleteReopenedEditorAnnotation).toHaveBeenCalledWith(comment);
+        expect(viewer.deleteAnnotationEditor).not.toHaveBeenCalled();
+        expect(viewer.deleteEmbeddedAnnotationDeferred).not.toHaveBeenCalled();
+        expect(viewer.deleteAnnotationComment).not.toHaveBeenCalled();
+        expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(comment);
+        expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
+    });
+
+    it.each([
+        [
+            'returns false',
+            vi.fn(async () => false),
+        ],
+        [
+            'throws',
+            vi.fn(async () => { throw new Error('atomic delete failed'); }),
+        ],
+    ])('fails closed when reopened FreeText deletion %s', async (_label, deleteReopenedEditorAnnotation) => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createPdfFreeTextComment({
+            annotationId: '44R',
+            subtype: 'FreeText',
+        });
+        viewer.deleteReopenedEditorAnnotation.mockImplementationOnce(deleteReopenedEditorAnnotation);
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(viewer.deleteEmbeddedAnnotationDeferred).not.toHaveBeenCalled();
+        expect(viewer.removeAnnotationFromDom).not.toHaveBeenCalled();
+        expect(viewer.removeAnnotationFromInternalCache).not.toHaveBeenCalled();
+        expect(deps.setAnnotationNoteWindowError).toHaveBeenCalled();
     });
 
     it('closes remaining note windows when an explicit delete drains the annotation cache', async () => {

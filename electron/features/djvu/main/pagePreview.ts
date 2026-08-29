@@ -71,6 +71,25 @@ const DJVU_PREVIEW_MAX_NETPBM_BYTES = parseIntegerEnv(
     1024,
 ) * 1024 * 1024;
 
+// The legacy page-size API returns one object per page. Keep that compatibility
+// result bounded; callers that need larger documents must use the windowed API.
+export const DJVU_PAGE_SIZE_ARRAY_MAX_PAGES = 10_000;
+
+export class DjvuPageSizeArrayLimitError extends Error {
+    // fallow-ignore-next-line unused-class-member -- callers inspect this stable limit code after Electron IPC serialization.
+    public readonly code = 'too-large' as const;
+
+    public constructor(
+        public readonly pageCount: number,
+        public readonly maxPages: number = DJVU_PAGE_SIZE_ARRAY_MAX_PAGES,
+    ) {
+        super(
+            `DjVu page-size arrays are limited to ${maxPages} pages; use windowed page-size access for ${pageCount} pages`,
+        );
+        this.name = 'DjvuPageSizeArrayLimitError';
+    }
+}
+
 function parsePositiveInteger(value: string | undefined) {
     if (!value) {
         return null;
@@ -215,6 +234,7 @@ export function parseDjvuPageSizeOutput(stdout: string, dpi: number): IDjvuPageS
 
 interface IDjvuPagePreviewLifecycleOptions {
     cancelGroup?: string;
+    pageNumbers?: readonly number[];
     signal?: AbortSignal;
 }
 
@@ -227,6 +247,52 @@ function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw signal.reason instanceof Error ? signal.reason : new Error('The operation was aborted');
     }
+}
+
+function normalizeRequestedPageNumbers(
+    pageNumbers: readonly number[] | undefined,
+    expectedPageCount: number,
+) {
+    if (pageNumbers === undefined) {
+        return null;
+    }
+    const uniquePageNumbers = [...new Set(pageNumbers)];
+    if (uniquePageNumbers.some(pageNumber => (
+        !Number.isSafeInteger(pageNumber)
+        || pageNumber < 1
+        || pageNumber > expectedPageCount
+    ))) {
+        throw new Error(`Requested DjVu page numbers must be between 1 and ${expectedPageCount}`);
+    }
+    uniquePageNumbers.sort((left, right) => left - right);
+    return uniquePageNumbers;
+}
+
+function* iterateRequestedPageRanges(pageNumbers: readonly number[]) {
+    if (pageNumbers.length === 0) {
+        return;
+    }
+    let firstPage = pageNumbers[0]!;
+    let lastPage = firstPage;
+    for (const pageNumber of pageNumbers.slice(1)) {
+        if (
+            pageNumber === lastPage + 1
+            && pageNumber - firstPage < DJVU_PAGE_SIZE_WINDOW_PAGES
+        ) {
+            lastPage = pageNumber;
+            continue;
+        }
+        yield [
+            firstPage,
+            lastPage,
+        ] as const;
+        firstPage = pageNumber;
+        lastPage = pageNumber;
+    }
+    yield [
+        firstPage,
+        lastPage,
+    ] as const;
 }
 
 async function probeDjvuPageSize(
@@ -315,6 +381,9 @@ export async function getDjvuPageSizesForViewing(
     expectedPageCount: number,
     options: IDjvuPagePreviewLifecycleOptions = {},
 ): Promise<IDjvuPageSize[]> {
+    if (expectedPageCount > DJVU_PAGE_SIZE_ARRAY_MAX_PAGES) {
+        throw new DjvuPageSizeArrayLimitError(expectedPageCount);
+    }
     throwIfAborted(options.signal);
     const sourceRevision = await readDjvuSourceRevision(djvuPath);
     throwIfAborted(options.signal);
@@ -327,10 +396,14 @@ export async function getDjvuPageSizesForViewing(
         return cachedSizes;
     }
     const sizes: IDjvuPageSize[] = [];
+    const {
+        pageNumbers: _pageNumbers,
+        ...fullScanOptions
+    } = options;
     for await (const window of getDjvuPageSizeWindowsForViewingInternal(
         djvuPath,
         expectedPageCount,
-        options,
+        fullScanOptions,
         sourceRevision,
     )) {
         sizes.push(...window.sizes);
@@ -378,9 +451,8 @@ async function* getDjvuPageSizeWindowsForViewingInternal(
     throwIfAborted(options.signal);
     const { djvused } = getDjvuNativeToolPaths();
 
-    for (let firstPage = 1; firstPage <= expectedPageCount;) {
+    const runWindow = async (firstPage: number, lastPage: number) => {
         throwIfAborted(options.signal);
-        const lastPage = Math.min(expectedPageCount, firstPage + DJVU_PAGE_SIZE_WINDOW_PAGES - 1);
         const result = await runNativeCommand(djvused, [
             djvuPath,
             '-e',
@@ -406,9 +478,28 @@ async function* getDjvuPageSizeWindowsForViewingInternal(
                 `DjVu page size probe returned ${sizes.length} page(s) for ${firstPage}-${lastPage}, expected ${expectedWindowPageCount}`,
             );
         }
+        return sizes;
+    };
+
+    const requestedPageNumbers = normalizeRequestedPageNumbers(options.pageNumbers, expectedPageCount);
+    if (requestedPageNumbers) {
+        for (const [
+            firstPage,
+            lastPage,
+        ] of iterateRequestedPageRanges(requestedPageNumbers)) {
+            yield {
+                firstPage,
+                sizes: await runWindow(firstPage, lastPage),
+            };
+        }
+        return;
+    }
+
+    for (let firstPage = 1; firstPage <= expectedPageCount;) {
+        const lastPage = Math.min(expectedPageCount, firstPage + DJVU_PAGE_SIZE_WINDOW_PAGES - 1);
         yield {
             firstPage,
-            sizes,
+            sizes: await runWindow(firstPage, lastPage),
         };
         firstPage = lastPage + 1;
     }

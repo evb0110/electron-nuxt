@@ -537,6 +537,31 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
     }
 
+    function trimLargeDetectionMaps() {
+        if (options.totalPages.value <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT) {
+            return;
+        }
+        const maps = [
+            detectedLayoutByPage,
+            confidenceByPage,
+            documentPriorByPage,
+            textAxisByPage,
+            recommendedOutputModeByPage,
+            recommendedOutputModeConfidenceByPage,
+            recommendedOutputModeReasonByPage,
+            softAlphaForegroundRecommendationByPage,
+            pagePlanEvidenceByPage,
+            sourcePageMetadataByPage,
+        ];
+        for (const map of maps) {
+            while (map.size > DETECTION_PAGE_CACHE_LIMIT) {
+                const oldest = map.keys().next().value;
+                if (oldest === undefined) break;
+                map.delete(oldest);
+            }
+        }
+    }
+
     function retainSettledPage(pageNumber: number) {
         if (options.totalPages.value <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT) {
             settledPages.add(pageNumber);
@@ -626,6 +651,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             recommendedOutputModeReasonByPage,
             softAlphaForegroundRecommendationByPage,
         );
+        trimLargeDetectionMaps();
         if (state.status === 'failed') {
             // A scratch refusal is the one detection failure the user can act
             // on, so it is stated in full instead of a generic headline with
@@ -1066,6 +1092,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 pagePlanEvidenceByPage.set(result.pageNumber, result.pagePlanEvidence);
             }
         }
+        trimLargeDetectionMaps();
         return true;
     }
 

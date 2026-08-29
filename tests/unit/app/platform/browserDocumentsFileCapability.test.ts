@@ -42,13 +42,20 @@ const utifMock = vi.hoisted(() => ({
     decodeImage: vi.fn(),
     toRGBA8: vi.fn(() => new Uint8Array()),
 }));
-const pdfjsModule = vi.hoisted(() => ({
-    version: '5.7.284',
-    GlobalWorkerOptions: {},
-    PDFDataRangeTransport: function MockPdfDataRangeTransport() {},
-    VerbosityLevel: {ERRORS: 3},
-    getDocument: vi.fn(() => ({promise: Promise.resolve({destroy: vi.fn(async () => {})})})),
-}));
+const pdfjsModule = vi.hoisted(() => {
+    class MockPdfDataRangeTransport {
+        public onDataRange = vi.fn();
+        public onDataProgress = vi.fn();
+    }
+
+    return {
+        version: '5.7.284',
+        GlobalWorkerOptions: {},
+        PDFDataRangeTransport: MockPdfDataRangeTransport,
+        VerbosityLevel: {ERRORS: 3},
+        getDocument: vi.fn((_rawInit: unknown) => ({promise: Promise.resolve({destroy: vi.fn(async () => {})})})),
+    };
+});
 
 vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({
     BrowserPdfCombineWorkerUnavailableError: class BrowserPdfCombineWorkerUnavailableError extends Error {},
@@ -357,6 +364,152 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(readSpy).not.toHaveBeenCalled();
         statSpy.mockRestore();
         readSpy.mockRestore();
+    });
+
+    it('validates oversized browser PDFs through range reads without a full read', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const path = 'browser://documents/source/large-validation.pdf';
+        const largeSize = BROWSER_FULL_READ_LIMIT + 1;
+        const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: largeSize,
+            modifiedAt: 0,
+        });
+        const signatureSpy = vi.spyOn(browserDocumentStore, 'getContentSignature').mockResolvedValue('large-validation');
+        const readSpy = vi.spyOn(browserDocumentStore, 'read').mockRejectedValue(
+            new Error('full browser reads are forbidden for this test'),
+        );
+        const readRangeSpy = vi.spyOn(browserDocumentStore, 'readRange').mockResolvedValue(
+            new Uint8Array(4 * 1024 * 1024),
+        );
+        pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({destroy: vi.fn(async () => {})})});
+
+        await expect(capability.validatePdfPath(path)).resolves.toEqual({
+            isValid: true,
+            tool: 'browser',
+            errors: [],
+            warnings: [],
+        });
+
+        expect(readSpy).not.toHaveBeenCalled();
+        expect(readRangeSpy).toHaveBeenCalledWith(path, 0, 4 * 1024 * 1024);
+        expect(signatureSpy).toHaveBeenCalled();
+        statSpy.mockRestore();
+        signatureSpy.mockRestore();
+        readSpy.mockRestore();
+        readRangeSpy.mockRestore();
+    });
+
+    it('requests later PDF ranges through the public validator without reading the whole source', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const path = 'browser://documents/source/multi-range-validation.pdf';
+        const chunkSize = 4 * 1024 * 1024;
+        const largeSize = BROWSER_FULL_READ_LIMIT + 1;
+        const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: largeSize,
+            modifiedAt: 0,
+        });
+        const signatureSpy = vi.spyOn(browserDocumentStore, 'getContentSignature').mockResolvedValue('multi-range-validation');
+        const readSpy = vi.spyOn(browserDocumentStore, 'read').mockRejectedValue(
+            new Error('whole browser reads are forbidden for this test'),
+        );
+        const readRangeSpy = vi.spyOn(browserDocumentStore, 'readRange').mockImplementation(
+            async (_path, _offset, length) => new Uint8Array(length),
+        );
+        pdfjsModule.getDocument.mockImplementation((rawInit: unknown) => {
+            const init = rawInit as {range: {
+                requestDataRange: (begin: number, end: number) => void;
+                onDataRange: (...args: unknown[]) => void;
+            }};
+            const destroy = vi.fn(async () => {});
+            const promise = new Promise<{destroy: typeof destroy}>(resolve => {
+                init.range.onDataRange = () => resolve({destroy});
+                init.range.requestDataRange(chunkSize, chunkSize * 2);
+            });
+            return {
+                promise,
+                destroy,
+            };
+        });
+
+        await expect(capability.validatePdfPath(path)).resolves.toEqual({
+            isValid: true,
+            tool: 'browser',
+            errors: [],
+            warnings: [],
+        });
+
+        expect(readSpy).not.toHaveBeenCalled();
+        expect(readRangeSpy).toHaveBeenNthCalledWith(1, path, 0, chunkSize);
+        expect(readRangeSpy).toHaveBeenNthCalledWith(2, path, chunkSize, chunkSize);
+        expect(readRangeSpy).toHaveBeenCalledTimes(2);
+        statSpy.mockRestore();
+        signatureSpy.mockRestore();
+        readSpy.mockRestore();
+        readRangeSpy.mockRestore();
+    });
+
+    it('propagates a failed later PDF range through the public validator without a whole read', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const path = 'browser://documents/source/failed-range-validation.pdf';
+        const chunkSize = 4 * 1024 * 1024;
+        const largeSize = BROWSER_FULL_READ_LIMIT + 1;
+        const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: largeSize,
+            modifiedAt: 0,
+        });
+        const signatureSpy = vi.spyOn(browserDocumentStore, 'getContentSignature').mockResolvedValue('failed-range-validation');
+        const readSpy = vi.spyOn(browserDocumentStore, 'read').mockRejectedValue(
+            new Error('whole browser reads are forbidden for this test'),
+        );
+        const rangeFailure = new Error('second PDF range failed');
+        const readRangeSpy = vi.spyOn(browserDocumentStore, 'readRange').mockImplementation(
+            async (_path, offset, length) => {
+                if (offset === 0) {
+                    return new Uint8Array(length);
+                }
+                throw rangeFailure;
+            },
+        );
+        pdfjsModule.getDocument.mockImplementation((rawInit: unknown) => {
+            const init = rawInit as {range: {
+                requestDataRange: (begin: number, end: number) => void;
+                onDataRange: (...args: unknown[]) => void;
+            }};
+            const destroy = vi.fn(async () => {});
+            const promise = new Promise<{destroy: typeof destroy}>(() => {
+                init.range.onDataRange = () => undefined;
+                init.range.requestDataRange(chunkSize, chunkSize * 2);
+            });
+            return {
+                promise,
+                destroy,
+            };
+        });
+
+        await expect(capability.validatePdfPath(path)).resolves.toEqual({
+            isValid: false,
+            tool: 'browser',
+            errors: ['second PDF range failed'],
+            warnings: [],
+        });
+
+        expect(readSpy).not.toHaveBeenCalled();
+        expect(readRangeSpy).toHaveBeenNthCalledWith(1, path, 0, chunkSize);
+        expect(readRangeSpy).toHaveBeenNthCalledWith(2, path, chunkSize, chunkSize);
+        expect(readRangeSpy).toHaveBeenCalledTimes(2);
+        statSpy.mockRestore();
+        signatureSpy.mockRestore();
+        readSpy.mockRestore();
+        readRangeSpy.mockRestore();
     });
 
     it('enforces the 500-page limit on the browser main-thread fallback', async () => {
@@ -1457,6 +1610,84 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         )).rejects.toThrow(
             `Saving documents is unavailable in the browser for inputs larger than ${BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024)}MB`,
         );
+    });
+
+    it('does not download or retain a DOCX output when its writer is already canceled', async () => {
+        const createObjectURL = vi.fn(() => 'blob:docx-canceled');
+        const revokeObjectURL = vi.fn();
+        const NativeURL = URL;
+        class TestURL extends NativeURL {}
+        Object.defineProperties(TestURL, {
+            createObjectURL: {value: createObjectURL},
+            revokeObjectURL: {value: revokeObjectURL},
+        });
+        vi.stubGlobal('URL', TestURL);
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
+        const outputPath = await capability.saveDocxAs('/tmp/work.pdf');
+        expect(outputPath).not.toBeNull();
+        if (!outputPath) {
+            throw new Error('Expected browser DOCX output path');
+        }
+
+        const controller = new AbortController();
+        controller.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
+        const writeDocxFile = capability.writeDocxFile as (
+            path: string,
+            data: Uint8Array,
+            signal?: AbortSignal,
+        ) => Promise<boolean>;
+
+        await expect(writeDocxFile(outputPath, Uint8Array.of(1, 2, 3), controller.signal))
+            .rejects.toMatchObject({name: 'AbortError'});
+        await expect(browserDocumentStore.exists(outputPath)).resolves.toBe(false);
+        expect(createObjectURL).not.toHaveBeenCalled();
+        expect(revokeObjectURL).not.toHaveBeenCalled();
+    });
+
+    it('revokes a browser DOCX download when cancellation lands after URL creation', async () => {
+        const controller = new AbortController();
+        const createObjectURL = vi.fn(() => {
+            controller.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
+            return 'blob:docx-canceled-after-url';
+        });
+        const revokeObjectURL = vi.fn();
+        const NativeURL = URL;
+        class TestURL extends NativeURL {}
+        Object.defineProperties(TestURL, {
+            createObjectURL: {value: createObjectURL},
+            revokeObjectURL: {value: revokeObjectURL},
+        });
+        vi.stubGlobal('URL', TestURL);
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
+        const outputPath = await capability.saveDocxAs('/tmp/work.pdf');
+        expect(outputPath).not.toBeNull();
+        if (!outputPath) {
+            throw new Error('Expected browser DOCX output path');
+        }
+
+        const click = vi.fn();
+        const documentStub = cast<{createElement: (tagName: string) => {click: () => void}}>(globalThis.document);
+        const createElement = documentStub.createElement.bind(documentStub);
+        vi.spyOn(documentStub, 'createElement').mockImplementation((tagName: string) => {
+            const element = createElement(tagName);
+            if (tagName === 'a') {
+                element.click = click;
+            }
+            return element;
+        });
+
+        await expect(capability.writeDocxFile(outputPath, Uint8Array.of(1, 2, 3), controller.signal))
+            .rejects.toMatchObject({name: 'AbortError'});
+        await expect(browserDocumentStore.exists(outputPath)).resolves.toBe(false);
+        expect(createObjectURL).toHaveBeenCalledOnce();
+        expect(revokeObjectURL).toHaveBeenCalledWith('blob:docx-canceled-after-url');
+        expect(click).not.toHaveBeenCalled();
     });
 
     it('fails early for oversized browser download fallback saves without a handle', async () => {

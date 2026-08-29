@@ -39,6 +39,7 @@ import {
 } from '@contracts/serializableError';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
+import {createBrowserPdfCombineOutputError} from '@app/platform/browser-api/browserPdfCombineLimits';
 
 const MAX_COMBINE_PAGES = 500;
 const MAX_IMAGE_PIXELS = 80_000_000;
@@ -264,6 +265,9 @@ async function handleCombinePdfsRequest(
         )
         : {status: 'unsupported'} as const;
     if (wasmResult.status === 'success') {
+        if (wasmResult.data.byteLength === 0 || wasmResult.data.byteLength > MAX_OUTPUT_BYTES) {
+            throw createBrowserPdfCombineOutputError(wasmResult.data.byteLength);
+        }
         return {data: wasmResult.data};
     }
     if (wasmResult.status === 'fatal') {
@@ -305,7 +309,7 @@ async function handleCombinePdfsRequest(
 
     const data = toTransferableUint8Array(new Uint8Array(await pdfDocument.save()));
     if (data.byteLength === 0 || data.byteLength > MAX_OUTPUT_BYTES) {
-        throw new Error('ERR_BROWSER_PDF_COMBINE_INVALID_OUTPUT');
+        throw createBrowserPdfCombineOutputError(data.byteLength);
     }
     return { data };
 }

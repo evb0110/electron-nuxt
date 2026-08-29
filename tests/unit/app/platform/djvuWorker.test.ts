@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 
 const mocks = vi.hoisted(() => ({
     stat: vi.fn(),
@@ -16,10 +17,12 @@ const mocks = vi.hoisted(() => ({
     terminate: vi.fn(),
     unload: vi.fn(),
     nativeGetPageSizes: vi.fn(),
+    nativeGetInfo: vi.fn(),
     nativeRenderPagePreview: vi.fn(),
     nativeSearchText: vi.fn(),
     nativeCancelTextSearch: vi.fn(),
     nativeOnTextSearchProgress: vi.fn(),
+    getPagesQuantity: vi.fn(),
     getPagesSizes: vi.fn(),
     getPage: vi.fn(),
     createPngObjectUrlRun: vi.fn(),
@@ -115,10 +118,14 @@ describe('createDjvuWorkerFromPath', () => {
             2,
             3,
         ]));
+        mocks.readRange.mockImplementation(async (_ref: string, offset: number, length: number) => (
+            Uint8Array.from({length}, (_, index) => (offset + index + 1) & 0xff)
+        ));
         mocks.loadDjvuJs.mockResolvedValue({Worker: class {
             public createDocument = mocks.createDocument;
             public doc = {
                 getPage: mocks.getPage,
+                getPagesQuantity: () => ({run: mocks.getPagesQuantity}),
                 getPagesSizes: () => ({run: mocks.getPagesSizes}),
             };
             public revokeObjectURL = mocks.revokeObjectURL;
@@ -129,6 +136,7 @@ describe('createDjvuWorkerFromPath', () => {
             width: 100,
             height: 200,
         }]);
+        mocks.getPagesQuantity.mockResolvedValue(1);
         mocks.getPage.mockImplementation((pageNumber: number) => ({createPngObjectUrl: () => ({run: () => mocks.createPngObjectUrlRun(pageNumber)})}));
         mocks.createPngObjectUrlRun.mockImplementation(async (pageNumber: number) => ({
             height: 200,
@@ -140,6 +148,13 @@ describe('createDjvuWorkerFromPath', () => {
             height: 200,
             dpi: 300,
         }]);
+        mocks.nativeGetInfo.mockResolvedValue({
+            pageCount: 1,
+            sourceDpi: 300,
+            hasBookmarks: false,
+            hasText: false,
+            metadata: {},
+        });
         mocks.nativeRenderPagePreview.mockResolvedValue({
             bytes: new Uint8Array([
                 137,
@@ -247,23 +262,57 @@ describe('createDjvuWorkerFromPath', () => {
         })).rejects.toThrow('page text exceeds');
     });
 
-    it('reads DjVu bytes through the active platform document capability', async () => {
+    it('refuses native DjVu byte reads when the desktop bridge is missing', async () => {
         const { createDjvuWorkerFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
-        await createDjvuWorkerFromPath('/Users/test/book.djvu');
+        await expect(createDjvuWorkerFromPath('/Users/test/book.djvu'))
+            .rejects.toBeInstanceOf(PdfCombineCapabilityError);
 
-        expect(mocks.stat).toHaveBeenCalledWith('/Users/test/book.djvu');
-        expect(mocks.read).toHaveBeenCalledWith('/Users/test/book.djvu');
-        expect(mocks.createDocument).toHaveBeenCalledWith(
-            new Uint8Array([
-                1,
-                2,
-                3,
-            ]).buffer,
-            {},
-        );
+        expect(mocks.stat).not.toHaveBeenCalled();
+        expect(mocks.read).not.toHaveBeenCalled();
+        expect(mocks.readRange).not.toHaveBeenCalled();
+        expect(mocks.loadDjvuJs).not.toHaveBeenCalled();
+        expect(mocks.createDocument).not.toHaveBeenCalled();
         expect(mocks.unload).not.toHaveBeenCalled();
+    });
+
+    it('refuses native DjVu previews when the desktop bridge is missing', async () => {
+        const { createDjvuPagePreviewSourceFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+
+        await expect(createDjvuPagePreviewSourceFromPath('/Users/test/book.djvu'))
+            .rejects.toMatchObject({
+                name: 'PdfCombineCapabilityError',
+                code: 'native-unavailable',
+                operation: 'djvu-preview',
+            });
+
+        expect(mocks.loadDjvuJs).not.toHaveBeenCalled();
+        expect(mocks.createDocument).not.toHaveBeenCalled();
+    });
+
+    it('reads small browser DjVu files through ranges instead of the whole-read API', async () => {
+        const { createDjvuWorkerFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+        const ref = 'browser://documents/source/range-only.djvu';
+        mocks.stat.mockResolvedValue({size: 3});
+        mocks.read.mockRejectedValue(new Error('browser whole reads are forbidden'));
+        mocks.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+
+        await expect(createDjvuWorkerFromPath(ref)).resolves.toBeDefined();
+
+        expect(mocks.read).not.toHaveBeenCalled();
+        expect(mocks.readRange).toHaveBeenCalledWith(ref, 0, 3);
+        expect(mocks.createDocument).toHaveBeenCalledWith(new Uint8Array([
+            1,
+            2,
+            3,
+        ]).buffer, {});
     });
 
     it('prefers desktop documentFiles over legacy documents for desktop paths', async () => {
@@ -320,7 +369,8 @@ describe('createDjvuWorkerFromPath', () => {
         await createDjvuWorkerFromPath(ref);
 
         expect(mocks.stat).toHaveBeenCalledWith(ref);
-        expect(mocks.read).toHaveBeenCalledWith(ref);
+        expect(mocks.readRange).toHaveBeenCalledWith(ref, 0, 3);
+        expect(mocks.read).not.toHaveBeenCalled();
         expect(mocks.unload).toHaveBeenCalledWith(ref);
     });
 
@@ -501,6 +551,68 @@ describe('createDjvuWorkerFromPath', () => {
         expect(mocks.nativeRenderPagePreview).toHaveBeenCalled();
     });
 
+    it('keeps a byte-small desktop DjVu with too many pages on the native preview path', async () => {
+        const documentFiles = {
+            statFile: vi.fn(async () => ({size: 3})),
+            readFile: vi.fn(async () => new Uint8Array([
+                1,
+                2,
+                3,
+            ])),
+            readFileRange: vi.fn(async () => new Uint8Array([
+                1,
+                2,
+                3,
+            ])),
+        };
+        mocks.nativeGetInfo.mockResolvedValue({
+            pageCount: 10_001,
+            sourceDpi: 300,
+            hasBookmarks: false,
+            hasText: false,
+            metadata: {},
+        });
+        vi.stubGlobal('window', { electronAPI: createElectronPlatformApiFixture({
+            documentFiles,
+            djvu: {
+                getInfo: mocks.nativeGetInfo,
+                getPageSizes: mocks.nativeGetPageSizes,
+                renderPagePreview: mocks.nativeRenderPagePreview,
+            },
+        }) });
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn(() => 'blob:native-preview'),
+            revokeObjectURL: vi.fn(),
+        });
+        vi.stubGlobal('Blob', class {
+            public readonly parts: unknown[];
+            public readonly options: unknown;
+
+            constructor(parts: unknown[], options: unknown) {
+                this.parts = parts;
+                this.options = options;
+            }
+        });
+        const { createDjvuPagePreviewSourceFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+
+        const source = await createDjvuPagePreviewSourceFromPath('/Users/test/tiny-many-pages.djvu') as IDjvuPreviewSourceForTest;
+        await expect(source.renderPageObjectUrl(10_001)).resolves.toEqual({
+            objectUrl: 'blob:native-preview',
+            renderedPx: 100,
+        });
+
+        expect(mocks.nativeGetInfo).toHaveBeenCalledWith('/Users/test/tiny-many-pages.djvu');
+        expect(mocks.loadDjvuJs).not.toHaveBeenCalled();
+        expect(documentFiles.readFile).not.toHaveBeenCalled();
+        expect(documentFiles.readFileRange).not.toHaveBeenCalled();
+        expect(mocks.nativeRenderPagePreview).toHaveBeenCalledWith(
+            '/Users/test/tiny-many-pages.djvu',
+            10_001,
+            expect.objectContaining({previewRequestId: 'native-preview:10001:1'}),
+        );
+    });
+
     it('uses one native full-document search for a huge DjVu and forwards filtered progress', async () => {
         const documentFiles = {
             statFile: vi.fn(async () => ({size: 100 * 1024 * 1024})),
@@ -658,6 +770,7 @@ describe('createDjvuWorkerFromPath', () => {
     });
 
     it('keeps concurrent browser fallback consumers of the same page independent', async () => {
+        mocks.getPagesQuantity.mockResolvedValue(2);
         mocks.getPagesSizes.mockResolvedValue([
             {
                 width: 100,
@@ -724,13 +837,10 @@ describe('createDjvuWorkerFromPath', () => {
     });
 
     it('rejects browser DjVu documents above the interactive page-count cap', async () => {
-        mocks.getPagesSizes.mockResolvedValue(Array.from(
-            {length: 10_001},
-            () => ({
-                width: 100,
-                height: 200,
-            }),
-        ));
+        mocks.getPagesQuantity.mockResolvedValue(10_001);
+        mocks.getPagesSizes.mockImplementation(() => {
+            throw new Error('dense page-size access must not run');
+        });
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
         const source = await createDjvuPagePreviewSourceFromPath(
@@ -738,6 +848,8 @@ describe('createDjvuWorkerFromPath', () => {
         ) as IDjvuPreviewSourceForTest;
 
         await expect(source.getPageSizes!()).rejects.toThrow('capped at 10000 pages');
+        expect(mocks.getPagesQuantity).toHaveBeenCalledOnce();
+        expect(mocks.getPagesSizes).not.toHaveBeenCalled();
         source.terminate();
     });
 

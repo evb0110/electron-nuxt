@@ -8,6 +8,7 @@ import {
     mkdirSync,
     readFileSync,
     renameSync,
+    realpathSync,
     rmSync,
     statSync,
     symlinkSync,
@@ -150,8 +151,9 @@ describe('managed temporary file handles', () => {
         const aliasPath = join(directory, 'alias.pdf');
         symlinkSync(mocks.path, aliasPath);
 
-        expect(assertManagedTempPathAccess({senderId: 42}, mocks.path)).toBe(mocks.path);
-        expect(assertManagedTempPathAccess({senderId: 42}, aliasPath)).toBe(mocks.path);
+        const canonicalPath = realpathSync.native(mocks.path);
+        expect(assertManagedTempPathAccess({senderId: 42}, mocks.path)).toBe(canonicalPath);
+        expect(assertManagedTempPathAccess({senderId: 42}, aliasPath)).toBe(canonicalPath);
         expect(assertManagedTempPathAccess({senderId: 7}, aliasPath)).toBeNull();
         revokeManagedTempFileHandlesForSender(42);
         expect(assertManagedTempPathAccess({senderId: 42}, mocks.path)).toBeUndefined();

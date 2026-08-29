@@ -242,6 +242,10 @@ describe('usePdfImagePlacement', () => {
                     2,
                     3,
                 ])], 'image.png', { type: 'image/png' }),
+                {
+                    stableKey: 'placed-image-app-1',
+                    annotationId: '44R',
+                },
             );
             imagePlacement.updatePendingImagePlacementRect({
                 x: 0.1,
@@ -255,6 +259,8 @@ describe('usePdfImagePlacement', () => {
 
             expect(finalized).toHaveBeenCalledOnce();
             expect(finalized).toHaveBeenCalledWith(expect.objectContaining({
+                stableKey: 'placed-image-app-1',
+                annotationId: '44R',
                 pageNumber: 1,
                 x: 0.1,
                 y: 0.2,

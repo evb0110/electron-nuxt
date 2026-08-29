@@ -187,6 +187,7 @@ const PREVIEW_ADMISSION_REISSUED = new Error('Scan cleanup preview readmitted at
 const RASTER_PAGE_SOURCE_CACHE_LIMIT = 32;
 const RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES = 48;
 const PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES = 1_024;
+const PAGE_MEASUREMENT_CACHE_MAX_ENTRIES = 256;
 
 function normalizeDetectionProgress(progress: TScanCleanupProgress): TScanCleanupProgress {
     if (
@@ -932,12 +933,25 @@ export function createRawRasterRetention(dependencies: IScanCleanupPreviewDepend
         measure: () => Promise<TValue>,
     ) => resolveDocumentMeasurement(
         {
-            read: () => slots.get(pageNumber) ?? null,
+            read: () => {
+                const pending = slots.get(pageNumber);
+                if (pending !== undefined) {
+                    slots.delete(pageNumber);
+                    slots.set(pageNumber, pending);
+                }
+                return pending ?? null;
+            },
             write: value => {
                 if (value === null) {
                     slots.delete(pageNumber);
                 } else {
+                    slots.delete(pageNumber);
                     slots.set(pageNumber, value);
+                    while (slots.size > PAGE_MEASUREMENT_CACHE_MAX_ENTRIES) {
+                        const oldest = slots.keys().next().value;
+                        if (oldest === undefined) break;
+                        slots.delete(oldest);
+                    }
                 }
             },
         },
@@ -1007,28 +1021,34 @@ export function createRawRasterRetention(dependencies: IScanCleanupPreviewDepend
     const observePageSizeStore = (
         document: IRetainedDocument,
         store: IPdfPageSizeStore,
-    ): IPdfPageSizeStore => ({
-        get pageCount() {
-            return store.pageCount;
-        },
-        getPage: async pageNumber => {
-            const page = await store.getPage(pageNumber);
-            observePageSize(document, page);
-            return page;
-        },
-        readRange: async (firstPageNumber, lastPageNumberExclusive) => {
-            const pages = await store.readRange(firstPageNumber, lastPageNumberExclusive);
-            for (const page of pages) observePageSize(document, page);
-            return pages;
-        },
-        forEachChunk: async onChunk => {
-            await store.forEachChunk(async chunk => {
-                for (const page of chunk.pages) observePageSize(document, page);
-                await onChunk(chunk);
-            });
-        },
-        close: () => store.close(),
-    });
+    ): IPdfPageSizeStore => {
+        const fork = store.fork === undefined
+            ? undefined
+            : () => observePageSizeStore(document, store.fork!());
+        return {
+            get pageCount() {
+                return store.pageCount;
+            },
+            getPage: async pageNumber => {
+                const page = await store.getPage(pageNumber);
+                observePageSize(document, page);
+                return page;
+            },
+            readRange: async (firstPageNumber, lastPageNumberExclusive) => {
+                const pages = await store.readRange(firstPageNumber, lastPageNumberExclusive);
+                for (const page of pages) observePageSize(document, page);
+                return pages;
+            },
+            forEachChunk: async onChunk => {
+                await store.forEachChunk(async chunk => {
+                    for (const page of chunk.pages) observePageSize(document, page);
+                    await onChunk(chunk);
+                });
+            },
+            close: () => store.close(),
+            ...(fork === undefined ? {} : {fork}),
+        };
+    };
 
     const resolvePageSizeStore = async (
         document: IRetainedDocument,
@@ -1104,20 +1124,16 @@ export function createRawRasterRetention(dependencies: IScanCleanupPreviewDepend
                 // into an all-pages array fallback.
                 logger.warn(`Scan cleanup could not open page geometry for raster facts: ${getErrorMessage(error)}`);
             }
+            const rasterPageSizeStore = pageSizeStore?.fork?.() ?? pageSizeStore;
+            if (rasterPageSizeStore !== null && rasterPageSizeStore !== pageSizeStore) {
+                document.pageSizeStores.add(rasterPageSizeStore);
+            }
 
-            let pageReadTail = Promise.resolve();
             const readPageSize = async (pageNumber: number) => {
-                if (pageSizeStore === null) {
+                if (rasterPageSizeStore === null) {
                     return undefined;
                 }
-                let page: IPdfPageSize | undefined;
-                const store = pageSizeStore;
-                const read = pageReadTail.then(async () => {
-                    page = await store.getPage(pageNumber);
-                });
-                pageReadTail = read.then(() => undefined, () => undefined);
-                await read;
-                return page;
+                return rasterPageSizeStore.getPage(pageNumber);
             };
 
             const pageRasterCache = new Map<number, Promise<IDetectedPageRaster | undefined>>();

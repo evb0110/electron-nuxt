@@ -13,9 +13,9 @@
  * source sheets, renders that final PDF back to PREVIEW_DPI, and compares it
  * with native `renderMode: preview` / `canvasScope: page` outputs. Pass
  * --final-pdf and --detection-cache to reuse a previously generated reference.
- * --check exits nonzero when either preview weight-uniformity proxy differs by
- * more than 15% from the downsampled final, any normalized ink margin differs
- * by more than 3 percentage points, or either provisional/settled content-box
+ * --check exits nonzero when preview/final weight agreement differs by more
+ * than 15% of the measured stroke width, any normalized ink margin differs by
+ * more than 3 percentage points, or either provisional/settled content-box
  * overlay excludes more than 1% of ink (with no robust ink edge overrun above
  * 3%), or preview/final materialized placement differs. --preview-render-dpi
  * is a diagnostic-only override for isolating
@@ -113,7 +113,7 @@ function printUsage() {
         'Usage: node scripts/diagnostics/scan-cleanup-preview-harness.mjs --source <pdf> --pages <list> --out <dir> [flags]',
         '',
         'Flags:',
-        '  --check                       Enforce the 15% weight / 3% ink-margin guard',
+        '  --check                       Enforce the 15% weight-agreement / 3% ink-margin guard',
         '  --final-pdf <pdf>             Reuse this final conversion reference',
         '  --detection-cache <path>      Cache directory used by conversion/detection',
         '  --force-placement-offset-divergence  Diagnostic negative probe for placement identity',
@@ -430,7 +430,7 @@ function wordWeights(bitmap, bounds, bands) {
     return weights;
 }
 
-function weightUniformity(bitmap) {
+export function weightUniformity(bitmap) {
     const bounds = inkBounds(bitmap, METRIC_INK_THRESHOLD);
     if (!bounds) {
         return null;
@@ -459,6 +459,7 @@ function weightUniformity(bitmap) {
     const maximumLineWeight = quantile(bandWeights, 0.9);
     const wordMedian = quantile(words, 0.5);
     const wordAbsoluteDeviations = words.map(value => Math.abs(value - wordMedian));
+    const wordVariancePx = quantile(wordAbsoluteDeviations, 0.5);
     return {
         lineCount: bandWeights.length,
         lineMeanRunMinPx: round(minimumLineWeight),
@@ -469,7 +470,8 @@ function weightUniformity(bitmap) {
         ),
         wordCount: words.length,
         wordRunMedianPx: round(wordMedian),
-        wordVarianceProxy: round(quantile(wordAbsoluteDeviations, 0.5) / Math.max(0.01, wordMedian)),
+        wordVariancePx: round(wordVariancePx),
+        wordVarianceProxy: round(wordVariancePx / Math.max(0.01, wordMedian)),
     };
 }
 
@@ -477,32 +479,51 @@ function relativeDifference(left, right) {
     return Math.abs(left - right) / Math.max(Math.abs(right), 1e-6);
 }
 
-function boundedVarianceDifference(left, right) {
-    // A near-zero variance proxy is already visually uniform. Comparing two
-    // tiny residuals only relative to one another turns harmless antialiasing
-    // noise into a large percentage, so retain 0.1 as the perceptual floor.
-    return Math.abs(left - right) / Math.max(Math.abs(right), 0.1);
-}
-
-function compareMetrics(preview, final) {
+export function compareMetrics(preview, final) {
     if (!preview || !final) {
         return {
             measurable: false,
             weightDeviation: null,
         };
     }
+    // The proxy is a normalized spread, so comparing two near-zero proxies
+    // relatively turns subpixel rasterization noise into a large percentage.
+    // Compare the underlying absolute spread in pixels and normalize it by a
+    // representative measured stroke width instead. One-pixel quantization
+    // remains visible in the report without making a 0.03 proxy residual red.
+    const previewWordVariancePx = Number.isFinite(preview.wordVariancePx)
+        ? preview.wordVariancePx
+        : preview.wordVarianceProxy * preview.wordRunMedianPx;
+    const finalWordVariancePx = Number.isFinite(final.wordVariancePx)
+        ? final.wordVariancePx
+        : final.wordVarianceProxy * final.wordRunMedianPx;
+    const wordVarianceResidualPx = Math.abs(previewWordVariancePx - finalWordVariancePx);
+    const representativeWordRunPx = Math.max(
+        preview.wordRunMedianPx,
+        final.wordRunMedianPx,
+        1,
+    );
+    const lineRatioDeviation = relativeDifference(preview.lineMaxMinRatio, final.lineMaxMinRatio);
+    const wordVarianceDeviation = wordVarianceResidualPx / representativeWordRunPx;
     return {
         measurable: true,
-        lineRatioDeviation: round(relativeDifference(preview.lineMaxMinRatio, final.lineMaxMinRatio)),
-        wordVarianceDeviation: round(boundedVarianceDifference(
-            preview.wordVarianceProxy,
-            final.wordVarianceProxy,
-        )),
+        lineRatioDeviation: round(lineRatioDeviation),
+        wordVarianceResidualPx: round(wordVarianceResidualPx),
+        wordVarianceDeviation: round(wordVarianceDeviation),
         weightDeviation: round(Math.max(
-            relativeDifference(preview.lineMaxMinRatio, final.lineMaxMinRatio),
-            boundedVarianceDifference(preview.wordVarianceProxy, final.wordVarianceProxy),
+            lineRatioDeviation,
+            wordVarianceDeviation,
         )),
     };
+}
+
+export function weightAgreementViolations(weightComparison) {
+    if (!weightComparison.measurable) {
+        return ['weight-unmeasurable'];
+    }
+    return weightComparison.weightDeviation > WEIGHT_DEVIATION_LIMIT
+        ? ['preview-final-weight-agreement']
+        : [];
 }
 
 function compareMargins(preview, final) {
@@ -1242,11 +1263,7 @@ async function main() {
             const finalMargins = normalizedMargins(finalBitmap);
             const weightComparison = compareMetrics(previewWeight, finalWeight);
             const marginComparison = compareMargins(previewMargins, finalMargins);
-            const violations = [];
-            if (!weightComparison.measurable) violations.push('weight-unmeasurable');
-            else if (weightComparison.weightDeviation > WEIGHT_DEVIATION_LIMIT) {
-                violations.push('weight-uniformity');
-            }
+            const violations = weightAgreementViolations(weightComparison);
             if (marginComparison === null) violations.push('ink-margin-unmeasurable');
             else if (marginComparison.maximum > INK_MARGIN_LIMIT) violations.push('ink-margin');
             if (!previewLeaves[index].overlayContainment.pass) {
@@ -1350,8 +1367,10 @@ async function main() {
     if (args.check && violations.length > 0) process.exitCode = 1;
 }
 
-void main().catch(error => {
-    printUsage();
-    process.stderr.write(`preview harness failed: ${error instanceof Error ? error.stack : String(error)}\n`);
-    process.exitCode = 2;
-});
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    void main().catch(error => {
+        printUsage();
+        process.stderr.write(`preview harness failed: ${error instanceof Error ? error.stack : String(error)}\n`);
+        process.exitCode = 2;
+    });
+}

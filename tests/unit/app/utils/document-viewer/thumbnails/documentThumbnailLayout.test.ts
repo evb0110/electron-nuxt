@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO,
+    DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT,
     DocumentThumbnailLayout,
 } from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
 
@@ -39,6 +40,109 @@ describe('DocumentThumbnailLayout', () => {
         expect(range.startPage).toBeGreaterThan(1);
         expect(range.endPage - range.startPage).toBeLessThan(20);
         expect(layout.getTotalHeight()).toBeGreaterThan(10_000_000);
+    });
+
+    it('keeps large-document scroll segments bounded and reaches the last page', () => {
+        const pageCount = 138_000;
+        const layout = new DocumentThumbnailLayout({
+            pageCount,
+            renderWidth: 160,
+        });
+        const segmentCount = layout.getScrollSegmentCount();
+
+        expect(segmentCount).toBeGreaterThan(1);
+        expect(layout.getTotalHeight()).toBeGreaterThan(DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT);
+
+        let previousStartPage = 0;
+        for (let index = 0; index < segmentCount; index += 1) {
+            const segment = layout.getScrollSegment(index);
+            expect(segment.startPage).toBeGreaterThan(previousStartPage);
+            expect(segment.endPage).toBeGreaterThanOrEqual(segment.startPage);
+            expect(segment.height).toBeLessThanOrEqual(DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT);
+            expect(layout.resolvePageAtScrollOffsetInSegment(0, index)).toBe(segment.startPage);
+            expect(layout.resolvePageAtScrollOffsetInSegment(segment.height, index)).toBe(segment.endPage);
+            previousStartPage = segment.startPage;
+        }
+
+        const lastSegmentIndex = layout.getScrollSegmentIndexForPage(pageCount);
+        const lastSegment = layout.getScrollSegment(lastSegmentIndex);
+        expect(lastSegment.endPage).toBe(pageCount);
+        expect(layout.resolvePageAtScrollOffsetInSegment(lastSegment.height, lastSegmentIndex)).toBe(pageCount);
+        let previousPage = lastSegment.startPage;
+        for (const offset of [
+            0,
+            lastSegment.height * 0.25,
+            lastSegment.height * 0.5,
+            lastSegment.height * 0.75,
+            lastSegment.height,
+        ]) {
+            const page = layout.resolvePageAtScrollOffsetInSegment(offset, lastSegmentIndex) ?? lastSegment.startPage;
+            expect(page).toBeGreaterThanOrEqual(previousPage);
+            previousPage = page;
+        }
+        expect(
+            layout.getPageTopInScrollSegment(pageCount, lastSegmentIndex) + layout.getPageHeight(pageCount),
+        ).toBeLessThanOrEqual(lastSegment.height);
+    });
+
+    it('derives segment boundaries from physical geometry at wide and measured sizes', () => {
+        const pageCount = 138_000;
+        const layout = new DocumentThumbnailLayout({
+            pageCount,
+            renderWidth: 520,
+        });
+        const wideFirstSegment = layout.getScrollSegment(0);
+
+        expect(wideFirstSegment.endPage).toBeLessThan(16_384);
+        for (let index = 0; index < layout.getScrollSegmentCount(); index += 1) {
+            expect(layout.getScrollSegment(index).height).toBeLessThanOrEqual(
+                DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT,
+            );
+        }
+
+        const measured = new DocumentThumbnailLayout({
+            pageCount,
+            renderWidth: 520,
+        });
+        const measuredBefore = measured.getScrollSegment(0).endPage;
+        for (let page = 1; page <= 1_000; page += 1) {
+            measured.updatePageAspect(page, 2.4);
+        }
+        const measuredAfter = measured.getScrollSegment(0).endPage;
+
+        expect(measuredAfter).toBeLessThan(measuredBefore);
+        for (let index = 0; index < measured.getScrollSegmentCount(); index += 1) {
+            expect(measured.getScrollSegment(index).height).toBeLessThanOrEqual(
+                DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT,
+            );
+        }
+    });
+
+    it('returns adjacent segment transitions at physical scroll boundaries', () => {
+        const layout = new DocumentThumbnailLayout({
+            pageCount: 40_000,
+            renderWidth: 160,
+        });
+        const first = layout.getScrollSegment(0);
+        const next = layout.resolveScrollSegmentTransition(
+            first.height,
+            first.height - 12,
+            600,
+            0,
+        );
+
+        expect(next).toEqual({
+            segmentIndex: 1,
+            scrollTop: 0,
+        });
+        const previous = layout.resolveScrollSegmentTransition(
+            0,
+            12,
+            600,
+            1,
+        );
+        expect(previous?.segmentIndex).toBe(0);
+        expect(previous?.scrollTop).toBe(first.height - 600);
     });
 
     it('uses deterministic placeholders and replaces individual aspects from page metrics', () => {

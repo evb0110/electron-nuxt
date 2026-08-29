@@ -19,6 +19,7 @@ import {
     vi,
 } from 'vitest';
 import { mainJobBroker } from '@electron/resources/jobBroker';
+import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
 
 const mocks = vi.hoisted(() => ({
     getDjvuNativeToolPaths: vi.fn(),
@@ -230,8 +231,68 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
                 '--compact-manifest',
                 join(tempDir, 'compact-manifest.jsonl'),
             ]),
-            expect.objectContaining({env: expect.objectContaining({EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(Number.MAX_SAFE_INTEGER)})}),
+            expect.objectContaining({env: expect.objectContaining({EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(16 * 1024 * 1024)})}),
         );
+    });
+
+    it('refuses compact native output above the shared combine cap', async () => {
+        setDjvuDump([{
+            pageNumber: 1,
+            pageBytes: 32_705,
+            maskBytes: 512,
+            background: true,
+        }]);
+        mocks.runRegisteredDjvuProcess.mockImplementationOnce(async (
+            _processId: string,
+            _command: string,
+            args: string[],
+        ) => {
+            const outputPath = args[args.indexOf('--output') + 1]!;
+            await writeFile(outputPath, new Uint8Array(PDF_COMBINE_MAX_OUTPUT_BYTES + 1));
+            return {success: true};
+        });
+
+        await expect(buildCompactDjvuAwarePdfFromDjvu({
+            jobId: 'job-output-cap',
+            djvuPath: join(tempDir, 'input.djvu'),
+            outputPath: join(tempDir, 'oversized.pdf'),
+            tempDir,
+            pageCount: 1,
+            sourceDpi: 300,
+            pageSizes: pageSizes(1),
+            pages: [1],
+        })).rejects.toMatchObject({
+            code: 'too-large',
+            name: 'SerializableError',
+        });
+    });
+
+    it('preserves a typed native output-cap failure from the compact combiner', async () => {
+        setDjvuDump([{
+            pageNumber: 1,
+            pageBytes: 32_705,
+            maskBytes: 512,
+            background: true,
+        }]);
+        mocks.runRegisteredDjvuProcess.mockImplementationOnce(async () => ({
+            success: false,
+            error: 'Image-combine output exceeded the shared cap',
+            cause: {code: 'too-large'},
+        }));
+
+        await expect(buildCompactDjvuAwarePdfFromDjvu({
+            jobId: 'job-native-output-cap',
+            djvuPath: join(tempDir, 'input.djvu'),
+            outputPath: join(tempDir, 'native-output-cap.pdf'),
+            tempDir,
+            pageCount: 1,
+            sourceDpi: 300,
+            pageSizes: pageSizes(1),
+            pages: [1],
+        })).rejects.toMatchObject({
+            code: 'too-large',
+            name: 'SerializableError',
+        });
     });
 
     it('keeps progress moving during native PDF assembly', async () => {

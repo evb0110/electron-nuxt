@@ -9,7 +9,10 @@ import {
     type IPdfSaveRouteCapabilities,
 } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
 import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
-import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {
+    AnnotationEntity,
+    ITextMarkupEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {IShapeAnnotation} from '@app/types/annotations';
 import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { ISerializationPlanInputs } from '@app/modules/pdf-viewer/serialization/serializationPlan';
@@ -81,7 +84,7 @@ function cleanEditorNote(id: string): AnnotationEntity {
     };
 }
 
-function editorMarkup(id: string): AnnotationEntity {
+function editorMarkup(id: string): ITextMarkupEntity {
     return {
         kind: 'text-markup',
         identity: {id: asAnnotationId(id)},
@@ -143,7 +146,7 @@ function deletedMarkup(
     };
 }
 
-function embeddedMarkup(id: string, pdfRef: string): AnnotationEntity {
+function embeddedMarkup(id: string, pdfRef: string): ITextMarkupEntity {
     return {
         ...editorMarkup(id),
         identity: {
@@ -366,6 +369,53 @@ describe('classifyPdfSaveRoute annotation routes', () => {
 });
 
 describe('classifyPdfSaveRoute native-append grant', () => {
+    it('projects an imported markup note-only edit through the bounded native route', () => {
+        const markup: AnnotationEntity = {
+            ...embeddedMarkup('imported-markup-note', '44R'),
+            revision: 1,
+            text: 'Edited imported note',
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([markup]),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'imported-markup-note',
+                        '44R',
+                    ]),
+                    hasChanges: true,
+                    fingerprint: 'imported-markup-note-only',
+                }),
+                markupSubtypeHints: [{
+                    subtype: 'Highlight',
+                    pageIndex: 0,
+                    markerRect: MARKER_RECT,
+                    consumed: false,
+                    annotationId: '44R',
+                    color: null,
+                    pageMarkupIndex: 0,
+                    source: 'pdf',
+                }],
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.mutations.markup?.hints).toContainEqual(
+            expect.objectContaining({
+                annotationId: '44R',
+                contents: 'Edited imported note',
+            }),
+        );
+    });
+
     it('covers every live identity alias for a newly authored markup', () => {
         const markup = editorMarkupWithRuntimeIdentity('anno_new_markup');
         const decision = classifyPdfSaveRoute(
@@ -856,6 +906,54 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             generationNumber: 0,
             text: 'text-anno_note',
         })]});
+    });
+
+    it('projects imported FreeText geometry and style edits through the native editor route', () => {
+        const importedEditor: IPdfNativeFreeTextEditor = {
+            pageIndex: requirePageIndex(0),
+            stableKey: 'pdf-ref-44R',
+            annotationId: '44R',
+            text: 'edited imported text',
+            rect: [
+                20,
+                30,
+                180,
+                80,
+            ],
+            rotation: 0,
+            fontSize: 18,
+            color: [
+                17,
+                24,
+                39,
+            ],
+        };
+        const clean = cleanEmbeddedFreeTextNote('imported-freetext', '44R');
+        const decision = classifyPdfSaveRoute(
+            planOf([], [clean]),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set(['44R']),
+                    nativeFreeTextEditors: new Map([[
+                        '44R',
+                        importedEditor,
+                    ]]),
+                    hasChanges: true,
+                    fingerprint: 'imported-freetext-style-edit',
+                }),
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.mutations.freeTextEditors).toEqual([importedEditor]);
     });
 
     it('covers every PDF.js identity alias when a saved sticky note has a native text update', () => {

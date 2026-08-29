@@ -11,7 +11,10 @@ import {
     type IStickyNoteEntity,
     type ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type { IShapeAnnotation } from '@app/types/annotations';
+import type {
+    IAnnotationCommentSummary,
+    IShapeAnnotation,
+} from '@app/types/annotations';
 
 const pdfjsMocks = vi.hoisted(() => ({
     configureWorker: vi.fn(),
@@ -116,6 +119,35 @@ function textMarkup(overrides: Partial<ITextMarkupEntity> = {}): ITextMarkupEnti
     };
 }
 
+function placedImageSummary(
+    overrides: Partial<IAnnotationCommentSummary> = {},
+): IAnnotationCommentSummary {
+    return {
+        source: 'pdf',
+        id: '44R',
+        stableKey: 'nm:placed-image-app-1',
+        pageIndex: 2,
+        pageNumber: 3,
+        text: '',
+        subtype: 'Stamp',
+        author: null,
+        createdAt: null,
+        modifiedAt: null,
+        color: null,
+        uid: null,
+        annotationId: '44R',
+        annotationName: 'placed-image-app-1',
+        hasNote: false,
+        markerRect: {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.4,
+        },
+        ...overrides,
+    };
+}
+
 describe('AnnotationApplication', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -206,6 +238,112 @@ describe('AnnotationApplication', () => {
             'pdfjs-editor-2',
         ]));
         expect(application.store.get(transientId)?.deleted).toBe(false);
+    });
+
+    it('imports an app-owned no-note Stamp as a placed image and preserves its NM across reopen', () => {
+        const application = new AnnotationApplication('document');
+        const imported = placedImageSummary();
+
+        application.ingestLegacySummaries([imported]);
+
+        const [entity] = application.store.list();
+        expect(entity).toMatchObject({
+            kind: 'placed-image',
+            pageIndex: 2,
+            identity: {
+                pdfName: 'placed-image-app-1',
+                pdfRef: '44R',
+            },
+        });
+
+        const [projected] = application.listCommentSummaries();
+        expect(projected).toMatchObject({
+            source: 'pdf',
+            appAnnotationId: entity?.identity.id,
+            annotationId: '44R',
+            annotationName: 'placed-image-app-1',
+            subtype: 'Stamp',
+            hasNote: false,
+            markerRect: imported.markerRect,
+        });
+        expect(application.projectSummaries([{
+            ...projected!,
+            hasNote: true,
+        }])[0]?.hasNote).toBe(false);
+
+        const reopened = new AnnotationApplication('document');
+        const reopenedSummary = placedImageSummary({
+            id: '91R',
+            annotationId: '91R',
+            markerRect: {
+                left: 0.2,
+                top: 0.3,
+                width: 0.4,
+                height: 0.5,
+            },
+        });
+        reopened.ingestLegacySummaries([reopenedSummary]);
+
+        const [reopenedEntity] = reopened.store.list();
+        if (!reopenedEntity || reopenedEntity.kind !== 'placed-image') {
+            throw new Error('Expected a placed-image entity after reopen');
+        }
+        expect(reopenedEntity.identity.id).toBe(entity?.identity.id);
+        expect(reopenedEntity?.identity.pdfRef).toBe('91R');
+        expect(reopenedEntity.rect).toEqual(reopenedSummary.markerRect);
+        expect(reopened.annotationIdForSummary(reopenedSummary))
+            .toBe(reopenedEntity?.identity.id);
+        expect(reopened.store.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
+    it('keeps sticky-note projection note-bearing', () => {
+        const application = new AnnotationApplication('document');
+        application.store.import(note());
+        const [summary] = application.listCommentSummaries();
+
+        expect(application.projectSummaries([{
+            ...summary!,
+            hasNote: false,
+        }])[0]?.hasNote).toBe(true);
+    });
+
+    it('fails closed when one PDF snapshot repeats a placed-image NM', () => {
+        const application = new AnnotationApplication('document');
+
+        application.ingestLegacySummaries([
+            placedImageSummary(),
+            placedImageSummary({
+                id: '45R',
+                annotationId: '45R',
+            }),
+        ]);
+
+        expect(application.store.list()).toEqual([]);
+        expect(application.listCommentSummaries()).toEqual([]);
+        expect(application.legacyIdentityConflicts.size).toBe(2);
+    });
+
+    it('ignores third-party Stamp summaries without the app-owned placed-image NM prefix', () => {
+        const application = new AnnotationApplication('document');
+
+        application.ingestLegacySummaries([placedImageSummary({
+            annotationName: 'Approved',
+            stableKey: 'nm:Approved',
+        })]);
+
+        expect(application.store.list()).toEqual([]);
+    });
+
+    it('fails closed when a placed-image ref disagrees with its imported NM', () => {
+        const application = new AnnotationApplication('document');
+        application.ingestLegacySummaries([placedImageSummary()]);
+        const [projected] = application.listCommentSummaries();
+
+        expect(application.annotationIdForSummary({
+            ...projected!,
+            id: '99R',
+            annotationId: '99R',
+        })).toBeNull();
     });
 
     it('does not rebind a retired PDF ref from a restored editor summary', () => {

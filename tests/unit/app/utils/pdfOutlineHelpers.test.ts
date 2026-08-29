@@ -137,6 +137,60 @@ describe('pdfOutlineHelpers', () => {
         expect(countOutlineDepth(items)).toBeLessThanOrEqual(256);
     });
 
+    it('preserves more than ten thousand sibling outline entries', () => {
+        const source = Array.from({length: 10_001}, (_, index) => ({title: `entry-${index}`}));
+
+        const items = parseOutlineItems(source);
+
+        expect(items).toHaveLength(10_001);
+        expect(items[0]?.title).toBe('entry-0');
+        expect(items[10_000]?.title).toBe('entry-10000');
+    });
+
+    it('projects more than ten thousand pending bookmark entries without truncation', () => {
+        const source = Array.from({length: 10_001}, (_, index) => ({
+            title: `entry-${index}`,
+            pageIndex: index,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        }));
+
+        let id = 0;
+        const items = buildOutlineFromBookmarkEntries(source, () => {
+            const currentId = id;
+            id += 1;
+            return `bookmark-${currentId}`;
+        });
+
+        expect(items).toHaveLength(10_001);
+        expect(items[10_000]?.title).toBe('entry-10000');
+    });
+
+    it('resolves more than ten thousand PDF outline entries without truncation', async () => {
+        const source = Array.from({length: 10_001}, (_, index) => ({title: `entry-${index}`}));
+        const rawItems = parseOutlineItems(source);
+        const pdfDocument = createPdfDocumentStub();
+        let id = 0;
+
+        const items = await buildResolvedOutline(
+            rawItems,
+            pdfDocument,
+            new Map(),
+            new Map(),
+            () => {
+                const currentId = id;
+                id += 1;
+                return `bookmark-${currentId}`;
+            },
+        );
+
+        expect(items).toHaveLength(10_001);
+        expect(items[10_000]?.title).toBe('entry-10000');
+    });
+
     it('resolves deeply nested outlines without recursive stack growth', async () => {
         const pdfDoc = createPdfDocumentStub();
         const rawItems = parseOutlineItems([createDeepRawOutline(320)]);

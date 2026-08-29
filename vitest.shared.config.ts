@@ -26,6 +26,7 @@ const vitestProjectNames = {
     unitPolicy: 'unit-policy',
     unitStaticArchitecture: 'unit-static-architecture',
     browserIntegration: 'browser-integration',
+    nativeIntegration: 'native-integration',
     electronBundleStaticIntegrity: 'electron-bundle-static-integrity',
     electronE2ERegression: 'e2e-regression',
     electronE2EBlockingSmoke: 'e2e-blocking-smoke',
@@ -35,6 +36,8 @@ const vitestProjectNames = {
     electronE2EVisibleWindow: 'e2e-visible-window',
     electronE2EQuarantine: 'e2e-quarantine',
     electronE2ESavePipeline: 'e2e-save-pipeline',
+    electronE2ENativeSaveReopen: 'e2e-native-save-reopen',
+    electronE2EXlargePdf: 'e2e-xlarge-pdf',
 } as const;
 
 const electronBundleStaticIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
@@ -97,6 +100,7 @@ const electronE2EBlockingSmokeTestFiles = [
     'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
     'tests/e2e/electron/scanCleanupToolbarContract.e2e.test.ts',
 ];
+const electronE2ENativeSaveReopenTestFiles = ['tests/e2e/electron/nativeSaveReopen.e2e.test.ts'];
 const electronE2EDrawShapeTestFiles = [
     'tests/e2e/electron/annotationStrokeParity.e2e.test.ts',
     'tests/e2e/electron/drawShapeLifecycle.e2e.test.ts',
@@ -113,10 +117,16 @@ const electronE2ERapidNavigationTestFiles = [
 ];
 const electronE2EVisibleWindowTestFiles = ['tests/e2e/electron/visibleWindowLifecycle.e2e.test.ts'];
 const electronE2EQuarantineTestFiles = ['tests/e2e/electron/quarantine/**/*.e2e.test.ts'];
+const electronE2EQuarantineOperatorDiagnosticFiles = [
+    'tests/e2e/electron/quarantine/scanCleanupAppTruthProbe.e2e.test.ts',
+    'tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts',
+    'tests/e2e/electron/quarantine/scanCleanupUniformity.e2e.test.ts',
+];
 const electronE2ESavePipelineTestFiles = [
     'tests/e2e/electron/savePipeline.e2e.test.ts',
     'tests/e2e/electron/savePipelineBenchmark.e2e.test.ts',
 ];
+const electronE2EXlargePdfTestFiles = ['tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts'];
 
 function createUnitAutoImportPlugin() {
     return AutoImport({
@@ -183,12 +193,14 @@ function createBundleIntegrityTestProject() {
 function createElectronE2ETestProject(
     name: string,
     include: string[],
+    {exclude = []}: {exclude?: string[]} = {},
 ) {
     return {
         resolve: vitestResolveConfig,
         test: {
             name,
             include,
+            ...(exclude.length > 0 ? {exclude} : {}),
             ...(name === vitestProjectNames.electronE2EBlockingSmoke
                 ? {env: {EVB_PR_SMOKE_SCOPE: 'blocking'}}
                 : {}),
@@ -229,6 +241,11 @@ export const vitestProjects = [
             'tests/unit/server/**/*.test.ts',
         ],
         { autoImport: true },
+    ),
+    createUnitTestProject(
+        vitestProjectNames.nativeIntegration,
+        ['tests/integration/native/**/*.test.ts'],
+        {setupFiles: unitTestSetupFiles},
     ),
     createUnitTestProject(
         vitestProjectNames.browserIntegration,
@@ -281,6 +298,12 @@ export const vitestProjects = [
     createElectronE2ETestProject(vitestProjectNames.electronE2ELargePdf, electronE2ELargePdfTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2ERapidNavigation, electronE2ERapidNavigationTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2EVisibleWindow, electronE2EVisibleWindowTestFiles),
-    createElectronE2ETestProject(vitestProjectNames.electronE2EQuarantine, electronE2EQuarantineTestFiles),
+    createElectronE2ETestProject(
+        vitestProjectNames.electronE2EQuarantine,
+        electronE2EQuarantineTestFiles,
+        {exclude: electronE2EQuarantineOperatorDiagnosticFiles},
+    ),
     createElectronE2ETestProject(vitestProjectNames.electronE2ESavePipeline, electronE2ESavePipelineTestFiles),
+    createElectronE2ETestProject(vitestProjectNames.electronE2ENativeSaveReopen, electronE2ENativeSaveReopenTestFiles),
+    createElectronE2ETestProject(vitestProjectNames.electronE2EXlargePdf, electronE2EXlargePdfTestFiles),
 ] satisfies TestProjectConfiguration[];

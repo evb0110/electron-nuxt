@@ -16,6 +16,11 @@ export const useDocxExport = () => {
 
     const isExportingDocx = ref(false);
     const docxExportError = ref<string | null>(null);
+    let activeAbortController: AbortController | null = null;
+
+    function cancelDocxExport() {
+        activeAbortController?.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
+    }
 
     async function exportDocx(params: {
         workingCopyPath: TDocumentRef | null;
@@ -30,6 +35,8 @@ export const useDocxExport = () => {
         const selectedLanguages = params.selectedLanguages ?? [];
         isExportingDocx.value = true;
         docxExportError.value = null;
+        const abortController = new AbortController();
+        activeAbortController = abortController;
 
         try {
             const hasRtl = hasRtlOcrLanguage(selectedLanguages);
@@ -37,6 +44,7 @@ export const useDocxExport = () => {
                 workingCopyPath: params.workingCopyPath,
                 documentRevisionToken: params.documentRevisionToken,
                 pdfDocument: params.pdfDocument,
+                signal: abortController.signal,
                 hasRtl,
                 buildDocx: createDocxFromTextAsync,
                 buildDocxChunks: createDocxFromTextChunks,
@@ -56,7 +64,10 @@ export const useDocxExport = () => {
                 },
             });
         } finally {
-            isExportingDocx.value = false;
+            if (activeAbortController === abortController) {
+                activeAbortController = null;
+                isExportingDocx.value = false;
+            }
         }
     }
 
@@ -64,10 +75,17 @@ export const useDocxExport = () => {
         docxExportError.value = null;
     }
 
+    if (getCurrentScope()) {
+        onScopeDispose(() => {
+            activeAbortController?.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
+        });
+    }
+
     return {
         isExportingDocx,
         docxExportError,
         exportDocx,
+        cancelDocxExport,
         clearDocxExportError,
     };
 };

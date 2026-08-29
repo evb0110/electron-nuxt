@@ -641,7 +641,7 @@ describe('serializePdfEdits embedded geometric shapes', () => {
         const doc = await PDFDocument.load(result, { updateMetadata: false });
 
         expect(getPageAnnotRefs(doc).map(ref => ref.toString())).toEqual([squareRef.toString()]);
-        expect(getAnnotDict(doc, lineRef)).toBeInstanceOf(PDFDict);
+        expect(getAnnotDict(doc, lineRef)).toBeUndefined();
     });
 
     it('applies a canonical shape delete through the shape backend without the live shape channel', async () => {
@@ -723,7 +723,7 @@ describe('serializePdfEdits embedded geometric shapes', () => {
         const doc = await PDFDocument.load(result, { updateMetadata: false });
 
         expect(getPageAnnotRefs(doc)).toHaveLength(0);
-        expect(getAnnotDict(doc, stampRef)).toBeInstanceOf(PDFDict);
+        expect(getAnnotDict(doc, stampRef)).toBeUndefined();
     });
 
     it('treats managed geometric annotations as canonical overlay state on save', async () => {

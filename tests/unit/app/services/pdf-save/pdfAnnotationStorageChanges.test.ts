@@ -583,6 +583,53 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
         expect(result.hasUnknownChanges).toBe(false);
     });
 
+    it('captures an edited imported FreeText box by its existing PDF identity', () => {
+        const document = {annotationStorage: {
+            serializable: {map: new Map([[
+                'pdfjs_internal_editor_4',
+                {
+                    annotationType: 3,
+                    annotationId: '44R',
+                    pageIndex: 7,
+                    rect: [
+                        20,
+                        30,
+                        180,
+                        80,
+                    ],
+                    rotation: 0,
+                    color: [
+                        17,
+                        24,
+                        39,
+                    ],
+                    fontSize: 18,
+                    value: 'edited imported text',
+                },
+            ]])},
+            modifiedIds: {ids: new Set(['pdfjs_internal_editor_4'])},
+        }} as never;
+
+        const result = collectLivePdfJsAnnotationChangeIds(document);
+
+        expect(result.ids).toEqual(new Set(['44R']));
+        expect(result.nativeFreeTextEditors).toEqual(new Map([[
+            '44R',
+            expect.objectContaining({
+                annotationId: '44R',
+                pageIndex: 7,
+                text: 'edited imported text',
+                rect: [
+                    20,
+                    30,
+                    180,
+                    80,
+                ],
+            }),
+        ]]));
+        expect(result.hasUnknownChanges).toBe(false);
+    });
+
     it('removes PDF.js invisible placeholders from a native FreeText mutation', () => {
         const document = {annotationStorage: {
             serializable: {map: new Map([[

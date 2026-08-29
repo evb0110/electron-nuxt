@@ -17,8 +17,10 @@ repro, deflake, or harness change.
   static architecture policy gate verifies that every quarantine spec is
   accounted for, while operator-only diagnostics are listed separately and do
   not count as graduation evidence.
-- This directory may intentionally contain zero tests; the quarantine Vitest
-  project is run with `--passWithNoTests` for that state.
+- The quarantine project runs through `scripts/ci/runElectronQuarantine.ts`.
+  Its JSON report must contain at least one assertion, and every assertion must
+  pass. The wrapper fails on failed, pending, skipped, or todo assertions, and
+  on missing, empty, malformed, or internally inconsistent report counters.
 
 The scan-cleanup AppTruth and uniformity probes remain available as
 operator-only diagnostics. They require an operator-supplied PDF through their

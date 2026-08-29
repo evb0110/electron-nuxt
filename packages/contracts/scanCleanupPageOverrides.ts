@@ -19,6 +19,22 @@ export const DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE: Readonly<IScanCleanupPageOverri
     manualSplit: null,
 });
 
+export const SCAN_CLEANUP_OUTPUT_HALVES = [
+    'full',
+    'left',
+    'right',
+] as const satisfies readonly TScanCleanupOutputHalf[];
+
+export function usesScanCleanupInkAlignment(options: IScanCleanupOptions) {
+    return options.matchPageSize
+        && (options.pageAlignment === 'ink'
+            || Object.values(options.pageOverrideDefaults?.placementOverrides ?? {})
+                .some(alignment => alignment === 'ink')
+            || Object.values(options.pageOverrides).some(override => Object
+                .values(override?.placementOverrides ?? {})
+                .some(alignment => alignment === 'ink')));
+}
+
 // The options object crosses both Vue reactivity and worker structured-clone
 // boundaries. Keep the renderer-only association out of the page map so the
 // map remains a plain sparse record, and carry the scalar through options as

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Canonical annotation state and its history transitions must remain one transaction boundary. */
 import type {
     IAnnotationMarkerRect,
     IShapeAnnotation,
@@ -242,7 +243,9 @@ export class AnnotationStore {
      */
     setNoteText(id: AnnotationId, text: string) {
         return this.#update(id, (entity) => {
-            if (entity.kind === 'shape') throw new Error('setNoteText requires a note-bearing annotation');
+            if (entity.kind === 'shape' || entity.kind === 'placed-image') {
+                throw new Error('setNoteText requires a note-bearing annotation');
+            }
             return {
                 ...entity,
                 text: normalizeAnnotationText(text),
@@ -262,6 +265,9 @@ export class AnnotationStore {
                     ...entity,
                     geometry,
                 };
+            }
+            if (entity.kind === 'placed-image') {
+                throw new Error('setStyle requires a styled annotation');
             }
             return {
                 ...entity,
@@ -598,6 +604,7 @@ export class AnnotationStore {
                 entity.persistedRevision >= 0
                 || entity.deleted
                 || entity.kind === 'shape'
+                || entity.kind === 'placed-image'
                 || presentIds.has(entity.identity.id)
                 || !this.#pdfjsObservedTransientIds.has(entity.identity.id)
             ) {
@@ -615,6 +622,7 @@ export class AnnotationStore {
                 entity.persistedRevision < 0
                 && !entity.deleted
                 && entity.kind !== 'shape'
+                && entity.kind !== 'placed-image'
                 && presentIds.has(entity.identity.id)
             ) {
                 this.#pdfjsObservedTransientIds.add(entity.identity.id);

@@ -9,6 +9,7 @@ import type {
     IAnnotationMutationVisualEffectsState,
 } from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationVisualEffects.types';
 import { tryOnScopeDispose } from '@vueuse/core';
+import {findUniqueAnnotationComment} from '@app/modules/pdf-viewer/runtime/annotations/findUniqueAnnotationComment';
 
 interface IUseAnnotationMutationVisualEffectsOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -40,15 +41,19 @@ export const useAnnotationMutationVisualEffects = (options: IUseAnnotationMutati
         }
         const stableKey = effect.stableKey?.trim();
         if (stableKey) {
-            const byStableKey = options.annotationCommentsCache.value.find(comment => comment.stableKey === stableKey);
+            const byStableKey = findUniqueAnnotationComment(
+                options.annotationCommentsCache.value,
+                comment => comment.stableKey === stableKey,
+            );
             if (byStableKey) {
                 return byStableKey;
             }
         }
         const annotationId = normalizePdfJsAnnotationId(effect.annotationId);
         if (annotationId) {
-            const byAnnotationId = options.annotationCommentsCache.value.find(comment =>
-                normalizePdfJsAnnotationId(comment.annotationId) === annotationId,
+            const byAnnotationId = findUniqueAnnotationComment(
+                options.annotationCommentsCache.value,
+                comment => normalizePdfJsAnnotationId(comment.annotationId) === annotationId,
             );
             if (byAnnotationId) {
                 return byAnnotationId;

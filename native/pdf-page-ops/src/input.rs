@@ -1,5 +1,10 @@
 use super::*;
 
+const MAX_NOTE_TEXT_UPDATES: usize = 256;
+const MAX_NOTE_CHANGES: usize = 256;
+const MAX_FREE_TEXT_EDITORS: usize = 256;
+const MAX_PAGE_LABEL_RANGES: usize = 2_048;
+
 pub(crate) fn parse_margin(value: &str, label: &str) -> Result<f64> {
     let parsed = value.parse::<f64>()?;
     if !parsed.is_finite() || parsed < 0.0 {
@@ -60,6 +65,12 @@ pub(crate) fn read_note_text_updates(path: &Path) -> Result<Vec<NoteTextUpdate>>
     let parsed: NoteTextUpdatesFile = read_json_sidecar(path, "note text updates")?;
     if parsed.updates.is_empty() {
         return Err("At least one note text update is required".into());
+    }
+    if parsed.updates.len() > MAX_NOTE_TEXT_UPDATES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("Too many note text updates (maximum {MAX_NOTE_TEXT_UPDATES})"),
+        ));
     }
     for update in &parsed.updates {
         if update.object_number == 0 {
@@ -154,6 +165,11 @@ pub(crate) fn read_note_changes(path: &Path) -> Result<NoteChangesFile> {
         }
     }
     validate_free_text_notes(&parsed.free_text_notes)?;
+    validate_note_change_caps(
+        parsed.updates.len(),
+        parsed.free_text_notes.len(),
+        parsed.deletes.len(),
+    )?;
     validate_annotation_deletes(&parsed.deletes)?;
     validate_mutation_collection_budget(&[
         parsed.updates.len(),
@@ -167,6 +183,12 @@ pub(crate) fn read_note_changes(path: &Path) -> Result<NoteChangesFile> {
 pub(crate) fn validate_page_labels_mutation(page_labels: &PageLabelsMutation) -> Result<()> {
     if page_labels.total_pages == 0 {
         return Err("Invalid page-label page count".into());
+    }
+    if page_labels.ranges.len() > MAX_PAGE_LABEL_RANGES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("Too many page-label ranges (maximum {MAX_PAGE_LABEL_RANGES})"),
+        ));
     }
     for range in &page_labels.ranges {
         if range.start_page == 0 || range.start_number == 0 {
@@ -426,6 +448,7 @@ pub(crate) fn validate_markup_mutation(markup: &MarkupMutation) -> Result<()> {
         for value in [
             hint.annotation_id.as_deref(),
             hint.color.as_deref(),
+            hint.contents.as_deref(),
             hint.id.as_deref(),
             hint.source.as_deref(),
         ]
@@ -451,6 +474,20 @@ pub(crate) fn validate_placed_images(images: &[PlacedImage]) -> Result<()> {
         ));
     }
     for image in images {
+        if image
+            .stable_key
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty() || value.len() > 2_048)
+        {
+            return Err("Invalid placed image stable key".into());
+        }
+        if image
+            .annotation_id
+            .as_deref()
+            .is_some_and(|value| parse_pdfjs_annotation_object_id(value).is_none())
+        {
+            return Err("Invalid placed image annotation id".into());
+        }
         if !image.mime_type.eq_ignore_ascii_case("image/jpeg") {
             return Err("Native placed images only support JPEG payloads".into());
         }
@@ -488,6 +525,7 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
     {
         return Err("At least one native PDF mutation is required".into());
     }
+    validate_native_mutation_continuation(&parsed)?;
     for update in &parsed.updates {
         if update.object_number == 0 {
             return Err("Invalid note update object number".into());
@@ -496,6 +534,17 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
     validate_free_text_notes(&parsed.free_text_notes)?;
     validate_free_text_editors(&parsed.free_text_editors)?;
     validate_annotation_deletes(&parsed.deletes)?;
+    validate_note_change_caps(
+        parsed.updates.len(),
+        parsed.free_text_notes.len(),
+        parsed.deletes.len(),
+    )?;
+    if parsed.free_text_editors.len() > MAX_FREE_TEXT_EDITORS {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("Too many FreeText editors (maximum {MAX_FREE_TEXT_EDITORS})"),
+        ));
+    }
     if let Some(page_labels) = &parsed.page_labels {
         validate_page_labels_mutation(page_labels)?;
     }
@@ -531,6 +580,82 @@ fn validate_mutation_collection_budget(lengths: &[usize]) -> Result<()> {
             format!(
                 "Mutation collections exceed the {MAX_COLLECTION_ITEMS}-item admission ceiling"
             ),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_note_change_caps(updates: usize, free_text_notes: usize, deletes: usize) -> Result<()> {
+    if updates > MAX_NOTE_TEXT_UPDATES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("Too many note text updates (maximum {MAX_NOTE_TEXT_UPDATES})"),
+        ));
+    }
+    if free_text_notes > MAX_NOTE_CHANGES || deletes > MAX_NOTE_CHANGES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("Too many note changes (maximum {MAX_NOTE_CHANGES} per family)"),
+        ));
+    }
+    let total = updates
+        .checked_add(free_text_notes)
+        .and_then(|value| value.checked_add(deletes))
+        .unwrap_or(usize::MAX);
+    if total > MAX_NOTE_CHANGES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("Too many note changes (maximum {MAX_NOTE_CHANGES})"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_native_mutation_continuation(mutations: &NativeMutationsFile) -> Result<()> {
+    let Some(continuation) = mutations.continuation.as_ref() else {
+        return Ok(());
+    };
+    if continuation.chunk_count < 2
+        || continuation.chunk_index == 0
+        || continuation.chunk_index >= continuation.chunk_count
+    {
+        return Err(domain_error(
+            NativeErrorCode::InvalidRequest,
+            "Invalid native mutation continuation bounds",
+        ));
+    }
+    if continuation.bookmark_path.len() > 64
+        || continuation
+            .bookmark_path
+            .iter()
+            .any(|index| *index >= u32::try_from(MAX_COLLECTION_ITEMS).unwrap_or(u32::MAX))
+        || continuation.family != NativeMutationContinuationFamily::Bookmarks
+            && !continuation.bookmark_path.is_empty()
+    {
+        return Err(domain_error(
+            NativeErrorCode::InvalidRequest,
+            "Invalid native bookmark continuation path",
+        ));
+    }
+    let has_family_payload = match continuation.family {
+        NativeMutationContinuationFamily::Notes => {
+            !mutations.updates.is_empty()
+                || !mutations.free_text_notes.is_empty()
+                || !mutations.deletes.is_empty()
+        }
+        NativeMutationContinuationFamily::FreeTextEditors => {
+            !mutations.free_text_editors.is_empty()
+        }
+        NativeMutationContinuationFamily::PageLabels => mutations.page_labels.is_some(),
+        NativeMutationContinuationFamily::Bookmarks => mutations.bookmarks.is_some(),
+        NativeMutationContinuationFamily::Shapes => mutations.shapes.is_some(),
+        NativeMutationContinuationFamily::Markup => mutations.markup.is_some(),
+        NativeMutationContinuationFamily::PlacedImages => !mutations.placed_images.is_empty(),
+    };
+    if !has_family_payload {
+        return Err(domain_error(
+            NativeErrorCode::InvalidRequest,
+            "Native mutation continuation does not contain its family payload",
         ));
     }
     Ok(())

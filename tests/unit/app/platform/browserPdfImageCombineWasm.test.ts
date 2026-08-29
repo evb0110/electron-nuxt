@@ -98,6 +98,7 @@ function createWasmExportsMock(options: {
     allocThrows?: boolean;
     buildResultCode?: number;
     output?: Uint8Array;
+    reportedOutputLength?: number;
     errorText?: string;
 } = {}) {
     const memory = new NativeWebAssembly.Memory({initial: 1});
@@ -166,7 +167,7 @@ function createWasmExportsMock(options: {
             evb_pdf_image_combine_free: free,
             evb_pdf_image_combine_build_pdf: buildPdf,
             evb_pdf_image_combine_output_ptr: vi.fn(() => outputPointer),
-            evb_pdf_image_combine_output_len: vi.fn(() => output.byteLength),
+            evb_pdf_image_combine_output_len: vi.fn(() => options.reportedOutputLength ?? output.byteLength),
             evb_pdf_image_combine_error_ptr: vi.fn(() => errorPointer),
             evb_pdf_image_combine_error_len: vi.fn(() => error.byteLength),
         },
@@ -460,6 +461,57 @@ describe('tryCombineImageInputsWithWasm', () => {
             error: {code: 'too-large'},
         });
         expect(wasmMock.free).not.toHaveBeenCalled();
+    });
+
+    it('refuses WASM output above the shared browser combine cap', async () => {
+        const wasmMock = createWasmExportsMock({reportedOutputLength: 16 * 1024 * 1024 + 1});
+        vi.stubGlobal('fetch', createFetchMock());
+        vi.stubGlobal('WebAssembly', {
+            ...wasmGlobalMockBase,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+
+        await expect(tryCombineImageInputsWithWasm([{
+            fileName: 'scan.png',
+            data: new Uint8Array([1]),
+        }])).resolves.toMatchObject({
+            status: 'fatal',
+            error: {
+                code: 'too-large',
+                message: expect.stringContaining('16MB'),
+            },
+        });
+        expect(wasmMock.free).toHaveBeenCalledOnce();
+    });
+
+    it('refuses an oversized WASM request before loading or allocating its memory', async () => {
+        const wasmMock = createWasmExportsMock();
+        const fetchMock = createFetchMock();
+        vi.stubGlobal('fetch', fetchMock);
+        const instantiateMock = vi.fn(async () => ({instance: {exports: wasmMock.exports}}));
+        vi.stubGlobal('WebAssembly', {
+            ...wasmGlobalMockBase,
+            instantiate: instantiateMock,
+        });
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const data = new Uint8Array([1]);
+        Object.defineProperty(data, 'byteLength', {value: 256 * 1024 * 1024 + 1});
+
+        await expect(tryCombineImageInputsWithWasm([{
+            fileName: 'scan.png',
+            data,
+        }])).resolves.toMatchObject({
+            status: 'fatal',
+            error: {
+                code: 'too-large',
+                message: 'Image combine WASM request exceeds the admission ceiling',
+            },
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(instantiateMock).not.toHaveBeenCalled();
+        expect(wasmMock.alloc).not.toHaveBeenCalled();
+        expect(wasmMock.exports.evb_pdf_image_combine_build_pdf).not.toHaveBeenCalled();
     });
 
     it('rejects an out-of-bounds allocation pointer and releases ABI ownership', async () => {

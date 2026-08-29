@@ -103,7 +103,11 @@ async function assertDjvuExportPageRasterBudget(
     signal?: AbortSignal,
 ) {
     const requestedPages = pages ? new Set(pages) : null;
-    for await (const window of getDjvuPageSizeWindowsForViewing(djvuPath, pageCount, signal ? {signal} : {})) {
+    const windowOptions = {
+        ...(signal ? {signal} : {}),
+        ...(pages ? {pageNumbers: pages} : {}),
+    };
+    for await (const window of getDjvuPageSizeWindowsForViewing(djvuPath, pageCount, windowOptions)) {
         for (let offset = 0; offset < window.sizes.length; offset += 1) {
             const page = window.firstPage + offset;
             if (requestedPages && !requestedPages.has(page)) {

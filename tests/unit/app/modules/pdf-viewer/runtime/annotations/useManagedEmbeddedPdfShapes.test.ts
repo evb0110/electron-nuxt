@@ -203,7 +203,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         importEmbeddedShapesMock.mockReset().mockResolvedValue([]);
         const managedShapes = useManagedEmbeddedPdfShapes({
             viewerContainer: ref(createRenderedViewerContainer()),
-            workingCopyPath: ref('/tmp/large-demand-driven.pdf'),
+            workingCopyPath: ref('browser://documents/large-demand-driven.pdf'),
             sourcePdfData: ref<Uint8Array | null>(source),
             documentRevisionToken: ref(null),
             visibleRange: ref({
@@ -355,7 +355,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             // The canvas may commit before Electron publishes the managed
             // working-copy path. Its document identity remains authoritative.
             managedShapes.syncAfterPageRendered(1);
-            workingCopyPath.value = '/tmp/pdf-work/arnold.pdf';
+            workingCopyPath.value = 'browser://documents/pdf-work/arnold.pdf';
             await nextTick();
             await nextTick();
             await Promise.resolve();
@@ -454,7 +454,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         const shapeComposable = createManagedShapeStorePort();
         const managedShapes = useManagedEmbeddedPdfShapes({
             viewerContainer: ref(createRenderedViewerContainer()),
-            workingCopyPath: ref('/tmp/large-shapes.pdf'),
+            workingCopyPath: ref('browser://documents/large-shapes.pdf'),
             sourcePdfData: ref(null),
             documentRevisionToken: ref(null),
             visibleRange: ref({
@@ -481,9 +481,9 @@ describe('useManagedEmbeddedPdfShapes', () => {
 
         expect(shapeComposable.importEmbeddedShapes).toHaveBeenCalledWith(
             [],
-            expect.objectContaining({path: '/tmp/large-shapes.pdf'}),
+            expect.objectContaining({path: 'browser://documents/large-shapes.pdf'}),
         );
-        expect(readDocumentBytes).toHaveBeenCalledWith('/tmp/large-shapes.pdf', {
+        expect(readDocumentBytes).toHaveBeenCalledWith('browser://documents/large-shapes.pdf', {
             signal: expect.any(AbortSignal),
             maxBytes: EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES,
         });
@@ -501,7 +501,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         const shapeComposable = createManagedShapeStorePort();
         const managedShapes = useManagedEmbeddedPdfShapes({
             viewerContainer: ref(createRenderedViewerContainer()),
-            workingCopyPath: ref('/tmp/large-shapes.pdf'),
+            workingCopyPath: ref('browser://documents/large-shapes.pdf'),
             sourcePdfData: ref(null),
             documentRevisionToken: ref(null),
             visibleRange: ref({
@@ -528,9 +528,9 @@ describe('useManagedEmbeddedPdfShapes', () => {
 
         expect(shapeComposable.importEmbeddedShapes).toHaveBeenCalledWith(
             [expect.objectContaining({annotationId: '91R'})],
-            expect.objectContaining({path: '/tmp/large-shapes.pdf'}),
+            expect.objectContaining({path: 'browser://documents/large-shapes.pdf'}),
         );
-        expect(readDocumentBytes).toHaveBeenCalledWith('/tmp/large-shapes.pdf', {
+        expect(readDocumentBytes).toHaveBeenCalledWith('browser://documents/large-shapes.pdf', {
             signal: expect.any(AbortSignal),
             maxBytes: EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES,
         });
@@ -549,7 +549,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         const shapeComposable = createManagedShapeStorePort();
         const managedShapes = useManagedEmbeddedPdfShapes({
             viewerContainer: ref(createRenderedViewerContainer()),
-            workingCopyPath: ref('/tmp/retry-shapes.pdf'),
+            workingCopyPath: ref('browser://documents/retry-shapes.pdf'),
             sourcePdfData: ref(bytes),
             documentRevisionToken: ref(null),
             visibleRange: ref({
@@ -579,7 +579,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         expect(importEmbeddedShapeAnnotations).toHaveBeenCalledTimes(2);
         expect(shapeComposable.importEmbeddedShapes).toHaveBeenCalledWith(
             [expect.objectContaining({annotationId: '92R'})],
-            expect.objectContaining({path: '/tmp/retry-shapes.pdf'}),
+            expect.objectContaining({path: 'browser://documents/retry-shapes.pdf'}),
         );
     });
 
@@ -590,7 +590,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         const shapeComposable = createManagedShapeStorePort();
         const managedShapes = useManagedEmbeddedPdfShapes({
             viewerContainer: ref(createRenderedViewerContainer()),
-            workingCopyPath: ref('/tmp/oversized-shapes.pdf'),
+            workingCopyPath: ref('browser://documents/oversized-shapes.pdf'),
             sourcePdfData: ref(new Uint8Array([
                 1,
                 2,
@@ -635,7 +635,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         const shapeComposable = createManagedShapeStorePort({beginShapeSave});
         const managedShapes = useManagedEmbeddedPdfShapes({
             viewerContainer: ref(createRenderedViewerContainer()),
-            workingCopyPath: ref('/tmp/shape-free.pdf'),
+            workingCopyPath: ref('browser://documents/shape-free.pdf'),
             sourcePdfData: ref(new Uint8Array([1])),
             documentRevisionToken: ref(null),
             visibleRange: ref({
@@ -705,7 +705,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         const renderVisiblePages = vi.fn(async () => {});
         const managedShapes = useManagedEmbeddedPdfShapes({
             viewerContainer,
-            workingCopyPath: ref('/tmp/work.pdf'),
+            workingCopyPath: ref('browser://documents/work.pdf'),
             sourcePdfData,
             documentRevisionToken: ref(null),
             visibleRange: ref({
@@ -890,7 +890,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         const renderVisiblePages = vi.fn(async () => {});
         const managedShapes = useManagedEmbeddedPdfShapes({
             viewerContainer,
-            workingCopyPath: ref('/tmp/work.pdf'),
+            workingCopyPath: ref('browser://documents/work.pdf'),
             sourcePdfData: ref<Uint8Array | null>(new Uint8Array([1])),
             documentRevisionToken: ref(null),
             visibleRange: ref({
@@ -951,7 +951,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         const shapeComposable = createManagedShapeStorePort({getDeletedEmbeddedAnnotationIds: () => deletedAnnotationIds});
         const managedShapes = useManagedEmbeddedPdfShapes({
             viewerContainer: ref(createRenderedViewerContainer()),
-            workingCopyPath: ref('/tmp/work.pdf'),
+            workingCopyPath: ref('browser://documents/work.pdf'),
             sourcePdfData: ref<Uint8Array | null>(new Uint8Array([1])),
             documentRevisionToken: ref(null),
             visibleRange: ref({
@@ -985,7 +985,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         expect(shapeComposable.importEmbeddedShapes).toHaveBeenCalledOnce();
         expect(shapeComposable.importEmbeddedShapes).toHaveBeenCalledWith(
             [expect.objectContaining({annotationId: '77R'})],
-            expect.objectContaining({path: '/tmp/work.pdf'}),
+            expect.objectContaining({path: 'browser://documents/work.pdf'}),
         );
     });
 
@@ -998,7 +998,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         const scope = effectScope();
         const managedShapes = scope.run(() => useManagedEmbeddedPdfShapes({
             viewerContainer: ref<HTMLElement | null>(createRenderedViewerContainer()),
-            workingCopyPath: ref('/tmp/work.pdf'),
+            workingCopyPath: ref('browser://documents/work.pdf'),
             sourcePdfData: ref<Uint8Array | null>(new Uint8Array([1])),
             documentRevisionToken: ref(null),
             visibleRange: ref({
@@ -1072,8 +1072,8 @@ describe('useManagedEmbeddedPdfShapes', () => {
             hideManagedAnnotationEditors: vi.fn(),
             currentPage: ref(1),
         }));
-        const firstRuntime = createRuntime(firstScope, firstShapeComposable, new Uint8Array([1]), '/tmp/work-a.pdf');
-        const secondRuntime = createRuntime(secondScope, secondShapeComposable, new Uint8Array([2]), '/tmp/work-b.pdf');
+        const firstRuntime = createRuntime(firstScope, firstShapeComposable, new Uint8Array([1]), 'browser://documents/work-a.pdf');
+        const secondRuntime = createRuntime(secondScope, secondShapeComposable, new Uint8Array([2]), 'browser://documents/work-b.pdf');
 
         const firstBaseline = firstRuntime!.ensureManagedShapeBaselineReady();
         const secondBaseline = secondRuntime!.ensureManagedShapeBaselineReady();
@@ -1086,7 +1086,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         expect(firstShapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
         expect(secondShapeComposable.importEmbeddedShapes).toHaveBeenCalledWith(
             [expect.objectContaining({annotationId: 'shared-1'})],
-            expect.objectContaining({path: '/tmp/work-b.pdf'}),
+            expect.objectContaining({path: 'browser://documents/work-b.pdf'}),
         );
         secondScope.stop();
     });

@@ -23,6 +23,7 @@ import {
     type TDocumentThumbnailQuality,
 } from '@app/utils/document-viewer/thumbnails/documentThumbnailScheduler';
 import {createDocumentThumbnailResizeAnchorLifecycle} from '@app/utils/document-viewer/thumbnails/createDocumentThumbnailResizeAnchorLifecycle';
+import {createDocumentThumbnailScrollRestorer} from '@app/utils/document-viewer/thumbnails/createDocumentThumbnailScrollRestorer';
 import {
     DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS,
     DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS,
@@ -128,7 +129,63 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     let lastProgrammaticScrollAtMs = 0;
     let hasSourceAspectEstimate = false;
     let lastKnownAnchor: IDocumentThumbnailScrollAnchor | null = null;
+    const activeScrollSegmentIndex = ref(0);
+    let lastObservedScrollTop = 0;
+    let pendingScrollSegmentTransitionIndex: number | null = null;
     let mounted = false;
+
+    function setActiveScrollSegment(index: number) {
+        const segmentCount = layout.getScrollSegmentCount();
+        const nextIndex = segmentCount === 0
+            ? 0
+            : Math.min(segmentCount - 1, Math.max(0, Math.trunc(index)));
+        if (nextIndex === activeScrollSegmentIndex.value) {
+            return false;
+        }
+        activeScrollSegmentIndex.value = nextIndex;
+        viewportRevision.value += 1;
+        return true;
+    }
+
+    function setActiveScrollSegmentForPage(page: number) {
+        return setActiveScrollSegment(layout.getScrollSegmentIndexForPage(page));
+    }
+
+    function getActiveScrollSegment() {
+        return layout.getScrollSegment(activeScrollSegmentIndex.value);
+    }
+
+    function getActiveSegmentLayout() {
+        const segmentIndex = activeScrollSegmentIndex.value;
+        return {
+            getPageHeight: (page: number) => layout.getPageHeight(page),
+            getPageTop: (page: number) => layout.getPageTopInScrollSegment(page, segmentIndex),
+        };
+    }
+
+    function getActiveScrollViewport(root: HTMLElement) {
+        return {
+            clientHeight: root.clientHeight,
+            scrollHeight: getActiveScrollSegment().height,
+            scrollTop: root.scrollTop,
+        };
+    }
+
+    const scrollRestorer = createDocumentThumbnailScrollRestorer({
+        applyScrollTop: (root, scrollTop) => {
+            lastProgrammaticScrollAtMs = Date.now();
+            root.scrollTop = scrollTop;
+            lastObservedScrollTop = root.scrollTop;
+        },
+        getContainer: () => options.scrollRoot.value,
+    });
+
+    function writeScrollTop(root: HTMLElement, scrollTop: number) {
+        lastProgrammaticScrollAtMs = Date.now();
+        root.scrollTop = scrollTop;
+        lastObservedScrollTop = root.scrollTop;
+        scrollRestorer.schedule(scrollTop);
+    }
 
     function captureDomAnchor(root: HTMLElement) {
         const rootRect = root.getBoundingClientRect();
@@ -162,14 +219,17 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             return lastKnownAnchor;
         }
         const centerOffset = root.scrollTop + (root.clientHeight / 2);
-        const modelPage = layout.resolvePageAtOffset(centerOffset);
+        const modelPage = layout.resolvePageAtScrollOffsetInSegment(centerOffset, activeScrollSegmentIndex.value);
         const modelAnchor = modelPage === null
             ? null
             : {
                 page: modelPage,
                 ratio: Math.max(0, Math.min(
                     1,
-                    (centerOffset - layout.getPageTop(modelPage)) / layout.getPageHeight(modelPage),
+                    (
+                        centerOffset
+                        - layout.getPageTopInScrollSegment(modelPage, activeScrollSegmentIndex.value)
+                    ) / layout.getPageHeight(modelPage),
                 )),
             };
         const anchor = captureDomAnchor(root) ?? modelAnchor;
@@ -185,10 +245,13 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
 
     function resolveAnchorScrollTop(anchor: IDocumentThumbnailScrollAnchor, root: HTMLElement) {
         const page = Math.max(1, Math.trunc(anchor.page));
-        const pageTop = layout.getPageTop(page);
+        const segmentIndex = layout.getScrollSegmentIndexForPage(page);
+        setActiveScrollSegment(segmentIndex);
+        const segment = layout.getScrollSegment(segmentIndex);
+        const pageTop = layout.getPageTopInScrollSegment(page, segmentIndex);
         const pageHeight = layout.getPageHeight(page);
         return Math.min(
-            Math.max(0, layout.getTotalHeight() - root.clientHeight),
+            Math.max(0, segment.height - root.clientHeight),
             Math.max(0, pageTop + (pageHeight * anchor.ratio) - (root.clientHeight / 2)),
         );
     }
@@ -200,7 +263,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         }
         const nextScrollTop = resolveAnchorScrollTop(anchor, root);
         if (Math.abs(root.scrollTop - nextScrollTop) >= 1) {
-            root.scrollTop = nextScrollTop;
+            writeScrollTop(root, nextScrollTop);
         }
         lastKnownAnchor = anchor;
         viewportRevision.value += 1;
@@ -228,7 +291,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         }
         layoutRevision.value += 1;
         if (root && anchor) {
-            root.scrollTop = resolveAnchorScrollTop(anchor, root);
+            writeScrollTop(root, resolveAnchorScrollTop(anchor, root));
             lastKnownAnchor = anchor;
         }
         if (resizeAnchorLifecycle.isActive()) resizeAnchorLifecycle.preserve();
@@ -378,7 +441,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         }
         layoutRevision.value += 1;
         if (root && anchor) {
-            root.scrollTop = resolveAnchorScrollTop(anchor, root);
+            writeScrollTop(root, resolveAnchorScrollTop(anchor, root));
             lastKnownAnchor = anchor;
         }
         if (resizeAnchorLifecycle.isActive()) resizeAnchorLifecycle.preserve();
@@ -400,7 +463,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         });
         layoutRevision.value += 1;
         if (root && anchor) {
-            root.scrollTop = resolveAnchorScrollTop(anchor, root);
+            writeScrollTop(root, resolveAnchorScrollTop(anchor, root));
             lastKnownAnchor = anchor;
         }
         if (resizeAnchorLifecycle.isActive()) resizeAnchorLifecycle.preserve();
@@ -438,7 +501,12 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
                 endPage: -1,
             };
         }
-        return layout.resolveVirtualRange(root.scrollTop, root.clientHeight, overscanPx);
+        return layout.resolveVirtualRangeInScrollSegment(
+            root.scrollTop,
+            root.clientHeight,
+            overscanPx,
+            activeScrollSegmentIndex.value,
+        );
     }
 
     function buildDemand() {
@@ -454,8 +522,8 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         addRange(retainedPages, retainedRange, source.pageCount);
         const currentPage = Math.min(source.pageCount, Math.max(1, options.currentPage.value));
         for (
-            let page = Math.max(1, currentPage - CURRENT_NEIGHBOR_COUNT);
-            page <= Math.min(source.pageCount, currentPage + CURRENT_NEIGHBOR_COUNT);
+            let page = Math.max(getActiveScrollSegment().startPage, currentPage - CURRENT_NEIGHBOR_COUNT);
+            page <= Math.min(getActiveScrollSegment().endPage, currentPage + CURRENT_NEIGHBOR_COUNT);
             page += 1
         ) retainedPages.add(page);
 
@@ -552,13 +620,60 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         resizeSettleTimer = setTimeout(settleRasterWidth, RESIZE_SETTLE_MS);
     }
 
+    function isRecentProgrammaticScroll() {
+        return (Date.now() - lastProgrammaticScrollAtMs)
+            < DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS;
+    }
+
+    function transitionScrollSegment(root: HTMLElement) {
+        if (pendingScrollSegmentTransitionIndex !== null) {
+            return false;
+        }
+        const transition = layout.resolveScrollSegmentTransition(
+            root.scrollTop,
+            lastObservedScrollTop,
+            root.clientHeight,
+            activeScrollSegmentIndex.value,
+        );
+        if (!transition) {
+            lastObservedScrollTop = root.scrollTop;
+            return false;
+        }
+
+        setActiveScrollSegment(transition.segmentIndex);
+        pendingScrollSegmentTransitionIndex = transition.segmentIndex;
+        lastProgrammaticScrollAtMs = Date.now();
+        void nextTick(() => {
+            if (pendingScrollSegmentTransitionIndex !== transition.segmentIndex) {
+                return;
+            }
+            pendingScrollSegmentTransitionIndex = null;
+            const currentRoot = options.scrollRoot.value;
+            if (!currentRoot || activeScrollSegmentIndex.value !== transition.segmentIndex) {
+                return;
+            }
+            writeScrollTop(currentRoot, transition.scrollTop);
+            scheduleRefresh();
+        });
+        viewportRevision.value += 1;
+        return true;
+    }
+
     function handleScroll() {
+        const root = options.scrollRoot.value;
+        const recentProgrammaticScroll = isRecentProgrammaticScroll();
+        if (!recentProgrammaticScroll) {
+            scrollRestorer.cancel();
+        }
+        const transitioned = root !== null && !recentProgrammaticScroll
+            ? transitionScrollSegment(root)
+            : false;
         isScrolling.value = true;
-        if (!options.isResizing.value && !resizeAnchorLifecycle.isActive()) {
+        if (!transitioned && !options.isResizing.value && !resizeAnchorLifecycle.isActive()) {
             readCurrentAnchor();
         }
         viewportRevision.value += 1;
-        if ((Date.now() - lastProgrammaticScrollAtMs) >= DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS) {
+        if (!recentProgrammaticScroll) {
             markManualInteraction();
         }
         if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
@@ -590,13 +705,14 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             return;
         }
         const page = Math.min(source.pageCount, Math.max(1, options.currentPage.value));
+        setActiveScrollSegmentForPage(page);
         const nextScrollTop = resolveDocumentThumbnailRevealScrollTop(
-            root,
-            resolveDocumentThumbnailPageBounds(page, layout),
+            getActiveScrollViewport(root),
+            resolveDocumentThumbnailPageBounds(page, getActiveSegmentLayout()),
         );
         if (nextScrollTop !== null && Math.abs(root.scrollTop - nextScrollTop) >= 1) {
             lastProgrammaticScrollAtMs = Date.now();
-            root.scrollTop = nextScrollTop;
+            writeScrollTop(root, nextScrollTop);
         }
     }
 
@@ -611,21 +727,21 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         addRange(pages, resolveRange(VIRTUAL_OVERSCAN_PX), source.pageCount);
         const currentPage = Math.min(source.pageCount, Math.max(1, options.currentPage.value));
         for (
-            let page = Math.max(1, currentPage - CURRENT_NEIGHBOR_COUNT);
-            page <= Math.min(source.pageCount, currentPage + CURRENT_NEIGHBOR_COUNT);
+            let page = Math.max(getActiveScrollSegment().startPage, currentPage - CURRENT_NEIGHBOR_COUNT);
+            page <= Math.min(getActiveScrollSegment().endPage, currentPage + CURRENT_NEIGHBOR_COUNT);
             page += 1
         ) pages.add(page);
         return [...pages].sort((left, right) => left - right).map(pageNumber => ({
             aspectRatio: String(1 / layout.getPageAspect(pageNumber)),
             height: layout.getPageHeight(pageNumber),
             pageNumber,
-            top: layout.getPageTop(pageNumber),
+            top: layout.getPageTopInScrollSegment(pageNumber, activeScrollSegmentIndex.value),
         }));
     });
 
     const contentHeight = computed(() => {
         void layoutRevision.value;
-        return `${String(layout.getTotalHeight())}px`;
+        return `${String(getActiveScrollSegment().height)}px`;
     });
 
     watch(
@@ -653,6 +769,11 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
                 pageCount: source?.pageCount ?? 0,
                 renderWidth: cssWidth.value,
             });
+            activeScrollSegmentIndex.value = source
+                ? layout.getScrollSegmentIndexForPage(options.currentPage.value)
+                : 0;
+            lastObservedScrollTop = 0;
+            pendingScrollSegmentTransitionIndex = null;
             layoutRevision.value += 1;
             await nextTick();
             measureViewport();
@@ -663,6 +784,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         {immediate: true},
     );
     watch(options.currentPage, async () => {
+        setActiveScrollSegmentForPage(options.currentPage.value);
         await nextTick();
         revealCurrentPage();
         readCurrentAnchor();
@@ -720,6 +842,8 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     });
     onBeforeUnmount(() => {
         mounted = false;
+        scrollRestorer.cancel();
+        pendingScrollSegmentTransitionIndex = null;
         if (scheduledFrame !== null) cancelAnimationFrame(scheduledFrame);
         if (resizeSettleTimer) clearTimeout(resizeSettleTimer);
         if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
@@ -732,6 +856,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     });
 
     return {
+        activeScrollSegmentIndex,
         contentHeight,
         handlePointerDown: markManualInteraction,
         handleScroll,

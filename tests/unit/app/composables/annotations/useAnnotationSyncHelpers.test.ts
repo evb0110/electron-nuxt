@@ -1265,4 +1265,29 @@ describe('useAnnotationSync helpers / loadPdfPageAnnotations', () => {
         await expect(__test__.loadPdfPageAnnotations(doc as never, 1)).resolves.toBeNull();
         expect(cleanup).toHaveBeenCalledTimes(1);
     });
+
+    it('stops before leasing a page when the caller signal is already aborted', async () => {
+        const leasePage = vi.fn(async () => ({
+            page: {
+                getAnnotations: vi.fn(async () => []),
+                cleanup: vi.fn(),
+            } as never,
+            release: vi.fn(),
+        }));
+        const doc = {getPage: vi.fn()};
+        const controller = new AbortController();
+        controller.abort(new DOMException('annotation load canceled', 'AbortError'));
+
+        await expect(__test__.loadPdfPageAnnotations(
+            doc as never,
+            1,
+            undefined,
+            {
+                leasePage,
+                signal: controller.signal,
+            } as never,
+        )).resolves.toBeNull();
+        expect(leasePage).not.toHaveBeenCalled();
+        expect(doc.getPage).not.toHaveBeenCalled();
+    });
 });

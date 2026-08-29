@@ -30,10 +30,26 @@ pub(crate) fn validate_appended_revision_postconditions(
     )?;
     validate_annotation_delete_document_postconditions(document, &mutations.deletes)?;
     if let Some(page_labels) = &mutations.page_labels {
-        validate_page_labels_document_postconditions(document, page_labels)?;
+        if mutations.continuation.as_ref().is_some_and(|continuation| {
+            continuation.family == NativeMutationContinuationFamily::PageLabels
+        }) {
+            validate_page_labels_fragment_postconditions(document, page_labels)?;
+        } else {
+            validate_page_labels_document_postconditions(document, page_labels)?;
+        }
     }
     if let Some(bookmarks) = &mutations.bookmarks {
-        validate_bookmarks_document_postconditions(document, bookmarks)?;
+        if let Some(continuation) = mutations.continuation.as_ref().filter(|continuation| {
+            continuation.family == NativeMutationContinuationFamily::Bookmarks
+        }) {
+            validate_bookmarks_fragment_postconditions(
+                document,
+                bookmarks,
+                &continuation.bookmark_path,
+            )?;
+        } else {
+            validate_bookmarks_document_postconditions(document, bookmarks)?;
+        }
     }
     if let Some(shapes) = &mutations.shapes {
         validate_shapes_document_postconditions(document, shapes)?;
@@ -186,20 +202,33 @@ pub(crate) fn validate_free_text_editor_document_postconditions(
         let page_view = resolve_page_view(document, page_id)?;
         let expected_rect = validate_free_text_editor_rect(editor, page_view)?;
         let expected_name = free_text_editor_name(editor);
-        let matching_refs: Vec<ObjectId> = get_page_annots(document, page_id)?
+        let page_annotation_refs = get_page_annots(document, page_id)?
             .iter()
             .filter_map(|object| object.as_reference().ok())
-            .filter(|object_id| {
-                document
-                    .dictionary(*object_id)
-                    .ok()
-                    .filter(|dict| annotation_subtype(dict) == "freetext")
-                    .and_then(|dict| dict.get(b"NM").ok())
-                    .and_then(pdf_string_to_text)
-                    .as_deref()
-                    == Some(expected_name.as_str())
-            })
-            .collect();
+            .collect::<Vec<_>>();
+        let matching_refs: Vec<ObjectId> =
+            if let Some(annotation_id) = editor.annotation_id.as_deref() {
+                let object_id = parse_pdfjs_annotation_object_id(annotation_id)
+                    .ok_or("Invalid imported FreeText annotation id")?;
+                page_annotation_refs
+                    .into_iter()
+                    .filter(|candidate| *candidate == object_id)
+                    .collect()
+            } else {
+                page_annotation_refs
+                    .into_iter()
+                    .filter(|object_id| {
+                        document
+                            .dictionary(*object_id)
+                            .ok()
+                            .filter(|dict| annotation_subtype(dict) == "freetext")
+                            .and_then(|dict| dict.get(b"NM").ok())
+                            .and_then(pdf_string_to_text)
+                            .as_deref()
+                            == Some(expected_name.as_str())
+                    })
+                    .collect()
+            };
         if matching_refs.len() != 1 {
             return Err(format!(
                 "Expected exactly one FreeText editor named {expected_name}, found {}",
@@ -249,8 +278,12 @@ pub(crate) fn validate_annotation_delete_document_postconditions(
             .ok_or("Invalid annotation delete page index")?;
         let page_id = page_resolver.page_id(document, page_number)?;
         touched_page_ids.insert(page_id);
-        if delete.object_number.is_some() || delete.generation_number.is_some() {
-            for target_id in resolve_annotation_delete_target_refs(document, page_id, delete)? {
+        if let (Some(object_number), Some(generation_number)) =
+            (delete.object_number, delete.generation_number)
+        {
+            let target_id = (object_number, generation_number);
+            refs_to_delete.insert(target_id);
+            if document.dictionary(target_id).is_ok() {
                 for object_id in collect_annotation_refs_to_delete(document, target_id)? {
                     refs_to_delete.insert(object_id);
                 }
@@ -536,30 +569,60 @@ pub(crate) fn validate_page_labels_document_postconditions(
         return Err("PageLabels Nums length did not match requested ranges".into());
     }
     for (objects, expected) in nums.chunks_exact(2).zip(expected_ranges) {
-        if objects[0].as_i64()? != i64::from(expected.start_page.saturating_sub(1)) {
-            return Err("PageLabels range start did not match the requested page".into());
+        validate_page_label_entry(objects, &expected)?;
+    }
+    Ok(())
+}
+
+fn validate_page_label_entry(objects: &[Object], expected: &PageLabelRange) -> Result<()> {
+    if objects[0].as_i64()? != i64::from(expected.start_page.saturating_sub(1)) {
+        return Err("PageLabels range start did not match the requested page".into());
+    }
+    let range = objects[1].as_dict()?;
+    match expected.style.as_deref() {
+        Some(style) if range.get(b"S")?.as_name()? == style.as_bytes() => {}
+        Some(_) => return Err("PageLabels range style did not match the request".into()),
+        None if range.get(b"S").is_err() => {}
+        None => return Err("PageLabels range unexpectedly retained a style".into()),
+    }
+    if expected.prefix.is_empty() {
+        if range.get(b"P").is_ok() {
+            return Err("PageLabels range unexpectedly retained a prefix".into());
         }
-        let range = objects[1].as_dict()?;
-        match expected.style.as_deref() {
-            Some(style) if range.get(b"S")?.as_name()? == style.as_bytes() => {}
-            Some(_) => return Err("PageLabels range style did not match the request".into()),
-            None if range.get(b"S").is_err() => {}
-            None => return Err("PageLabels range unexpectedly retained a style".into()),
+    } else if range.get(b"P")?.as_str()? != encode_pdf_text_string(&expected.prefix) {
+        return Err("PageLabels range prefix did not match the request".into());
+    }
+    if expected.style.is_some() && expected.start_number > 1 {
+        if range.get(b"St")?.as_i64()? != i64::from(expected.start_number) {
+            return Err("PageLabels range start number did not match the request".into());
         }
-        if expected.prefix.is_empty() {
-            if range.get(b"P").is_ok() {
-                return Err("PageLabels range unexpectedly retained a prefix".into());
-            }
-        } else if range.get(b"P")?.as_str()? != encode_pdf_text_string(&expected.prefix) {
-            return Err("PageLabels range prefix did not match the request".into());
-        }
-        if expected.style.is_some() && expected.start_number > 1 {
-            if range.get(b"St")?.as_i64()? != i64::from(expected.start_number) {
-                return Err("PageLabels range start number did not match the request".into());
-            }
-        } else if range.get(b"St").is_ok() {
-            return Err("PageLabels range unexpectedly retained a start number".into());
-        }
+    } else if range.get(b"St").is_ok() {
+        return Err("PageLabels range unexpectedly retained a start number".into());
+    }
+    Ok(())
+}
+
+fn validate_page_labels_fragment_postconditions(
+    document: &impl PdfObjectSource,
+    page_labels: &PageLabelsMutation,
+) -> Result<()> {
+    let catalog = document.dictionary(document.root_id()?)?;
+    let page_labels_object = catalog.get(b"PageLabels")?;
+    let page_labels_dict = resolve_dictionary_object(document, page_labels_object, "PageLabels")?;
+    let nums = page_labels_dict.get(b"Nums")?.as_array()?;
+    if nums.len() % 2 != 0 {
+        return Err("PageLabels Nums must contain key/value pairs".into());
+    }
+    let expected_ranges = normalize_page_label_ranges(&page_labels.ranges, page_labels.total_pages);
+    for expected in expected_ranges {
+        let expected_start = i64::from(expected.start_page.saturating_sub(1));
+        let Some(objects) = nums
+            .chunks_exact(2)
+            .find(|objects| objects[0].as_i64().ok() == Some(expected_start))
+        else {
+            return Err("PageLabels continuation range was not retained".into());
+        };
+        validate_page_label_entry(objects, &expected)?;
     }
     Ok(())
 }
@@ -596,6 +659,71 @@ pub(crate) fn validate_bookmarks_document_postconditions(
         outlines_id,
         first,
         last,
+        None,
+    )
+}
+
+fn outline_level_item_at_postcondition(
+    document: &impl PdfObjectSource,
+    parent_id: ObjectId,
+    index: u32,
+) -> Result<ObjectId> {
+    let parent = document.dictionary(parent_id)?;
+    let mut current = parent.get(b"First")?.as_reference()?;
+    for _ in 0..index {
+        current = document.dictionary(current)?.get(b"Next")?.as_reference()?;
+    }
+    Ok(current)
+}
+
+fn resolve_bookmark_parent_postcondition(
+    document: &impl PdfObjectSource,
+    outlines_id: ObjectId,
+    path: &[u32],
+) -> Result<ObjectId> {
+    path.iter().try_fold(outlines_id, |parent_id, index| {
+        outline_level_item_at_postcondition(document, parent_id, *index)
+    })
+}
+
+fn validate_bookmarks_fragment_postconditions(
+    document: &impl PdfObjectSource,
+    bookmarks: &BookmarksMutation,
+    bookmark_path: &[u32],
+) -> Result<()> {
+    let catalog = document.dictionary(document.root_id()?)?;
+    let outlines_id = catalog.get(b"Outlines")?.as_reference()?;
+    let parent_id = resolve_bookmark_parent_postcondition(document, outlines_id, bookmark_path)?;
+    let normalized = normalize_bookmark_entries(
+        &bookmarks.items,
+        bookmarks.total_pages,
+        &bookmarks.untitled_label,
+    );
+    if normalized.is_empty() {
+        return Ok(());
+    }
+    let parent = document.dictionary(parent_id)?;
+    let last = parent.get(b"Last")?.as_reference()?;
+    let mut first = last;
+    // The fragment is one outline level. Descendants are validated recursively
+    // by `validate_bookmark_level`, but they are not part of this level's
+    // Prev/Next chain.
+    for _ in 1..normalized.len() {
+        first = document.dictionary(first)?.get(b"Prev")?.as_reference()?;
+    }
+    let previous = document
+        .dictionary(first)?
+        .get(b"Prev")
+        .ok()
+        .and_then(|value| value.as_reference().ok());
+    validate_bookmark_level(
+        document,
+        &PageTreeResolver::new(document)?,
+        &normalized,
+        parent_id,
+        first,
+        last,
+        previous,
     )
 }
 
@@ -606,9 +734,10 @@ fn validate_bookmark_level(
     parent_id: ObjectId,
     first: ObjectId,
     last: ObjectId,
+    initial_previous: Option<ObjectId>,
 ) -> Result<()> {
     let mut current = Some(first);
-    let mut previous = None;
+    let mut previous = initial_previous;
     for item in items {
         let object_id = current.ok_or("Outline chain ended before all bookmarks were validated")?;
         let bookmark = document.dictionary(object_id)?;
@@ -648,6 +777,7 @@ fn validate_bookmark_level(
                 object_id,
                 child_first,
                 child_last,
+                None,
             )?;
         }
 

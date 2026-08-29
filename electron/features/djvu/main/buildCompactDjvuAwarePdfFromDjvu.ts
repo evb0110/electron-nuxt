@@ -50,6 +50,12 @@ import {
     type ICheckpointedCompactPageSpec as ICompactPageSpec,
 } from '@electron/features/djvu/main/compactDjvuCheckpoint';
 import { createDjvuDiskQuotaMonitor } from '@electron/features/djvu/main/djvuArtifactManifest';
+import {
+    createPdfCombineOutputTooLargeError,
+    isPdfCombineOutputTooLargeError,
+    PDF_COMBINE_MAX_OUTPUT_BYTES,
+    PDF_COMBINE_OUTPUT_POLICY,
+} from '@contracts/pdfCombineOutputPolicy';
 
 interface ICompactDjvuPdfExportOptions {
     jobId: string;
@@ -360,7 +366,7 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                         ...process.env,
                         EVB_PDF_COMBINE_MAX_PAGES: String(Math.max(selectedPageCount, 1)),
                         EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: process.env.EVB_PDF_COMBINE_MAX_OUTPUT_BYTES
-                            ?? String(Number.MAX_SAFE_INTEGER),
+                            ?? String(PDF_COMBINE_MAX_OUTPUT_BYTES),
                     },
                     onStdout: createPdfCombineProgressHandler(
                         selectedPageCount,
@@ -373,6 +379,16 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
             ),
         });
         if (!result.success) {
+            const nativeCode = typeof result.cause === 'object'
+                && result.cause !== null
+                && 'code' in result.cause
+                ? result.cause.code
+                : undefined;
+            if (nativeCode === PDF_COMBINE_OUTPUT_POLICY.tooLargeCode
+                || isPdfCombineOutputTooLargeError(result.cause)) {
+                await rm(options.outputPath, {force: true}).catch(() => undefined);
+                throw createPdfCombineOutputTooLargeError();
+            }
             return {
                 success: false,
                 outputPath: options.outputPath,
@@ -383,6 +399,10 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
 
         try {
             const s = await stat(options.outputPath);
+            if (s.size > PDF_COMBINE_MAX_OUTPUT_BYTES) {
+                await rm(options.outputPath, {force: true}).catch(() => undefined);
+                throw createPdfCombineOutputTooLargeError();
+            }
             emitProgress(PROGRESS_COMBINE_CAP);
             await cleanupCompactBatchJobs(batchDirectoriesPath);
             return {
@@ -392,6 +412,9 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                 pageSpecs: resultPageSpecs,
             };
         } catch (error) {
+            if (isPdfCombineOutputTooLargeError(error)) {
+                throw error;
+            }
             return {
                 success: false,
                 outputPath: options.outputPath,

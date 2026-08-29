@@ -1229,6 +1229,7 @@ export default {
     },
     'bookmarks': {
         'unavailable': 'Bladwijzers niet beschikbaar',
+        'persistenceRefusalDepth': '{count} bladwijzers overschrijden de native dieptelimiet van {limit}; ze blijven alleen-lezen beschikbaar omdat deze diepte niet kan worden opgeslagen.',
         'noBookmarks': 'Geen bladwijzers beschikbaar',
         'loading': 'Bladwijzers laden...',
         'enterEditMode': 'Bladwijzerbewerkingsmodus inschakelen',

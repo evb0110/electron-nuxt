@@ -7,7 +7,11 @@
         @wheel.passive="handleWheel"
         @pointerdown="handlePointerDown"
     >
-        <div class="document-thumbnail-list__content" :style="{height: contentHeight}">
+        <div
+            class="document-thumbnail-list__content"
+            :data-thumbnail-scroll-segment="activeScrollSegmentIndex"
+            :style="{height: contentHeight}"
+        >
             <DocumentThumbnailItem
                 v-for="item in virtualItems"
                 :key="item.pageNumber"
@@ -90,6 +94,7 @@ function setScrollRoot(element: HTMLElement | null) {
     scrollRoot.value = element;
 }
 const {
+    activeScrollSegmentIndex = ref(0),
     contentHeight,
     handlePointerDown,
     handleScroll,

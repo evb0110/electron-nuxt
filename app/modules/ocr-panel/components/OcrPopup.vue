@@ -2,7 +2,7 @@
     <UModal
         v-model:open="isOpen"
         :title="t('ocr.runTitle')"
-        :dismissible="!progress.isRunning"
+        :dismissible="!progress.isRunning && !isExporting"
         :ui="{ content: 'sm:max-w-3xl top-16 translate-y-0 max-h-[calc(100dvh-5rem)]', footer: 'justify-end gap-2' }"
     >
         <template #description>
@@ -339,6 +339,14 @@
             </template>
             <template v-else-if="viewState === 'results'">
                 <UButton
+                    v-if="isExporting"
+                    color="neutral"
+                    variant="outline"
+                    icon="i-ph-x"
+                    :label="t('ocr.cancel')"
+                    @click="handleCancelDocxExport"
+                />
+                <UButton
                     color="primary"
                     icon="i-ph-file-text"
                     :label="t('ocr.exportDocx')"
@@ -350,6 +358,7 @@
                     color="neutral"
                     variant="outline"
                     :label="t('common.close')"
+                    :disabled="isExporting"
                     @click="handleCloseResults"
                 />
             </template>
@@ -493,6 +502,7 @@ const emit = defineEmits<{
         sourcePageToRestore: number;
     }];
     'export-docx': [selectedLanguages: string[]];
+    'cancel-docx-export': [];
 }>();
 
 const isOpen = computed({
@@ -527,6 +537,7 @@ const {
     handleRunOcr,
     handleCancel,
     handleExportDocx,
+    handleCancelDocxExport,
     handleCloseResults,
     runOcrForAgent,
     cancelOcrForAgent,
@@ -545,6 +556,7 @@ const {
         onRunningChange: value => emit('update:running', value),
         onOcrComplete: payload => emit('ocrComplete', payload),
         onExportDocx: selectedLanguages => emit('export-docx', selectedLanguages),
+        onCancelDocxExport: () => emit('cancel-docx-export'),
     },
 });
 

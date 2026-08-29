@@ -59,6 +59,8 @@ pub use crate::{
 pub const DEFAULT_DPI: u32 = 72;
 pub const DEFAULT_MAX_IMAGE_PIXELS: u64 = 80_000_000;
 pub const DEFAULT_MAX_BILEVEL_PIXELS: u64 = 160_000_000;
+/// Shared output cap for native, WASM, and browser PDF combines.
+pub const PDF_COMBINE_MAX_OUTPUT_BYTES: u64 = 16 * 1024 * 1024;
 pub(crate) const CM_PER_INCH: f64 = 2.54;
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -264,7 +266,7 @@ impl Default for PdfBuildOptions {
             max_pages: 500,
             max_pixels: DEFAULT_MAX_IMAGE_PIXELS,
             max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
-            max_output_bytes: 512 * 1024 * 1024,
+            max_output_bytes: PDF_COMBINE_MAX_OUTPUT_BYTES,
             max_tiff_frames: 250,
             provenance_stamp_hex: None,
             worker_threads: 1,
@@ -305,7 +307,10 @@ where
 
     let batch_size = options.worker_threads.max(1);
     let encoders = PageEncoders::new(batch_size)?;
-    let output = OutputLimitWriter::new(output, options.max_output_bytes);
+    let output = OutputLimitWriter::new(
+        output,
+        options.max_output_bytes.min(PDF_COMBINE_MAX_OUTPUT_BYTES),
+    );
     let mut page_count = 0usize;
     let mut processed = 0usize;
     let output = write_pdf_to_writer(output, options.provenance_stamp_hex.as_deref(), |pdf| {

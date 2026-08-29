@@ -659,6 +659,7 @@ async function visitDocumentTextCatalogPages(
                 }
             }
             await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
+            throwIfAborted(options.signal);
 
             const pages = Array.from(canonicalByPage.values())
                 .sort((left, right) => left.pageNumber - right.pageNumber);
@@ -710,6 +711,7 @@ export async function resolveDocumentTextCatalogWindow(
             },
         },
     );
+    throwIfAborted(options.signal);
     return {
         documentRevision,
         pageCount: result.pageCount,
@@ -732,10 +734,12 @@ export async function resolveDocumentTextCatalogSnapshot(
     pageCount?: number,
     options: IResolveDocumentTextCatalogOptions = {},
 ): Promise<IDocumentTextSnapshot> {
+    throwIfAborted(options.signal);
     if (pageCount !== undefined && pageCount > OCR_SCALAR_PAGE_LIMIT) {
         throw new OcrCatalogTooLargeError(pageCount);
     }
     await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
+    throwIfAborted(options.signal);
     const catalog = await openCurrentOcrCatalog(workingCopyPath, documentRevision);
     const sourcePdfPath = options.sourcePdfPath ?? workingCopyPath;
     try {
@@ -752,25 +756,37 @@ export async function resolveDocumentTextCatalogSnapshot(
             fileStat => fileStat.size > DOCUMENT_TEXT_EXPORT_PDFJS_MAX_BYTES,
             () => false,
         );
+        throwIfAborted(options.signal);
         const embeddedPages: Array<
             Awaited<ReturnType<typeof extractTextFromPdf>>[number]
             | IPageTextWithWordBoxes
         > = [];
         if (!shouldUseBoundedTextOnlyExtraction) {
             const {extractTextWithPdfjsWordBoxes} = await loadPdfjsTextExtractor();
-            embeddedPages.push(...await extractTextWithPdfjsWordBoxes(sourcePdfPath));
+            throwIfAborted(options.signal);
+            const extractedPages = options.signal === undefined
+                ? await extractTextWithPdfjsWordBoxes(sourcePdfPath)
+                : await extractTextWithPdfjsWordBoxes(sourcePdfPath, {signal: options.signal});
+            embeddedPages.push(...extractedPages);
         } else if (pageCount) {
             for (let firstPage = 1; firstPage <= pageCount; firstPage += DOCUMENT_TEXT_EXPORT_PAGE_WINDOW) {
+                throwIfAborted(options.signal);
                 const lastPage = Math.min(pageCount, firstPage + DOCUMENT_TEXT_EXPORT_PAGE_WINDOW - 1);
-                embeddedPages.push(...await extractTextFromPdf(sourcePdfPath, {
+                const extractionOptions = {
                     pageCount,
                     pages: Array.from({length: lastPage - firstPage + 1}, (_, index) => firstPage + index),
-                }));
+                    ...(options.signal === undefined ? {} : {signal: options.signal}),
+                };
+                embeddedPages.push(...await extractTextFromPdf(sourcePdfPath, extractionOptions));
             }
         } else {
-            embeddedPages.push(...await extractTextFromPdf(sourcePdfPath));
+            const extractedPages = options.signal === undefined
+                ? await extractTextFromPdf(sourcePdfPath)
+                : await extractTextFromPdf(sourcePdfPath, {signal: options.signal});
+            embeddedPages.push(...extractedPages);
         }
         const languages = await loadLegacyOcrLanguages(workingCopyPath, documentRevision, catalog);
+        throwIfAborted(options.signal);
         const resolvedPageCount = pageCount ?? Math.max(embeddedPages.length, catalogPageCount ?? 0);
         const canonicalByPage = new Map<number, IDocumentTextCatalogPage>();
         const budget: ITextBudget = {
@@ -780,6 +796,7 @@ export async function resolveDocumentTextCatalogSnapshot(
         };
 
         for (const embedded of embeddedPages) {
+            throwIfAborted(options.signal);
             if (embedded.pageNumber > resolvedPageCount || !embedded.text.trim()) {
                 continue;
             }
@@ -794,10 +811,12 @@ export async function resolveDocumentTextCatalogSnapshot(
                 pageNumber,
                 artifact,
             } of catalog.iterateMappedPages()) {
+                throwIfAborted(options.signal);
                 setCanonicalOcrCatalogPage(canonicalByPage, pageNumber, artifact, languages, budget);
             }
         }
         await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
+        throwIfAborted(options.signal);
 
         const pages = Array.from(canonicalByPage.values()).sort((left, right) => left.pageNumber - right.pageNumber);
         return {

@@ -30,6 +30,10 @@ interface IDocxExportStreamSession {
     handle: FileHandle;
     receivedBytes: number;
     committing: boolean;
+    cancelRequested: boolean;
+    replacementStarted: boolean;
+    committed: boolean;
+    commitPromise: Promise<boolean> | null;
     queue: Promise<void>;
     timeout: NodeJS.Timeout;
     unregisterSenderCleanup: () => void;
@@ -129,6 +133,10 @@ async function abortSession(session: IDocxExportStreamSession) {
     if (sessions.get(session.id) !== session) {
         return;
     }
+    if (session.committing) {
+        session.cancelRequested = true;
+        return;
+    }
     sessions.delete(session.id);
     clearSessionTimeout(session);
     unregisterSessionSenderCleanup(session);
@@ -174,6 +182,10 @@ export async function beginDocxExportStream(
         handle,
         receivedBytes: 0,
         committing: false,
+        cancelRequested: false,
+        replacementStarted: false,
+        committed: false,
+        commitPromise: null,
         queue: Promise.resolve(),
         timeout,
         unregisterSenderCleanup: () => undefined,
@@ -232,20 +244,45 @@ export async function commitDocxExportStream(
 ) {
     const session = getSession(context, rawSessionId);
     session.committing = true;
-    sessions.delete(session.id);
     clearSessionTimeout(session);
     unregisterSessionSenderCleanup(session);
-    try {
-        await session.queue;
-        await syncFileHandleForDurability(session.handle);
-        await session.handle.close();
-        assertNoSymlinkPathSegments(session.targetPath);
-        await atomicReplace(session.tempPath, session.targetPath);
-        return true;
-    } catch (error) {
-        await closeAndRemoveTemp(session);
-        throw error;
-    }
+    const commitPromise = (async () => {
+        try {
+            await session.queue;
+            if (session.cancelRequested) {
+                await closeAndRemoveTemp(session);
+                return false;
+            }
+            await syncFileHandleForDurability(session.handle);
+            if (session.cancelRequested) {
+                await closeAndRemoveTemp(session);
+                return false;
+            }
+            await session.handle.close();
+            if (session.cancelRequested) {
+                await closeAndRemoveTemp(session);
+                return false;
+            }
+            assertNoSymlinkPathSegments(session.targetPath);
+            if (session.cancelRequested) {
+                await closeAndRemoveTemp(session);
+                return false;
+            }
+            session.replacementStarted = true;
+            await atomicReplace(session.tempPath, session.targetPath);
+            session.committed = true;
+            return true;
+        } catch (error) {
+            await closeAndRemoveTemp(session);
+            throw error;
+        } finally {
+            if (sessions.get(session.id) === session) {
+                sessions.delete(session.id);
+            }
+        }
+    })();
+    session.commitPromise = commitPromise;
+    return commitPromise;
 }
 
 export async function cancelDocxExportStream(
@@ -257,6 +294,13 @@ export async function cancelDocxExportStream(
     const session = sessions.get(sessionId);
     if (!session || session.senderId !== senderId) {
         return false;
+    }
+    if (session.committing) {
+        if (session.replacementStarted || session.committed) {
+            return false;
+        }
+        session.cancelRequested = true;
+        return true;
     }
     await abortSession(session);
     return true;

@@ -424,11 +424,11 @@ function toNativeFreeTextEditor(
     const nativeText = isRecord(value)
         ? normalizeNativeFreeTextEditorText(value.value)
         : null;
+    const existingAnnotationId = getExistingPdfAnnotationIdFromStorageValue(value);
     if (
         !key.startsWith('pdfjs_internal_editor_')
         || !isRecord(value)
         || value.deleted === true
-        || getExistingPdfAnnotationIdFromStorageValue(value)
         || !isFreeTextEditorStorageValue(value)
         || isReplayableFreeTextNoteStorageValue(value)
         || nativeText === null
@@ -447,7 +447,9 @@ function toNativeFreeTextEditor(
         stableKeys = new Map<string, string>();
         nativeFreeTextEditorStableKeys.set(document, stableKeys);
     }
-    let stableKey = stableKeys.get(key);
+    let stableKey = existingAnnotationId
+        ? `pdf-ref-${existingAnnotationId}`
+        : stableKeys.get(key);
     if (!stableKey) {
         stableKey = `freetext-${crypto.randomUUID()}`;
         stableKeys.set(key, stableKey);
@@ -456,6 +458,7 @@ function toNativeFreeTextEditor(
     return {
         pageIndex: requirePageIndex(value.pageIndex),
         stableKey,
+        ...(existingAnnotationId ? {annotationId: existingAnnotationId} : {}),
         text: nativeText,
         rect: [...value.rect],
         rotation: value.rotation,
@@ -548,6 +551,14 @@ export function collectLivePdfJsAnnotationChangeIds(
                     }
                     if (keyId) {
                         serializableRuntimeIdsMappedToPdfRefs.add(keyId);
+                    }
+                    const nativeFreeTextEditor = toNativeFreeTextEditor(
+                        document,
+                        keyId ?? existingPdfAnnotationId,
+                        value,
+                    );
+                    if (nativeFreeTextEditor) {
+                        nativeFreeTextEditors.set(existingPdfAnnotationId, nativeFreeTextEditor);
                     }
                     return;
                 }

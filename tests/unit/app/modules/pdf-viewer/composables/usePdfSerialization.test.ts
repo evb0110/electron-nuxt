@@ -14,9 +14,11 @@ import {
     PDFArray,
     PDFDict,
     PDFDocument,
+    PDFHexString,
     PDFName,
     PDFNumber,
     PDFRef,
+    PDFStream,
 } from 'pdf-lib';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import type { IDocumentsFileIoCapability } from '@contracts/electronApiDocuments';
@@ -26,6 +28,7 @@ import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/p
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import { usePdfSerialization } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
+import { deleteEmbeddedAnnotation } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/deleteEmbeddedAnnotation';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import {requireDocumentRevisionToken} from '@contracts';
 
@@ -146,6 +149,25 @@ function getPageAnnotRefs(doc: PDFDocument, pageIndex = 0) {
 
 function getAnnotDict(doc: PDFDocument, ref: PDFRef) {
     return doc.context.lookupMaybe(ref, PDFDict);
+}
+
+function getPlacedImageAppearanceRefs(doc: PDFDocument, stampRef: PDFRef) {
+    const appearanceRef = getAnnotDict(doc, stampRef)
+        ?.lookupMaybe(PDFName.of('AP'), PDFDict)
+        ?.get(PDFName.of('N'));
+    if (!(appearanceRef instanceof PDFRef)) {
+        return null;
+    }
+    const appearance = doc.context.lookupMaybe(appearanceRef, PDFStream);
+    const resources = appearance?.dict.lookupMaybe(PDFName.of('Resources'), PDFDict);
+    const xobjects = resources?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+    const imageRef = xobjects?.values().find((value): value is PDFRef => value instanceof PDFRef);
+    return imageRef
+        ? {
+            appearanceRef,
+            imageRef,
+        }
+        : null;
 }
 
 function getRectNumbers(dict: PDFDict) {
@@ -517,6 +539,201 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
         expect(appearanceDict).toBeInstanceOf(PDFDict);
         const normalAppearance = appearanceDict?.get(PDFName.of('N'));
         expect(normalAppearance instanceof PDFRef || normalAppearance instanceof PDFDict).toBe(true);
+    });
+
+    it('updates a reopened placed image by stable identity without appending an orphan stamp', async () => {
+        const serializer = createSerializationHarness();
+        const sourceDoc = await PDFDocument.create();
+        sourceDoc.addPage([
+            600,
+            800,
+        ]);
+        const placement = {
+            stableKey: 'placed-image-app-1',
+            pageNumber: 1,
+            x: 0.1,
+            y: 0.25,
+            width: 0.3,
+            height: 0.2,
+            rotationDegrees: 0,
+            fileName: 'cover.png',
+            mimeType: 'image/png',
+            bytes: ONE_PIXEL_PNG,
+            targetPixelWidth: 180,
+            targetPixelHeight: 160,
+        };
+        const first = await serializer.embedPlacedImageToPage(
+            new Uint8Array(await sourceDoc.save()),
+            placement,
+        );
+        if (!(first instanceof Uint8Array)) throw new Error('Expected browser bytes');
+        const firstDoc = await PDFDocument.load(first, {updateMetadata: false});
+        const firstRef = getPageAnnotRefs(firstDoc)[0]!;
+        const firstAppearance = getPlacedImageAppearanceRefs(firstDoc, firstRef);
+        expect(firstAppearance).not.toBeNull();
+
+        const updated = await serializer.embedPlacedImageToPage(first, {
+            ...placement,
+            x: 0.5,
+            width: 0.2,
+        });
+        if (!(updated instanceof Uint8Array)) throw new Error('Expected browser bytes');
+        const updatedDoc = await PDFDocument.load(updated, {updateMetadata: false});
+        const refs = getPageAnnotRefs(updatedDoc);
+        expect(refs).toHaveLength(1);
+        expect(refs[0]?.objectNumber).toBe(firstRef.objectNumber);
+        const dict = getAnnotDict(updatedDoc, refs[0]!);
+        expect(getPlacedImageAppearanceRefs(updatedDoc, refs[0]!)).toEqual(firstAppearance);
+        expect(dict?.lookupMaybe(PDFName.of('NM'), PDFHexString)?.decodeText())
+            .toBe('placed-image-app-1');
+        expect(getRectNumbers(dict!)).toEqual(expect.arrayContaining([
+            expect.closeTo(300, 6),
+            expect.closeTo(420, 6),
+        ]));
+    });
+
+    it('rejects a reopened placed-image ref whose NM disagrees with the canonical stable key', async () => {
+        const serializer = createSerializationHarness();
+        const sourceDoc = await PDFDocument.create();
+        sourceDoc.addPage([
+            600,
+            800,
+        ]);
+        const placement = {
+            stableKey: 'placed-image-app-1',
+            pageNumber: 1,
+            x: 0.1,
+            y: 0.25,
+            width: 0.3,
+            height: 0.2,
+            rotationDegrees: 0,
+            fileName: 'cover.png',
+            mimeType: 'image/png' as const,
+            bytes: ONE_PIXEL_PNG,
+            targetPixelWidth: 180,
+            targetPixelHeight: 160,
+        };
+        const first = await serializer.embedPlacedImageToPage(
+            new Uint8Array(await sourceDoc.save()),
+            placement,
+        );
+        if (!(first instanceof Uint8Array)) throw new Error('Expected browser bytes');
+        const firstDoc = await PDFDocument.load(first, {updateMetadata: false});
+        const firstRef = getPageAnnotRefs(firstDoc)[0]!;
+
+        await expect(serializer.embedPlacedImageToPage(first, {
+            ...placement,
+            stableKey: 'placed-image-other',
+            annotationId: `${firstRef.objectNumber}R${firstRef.generationNumber}`,
+        })).rejects.toThrow('stable identity does not match');
+    });
+
+    it('rejects duplicate stable placed-image identities when no exact ref is supplied', async () => {
+        const serializer = createSerializationHarness();
+        const sourceDoc = await PDFDocument.create();
+        sourceDoc.addPage([
+            600,
+            800,
+        ]);
+        const placement = {
+            stableKey: 'placed-image-duplicate',
+            pageNumber: 1,
+            x: 0.1,
+            y: 0.25,
+            width: 0.3,
+            height: 0.2,
+            rotationDegrees: 0,
+            fileName: 'cover.png',
+            mimeType: 'image/png' as const,
+            bytes: ONE_PIXEL_PNG,
+            targetPixelWidth: 180,
+            targetPixelHeight: 160,
+        };
+        const placed = await serializer.embedPlacedImageToPage(
+            new Uint8Array(await sourceDoc.save()),
+            placement,
+        );
+        if (!(placed instanceof Uint8Array)) throw new Error('Expected browser bytes');
+        const duplicateDoc = await PDFDocument.load(placed, {updateMetadata: false});
+        const page = duplicateDoc.getPages()[0]!;
+        const firstRef = getPageAnnotRefs(duplicateDoc)[0]!;
+        const first = getAnnotDict(duplicateDoc, firstRef)!;
+        const duplicateRef = duplicateDoc.context.register(duplicateDoc.context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('Stamp'),
+            Rect: first.get(PDFName.of('Rect'))!,
+            AP: first.get(PDFName.of('AP'))!,
+            NM: first.get(PDFName.of('NM'))!,
+        }));
+        page.node.Annots()!.push(duplicateRef);
+
+        await expect(serializer.embedPlacedImageToPage(
+            new Uint8Array(await duplicateDoc.save()),
+            placement,
+        )).rejects.toThrow('more than one Stamp');
+    });
+
+    it('deletes a placed image and its managed appearance objects from the current PDF graph', async () => {
+        const serializer = createSerializationHarness();
+        const sourceDoc = await PDFDocument.create();
+        sourceDoc.addPage([
+            600,
+            800,
+        ]);
+        const placed = await serializer.embedPlacedImageToPage(
+            new Uint8Array(await sourceDoc.save()),
+            {
+                stableKey: 'placed-image-app-delete',
+                pageNumber: 1,
+                x: 0.1,
+                y: 0.25,
+                width: 0.3,
+                height: 0.2,
+                rotationDegrees: 0,
+                fileName: 'cover.png',
+                mimeType: 'image/png',
+                bytes: ONE_PIXEL_PNG,
+                targetPixelWidth: 180,
+                targetPixelHeight: 160,
+            },
+        );
+        if (!(placed instanceof Uint8Array)) throw new Error('Expected browser bytes');
+        const placedDoc = await PDFDocument.load(placed, {updateMetadata: false});
+        const stampRef = getPageAnnotRefs(placedDoc)[0]!;
+        const appearance = getPlacedImageAppearanceRefs(placedDoc, stampRef)!;
+
+        const deleted = await deleteEmbeddedAnnotation(placed, {
+            source: 'pdf',
+            id: stampRef.toString(),
+            stableKey: 'nm:placed-image-app-delete',
+            pageIndex: 0,
+            pageNumber: 1,
+            text: '',
+            subtype: 'Stamp',
+            author: null,
+            modifiedAt: null,
+            color: null,
+            uid: null,
+            annotationId: `${stampRef.objectNumber}R${stampRef.generationNumber}`,
+            annotationName: 'placed-image-app-delete',
+            hasNote: false,
+            markerRect: {
+                left: 0.1,
+                top: 0.25,
+                width: 0.3,
+                height: 0.2,
+            },
+        });
+        expect(deleted).not.toBeNull();
+        const deletedDoc = await PDFDocument.load(deleted!, {updateMetadata: false});
+        expect(getPageAnnotRefs(deletedDoc)).toEqual([]);
+        for (const ref of [
+            stampRef,
+            appearance.appearanceRef,
+            appearance.imageRef,
+        ]) {
+            expect(deletedDoc.context.lookup(ref)).toBeUndefined();
+        }
     });
 
     it('appends the placed image stamp after existing annotations so it stays topmost', async () => {

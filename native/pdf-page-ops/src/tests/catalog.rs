@@ -42,6 +42,7 @@
                 shapes: None,
                 markup: None,
                 placed_images: Vec::new(),
+                continuation: None,
             },
             "D:20260609123456+03'00'",
         )
@@ -103,6 +104,117 @@
         let after = catalog(&document);
         assert_eq!(after.get(b"PageLabels").unwrap(), before.get(b"PageLabels").unwrap());
         assert_eq!(after.get(b"Outlines").unwrap(), before.get(b"Outlines").unwrap());
+    }
+
+    #[test]
+    fn appends_oversized_bookmark_subtree_as_path_addressed_fragments() {
+        let (mut document, _page_id) = create_test_document();
+        let input_path = temp_pdf_path("append-bookmark-subtree-input");
+        let mut original_bytes = Vec::new();
+        document.save_to(&mut original_bytes).unwrap();
+        write(&input_path, &original_bytes).unwrap();
+
+        let root = BookmarkEntry {
+            title: "Root".to_string(),
+            page_index: Some(0),
+            page_y_ratio: None,
+            named_dest: None,
+            bold: false,
+            italic: false,
+            color: None,
+            items: Vec::new(),
+        };
+        append_native_mutations(
+            &input_path,
+            &input_path,
+            &NativeMutationsFile {
+                updates: Vec::new(),
+                free_text_notes: Vec::new(),
+                free_text_editors: Vec::new(),
+                deletes: Vec::new(),
+                page_labels: None,
+                bookmarks: Some(BookmarksMutation {
+                    total_pages: 1,
+                    untitled_label: "Untitled".to_string(),
+                    items: vec![root],
+                }),
+                shapes: None,
+                markup: None,
+                placed_images: Vec::new(),
+                continuation: None,
+            },
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        let mut children = (0..5_001)
+            .map(|index| BookmarkEntry {
+                title: format!("Child {index}"),
+                page_index: Some(0),
+                page_y_ratio: None,
+                named_dest: None,
+                bold: false,
+                italic: false,
+                color: None,
+                items: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        for (chunk_index, chunk) in children.chunks_mut(5_000).enumerate() {
+            append_native_mutations(
+                &input_path,
+                &input_path,
+                &NativeMutationsFile {
+                    updates: Vec::new(),
+                    free_text_notes: Vec::new(),
+                    free_text_editors: Vec::new(),
+                    deletes: Vec::new(),
+                    page_labels: None,
+                    bookmarks: Some(BookmarksMutation {
+                        total_pages: 1,
+                        untitled_label: "Untitled".to_string(),
+                        items: chunk.to_vec(),
+                    }),
+                    shapes: None,
+                    markup: None,
+                    placed_images: Vec::new(),
+                    continuation: Some(NativeMutationContinuation {
+                        family: NativeMutationContinuationFamily::Bookmarks,
+                        chunk_index: u32::try_from(chunk_index + 1).unwrap(),
+                        chunk_count: 3,
+                        bookmark_path: vec![0],
+                    }),
+                },
+                "D:20260609123456+03'00'",
+            )
+            .unwrap();
+        }
+
+        let loaded = Document::load(&input_path).unwrap();
+        let outlines_ref = catalog(&loaded)
+            .get(b"Outlines")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let outlines = loaded.get_dictionary(outlines_ref).unwrap();
+        assert_eq!(outlines.get(b"Count").unwrap().as_i64().unwrap(), 5_002);
+        let root_ref = outlines.get(b"First").unwrap().as_reference().unwrap();
+        let root = loaded.get_dictionary(root_ref).unwrap();
+        assert_eq!(root.get(b"Count").unwrap().as_i64().unwrap(), 5_001);
+        let mut child_ref = root.get(b"First").unwrap().as_reference().unwrap();
+        for expected_index in 0..5_001 {
+            let child = loaded.get_dictionary(child_ref).unwrap();
+            assert_eq!(
+                pdf_string_to_text(child.get(b"Title").unwrap()).unwrap(),
+                format!("Child {expected_index}"),
+            );
+            if expected_index < 5_000 {
+                child_ref = child.get(b"Next").unwrap().as_reference().unwrap();
+            } else {
+                assert!(child.get(b"Next").is_err());
+            }
+        }
+
+        let _ = remove_file(input_path);
     }
 
     #[test]
@@ -170,6 +282,7 @@
                 shapes: None,
                 markup: None,
                 placed_images: Vec::new(),
+                continuation: None,
             },
             "D:20260609123456+03'00'",
         )

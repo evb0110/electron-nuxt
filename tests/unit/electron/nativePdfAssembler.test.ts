@@ -319,12 +319,12 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/final.pdf.tmp', '/tmp/final.pdf');
     });
 
-    it('does not apply the former output cap to strict file-backed output', async () => {
+    it('refuses strict file-backed output above the shared output cap', async () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
         let statCalls = 0;
         mocks.stat.mockImplementation(async () => {
             statCalls += 1;
-            return {size: statCalls === 2 ? 513 * 1024 * 1024 : 3};
+            return {size: statCalls === 2 ? (16 * 1024 * 1024) + 1 : 3};
         });
         mocks.getPdfPageCount.mockImplementation(async () => 3);
 
@@ -332,9 +332,12 @@ describe('tryCreatePdfFromInputPathsNative', () => {
             ['/tmp/one.png'],
             '/tmp/final.pdf',
             {failureMode: 'capability-error'},
-        )).resolves.toBe(true);
+        )).rejects.toMatchObject({
+            code: 'too-large',
+            name: 'SerializableError',
+        });
 
-        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/final.pdf.tmp', '/tmp/final.pdf');
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
     });
 
     it('does not apply the former 500-page cap to strict file-backed input batches', async () => {
@@ -409,16 +412,17 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('Combined PDF is capped at 2 pages'));
     });
 
-    it('falls back when native assembler output exceeds the shared output byte cap', async () => {
+    it('refuses native assembler output above the shared output byte cap', async () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
         vi.stubEnv('EVB_PDF_COMBINE_MAX_OUTPUT_MB', '1');
         mocks.stat.mockResolvedValueOnce({size: (1024 * 1024) + 1});
 
-        const result = await tryCreatePdfFromInputPathsNative(['/tmp/one.png']);
-
-        expect(result).toBeNull();
+        await expect(tryCreatePdfFromInputPathsNative(['/tmp/one.png']))
+            .rejects.toMatchObject({
+                code: 'too-large',
+                name: 'SerializableError',
+            });
         expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
         expect(mocks.readFile).not.toHaveBeenCalled();
-        expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('Combined PDF output is too large to return safely'));
     });
 });

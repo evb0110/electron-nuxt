@@ -334,7 +334,14 @@ export class SearchTextBudgetError extends Error {
  * composition plus the presentation ligatures commonly emitted by PDF fonts.
  */
 function normalizedTextByteLength(text: string) {
-    return /^\p{ASCII}*$/u.test(text)
+    let isAscii = true;
+    for (let index = 0; index < text.length; index += 1) {
+        if (text.charCodeAt(index) > 0x7F) {
+            isAscii = false;
+            break;
+        }
+    }
+    return isAscii
         ? text.length
         : searchTextEncoder.encode(text).byteLength;
 }

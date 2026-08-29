@@ -11,6 +11,8 @@ import type {
     IPageOpsMetadataSnapshot,
     IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
+import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
+import {splitPdfNativeMutationSetIntoBoundedChunks} from '@contracts/nativePdfMutations';
 import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import {
@@ -117,7 +119,7 @@ export function remapPageMetadata(
             items: remapBookmarkItems(metadata.bookmarks, delta),
         };
     }
-    return result;
+    return result satisfies Pick<IPdfNativeMutationSet, 'pageLabels' | 'bookmarks'>;
 }
 
 function createNativeModifiedAt() {
@@ -154,26 +156,41 @@ export async function applyPageMetadataRemap(input: {
         if (Object.keys(mutations).length === 0) {
             return;
         }
-        await writeFile(mutationsPath, JSON.stringify(mutations), 'utf8');
-        await runNativeToolCommand(binaryPath, [
-            'save-mutations',
-            '--input',
-            input.workingCopyPath,
-            '--output',
-            input.workingCopyPath,
-            '--mutations-file',
-            mutationsPath,
-            '--qpdf',
-            getPdfNativeToolPaths().qpdf,
-            '--modified-at',
-            createNativeModifiedAt(),
-            '--append',
-        ], {
-            timeoutMs: PAGE_METADATA_REMAP_TIMEOUT_MS,
-            commandLabel: 'evb-pdf-page-ops(page-metadata-remap)',
-            signal: input.signal,
-            cancelGroup: input.cancelGroup,
-        });
+        const mutationChunks = splitPdfNativeMutationSetIntoBoundedChunks(
+            mutations,
+        );
+        for (const [
+            chunkIndex,
+            mutationChunk,
+        ] of mutationChunks.entries()) {
+            const chunkMutationsPath = chunkIndex === 0
+                ? mutationsPath
+                : join(tempDir, `mutations-${chunkIndex}.json`);
+            await writeFile(
+                chunkMutationsPath,
+                JSON.stringify(mutationChunk),
+                'utf8',
+            );
+            await runNativeToolCommand(binaryPath, [
+                'save-mutations',
+                '--input',
+                input.workingCopyPath,
+                '--output',
+                input.workingCopyPath,
+                '--mutations-file',
+                chunkMutationsPath,
+                '--qpdf',
+                getPdfNativeToolPaths().qpdf,
+                '--modified-at',
+                createNativeModifiedAt(),
+                '--append',
+            ], {
+                timeoutMs: PAGE_METADATA_REMAP_TIMEOUT_MS,
+                commandLabel: 'evb-pdf-page-ops(page-metadata-remap)',
+                signal: input.signal,
+                cancelGroup: input.cancelGroup,
+            });
+        }
     } finally {
         await rm(tempDir, {
             recursive: true,

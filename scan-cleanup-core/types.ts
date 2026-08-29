@@ -134,6 +134,10 @@ export interface IDetectedPageRaster {
 export interface IScanCleanupPageRasterSource {
     detected: boolean;
     documentDpi?: number | null;
+    /** Counted without retaining the page-indexed raster facts. */
+    compactLayeredPageCount?: number;
+    /** True once every document page has had a raster fact lookup. */
+    compactLayeredPageCountComplete?: boolean;
     getPageRaster: (
         pageNumber: number,
     ) => Promise<IDetectedPageRaster | undefined> | IDetectedPageRaster | undefined;

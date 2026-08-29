@@ -90,29 +90,64 @@ pub(crate) fn set_page_labels_on_catalog(
         nums.push(Object::Integer(i64::from(
             range.start_page.saturating_sub(1),
         )));
-        let mut label_dict = Dictionary::new();
-        label_dict.set("Type", Object::Name(b"PageLabel".to_vec()));
-        if let Some(style) = range.style.as_deref() {
-            label_dict.set("S", Object::Name(style.as_bytes().to_vec()));
-        }
-        if !range.prefix.is_empty() {
-            label_dict.set(
-                "P",
-                Object::String(
-                    encode_pdf_text_string(&range.prefix),
-                    StringFormat::Hexadecimal,
-                ),
-            );
-        }
-        if range.style.is_some() && range.start_number > 1 {
-            label_dict.set("St", Object::Integer(i64::from(range.start_number)));
-        }
-        nums.push(Object::Dictionary(label_dict));
+        nums.push(page_label_dictionary(&range));
     }
 
     let mut page_labels_dict = Dictionary::new();
     page_labels_dict.set("Nums", Object::Array(nums));
     catalog.set("PageLabels", Object::Dictionary(page_labels_dict));
+}
+
+fn page_label_dictionary(range: &PageLabelRange) -> Object {
+    let mut label_dict = Dictionary::new();
+    label_dict.set("Type", Object::Name(b"PageLabel".to_vec()));
+    if let Some(style) = range.style.as_deref() {
+        label_dict.set("S", Object::Name(style.as_bytes().to_vec()));
+    }
+    if !range.prefix.is_empty() {
+        label_dict.set(
+            "P",
+            Object::String(
+                encode_pdf_text_string(&range.prefix),
+                StringFormat::Hexadecimal,
+            ),
+        );
+    }
+    if range.style.is_some() && range.start_number > 1 {
+        label_dict.set("St", Object::Integer(i64::from(range.start_number)));
+    }
+    Object::Dictionary(label_dict)
+}
+
+fn normalize_page_label_range_for_continuation(
+    range: &PageLabelRange,
+    total_pages: u32,
+) -> PageLabelRange {
+    PageLabelRange {
+        start_page: clamp_u32(range.start_page.max(1), 1, total_pages),
+        style: normalize_page_label_style(range.style.as_deref()),
+        prefix: range.prefix.clone(),
+        start_number: range.start_number.max(1),
+    }
+}
+
+fn collect_existing_page_label_entries(
+    document: &Document,
+    catalog: &Dictionary,
+) -> Result<BTreeMap<i64, Object>> {
+    let mut entries = BTreeMap::new();
+    let Ok(page_labels_object) = catalog.get(b"PageLabels") else {
+        return Ok(entries);
+    };
+    let page_labels = resolve_dictionary_object(document, page_labels_object, "PageLabels")?;
+    let nums = page_labels.get(b"Nums")?.as_array()?;
+    if nums.len() % 2 != 0 {
+        return Err("PageLabels Nums must contain key/value pairs".into());
+    }
+    for pair in nums.chunks_exact(2) {
+        entries.insert(pair[0].as_i64()?, pair[1].clone());
+    }
+    Ok(entries)
 }
 
 pub(crate) fn set_page_labels(
@@ -129,6 +164,7 @@ pub(crate) fn set_page_labels(
 pub(crate) fn set_page_labels_incremental(
     incremental: &mut IncrementalDocument,
     page_labels: &PageLabelsMutation,
+    continuation: bool,
 ) -> Result<()> {
     assert_mutation_page_count(
         incremental.get_prev_documents(),
@@ -136,6 +172,44 @@ pub(crate) fn set_page_labels_incremental(
         "Page-label mutation",
     )?;
     let catalog_id = incremental.get_prev_documents().root_id()?;
+    if continuation {
+        let previous_catalog = incremental.get_prev_documents().dictionary(catalog_id)?;
+        let mut entries = collect_existing_page_label_entries(
+            incremental.get_prev_documents(),
+            previous_catalog,
+        )?;
+        if entries.is_empty() {
+            for range in normalize_page_label_ranges(&page_labels.ranges, page_labels.total_pages) {
+                entries.insert(
+                    i64::from(range.start_page.saturating_sub(1)),
+                    page_label_dictionary(&range),
+                );
+            }
+        } else {
+            for range in &page_labels.ranges {
+                let normalized =
+                    normalize_page_label_range_for_continuation(range, page_labels.total_pages);
+                entries.insert(
+                    i64::from(normalized.start_page.saturating_sub(1)),
+                    page_label_dictionary(&normalized),
+                );
+            }
+        }
+        incremental.opt_clone_object_to_new_document(catalog_id)?;
+        let catalog = incremental.new_document.get_dictionary_mut(catalog_id)?;
+        if entries.is_empty() {
+            catalog.remove(b"PageLabels");
+        } else {
+            let nums = entries
+                .into_iter()
+                .flat_map(|(start_page, label)| [Object::Integer(start_page), label])
+                .collect();
+            let mut page_labels_dict = Dictionary::new();
+            page_labels_dict.set("Nums", Object::Array(nums));
+            catalog.set("PageLabels", Object::Dictionary(page_labels_dict));
+        }
+        return Ok(());
+    }
     incremental.opt_clone_object_to_new_document(catalog_id)?;
     let catalog = incremental.new_document.get_dictionary_mut(catalog_id)?;
     set_page_labels_on_catalog(catalog, page_labels);
@@ -472,6 +546,7 @@ pub(crate) fn set_bookmarks(document: &mut Document, bookmarks: &BookmarksMutati
 pub(crate) fn set_bookmarks_incremental(
     incremental: &mut IncrementalDocument,
     bookmarks: &BookmarksMutation,
+    continuation: Option<&NativeMutationContinuation>,
 ) -> Result<()> {
     let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
     assert_mutation_page_count_with_resolver(
@@ -485,6 +560,17 @@ pub(crate) fn set_bookmarks_incremental(
         &bookmarks.untitled_label,
     );
     let catalog_id = incremental.get_prev_documents().root_id()?;
+    if continuation.is_some_and(|value| value.family == NativeMutationContinuationFamily::Bookmarks)
+    {
+        return append_bookmarks_incremental(
+            incremental,
+            &page_resolver,
+            &normalized,
+            continuation.and_then(|value| {
+                (!value.bookmark_path.is_empty()).then_some(value.bookmark_path.as_slice())
+            }),
+        );
+    }
     incremental.opt_clone_object_to_new_document(catalog_id)?;
     if normalized.is_empty() {
         let catalog = incremental.new_document.get_dictionary_mut(catalog_id)?;
@@ -512,4 +598,89 @@ pub(crate) fn set_bookmarks_incremental(
     let catalog = incremental.new_document.get_dictionary_mut(catalog_id)?;
     catalog.set("Outlines", Object::Reference(outlines_ref));
     Ok(())
+}
+
+fn outline_level_item_at(document: &Document, parent_id: ObjectId, index: u32) -> Result<ObjectId> {
+    let parent = document.dictionary(parent_id)?;
+    let mut current = parent.get(b"First")?.as_reference()?;
+    for _ in 0..index {
+        current = document.dictionary(current)?.get(b"Next")?.as_reference()?;
+    }
+    Ok(current)
+}
+
+fn append_bookmarks_incremental(
+    incremental: &mut IncrementalDocument,
+    page_resolver: &PageTreeResolver,
+    items: &[BookmarkEntry],
+    bookmark_path: Option<&[u32]>,
+) -> Result<()> {
+    let catalog_id = incremental.get_prev_documents().root_id()?;
+    let previous_catalog = incremental.get_prev_documents().dictionary(catalog_id)?;
+    let outlines_id = previous_catalog.get(b"Outlines")?.as_reference()?;
+    let mut parent_id = outlines_id;
+    let mut ancestor_ids = vec![outlines_id];
+    incremental.opt_clone_object_to_new_document(catalog_id)?;
+    incremental.opt_clone_object_to_new_document(outlines_id)?;
+    if let Some(path) = bookmark_path {
+        for index in path {
+            parent_id = outline_level_item_at(incremental.get_prev_documents(), parent_id, *index)?;
+            incremental.opt_clone_object_to_new_document(parent_id)?;
+            ancestor_ids.push(parent_id);
+        }
+    }
+    if items.is_empty() {
+        return Ok(());
+    }
+    let tree = build_outline_level_incremental(incremental, page_resolver, items, parent_id)?;
+    let (Some(first), Some(last)) = (tree.first, tree.last) else {
+        return Ok(());
+    };
+    let previous_last = incremental
+        .get_prev_documents()
+        .dictionary(parent_id)
+        .ok()
+        .and_then(|dict| dict.get(b"Last").ok())
+        .and_then(|value| value.as_reference().ok());
+    if let Some(previous_last) = previous_last {
+        incremental.opt_clone_object_to_new_document(previous_last)?;
+        incremental
+            .new_document
+            .get_dictionary_mut(previous_last)?
+            .set("Next", Object::Reference(first));
+        incremental
+            .new_document
+            .get_dictionary_mut(first)?
+            .set("Prev", Object::Reference(previous_last));
+    } else {
+        incremental
+            .new_document
+            .get_dictionary_mut(parent_id)?
+            .set("First", Object::Reference(first));
+    }
+    let parent = incremental.new_document.get_dictionary_mut(parent_id)?;
+    parent.set("Last", Object::Reference(last));
+    add_outline_visible_count(parent, tree.visible_count);
+    for ancestor_id in ancestor_ids
+        .iter()
+        .take(ancestor_ids.len().saturating_sub(1))
+    {
+        let ancestor = incremental.new_document.get_dictionary_mut(*ancestor_id)?;
+        add_outline_visible_count(ancestor, tree.visible_count);
+    }
+    Ok(())
+}
+
+fn add_outline_visible_count(dictionary: &mut Dictionary, delta: i64) {
+    let previous_count: i64 = dictionary
+        .get(b"Count")
+        .ok()
+        .and_then(|value| value.as_i64().ok())
+        .unwrap_or(0);
+    let count = if previous_count < 0 {
+        previous_count.saturating_sub(delta)
+    } else {
+        previous_count.saturating_add(delta)
+    };
+    dictionary.set("Count", Object::Integer(count));
 }

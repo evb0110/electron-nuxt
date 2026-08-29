@@ -56,7 +56,7 @@ function createSummaryDeps(): IPdfCommentSummaryDeps {
 }
 
 async function scan(
-    nativeIndexReader: IPdfAnnotationIndexReader,
+    nativeIndexReader: IPdfAnnotationIndexReader | null,
     pageOrder: Iterable<number>,
     loadPage: (pageNumber: number, names: ReadonlyMap<string, string> | null) => Promise<IPdfPageAnnotationBundle | null>,
     onFirstPageCollected = vi.fn(),
@@ -215,5 +215,25 @@ describe('scanPdfAnnotationPages', () => {
         expect(readPage).toHaveBeenCalledOnce();
         expect(loadPage).toHaveBeenCalledTimes(2);
         expect(waitForIdle).toHaveBeenCalledOnce();
+    });
+
+    it('reports a typed identity refusal for a browser Stamp without a bounded NM read', async () => {
+        const loadPage = vi.fn(async (): Promise<IPdfPageAnnotationBundle> => ({
+            ...createEmptyPageBundle(),
+            annotations: [{
+                id: '44R',
+                subtype: 'Stamp',
+                rect: [
+                    10,
+                    10,
+                    20,
+                    20,
+                ],
+            }],
+        }));
+
+        const {result} = await scan(null, [1], loadPage);
+
+        expect(result?.omissions).toEqual(new Set(['annotation-name-unavailable']));
     });
 });

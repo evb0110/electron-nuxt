@@ -30,6 +30,13 @@ interface IUsePdfRendererAnnotationLayerControllerOptions {
     renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
 
+interface IPdfRendererAnnotationLayerController {
+    cancel(pageNumber: number): void;
+    cancelAll(): void;
+    dispose(): void;
+    register(pageNumber: number, controller: AbortController): () => void;
+}
+
 export const usePdfRendererAnnotationLayerController = (options: IUsePdfRendererAnnotationLayerControllerOptions) => {
     const {
         annotationLayerRenderer,
@@ -40,18 +47,45 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
         logNonCriticalStageError,
     } = options;
     const activeAnnotationLayerAbortControllers = new Map<number, AbortController>();
+    let disposed = false;
 
-    function createAnnotationLayerAbortController(pageNumber: number) {
+    function register(pageNumber: number, controller: AbortController) {
         activeAnnotationLayerAbortControllers.get(pageNumber)?.abort();
-        const controller = new AbortController();
         activeAnnotationLayerAbortControllers.set(pageNumber, controller);
-        return controller;
+        if (disposed) {
+            controller.abort();
+        }
+        return () => releaseAnnotationLayerAbortController(pageNumber, controller);
     }
 
     function releaseAnnotationLayerAbortController(pageNumber: number, controller: AbortController) {
         if (activeAnnotationLayerAbortControllers.get(pageNumber) === controller) {
             activeAnnotationLayerAbortControllers.delete(pageNumber);
         }
+    }
+
+    function cancel(pageNumber: number) {
+        const controller = activeAnnotationLayerAbortControllers.get(pageNumber);
+        if (!controller) {
+            return;
+        }
+        activeAnnotationLayerAbortControllers.delete(pageNumber);
+        controller.abort();
+    }
+
+    function cancelAll() {
+        for (const [
+            pageNumber,
+            controller,
+        ] of activeAnnotationLayerAbortControllers) {
+            activeAnnotationLayerAbortControllers.delete(pageNumber);
+            controller.abort();
+        }
+    }
+
+    function dispose() {
+        disposed = true;
+        cancelAll();
     }
 
     async function renderAnnotationLayersForPage(
@@ -68,6 +102,12 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
             textLayerDiv,
             preserveCanvasOnStale = false,
         } = context;
+        if (disposed) {
+            return {
+                shouldContinue: false,
+                annotationLayerInstance: null,
+            };
+        }
         const {
             viewport,
             annotationCanvasMap,
@@ -86,7 +126,8 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                 };
             }
 
-            const annotationAbortController = createAnnotationLayerAbortController(pageNumber);
+            const annotationAbortController = new AbortController();
+            const releaseAnnotationAbortController = register(pageNumber, annotationAbortController);
             try {
                 annotationLayerInstance =
                     await withPageStageTimeout(
@@ -120,7 +161,7 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                     annotationError,
                 );
             } finally {
-                releaseAnnotationLayerAbortController(pageNumber, annotationAbortController);
+                releaseAnnotationAbortController();
             }
 
             if (getRenderVersion() !== version || !shouldContinue()) {
@@ -149,7 +190,8 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                     annotationLayerInstance: null,
                 };
             }
-            const annotationEditorAbortController = createAnnotationLayerAbortController(pageNumber);
+            const annotationEditorAbortController = new AbortController();
+            const releaseAnnotationEditorAbortController = register(pageNumber, annotationEditorAbortController);
             try {
                 await withPageStageTimeout(
                     annotationLayerRenderer.renderAnnotationEditorLayer(
@@ -182,7 +224,7 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                     annotationEditorError,
                 );
             } finally {
-                releaseAnnotationLayerAbortController(pageNumber, annotationEditorAbortController);
+                releaseAnnotationEditorAbortController();
             }
 
             if (getRenderVersion() !== version || !shouldContinue()) {
@@ -213,5 +255,10 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
         };
     }
 
-    return renderAnnotationLayersForPage;
+    return Object.assign(renderAnnotationLayersForPage, {
+        cancel,
+        cancelAll,
+        dispose,
+        register,
+    }) satisfies IPdfRendererAnnotationLayerController;
 };

@@ -20,6 +20,7 @@ export const usePdfThumbnailVirtualLayout = (options: IUsePdfThumbnailVirtualLay
     // page is measured in a very large document.
     const aspectRatios = shallowRef(new Map<number, number>());
     const revision = ref(0);
+    const activeScrollSegmentIndex = ref(0);
     const layout = shallowRef(new DocumentThumbnailLayout({
         adoptFirstAspectAsEstimate: true,
         itemChromeHeight: itemChromeHeight.value,
@@ -56,6 +57,7 @@ export const usePdfThumbnailVirtualLayout = (options: IUsePdfThumbnailVirtualLay
             pageCount: options.pageCount.value,
             renderWidth: layoutWidth.value,
         });
+        activeScrollSegmentIndex.value = layout.value.getScrollSegmentIndexForPage(1);
         commitLayoutReaction(anchor);
     }
 
@@ -80,39 +82,108 @@ export const usePdfThumbnailVirtualLayout = (options: IUsePdfThumbnailVirtualLay
             pageCount: options.pageCount.value,
             renderWidth: layoutWidth.value,
         });
+        activeScrollSegmentIndex.value = Math.min(
+            Math.max(0, layout.value.getScrollSegmentCount() - 1),
+            activeScrollSegmentIndex.value,
+        );
         commitLayoutReaction(anchor);
     }, {flush: 'sync'});
 
     function getPageTop(page: number) {
         void revision.value;
-        return layout.value.getPageTop(page);
+        return layout.value.getPageTopInScrollSegment(page, activeScrollSegmentIndex.value);
+    }
+
+    function getPageBounds(page: number) {
+        const top = Math.max(0, getPageTop(page));
+        const height = Math.max(1, layout.value.getPageHeight(page));
+        return {
+            bottom: top + height,
+            height,
+            top,
+        };
+    }
+
+    function getMaxScrollTop(clientHeight: number) {
+        return Math.max(0, contentHeight.value - clientHeight);
+    }
+
+    function getViewport(container: HTMLElement) {
+        return {
+            clientHeight: container.clientHeight,
+            scrollHeight: contentHeight.value,
+            scrollTop: container.scrollTop,
+        };
     }
 
     function resolvePageAtOffset(offset: number) {
         void revision.value;
-        return layout.value.resolvePageAtOffset(offset);
+        return layout.value.resolvePageAtScrollOffsetInSegment(offset, activeScrollSegmentIndex.value);
     }
 
     function resolveInsertionIndex(offset: number) {
         void revision.value;
-        return layout.value.resolveInsertionIndex(offset);
+        return layout.value.resolveInsertionIndexInScrollSegment(offset, activeScrollSegmentIndex.value);
+    }
+
+    function setActiveScrollSegment(index: number) {
+        const segmentCount = layout.value.getScrollSegmentCount();
+        const nextIndex = segmentCount === 0
+            ? 0
+            : Math.min(segmentCount - 1, Math.max(0, Math.trunc(index)));
+        if (nextIndex === activeScrollSegmentIndex.value) {
+            return false;
+        }
+        activeScrollSegmentIndex.value = nextIndex;
+        revision.value += 1;
+        return true;
+    }
+
+    function setActiveScrollSegmentForPage(page: number) {
+        return setActiveScrollSegment(layout.value.getScrollSegmentIndexForPage(page));
+    }
+
+    function resolveScrollSegmentTransition(
+        scrollTop: number,
+        previousScrollTop: number,
+        viewportHeight: number,
+    ) {
+        void revision.value;
+        const transition = layout.value.resolveScrollSegmentTransition(
+            scrollTop,
+            previousScrollTop,
+            viewportHeight,
+            activeScrollSegmentIndex.value,
+        );
+        if (!transition) {
+            return null;
+        }
+        setActiveScrollSegment(transition.segmentIndex);
+        return transition;
     }
 
     const contentHeight = computed(() => {
         void revision.value;
-        return layout.value.getTotalHeight();
+        return layout.value.getScrollSegment(activeScrollSegmentIndex.value).height;
     });
 
     return {
+        activeScrollSegmentIndex,
         aspectRatios,
         clearAspectRatios,
         contentHeight,
         getPageTop,
+        getPageBounds,
+        getMaxScrollTop,
+        getViewport,
         itemChromeHeight,
         layout,
         layoutWidth,
         resolveInsertionIndex,
         resolvePageAtOffset,
+        resolveScrollSegmentTransition,
+        setActiveScrollSegment,
+        setActiveScrollSegmentForPage,
         updateAspectRatio,
     };
 };

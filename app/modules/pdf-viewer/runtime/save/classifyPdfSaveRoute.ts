@@ -148,6 +148,16 @@ function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
             markupGeometry: structuredClone(entity.geometry),
         };
     }
+    if (entity.kind === 'placed-image') {
+        return {
+            ...common,
+            text: '',
+            subtype: 'Stamp',
+            color: null,
+            hasNote: false,
+            markerRect: structuredClone(entity.rect),
+        };
+    }
     return {
         ...common,
         source: 'shape',
@@ -659,6 +669,7 @@ function buildClassifiedNativeMutationProjection(
     const annotationWorkDirty = hasNonShapeAnnotationWork(plan);
     const markup = buildNativeMarkupMutationForSave({
         canonicalComments: canonical.comments,
+        changedComments,
         annotationWorkDirty,
         markupSubtypeOverrides: capabilities.markupSubtypeOverrides,
         markupSubtypeHints: capabilities.markupSubtypeHints,

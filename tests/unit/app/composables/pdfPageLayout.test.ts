@@ -18,6 +18,7 @@ import {
     getPageMetricMaximum,
     isSparsePageMetricCollection,
     normalizePageMetrics,
+    PDF_PAGE_METRICS_DENSE_LIMIT,
 } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
@@ -304,6 +305,56 @@ describe('pdfPageLayout', () => {
             0,
             totalPages - 1,
         ]);
+    });
+
+    it('keeps the dense boundary explicit and switches to sparse layout above it', () => {
+        const createSparseMetrics = (totalPages: number) => {
+            const metrics: IPdfPageMetric[] = [];
+            metrics[0] = {
+                width: 300,
+                height: 500,
+            };
+            metrics[totalPages - 1] = {
+                width: 320,
+                height: 520,
+            };
+            return metrics;
+        };
+        const atLimit = normalizePageMetrics({
+            pageMetrics: createSparseMetrics(PDF_PAGE_METRICS_DENSE_LIMIT),
+            totalPages: PDF_PAGE_METRICS_DENSE_LIMIT,
+            fallbackWidth: 1200,
+            fallbackHeight: 1600,
+        });
+        const aboveLimit = normalizePageMetrics({
+            pageMetrics: createSparseMetrics(PDF_PAGE_METRICS_DENSE_LIMIT + 1),
+            totalPages: PDF_PAGE_METRICS_DENSE_LIMIT + 1,
+            fallbackWidth: 1200,
+            fallbackHeight: 1600,
+        });
+
+        expect(isSparsePageMetricCollection(atLimit)).toBe(false);
+        expect(isSparsePageMetricCollection(aboveLimit)).toBe(true);
+
+        const arrayFromSpy = vi.spyOn(Array, 'from');
+        try {
+            const layout = buildPageLayoutMetrics({
+                pageMetrics: aboveLimit,
+                pageMetricsVersion: 1,
+                totalPages: PDF_PAGE_METRICS_DENSE_LIMIT + 1,
+                viewMode: 'single',
+                scale: 1,
+                gap: 12,
+                paddingTop: 8,
+                paddingBottom: 8,
+            });
+
+            expect(arrayFromSpy).not.toHaveBeenCalled();
+            expect(layout?.base.isSparse).toBe(true);
+            expect(Object.keys(layout?.base.pageWidths ?? []).filter(key => /^\d+$/.test(key))).toHaveLength(0);
+        } finally {
+            arrayFromSpy.mockRestore();
+        }
     });
 
     it('builds early million-page layout lookups from chunked rows and prefixes', () => {

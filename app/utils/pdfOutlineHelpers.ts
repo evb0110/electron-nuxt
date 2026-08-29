@@ -25,7 +25,6 @@ interface IRefProxy {
 
 const OUTLINE_LOG_SECTION = 'pdfOutline';
 const MAX_OUTLINE_DEPTH = 256;
-const MAX_OUTLINE_ITEMS = 10000;
 
 export interface IOutlineItemRaw {
     title: string;
@@ -151,8 +150,7 @@ export function parseOutlineItems(value: unknown): IOutlineItemRaw[] {
         target: IOutlineItemRaw[];
         depth: number;
     }> = [];
-    let acceptedCount = 0;
-    let skippedOverLimit = false;
+    let skippedOverDepth = false;
 
     for (let index = value.length - 1; index >= 0; index -= 1) {
         stack.push({
@@ -167,17 +165,11 @@ export function parseOutlineItems(value: unknown): IOutlineItemRaw[] {
         if (!frame) {
             break;
         }
-        if (acceptedCount >= MAX_OUTLINE_ITEMS) {
-            skippedOverLimit = true;
-            continue;
-        }
-
         const normalized = normalizeOutlineItem(frame.value);
         if (!normalized) {
             continue;
         }
 
-        acceptedCount += 1;
         frame.target.push(normalized);
 
         const childValues = isRecord(frame.value)
@@ -188,7 +180,7 @@ export function parseOutlineItems(value: unknown): IOutlineItemRaw[] {
         }
 
         if (frame.depth >= MAX_OUTLINE_DEPTH) {
-            skippedOverLimit = true;
+            skippedOverDepth = true;
             continue;
         }
 
@@ -202,11 +194,8 @@ export function parseOutlineItems(value: unknown): IOutlineItemRaw[] {
         }
     }
 
-    if (skippedOverLimit) {
-        BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped over-limit PDF outline items', {
-            maxDepth: MAX_OUTLINE_DEPTH,
-            maxItems: MAX_OUTLINE_ITEMS,
-        });
+    if (skippedOverDepth) {
+        BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped PDF outline items beyond the supported nesting depth', {maxDepth: MAX_OUTLINE_DEPTH});
     }
 
     return root;
@@ -470,8 +459,7 @@ export async function buildResolvedOutline(
         parentId: string | null;
         depth: number;
     }> = [];
-    let acceptedCount = 0;
-    let skippedOverLimit = false;
+    let skippedOverDepth = false;
 
     for (let index = items.length - 1; index >= 0; index -= 1) {
         const item = items[index];
@@ -490,12 +478,6 @@ export async function buildResolvedOutline(
         if (!frame) {
             break;
         }
-        if (acceptedCount >= MAX_OUTLINE_ITEMS) {
-            skippedOverLimit = true;
-            continue;
-        }
-
-        acceptedCount += 1;
         const destinationTarget = await resolveDestinationTarget(
             pdfDocument,
             frame.item.dest,
@@ -527,7 +509,7 @@ export async function buildResolvedOutline(
             continue;
         }
         if (frame.depth >= MAX_OUTLINE_DEPTH) {
-            skippedOverLimit = true;
+            skippedOverDepth = true;
             continue;
         }
 
@@ -544,11 +526,8 @@ export async function buildResolvedOutline(
         }
     }
 
-    if (skippedOverLimit) {
-        BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped over-limit resolved PDF outline items', {
-            maxDepth: MAX_OUTLINE_DEPTH,
-            maxItems: MAX_OUTLINE_ITEMS,
-        });
+    if (skippedOverDepth) {
+        BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped resolved PDF outline items beyond the supported nesting depth', {maxDepth: MAX_OUTLINE_DEPTH});
     }
 
     return root;
@@ -565,8 +544,7 @@ export function buildOutlineFromBookmarkEntries(
         parentId: string | null;
         depth: number;
     }> = [];
-    let acceptedCount = 0;
-    let skippedOverLimit = false;
+    let skippedOverDepth = false;
 
     for (let index = entries.length - 1; index >= 0; index -= 1) {
         const entry = entries[index];
@@ -585,12 +563,6 @@ export function buildOutlineFromBookmarkEntries(
         if (!frame) {
             break;
         }
-        if (acceptedCount >= MAX_OUTLINE_ITEMS) {
-            skippedOverLimit = true;
-            continue;
-        }
-
-        acceptedCount += 1;
         const children: IBookmarkItem[] = [];
         const pageIndex = typeof frame.entry.pageIndex === 'number' && Number.isFinite(frame.entry.pageIndex)
             ? Math.max(0, Math.trunc(frame.entry.pageIndex))
@@ -619,7 +591,7 @@ export function buildOutlineFromBookmarkEntries(
             continue;
         }
         if (frame.depth >= MAX_OUTLINE_DEPTH) {
-            skippedOverLimit = true;
+            skippedOverDepth = true;
             continue;
         }
 
@@ -636,11 +608,8 @@ export function buildOutlineFromBookmarkEntries(
         }
     }
 
-    if (skippedOverLimit) {
-        BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped over-limit pending PDF bookmark items', {
-            maxDepth: MAX_OUTLINE_DEPTH,
-            maxItems: MAX_OUTLINE_ITEMS,
-        });
+    if (skippedOverDepth) {
+        BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped pending PDF bookmark items beyond the supported nesting depth', {maxDepth: MAX_OUTLINE_DEPTH});
     }
 
     return root;
@@ -732,15 +701,49 @@ export function collectBookmarkIds(item: IBookmarkItem, ids: Set<string>) {
 export function flattenBookmarks(items: IBookmarkItem[]) {
     const flattened: IBookmarkItem[] = [];
 
-    function visit(source: IBookmarkItem[]) {
-        for (const item of source) {
-            flattened.push(item);
-            visit(item.items);
+    const pending = [...items].reverse();
+    while (pending.length > 0) {
+        const item = pending.pop();
+        if (!item) {
+            continue;
         }
+        flattened.push(item);
+        pending.push(...item.items.toReversed());
     }
 
-    visit(items);
     return flattened;
+}
+
+/**
+ * Returns the zero-based deepest item level without recursing through the
+ * outline. Native bookmark mutations accept at most 64 item levels, so the
+ * UI can refuse an over-depth tree before a save request is built.
+ */
+export function resolveMaxBookmarkDepth(items: IBookmarkItem[]) {
+    let maxDepth = -1;
+    const pending: Array<{
+        depth: number;
+        items: IBookmarkItem[];
+    }> = [{
+        depth: 0,
+        items,
+    }];
+    while (pending.length > 0) {
+        const frame = pending.pop();
+        if (!frame) {
+            continue;
+        }
+        for (const item of frame.items) {
+            maxDepth = Math.max(maxDepth, frame.depth);
+            if (item.items.length > 0) {
+                pending.push({
+                    depth: frame.depth + 1,
+                    items: item.items,
+                });
+            }
+        }
+    }
+    return maxDepth;
 }
 
 /**

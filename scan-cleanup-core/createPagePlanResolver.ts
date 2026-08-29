@@ -7,6 +7,14 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import type {TScanCleanupLog} from '@scan-cleanup-core/types';
 import {resolveReusablePagePlanResult} from '@scan-cleanup-core/policy/effectiveOptions';
+import {ScanCleanupContractError} from '@scan-cleanup-core/errors';
+import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+
+const SCAN_CLEANUP_OUTPUT_HALVES = [
+    'full',
+    'left',
+    'right',
+] as const;
 
 interface IPagePlanEvidenceInput {
     options: IScanCleanupOptions;
@@ -44,6 +52,22 @@ export function createPagePlanResolver(
                 );
             }
             const placementAnchors = input.placementAnchorsByPage?.[String(pageNumber)];
+            const pageOverride = getScanCleanupPageOverride(input.options.pageOverrides, pageNumber);
+            for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
+                const alignment = pageOverride.placementOverrides?.[half]
+                    ?? input.options.pageAlignment;
+                const contentBox = pageOverride.manualContentBoxes?.[half]
+                    ?? result.plan.automaticContentBoxes?.[half];
+                if (
+                    alignment === 'ink'
+                    && contentBox !== undefined
+                    && placementAnchors?.[half] === undefined
+                ) {
+                    throw new ScanCleanupContractError(
+                        `missing ink placement anchor for page ${String(pageNumber)} ${half} output`,
+                    );
+                }
+            }
             return placementAnchors === undefined || Object.keys(placementAnchors).length === 0
                 ? result.plan
                 : {

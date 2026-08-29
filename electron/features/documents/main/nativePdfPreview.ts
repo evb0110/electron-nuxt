@@ -44,7 +44,12 @@ import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopySto
 
 const PDFINFO_TIMEOUT_MS = 20_000;
 const PDF_RENDER_TIMEOUT_MS = 30_000;
-const PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT = 5_000;
+/**
+ * The dense page-size compatibility shape is reserved for small documents.
+ * Larger documents use the compact default-plus-overrides representation so
+ * page-count metadata cannot force a whole-document array allocation.
+ */
+export const PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT = 5_000;
 const PDFINFO_PAGE_SIZE_WINDOW_PAGES = 64;
 const PDFINFO_PAGE_SIZE_WINDOW_LIMIT = PDFINFO_PAGE_SIZE_WINDOW_PAGES * 2;
 const PDFINFO_BASE_STDOUT_BYTES = 256 * 1024;

@@ -102,7 +102,10 @@ vi.mock('@electron/djvu/metadata', () => ({
     getDjvuResolution: mocks.getDjvuResolution,
 }));
 
-vi.mock('@electron/features/djvu/main/pagePreview', () => ({getDjvuPageSizesForViewing: mocks.getDjvuPageSizesForViewing}));
+vi.mock('@electron/features/djvu/main/pagePreview', () => ({
+    DJVU_PAGE_SIZE_ARRAY_MAX_PAGES: 10_000,
+    getDjvuPageSizesForViewing: mocks.getDjvuPageSizesForViewing,
+}));
 
 vi.mock('@electron/djvu/parseDjvuOutline', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
 vi.mock('@electron/djvu/embedBookmarksIntoPdfFile', () => ({embedBookmarksIntoPdfFile: mocks.embedBookmarksIntoPdfFile}));
@@ -835,6 +838,7 @@ describe('handleDjvuConvertToPdf', () => {
                 2,
             ],
         }));
+        expect(mocks.getDjvuPageSizesForViewing).not.toHaveBeenCalled();
         expect(mocks.convertDjvuToPdfFile).not.toHaveBeenCalled();
         expect(mocks.optimizeGeneratedPdfForInteraction).toHaveBeenCalledWith(expectedFinalPath, { signal: expect.any(AbortSignal) });
         expect(mocks.safeSendToWindow).toHaveBeenCalledWith(null, 'djvu:progress', expect.objectContaining({

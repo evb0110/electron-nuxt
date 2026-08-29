@@ -201,6 +201,84 @@ describe('OCR platform feature main bindings', () => {
         );
     });
 
+    it('cancels a renderer-owned scalar catalog read through the OCR request id', async () => {
+        const logicalPath = '/tmp/working-copy.pdf';
+        const requestId = 'docx-export-catalog-1';
+        let releaseRead: (() => void) | undefined;
+        const readGate = new Promise<void>(resolve => {
+            releaseRead = resolve;
+        });
+        mocks.handleOcrCancel.mockReturnValue({
+            canceled: false,
+            reason: 'not-found',
+        });
+        mocks.resolveDocumentTextCatalogSnapshot.mockImplementationOnce(async (...args: unknown[]) => {
+            const options = args[3] as {signal?: AbortSignal};
+            await readGate;
+            options.signal?.throwIfAborted();
+            return {pages: []};
+        });
+
+        const readPromise = getHandler('ocr:resolveDocumentTextCatalog')(
+            {sender: createMockSender(43)},
+            logicalPath,
+            'ocr-revision',
+            1,
+            requestId,
+        );
+        await vi.waitFor(() => expect(mocks.resolveDocumentTextCatalogSnapshot).toHaveBeenCalledTimes(1));
+
+        await expect(getHandler('ocr:cancel')(
+            {sender: createMockSender(43)},
+            requestId,
+        )).toMatchObject({canceled: true});
+        const options = mocks.resolveDocumentTextCatalogSnapshot.mock.calls[0]?.[3] as {signal?: AbortSignal};
+        expect(options.signal?.aborted).toBe(true);
+
+        releaseRead?.();
+        await expect(readPromise).rejects.toMatchObject({name: 'AbortError'});
+    });
+
+    it('cancels a renderer-owned window catalog read through the OCR request id', async () => {
+        const logicalPath = '/tmp/working-copy.pdf';
+        const requestId = 'docx-export-window-catalog-1';
+        let releaseRead: (() => void) | undefined;
+        const readGate = new Promise<void>(resolve => {
+            releaseRead = resolve;
+        });
+        mocks.handleOcrCancel.mockReturnValue({
+            canceled: false,
+            reason: 'not-found',
+        });
+        mocks.resolveDocumentTextCatalogWindow.mockImplementationOnce(async (...args: unknown[]) => {
+            const options = args[5] as {signal?: AbortSignal};
+            await readGate;
+            options.signal?.throwIfAborted();
+            return {pages: []};
+        });
+
+        const readPromise = getHandler('ocr:resolveDocumentTextCatalogWindow')(
+            {sender: createMockSender(44)},
+            logicalPath,
+            'ocr-revision',
+            1,
+            64,
+            100_001,
+            requestId,
+        );
+        await vi.waitFor(() => expect(mocks.resolveDocumentTextCatalogWindow).toHaveBeenCalledTimes(1));
+
+        await expect(getHandler('ocr:cancel')(
+            {sender: createMockSender(44)},
+            requestId,
+        )).toMatchObject({canceled: true});
+        const options = mocks.resolveDocumentTextCatalogWindow.mock.calls[0]?.[5] as {signal?: AbortSignal};
+        expect(options.signal?.aborted).toBe(true);
+
+        releaseRead?.();
+        await expect(readPromise).rejects.toMatchObject({name: 'AbortError'});
+    });
+
     it('rejects unmanaged OCR catalog paths', async () => {
         mocks.requireManagedWorkingCopyPath.mockRejectedValue(new Error('not managed'));
 

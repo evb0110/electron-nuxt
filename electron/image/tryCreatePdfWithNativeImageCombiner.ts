@@ -26,6 +26,17 @@ import {
 } from '@electron/utils/nativeChildProcess';
 import { readJpegExifOrientation } from '@electron/image/imageDpi';
 import { includesAsciiToken } from '@electron/utils/includesAsciiToken';
+import {
+    createPdfCombineOutputTooLargeError,
+    isPdfCombineOutputTooLargeError,
+    normalizePdfCombineOutputLimit,
+    PDF_COMBINE_MAX_OUTPUT_BYTES,
+} from '@contracts/pdfCombineOutputPolicy';
+import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
+import {
+    decodeSerializableErrorEnvelope,
+    SerializableError,
+} from '@contracts/serializableError';
 
 interface INativePdfImageCombineProgress {
     processed: number;
@@ -85,8 +96,13 @@ const JPEG_ORIENTATION_SCAN_MAX_BYTES = 4 * 1024 * 1024;
 const BYTES_PER_MEBIBYTE = 1024 * 1024;
 const NATIVE_PDF_IMAGE_COMBINE_MAX_INPUT_MB = 4_096;
 const NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_OUTPUT_MB ?? '512', 10);
-    return (Number.isFinite(parsed) && parsed >= 1 ? parsed : 512) * 1024 * 1024;
+    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_OUTPUT_MB ?? String(
+        PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
+    ), 10);
+    const megabytes = Number.isFinite(parsed) && parsed >= 1
+        ? Math.min(parsed, PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE)
+        : PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE;
+    return megabytes * BYTES_PER_MEBIBYTE;
 })();
 
 function getBinaryName() {
@@ -187,11 +203,10 @@ async function isStructurallyPlausiblePdfFile(outputPath: string) {
 }
 
 function normalizeOutputLimit(value: number | undefined) {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= 1
-        ? value
-        : NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES;
+    return Math.min(
+        NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES,
+        normalizePdfCombineOutputLimit(value),
+    );
 }
 
 async function assertNativePdfOutputSize(outputPath: string, maxOutputBytes: number) {
@@ -199,7 +214,7 @@ async function assertNativePdfOutputSize(outputPath: string, maxOutputBytes: num
     try {
         const outputStat = await outputHandle.stat();
         if (outputStat.size > maxOutputBytes) {
-            throw new Error('Combined PDF output is too large to return safely');
+            throw createPdfCombineOutputTooLargeError();
         }
     } finally {
         await outputHandle.close();
@@ -236,22 +251,34 @@ async function handleInvalidNativePdfOutput<T>(
     return fallbackValue;
 }
 
-async function readValidatedNativePdfOutput(
+async function validateNativePdfOutput<T>(
     outputPath: string,
+    validateOutput: (path: string) => Promise<T | null | false>,
+    fallbackValue: T,
     maxOutputBytes = NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES,
-) {
-    await assertNativePdfOutputSize(outputPath, maxOutputBytes);
-    let fallbackDetail: string | null = null;
+    assertOutputSizeOutsideTry = false,
+): Promise<T> {
+    if (assertOutputSizeOutsideTry) {
+        await assertNativePdfOutputSize(outputPath, maxOutputBytes);
+    }
+    let fallbackDetail = `native output at "${outputPath}" could not be validated`;
     let fallbackCause: unknown;
 
     try {
-        const output = await readNativePdfOutputAfterSizeCheck(outputPath);
+        if (!assertOutputSizeOutsideTry) {
+            await assertNativePdfOutputSize(outputPath, maxOutputBytes);
+        }
+        const output = await validateOutput(outputPath);
         if (output) {
             return output;
         }
         logger.warn(`Native image PDF combine produced invalid PDF output at "${outputPath}"`);
         fallbackDetail = `native output at "${outputPath}" is not a structurally valid PDF`;
     } catch (error) {
+        if (isPdfCombineOutputTooLargeError(error)) {
+            await rm(outputPath, { force: true }).catch(() => undefined);
+            throw error;
+        }
         logger.warn(`Native image PDF combine output is unavailable at "${outputPath}": ${getErrorMessage(error)}`);
         fallbackDetail = `native output at "${outputPath}" could not be read`;
         fallbackCause = error;
@@ -261,7 +288,20 @@ async function readValidatedNativePdfOutput(
         outputPath,
         fallbackDetail,
         fallbackCause,
+        fallbackValue,
+    );
+}
+
+async function readValidatedNativePdfOutput(
+    outputPath: string,
+    maxOutputBytes = NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES,
+) {
+    return validateNativePdfOutput(
+        outputPath,
+        readNativePdfOutputAfterSizeCheck,
         null,
+        maxOutputBytes,
+        true,
     );
 }
 
@@ -269,27 +309,11 @@ async function validateNativePdfOutputFile(
     outputPath: string,
     maxOutputBytes = NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES,
 ) {
-    let fallbackDetail: string | null = null;
-    let fallbackCause: unknown;
-
-    try {
-        await assertNativePdfOutputSize(outputPath, maxOutputBytes);
-        if (await isNativePdfOutputPlausibleAfterSizeCheck(outputPath)) {
-            return true;
-        }
-        logger.warn(`Native image PDF combine produced invalid PDF output at "${outputPath}"`);
-        fallbackDetail = `native output at "${outputPath}" is not a structurally valid PDF`;
-    } catch (error) {
-        logger.warn(`Native image PDF combine output is unavailable at "${outputPath}": ${getErrorMessage(error)}`);
-        fallbackDetail = `native output at "${outputPath}" could not be read`;
-        fallbackCause = error;
-    }
-
-    return handleInvalidNativePdfOutput(
+    return validateNativePdfOutput(
         outputPath,
-        fallbackDetail,
-        fallbackCause,
+        isNativePdfOutputPlausibleAfterSizeCheck,
         false,
+        maxOutputBytes,
     );
 }
 
@@ -729,6 +753,15 @@ async function runNativePdfImageCombine(
             if (code !== 0) {
                 const detail = stderr.trim();
                 logger.debug(`Native image PDF combine exited with code ${code}${detail ? `: ${detail}` : ''}`);
+                const nativeError = decodeSerializableErrorEnvelope(
+                    detail,
+                    isNativeErrorEnvelope,
+                    {allowBareJsonString: true},
+                );
+                if (nativeError?.code === 'too-large') {
+                    fail(new SerializableError(nativeError));
+                    return;
+                }
                 finishFailure(`native process exited with code ${code}${detail ? `: ${detail}` : ''}`);
                 return;
             }

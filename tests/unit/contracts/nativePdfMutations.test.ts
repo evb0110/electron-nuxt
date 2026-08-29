@@ -7,8 +7,7 @@ import {
     PDF_NATIVE_MUTATION_LIMITS,
     normalizePdfNativeAnnotationIdentityBindings,
     normalizePdfNativeMutationSet,
-    normalizePdfNativeNoteChanges,
-    normalizePdfNativeNoteTextUpdates,
+    splitPdfNativeMutationSetIntoBoundedChunks,
 } from '@contracts/nativePdfMutations';
 
 const validNoteTextUpdate = {
@@ -121,6 +120,10 @@ function createDeepBookmarkItems(depth: number) {
         current = child;
     }
     return [root];
+}
+
+function countBookmarkItems(items: readonly INativeBookmarkTestItem[]): number {
+    return items.reduce((count, item) => count + 1 + countBookmarkItems(item.items), 0);
 }
 
 describe('native PDF mutation contracts', () => {
@@ -261,28 +264,7 @@ describe('native PDF mutation contracts', () => {
         expect(preloadPayload.markup?.hints[0]?.appAnnotationId).toBe('app-markup-1');
     });
 
-    it('enforces shared native mutation limits from the contracts source of truth', () => {
-        expect(() => normalizePdfNativeNoteTextUpdates(
-            Array.from({length: PDF_NATIVE_MUTATION_LIMITS.noteTextUpdates + 1}, () => validNoteTextUpdate),
-            'updates',
-        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.noteTextUpdates} updates`);
-
-        expect(() => normalizePdfNativeNoteChanges({freeTextNotes: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.noteChanges + 1}, () => validFreeTextNote)}, 'changes')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.noteChanges} notes`);
-
-        expect(() => normalizePdfNativeMutationSet({freeTextEditors: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.freeTextEditors + 1}, () => validFreeTextEditor)}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.freeTextEditors} editors`);
-
-        expect(() => normalizePdfNativeMutationSet({pageLabels: {
-            totalPages: 3,
-            ranges: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges + 1}, () => validPageLabelRange),
-        }}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges} ranges`);
-
-        expect(() => normalizePdfNativeMutationSet({bookmarks: {
-            totalPages: 3,
-            untitledLabel: 'Untitled',
-            items: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.bookmarkItems + 1}, (_, index) =>
-                createBookmark(`Chapter ${index}`)),
-        }}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.bookmarkItems} items`);
-
+    it('keeps depth, item, geometry, and byte validation while allowing continuation-sized collections', () => {
         expect(() => normalizePdfNativeMutationSet({bookmarks: {
             totalPages: 3,
             untitledLabel: 'Untitled',
@@ -307,17 +289,6 @@ describe('native PDF mutation contracts', () => {
         expect(() => normalizePdfNativeMutationSet({shapes: {
             totalPages: 3,
             rewriteShapeState: true,
-            shapes: [validShape],
-            deletedAnnotationIds: Array.from(
-                {length: PDF_NATIVE_MUTATION_LIMITS.shapeDeletedItems + 1},
-                (_, index) => `${index}R`,
-            ),
-            deletedStableKeys: [],
-        }}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.shapeDeletedItems} items`);
-
-        expect(() => normalizePdfNativeMutationSet({shapes: {
-            totalPages: 3,
-            rewriteShapeState: true,
             shapes: [{
                 ...validShape,
                 points: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.shapePoints + 1}, () => ({
@@ -328,14 +299,6 @@ describe('native PDF mutation contracts', () => {
             deletedAnnotationIds: [],
             deletedStableKeys: [],
         }}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.shapePoints} points`);
-
-        expect(() => normalizePdfNativeMutationSet({markup: {
-            overrides: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.markupItems + 1}, (_, index) => [
-                `${index}R`,
-                'Highlight',
-            ]),
-            hints: [],
-        }}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.markupItems} items`);
 
         expect(() => normalizePdfNativeMutationSet({markup: {
             overrides: [[
@@ -383,39 +346,136 @@ describe('native PDF mutation contracts', () => {
             }],
         }}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems} rectangles`);
 
-        const markerRect = {
-            left: 0.1,
-            top: 0.2,
-            width: 0.1,
-            height: 0.2,
-        };
-        expect(() => normalizePdfNativeMutationSet({markup: {
-            overrides: [],
-            hints: [
-                {
-                    subtype: 'Highlight',
-                    pageIndex: 0,
-                    markerRect,
-                    markupGeometry: Array.from(
-                        {length: PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems},
-                        () => markerRect,
-                    ),
-                },
-                {
-                    subtype: 'Underline',
-                    pageIndex: 0,
-                    markerRect,
-                    markupGeometry: [markerRect],
-                },
-            ],
-        }}, 'mutations')).toThrow('rectangles in total');
-
-        expect(() => normalizePdfNativeMutationSet({placedImages: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.placedImages + 1}, () => validImage)}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.placedImages} images`);
-
         expect(() => normalizePdfNativeMutationSet({placedImages: [{
             ...validImage,
             source: null,
         }]}, 'mutations')).toThrow('valid managed binary handle');
+    });
+
+    it('continues valid cap-plus-one mutation families in bounded chunks', () => {
+        const mutations = normalizePdfNativeMutationSet({
+            updates: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.noteTextUpdates + 1}, (_, index) => ({
+                ...validNoteTextUpdate,
+                objectNumber: index + 1,
+            })),
+            freeTextEditors: Array.from(
+                {length: PDF_NATIVE_MUTATION_LIMITS.freeTextEditors + 1},
+                (_, index) => ({
+                    ...validFreeTextEditor,
+                    stableKey: `editor-${index}`,
+                }),
+            ),
+            pageLabels: {
+                totalPages: PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges + 1,
+                ranges: Array.from(
+                    {length: PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges + 1},
+                    (_, index) => ({
+                        ...validPageLabelRange,
+                        startPage: index + 1,
+                    }),
+                ),
+            },
+            bookmarks: {
+                totalPages: 3,
+                untitledLabel: 'Untitled',
+                items: Array.from(
+                    {length: PDF_NATIVE_MUTATION_LIMITS.bookmarkItems + 1},
+                    (_, index) => createBookmark(`Chapter ${index}`),
+                ),
+            },
+            shapes: {
+                totalPages: 3,
+                rewriteShapeState: true,
+                shapes: Array.from(
+                    {length: PDF_NATIVE_MUTATION_LIMITS.shapes + 1},
+                    (_, index) => ({
+                        ...validShape,
+                        id: `shape-${index}`,
+                    }),
+                ),
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            },
+            markup: {
+                overrides: Array.from(
+                    {length: PDF_NATIVE_MUTATION_LIMITS.markupItems + 1},
+                    (_, index) => [
+                        `${index + 1}R`,
+                        'Highlight',
+                    ] as const,
+                ),
+                hints: [],
+            },
+            placedImages: Array.from(
+                {length: PDF_NATIVE_MUTATION_LIMITS.placedImages + 1},
+                (_, index) => ({
+                    ...validImage,
+                    stableKey: `image-${index}`,
+                }),
+            ),
+        }, 'mutations');
+
+        const chunks = splitPdfNativeMutationSetIntoBoundedChunks(mutations);
+
+        expect(chunks.length).toBeGreaterThan(1);
+        expect(chunks.reduce((total, chunk) => total + (chunk.updates?.length ?? 0), 0))
+            .toBe(PDF_NATIVE_MUTATION_LIMITS.noteTextUpdates + 1);
+        expect(chunks.reduce((total, chunk) => total + (chunk.freeTextEditors?.length ?? 0), 0))
+            .toBe(PDF_NATIVE_MUTATION_LIMITS.freeTextEditors + 1);
+        expect(chunks.reduce((total, chunk) => total + (chunk.pageLabels?.ranges.length ?? 0), 0))
+            .toBe(PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges + 1);
+        expect(chunks.reduce((total, chunk) => total + (chunk.bookmarks?.items.length ?? 0), 0))
+            .toBe(PDF_NATIVE_MUTATION_LIMITS.bookmarkItems + 1);
+        expect(chunks.reduce((total, chunk) => total + (chunk.shapes?.shapes.length ?? 0), 0))
+            .toBe(PDF_NATIVE_MUTATION_LIMITS.shapes + 1);
+        expect(chunks.reduce((total, chunk) => total + (chunk.markup?.overrides.length ?? 0), 0))
+            .toBe(PDF_NATIVE_MUTATION_LIMITS.markupItems + 1);
+        expect(chunks.reduce((total, chunk) => total + (chunk.placedImages?.length ?? 0), 0))
+            .toBe(PDF_NATIVE_MUTATION_LIMITS.placedImages + 1);
+        for (const chunk of chunks) {
+            expect(chunk.updates?.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.noteTextUpdates);
+            expect(chunk.freeTextEditors?.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.freeTextEditors);
+            expect(chunk.pageLabels?.ranges.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges);
+            expect(chunk.bookmarks?.items.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.bookmarkItems);
+            expect(chunk.shapes?.shapes.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.shapes);
+            expect(chunk.markup?.overrides.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.markupItems);
+            expect(chunk.placedImages?.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.placedImages);
+        }
+    });
+
+    it('preserves an oversized bookmark subtree across path-addressed fragments', () => {
+        const root = createBookmark('Root');
+        root.items = Array.from(
+            {length: PDF_NATIVE_MUTATION_LIMITS.bookmarkItems + 1},
+            (_, index) => createBookmark(`Child ${index}`),
+        );
+        const normalized = normalizePdfNativeMutationSet({bookmarks: {
+            totalPages: 3,
+            untitledLabel: 'Untitled',
+            items: [root],
+        }}, 'mutations');
+
+        const chunks = splitPdfNativeMutationSetIntoBoundedChunks(normalized);
+        const bookmarkChunks = chunks.filter(chunk => chunk.bookmarks !== undefined);
+        expect(bookmarkChunks).toHaveLength(3);
+        expect(countBookmarkItems(bookmarkChunks[0]!.bookmarks!.items)).toBe(1);
+        expect(bookmarkChunks[0]!.continuation).toBeUndefined();
+        expect(bookmarkChunks.slice(1).every(chunk =>
+            chunk.continuation?.family === 'bookmarks'
+            && chunk.continuation.bookmarkPath?.join('.') === '0')).toBe(true);
+        expect(bookmarkChunks.slice(1).reduce(
+            (count, chunk) => count + countBookmarkItems(chunk.bookmarks!.items),
+            0,
+        )).toBe(PDF_NATIVE_MUTATION_LIMITS.bookmarkItems + 1);
+        for (const chunk of bookmarkChunks) {
+            expect(countBookmarkItems(chunk.bookmarks!.items))
+                .toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.bookmarkItems);
+        }
+        expect(bookmarkChunks.slice(1).flatMap(chunk => chunk.bookmarks!.items)
+            .map(item => item.title)).toEqual([...Array.from(
+            {length: PDF_NATIVE_MUTATION_LIMITS.bookmarkItems + 1},
+            (_, index) => `Child ${index}`,
+        )]);
     });
 
     it('accepts native mutation bounds that exactly touch normalized page edges', () => {

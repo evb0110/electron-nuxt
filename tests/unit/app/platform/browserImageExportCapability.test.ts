@@ -37,9 +37,13 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
 }));
 
 vi.mock('@app/platform/browser-api/browserYield', () => ({ yieldToBrowser: yieldToBrowserMock }));
+vi.mock('@contracts/documentRef', () => ({isNativeLegacyDocumentRef: (value: unknown) => typeof value === 'string' && value.startsWith('/')}));
 
-vi.mock('@app/platform/browser-api/createDjvuWorkerFromPath', () => ({createDjvuWorkerFromPath: (...args: unknown[]) =>
-    createDjvuWorkerFromPathMock(...args)}));
+vi.mock('@app/platform/browser-api/createDjvuWorkerFromPath', () => ({
+    createDjvuWorkerFromPath: (...args: unknown[]) => createDjvuWorkerFromPathMock(...args),
+    getDjvuWorkerPageSizes: (worker: {doc: {getPagesSizes: () => {run: () => Promise<unknown>}}}) =>
+        worker.doc.getPagesSizes().run(),
+}));
 
 vi.mock('utif', async importOriginal => {
     utifLoaderState.request();
@@ -677,5 +681,26 @@ describe('createBrowserImageExportCapability', () => {
         expect(saveBlobToPickerOrDownloadMock).not.toHaveBeenCalled();
         expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.createStoredDocument).not.toHaveBeenCalled();
+    });
+
+    it('refuses native PDF paths before entering a browser image export route', async () => {
+        const { createBrowserImageExportCapability } = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+        const capability = createBrowserImageExportCapability();
+
+        await expect(capability.exportPdfToImages('/tmp/native.pdf', [1])).rejects.toMatchObject({
+            name: 'PdfCombineCapabilityError',
+            code: 'native-unavailable',
+            operation: 'image-export',
+        });
+        await expect(capability.exportPdfToMultiPageTiff('/tmp/native.pdf', [1])).rejects.toMatchObject({
+            name: 'PdfCombineCapabilityError',
+            code: 'native-unavailable',
+            operation: 'image-export',
+        });
+
+        expect(getDocumentMock).not.toHaveBeenCalled();
+        expect(createDjvuWorkerFromPathMock).not.toHaveBeenCalled();
     });
 });

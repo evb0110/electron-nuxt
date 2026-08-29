@@ -64,6 +64,7 @@ interface IValidationGateModule {
     }) => Array<{
         args: string[];
         command: string;
+        env?: Record<string, string>;
         heavyWeight: number;
         id: string;
         parallelPhase?: number;
@@ -334,6 +335,8 @@ describe('validation gate policy', () => {
         expect(scripts).not.toContain('test:unit');
         expect(plan.find(stage => stage.id === 'electron.blocking-smoke')?.args)
             .toContain('--no-build');
+        expect(plan.find(stage => stage.id === 'electron.blocking-smoke')?.env)
+            .toMatchObject({EVB_PDF_PAGE_OPS_ENABLE: '1'});
         expect(plan.filter(stage => stage.parallelPhase === 0).map(stage => stage.id))
             .toEqual(stageIds.slice(1, 9));
         expect(plan.filter(stage => stage.parallelPhase === 3).map(stage => stage.id))

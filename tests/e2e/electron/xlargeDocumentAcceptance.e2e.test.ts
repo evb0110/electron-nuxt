@@ -1,13 +1,10 @@
 import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {constants as fsConstants} from 'node:fs';
 import {
-    copyFile,
     mkdir,
     mkdtemp,
     readFile,
     rm,
-    stat,
     writeFile,
 } from 'node:fs/promises';
 import {
@@ -30,6 +27,11 @@ import {
 } from '@contracts/electronApiDocuments';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
+import {
+    EXACT_PDF_FIXTURE_MANIFEST,
+    stageExactPdfFixture,
+    type TExactPdfFixtureCopyMode,
+} from '@scripts/ci/stageExactPdfFixture';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {runElectronE2ETeardown} from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 import {
@@ -57,11 +59,11 @@ import {
  * Opt in explicitly with:
  *
  * EVB_E2E_XLARGE_PDF_FIXTURE=.devkit/fixtures/zaliznyak-three-distinct-copy-2646-pages.pdf \
- *   bash scripts/test-electron-e2e-headless.sh --no-build e2e-large-pdf tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts --reporter verbose
+ *   bash scripts/test-electron-e2e-headless.sh --no-build e2e-xlarge-pdf tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts --reporter verbose
  *
- * The fixture gate below uses filesystem metadata and qpdf page counting only.
- * Keep this lane path-backed. Do not add a whole-document JavaScript parser or
- * a byte aggregation helper here.
+ * The fixture gate below uses filesystem metadata, SHA-256, and qpdf page
+ * counting/checking. Keep this lane path-backed. Do not add a whole-document
+ * JavaScript parser or a byte aggregation helper here.
  */
 
 const execFileAsync = promisify(execFile);
@@ -69,9 +71,9 @@ const execFileAsync = promisify(execFile);
 const XLARGE_FIXTURE_ENV = 'EVB_E2E_XLARGE_PDF_FIXTURE';
 const XLARGE_ARTIFACT_ENV = 'EVB_E2E_XLARGE_PDF_ARTIFACT';
 const XLARGE_MIN_BYTES = 2_147_483_648;
-const XLARGE_KNOWN_FIXTURE_BYTES = 2_168_527_413;
-const XLARGE_KNOWN_FIXTURE_SHA256 = '5609c151c1cec881da4b97ec7028250574f8f0ee67540dcdc8808cc7b8ab0aea';
-const XLARGE_PAGE_COUNT = 2_646;
+const XLARGE_FIXTURE_EXPECTATION = EXACT_PDF_FIXTURE_MANIFEST.xlargeZaliznyak2646;
+const XLARGE_KNOWN_FIXTURE_BYTES = XLARGE_FIXTURE_EXPECTATION.bytes;
+const XLARGE_PAGE_COUNT = XLARGE_FIXTURE_EXPECTATION.pages;
 const XLARGE_FIRST_PAGE = 1;
 const XLARGE_MIDDLE_PAGE = 1_323;
 const XLARGE_LAST_PAGE = 2_646;
@@ -204,6 +206,7 @@ const EXPECTED_BASELINE_ENTRIES: IExpectedAnnotationIndexEntry[] = [
 ];
 
 interface IStagedFixture {
+    copyMode: TExactPdfFixtureCopyMode;
     sourcePath: string;
     stagedPath: string;
     stagingDirectory: string;
@@ -312,7 +315,7 @@ interface IXlargeAcceptanceTelemetry {
         requiredMinimumBytes: number;
         requiredPageCount: number;
         pageCount: number | null;
-        cloneMode: 'COPYFILE_FICLONE_FORCE' | null;
+        cloneMode: TExactPdfFixtureCopyMode | null;
     };
     phases: IPhaseTiming[];
     heartbeats: Array<IHeartbeatSnapshot & {
@@ -372,7 +375,9 @@ describe('Electron E2E - xlarge document acceptance source contract', () => {
     it('keeps the fixture lane path-backed and free of whole-file helpers', async () => {
         // This reads the small test source, never the admitted PDF fixture.
         const source = await readFile(acceptanceSourcePath, 'utf8');
-        expect(source).toContain('COPYFILE_FICLONE_FORCE');
+        expect(source).toContain('stageExactPdfFixture');
+        expect(source).toContain('copyMode');
+        expect(source).not.toContain('COPYFILE_FICLONE_FORCE');
         expect(source).toContain('getPdfPageCount');
         expect(source).toContain('XLARGE_MIN_BYTES');
         expect(source).toContain('XLARGE_PAGE_COUNT');
@@ -571,51 +576,25 @@ function createRssSampler(page: Page, electronPid: number | null): IRssSampler {
 }
 
 async function stageFixture(sourcePath: string): Promise<IStagedFixture> {
-    const sourceStat = await stat(sourcePath);
-    if (!sourceStat.isFile()) {
-        throw new Error(`EVB_E2E_XLARGE_PDF_FIXTURE must point to a regular file: ${sourcePath}`);
-    }
-    if (sourceStat.size !== XLARGE_KNOWN_FIXTURE_BYTES) {
-        throw new Error(
-            `Xlarge fixture is ${sourceStat.size} bytes; expected the exact ${XLARGE_KNOWN_FIXTURE_BYTES}-byte triple Zaliznyak fixture: ${sourcePath}`,
-        );
-    }
-    const {stdout: sourceHashOutput} = await execFileAsync('sha256sum', [sourcePath], {encoding: 'utf8'});
-    const sourceHash = sourceHashOutput.trim().split(/\s+/u)[0];
-    if (sourceHash !== XLARGE_KNOWN_FIXTURE_SHA256) {
-        throw new Error(`Xlarge fixture hash mismatch: ${sourcePath}`);
-    }
-
     const stagingRoot = resolve(process.cwd(), '.devkit', 'tmp');
     await mkdir(stagingRoot, {recursive: true});
     const stagingDirectory = await mkdtemp(join(stagingRoot, 'xlarge-document-acceptance-'));
     const stagedPath = join(stagingDirectory, 'acceptance.pdf');
     try {
-        // Keep staging clone-only. Node exposes FICLONE_FORCE on macOS but may
-        // return ENOSYS there; `cp -c` calls APFS clonefile without falling back
-        // to a byte-for-byte copy.
-        try {
-            await copyFile(sourcePath, stagedPath, fsConstants.COPYFILE_FICLONE_FORCE);
-        } catch (error) {
-            if (process.platform !== 'darwin' || (error as NodeJS.ErrnoException).code !== 'ENOSYS') {
-                throw error;
-            }
-            await execFileAsync('/bin/cp', [
-                '-c',
-                sourcePath,
-                stagedPath,
-            ]);
-        }
-        const stagedStat = await stat(stagedPath);
-        if (!stagedStat.isFile() || stagedStat.size !== sourceStat.size) {
-            throw new Error(`COW staged fixture size mismatch for ${stagedPath}`);
-        }
-        return {
+        const staged = await stageExactPdfFixture({
+            expectedIdentity: XLARGE_FIXTURE_EXPECTATION,
+            maxBytes: XLARGE_KNOWN_FIXTURE_BYTES,
+            outputPath: stagedPath,
             sourcePath,
-            stagedPath,
+            timeoutMs: 15 * 60_000,
+        });
+        return {
+            copyMode: staged.copyMode,
+            sourcePath: staged.sourcePath,
+            stagedPath: staged.stagedPath,
             stagingDirectory,
-            sourceBytes: sourceStat.size,
-            stagedBytes: stagedStat.size,
+            sourceBytes: staged.sourceIdentity.bytes,
+            stagedBytes: staged.stagedIdentity.bytes,
         };
     } catch (error) {
         await rm(stagingDirectory, {
@@ -623,7 +602,7 @@ async function stageFixture(sourcePath: string): Promise<IStagedFixture> {
             recursive: true,
         });
         throw new Error(
-            `Could not stage the xlarge fixture with APFS copy-on-write clone: ${stagedPath}`,
+            `Could not stage the xlarge fixture with the clone-or-stream fixture copier: ${stagedPath}`,
             {cause: error},
         );
     }
@@ -1199,12 +1178,12 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
         let bodyFailure: unknown = null;
 
         try {
-            stagedFixture = await timed(telemetry, 'fixture-stage-cow', () => stageFixture(sourcePath));
+            stagedFixture = await timed(telemetry, 'fixture-stage-bounded', () => stageFixture(sourcePath));
             telemetry.fixture.sourcePath = stagedFixture.sourcePath;
             telemetry.fixture.stagedPath = stagedFixture.stagedPath;
             telemetry.fixture.sourceBytes = stagedFixture.sourceBytes;
             telemetry.fixture.stagedBytes = stagedFixture.stagedBytes;
-            telemetry.fixture.cloneMode = 'COPYFILE_FICLONE_FORCE';
+            telemetry.fixture.cloneMode = stagedFixture.copyMode;
             telemetry.rendererJsHeapBudgetBytes = Math.min(
                 XLARGE_RENDERER_JS_HEAP_MAX_DELTA_BYTES,
                 Math.floor(stagedFixture.sourceBytes / 4),

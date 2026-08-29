@@ -17,6 +17,7 @@ import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/use
 function createSelectionHarness(options: {
     currentPage?: number;
     renderedPages?: number[];
+    scrollPageIntoKeyboardView?: (page: number) => void | Promise<void>;
     totalPages?: number;
     pageSelection?: TPageSelection | null;
 } = {}) {
@@ -42,7 +43,7 @@ function createSelectionHarness(options: {
     });
     const focusPageElement = vi.fn();
     const onGoToPage = vi.fn();
-    const scrollPageIntoKeyboardView = vi.fn();
+    const scrollPageIntoKeyboardView = vi.fn(options.scrollPageIntoKeyboardView);
     const selection = usePdfThumbnailSelection({
         consumeClickSkip: () => false,
         currentPage: computed(() => currentPage.value),
@@ -187,6 +188,43 @@ describe('usePdfThumbnailSelection', () => {
 
         selection.handleContainerKeyDown(keyEvent('Home'));
         expect(selection.rovingFocusPage.value).toBe(1);
+    });
+
+    it.each([
+        {
+            currentPage: 20,
+            key: 'Home',
+            targetPage: 1,
+        },
+        {
+            currentPage: 1,
+            key: 'End',
+            targetPage: 20,
+        },
+        {
+            currentPage: 16,
+            key: 'PageDown',
+            targetPage: 20,
+        },
+    ])('waits for a cross-segment $key scroll before focusing its target row', async ({
+        currentPage,
+        key,
+        targetPage,
+    }) => {
+        const harness = createSelectionHarness({
+            currentPage,
+            renderedPages: Array.from({length: 20}, (_, index) => index + 1),
+            scrollPageIntoKeyboardView: () => Promise.resolve(),
+            totalPages: 20,
+        });
+
+        harness.selection.handleContainerKeyDown(keyEvent(key));
+        expect(harness.scrollPageIntoKeyboardView).toHaveBeenCalledWith(targetPage);
+        expect(harness.focusPageElement).not.toHaveBeenCalled();
+
+        await nextTick();
+
+        expect(harness.focusPageElement).toHaveBeenCalledWith(targetPage);
     });
 
     it('activates the focused row with Enter and Space without selecting it', () => {

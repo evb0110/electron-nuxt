@@ -45,7 +45,8 @@ function isCompactLayeredRaster(raster: IDetectedPageRaster | undefined) {
 export function resolveScanCleanupCompactSourceBudget(input: {
     documentPageCount: number;
     options: IScanCleanupOptions;
-    pageRasterByNumber: ReadonlyMap<number, IDetectedPageRaster>;
+    pageRasterByNumber?: ReadonlyMap<number, IDetectedPageRaster>;
+    compactLayeredPageCount?: number;
     partialRun: boolean;
     sourceBytes: number;
 }): IScanCleanupCompactSourceBudget | null {
@@ -61,12 +62,25 @@ export function resolveScanCleanupCompactSourceBudget(input: {
     ) {
         return null;
     }
-    const compactLayeredPages = Array.from(
-        {length: input.documentPageCount},
-        (_, index) => index + 1,
-    ).filter(pageNumber => isCompactLayeredRaster(
-        input.pageRasterByNumber.get(pageNumber),
-    )).length;
+    const compactLayeredPages = input.compactLayeredPageCount ?? (() => {
+        let count = 0;
+        for (const [
+            pageNumber,
+            raster,
+        ] of input.pageRasterByNumber ?? []) {
+            if (pageNumber >= 1 && pageNumber <= input.documentPageCount && isCompactLayeredRaster(raster)) {
+                count += 1;
+            }
+        }
+        return count;
+    })();
+    if (
+        !Number.isSafeInteger(compactLayeredPages)
+        || compactLayeredPages < 0
+        || compactLayeredPages > input.documentPageCount
+    ) {
+        return null;
+    }
     if (
         compactLayeredPages === 0
         || compactLayeredPages / input.documentPageCount < COMPACT_SOURCE_PAGE_MAJORITY

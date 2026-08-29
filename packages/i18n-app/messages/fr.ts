@@ -1234,6 +1234,7 @@ export default {
     },
     'bookmarks': {
         'unavailable': 'Signets indisponibles',
+        'persistenceRefusalDepth': '{count} signets dépassent la profondeur native de {limit} ; ils sont conservés en lecture seule, car cette profondeur ne peut pas être enregistrée.',
         'noBookmarks': 'Aucun signet disponible',
         'loading': 'Chargement des signets...',
         'enterEditMode': 'Activer le mode édition des signets',

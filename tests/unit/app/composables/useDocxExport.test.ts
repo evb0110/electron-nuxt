@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import {effectScope} from 'vue';
 import {requireDocumentRevisionToken} from '@contracts';
 import type {IDocxExportFileCapability} from '@contracts/docxExport';
 import type {TDocxTextPageSource} from '@app/utils/docxStreaming';
@@ -13,6 +14,7 @@ import type {TDocxTextPageSource} from '@app/utils/docxStreaming';
 type TDocxChunkBuilder = (
     pages: TDocxTextPageSource,
     isRtl?: boolean,
+    signal?: AbortSignal,
 ) => AsyncIterable<Uint8Array>;
 
 const trackMock = vi.hoisted(() => vi.fn());
@@ -44,6 +46,7 @@ interface IActualDocxStreamingModule {
     createDocxFromTextChunks: (
         pages: Iterable<string> | AsyncIterable<string>,
         isRtl?: boolean,
+        signal?: AbortSignal,
     ) => AsyncIterable<Uint8Array>;
     DOCX_STREAM_CHUNK_BYTES: number;
 }
@@ -92,12 +95,22 @@ describe('useDocxExport', () => {
             'save',
             'loadCatalog',
         ]);
-        expect(loadDocumentTextCatalogPagesMock).toHaveBeenCalledWith('/tmp/work.pdf', TEST_DOCUMENT_REVISION, undefined);
-        expect(createDocxFromTextChunksMock).toHaveBeenCalledWith(expect.anything(), true);
+        expect(loadDocumentTextCatalogPagesMock).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            TEST_DOCUMENT_REVISION,
+            undefined,
+            expect.any(AbortSignal),
+        );
+        expect(createDocxFromTextChunksMock).toHaveBeenCalledWith(
+            expect.anything(),
+            true,
+            expect.any(AbortSignal),
+        );
         expect(documentFilesMock.saveDocxAs).toHaveBeenCalledWith('/tmp/work.pdf');
         expect(documentFilesMock.writeDocxFileChunks).toHaveBeenCalledWith(
             '/tmp/export.docx',
             expect.anything(),
+            expect.any(AbortSignal),
         );
         expect(documentFilesMock.writeDocxFile).not.toHaveBeenCalled();
         expect(documentWorkingCopyMock.cleanupFile).not.toHaveBeenCalled();
@@ -187,5 +200,112 @@ describe('useDocxExport', () => {
         expect(documentFilesMock.writeDocxFile).not.toHaveBeenCalled();
         expect(documentFilesMock.writeDocxFileChunks).not.toHaveBeenCalled();
         expect(documentWorkingCopyMock.cleanupFile).toHaveBeenCalledWith('browser://documents/output/empty.docx');
+    });
+
+    it('cleans up a browser output ref when cancellation lands after Save As', async () => {
+        const outputPath = 'browser://documents/output/canceled.docx';
+        documentFilesMock.saveDocxAs.mockResolvedValueOnce(outputPath);
+
+        const { useDocxExport } = await import('@app/composables/useDocxExport');
+        const exportState = useDocxExport();
+        const exportPromise = exportState.exportDocx({
+            workingCopyPath: 'browser://documents/working/work.pdf',
+            documentRevisionToken: TEST_DOCUMENT_REVISION,
+            pdfDocument: {} as PDFDocumentProxy,
+        });
+        exportState.cancelDocxExport();
+
+        await expect(exportPromise).resolves.toBe(false);
+        expect(documentWorkingCopyMock.cleanupFile).toHaveBeenCalledWith(outputPath);
+        expect(toastAddMock).not.toHaveBeenCalled();
+        expect(trackMock).not.toHaveBeenCalled();
+    });
+
+    it('cancels an active renderer export without reporting success', async () => {
+        let resolveWriteStarted: (() => void) | undefined;
+        const writeStarted = new Promise<void>(resolve => {
+            resolveWriteStarted = resolve;
+        });
+        loadDocumentTextCatalogPagesMock.mockResolvedValueOnce([{
+            pageNumber: 1,
+            text: 'catalog text',
+        }]);
+        documentFilesMock.writeDocxFileChunks.mockImplementationOnce(async (
+            _path,
+            _chunks,
+            signal,
+        ) => {
+            resolveWriteStarted?.();
+            await new Promise<void>(resolve => {
+                signal?.addEventListener('abort', () => resolve(), {once: true});
+            });
+            return true;
+        });
+
+        const { useDocxExport } = await import('@app/composables/useDocxExport');
+        const exportState = useDocxExport();
+        const exportPromise = exportState.exportDocx({
+            workingCopyPath: '/tmp/work.pdf',
+            documentRevisionToken: TEST_DOCUMENT_REVISION,
+            pdfDocument: {} as PDFDocumentProxy,
+        });
+
+        await writeStarted;
+        expect(exportState.isExportingDocx.value).toBe(true);
+        exportState.cancelDocxExport();
+
+        await expect(exportPromise).resolves.toBe(false);
+        expect(exportState.isExportingDocx.value).toBe(false);
+        expect(exportState.docxExportError.value).toBeNull();
+        expect(documentFilesMock.writeDocxFileChunks).toHaveBeenCalledWith(
+            '/tmp/export.docx',
+            expect.anything(),
+            expect.objectContaining({aborted: true}),
+        );
+        expect(toastAddMock).not.toHaveBeenCalled();
+        expect(trackMock).not.toHaveBeenCalled();
+    });
+
+    it('aborts an active export when its owning scope is disposed', async () => {
+        let resolveWriteStarted: (() => void) | undefined;
+        const writeStarted = new Promise<void>(resolve => {
+            resolveWriteStarted = resolve;
+        });
+        loadDocumentTextCatalogPagesMock.mockResolvedValueOnce([{
+            pageNumber: 1,
+            text: 'catalog text',
+        }]);
+        documentFilesMock.writeDocxFileChunks.mockImplementationOnce(async (
+            _path,
+            _chunks,
+            signal,
+        ) => {
+            resolveWriteStarted?.();
+            await new Promise<void>(resolve => {
+                signal?.addEventListener('abort', () => resolve(), {once: true});
+            });
+            return true;
+        });
+
+        const { useDocxExport } = await import('@app/composables/useDocxExport');
+        const scope = effectScope();
+        const exportState = scope.run(() => useDocxExport());
+        if (!exportState) {
+            throw new Error('Failed to create DOCX export scope');
+        }
+        const exportPromise = exportState.exportDocx({
+            workingCopyPath: '/tmp/work.pdf',
+            documentRevisionToken: TEST_DOCUMENT_REVISION,
+            pdfDocument: {} as PDFDocumentProxy,
+        });
+
+        await writeStarted;
+        scope.stop();
+
+        await expect(exportPromise).resolves.toBe(false);
+        expect(exportState.isExportingDocx.value).toBe(false);
+        expect(exportState.docxExportError.value).toBeNull();
+        expect(toastAddMock).not.toHaveBeenCalled();
+        expect(trackMock).not.toHaveBeenCalled();
     });
 });

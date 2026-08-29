@@ -571,14 +571,50 @@ type TOcrCreateSearchablePdfArgs = [
 ];
 type TOcrAcknowledgeResultFileArgs = [requestId: string, pdfPath?: TDocumentRef];
 type TResolveDocumentTextCatalogArgs =
-    [workingCopyPath: TDocumentRef, documentRevision: TDocumentRevisionToken, pageCount?: number];
-type TResolveDocumentTextCatalogWindowArgs = [
-    workingCopyPath: TDocumentRef,
-    documentRevision: TDocumentRevisionToken,
-    firstPage: number,
-    lastPage: number,
-    pageCount?: number,
-];
+    | [workingCopyPath: TDocumentRef, documentRevision: TDocumentRevisionToken]
+    | [workingCopyPath: TDocumentRef, documentRevision: TDocumentRevisionToken, pageCount: number]
+    | [
+        workingCopyPath: TDocumentRef,
+        documentRevision: TDocumentRevisionToken,
+        pageCount: undefined,
+        requestId: string,
+    ]
+    | [
+        workingCopyPath: TDocumentRef,
+        documentRevision: TDocumentRevisionToken,
+        pageCount: number,
+        requestId: string,
+    ];
+type TResolveDocumentTextCatalogWindowArgs =
+    | [
+        workingCopyPath: TDocumentRef,
+        documentRevision: TDocumentRevisionToken,
+        firstPage: number,
+        lastPage: number,
+    ]
+    | [
+        workingCopyPath: TDocumentRef,
+        documentRevision: TDocumentRevisionToken,
+        firstPage: number,
+        lastPage: number,
+        pageCount: number,
+    ]
+    | [
+        workingCopyPath: TDocumentRef,
+        documentRevision: TDocumentRevisionToken,
+        firstPage: number,
+        lastPage: number,
+        pageCount: undefined,
+        requestId: string,
+    ]
+    | [
+        workingCopyPath: TDocumentRef,
+        documentRevision: TDocumentRevisionToken,
+        firstPage: number,
+        lastPage: number,
+        pageCount: number,
+        requestId: string,
+    ];
 
 function decodeDocumentRevisionArg(
     args: readonly unknown[],
@@ -665,7 +701,7 @@ const resolveDocumentTextCatalogArgs = argsSchema<TResolveDocumentTextCatalogArg
     (args) => {
         requireArgs(args, {
             min: 2,
-            max: 3,
+            max: 4,
         });
         const requiredArgs: [
             TDocumentRef,
@@ -681,12 +717,53 @@ const resolveDocumentTextCatalogArgs = argsSchema<TResolveDocumentTextCatalogArg
                 'resolveDocumentTextCatalog.documentRevision',
             ),
         ];
-        return args[2] === undefined
-            ? requiredArgs
-            : [
-                ...requiredArgs,
-                decodeSafeIntegerArg(args, 2, 'pageCount', 0),
+        const pageCount = args[2] === undefined
+            ? undefined
+            : decodeSafeIntegerArg(args, 2, 'pageCount', 0);
+        const requestId = args[3] === undefined
+            ? undefined
+            : assertRequestId(args[3], 'resolveDocumentTextCatalog.requestId');
+        if (pageCount === undefined && requestId === undefined) {
+            return requiredArgs;
+        }
+        if (requestId === undefined) {
+            const pageCountArgs: [
+                TDocumentRef,
+                TDocumentRevisionToken,
+                number,
+            ] = [
+                requiredArgs[0],
+                requiredArgs[1],
+                pageCount!,
             ];
+            return pageCountArgs;
+        }
+        if (pageCount === undefined) {
+            const requestIdArgs: [
+                TDocumentRef,
+                TDocumentRevisionToken,
+                undefined,
+                string,
+            ] = [
+                requiredArgs[0],
+                requiredArgs[1],
+                undefined,
+                requestId,
+            ];
+            return requestIdArgs;
+        }
+        const requestIdArgs: [
+            TDocumentRef,
+            TDocumentRevisionToken,
+            number,
+            string,
+        ] = [
+            requiredArgs[0],
+            requiredArgs[1],
+            pageCount,
+            requestId,
+        ];
+        return requestIdArgs;
     },
     () => [
         '/tmp/ocr-fixture.pdf',
@@ -698,7 +775,7 @@ const resolveDocumentTextCatalogWindowArgs = argsSchema<TResolveDocumentTextCata
     (args) => {
         requireArgs(args, {
             min: 4,
-            max: 5,
+            max: 6,
         });
         const firstPage = decodeSafeIntegerArg(args, 2, 'firstPage', 1);
         const lastPage = decodeSafeIntegerArg(args, 3, 'lastPage', firstPage);
@@ -711,6 +788,9 @@ const resolveDocumentTextCatalogWindowArgs = argsSchema<TResolveDocumentTextCata
         const pageCount = args[4] === undefined
             ? undefined
             : decodeSafeIntegerArg(args, 4, 'pageCount', lastPage);
+        const requestId = args[5] === undefined
+            ? undefined
+            : assertRequestId(args[5], 'resolveDocumentTextCatalogWindow.requestId');
         const requiredArgs: [
             TDocumentRef,
             TDocumentRevisionToken,
@@ -729,12 +809,59 @@ const resolveDocumentTextCatalogWindowArgs = argsSchema<TResolveDocumentTextCata
             firstPage,
             lastPage,
         ];
-        return pageCount === undefined
-            ? requiredArgs
-            : [
-                ...requiredArgs,
-                pageCount,
+        if (pageCount === undefined && requestId === undefined) {
+            return requiredArgs;
+        }
+        if (requestId === undefined) {
+            const pageCountArgs: [
+                TDocumentRef,
+                TDocumentRevisionToken,
+                number,
+                number,
+                number,
+            ] = [
+                requiredArgs[0],
+                requiredArgs[1],
+                requiredArgs[2],
+                requiredArgs[3],
+                pageCount!,
             ];
+            return pageCountArgs;
+        }
+        if (pageCount === undefined) {
+            const requestIdArgs: [
+                TDocumentRef,
+                TDocumentRevisionToken,
+                number,
+                number,
+                undefined,
+                string,
+            ] = [
+                requiredArgs[0],
+                requiredArgs[1],
+                requiredArgs[2],
+                requiredArgs[3],
+                undefined,
+                requestId,
+            ];
+            return requestIdArgs;
+        }
+        const requestIdArgs: [
+            TDocumentRef,
+            TDocumentRevisionToken,
+            number,
+            number,
+            number,
+            string,
+        ] = [
+            requiredArgs[0],
+            requiredArgs[1],
+            requiredArgs[2],
+            requiredArgs[3],
+            pageCount,
+            requestId,
+        ];
+        return requestIdArgs;
     },
     () => [
         '/tmp/ocr-fixture.pdf',

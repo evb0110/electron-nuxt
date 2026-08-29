@@ -19,6 +19,10 @@ export interface IDjvuSourceRevision {
 }
 
 const DJVU_PAGE_SOURCE_INFO_CACHE_MAX_DOCUMENTS = 8;
+// Keep the page metadata cache bounded even when a caller asks for a full
+// document scan. Full-resolution page lists are still returned to that caller,
+// but they must not remain resident for every open document.
+const DJVU_PAGE_SOURCE_INFO_CACHE_MAX_PAGES = 512;
 const cacheByDjvuPath = new Map<string, IDjvuPageSourceInfoCacheEntry>();
 const pendingProbes = new Map<string, Promise<IDjvuPageSourceInfo>>();
 
@@ -59,6 +63,13 @@ function storeInfo(
     }
     for (const info of infos) {
         existingEntry.infoByPage.set(info.pageNumber, info);
+        while (existingEntry.infoByPage.size > DJVU_PAGE_SOURCE_INFO_CACHE_MAX_PAGES) {
+            const oldestPage = existingEntry.infoByPage.keys().next().value;
+            if (typeof oldestPage !== 'number') {
+                break;
+            }
+            existingEntry.infoByPage.delete(oldestPage);
+        }
     }
     touchEntry(djvuPath, existingEntry);
 }

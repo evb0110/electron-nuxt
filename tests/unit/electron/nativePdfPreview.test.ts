@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT,
     parsePdfInfoPageSizes,
     parsePdfOpeningGeometryMetadata,
     readJpegDimensions,
@@ -98,6 +99,28 @@ Page    100000 size:  400 x 500 pts
                 height: 500,
             }],
         });
+    });
+
+    it('gates the dense compatibility array at the documented page-count limit', () => {
+        const dense = parsePdfInfoPageSizes(
+            `Pages: ${String(PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT)}\nPage size: 612 x 792 pts (letter)`,
+            PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT,
+            {
+                width: 612,
+                height: 792,
+            },
+        );
+        const compact = parsePdfInfoPageSizes(
+            `Pages: ${String(PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT + 1)}\nPage size: 612 x 792 pts (letter)`,
+            PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT + 1,
+            {
+                width: 612,
+                height: 792,
+            },
+        );
+
+        expect(dense).toHaveLength(PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT);
+        expect(Array.isArray(compact)).toBe(false);
     });
 
     it('accepts a very large safe-integer page count without materializing page sizes', () => {

@@ -35,6 +35,11 @@ import {
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { tryCreatePdfWithNativeImageCombiner } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import type { IImageDimensions } from '@electron/image/imageDimensions';
+import {
+    createPdfCombineOutputTooLargeError,
+    normalizePdfCombineOutputLimit,
+    PDF_COMBINE_MAX_OUTPUT_BYTES,
+} from '@contracts/pdfCombineOutputPolicy';
 
 export interface ICreateCombinedPdfProgress {
     processed: number;
@@ -85,7 +90,14 @@ const DEFAULT_RESOURCE_LIMITS: IPdfCombineResourceLimits = {
     maxPages: parseIntegerEnv('EVB_PDF_COMBINE_MAX_PAGES', 500, 1, 10_000),
     maxTiffFrames: parseIntegerEnv('EVB_PDF_COMBINE_MAX_TIFF_FRAMES', 250, 1, 5_000),
     maxImagePixels: parseIntegerEnv('EVB_PDF_COMBINE_MAX_IMAGE_PIXELS', 80_000_000, 1_000_000),
-    maxOutputBytes: parseIntegerEnv('EVB_PDF_COMBINE_MAX_OUTPUT_MB', 512, 1, 4096) * 1024 * 1024,
+    maxOutputBytes: normalizePdfCombineOutputLimit(
+        parseIntegerEnv(
+            'EVB_PDF_COMBINE_MAX_OUTPUT_MB',
+            PDF_COMBINE_MAX_OUTPUT_BYTES / (1024 * 1024),
+            1,
+            PDF_COMBINE_MAX_OUTPUT_BYTES / (1024 * 1024),
+        ) * 1024 * 1024,
+    ),
 };
 const PNG_SIGNATURE = [
     0x89,
@@ -122,7 +134,7 @@ function assertPixelLimit(width: number, height: number, sourcePath: string, lim
 
 function assertOutputLimit(outputBytes: Uint8Array, limits: IPdfCombineResourceLimits) {
     if (outputBytes.byteLength > limits.maxOutputBytes) {
-        throw new Error('Combined PDF output is too large to return safely');
+        throw createPdfCombineOutputTooLargeError();
     }
 }
 

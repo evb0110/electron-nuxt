@@ -134,6 +134,15 @@ describe('browserRasterImageMetadata', () => {
         expect(() => assertBrowserCombinedPdfOutputBytes(new Uint8Array(BROWSER_MAX_FULL_READ_BYTES))).not.toThrow();
         expect(() => assertBrowserCombinedPdfOutputBytes(new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1)))
             .toThrow('ERR_BROWSER_PDF_COMBINE_INVALID_OUTPUT');
+        try {
+            assertBrowserCombinedPdfOutputBytes(new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1));
+        } catch (error) {
+            expect(error).toMatchObject({
+                name: 'SerializableError',
+                code: 'too-large',
+                errorEnvelope: {code: 'too-large'},
+            });
+        }
         const budget = {
             usedBytes: 250,
             maxBytes: 300,

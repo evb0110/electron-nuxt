@@ -249,11 +249,10 @@
                 <div class="toolbar-action toolbar-action--export-docx">
                     <ToolbarButton
                         v-if="isCommandInline('export-docx')"
-                        :icon="getReaderCommandToolbarIcon('export-docx')"
-                        :tooltip="t('toolbar.exportDocx')"
+                        :icon="isExportingDocx ? 'ph:stop' : getReaderCommandToolbarIcon('export-docx')"
+                        :tooltip="isExportingDocx ? t('ocr.cancel') : t('toolbar.exportDocx')"
                         :shortcut="shortcutLabels.exportDocx"
-                        :disabled="!hasInteractiveDocument || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
-                        :loading="isExportingDocx"
+                        :disabled="!isExportingDocx && (!hasInteractiveDocument || !canExportDocx || isAnySaving || isHistoryBusy)"
                         @click="handleToolbarCommand('export-docx')"
                     />
                 </div>

@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { cast } from '@tests/helpers/cast';
+import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
 
 const pdfjsModule = vi.hoisted(() => {
     class MockPdfDataRangeTransport {
@@ -147,6 +148,30 @@ describe('browserPdfjsDocumentInit', () => {
         await vi.waitFor(() => {
             expect(onRangeReadFailure).toHaveBeenCalledTimes(1);
         });
+        expect(range.onDataRange).not.toHaveBeenCalled();
+    });
+
+    it('refuses an oversized range request instead of allocating a whole large PDF', async () => {
+        const onRangeReadFailure = vi.fn();
+        const {
+            createPdfjsDocumentInitFromBrowserDocument,
+            getPdfjsLib,
+        } = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
+
+        const pdfjsLib = await getPdfjsLib();
+        const init = await createPdfjsDocumentInitFromBrowserDocument(
+            pdfjsLib,
+            'browser://documents/large.pdf',
+            {onRangeReadFailure},
+        );
+        const range = cast<{ range: InstanceType<typeof pdfjsModule.PDFDataRangeTransport> }>(init).range;
+
+        range.requestDataRange?.(0, BROWSER_MAX_FULL_READ_BYTES + 1);
+
+        await vi.waitFor(() => {
+            expect(onRangeReadFailure).toHaveBeenCalledWith(expect.objectContaining({message: expect.stringContaining('safe')}));
+        });
+        expect(browserDocumentStoreMock.readRange).toHaveBeenCalledTimes(1);
         expect(range.onDataRange).not.toHaveBeenCalled();
     });
 });

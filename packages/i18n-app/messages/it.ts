@@ -1229,6 +1229,7 @@ export default {
     },
     'bookmarks': {
         'unavailable': 'Segnalibri non disponibili',
+        'persistenceRefusalDepth': '{count} segnalibri superano la profondità nativa di {limit}; vengono conservati in sola lettura perché questa profondità non può essere salvata.',
         'noBookmarks': 'Nessun segnalibro disponibile',
         'loading': 'Caricamento segnalibri...',
         'enterEditMode': 'Entra in modalità modifica segnalibri',

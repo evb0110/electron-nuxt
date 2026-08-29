@@ -82,7 +82,7 @@ function createManagedShapes(options: {
     return useManagedEmbeddedPdfShapes({
         viewerContainer: ref(null),
         ...(options.originalPath ? {originalPath: options.originalPath} : {}),
-        workingCopyPath: options.workingCopyPath ?? ref<string | null>('/tmp/save-priming.pdf'),
+        workingCopyPath: options.workingCopyPath ?? ref<string | null>('browser://documents/save-priming.pdf'),
         sourcePdfData: options.sourcePdfData ?? ref<Uint8Array | null>(new Uint8Array([1])),
         documentRevisionToken: options.documentRevisionToken ?? ref<TDocumentRevisionToken | null>(null),
         visibleRange: ref({
@@ -287,7 +287,7 @@ describe('managed embedded shape save priming', () => {
         vi.mocked(importEmbeddedShapeAnnotations).mockReset();
         const rollback = vi.fn(() => true);
         const primePersistedShapes = vi.fn(() => true);
-        const workingCopyPath = ref<string | null>('/tmp/save-priming.pdf');
+        const workingCopyPath = ref<string | null>('browser://documents/save-priming.pdf');
         const managedShapes = createManagedShapes({
             workingCopyPath,
             shapeComposable: createShapeStorePort({beginShapeSave: () => ({
@@ -303,7 +303,7 @@ describe('managed embedded shape save priming', () => {
         await vi.waitFor(() => expect(worker.workers).toHaveLength(1));
 
         // Adopting another document retires the save this priming belongs to.
-        workingCopyPath.value = '/tmp/another-document.pdf';
+        workingCopyPath.value = 'browser://documents/another-document.pdf';
         void managedShapes.ensureManagedShapeBaselineReady().catch(() => undefined);
 
         await expect(priming).resolves.toBeNull();

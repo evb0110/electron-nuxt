@@ -30,7 +30,7 @@ const mocks = vi.hoisted(() => ({
         text: string;
     }>),
     extractTextWithPdfjs: vi.fn(async () => []),
-    extractTextWithPdfjsWordBoxes: vi.fn(async (_path: string) => [] as Array<{
+    extractTextWithPdfjsWordBoxes: vi.fn(async (_path: string, _options?: {signal?: AbortSignal}) => [] as Array<{
         pageNumber: number;
         text: string;
     }>),
@@ -311,6 +311,39 @@ describe('DocumentTextCatalog reader agreement', () => {
             Array.from({length: 64}, (_value, index) => index + 1),
             [65],
         ]);
+    });
+
+    it('passes scalar extraction cancellation into the PDF reader', async () => {
+        const fixture = createOcrDocumentTextCatalogFixture([{
+            pageNumber: 1,
+            text: 'logical sidecar text',
+        }]);
+        state.artifacts = new Map(fixture.artifacts);
+        const controller = new AbortController();
+        const extractionStarted = Promise.withResolvers<undefined>();
+        const releaseExtraction = Promise.withResolvers<undefined>();
+        mocks.extractTextWithPdfjsWordBoxes.mockImplementationOnce(async (_path, options) => {
+            extractionStarted.resolve(undefined);
+            await releaseExtraction.promise;
+            options?.signal?.throwIfAborted();
+            return [];
+        });
+
+        const snapshotPromise = resolveDocumentTextCatalogSnapshot(
+            fixture.path,
+            fixture.revision,
+            1,
+            {signal: controller.signal},
+        );
+        await extractionStarted.promise;
+        expect(mocks.extractTextWithPdfjsWordBoxes).toHaveBeenCalledWith(
+            fixture.path,
+            {signal: controller.signal},
+        );
+        controller.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
+        releaseExtraction.resolve(undefined);
+
+        await expect(snapshotPromise).rejects.toMatchObject({name: 'AbortError'});
     });
 
     it('keeps logical OCR sidecars while reading catalog PDF bytes from a physical backing path', async () => {

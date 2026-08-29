@@ -196,11 +196,14 @@ describe('createCombinedPdf native image fast path', () => {
     });
 
     it('rejects oversized JS fallback output before returning it', async () => {
-        mocks.save.mockResolvedValueOnce({byteLength: 513 * 1024 * 1024});
+        mocks.save.mockResolvedValueOnce({byteLength: (16 * 1024 * 1024) + 1});
 
         await expect(createCombinedPdf(['/tmp/a.png'], {unsupportedFileError: sourcePath => `Unsupported: ${sourcePath}`}))
             .rejects
-            .toThrow('Combined PDF output is too large to return safely');
+            .toMatchObject({
+                code: 'too-large',
+                name: 'SerializableError',
+            });
     });
 
     it.each([

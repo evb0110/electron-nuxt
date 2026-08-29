@@ -438,6 +438,12 @@ fn create_markup_annotation(
     if let Some(color) = target_color {
         write_markup_color(&mut dict, color);
     }
+    if let Some(contents) = hint.contents.as_deref() {
+        dict.set(
+            "Contents",
+            Object::String(encode_pdf_text_string(contents), StringFormat::Hexadecimal),
+        );
+    }
     if hint.subtype == "Highlight" {
         dict.set("CA", Object::Integer(1));
     }
@@ -457,6 +463,8 @@ pub(crate) fn apply_markup_rewrite_to_object(
     candidate: &MarkupAnnotationCandidate,
     target_subtype: &str,
     color: Option<&str>,
+    contents: Option<&str>,
+    modified_at: &str,
 ) -> Result<bool> {
     let target_color = resolve_hint_target_color(target_subtype, color);
     let mut modified = false;
@@ -491,6 +499,9 @@ pub(crate) fn apply_markup_rewrite_to_object(
     if target_color.is_some() {
         modified = true;
     }
+    if contents.is_some() {
+        modified = true;
+    }
     if !modified {
         return Ok(false);
     }
@@ -518,6 +529,9 @@ pub(crate) fn apply_markup_rewrite_to_object(
             ap.set("N", Object::Reference(ap_ref));
             dict.set("AP", Object::Dictionary(ap));
         }
+    }
+    if let Some(contents) = contents {
+        update_annotation_text_by_ref(document, candidate.object_id, contents, modified_at)?;
     }
     Ok(true)
 }
@@ -622,6 +636,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
     candidates: &[MarkupAnnotationCandidate],
     overrides: &HashMap<String, String>,
     page_hints: &mut [MarkupHintState],
+    modified_at: &str,
 ) -> Result<bool> {
     let mut rewritten = false;
     let mut unmatched_candidates = Vec::new();
@@ -638,6 +653,8 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 candidate,
                 &hint.subtype,
                 hint.color.as_deref(),
+                hint.contents.as_deref(),
+                modified_at,
             )? || rewritten;
             continue;
         }
@@ -652,6 +669,8 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 candidate,
                 &hint.subtype,
                 hint.color.as_deref(),
+                hint.contents.as_deref(),
+                modified_at,
             )? || rewritten;
             continue;
         }
@@ -666,15 +685,22 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 candidate,
                 &hint.subtype,
                 hint.color.as_deref(),
+                hint.contents.as_deref(),
+                modified_at,
             )? || rewritten;
             continue;
         }
 
         if let Some(override_subtype) = overrides.get(&candidate.ref_tag) {
             consume_exact_ref_hints(page_hints, candidate, &hints_by_ref);
-            rewritten =
-                apply_markup_rewrite_to_object(document, candidate, override_subtype, None)?
-                    || rewritten;
+            rewritten = apply_markup_rewrite_to_object(
+                document,
+                candidate,
+                override_subtype,
+                None,
+                None,
+                modified_at,
+            )? || rewritten;
             continue;
         }
 
@@ -696,6 +722,8 @@ pub(crate) fn rewrite_page_markup_subtypes(
             candidate,
             &hint.subtype,
             hint.color.as_deref(),
+            hint.contents.as_deref(),
+            modified_at,
         )? || rewritten;
     }
     Ok(rewritten)
@@ -787,14 +815,27 @@ pub(crate) fn apply_markup_rewrite_to_incremental_object(
     candidate: &MarkupAnnotationCandidate,
     target_subtype: &str,
     color: Option<&str>,
+    contents: Option<&str>,
+    modified_at: &str,
 ) -> Result<bool> {
     incremental.opt_clone_object_to_new_document(candidate.object_id)?;
-    apply_markup_rewrite_to_object(
+    let modified = apply_markup_rewrite_to_object(
         &mut incremental.new_document,
         candidate,
         target_subtype,
         color,
-    )
+        None,
+        modified_at,
+    )?;
+    if let Some(contents) = contents {
+        update_annotation_text_incremental_by_ref(
+            incremental,
+            candidate.object_id,
+            contents,
+            modified_at,
+        )?;
+    }
+    Ok(modified || contents.is_some())
 }
 
 pub(crate) fn rewrite_page_markup_subtypes_incremental(
@@ -802,6 +843,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
     candidates: &[MarkupAnnotationCandidate],
     overrides: &HashMap<String, String>,
     page_hints: &mut [MarkupHintState],
+    modified_at: &str,
 ) -> Result<bool> {
     let mut rewritten = false;
     let mut unmatched_candidates = Vec::new();
@@ -820,6 +862,8 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 candidate,
                 &hint.subtype,
                 hint.color.as_deref(),
+                hint.contents.as_deref(),
+                modified_at,
             )? || rewritten;
             continue;
         }
@@ -834,6 +878,8 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 candidate,
                 &hint.subtype,
                 hint.color.as_deref(),
+                hint.contents.as_deref(),
+                modified_at,
             )? || rewritten;
             continue;
         }
@@ -848,6 +894,8 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 candidate,
                 &hint.subtype,
                 hint.color.as_deref(),
+                hint.contents.as_deref(),
+                modified_at,
             )? || rewritten;
             continue;
         }
@@ -859,6 +907,8 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 candidate,
                 override_subtype,
                 None,
+                None,
+                modified_at,
             )? || rewritten;
             continue;
         }
@@ -881,6 +931,8 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
             candidate,
             &hint.subtype,
             hint.color.as_deref(),
+            hint.contents.as_deref(),
+            modified_at,
         )? || rewritten;
     }
     Ok(rewritten)
@@ -975,21 +1027,24 @@ fn create_new_markup_annotations_incremental_internal(
 pub(crate) fn apply_markup_mutations(
     document: &mut Document,
     markup: &MarkupMutation,
+    modified_at: &str,
 ) -> Result<()> {
-    apply_markup_mutations_internal(document, markup, None)
+    apply_markup_mutations_internal(document, markup, modified_at, None)
 }
 
 pub(crate) fn apply_markup_mutations_with_bindings(
     document: &mut Document,
     markup: &MarkupMutation,
+    modified_at: &str,
     identity_bindings: &mut Vec<MarkupIdentityBinding>,
 ) -> Result<()> {
-    apply_markup_mutations_internal(document, markup, Some(identity_bindings))
+    apply_markup_mutations_internal(document, markup, modified_at, Some(identity_bindings))
 }
 
 pub(crate) fn apply_markup_mutations_internal(
     document: &mut Document,
     markup: &MarkupMutation,
+    modified_at: &str,
     mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
 ) -> Result<()> {
     let (overrides, hints_by_page) = build_markup_inputs(markup)?;
@@ -1019,9 +1074,13 @@ pub(crate) fn apply_markup_mutations_internal(
                 page_markup_index += 1;
             }
         }
-        modified =
-            rewrite_page_markup_subtypes(document, &candidates, &overrides, &mut page_hints)?
-                || modified;
+        modified = rewrite_page_markup_subtypes(
+            document,
+            &candidates,
+            &overrides,
+            &mut page_hints,
+            modified_at,
+        )? || modified;
         modified = match identity_bindings.as_mut() {
             Some(bindings) => create_new_markup_annotations_with_bindings(
                 document,
@@ -1050,21 +1109,29 @@ pub(crate) fn apply_markup_mutations_internal(
 pub(crate) fn apply_markup_mutations_incremental(
     incremental: &mut IncrementalDocument,
     markup: &MarkupMutation,
+    modified_at: &str,
 ) -> Result<()> {
-    apply_markup_mutations_incremental_internal(incremental, markup, None)
+    apply_markup_mutations_incremental_internal(incremental, markup, modified_at, None)
 }
 
 pub(crate) fn apply_markup_mutations_incremental_with_bindings(
     incremental: &mut IncrementalDocument,
     markup: &MarkupMutation,
+    modified_at: &str,
     identity_bindings: &mut Vec<MarkupIdentityBinding>,
 ) -> Result<()> {
-    apply_markup_mutations_incremental_internal(incremental, markup, Some(identity_bindings))
+    apply_markup_mutations_incremental_internal(
+        incremental,
+        markup,
+        modified_at,
+        Some(identity_bindings),
+    )
 }
 
 pub(crate) fn apply_markup_mutations_incremental_internal(
     incremental: &mut IncrementalDocument,
     markup: &MarkupMutation,
+    modified_at: &str,
     mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
 ) -> Result<()> {
     let (overrides, hints_by_page) = build_markup_inputs(markup)?;
@@ -1105,6 +1172,7 @@ pub(crate) fn apply_markup_mutations_incremental_internal(
             &candidates,
             &overrides,
             &mut page_hints,
+            modified_at,
         )? || modified;
         let document = incremental.get_prev_documents();
         let page_view = resolve_page_view(document, page_id)?;

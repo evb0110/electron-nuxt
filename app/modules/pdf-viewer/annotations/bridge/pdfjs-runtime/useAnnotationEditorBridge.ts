@@ -264,9 +264,19 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
             emitAnnotationState({
                 isEditing: true,
                 isEmpty: false,
+                hasPendingFreeTextDraft: true,
             });
             emitAnnotationModified({forceDirty: true});
         }, {once: true});
+    }
+
+    function hasPendingFreeTextDraft() {
+        for (const editor of pendingFreeTextDrafts) {
+            if (editor.isInEditMode?.() === true) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function commitPendingFreeTextDraftsForSave() {
@@ -279,6 +289,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 pendingFreeTextDrafts.delete(editor);
             }
         }
+        emitAnnotationState({hasPendingFreeTextDraft: hasPendingFreeTextDraft()});
     }
 
     function createSimpleCommentManager(_container: HTMLElement) {
@@ -468,7 +479,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         commentSync.incrementSyncToken();
 
         if (annotationEventBus.value && annotationStateListener) {
-            annotationEventBus.value.off('annotationeditorstateschanged', annotationStateListener);
+            annotationEventBus.value.off('editingstateschanged', annotationStateListener);
         }
         annotationStateListener = null;
 
@@ -804,7 +815,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
             }
             emitAnnotationState(patch);
         };
-        eventBus.on('annotationeditorstateschanged', annotationStateListener);
+        eventBus.on('editingstateschanged', annotationStateListener);
 
         try {
             if (!pdfjsFacade.subscribeDocumentModified(pdfDoc, () => pdfjsFacade.notifyModified())) {

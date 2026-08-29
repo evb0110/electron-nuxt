@@ -40,6 +40,10 @@ let browserLargeSaveHandleHintProvider = () => (
     'Use a browser with local file system access enabled to save large documents.'
 );
 
+function throwIfAborted(signal?: AbortSignal) {
+    signal?.throwIfAborted();
+}
+
 export function configureBrowserFilePickerMessages(options: { largeSaveHandleHint?: () => string; }) {
     browserLargeSaveHandleHintProvider = options.largeSaveHandleHint ?? browserLargeSaveHandleHintProvider;
 }
@@ -328,31 +332,38 @@ async function saveBlobToPickerOrDownload(
     suggestedName: string,
     pickerTypes: IFilePickerAcceptType[],
     options: {
+        signal?: AbortSignal;
         downloadFallbackLabel?: string;
         downloadFallbackMaxBytes?: number;
         canDownloadWithoutHandle?: boolean;
     } = {},
 ) {
+    throwIfAborted(options.signal);
     const { saveFilePicker } = resolveBrowserCapabilityTier();
     if (saveFilePicker) {
         try {
+            throwIfAborted(options.signal);
             const handle = await saveFilePicker({
                 suggestedName,
                 types: pickerTypes,
             });
 
+            throwIfAborted(options.signal);
             await ensureFileHandleWritePermission(handle);
+            throwIfAborted(options.signal);
             const writable = await runBrowserFileHandlePhase(
                 'opening file for writing',
                 BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
                 () => handle.createWritable(),
             );
             try {
+                throwIfAborted(options.signal);
                 await runBrowserFileHandlePhase(
                     'writing file bytes',
                     BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
                     () => writable.write(blob),
                 );
+                throwIfAborted(options.signal);
             } catch (error) {
                 await abortBrowserFileWritable(writable);
                 throw normalizeBrowserFileHandleError(error);
@@ -362,6 +373,7 @@ async function saveBlobToPickerOrDownload(
                 BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
                 () => writable.close(),
             );
+            throwIfAborted(options.signal);
             return {
                 canceled: false,
                 fileName: handle.name || suggestedName,
@@ -399,7 +411,14 @@ async function saveBlobToPickerOrDownload(
         );
     }
 
+    throwIfAborted(options.signal);
     const href = URL.createObjectURL(blob);
+    try {
+        throwIfAborted(options.signal);
+    } catch (error) {
+        URL.revokeObjectURL(href);
+        throw error;
+    }
     const anchor = document.createElement('a');
     anchor.href = href;
     anchor.download = suggestedName;
@@ -460,6 +479,7 @@ export async function saveBytesToPickerOrDownload(
         suggestedName: string;
         mimeType: string;
         pickerTypes: IFilePickerAcceptType[];
+        signal?: AbortSignal;
         downloadFallbackLabel?: string;
         downloadFallbackMaxBytes?: number;
         canDownloadWithoutHandle?: boolean;
@@ -467,6 +487,7 @@ export async function saveBytesToPickerOrDownload(
 ) {
     const fallbackOptions = {
         ...(options.downloadFallbackLabel ? { downloadFallbackLabel: options.downloadFallbackLabel } : {}),
+        ...(options.signal === undefined ? {} : {signal: options.signal}),
         ...(options.downloadFallbackMaxBytes !== undefined
             ? { downloadFallbackMaxBytes: options.downloadFallbackMaxBytes }
             : {}),
@@ -486,8 +507,11 @@ export async function saveBytesToPickerOrDownload(
 export async function writeBytesToHandle(
     handle: FileSystemFileHandle,
     data: Uint8Array,
+    signal?: AbortSignal,
 ) {
+    throwIfAborted(signal);
     await ensureFileHandleWritePermission(handle);
+    throwIfAborted(signal);
     const writable = await runBrowserFileHandlePhase(
         'opening file for writing',
         BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
@@ -496,11 +520,13 @@ export async function writeBytesToHandle(
     let closeError: unknown = null;
 
     try {
+        throwIfAborted(signal);
         await runBrowserFileHandlePhase(
             'writing file bytes',
             BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
             () => writable.write(toBrowserOwnedArrayBuffer(data)),
         );
+        throwIfAborted(signal);
     } catch (error) {
         await abortBrowserFileWritable(writable);
         throw normalizeBrowserFileHandleError(error);

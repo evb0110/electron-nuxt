@@ -6,6 +6,7 @@ import {
 } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import {findUniqueAnnotationComment} from '@app/modules/pdf-viewer/runtime/annotations/findUniqueAnnotationComment';
 import type { IMarkerViewModel } from '@app/modules/pdf-viewer/engine/annotations/types';
 import { clusterDetachedComments } from '@app/modules/pdf-viewer/engine/annotations/annotation-marker-geometry/clusterDetachedComments';
 import { resolveDetachedMarkerPlacement } from '@app/modules/pdf-viewer/engine/annotations/annotation-marker-geometry/resolveDetachedMarkerPlacement';
@@ -231,7 +232,10 @@ export const useAnnotationMarkerViewModel = (options: IUseAnnotationMarkerViewMo
         if (!stableKey) {
             return null;
         }
-        return annotationCommentsCache.value.find(c => c.stableKey === stableKey) ?? null;
+        return findUniqueAnnotationComment(
+            annotationCommentsCache.value,
+            comment => comment.stableKey === stableKey,
+        );
     }
 
     function findCommentFromInlineTarget(target: HTMLElement): IAnnotationCommentSummary | null {

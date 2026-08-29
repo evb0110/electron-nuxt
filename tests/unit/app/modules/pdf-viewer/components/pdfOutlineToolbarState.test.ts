@@ -18,7 +18,7 @@ import type {PDFDocumentProxy} from 'pdfjs-dist';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string, parameters?: Record<string, string | number>) => parameters ? `${key} ${Object.values(parameters).join(' ')} retained read-only` : key})}));
 
 function stub(marker: string) {
     return {default: defineComponent({
@@ -55,6 +55,7 @@ function createPdfDocument(getOutline: () => Promise<unknown[] | null>) {
 async function mountOutline(getOutline: () => Promise<unknown[] | null>) {
     const host = document.createElement('div');
     document.body.append(host);
+    const editModeUpdates: boolean[] = [];
     const viewProps = reactive({
         bookmarkItems: [] as IPdfBookmarkEntry[],
         bookmarksDirty: false,
@@ -62,7 +63,10 @@ async function mountOutline(getOutline: () => Promise<unknown[] | null>) {
         isEditMode: false,
         pdfDocument: createPdfDocument(getOutline),
     });
-    const app = createApp(defineComponent({setup: () => () => h(PdfOutline, {...viewProps})}));
+    const app = createApp(defineComponent({setup: () => () => h(PdfOutline, {
+        ...viewProps,
+        'onUpdate:isEditMode': (value: boolean) => editModeUpdates.push(value),
+    })}));
     app.component('UButton', defineComponent({setup: () => () => h('button')}));
     app.mount(host);
     await nextTick();
@@ -85,7 +89,11 @@ async function mountOutline(getOutline: () => Promise<unknown[] | null>) {
             viewProps.bookmarkItems = items;
             viewProps.bookmarksDirty = true;
         },
+        editModeUpdates,
         host,
+        setEditMode(value: boolean) {
+            viewProps.isEditMode = value;
+        },
         settle,
         unmount,
     };
@@ -93,6 +101,33 @@ async function mountOutline(getOutline: () => Promise<unknown[] | null>) {
 
 function toolbar(host: HTMLElement) {
     return host.querySelector('[data-bookmark-toolbar-stub]');
+}
+
+function createDeepBookmarkEntries(depth: number) {
+    const root: IPdfBookmarkEntry = {
+        title: 'Bookmark 0',
+        pageIndex: 0,
+        namedDest: null,
+        bold: false,
+        italic: false,
+        color: null,
+        items: [],
+    };
+    let current = root;
+    for (let index = 1; index < depth; index += 1) {
+        const child: IPdfBookmarkEntry = {
+            title: `Bookmark ${index}`,
+            pageIndex: index,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        };
+        current.items = [child];
+        current = child;
+    }
+    return [root];
 }
 
 describe('PdfOutline bookmark toolbar state', () => {
@@ -143,6 +178,43 @@ describe('PdfOutline bookmark toolbar state', () => {
         expect(outline.host.querySelector('[data-spinner-stub]')).toBeNull();
         expect(outline.host.querySelector('[data-empty-state-stub]')?.getAttribute('title'))
             .toBe('bookmarks.noBookmarks');
+    });
+
+    it('keeps more than 5000 outline entries editable for native continuation', async () => {
+        const outline = await mountOutline(() => Promise.resolve([]));
+        await outline.settle();
+        outline.setEditMode(true);
+        await outline.settle();
+        outline.editModeUpdates.length = 0;
+        outline.applyExternalBookmarks(Array.from({length: 5_001}, (_, index) => ({
+            title: `Bookmark ${index}`,
+            pageIndex: index,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        })));
+
+        await outline.settle();
+
+        expect(outline.host.querySelector('[data-bookmark-persistence-refusal]')).toBeNull();
+        expect(toolbar(outline.host)).not.toBeNull();
+        expect(outline.editModeUpdates).toEqual([]);
+    });
+
+    it('surfaces a typed persistence refusal when native bookmark depth is exceeded', async () => {
+        const outline = await mountOutline(() => Promise.resolve([]));
+        await outline.settle();
+        outline.applyExternalBookmarks(createDeepBookmarkEntries(65));
+
+        await outline.settle();
+
+        const refusal = outline.host.querySelector('[data-bookmark-persistence-refusal]');
+        expect(refusal).not.toBeNull();
+        expect(refusal?.getAttribute('data-bookmark-persistence-reason')).toBe('depth');
+        expect(refusal?.textContent).toContain('64');
+        expect(refusal?.textContent).toMatch(/read-only|readonly/iu);
     });
 
     it('recovers from a load error when external bookmarks arrive', async () => {

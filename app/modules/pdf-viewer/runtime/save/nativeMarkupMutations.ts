@@ -132,6 +132,7 @@ export function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSu
             : {}),
         annotationId: hint.annotationId ?? null,
         color: hint.color ?? null,
+        ...(hint.contents !== undefined ? {contents: hint.contents} : {}),
         id: hint.id ?? null,
         pageMarkupIndex: typeof hint.pageMarkupIndex === 'number' && Number.isSafeInteger(hint.pageMarkupIndex)
             ? hint.pageMarkupIndex
@@ -142,6 +143,7 @@ export function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSu
 
 export function buildNativeMarkupMutationForSave(opts: {
     canonicalComments: IAnnotationCommentSummary[];
+    changedComments?: IAnnotationCommentSummary[];
     annotationWorkDirty: boolean;
     markupSubtypeOverrides: Map<string, TMarkupSubtype> | undefined;
     markupSubtypeHints: IMarkupSubtypeHint[];
@@ -150,6 +152,9 @@ export function buildNativeMarkupMutationForSave(opts: {
         return null;
     }
     const currentMarkupHints = collectMarkupSubtypeHints(opts.canonicalComments);
+    const changedMarkupHints = opts.changedComments
+        ? collectMarkupSubtypeHints(opts.changedComments, {includeContents: true})
+        : currentMarkupHints.filter(hint => hint.color !== null || hint.source === 'editor');
     const currentMarkupTargetKeys = buildCurrentMarkupTargetKeys(currentMarkupHints);
     const overrides: Array<readonly [string, TMarkupSubtype]> = [];
     for (const [
@@ -177,10 +182,9 @@ export function buildNativeMarkupMutationForSave(opts: {
             const nativeHint = toNativeMarkupHint(hint);
             return nativeHint ? [nativeHint] : [];
         });
-    const editedCommentHints = currentMarkupHints
-        // Full rewrites need all preservation hints; incremental native markup should touch
-        // only hints that represent a user-visible markup edit.
-        .filter(hint => hint.color !== null || hint.source === 'editor')
+    const editedCommentHints = changedMarkupHints
+        // Incremental native markup touches only canonical comments whose
+        // revision changed. This includes note-only edits on imported markup.
         .flatMap((hint) => {
             const nativeHint = toNativeMarkupHint(hint);
             return nativeHint ? [nativeHint] : [];

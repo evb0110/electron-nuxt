@@ -466,11 +466,17 @@ function buildToolItems() {
     }
 
     if (shouldShowMenuCommand('export-docx', 1)) {
-        items.push(createReaderCommandItem('export-docx', 'export-docx', t('toolbar.exportDocx'), {disabled: !hasInteractiveDocument.value
-                || !canExportDocx
-                || isAnySaving
-                || isHistoryBusy
-                || isExportingDocx}));
+        items.push(createCommandItem(
+            'export-docx',
+            isExportingDocx ? t('ocr.cancel') : t('toolbar.exportDocx'),
+            isExportingDocx ? 'i-ph-stop' : getReaderCommandMenuIcon('export-docx'),
+            {disabled: !isExportingDocx && (
+                !hasInteractiveDocument.value
+                    || !canExportDocx
+                    || isAnySaving
+                    || isHistoryBusy
+            )},
+        ));
     }
 
     return items;

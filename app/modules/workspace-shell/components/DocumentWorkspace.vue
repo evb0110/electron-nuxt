@@ -54,6 +54,7 @@
                 @combine-files="workspaceCommandBindings.handleOpenCombine"
                 @export-docx="handleToolbarExportDocx"
                 @ocr-export-docx="handleExportDocx"
+                @ocr-cancel-docx-export="cancelDocxExportDirect"
                 @export-images="handleExportImages()"
                 @export-multi-page-tiff="handleExportMultiPageTiff()"
                 @convert-to-pdf="openConvertDialog"
@@ -804,6 +805,7 @@ const {
     handleOptimizePdfAsCopy,
     handleSaveAs: handleSaveAsDirect,
     handleExportDocx: handleExportDocxDirect,
+    cancelDocxExport: cancelDocxExportDirect,
     handleOcrComplete,
     docxExportError,
     isAnySaving,
@@ -1146,6 +1148,8 @@ const {
     ensureProjection: reason => ensureDjvuPdfProjection(reason, new AbortController().signal),
     saveAs: handleSaveAsDirect,
     exportDocx: handleExportDocxDirect,
+    isExportingDocx,
+    cancelExportDocx: cancelDocxExportDirect,
     handleDropdownOpen: handleDropdownOpenDirect,
     insertImageFromFile: annotationSession.handleInsertImageFromFile,
     pasteImageFromClipboard: annotationSession.handlePasteImageFromClipboard,

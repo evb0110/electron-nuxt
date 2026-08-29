@@ -12,6 +12,7 @@ import {
     rmSync,
     writeFileSync,
 } from 'node:fs';
+import {readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
@@ -153,6 +154,70 @@ describe('page metadata remap', () => {
             '/mock/qpdf',
         ]));
         expect(args.some(arg => arg.startsWith('--incremental-validation'))).toBe(false);
+    });
+
+    it('splits a 10,001-item outline across bounded native continuation appends', async () => {
+        const workingCopyPath = join(tempRoot, 'working-large.pdf');
+        writeFileSync(workingCopyPath, 'pdf');
+        const payloads: Array<Record<string, unknown>> = [];
+        mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            const mutationsFlagIndex = args.indexOf('--mutations-file');
+            const payloadPath = args[mutationsFlagIndex + 1];
+            payloads.push(JSON.parse(await readFile(payloadPath!, 'utf8')) as Record<string, unknown>);
+            return {
+                stdout: '',
+                stderr: '',
+                exitCode: 0,
+            };
+        });
+
+        await applyPageMetadataRemap({
+            workingCopyPath,
+            delta: {
+                previousPageCount: 10_001,
+                nextPageCount: 10_001,
+                ranges: [
+                    {
+                        kind: 'move',
+                        fromPageNumber: 2,
+                        toPageNumber: 1,
+                        count: 10_000,
+                    },
+                    {
+                        kind: 'move',
+                        fromPageNumber: 1,
+                        toPageNumber: 10_001,
+                        count: 1,
+                    },
+                ],
+            },
+            metadataSnapshot: {
+                pageLabels: null,
+                bookmarks: Array.from({length: 10_001}, (_, index) => bookmark(`Page ${index + 1}`, index)),
+                untitledBookmarkLabel: 'Untitled',
+            },
+            signal: new AbortController().signal,
+            cancelGroup: 'page-remap-large-outline',
+        });
+
+        expect(payloads).toHaveLength(3);
+        expect(payloads.map(payload => (payload.bookmarks as {items: unknown[]}).items.length))
+            .toEqual([
+                5_000,
+                5_000,
+                1,
+            ]);
+        expect(payloads[0]!.continuation).toBeUndefined();
+        expect(payloads[1]!.continuation).toEqual({
+            family: 'bookmarks',
+            chunkIndex: 1,
+            chunkCount: 3,
+        });
+        expect(payloads[2]!.continuation).toEqual({
+            family: 'bookmarks',
+            chunkIndex: 2,
+            chunkCount: 3,
+        });
     });
 
     it('refuses an in-place append when the working-copy inode is shared', async () => {

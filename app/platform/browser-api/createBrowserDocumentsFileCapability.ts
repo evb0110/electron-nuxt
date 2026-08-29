@@ -508,8 +508,7 @@ export function createBrowserDocumentsFileCapability(
             return validateBrowserPdfData(data);
         },
         async validatePdfPath(path, _options) {
-            const data = await browserDocumentStore.read(path);
-            return validateBrowserPdfData(data);
+            return validateBrowserPdfPath(path);
         },
         openPdfInDefaultAppData() {
             return Promise.resolve({
@@ -685,24 +684,34 @@ export function createBrowserDocumentsFileCapability(
                     .catch(() => undefined);
             }
         },
-        async writeDocxFile(path, data) {
-            const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-            await browserDocumentStore.write(path, bytes);
-            const saveTarget = await browserDocumentStore.getSaveTarget(path);
+        async writeDocxFile(path, data, signal) {
+            try {
+                signal?.throwIfAborted();
+                const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+                await browserDocumentStore.write(path, bytes);
+                signal?.throwIfAborted();
+                const saveTarget = await browserDocumentStore.getSaveTarget(path);
+                signal?.throwIfAborted();
 
-            if (saveTarget.saveHandle) {
-                await writeBytesToHandle(saveTarget.saveHandle, bytes);
-            } else {
-                await saveBytesToPickerOrDownload(bytes, {
-                    suggestedName: ensureDocxExtension(saveTarget.saveName),
-                    mimeType:
-                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                    pickerTypes: buildDocxSaveTypes(),
-                    downloadFallbackLabel: 'Saving documents',
-                });
+                if (saveTarget.saveHandle) {
+                    await writeBytesToHandle(saveTarget.saveHandle, bytes, signal);
+                } else {
+                    await saveBytesToPickerOrDownload(bytes, {
+                        suggestedName: ensureDocxExtension(saveTarget.saveName),
+                        mimeType:
+                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        pickerTypes: buildDocxSaveTypes(),
+                        downloadFallbackLabel: 'Saving documents',
+                        ...(signal === undefined ? {} : {signal}),
+                    });
+                }
+                signal?.throwIfAborted();
+                return true;
+            } finally {
+                if (signal?.aborted) {
+                    await browserDocumentStore.remove(path).catch(() => undefined);
+                }
             }
-
-            return true;
         },
         async createWorkingCopyFromData(fileName, data, originalPath) {
             const decryptedData = isPdfFileName(fileName)

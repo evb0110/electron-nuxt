@@ -177,8 +177,8 @@ function decodeBookmarkEntries(
     }
     return value.map((raw): IPdfBookmarkEntry => {
         counter.value += 1;
-        if (counter.value > 5_000) {
-            throw new Error('options.metadataSnapshot.bookmarks exceeds the item limit');
+        if (counter.value > MAX_COLLECTION_ITEMS) {
+            throw new Error(`options.metadataSnapshot.bookmarks exceeds the item limit (${MAX_COLLECTION_ITEMS})`);
         }
         if (!isRecord(raw)) {
             throw new Error('options.metadataSnapshot.bookmarks contains an invalid bookmark');

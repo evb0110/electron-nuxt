@@ -16,7 +16,10 @@ import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scanCleanupPag
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
+    resolveScanCleanupOutputPlacement,
+    SCAN_CLEANUP_OUTPUT_HALVES,
     toScanCleanupLayoutByPage,
+    usesScanCleanupInkAlignment,
 } from '@contracts/scanCleanupPageOverrides';
 import {
     beginScanCleanupAttempt,
@@ -37,6 +40,7 @@ import {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/forma
 import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
+import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 
 const ETA_PAGE_STAGES = new Set([
     'rasterizing',
@@ -48,6 +52,10 @@ const ETA_PAGE_STAGES = new Set([
 // compatibility path, even if a misconfigured or expired handoff leaves the
 // id absent.
 const DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT = 20_000;
+const SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE =
+    'Ink placement for documents over 20,000 pages is unavailable. Select a bounded page range or choose another alignment.';
+const SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE =
+    'Ink placement evidence is unavailable for a selected page. Run detection again or choose another alignment.';
 
 interface IUseScanCleanupRunSessionOptions {
     active: () => boolean;
@@ -174,6 +182,67 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         && margin >= 0
         && margin <= 25
     )));
+    const inkPlacementCapacityExceeded = computed(() => {
+        const resolvedOptions = options.resolvedOptions?.value ?? options.settings;
+        return runPageCount.value > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
+            && usesScanCleanupInkAlignment(resolvedOptions)
+            && options.detectionResultStoreId?.value !== null
+            && options.detectionResultStoreId?.value !== undefined;
+    });
+    const missingInkPlacementAnchorPage = computed(() => {
+        const resolvedOptions = options.resolvedOptions?.value ?? options.settings;
+        if (
+            options.detectionStatus.value !== 'completed'
+            || !usesScanCleanupInkAlignment(resolvedOptions)
+        ) {
+            return null;
+        }
+        const requested = runPageNumbers.value;
+        if (requested === null) {
+            // A full xlarge ink run is refused by the capacity guard above.
+            // Small full runs retain every page map, so only selected pages can
+            // observe a bounded-map eviction at this layer.
+            return null;
+        }
+        const evidenceByPage = options.resolvePagePlanEvidence(requested);
+        for (const pageNumber of requested) {
+            const pageOverride = getScanCleanupPageOverride(
+                resolvedOptions.pageOverrides,
+                pageNumber,
+            );
+            if (pageOverride.excluded) {
+                continue;
+            }
+            const evidence = evidenceByPage.get(pageNumber);
+            if (evidence === undefined) {
+                // A completed large detection keeps the authoritative records
+                // in main. The renderer map is intentionally bounded, so an
+                // absent selected record must refuse rather than let native
+                // choose its top-center fallback.
+                if (options.detectionEvidenceComplete?.value === true) {
+                    return pageNumber;
+                }
+                continue;
+            }
+            const anchors = options.placementAnchorsByPage.value.get(pageNumber);
+            for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
+                const contentBox = pageOverride.manualContentBoxes?.[half]
+                    ?? evidence.outputs[half]?.contentBox;
+                if (
+                    resolveScanCleanupOutputPlacement(
+                        resolvedOptions.pageAlignment,
+                        pageOverride,
+                        half,
+                    ) === 'ink'
+                    && contentBox !== undefined
+                    && anchors?.[half] === undefined
+                ) {
+                    return pageNumber;
+                }
+            }
+        }
+        return null;
+    });
     const progress = computed(() => scanCleanupRun.jobState?.progress ?? {
         stage: 'queued' as const,
         completedUnits: 0,
@@ -191,6 +260,8 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         && !isRunning.value
         && hasIncludedPage.value
         && marginsAreValid.value
+        && !inkPlacementCapacityExceeded.value
+        && missingInkPlacementAnchorPage.value === null
         && getScanCleanupCapability() !== null);
     const transitionText = computed(() => {
         if (transition.value === 'waiting-for-detection') {
@@ -212,6 +283,12 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
         if (!marginsAreValid.value) {
             return t('scanCleanup.runDisabled.invalidMargins');
+        }
+        if (inkPlacementCapacityExceeded.value) {
+            return SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE;
+        }
+        if (missingInkPlacementAnchorPage.value !== null) {
+            return SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE;
         }
         if (getScanCleanupCapability() === null) {
             return t('scanCleanup.runDisabled.unavailable');
@@ -272,7 +349,20 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             : t('scanCleanup.cleanUpPages', {count: options.sourcePageNumbers.value.length}));
 
     async function run() {
-        if (!options.sourcePath.value || !canRun.value) {
+        if (!options.sourcePath.value) {
+            return;
+        }
+        if (missingInkPlacementAnchorPage.value !== null) {
+            reportScanCleanupRunError(
+                options.ownerId,
+                SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE,
+                options.sourcePath.value,
+                'internal',
+                options.documentRevision.value,
+            );
+            return;
+        }
+        if (!canRun.value) {
             return;
         }
         // User-authored settings and selection belong to the click that began
@@ -435,6 +525,16 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 return;
             }
             const pagePlanEvidence = options.resolvePagePlanEvidence(requestedPageNumbers);
+            if (missingInkPlacementAnchorPage.value !== null) {
+                reportScanCleanupRunError(
+                    options.ownerId,
+                    SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE,
+                    requestSourcePdfPath,
+                    'internal',
+                    requestDocumentRevision,
+                );
+                return;
+            }
             const detectionEvidenceComplete = options.detectionEvidenceComplete?.value;
             const pagePlanEvidenceMissing = requestedPageNumbers === null
                 ? detectionEvidenceComplete === undefined

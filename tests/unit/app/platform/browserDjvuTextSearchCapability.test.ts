@@ -2,6 +2,7 @@ import type {
     IPdfSearchProgress,
     IPdfSearchResponse,
 } from '@contracts/search';
+import type {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
 import {
     beforeEach,
     describe,
@@ -194,5 +195,26 @@ describe('browserDjvuTextSearchCapability', () => {
         } finally {
             unsubscribe();
         }
+    });
+
+    it('refuses an absolute path without a native DjVu bridge before creating a worker', async () => {
+        vi.stubGlobal('window', {electronAPI: {documentFiles: {
+            statFile: vi.fn(),
+            readFile: vi.fn(),
+            readFileRange: vi.fn(),
+        }}});
+        mocks.createWorker.mockRejectedValue(new Error('browser DjVu worker must not be created'));
+
+        await expect(browserDjvuTextSearchCapability.searchText(
+            '/tmp/native.djvu',
+            'needle',
+            createSearchOptions('native-bridge-missing'),
+        )).rejects.toMatchObject({
+            code: 'native-unavailable',
+            name: 'PdfCombineCapabilityError',
+            operation: 'djvu-text-search',
+        } satisfies Partial<PdfCombineCapabilityError>);
+
+        expect(mocks.createWorker).not.toHaveBeenCalled();
     });
 });

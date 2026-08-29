@@ -258,6 +258,8 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
         return {
             pageIndex,
+            ...(payload.stableKey ? {stableKey: payload.stableKey} : {}),
+            ...(payload.annotationId ? {annotationId: payload.annotationId} : {}),
             x: payload.x,
             y: payload.y,
             width: payload.width,

@@ -10,9 +10,11 @@ import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type {
     AnnotationEntity,
     AnnotationId,
+    IPlacedImageEntity,
     IShapeEntity,
     IStickyNoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+/* eslint-disable max-lines -- Canonical annotation ingest, projection, and save verification share identity invariants. */
 import {
     deriveAnnotationId,
     asAnnotationId,
@@ -138,6 +140,38 @@ function persistentIdentity(comment: IAnnotationCommentSummary) {
         ?? comment.id;
 }
 
+const PLACED_IMAGE_ANNOTATION_NAME_PREFIX = 'placed-image-';
+
+function placedImageAnnotationName(comment: IAnnotationCommentSummary) {
+    if (
+        comment.source !== 'pdf'
+        || comment.subtype?.trim().toLowerCase() !== 'stamp'
+    ) {
+        return null;
+    }
+    const annotationName = comment.annotationName?.trim();
+    return annotationName?.startsWith(PLACED_IMAGE_ANNOTATION_NAME_PREFIX)
+        ? annotationName
+        : null;
+}
+
+function normalizedPdfRef(value: string | null | undefined) {
+    return normalizePdfJsAnnotationId(value);
+}
+
+function markerRectsEqual(
+    left: IAnnotationCommentSummary['markerRect'],
+    right: IAnnotationCommentSummary['markerRect'],
+) {
+    if (!left || !right) {
+        return false;
+    }
+    return left.left === right.left
+        && left.top === right.top
+        && left.width === right.width
+        && left.height === right.height;
+}
+
 function isPersistedSummary(comment: IAnnotationCommentSummary) {
     return comment.source === 'pdf'
         || Boolean(normalizePdfJsAnnotationId(comment.annotationId));
@@ -165,11 +199,29 @@ export class AnnotationApplication {
     }
 
     ingestLegacySummaries(comments: readonly IAnnotationCommentSummary[]) {
+        const placedImageNameCounts = new Map<string, number>();
+        comments.forEach((comment) => {
+            const annotationName = placedImageAnnotationName(comment);
+            if (annotationName) {
+                placedImageNameCounts.set(
+                    annotationName,
+                    (placedImageNameCounts.get(annotationName) ?? 0) + 1,
+                );
+            }
+        });
         comments.forEach((comment) => {
             if (!comment.markerRect || comment.source === 'shape') {
                 return;
             }
-            const persistentKey = persistentIdentity(comment);
+            const imageAnnotationName = placedImageAnnotationName(comment);
+            if (
+                imageAnnotationName
+                && (placedImageNameCounts.get(imageAnnotationName) ?? 0) > 1
+            ) {
+                this.legacyIdentityConflicts.add(persistentIdentity(comment));
+                return;
+            }
+            const persistentKey = imageAnnotationName ?? persistentIdentity(comment);
             const persisted = isPersistedSummary(comment);
             const annotationNameId = comment.annotationName
                 ? asAnnotationId(comment.annotationName)
@@ -177,9 +229,18 @@ export class AnnotationApplication {
             const existingByCanonicalPdfName = annotationNameId
                 ? this.store.get(annotationNameId)
                 : null;
+            const existingByPlacedImageName = imageAnnotationName
+                ? this.store.resolveExternal({pdfName: imageAnnotationName})
+                : null;
+            const existingPlacedImage = existingByPlacedImageName
+                && this.store.get(existingByPlacedImageName)?.kind === 'placed-image'
+                ? existingByPlacedImageName
+                : null;
             let annotationId: AnnotationId;
             if (comment.appAnnotationId) {
                 annotationId = asAnnotationId(comment.appAnnotationId);
+            } else if (existingPlacedImage) {
+                annotationId = existingPlacedImage;
             } else if (existingByCanonicalPdfName) {
                 annotationId = annotationNameId!;
             } else if (persisted) {
@@ -190,6 +251,15 @@ export class AnnotationApplication {
             if (!persisted) this.#mintedIds.set(persistentKey, annotationId);
             const existing = this.store.get(annotationId);
             if (existing) {
+                if (
+                    imageAnnotationName
+                    && existing.kind === 'placed-image'
+                    && comment.appAnnotationId
+                    && existing.identity.pdfName !== imageAnnotationName
+                ) {
+                    this.legacyIdentityConflicts.add(persistentIdentity(comment));
+                    return;
+                }
                 const identifiesSameRecord = Boolean(
                     // A summary carrying the canonical id names the record outright —
                     // nothing was inferred from external keys, so there is nothing to
@@ -197,6 +267,9 @@ export class AnnotationApplication {
                     // identities this ingest had to guess.
                     Boolean(comment.appAnnotationId)
                     || (Boolean(comment.annotationId) && existing.identity.pdfRef === comment.annotationId)
+                    || (Boolean(imageAnnotationName)
+                        && existing.kind === 'placed-image'
+                        && existing.identity.pdfName === imageAnnotationName)
                     || (Boolean(comment.annotationName) && existing.identity.id === comment.annotationName)
                     || (Boolean(comment.uid) && existing.identity.pdfjsUid === comment.uid)
                     || (Boolean(comment.id) && existing.identity.elementId === comment.id),
@@ -207,7 +280,12 @@ export class AnnotationApplication {
                 // identify the live editor record, but cannot prove that the
                 // ref still exists in the current PDF revision. Only a fresh
                 // PDF scan is authoritative for rebinding those refs.
-                if (identifiesSameRecord && comment.source === 'pdf' && (comment.annotationId || comment.annotationName)) {
+                if (
+                    identifiesSameRecord
+                    && comment.source === 'pdf'
+                    && (comment.annotationId || comment.annotationName)
+                    && !(imageAnnotationName && existing.kind === 'placed-image')
+                ) {
                     const {
                         id: _canonicalId,
                         ...existingBindings
@@ -221,6 +299,25 @@ export class AnnotationApplication {
                             ...(comment.annotationName ? {pdfName: comment.annotationName} : {}),
                         },
                     });
+                }
+                if (identifiesSameRecord && imageAnnotationName && existing.kind === 'placed-image') {
+                    const nextPdfRef = comment.annotationId ?? existing.identity.pdfRef;
+                    const rectChanged = !markerRectsEqual(existing.rect, comment.markerRect);
+                    const pageChanged = existing.pageIndex !== comment.pageIndex;
+                    const refChanged = nextPdfRef !== existing.identity.pdfRef;
+                    const nameChanged = existing.identity.pdfName !== imageAnnotationName;
+                    if (rectChanged || pageChanged || refChanged || nameChanged) {
+                        this.store.import({
+                            ...existing,
+                            identity: {
+                                ...existing.identity,
+                                ...(nextPdfRef ? {pdfRef: nextPdfRef} : {}),
+                                pdfName: imageAnnotationName,
+                            },
+                            pageIndex: comment.pageIndex,
+                            rect: structuredClone(comment.markerRect),
+                        });
+                    }
                 }
                 this.store.acknowledgePendingMarkupSubtype(existing.identity.id, [
                     comment.id,
@@ -265,6 +362,15 @@ export class AnnotationApplication {
                     color: comment.color ?? null,
                     opacity: comment.opacity ?? null,
                 } as const;
+                this.store.import(entity);
+                return;
+            }
+            if (imageAnnotationName) {
+                const entity: IPlacedImageEntity = {
+                    ...common,
+                    kind: 'placed-image',
+                    rect: structuredClone(comment.markerRect),
+                };
                 this.store.import(entity);
                 return;
             }
@@ -372,7 +478,7 @@ export class AnnotationApplication {
             annotationId: entity.identity.id,
             kind: entity.kind,
             pageIndex: entity.pageIndex,
-            text: entity.kind === 'shape' ? '' : entity.text,
+            text: entity.kind === 'shape' || entity.kind === 'placed-image' ? '' : entity.text,
             deleted: entity.deleted,
         }));
     }
@@ -408,14 +514,18 @@ export class AnnotationApplication {
                 ?? entity.identity.pdfRef
                 ?? entity.identity.pdfjsUid
                 ?? entity.identity.id;
-            const stableKey = entity.identity.pdfRef
-                ? `ann:${entity.pageIndex}:${entity.identity.pdfRef}` as const
-                : entity.identity.pdfjsUid
-                    ? `uid:${entity.pageIndex}:${entity.identity.pdfjsUid}` as const
-                    : `src:${source}:${entity.pageIndex}:${externalId}` as const;
+            const stableKey = entity.kind === 'placed-image' && entity.identity.pdfName
+                ? `nm:${entity.identity.pdfName}` as const
+                : entity.identity.pdfRef
+                    ? `ann:${entity.pageIndex}:${entity.identity.pdfRef}` as const
+                    : entity.identity.pdfjsUid
+                        ? `uid:${entity.pageIndex}:${entity.identity.pdfjsUid}` as const
+                        : `src:${source}:${entity.pageIndex}:${externalId}` as const;
             const markerRect = entity.kind === 'sticky-note'
                 ? structuredClone(entity.anchor)
-                : structuredClone(entity.geometry[0] ?? null);
+                : entity.kind === 'placed-image'
+                    ? structuredClone(entity.rect)
+                    : structuredClone(entity.geometry[0] ?? null);
             return [{
                 source,
                 appAnnotationId: entity.identity.id,
@@ -423,17 +533,22 @@ export class AnnotationApplication {
                 stableKey,
                 pageIndex: entity.pageIndex,
                 pageNumber: entity.pageIndex + 1,
-                text: entity.text,
-                subtype: entity.kind === 'text-markup' ? entity.subtype : 'FreeText',
+                text: entity.kind === 'placed-image' ? '' : entity.text,
+                subtype: entity.kind === 'text-markup'
+                    ? entity.subtype
+                    : entity.kind === 'placed-image' ? 'Stamp' : 'FreeText',
                 author: entity.author,
                 createdAt: entity.createdAt,
                 modifiedAt: entity.modifiedAt,
-                color: entity.color,
+                color: entity.kind === 'text-markup' || entity.kind === 'sticky-note'
+                    ? entity.color
+                    : null,
                 ...(entity.kind === 'text-markup' ? {opacity: entity.opacity} : {}),
                 uid: entity.identity.pdfjsUid ?? null,
                 annotationId: entity.identity.pdfRef ?? null,
                 annotationName: entity.identity.pdfName ?? null,
-                hasNote: entity.kind === 'sticky-note' || entity.text.length > 0,
+                hasNote: entity.kind === 'sticky-note'
+                    || (entity.kind !== 'placed-image' && entity.text.length > 0),
                 markerRect,
                 ...(entity.kind === 'text-markup'
                     ? {markupGeometry: structuredClone(entity.geometry)}
@@ -444,9 +559,7 @@ export class AnnotationApplication {
 
     projectSummaries(comments: readonly IAnnotationCommentSummary[]) {
         return comments.flatMap((comment) => {
-            const annotationId = comment.appAnnotationId
-                ? asAnnotationId(comment.appAnnotationId)
-                : this.annotationIdForSummary(comment);
+            const annotationId = this.annotationIdForSummary(comment);
             if (!annotationId) {
                 return [comment];
             }
@@ -486,6 +599,29 @@ export class AnnotationApplication {
                     markupGeometry: structuredClone(entity.geometry),
                 }];
             }
+            if (entity.kind === 'placed-image') {
+                return [{
+                    ...comment,
+                    appAnnotationId: annotationId,
+                    source: entity.persistedRevision >= 0 ? 'pdf' as const : 'editor' as const,
+                    id: entity.identity.pdfRef ?? comment.id,
+                    pageIndex: entity.pageIndex,
+                    pageNumber: entity.pageIndex + 1,
+                    text: '',
+                    subtype: 'Stamp' as const,
+                    markerRect: structuredClone(entity.rect),
+                    annotationId: entity.identity.pdfRef ?? null,
+                    annotationName: entity.identity.pdfName ?? null,
+                    stableKey: entity.identity.pdfName
+                        ? `nm:${entity.identity.pdfName}` as const
+                        : comment.stableKey,
+                    author: entity.author,
+                    createdAt: entity.createdAt,
+                    modifiedAt: entity.modifiedAt,
+                    color: null,
+                    hasNote: false,
+                }];
+            }
             return [{
                 ...comment,
                 appAnnotationId: annotationId,
@@ -496,6 +632,10 @@ export class AnnotationApplication {
     }
 
     annotationIdForSummary(comment: IAnnotationCommentSummary) {
+        const imageAnnotationName = placedImageAnnotationName(comment);
+        if (imageAnnotationName) {
+            return this.#annotationIdForPlacedImageSummary(comment, imageAnnotationName);
+        }
         if (comment.appAnnotationId) {
             const annotationId = asAnnotationId(comment.appAnnotationId);
             if (this.store.get(annotationId)) {
@@ -508,6 +648,35 @@ export class AnnotationApplication {
             ...(comment.uid ? {pdfjsUid: comment.uid} : {}),
             ...(comment.id ? {elementId: comment.id} : {}),
         });
+    }
+
+    #annotationIdForPlacedImageSummary(
+        comment: IAnnotationCommentSummary,
+        annotationName: string,
+    ) {
+        const appAnnotationId = comment.appAnnotationId
+            ? asAnnotationId(comment.appAnnotationId)
+            : null;
+        const annotationId = appAnnotationId && this.store.get(appAnnotationId)
+            ? appAnnotationId
+            : this.store.resolveExternal({pdfName: annotationName})
+                ?? this.store.resolveExternal({...(comment.annotationId ? {pdfRef: comment.annotationId} : {})});
+        if (!annotationId) {
+            return null;
+        }
+        const entity = this.store.get(annotationId);
+        if (!entity || entity.kind !== 'placed-image') {
+            return null;
+        }
+        if (entity.identity.pdfName !== annotationName) {
+            return null;
+        }
+        const expectedPdfRef = normalizedPdfRef(comment.annotationId);
+        const actualPdfRef = normalizedPdfRef(entity.identity.pdfRef);
+        if (expectedPdfRef !== actualPdfRef) {
+            return null;
+        }
+        return annotationId;
     }
 
     annotationIdForShape(shape: Pick<IShapeAnnotation, 'id' | 'annotationId'>) {

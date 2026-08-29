@@ -14,6 +14,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {
     describe,
     expect,
@@ -131,6 +132,7 @@ function parseWorkflowTriggers(workflow: string) {
 const requiredPrPushConditions = new Set([
     '${{ github.event_name == \'pull_request\' || github.event_name == \'push\' }}',
     '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.electron_smoke == \'true\' }}',
+    '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.electron_save_reopen == \'true\' }}',
     '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.browser_integration == \'true\' }}',
     '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.native_or_build == \'true\' }}',
     '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.scan_cleanup_export == \'true\' }}',
@@ -139,6 +141,23 @@ const requiredPrPushConditions = new Set([
 ]);
 
 const supportedNonPrPushConditions = new Set([ '${{ github.event_name == \'workflow_dispatch\' }}' ]);
+
+interface INativePdfSavePolicyModule {
+    getCiChangedAreaPolicy: () => Record<string, {paths: string[]}>;
+    getNativePdfSaveDependencyPaths: () => string[];
+}
+
+interface IChangedAreaMatcherModule { matchesChangedAreaPattern: (filePath: string, pattern: string) => boolean }
+
+const {
+    getCiChangedAreaPolicy,
+    getNativePdfSaveDependencyPaths,
+} = await import(
+    pathToFileURL(path.resolve(process.cwd(), 'scripts/release/policy.mjs')).href,
+) as INativePdfSavePolicyModule;
+const {matchesChangedAreaPattern} = await import(
+    pathToFileURL(path.resolve(process.cwd(), 'scripts/ci/classify-changed-areas.mjs')).href,
+) as IChangedAreaMatcherModule;
 
 function requiredPrPushJobs(jobs: Record<string, IWorkflowJob>) {
     const requiredJobs = new Set<string>();
@@ -340,8 +359,69 @@ describe('CI topology policy', () => {
             'pnpm-workspace.yaml',
             '**/package.json',
             '**/pnpm-workspace.yaml',
+            'native/**',
+            'native/evb-native-support/**',
+            'electron/**',
+            'scripts/build-native-tool.mjs',
+            'app/composables/useAnalytics.ts',
+            'app/modules/pdf-viewer/annotations/**',
+            'app/modules/pdf-viewer/engine/**',
+            'app/modules/pdf-viewer/public.ts',
+            'app/modules/pdf-viewer/runtime/save/**',
+            'app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts',
+            'app/modules/pdf-viewer/serialization/**',
+            'app/modules/workspace-shell/automation/automationReadinessEvents.ts',
+            'app/modules/workspace-shell/composables/document-session/**',
+            'app/modules/workspace-shell/composables/document-session/createDocumentPersistResults.ts',
+            'app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts',
+            'app/modules/workspace-shell/composables/document-session/nativePdfMutationCommit.ts',
+            'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
+            'app/modules/workspace-shell/composables/file-operations/**',
+            'app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult.ts',
+            'app/modules/workspace-shell/composables/file-operations/workspaceSavePlan.ts',
+            'app/modules/workspace-shell/composables/file-operations/workspaceSaveTransactionRequest.ts',
+            'app/modules/workspace-shell/composables/usePageSaveOrchestration.ts',
+            'app/modules/workspace-shell/composables/usePdfFile.ts',
+            'app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts',
+            'app/modules/workspace-shell/composables/nativePdfMutationArtifact.ts',
+            'app/modules/workspace-shell/public/nativePdfMutationArtifact.ts',
+            'app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts',
+            'app/platform/browser-api/public.ts',
+            'app/platform/browser/browserDocumentConstants.ts',
+            'app/services/pdf-file/**',
+            'app/services/pdf-file/savePdfBytesAs.ts',
+            'app/services/pdf-file/savePdfBytesToWorkingCopy.ts',
+            'app/types/documentOperationKind.ts',
+            'app/types/**',
+            'app/types/pdfContracts.ts',
+            'app/types/pdfUi.ts',
+            'app/utils/asyncGuard.ts',
+            'app/utils/browserLogger.ts',
+            'app/utils/**',
+            'app/utils/documentBytes.ts',
+            'app/utils/documentRef.ts',
+            'app/utils/error.ts',
+            'app/utils/pdfDate.ts',
+            'app/utils/platformDocuments.ts',
+            'packages/contracts/documentPersistenceFrames.ts',
+            'packages/contracts/**',
+            'packages/contracts/document*.ts',
+            'packages/contracts/documentsPersistenceSchemas.ts',
+            'packages/contracts/documentsPlatformFeatureSchemas.ts',
+            'packages/contracts/electronApiDocuments.ts',
+            'packages/contracts/nativePdfMutations.ts',
+            'packages/pdf-core/index.ts',
+            'packages/pdf-core/**',
+            'packages/pdf-core/nativePdfMutationPolicy.ts',
+            'electron/preload/**',
+            'electron/platform-ipc/**',
+            'scripts/ci/**',
+            'scripts/release/**',
             'scripts/test-electron-e2e-headless.sh',
             'tests/e2e/electron/**',
+            'tests/integration/native/**',
+            'tests/unit/app/services/pdf-save/**',
+            'tests/unit/electron/documentFileWriteAtomic*.test.ts',
             'vitest.config.ts',
             'vitest.shared.config.ts',
         ]);
@@ -351,6 +431,29 @@ describe('CI topology policy', () => {
         // GitHub leaves required checks pending when a pull-request workflow is
         // skipped by a path filter, so keep PR triggering unconditional.
         expect(triggers.pull_request).toBeNull();
+    });
+
+    it('keeps every canonical native-save dependency inside the push trigger', async () => {
+        const workflow = await readProjectFile('.github/workflows/ci.yml');
+        const push = parseWorkflowTriggers(workflow).push;
+        if (!isRecord(push) || !Array.isArray(push.paths) || !push.paths.every(item => typeof item === 'string')) {
+            throw new Error('The CI push trigger must expose string paths for native-save coverage.');
+        }
+        for (const dependency of getNativePdfSaveDependencyPaths()) {
+            expect(
+                push.paths.some(pattern => matchesChangedAreaPattern(dependency, pattern)),
+                `${dependency} is missing from the CI push trigger`,
+            ).toBe(true);
+        }
+    });
+
+    it('routes the canonical native-save graph through pressure, reopen, and native lanes', () => {
+        const changedAreas = getCiChangedAreaPolicy();
+        for (const dependency of getNativePdfSaveDependencyPaths()) {
+            expect(changedAreas.electronSmoke?.paths, `${dependency} is missing from pressure smoke`).toContain(dependency);
+            expect(changedAreas.nativePdfSave?.paths, `${dependency} is missing from save/reopen`).toContain(dependency);
+            expect(changedAreas.nativeOrBuild?.paths, `${dependency} is missing from native integration`).toContain(dependency);
+        }
     });
 
     it('requires every non-advisory PR and push job through gates_ok', async () => {
@@ -520,6 +623,34 @@ describe('CI topology policy', () => {
         expect(electronBlockingSmoke).toContain('.tmp/pdf-page-ops');
         expect(electronBlockingSmoke).toContain('electron-native-v2-');
         expect(electronBlockingSmoke).toContain('run: pnpm run test:e2e:electron:blocking-smoke:headless');
+        const nativeSaveReopen = workflowJob(workflow, 'pr_electron_native_save_reopen');
+        expect(nativeSaveReopen).toContain('needs.pr_changed_areas.outputs.electron_save_reopen == \'true\'');
+        expect(nativeSaveReopen).toContain('run: pnpm run test:e2e:electron:save-pipeline');
+        expect(nativeSaveReopen).not.toContain('continue-on-error: true');
+        const nativePdfIntegration = workflowJob(workflow, 'pr_native_pdf_integration');
+        expect(nativePdfIntegration).toContain('run: pnpm run build:pdf-page-ops');
+        expect(nativePdfIntegration).toContain('run: pnpm exec vitest run --project native-integration');
+        const xlargeAcceptance = workflowJob(workflow, 'pr_xlarge_pdf_acceptance');
+        expect(xlargeAcceptance).toContain('EVB_XLARGE_FIXTURE_SOURCE: https://vps-420c0bae.vps.ovh.net/api/cloud/files/zaliznyak-large-2646-pages.pdf');
+        expect(xlargeAcceptance).toContain('EVB_EXACT_FIXTURE_PROFILE: xlargeZaliznyak2646');
+        expect(xlargeAcceptance).toContain('EVB_E2E_XLARGE_PDF_FIXTURE');
+        expect(xlargeAcceptance).toContain('xlargeDocumentAcceptance.e2e.test.ts');
+        expect(xlargeAcceptance).toContain('runs-on: ubuntu-latest');
+        const exactFixture = workflowJob(workflow, 'pr_exact_fixture_save');
+        expect(exactFixture).toContain('EVB_EXACT_FIXTURE_SOURCE: https://vps-420c0bae.vps.ovh.net/api/cloud/files/zaliznyak-small-882-pages.pdf');
+        expect(exactFixture).toContain('EVB_EXACT_FIXTURE_PROFILE: localZaliznyak882');
+        expect(exactFixture).toContain('EVB_EXACT_FIXTURE_MAX_BYTES');
+        expect(exactFixture).toContain('EVB_EXACT_FIXTURE_TIMEOUT_MS');
+        expect(exactFixture).toContain('environment: exact-pdf-fixtures');
+        expect(exactFixture).toContain('scripts/ci/stageExactPdfFixture.ts');
+        expect(exactFixture).toContain('EVB_E2E_REQUIRE_EXACT_ZALIZNYAK');
+        expect(exactFixture).toContain('largePdfAnnotationSave.e2e.test.ts');
+        expect(exactFixture).not.toContain('$GITHUB_OUTPUT');
+        expect(exactFixture).not.toContain('continue-on-error: true');
+        const blockingSmokeSource = await readProjectFile('tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts');
+        expect(blockingSmokeSource).toContain('createLargeScannedFixturePdf');
+        expect(blockingSmokeSource).toContain('blocking pressure annotation');
+        expect(blockingSmokeSource).toContain('saveViaWindowHandle');
         expect(workflowJob(workflow, 'pr_browser_integration')).toContain('needs.pr_changed_areas.outputs.browser_integration == \'true\'');
         expect(workflowJob(workflow, 'pr_browser_integration')).toContain('run: pnpm run test:integration:browser');
         expect(workflowJob(workflow, 'pr_browser_integration')).toContain('playwright install --with-deps chromium');
@@ -927,8 +1058,12 @@ describe('CI topology policy', () => {
             pr_browser_integration: 10, // measured 1.9m
             pr_changed_areas: 5, // measured <1m
             pr_electron_blocking_smoke: 30, // measured 4.0m; Electron boot variance
+            pr_electron_native_save_reopen: 35, // native mutation plus fresh Electron process
+            pr_exact_fixture_save: 60, // exact fixture staging and save/reopen
+            pr_xlarge_pdf_acceptance: 60, // Linux 2,646-page fixture save/reopen
             pr_landing_quality: 15, // measured ~7m
             pr_native_build_safety: 35, // measured 18.9m cold-cache
+            pr_native_pdf_integration: 25, // tiny native/qpdf/copyFileAtomic fixture
             pr_quality: 20, // measured 13.4m
             pr_rust_tests_arm64: 20, // measured 9.6m
             pr_scan_cleanup_heavy: 25, // measured 10.1m cold-cache
@@ -1549,7 +1684,7 @@ describe('CI topology policy', () => {
         ]) {
             expect(workflowJob(workflow, jobName)).not.toContain('continue-on-error: true');
         }
-        expect(workflowJob(workflow, 'nightly_electron_e2e_quarantine')).toContain('continue-on-error: true');
+        expect(workflowJob(workflow, 'nightly_electron_e2e_quarantine')).not.toContain('continue-on-error: true');
         expect(workflowJob(workflow, 'nightly_pdf_tabs_diagnostics')).toContain('continue-on-error: true');
         expect(packageJson).toContain('"test:e2e:electron:visible-window": "pnpm run build:electron && vitest run --project e2e-visible-window --reporter verbose"');
         expect(sharedVitestConfig).toContain('electronE2EVisibleWindow: \'e2e-visible-window\'');
@@ -1605,24 +1740,32 @@ describe('CI topology policy', () => {
                 'EVB_PDF_PAGE_OPS_ENABLE=1',
                 `--no-build ${project!}`,
             ]) {
+                if (script! === 'test:e2e:electron:quarantine') {
+                    expect(command, `${script!} must use the fail-closed quarantine wrapper`)
+                        .toContain('scripts/ci/runElectronQuarantine.ts');
+                    continue;
+                }
                 expect(command, `${script!} is missing ${required}`).toContain(required);
             }
         }
-        expect(packageScripts['test:e2e:electron:quarantine']).toContain(
-            'scripts/test-electron-e2e-headless.sh --no-build e2e-quarantine --passWithNoTests',
-        );
+        expect(packageScripts['test:e2e:electron:quarantine']).toContain('scripts/ci/runElectronQuarantine.ts');
+        expect(packageScripts['test:e2e:electron:quarantine']).not.toContain('--passWithNoTests');
         // The matched page canvas is a whole-app contract — geometry measured
         // in the main process, a rectangle presented by the renderer, and an
         // assembled PDF whose pages carry it — so it is proved by running the
         // real app rather than by any unit layer. It lives in the isolated
-        // quarantine lane, and this is what keeps the file that proves it in a
-        // lane something actually runs.
+        // quarantine inventory as an operator-only diagnostic. It is excluded
+        // from the ordinary lane because it skips without a supplied PDF.
         const matchedCanvasSpec = 'tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts';
 
         expect(await readProjectFile(matchedCanvasSpec))
             .toContain('describe(\'scan cleanup matched page canvas\'');
         expect(sharedVitestConfig)
             .toContain('const electronE2EQuarantineTestFiles = [\'tests/e2e/electron/quarantine/**/*.e2e.test.ts\']');
+        expect(sharedVitestConfig)
+            .toContain('electronE2EQuarantineOperatorDiagnosticFiles');
+        expect(sharedVitestConfig)
+            .toContain(matchedCanvasSpec);
         expect(packageJson).not.toContain('"test:e2e:electron:smoke:no-build"');
         expect(sharedVitestConfig).toContain('condition: /\\[INFRA\\]/u');
         expect(sharedVitestConfig).toContain('count: 2');

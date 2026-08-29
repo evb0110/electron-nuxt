@@ -1,10 +1,8 @@
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain';
 import type {
-    IScanCleanupOptions,
     IScanCleanupPagePlanEvidence,
     IScanCleanupSourcePageMetadata,
-    TScanCleanupOutputHalf,
 } from '@contracts/electronApiScanCleanup';
 import type {
     IScanCleanupPlacementAnchorSample,
@@ -14,7 +12,9 @@ import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     resolveScanCleanupPlacementAnchors,
+    SCAN_CLEANUP_OUTPUT_HALVES,
     SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
+    usesScanCleanupInkAlignment,
 } from '@contracts/scanCleanupPageOverrides';
 import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
 import {isScanCleanupRunning} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
@@ -25,22 +25,7 @@ import {useScanCleanupPreviewSession} from '@app/modules/scan-cleanup/composable
 import {useScanCleanupRunSession} from '@app/modules/scan-cleanup/composables/useScanCleanupRunSession';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 
-const SCAN_CLEANUP_OUTPUT_HALVES = [
-    'full',
-    'left',
-    'right',
-] as const satisfies readonly TScanCleanupOutputHalf[];
 const POINTS_PER_MM = 72 / 25.4;
-
-function usesScanCleanupInkAlignment(options: IScanCleanupOptions) {
-    return options.matchPageSize
-        && (options.pageAlignment === 'ink'
-            || Object.values(options.pageOverrideDefaults?.placementOverrides ?? {})
-                .some(alignment => alignment === 'ink')
-            || Object.values(options.pageOverrides).some(override => Object
-                .values(override?.placementOverrides ?? {})
-                .some(alignment => alignment === 'ink')));
-}
 
 /**
  * The rotated height of a source sheet, in points; 0 when the paper cannot be

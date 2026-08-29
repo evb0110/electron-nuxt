@@ -6,6 +6,8 @@ export interface IPdfjsAnnotationEditorState {
     hasSomethingToUndo: boolean;
     hasSomethingToRedo: boolean;
     hasSelectedEditor: boolean;
+    /** True while a newly created FreeText editor still needs save-time commit. */
+    hasPendingFreeTextDraft?: boolean;
 }
 
 export interface IAppAnnotationHistoryState {
@@ -28,6 +30,7 @@ export function createEmptyPdfjsAnnotationEditorState(): IPdfjsAnnotationEditorS
         hasSomethingToUndo: false,
         hasSomethingToRedo: false,
         hasSelectedEditor: false,
+        hasPendingFreeTextDraft: false,
     };
 }
 

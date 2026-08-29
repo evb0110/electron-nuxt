@@ -3,7 +3,15 @@ import {
     expect,
     it,
 } from 'vitest';
-import {resolveDocumentPageSourceReadyEdgeSemanticPage} from '@app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime';
+import {
+    resolveDocumentPageDisplayLayoutsBounded,
+    resolveDocumentPageSourceReadyEdgeSemanticPage,
+} from '@app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime';
+import {
+    createProvisionalDocumentPageMetrics,
+    isSparseDocumentPageMetrics,
+} from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
+import {isLazyIndexedCollection} from '@app/utils/document-viewer/virtualization/pageVirtualization';
 
 describe('document page-source ready-edge reconciliation', () => {
     it('preserves the committed navigation target until a trusted page is observed', () => {
@@ -40,5 +48,32 @@ describe('document page-source ready-edge reconciliation', () => {
             committedPage: 11,
             observedPage: 18,
         })).toBeNull();
+    });
+});
+
+describe('document page-source layout memory bounds', () => {
+    it('keeps sparse million-page display layouts lazy and on-demand', () => {
+        const metrics = createProvisionalDocumentPageMetrics(1_000_000, {
+            widthPoints: 600,
+            heightPoints: 800,
+            rotation: 0,
+        });
+        expect(isSparseDocumentPageMetrics(metrics)).toBe(true);
+
+        const layouts = resolveDocumentPageDisplayLayoutsBounded(
+            metrics,
+            600,
+            800,
+            1,
+            'custom',
+        );
+
+        expect(isLazyIndexedCollection(layouts)).toBe(true);
+        expect(Object.keys(layouts).filter(key => /^\d+$/u.test(key))).toEqual([]);
+        expect(layouts).toHaveLength(1_000_000);
+        expect(layouts[999_999]).toMatchObject({
+            width: 600,
+            height: 800,
+        });
     });
 });

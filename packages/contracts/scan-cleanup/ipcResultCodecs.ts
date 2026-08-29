@@ -49,24 +49,49 @@ function decodePositiveInteger(value: unknown, label: string) {
 }
 
 function decodePositiveFiniteNumber(value: unknown, label: string) {
-    const decoded = decodeFiniteNumber(value, label);
+    const decoded = decodeSafeFiniteNumber(value, label);
     if (decoded <= 0) throw new Error(`invalid scan-cleanup preview ${label}`);
     return decoded;
 }
 
 function decodeNonNegativeFiniteNumber(value: unknown, label: string) {
-    const decoded = decodeFiniteNumber(value, label);
+    const decoded = decodeSafeFiniteNumber(value, label);
     if (decoded < 0) throw new Error(`invalid scan-cleanup preview ${label}`);
     return decoded;
+}
+
+function decodeSafeFiniteNumber(value: unknown, label: string) {
+    const decoded = decodeFiniteNumber(value, label);
+    if (Math.abs(decoded) > Number.MAX_SAFE_INTEGER) {
+        throw new Error(`invalid scan-cleanup preview ${label}`);
+    }
+    return decoded;
+}
+
+function decodeScanCleanupRotation(value: unknown, label: string) {
+    if (
+        typeof value !== 'number'
+        || !Number.isSafeInteger(value)
+        || (value !== 0 && value !== 90 && value !== 180 && value !== 270)
+    ) {
+        throw new Error(`invalid scan-cleanup preview ${label}`);
+    }
+    return value;
+}
+
+function isScanCleanupRotation(value: unknown): value is 0 | 90 | 180 | 270 {
+    return typeof value === 'number'
+        && Number.isSafeInteger(value)
+        && (value === 0 || value === 90 || value === 180 || value === 270);
 }
 
 function decodePreviewRect(value: unknown, label: string) {
     if (!isRecord(value)) throw new Error(`invalid scan-cleanup preview ${label}`);
     const rect = {
-        xPx: decodeFiniteNumber(value.xPx, `${label} x`),
-        yPx: decodeFiniteNumber(value.yPx, `${label} y`),
-        widthPx: decodeFiniteNumber(value.widthPx, `${label} width`),
-        heightPx: decodeFiniteNumber(value.heightPx, `${label} height`),
+        xPx: decodeSafeFiniteNumber(value.xPx, `${label} x`),
+        yPx: decodeSafeFiniteNumber(value.yPx, `${label} y`),
+        widthPx: decodeSafeFiniteNumber(value.widthPx, `${label} width`),
+        heightPx: decodeSafeFiniteNumber(value.heightPx, `${label} height`),
     };
     if (rect.widthPx < 0 || rect.heightPx < 0) throw new Error(`invalid scan-cleanup preview ${label}`);
     return rect;
@@ -86,7 +111,7 @@ function decodePreviewAffine(value: unknown) {
     ) throw new Error('invalid scan-cleanup preview affine');
     const rows = value.matrix as unknown[];
     return {matrix: rows.map((row, rowIndex) => (row as unknown[]).map((item, columnIndex) => (
-        decodeFiniteNumber(item, `affine ${rowIndex}:${columnIndex}`)
+        decodeSafeFiniteNumber(item, `affine ${rowIndex}:${columnIndex}`)
     )))};
 }
 
@@ -325,8 +350,8 @@ function decodeSplitSeam(value: unknown) {
     return {points: value.points.map((point, index) => {
         if (!isRecord(point)) throw new Error(`invalid scan-cleanup preview split seam point ${index}`);
         return {
-            x: decodeFiniteNumber(point.x, `split seam point ${index} x`),
-            y: decodeFiniteNumber(point.y, `split seam point ${index} y`),
+            x: decodeSafeFiniteNumber(point.x, `split seam point ${index} x`),
+            y: decodeSafeFiniteNumber(point.y, `split seam point ${index} y`),
         };
     })};
 }
@@ -347,12 +372,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         || !isRecord(value.appliedMargins)
         || !Array.isArray(value.warnings)
         || value.warnings.some(item => typeof item !== 'string')
-        || ![
-            0,
-            90,
-            180,
-            270,
-        ].includes(Number(value.rotationDegrees))
+        || !isScanCleanupRotation(value.rotationDegrees)
         || (value.canvasPolicy !== undefined && ![
             'intrinsic',
             'strict-maximum',
@@ -488,12 +508,12 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         placementOffsetXPx: decodeNonNegativeInteger(value.placementOffsetXPx, 'placement offset x'),
         placementOffsetYPx: decodeNonNegativeInteger(value.placementOffsetYPx, 'placement offset y'),
         forwardTransform: decodePreviewAffine(value.forwardTransform),
-        cutterXPx: value.cutterXPx === null ? null : decodeFiniteNumber(value.cutterXPx, 'cutter x'),
+        cutterXPx: value.cutterXPx === null ? null : decodeSafeFiniteNumber(value.cutterXPx, 'cutter x'),
         ...(value.splitSeam === undefined ? {} : {splitSeam: decodeSplitSeam(value.splitSeam)}),
         ...(value.splitAbstained === undefined ? {} : {splitAbstained: value.splitAbstained}),
         inputWidthPx: decodePositiveInteger(value.inputWidthPx, 'input width'),
         inputHeightPx: decodePositiveInteger(value.inputHeightPx, 'input height'),
-        rotationDegrees: value.rotationDegrees as IScanCleanupPreviewMetadata['rotationDegrees'],
+        rotationDegrees: decodeScanCleanupRotation(value.rotationDegrees, 'rotation'),
         canvasScope: value.canvasScope === 'document' ? 'document' : value.canvasScope === 'page'
             ? 'page'
             : (() => { throw new Error('invalid scan-cleanup preview canvas scope'); })(),
@@ -690,13 +710,10 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
             'page-with-offcut',
             'two-page-spread',
         ].includes(String(value.layoutClassification))
-        || !(value.cutterXPx === null || typeof value.cutterXPx === 'number' && Number.isFinite(value.cutterXPx))
-        || ![
-            0,
-            90,
-            180,
-            270,
-        ].includes(Number(value.rotationDegrees))
+        || !(value.cutterXPx === null || typeof value.cutterXPx === 'number'
+            && Number.isFinite(value.cutterXPx)
+            && Math.abs(value.cutterXPx) <= Number.MAX_SAFE_INTEGER)
+        || !isScanCleanupRotation(value.rotationDegrees)
         || typeof value.excluded !== 'boolean'
         || (value.layoutConfidence !== undefined && (
             typeof value.layoutConfidence !== 'number'
@@ -755,10 +772,12 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
         ...(value.layoutConfidence === undefined
             ? {}
             : {layoutConfidence: decodeUnitInterval(value.layoutConfidence, 'page layout confidence')}),
-        cutterXPx: value.cutterXPx,
+        cutterXPx: value.cutterXPx === null
+            ? null
+            : decodeSafeFiniteNumber(value.cutterXPx, 'cutter x'),
         ...(value.splitSeam === undefined ? {} : {splitSeam: decodeSplitSeam(value.splitSeam)}),
         ...(value.splitAbstained === undefined ? {} : {splitAbstained: value.splitAbstained}),
-        rotationDegrees: value.rotationDegrees as IScanCleanupPreviewResult['pageMetadata']['rotationDegrees'],
+        rotationDegrees: decodeScanCleanupRotation(value.rotationDegrees, 'page rotation'),
         canvasScope: value.canvasScope === 'document' ? 'document' : value.canvasScope === 'page'
             ? 'page'
             : (() => { throw new Error('invalid scan-cleanup preview canvas scope'); })(),
@@ -977,7 +996,9 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
                 || !Number.isInteger(result.revision)
                 || result.revision < 1
             ))
-            || !(result.cutterXPx === null || typeof result.cutterXPx === 'number' && Number.isFinite(result.cutterXPx))
+            || !(result.cutterXPx === null || typeof result.cutterXPx === 'number'
+                && Number.isFinite(result.cutterXPx)
+                && Math.abs(result.cutterXPx) <= Number.MAX_SAFE_INTEGER)
             || (result.tier1Verdict !== undefined && !isLayoutClassification(result.tier1Verdict))
             || (result.reconciled !== undefined && typeof result.reconciled !== 'boolean')
             || (result.clusterAgreement !== undefined && (
@@ -1029,7 +1050,9 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
             ...(result.revision === undefined ? {} : {revision: result.revision}),
             classification: result.classification as TScanCleanupDetectionJobState['results'][number]['classification'],
             confidence: decodeUnitInterval(result.confidence, 'detection confidence'),
-            cutterXPx: result.cutterXPx,
+            cutterXPx: result.cutterXPx === null
+                ? null
+                : decodeSafeFiniteNumber(result.cutterXPx, 'detection cutter x'),
             tier1Verdict: isLayoutClassification(result.tier1Verdict)
                 ? result.tier1Verdict
                 : result.classification as TScanCleanupDetectionJobState['results'][number]['tier1Verdict'],

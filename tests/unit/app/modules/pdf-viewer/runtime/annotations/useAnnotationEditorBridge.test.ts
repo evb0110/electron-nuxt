@@ -308,8 +308,8 @@ describe('useAnnotationEditorBridge', () => {
         } = await createBridgeHarness('text');
         emitAnnotationState.mockClear();
 
-        eventBus.dispatch('annotationeditorstateschanged', {details: {isEditing: true}});
-        eventBus.dispatch('annotationeditorstateschanged', {details: {hasSomethingToUndo: true}});
+        eventBus.dispatch('editingstateschanged', {details: {isEditing: true}});
+        eventBus.dispatch('editingstateschanged', {details: {hasSomethingToUndo: true}});
 
         expect(emitAnnotationState).toHaveBeenNthCalledWith(1, {isEditing: true});
         expect(emitAnnotationState).toHaveBeenNthCalledWith(2, {hasSomethingToUndo: true});
@@ -405,6 +405,7 @@ describe('useAnnotationEditorBridge', () => {
         expect(emitAnnotationState).toHaveBeenCalledWith({
             isEditing: true,
             isEmpty: false,
+            hasPendingFreeTextDraft: true,
         });
         expect(emitAnnotationModified).toHaveBeenCalledWith({forceDirty: true});
 
@@ -417,6 +418,7 @@ describe('useAnnotationEditorBridge', () => {
 
         expect(editor.enableEditMode).toHaveBeenCalledOnce();
         expect(editor.commitOrRemove).toHaveBeenCalledOnce();
+        expect(emitAnnotationState).toHaveBeenLastCalledWith({hasPendingFreeTextDraft: false});
 
         await vi.waitFor(() => {
             expect(maybeAutoResetAnnotationTool).toHaveBeenCalledOnce();

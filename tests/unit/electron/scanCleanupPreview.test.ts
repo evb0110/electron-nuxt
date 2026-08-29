@@ -3557,6 +3557,71 @@ describe('scan cleanup preview', () => {
         })).toThrow('invalid scan-cleanup preview content left confidence');
     });
 
+    it('rejects non-numeric rotations and unsafe pixel geometry at the IPC boundary', async () => {
+        const dir = await setup();
+        const result = await previewOf(createScanCleanupPreviewService(dependencies(dir)), sender(), request);
+
+        for (const rotationDegrees of [
+            '0',
+            null,
+        ]) {
+            expect(() => decodeScanCleanupPreviewResult({
+                ...result,
+                pageMetadata: {
+                    ...result.pageMetadata,
+                    rotationDegrees,
+                },
+            })).toThrow('invalid scan-cleanup preview page metadata');
+            expect(() => decodeScanCleanupPreviewResult({
+                ...result,
+                outputs: result.outputs.map(output => ({
+                    ...output,
+                    metadata: {
+                        ...output.metadata,
+                        rotationDegrees,
+                    },
+                })),
+            })).toThrow('invalid scan-cleanup preview metadata');
+        }
+
+        expect(() => decodeScanCleanupPreviewResult({
+            ...result,
+            pageMetadata: {
+                ...result.pageMetadata,
+                cutterXPx: Number.MAX_SAFE_INTEGER + 1,
+            },
+        })).toThrow('invalid scan-cleanup preview page metadata');
+        expect(() => decodeScanCleanupPreviewResult({
+            ...result,
+            outputs: result.outputs.map(output => ({
+                ...output,
+                metadata: {
+                    ...output.metadata,
+                    sourceRegion: {
+                        ...output.metadata.sourceRegion,
+                        xPx: Number.MAX_SAFE_INTEGER + 1,
+                    },
+                },
+            })),
+        })).toThrow('invalid scan-cleanup preview source region');
+        expect(() => decodeScanCleanupPreviewResult({
+            ...result,
+            pageMetadata: {
+                ...result.pageMetadata,
+                splitSeam: {points: [
+                    {
+                        x: Number.MAX_SAFE_INTEGER + 1,
+                        y: 0,
+                    },
+                    {
+                        x: 1,
+                        y: 1,
+                    },
+                ]},
+            },
+        })).toThrow('invalid scan-cleanup preview split seam point 0 x');
+    });
+
     it('requires named finite applied margins at the IPC boundary', async () => {
         const dir = await setup();
         const result = await previewOf(createScanCleanupPreviewService(dependencies(dir)), sender(), request);
@@ -3683,6 +3748,10 @@ describe('scan cleanup preview', () => {
         expect(() => decodeScanCleanupDetectionJobState(mismatchedMetadata)).toThrow(
             'detection source page metadata',
         );
+
+        const unsafeCutter = structuredClone(state);
+        Reflect.set(unsafeCutter.results[0]!, 'cutterXPx', Number.MAX_SAFE_INTEGER + 1);
+        expect(() => decodeScanCleanupDetectionJobState(unsafeCutter)).toThrow('detection result');
     });
 
     it('publishes provisional page results before document reconciliation completes', async () => {
@@ -4571,6 +4640,28 @@ describe('scan cleanup preview', () => {
         expect(await rasterSource.getPageRaster(2)).toBeUndefined();
         await retention.release(document);
         expect(close).toHaveBeenCalled();
+        await retention.dispose();
+    });
+
+    it('bounds source-DPI measurements while preserving recent page values', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const detectSourceDpi = vi.fn(async (_sourcePdfPath: string, pageNumber: number) => pageNumber);
+        deps.detectSourceDpi = detectSourceDpi;
+        const retention = createRawRasterRetention(deps);
+        const document = await retention.openDocument({
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'revision-1',
+        });
+        const signal = new AbortController().signal;
+
+        for (let pageNumber = 1; pageNumber <= 300; pageNumber += 1) {
+            await retention.sourceDpi(document, pageNumber, signal);
+        }
+        await retention.sourceDpi(document, 1, signal);
+
+        expect(detectSourceDpi).toHaveBeenCalledTimes(301);
+        await retention.release(document);
         await retention.dispose();
     });
 

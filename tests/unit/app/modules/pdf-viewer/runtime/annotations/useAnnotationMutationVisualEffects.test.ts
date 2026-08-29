@@ -13,6 +13,8 @@ import type {
     IAnnotationMutationVisualEffect,
     IAnnotationMutationVisualEffectsState,
 } from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationVisualEffects.types';
+import {findUniqueAnnotationComment} from '@app/modules/pdf-viewer/runtime/annotations/findUniqueAnnotationComment';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 
 vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/removeAnnotationCommentDom', () => ({removeAnnotationCommentDom: vi.fn()}));
 
@@ -37,6 +39,36 @@ function createVisualEffectsState(): IAnnotationMutationVisualEffectsState {
 }
 
 describe('useAnnotationMutationVisualEffects lifecycle', () => {
+    it('fails closed when a fallback identity matches more than one comment', () => {
+        const duplicate = {
+            annotationId: '44R',
+            author: null,
+            color: null,
+            hasNote: false,
+            id: '44R',
+            markerRect: null,
+            modifiedAt: null,
+            pageIndex: 0,
+            pageNumber: 1,
+            source: 'pdf',
+            stableKey: 'nm:placed-image-1',
+            subtype: 'Stamp',
+            text: '',
+            uid: null,
+        } satisfies IAnnotationCommentSummary;
+
+        expect(findUniqueAnnotationComment(
+            [
+                duplicate,
+                {
+                    ...duplicate,
+                    id: '45R',
+                },
+            ],
+            comment => comment.stableKey === duplicate.stableKey,
+        )).toBeNull();
+    });
+
     it('does not consume queued effects after its scope is disposed during rendering', async () => {
         const state = createVisualEffectsState();
         const render = Promise.withResolvers<undefined>();

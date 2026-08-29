@@ -46,6 +46,7 @@ export function applyEmbeddedAnnotationDeletes(
             .join(', ');
         throw new Error(`Unable to apply embedded annotation deletes for ${comments.length} annotation(s): ${deleteKeys}`);
     }
+    refsToDeleteByTag.forEach(ref => doc.context.delete(ref));
 
     return true;
 }

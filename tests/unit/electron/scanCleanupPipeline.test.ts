@@ -70,6 +70,7 @@ import {
     ScanCleanupMissingOutputError,
     ScanCleanupPdfValidationError,
 } from '@scan-cleanup-core/errors';
+import type {ScanCleanupContractError} from '@scan-cleanup-core/errors';
 
 const dirs: string[] = [];
 const PNG = Uint8Array.from(Buffer.from(
@@ -914,6 +915,39 @@ describe('scan cleanup pipeline', () => {
             placementAnchors: anchors,
         });
         expect(resolver.resolve(2)).toEqual({});
+    });
+
+    it('refuses a pinned ink page when its durable anchor was evicted', () => {
+        const contentBox = {
+            xNormalized: 0.1,
+            yNormalized: 0.2,
+            widthNormalized: 0.7,
+            heightNormalized: 0.6,
+            rotationDegrees: 0 as const,
+        };
+        const evidence = {'20001': {
+            pageNumber: 20_001,
+            rotationDegrees: 0 as const,
+            layoutClassification: 'single-uncut-page' as const,
+            outputs: {full: {contentBox}},
+        }};
+        const inkOptions = {
+            ...options,
+            pageAlignment: 'ink' as const,
+        };
+        const resolver = createPagePlanResolver({
+            options: inkOptions,
+            layoutByPage: {'20001': 'single-uncut-page'},
+            pagePlanEvidenceByPage: evidence,
+        }, vi.fn(), 'final');
+
+        expect(() => resolver.resolve(20_001)).toThrowError(
+            expect.objectContaining({
+                name: 'ScanCleanupContractError',
+                code: 'SCAN_CLEANUP_CONTRACT_VIOLATION',
+            } satisfies Partial<ScanCleanupContractError>),
+        );
+        expect(() => resolver.resolve(20_001)).toThrow('missing ink placement anchor');
     });
 
     it('demand-materializes lazy-original input before scan-cleanup apply', async () => {

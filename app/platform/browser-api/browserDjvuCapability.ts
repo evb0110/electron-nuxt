@@ -9,6 +9,7 @@ import {
 import {
     releaseBrowserDjvuViewingWorker,
     retainBrowserDjvuViewingWorker,
+    getDjvuWorkerPageSizes,
 } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 import { browserDjvuTextSearchCapability } from '@app/platform/browser-api/browserDjvuTextSearchCapability';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
@@ -26,7 +27,7 @@ import {
 async function openBrowserDjvuForViewing(djvuPath: TDocumentRef): Promise<IDjvuOpenResult> {
     if (!isBrowserDocumentRef(djvuPath)) {
         return withBrowserDjvuWorker(djvuPath, async (worker) => {
-            const pageSizes = await worker.doc.getPagesSizes().run();
+            const pageSizes = await getDjvuWorkerPageSizes(worker);
             return pageSizes.length > 0
                 ? {
                     success: true,
@@ -36,11 +37,11 @@ async function openBrowserDjvuForViewing(djvuPath: TDocumentRef): Promise<IDjvuO
                     success: false,
                     error: 'DjVu document has no pages',
                 };
-        });
+        }, 'open');
     }
     try {
         const worker = await retainBrowserDjvuViewingWorker(djvuPath);
-        const pageSizes = await worker.doc.getPagesSizes().run();
+        const pageSizes = await getDjvuWorkerPageSizes(worker);
         const pageCount = pageSizes.length;
 
         if (pageCount <= 0) {
@@ -117,7 +118,7 @@ export const browserDjvuCapability = {
     getInfo: getBrowserDjvuInfo,
     getPageSourceInfo(djvuPath, pageNumber) {
         return withBrowserDjvuWorker(djvuPath, async (worker) => {
-            const pageSizes = await worker.doc.getPagesSizes().run();
+            const pageSizes = await getDjvuWorkerPageSizes(worker);
             const effectivePageNumber = Math.min(pageNumber, pageSizes.length);
             const pageSize = pageSizes[effectivePageNumber - 1];
             if (!pageSize) {
@@ -128,14 +129,14 @@ export const browserDjvuCapability = {
                 pageNumber: effectivePageNumber,
                 pageSize,
             };
-        });
+        }, 'page-source-info');
     },
     getPageSizes(djvuPath) {
-        return withBrowserDjvuWorker(djvuPath, worker => worker.doc.getPagesSizes().run());
+        return withBrowserDjvuWorker(djvuPath, worker => getDjvuWorkerPageSizes(worker), 'page-sizes');
     },
     renderPagePreview(djvuPath, pageNumber, _options) {
         return withBrowserDjvuWorker(djvuPath, async (worker) => {
-            const pageSize = (await worker.doc.getPagesSizes().run())[pageNumber - 1];
+            const pageSize = (await getDjvuWorkerPageSizes(worker))[pageNumber - 1];
             if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
             assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
             const pageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
@@ -152,7 +153,7 @@ export const browserDjvuCapability = {
             } finally {
                 worker.revokeObjectURL(pageObject.url);
             }
-        });
+        }, 'preview');
     },
     estimateSizes: estimateBrowserDjvuSizes,
     async cleanupTemp(tempPdfPath) {

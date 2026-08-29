@@ -12,9 +12,29 @@ export const DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO = 297 / 210;
 export const DOCUMENT_THUMBNAIL_LAYOUT_BLOCK_SIZE = 128;
 const DEFAULT_SNAPSHOT_PAGE_LIMIT = 256;
 
+/**
+ * Browser scroll containers cannot represent arbitrarily large CSS heights.
+ * Keep each physical thumbnail scroll segment well below the practical
+ * Chromium limit while retaining the logical document geometry for anchors.
+ */
+export const DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT = 8_388_608;
+
 export interface IDocumentThumbnailVirtualRange {
     endPage: number;
     startPage: number;
+}
+
+export interface IDocumentThumbnailScrollSegment {
+    endPage: number;
+    height: number;
+    index: number;
+    startPage: number;
+    top: number;
+}
+
+export interface IDocumentThumbnailScrollSegmentTransition {
+    scrollTop: number;
+    segmentIndex: number;
 }
 
 export interface IDocumentThumbnailLayoutAnchor {
@@ -216,6 +236,7 @@ export class DocumentThumbnailLayout {
     private rootBlock: IThumbnailLayoutBlockNode | null = null;
     private readonly blockNodes = new Map<number, IThumbnailLayoutBlockNode>();
     private exactAspectCount = 0;
+    private scrollSegments: IDocumentThumbnailScrollSegment[] | null = null;
 
     constructor(options: IDocumentThumbnailLayoutOptions) {
         this.adoptFirstAspectAsEstimate = options.adoptFirstAspectAsEstimate ?? false;
@@ -254,6 +275,7 @@ export class DocumentThumbnailLayout {
         this.pruneBlocksToPageCount();
         this.defaultPageHeight = this.resolveDefaultPageHeight();
         this.refreshLoadedBlocks();
+        this.invalidateScrollSegments();
     }
 
     resetDocument(options: IDocumentThumbnailLayoutOptions) {
@@ -275,6 +297,7 @@ export class DocumentThumbnailLayout {
         this.estimatedAspectRatio = normalized;
         this.defaultPageHeight = this.resolveDefaultPageHeight();
         this.refreshLoadedBlocks();
+        this.invalidateScrollSegments();
         return true;
     }
 
@@ -305,6 +328,7 @@ export class DocumentThumbnailLayout {
                 this.estimatedAspectRatio = normalized;
                 this.defaultPageHeight = this.resolveDefaultPageHeight();
                 this.refreshLoadedBlocks();
+                this.invalidateScrollSegments();
                 return true;
             }
             const targetBlock = block ?? this.ensureBlockForPage(page);
@@ -314,7 +338,11 @@ export class DocumentThumbnailLayout {
             targetBlock.aspectOverrides.set(localPage, normalized);
             this.refreshBlock(targetBlock);
         }
-        return this.getPageHeight(page) !== previousHeight;
+        const changed = this.getPageHeight(page) !== previousHeight;
+        if (changed) {
+            this.invalidateScrollSegments();
+        }
+        return changed;
     }
 
     updatePageChromeHeight(page: number, chromeHeight: number | null) {
@@ -338,7 +366,11 @@ export class DocumentThumbnailLayout {
             );
             this.refreshBlock(targetBlock);
         }
-        return this.getPageHeight(page) !== previousHeight;
+        const changed = this.getPageHeight(page) !== previousHeight;
+        if (changed) {
+            this.invalidateScrollSegments();
+        }
+        return changed;
     }
 
     getPageAspect(page: number) {
@@ -364,6 +396,153 @@ export class DocumentThumbnailLayout {
 
     getTotalHeight() {
         return this.prefix(this.pageCount);
+    }
+
+    /**
+     * Returns the number of independently scrollable physical segments. The
+     * segment boundaries are derived arithmetically, so this does not allocate
+     * a page-sized index for large documents.
+     */
+    getScrollSegmentCount() {
+        return this.ensureScrollSegments().length;
+    }
+
+    getScrollSegmentIndexForPage(page: number) {
+        const segments = this.ensureScrollSegments();
+        if (segments.length === 0) {
+            return 0;
+        }
+        const boundedPage = Math.min(
+            this.pageCount,
+            Math.max(1, Number.isFinite(page) ? Math.trunc(page) : 1),
+        );
+        let low = 0;
+        let high = segments.length - 1;
+        while (low <= high) {
+            const middle = Math.floor((low + high) / 2);
+            const segment = segments[middle];
+            if (!segment) {
+                break;
+            }
+            if (boundedPage < segment.startPage) {
+                high = middle - 1;
+            } else if (boundedPage > segment.endPage) {
+                low = middle + 1;
+            } else {
+                return segment.index;
+            }
+        }
+        return Math.min(segments.length - 1, Math.max(0, low));
+    }
+
+    getScrollSegment(index: number): IDocumentThumbnailScrollSegment {
+        const segments = this.ensureScrollSegments();
+        if (segments.length === 0) {
+            return {
+                endPage: -1,
+                height: 0,
+                index: 0,
+                startPage: 0,
+                top: 0,
+            };
+        }
+
+        const boundedIndex = Math.min(
+            segments.length - 1,
+            Math.max(0, Number.isFinite(index) ? Math.trunc(index) : 0),
+        );
+        return segments[boundedIndex] ?? segments[segments.length - 1]!;
+    }
+
+    getPageTopInScrollSegment(page: number, segmentIndex: number) {
+        const segment = this.getScrollSegment(segmentIndex);
+        if (segment.endPage < segment.startPage) {
+            return 0;
+        }
+        return this.getPageTop(page) - segment.top;
+    }
+
+    resolvePageAtScrollOffsetInSegment(offset: number, segmentIndex: number) {
+        const segment = this.getScrollSegment(segmentIndex);
+        if (segment.endPage < segment.startPage) {
+            return null;
+        }
+        const localOffset = Number.isNaN(offset) ? 0 : Math.max(0, offset);
+        const page = this.resolvePageAtOffset(segment.top + Math.min(localOffset, segment.height));
+        return page === null
+            ? segment.startPage
+            : Math.min(segment.endPage, Math.max(segment.startPage, page));
+    }
+
+    resolveInsertionIndexInScrollSegment(offset: number, segmentIndex: number) {
+        const page = this.resolvePageAtScrollOffsetInSegment(offset, segmentIndex);
+        if (page === null) {
+            return 0;
+        }
+        return offset < this.getPageTopInScrollSegment(page, segmentIndex) + this.getPageHeight(page) / 2
+            ? page - 1
+            : page;
+    }
+
+    resolveScrollSegmentTransition(
+        scrollTop: number,
+        previousScrollTop: number,
+        viewportHeight: number,
+        segmentIndex: number,
+    ): IDocumentThumbnailScrollSegmentTransition | null {
+        const segment = this.getScrollSegment(segmentIndex);
+        const segmentCount = this.getScrollSegmentCount();
+        if (segment.endPage < segment.startPage || segmentCount <= 1) {
+            return null;
+        }
+        const direction = scrollTop - previousScrollTop;
+        const maxScrollTop = Math.max(0, segment.height - Math.max(0, viewportHeight));
+        const reachedEnd = direction > 0
+            && segment.index < segmentCount - 1
+            && scrollTop >= maxScrollTop - 1;
+        const reachedStart = direction < 0
+            && segment.index > 0
+            && scrollTop <= 1;
+        if (!reachedEnd && !reachedStart) {
+            return null;
+        }
+        const nextIndex = segment.index + (reachedEnd ? 1 : -1);
+        const nextSegment = this.getScrollSegment(nextIndex);
+        return {
+            scrollTop: reachedEnd
+                ? 0
+                : Math.max(0, nextSegment.height - Math.max(0, viewportHeight)),
+            segmentIndex: nextIndex,
+        };
+    }
+
+    resolveVirtualRangeInScrollSegment(
+        scrollTop: number,
+        viewportHeight: number,
+        overscanPx: number,
+        segmentIndex: number,
+    ): IDocumentThumbnailVirtualRange {
+        const segment = this.getScrollSegment(segmentIndex);
+        if (segment.endPage < segment.startPage) {
+            return {
+                endPage: -1,
+                startPage: 0,
+            };
+        }
+        const localOverscan = Math.max(0, overscanPx);
+        const localViewportHeight = Math.max(1, viewportHeight);
+        const startPage = this.resolvePageAtScrollOffsetInSegment(
+            Math.max(0, scrollTop - localOverscan),
+            segment.index,
+        ) ?? segment.startPage;
+        const endPage = this.resolvePageAtScrollOffsetInSegment(
+            Math.max(0, scrollTop + localViewportHeight + localOverscan),
+            segment.index,
+        ) ?? segment.endPage;
+        return {
+            startPage: Math.max(segment.startPage, startPage),
+            endPage: Math.min(segment.endPage, Math.max(startPage, endPage)),
+        };
     }
 
     /**
@@ -471,6 +650,59 @@ export class DocumentThumbnailLayout {
     /** Exposed for allocation tests and diagnostics. */
     getLoadedBlockCount() {
         return this.blockNodes.size;
+    }
+
+    private ensureScrollSegments() {
+        this.scrollSegments ??= this.buildScrollSegments();
+        return this.scrollSegments;
+    }
+
+    private buildScrollSegments() {
+        const segments: IDocumentThumbnailScrollSegment[] = [];
+        let startPage = 1;
+        while (startPage <= this.pageCount) {
+            const top = this.getPageTop(startPage);
+            let low = startPage;
+            let high = this.pageCount;
+            let endPage = startPage - 1;
+            while (low <= high) {
+                const candidate = Math.floor((low + high) / 2);
+                const candidateHeight = this.getPageTop(candidate)
+                    + this.getPageHeight(candidate)
+                    - top;
+                if (candidateHeight <= DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT) {
+                    endPage = candidate;
+                    low = candidate + 1;
+                } else {
+                    high = candidate - 1;
+                }
+            }
+
+            // A single measured page can be taller than the browser budget.
+            // Keep the segment bounded and let the row itself retain its
+            // measured height. Normal PDF page dimensions stay well below
+            // this fallback, while a pathological metric cannot restore a
+            // document-sized scroll extent.
+            if (endPage < startPage) {
+                endPage = startPage;
+            }
+            const measuredHeight = this.getPageTop(endPage)
+                + this.getPageHeight(endPage)
+                - top;
+            segments.push({
+                endPage,
+                height: Math.min(DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT, Math.max(0, measuredHeight)),
+                index: segments.length,
+                startPage,
+                top,
+            });
+            startPage = endPage + 1;
+        }
+        return segments;
+    }
+
+    private invalidateScrollSegments() {
+        this.scrollSegments = null;
     }
 
     private isValidPage(page: number) {

@@ -69,6 +69,7 @@ const {
     getDjvuPageSizeForViewing,
     getDjvuPageSizeWindowsForViewing,
     getDjvuPageSizesForViewing,
+    DjvuPageSizeArrayLimitError,
     parseDjvuPageSizeOutput,
     renderDjvuPagePreview,
 } = await import('@electron/features/djvu/main/pagePreview');
@@ -251,6 +252,74 @@ describe('DjVu native page preview helpers', () => {
         const calls = mocks.runNativeCommand.mock.calls as unknown[][];
         expect((calls[0]?.[1] as string[] | undefined)?.[2]).toContain('select 256; size');
         expect((calls[1]?.[1] as string[] | undefined)?.[2]).toContain('select 257; size');
+    });
+
+    it('probes only selected pages instead of scanning every intervening window', async () => {
+        mocks.runNativeCommand.mockImplementation(async (...rawArgs: unknown[]) => {
+            const args = rawArgs[1] as string[];
+            const pageNumbers = [...String(args[2]).matchAll(/select (\d+); size/gu)]
+                .map(match => Number.parseInt(match[1] ?? '', 10));
+            return {
+                stdout: pageNumbers.map(page => `${100 + page} ${200 + page}`).join('\n'),
+                stderr: '',
+                exitCode: 0,
+            };
+        });
+
+        const windows = [];
+        for await (const window of getDjvuPageSizeWindowsForViewing(
+            '/tmp/selected.djvu',
+            5_001,
+            {pageNumbers: [
+                1,
+                5_000,
+            ]},
+        )) {
+            windows.push(window);
+        }
+
+        expect(windows.map(window => [
+            window.firstPage,
+            window.sizes.length,
+        ])).toEqual([
+            [
+                1,
+                1,
+            ],
+            [
+                5_000,
+                1,
+            ],
+        ]);
+        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(2);
+        const calls = mocks.runNativeCommand.mock.calls as unknown[][];
+        expect((calls[0]?.[1] as string[] | undefined)?.[2]).toBe('select 1; size');
+        expect((calls[1]?.[1] as string[] | undefined)?.[2]).toBe('select 5000; size');
+    });
+
+    it('bounds cached page metadata after a full-document scan', async () => {
+        mocks.runNativeCommand.mockImplementation(async (...rawArgs: unknown[]) => {
+            const args = rawArgs[1] as string[];
+            const pageNumbers = [...String(args[2]).matchAll(/select (\d+); size/gu)]
+                .map(match => Number.parseInt(match[1] ?? '', 10));
+            return {
+                stdout: pageNumbers.map(page => `${100 + page} ${200 + page}`).join('\n'),
+                stderr: '',
+                exitCode: 0,
+            };
+        });
+
+        await getDjvuPageSizesForViewing('/tmp/cache-bound.djvu', 513);
+        await getDjvuPageSizesForViewing('/tmp/cache-bound.djvu', 513);
+
+        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(6);
+    });
+
+    it('refuses dense page-size arrays above the bounded compatibility ceiling', async () => {
+        await expect(getDjvuPageSizesForViewing('/tmp/too-many-pages.djvu', 10_001))
+            .rejects.toBeInstanceOf(DjvuPageSizeArrayLimitError);
+
+        expect(mocks.runNativeCommand).not.toHaveBeenCalled();
     });
 
     it('stops a million-page size scan immediately after cancellation', async () => {

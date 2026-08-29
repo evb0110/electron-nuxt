@@ -57,6 +57,7 @@ describe('document thumbnail architecture boundaries', () => {
 
     it('uses one shared layout and reveal policy instead of a PDF geometry fork', () => {
         const pdfThumbnails = read('app/modules/pdf-viewer/components/PdfThumbnails.vue');
+        const pdfThumbnailScrollController = read('app/modules/pdf-viewer/thumbnails/createPdfThumbnailScrollController.ts');
         const sourceController = read('app/utils/document-viewer/thumbnails/useDocumentThumbnailController.ts');
 
         for (const source of [
@@ -64,6 +65,11 @@ describe('document thumbnail architecture boundaries', () => {
             sourceController,
         ]) {
             expect(source).toContain('DocumentThumbnailLayout');
+        }
+        for (const source of [
+            pdfThumbnailScrollController,
+            sourceController,
+        ]) {
             expect(source).toContain('resolveDocumentThumbnailRevealScrollTop');
         }
         expect(pdfThumbnails).not.toContain('ThumbnailFenwickLayout');

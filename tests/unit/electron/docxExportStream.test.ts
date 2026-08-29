@@ -104,6 +104,23 @@ describe('docxExportStream', () => {
             new Uint8Array(DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES + 1),
         )).rejects.toThrow('DOCX stream chunks exceed the maximum size');
         await expect(cancelDocxExportStream(context, sessionId)).resolves.toBe(true);
+        await expect(commitDocxExportStream(context, sessionId)).rejects.toThrow('Invalid DOCX stream session');
+        await expect(readFile(targetPath)).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(readdir(directory)).resolves.toEqual([]);
+    });
+
+    it('removes partial temporary output when a renderer cancels after a valid chunk', async () => {
+        const {
+            context,
+            targetPath,
+            directory,
+        } = await createFixture();
+        const {sessionId} = await beginDocxExportStream(context, targetPath);
+
+        await writeDocxExportStreamChunk(context, sessionId, Uint8Array.of(1, 2, 3));
+        await expect(cancelDocxExportStream(context, sessionId)).resolves.toBe(true);
+        await expect(commitDocxExportStream(context, sessionId)).rejects.toThrow('Invalid DOCX stream session');
+        await expect(readFile(targetPath)).rejects.toMatchObject({code: 'ENOENT'});
         await expect(readdir(directory)).resolves.toEqual([]);
     });
 });

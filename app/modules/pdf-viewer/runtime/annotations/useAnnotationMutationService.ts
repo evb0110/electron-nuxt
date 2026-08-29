@@ -139,6 +139,28 @@ export const useAnnotationMutationService = (
         });
     }
 
+    async function deleteReopenedEditorAnnotation(
+        input: {comment: IAnnotationCommentSummary},
+        _context: IAnnotationMutationContext,
+    ) {
+        return runHistoryTransaction(async () => {
+            const id = options.resolveCanonicalAnnotationId?.(input.comment);
+            if (!id) {
+                return false;
+            }
+            try {
+                if (!await options.deleteAnnotationComment(input.comment)) {
+                    return false;
+                }
+            } catch {
+                return false;
+            }
+            options.deleteCanonicalAnnotation(id);
+            enqueueAnnotationDomRemoval(input.comment);
+            return true;
+        });
+    }
+
     function updateColor(
         input: {
             comment?: IAnnotationCommentSummary | null;
@@ -282,6 +304,7 @@ export const useAnnotationMutationService = (
         visualEffects,
         updateComment,
         deleteAnnotation,
+        deleteReopenedEditorAnnotation,
         updateColor,
         moveMarker,
         restoreAnnotation,

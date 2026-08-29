@@ -11,6 +11,8 @@
         write(&bytes_path, &bytes).unwrap();
         PlacedImage {
             page_index: 0,
+            stable_key: None,
+            annotation_id: None,
             x: 0.1,
             y: 0.25,
             width: 0.3,
@@ -117,6 +119,40 @@
     }
 
     #[test]
+    fn rejects_duplicate_stable_placed_image_targets_without_an_exact_ref() {
+        let (mut document, page_id) = create_test_document();
+        let stable_key = "placed-image-duplicate";
+        let stamp_ids = (0..2)
+            .map(|_| {
+                document.add_object(dictionary! {
+                    "Type" => "Annot",
+                    "Subtype" => "Stamp",
+                    "Rect" => vec![10.into(), 10.into(), 20.into(), 20.into()],
+                    "NM" => Object::string_literal(stable_key),
+                })
+            })
+            .collect::<Vec<_>>();
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", stamp_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>());
+        let mut image = placed_jpeg_mutation();
+        image.stable_key = Some(stable_key.to_string());
+
+        let error = apply_native_mutations(
+            &mut document,
+            &NativeMutationsFile {
+                placed_images: vec![image],
+                ..NativeMutationsFile::default()
+            },
+            "D:20260829120500+04'00'",
+        )
+        .expect_err("duplicate stable Stamp identity must fail closed");
+
+        assert!(error.to_string().contains("more than one Stamp"));
+    }
+
+    #[test]
     fn appends_placed_jpeg_as_incremental_stamp_annotation() {
         let (mut document, page_id) = create_test_document();
         let input_path = temp_pdf_path("append-placed-image-input");
@@ -137,6 +173,7 @@
             shapes: None,
             markup: None,
             placed_images: vec![placed_image],
+            continuation: None,
         };
         append_native_mutations(
             &input_path,
@@ -190,4 +227,111 @@
 
         let _ = remove_file(input_path);
         let _ = remove_file(output_path);
+    }
+
+    #[test]
+    fn reopens_updates_and_deletes_a_placed_image_without_orphan_stamps() {
+        let (mut document, page_id) = create_test_document();
+        let pdf_path = temp_pdf_path("update-canonical-placed-image");
+        let mut original_bytes = Vec::new();
+        document.save_to(&mut original_bytes).unwrap();
+        write(&pdf_path, &original_bytes).unwrap();
+
+        let mut first = placed_jpeg_mutation();
+        first.stable_key = Some("placed-image-app-1".to_string());
+        append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &NativeMutationsFile {
+                placed_images: vec![first],
+                ..NativeMutationsFile::default()
+            },
+            "D:20260829121000+04'00'",
+        )
+        .unwrap();
+
+        let seeded = Document::load(&pdf_path).unwrap();
+        let stamp_ref = get_page_annots(&seeded, page_id).unwrap()[0]
+            .as_reference()
+            .unwrap();
+        let appearance_refs = placed_image_appearance_refs(&seeded, stamp_ref).unwrap();
+        drop(seeded);
+
+        let mut mismatched = placed_jpeg_mutation();
+        mismatched.stable_key = Some("placed-image-other".to_string());
+        mismatched.annotation_id = Some(format_pdfjs_annotation_ref(stamp_ref));
+        let error = append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &NativeMutationsFile {
+                placed_images: vec![mismatched],
+                ..NativeMutationsFile::default()
+            },
+            "D:20260829121030+04'00'",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("stable identity does not match"));
+
+        let mut updated = placed_jpeg_mutation();
+        updated.stable_key = Some("placed-image-app-1".to_string());
+        updated.annotation_id = Some(format_pdfjs_annotation_ref(stamp_ref));
+        updated.x = 0.5;
+        updated.width = 0.2;
+        append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &NativeMutationsFile {
+                placed_images: vec![updated],
+                ..NativeMutationsFile::default()
+            },
+            "D:20260829121100+04'00'",
+        )
+        .unwrap();
+
+        let loaded = Document::load(&pdf_path).unwrap();
+        let annots = get_page_annots(&loaded, page_id).unwrap();
+        assert_eq!(annots.len(), 1);
+        let updated_stamp_ref = annots[0].as_reference().unwrap();
+        assert_eq!(updated_stamp_ref, stamp_ref);
+        let stamp = loaded
+            .get_dictionary(updated_stamp_ref)
+            .unwrap();
+        assert_eq!(
+            placed_image_appearance_refs(&loaded, updated_stamp_ref),
+            Some(appearance_refs),
+        );
+        assert_eq!(
+            stamp.get(b"NM").ok().and_then(pdf_string_to_text).as_deref(),
+            Some("placed-image-app-1"),
+        );
+        assert_eq!(
+            stamp.get(b"M").ok().and_then(pdf_string_to_text).as_deref(),
+            Some("D:20260829121100+04'00'"),
+        );
+        drop(loaded);
+
+        append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &NativeMutationsFile {
+                deletes: vec![AnnotationDelete {
+                    page_index: 0,
+                    object_number: Some(updated_stamp_ref.0),
+                    generation_number: Some(updated_stamp_ref.1),
+                    stable_key: Some("placed-image-app-1".to_string()),
+                    created_at: None,
+                }],
+                ..NativeMutationsFile::default()
+            },
+            "D:20260829121200+04'00'",
+        )
+        .unwrap();
+
+        let deleted = Document::load(&pdf_path).unwrap();
+        assert!(get_page_annots(&deleted, page_id).unwrap().is_empty());
+        for object_id in [stamp_ref, appearance_refs.0, appearance_refs.1] {
+            assert!(matches!(deleted.get_object(object_id), Ok(Object::Null) | Err(_)));
+        }
+
+        let _ = remove_file(pdf_path);
     }

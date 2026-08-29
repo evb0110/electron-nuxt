@@ -5,9 +5,11 @@ import {
 } from 'vitest';
 import {
     decodeDetectionArgs,
+    decodeDocumentPrior,
     decodeOwnedJobId,
     decodePreviewArgs,
     decodeScanCleanupPageOverrides,
+    decodeSourcePageMetadata,
     decodeStartArgs,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {
@@ -153,6 +155,99 @@ describe('scan-cleanup IPC request codecs', () => {
         expect(decodeStartArgs([request])[0].pagePlanEvidenceByPage).toEqual(
             request.pagePlanEvidenceByPage,
         );
+    });
+
+    it('rejects string and unsafe numeric source metadata instead of coercing it', () => {
+        const metadata = {
+            pageNumber: 12,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0,
+        };
+        expect(() => decodeSourcePageMetadata({
+            ...metadata,
+            rotation: '90',
+        })).toThrow('source page metadata');
+        expect(() => decodeSourcePageMetadata({
+            ...metadata,
+            widthPoints: Number.MAX_SAFE_INTEGER + 1,
+        })).toThrow('source page metadata');
+    });
+
+    it('rejects unsafe finite document-prior dimensions and medians', () => {
+        const validPrior = () => ({
+            dominantLayout: 'single-uncut-page' as const,
+            cutterRatioMedian: null,
+            clusterDims: {
+                widthPx: 1_000,
+                heightPx: 2_000,
+            },
+            agreementStrength: 0.8,
+            strokeWidthMedianPx: 2,
+            xHeightMedianPx: 12,
+        });
+        const unsafePriors = [
+            {
+                ...validPrior(),
+                clusterDims: {
+                    ...validPrior().clusterDims,
+                    widthPx: Number.MAX_SAFE_INTEGER + 1,
+                },
+            },
+            {
+                ...validPrior(),
+                clusterDims: {
+                    ...validPrior().clusterDims,
+                    heightPx: Number.MAX_SAFE_INTEGER + 1,
+                },
+            },
+            {
+                ...validPrior(),
+                strokeWidthMedianPx: Number.MAX_SAFE_INTEGER + 1,
+            },
+            {
+                ...validPrior(),
+                xHeightMedianPx: Number.MAX_SAFE_INTEGER + 1,
+            },
+        ];
+        for (const unsafePrior of unsafePriors) {
+            expect(() => decodeDocumentPrior(unsafePrior)).toThrow('document prior');
+        }
+    });
+
+    it('rejects non-numeric rotations in page plans, overrides, and nested geometry', () => {
+        for (const rotationDegrees of [
+            '0',
+            null,
+        ]) {
+            expect(() => decodeStartArgs([{
+                ...request,
+                pagePlanEvidenceByPage: {'12': {
+                    ...request.pagePlanEvidenceByPage['12'],
+                    rotationDegrees,
+                    automaticSplit: undefined,
+                    outputs: {full: {detectedSkewDegrees: 0}},
+                }},
+            }])).toThrow('page-plan evidence');
+
+            expect(() => decodeStartArgs([requestWithOverrides({'12': {
+                ...pageOverride(),
+                rotationDegrees,
+            }})])).toThrow('page override');
+
+            expect(() => decodeStartArgs([{
+                ...request,
+                pagePlanEvidenceByPage: {'12': {
+                    ...request.pagePlanEvidenceByPage['12'],
+                    automaticSplit: {
+                        ...request.pagePlanEvidenceByPage['12'].automaticSplit,
+                        rotationDegrees,
+                    },
+                }},
+            }])).toThrow('automatic split rotation');
+        }
     });
 
     it('carries one scalar page override default beside sparse page entries', () => {

@@ -182,7 +182,7 @@ describe('native PDF image combiner output validation', () => {
         const { tryCreatePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
 
         await expect(tryCreatePdfWithNativeImageCombiner(['/tmp/input.png'])).resolves.toEqual(new Uint8Array(validPdf));
-        expect(mocks.verifyNativeToolProtocol).toHaveBeenCalledWith('/native/evb-pdf-image-combine', {env: expect.objectContaining({EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(512 * 1024 * 1024)})});
+        expect(mocks.verifyNativeToolProtocol).toHaveBeenCalledWith('/native/evb-pdf-image-combine', {env: expect.objectContaining({EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(16 * 1024 * 1024)})});
         expect(mocks.verifyNativeToolProtocol.mock.invocationCallOrder[0]!)
             .toBeLessThan(mocks.spawn.mock.invocationCallOrder[0]!);
     });
@@ -210,7 +210,7 @@ describe('native PDF image combiner output validation', () => {
             return {
                 stat: vi.fn(async () => ({
                     isFile: () => true,
-                    size: path.endsWith('.pdf') ? 513 * 1024 * 1024 : data.byteLength,
+                    size: path.endsWith('.pdf') ? (16 * 1024 * 1024) + 1 : data.byteLength,
                 })),
                 read: vi.fn(async (buffer: Buffer, offset: number, length: number, position: number) => {
                     data.copy(buffer, offset, position, position + length);
@@ -222,11 +222,23 @@ describe('native PDF image combiner output validation', () => {
                 close: vi.fn(async () => undefined),
             };
         });
-        const { tryCreatePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+        const {
+            tryCreatePdfWithNativeImageCombiner,
+            tryWritePdfWithNativeImageCombiner,
+        } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
 
         await expect(tryCreatePdfWithNativeImageCombiner(['/tmp/input.png']))
-            .rejects.toThrow('Combined PDF output is too large to return safely');
+            .rejects.toMatchObject({
+                code: 'too-large',
+                name: 'SerializableError',
+            });
+        await expect(tryWritePdfWithNativeImageCombiner(['/tmp/input.png'], '/tmp/output.pdf'))
+            .rejects.toMatchObject({
+                code: 'too-large',
+                name: 'SerializableError',
+            });
         expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/output.pdf', { force: true });
     });
 
     it('rejects before spawning when protocol verification fails', async () => {

@@ -377,4 +377,55 @@ describe('PdfThumbnails keyboard navigation', () => {
             expect(document.activeElement).toBe(row(host, 300));
         });
     });
+
+    it('switches physical segments before focusing a distant keyboard target', async () => {
+        stubRailGeometry();
+        const {host} = await mountThumbnails({
+            currentPage: 3,
+            selectedPages: [],
+            totalPages: 138_000,
+        });
+        const rail = host.querySelector<HTMLElement>('.pdf-thumbnails')!;
+        const wrapper = host.querySelector<HTMLElement>('.pdf-thumbnails-virtual-wrapper')!;
+        expect(Number(wrapper.dataset.thumbnailScrollSegment)).toBe(0);
+        expect(rows(host).map(element => Number(element.dataset.page))).not.toContain(138_000);
+
+        row(host, 3).focus();
+        pressKey(row(host, 3), 'End');
+
+        await vi.waitFor(() => {
+            expect(Number(wrapper.dataset.thumbnailScrollSegment)).toBeGreaterThan(0);
+            expect(rows(host).map(element => Number(element.dataset.page))).toContain(138_000);
+            expect(rows(host).map(element => Number(element.dataset.page))).not.toContain(3);
+            expect(document.activeElement).toBe(row(host, 138_000));
+        });
+        expect(rail.scrollTop).toBeGreaterThan(0);
+    });
+
+    it('switches back to the first physical segment before focusing Home', async () => {
+        stubRailGeometry();
+        const {
+            host,
+            rail,
+        } = await mountThumbnails({
+            currentPage: 3,
+            selectedPages: [],
+            totalPages: 138_000,
+        });
+        const wrapper = host.querySelector<HTMLElement>('.pdf-thumbnails-virtual-wrapper')!;
+
+        row(host, 3).focus();
+        pressKey(row(host, 3), 'End');
+        await vi.waitFor(() => {
+            expect(Number(wrapper.dataset.thumbnailScrollSegment)).toBeGreaterThan(0);
+            expect(document.activeElement).toBe(row(host, 138_000));
+        });
+
+        pressKey(row(host, 138_000), 'Home');
+        await vi.waitFor(() => {
+            expect(Number(wrapper.dataset.thumbnailScrollSegment)).toBe(0);
+            expect(document.activeElement).toBe(row(host, 1));
+        });
+        expect(rail.scrollTop).toBe(0);
+    });
 });

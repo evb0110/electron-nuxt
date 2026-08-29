@@ -8,6 +8,7 @@ import {
 import type * as PdfLibModule from 'pdf-lib';
 import type * as PdfCoreModule from '@pdf-core';
 import type * as DjvuPublicModule from '@electron/features/djvu/public';
+import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 
 interface IMockDjvuConvertSuccess {
     success: true;
@@ -258,7 +259,6 @@ vi.mock('@electron/image/tryCreatePdfFromInputPathsNative', () => ({
 const {
     createPdfFileFromInputPaths,
     createPdfFromInputPaths,
-    PdfCombineCapabilityError,
 } =
     await import('@electron/image/pdfConversion');
 

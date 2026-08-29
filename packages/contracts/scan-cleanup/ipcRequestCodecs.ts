@@ -18,6 +18,7 @@ import {
 import type {
     IScanCleanupMarginsMm,
     IScanCleanupNormalizedRect,
+    TScanCleanupPageRotation,
 } from '@contracts/scan-cleanup/geometry';
 import {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/scan-cleanup/geometry';
 import {
@@ -122,18 +123,16 @@ export function decodeScanCleanupPagePlanEvidence(
     if (
         !isRecord(value)
         || value.pageNumber !== decodedPageNumber
-        || ![
-            0,
-            90,
-            180,
-            270,
-        ].includes(Number(value.rotationDegrees))
+        || !isScanCleanupPageRotation(value.rotationDegrees)
         || !isLayoutClassification(value.layoutClassification)
         || !isRecord(value.outputs)
     ) {
         throw new Error('invalid scan-cleanup page-plan evidence');
     }
-    const rotationDegrees = value.rotationDegrees as IScanCleanupPagePlanEvidence['rotationDegrees'];
+    const rotationDegrees = decodeScanCleanupPageRotation(
+        value.rotationDegrees,
+        'page-plan evidence',
+    );
     const automaticSplit = value.automaticSplit === undefined
         ? undefined
         : (() => {
@@ -297,28 +296,30 @@ export function isLayoutClassification(value: unknown): value is IScanCleanupPre
         || value === 'two-page-spread';
 }
 
+function isSafeFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number'
+        && Number.isFinite(value)
+        && Math.abs(value) <= Number.MAX_SAFE_INTEGER;
+}
+
 export function decodeDocumentPrior(value: unknown): IScanCleanupDocumentPrior {
     if (
         !isRecord(value)
         || !isLayoutClassification(value.dominantLayout)
         || !isRecord(value.clusterDims)
-        || typeof value.clusterDims.widthPx !== 'number'
-        || !Number.isFinite(value.clusterDims.widthPx)
+        || !isSafeFiniteNumber(value.clusterDims.widthPx)
         || value.clusterDims.widthPx <= 0
-        || typeof value.clusterDims.heightPx !== 'number'
-        || !Number.isFinite(value.clusterDims.heightPx)
+        || !isSafeFiniteNumber(value.clusterDims.heightPx)
         || value.clusterDims.heightPx <= 0
         || typeof value.agreementStrength !== 'number'
         || !Number.isFinite(value.agreementStrength)
         || value.agreementStrength < 0
         || value.agreementStrength > 1
         || !(value.strokeWidthMedianPx === undefined
-            || (typeof value.strokeWidthMedianPx === 'number'
-                && Number.isFinite(value.strokeWidthMedianPx)
+            || (isSafeFiniteNumber(value.strokeWidthMedianPx)
                 && value.strokeWidthMedianPx > 0))
         || !(value.xHeightMedianPx === undefined
-            || (typeof value.xHeightMedianPx === 'number'
-                && Number.isFinite(value.xHeightMedianPx)
+            || (isSafeFiniteNumber(value.xHeightMedianPx)
                 && value.xHeightMedianPx > 0))
         || !(value.cutterRatioMedian === null || (
             typeof value.cutterRatioMedian === 'number'
@@ -351,12 +352,7 @@ function decodePageOverride(
 ): IScanCleanupPageOverride {
     if (
         !isRecord(value)
-        || ![
-            0,
-            90,
-            180,
-            270,
-        ].includes(Number(value.rotationDegrees))
+        || !isScanCleanupPageRotation(value.rotationDegrees)
         || ![
             'auto',
             'single',
@@ -367,7 +363,10 @@ function decodePageOverride(
         || typeof value.excluded !== 'boolean'
         || !(value.manualSplit === null || isRecord(value.manualSplit))
     ) throw new Error('invalid scan-cleanup page override');
-    const rotationDegrees = value.rotationDegrees as IScanCleanupPageOverride['rotationDegrees'];
+    const rotationDegrees = decodeScanCleanupPageRotation(
+        value.rotationDegrees,
+        'page override',
+    );
     const manualSplit = value.manualSplit === null
         ? null
         : {
@@ -484,15 +483,26 @@ function decodeGeometryRotation(
     pageRotation: IScanCleanupPageOverride['rotationDegrees'],
     label: string,
 ) {
-    if (![
-        0,
-        90,
-        180,
-        270,
-    ].includes(Number(value)) || value !== pageRotation) {
+    if (!isScanCleanupPageRotation(value) || value !== pageRotation) {
         throw new Error(`invalid scan-cleanup ${label} rotation`);
     }
-    return value as IScanCleanupPageOverride['rotationDegrees'];
+    return value;
+}
+
+function isScanCleanupPageRotation(value: unknown): value is TScanCleanupPageRotation {
+    return typeof value === 'number'
+        && Number.isSafeInteger(value)
+        && (value === 0 || value === 90 || value === 180 || value === 270);
+}
+
+function decodeScanCleanupPageRotation(
+    value: unknown,
+    label: string,
+): TScanCleanupPageRotation {
+    if (!isScanCleanupPageRotation(value)) {
+        throw new Error(`invalid scan-cleanup ${label} rotation`);
+    }
+    return value;
 }
 
 function decodeNormalizedValue(value: unknown, label: string) {
@@ -508,7 +518,7 @@ function decodeNormalizedRect(
 ): IScanCleanupNormalizedRect {
     if (!isRecord(value)) throw new Error(`invalid scan-cleanup ${label}`);
     const rotationDegrees = expectedRotation === undefined
-        ? value.rotationDegrees
+        ? decodeScanCleanupPageRotation(value.rotationDegrees, label)
         : decodeGeometryRotation(value.rotationDegrees, expectedRotation, label);
     const rect = {
         xNormalized: decodeNormalizedValue(value.xNormalized, `${label} x`),
@@ -522,16 +532,11 @@ function decodeNormalizedRect(
         || rect.heightNormalized <= 0
         || rect.xNormalized + rect.widthNormalized > 1
         || rect.yNormalized + rect.heightNormalized > 1
-        || ![
-            0,
-            90,
-            180,
-            270,
-        ].includes(Number(rect.rotationDegrees))
+        || !isScanCleanupPageRotation(rect.rotationDegrees)
     ) {
         throw new Error(`invalid scan-cleanup ${label}`);
     }
-    return rect as IScanCleanupNormalizedRect;
+    return rect;
 }
 
 function decodeMarginsMm(value: unknown, label: string): IScanCleanupMarginsMm {
@@ -719,20 +724,31 @@ export function decodeSourcePageMetadata(value: unknown): IScanCleanupSourcePage
     if (!isRecord(value)) throw new Error('invalid scan-cleanup source page metadata');
     const pageNumber = decodeScanCleanupPageNumber(value.pageNumber, 'source page metadata page number');
     const positive = (field: keyof IScanCleanupSourcePageMetadata) => {
-        const decoded = Number(value[field]);
-        if (!Number.isFinite(decoded) || decoded <= 0) {
+        const decoded = value[field];
+        if (!isSafeFiniteNumber(decoded) || decoded <= 0) {
             throw new Error('invalid scan-cleanup source page metadata');
         }
         return decoded;
     };
-    const xPoints = Number(value.xPoints);
-    const yPoints = Number(value.yPoints);
-    const rotation = Number(value.rotation);
-    if (![
-        xPoints,
-        yPoints,
-        rotation,
-    ].every(Number.isFinite)) {
+    const xPoints = value.xPoints;
+    const yPoints = value.yPoints;
+    const rotation = value.rotation;
+    if (
+        typeof xPoints !== 'number'
+        || typeof yPoints !== 'number'
+        || typeof rotation !== 'number'
+        || !isSafeFiniteNumber(xPoints)
+        || !isSafeFiniteNumber(yPoints)
+        || !isSafeFiniteNumber(rotation)
+        || ![
+            0,
+            90,
+            180,
+            270,
+        ].includes(rotation)
+        || xPoints < 0
+        || yPoints < 0
+    ) {
         throw new Error('invalid scan-cleanup source page metadata');
     }
     const dominant = [
@@ -746,14 +762,17 @@ export function decodeSourcePageMetadata(value: unknown): IScanCleanupSourcePage
         throw new Error('invalid scan-cleanup source page metadata');
     }
     const decodedDominant = hasDominant
-        ? dominant.map(item => Number(item))
-        : [];
+        ? dominant.map((item, index) => {
+            if (!isSafeFiniteNumber(item) || item <= 0) {
+                throw new Error(`invalid scan-cleanup source page metadata dominant dimension ${String(index)}`);
+            }
+            return item;
+        })
+        : [] as number[];
     if (
         hasDominant
         && (
-            !decodedDominant.every(item => Number.isFinite(item) && item > 0)
-            || !Number.isSafeInteger(decodedDominant[0])
-            || !Number.isSafeInteger(decodedDominant[1])
+            decodedDominant.length !== 4
         )
     ) {
         throw new Error('invalid scan-cleanup source page metadata');

@@ -304,6 +304,14 @@ describe('DjVu image export limits', () => {
             100_000,
             100_001,
         ]);
+        expect(mocks.getPageSizeWindows).toHaveBeenCalledWith(
+            '/books/large.djvu',
+            100_001,
+            {pageNumbers: [
+                100_000,
+                100_001,
+            ]},
+        );
     });
 
     it('stops a million-page size scan as soon as cancellation arrives', async () => {

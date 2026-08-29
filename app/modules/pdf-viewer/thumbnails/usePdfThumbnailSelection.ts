@@ -54,7 +54,7 @@ interface IUsePdfThumbnailSelectionOptions {
     onSelectedPagesChange?: (pages: number[]) => void;
     onPageSelectionChange?: ((selection: TPageSelection) => void) | undefined;
     renderedPages: ComputedRef<number[]>;
-    scrollPageIntoKeyboardView: (page: number) => void;
+    scrollPageIntoKeyboardView: (page: number) => void | Promise<void>;
     selectedPages?: ComputedRef<number[]>;
     selectedPageSelection?: ComputedRef<TPageSelection | null> | undefined;
     totalPages: ComputedRef<number>;
@@ -139,7 +139,11 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
 
     function focusThumbnailPage(page: number) {
         keyboardFocusPage.value = page;
-        scrollPageIntoKeyboardView(page);
+        const scrollResult = scrollPageIntoKeyboardView(page);
+        if (scrollResult && typeof scrollResult.then === 'function') {
+            void scrollResult.then(() => focusPageElement(page));
+            return;
+        }
         focusPageElement(page);
     }
 

@@ -191,6 +191,11 @@ function getFileMenuSubmenu(template: IMenuItemLike[]) {
     return Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
 }
 
+function getExportMenuSubmenu(template: IMenuItemLike[]) {
+    const exportMenu = getFileMenuSubmenu(template).find(item => item.label === 'menu.export');
+    return Array.isArray(exportMenu?.submenu) ? exportMenu.submenu : [];
+}
+
 function isMoveToNewWindowEnabled(template: IMenuItemLike[]) {
     const windowMenu = template.find(item => item.label === 'menu.window');
     const submenu = Array.isArray(windowMenu?.submenu) ? windowMenu.submenu : [];
@@ -631,6 +636,30 @@ describe('menu per-window document state', () => {
             'menu.exportMultiPageTiff',
         ]);
         expect(getViewMenuSubmenu(getLastMenuTemplate()).find(item => item.label === 'menu.assistant')).toBeUndefined();
+    });
+
+    it('keeps native DOCX export enabled as Cancel while it is running', () => {
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            supportsExportDocx: true,
+            canExportDocx: true,
+        });
+        expect(getExportMenuSubmenu(getLastMenuTemplate()).find((item: IMenuItemLike) => item.label === 'menu.exportDocx')).toMatchObject({enabled: true});
+
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            supportsExportDocx: true,
+            canExportDocx: true,
+            isExportingDocx: true,
+        });
+        expect(getExportMenuSubmenu(getLastMenuTemplate()).find((item: IMenuItemLike) => item.label === 'ocr.cancel')).toMatchObject({enabled: true});
     });
 
     it('uses active-tab applicability for close and window transfer commands', () => {

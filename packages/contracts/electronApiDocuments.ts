@@ -572,6 +572,8 @@ export interface IPdfNativeFreeTextNote {
 export interface IPdfNativeFreeTextEditor {
     pageIndex: TPageIndex;
     stableKey: string;
+    /** Existing PDF object ref when this mutation updates imported FreeText. */
+    annotationId?: string | null;
     text: string;
     rect: [number, number, number, number];
     rotation: 0 | 90 | 180 | 270;
@@ -658,6 +660,8 @@ export interface IPdfNativeMarkupSubtypeHint {
     appAnnotationId?: string | null;
     annotationId?: string | null;
     color?: string | null;
+    /** Replacement `/Contents` note text when this hint represents a canonical edit. */
+    contents?: string | null;
     id?: string | null;
     pageMarkupIndex?: number | null;
     source?: string | null;
@@ -670,6 +674,8 @@ export interface IPdfNativeMarkupMutation {
 
 export interface IPdfNativePlacedImage extends IPdfBox {
     pageIndex: TPageIndex;
+    stableKey?: string;
+    annotationId?: string | null;
     rotationDegrees?: number | null;
     mimeType: 'image/jpeg';
     source: IManagedTempFileHandle;
@@ -770,6 +776,7 @@ export interface IApplicationMenuDocumentState {
     canPrint?: boolean;
     supportsExportDocx?: boolean;
     canExportDocx?: boolean;
+    isExportingDocx?: boolean;
     supportsRasterExport?: boolean;
     canExportRaster?: boolean;
     canUndo?: boolean;
@@ -930,7 +937,7 @@ export interface IDocumentsFileCapability {
         sourcePath: TDocumentRef,
         options?: IDocumentMutationRevisionOptions,
     ) => Promise<boolean>;
-    writeDocxFile: (path: TDocumentRef, data: Uint8Array) => Promise<boolean>;
+    writeDocxFile: (path: TDocumentRef, data: Uint8Array, signal?: AbortSignal) => Promise<boolean>;
     createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     saveFileStructured: (path: TDocumentRef, options?: IDocumentMutationRevisionOptions) => Promise<TDocumentSaveResult>;

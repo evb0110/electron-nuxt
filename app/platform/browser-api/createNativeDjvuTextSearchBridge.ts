@@ -2,6 +2,7 @@ import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { isBrowserDocumentRef } from '@app/platform/browserDocumentStore';
 import { getValidatedElectronPlatformApi } from '@app/utils/electronPlatformBridge';
+import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import type { IPagePreviewSource } from '@app/utils/document-viewer/pagePreviewSource';
 
 type TNativeDjvuSearchCapability = Pick<
@@ -20,7 +21,11 @@ function getNativeDjvuSearchCapability(documentRef: TDocumentRef) {
         || typeof djvu.cancelTextSearch !== 'function'
         || typeof djvu.onTextSearchProgress !== 'function'
     ) {
-        return null;
+        throw new PdfCombineCapabilityError(
+            'native-unavailable',
+            `Native DjVu text search capability is unavailable for desktop path: ${documentRef}`,
+            {operation: 'djvu-text-search'},
+        );
     }
     return djvu satisfies TNativeDjvuSearchCapability;
 }

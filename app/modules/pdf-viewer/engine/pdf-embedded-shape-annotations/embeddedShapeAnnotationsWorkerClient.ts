@@ -13,7 +13,6 @@ import {
 } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
-import { isDesktopPlatformActive } from '@app/utils/platform';
 import { isNativeDocumentRef } from '@app/utils/documentRef';
 import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import {
@@ -93,7 +92,11 @@ function createTransferableView(data: Uint8Array, transferOwnership: boolean) {
 }
 
 function isNativeEmbeddedShapeIndexSource(path: TDocumentRef | null | undefined) {
-    return Boolean(path) && isNativeDocumentRef(path) && isDesktopPlatformActive();
+    // The document ref, rather than the current platform guess, identifies a
+    // native source. If the preload bridge is missing, the native index path
+    // reports its typed capability error instead of silently reading the PDF
+    // through the browser importer.
+    return Boolean(path) && isNativeDocumentRef(path);
 }
 
 export function isNativeEmbeddedShapeImportSource(path: TDocumentRef | null | undefined) {

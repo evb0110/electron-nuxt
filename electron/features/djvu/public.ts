@@ -1,4 +1,6 @@
 export {
+    DJVU_PAGE_SIZE_ARRAY_MAX_PAGES,
+    DjvuPageSizeArrayLimitError,
     getDjvuPageSizeWindowsForViewing,
     getDjvuPageSizesForViewing,
     getDjvuPageSizeForViewing,

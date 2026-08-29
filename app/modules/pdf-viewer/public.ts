@@ -20,7 +20,6 @@ export { usePageContextMenu } from '@app/modules/pdf-viewer/runtime/composables/
 export { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
 export { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 export { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
-export {hasActivePdfjsAnnotationEditorDraft} from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
 export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 export { usePdfSerialization } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
 export type { TPdfPlacedImageEmbeddingResult } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';

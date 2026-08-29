@@ -43,8 +43,13 @@ import type {
     ITiffEncoderModule,
     ITiffImageDescriptor,
 } from '@pdf-core/tiffEncoding';
-import { createDjvuWorkerFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import {
+    createDjvuWorkerFromPath,
+    getDjvuWorkerPageSizes,
+} from '@app/platform/browser-api/createDjvuWorkerFromPath';
 import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
+import { isNativeLegacyDocumentRef } from '@contracts/documentRef';
+import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 
 type TBrowserImageExportFormat = 'jpeg' | 'png' | 'tiff';
 type TBrowserImageExportProgressPayload = Omit<IImageExportProgress, 'format' | 'requestId'>;
@@ -62,6 +67,18 @@ interface IBrowserTiffPageDescriptor extends ITiffImageDescriptor {pageNumber: n
 const BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES = 64 * 1024 * 1024;
 const imageExportProgressListeners = new Set<(progress: IImageExportProgress) => void>();
 let utifModulePromise: Promise<TUtifModule> | null = null;
+
+function assertBrowserImageExportSource(path: string) {
+    if (!isNativeLegacyDocumentRef(path)) {
+        return;
+    }
+
+    throw new PdfCombineCapabilityError(
+        'native-unavailable',
+        `Browser image export cannot process a native document path: ${path}`,
+        {operation: 'image-export'},
+    );
+}
 
 function loadUtifEncoder(): Promise<ITiffEncoderModule> {
     utifModulePromise ??= import('utif');
@@ -484,7 +501,7 @@ async function exportBrowserDjvuPagesAsImages(
     const worker = await createDjvuWorkerFromPath(workingCopyPath);
     const outputRefs: string[] = [];
     try {
-        const sizes = await worker.doc.getPagesSizes().run();
+        const sizes = await getDjvuWorkerPageSizes(worker);
         const targetPages = getTargetPages({numPages: sizes.length}, pageNumbers);
         if (targetPages.length === 0) {
             return {
@@ -568,7 +585,7 @@ async function exportBrowserDjvuAsTiff(
 ) {
     const worker = await createDjvuWorkerFromPath(workingCopyPath);
     try {
-        const sizes = await worker.doc.getPagesSizes().run();
+        const sizes = await getDjvuWorkerPageSizes(worker);
         const targetPages = getTargetPages({numPages: sizes.length}, pageNumbers);
         const pages: Array<{
             rgba: Uint8Array;
@@ -647,6 +664,7 @@ async function exportBrowserDjvuAsTiff(
 export function createBrowserImageExportCapability(): IImageExportCapability {
     return {
         async exportPdfToImages(workingCopyPath, pageNumbers, requestId, sourceKind) {
+            assertBrowserImageExportSource(workingCopyPath);
             if (sourceKind === 'djvu') {
                 return exportBrowserDjvuPagesAsImages(workingCopyPath, pageNumbers, requestId);
             }
@@ -768,6 +786,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
             };
         },
         async exportPdfToMultiPageTiff(workingCopyPath, pageNumbers, requestId, sourceKind) {
+            assertBrowserImageExportSource(workingCopyPath);
             if (sourceKind === 'djvu') {
                 return exportBrowserDjvuAsTiff(workingCopyPath, pageNumbers, requestId);
             }

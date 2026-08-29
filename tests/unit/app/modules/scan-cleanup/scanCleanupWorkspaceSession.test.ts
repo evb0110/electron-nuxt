@@ -397,6 +397,105 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('bounds xlarge page evidence and refuses full-document ink placement above the IPC capacity', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`ink-capacity-${Date.now()}`, {totalPages: () => 20_001});
+        mounted.session.settings.values.pageAlignment = 'ink';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+
+        const state = detectionState('detect-1', 'completed');
+        state.progress.totalUnits = 20_001;
+        state.progress.completedUnits = 20_001;
+        state.resultCount = 20_001;
+        state.detectionResultStoreId = 'store-1';
+        state.results = Array.from({length: 300}, (_, index) => ({
+            ...state.results[0]!,
+            pageNumber: index + 1,
+            pagePlanEvidence: {
+                ...state.results[0]!.pagePlanEvidence!,
+                pageNumber: index + 1,
+            },
+            sourcePageMetadata: {
+                ...state.results[0]!.sourcePageMetadata!,
+                pageNumber: index + 1,
+            },
+        }));
+        harness.emitDetection(state);
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+
+        expect(mounted.session.detection.pagePlanEvidenceByPage.size).toBeLessThanOrEqual(256);
+        expect(mounted.session.detection.sourcePageMetadataByPage.value.size).toBeLessThanOrEqual(256);
+        await mounted.session.run.run();
+
+        expect(harness.value.start).not.toHaveBeenCalled();
+        expect(mounted.session.run.runDisabledReason.value).toContain('20,000');
+        mounted.unmount();
+    });
+
+    it('refuses an ink run for a selected page whose bounded detection record was evicted', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`ink-evicted-page-${Date.now()}`, {
+            currentPage: () => 20_001,
+            totalPages: () => 20_001,
+        });
+        mounted.session.settings.values.pageAlignment = 'ink';
+        mounted.session.selection.setSettingsScope('page');
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+
+        const completed = detectionState('detect-1', 'completed');
+        const contentBox = {
+            xNormalized: 0.1,
+            yNormalized: 0.2,
+            widthNormalized: 0.7,
+            heightNormalized: 0.6,
+            rotationDegrees: 0 as const,
+        };
+        const pageResult = (pageNumber: number) => ({
+            ...completed.results[0]!,
+            pageNumber,
+            pagePlanEvidence: {
+                pageNumber,
+                rotationDegrees: 0 as const,
+                layoutClassification: 'single-uncut-page' as const,
+                outputs: {full: {contentBox}},
+            },
+            sourcePageMetadata: {
+                pageNumber,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0,
+                sourceDpi: 300,
+            },
+        });
+        completed.results = [
+            pageResult(20_001),
+            ...Array.from({length: 300}, (_, index) => pageResult(index + 1)),
+        ];
+        completed.progress = {
+            ...completed.progress,
+            completedUnits: 20_001,
+            totalUnits: 20_001,
+            percent: 100,
+            completedPageNumbers: [],
+        };
+        completed.resultCount = 20_001;
+        completed.detectionResultStoreId = 'evicted-page-store';
+        harness.emitDetection(completed);
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        expect(mounted.session.detection.pagePlanEvidenceByPage.has(20_001)).toBe(false);
+
+        expect(mounted.session.run.runDisabledReason.value).toContain('Ink placement evidence');
+        await mounted.session.run.run();
+
+        expect(harness.value.start).not.toHaveBeenCalled();
+        expect(mounted.session.run.error.value).toContain('Ink placement evidence');
+        mounted.unmount();
+    });
+
     it('settles every page a coalesced snapshot reports, not one page per event', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

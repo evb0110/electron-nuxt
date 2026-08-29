@@ -3,6 +3,7 @@ import {
     createDjvuWorkerFromPath,
     searchDjvuWorkerText,
 } from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import {assertBrowserDjvuSource} from '@app/platform/browser-api/browserDjvuConversionPipeline';
 
 type TBrowserDjvuTextSearchCapability = Pick<
     IDjvuCapability,
@@ -24,6 +25,7 @@ function getActiveSearchesForRequest(requestId: string) {
 
 export const browserDjvuTextSearchCapability = {
     async searchText(djvuPath, query, options) {
+        assertBrowserDjvuSource(djvuPath, 'text-search');
         const activeSearches = getActiveSearchesForRequest(options.requestId);
         const previous = activeSearches.get(djvuPath);
         previous?.abort();

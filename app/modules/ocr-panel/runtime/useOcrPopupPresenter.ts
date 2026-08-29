@@ -228,6 +228,7 @@ export interface IOcrPopupPresenterEvents {
     onRunningChange: (value: boolean) => void;
     onOcrComplete: (payload: IOcrPopupCompletePayload) => void;
     onExportDocx: (selectedLanguages: string[]) => void;
+    onCancelDocxExport: () => void;
 }
 
 export interface IOcrPopupPresenterOptions {
@@ -651,6 +652,10 @@ export const useOcrPopupPresenter = ({
         events.onExportDocx(getExportLanguages());
     }
 
+    function handleCancelDocxExport() {
+        events.onCancelDocxExport();
+    }
+
     function handleCloseResults() {
         resetCompletedOcrState();
         isOpen.value = false;
@@ -801,6 +806,7 @@ export const useOcrPopupPresenter = ({
         handleCancel,
         cancelOcrForAgent,
         handleExportDocx,
+        handleCancelDocxExport,
         handleCloseResults,
         getAgentOcrSnapshot: createAgentOcrSnapshot,
     };

@@ -2,15 +2,75 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
+
 import {
+    assertBrowserDjvuSource,
     resolveBrowserDjvuCompactExportPlan,
     resolveBrowserDjvuConversionPreflight,
     resolveBrowserDjvuPdfRenderConcurrency,
     resolveBrowserDjvuPdfRenderSettings,
+    withBrowserDjvuWorker,
 } from '@app/platform/browser-api/browserDjvuConversionPipeline';
 
+const mocks = vi.hoisted(() => ({
+    createWorker: vi.fn(),
+    getPageSizes: vi.fn(),
+}));
+
+vi.mock('@app/platform/browser-api/createDjvuWorkerFromPath', () => ({
+    createDjvuWorkerFromPath: mocks.createWorker,
+    getDjvuWorkerPageSizes: mocks.getPageSizes,
+}));
+
 describe('browserDjvuConversionPipeline', () => {
+    it('refuses absolute paths without a native DjVu bridge before worker creation', () => {
+        vi.stubGlobal('window', {electronAPI: {documentFiles: {
+            statFile: vi.fn(),
+            readFile: vi.fn(),
+            readFileRange: vi.fn(),
+        }}});
+
+        expect(() => assertBrowserDjvuSource('/tmp/native.djvu', 'info')).toThrowError(
+            expect.objectContaining({
+                code: 'native-unavailable',
+                name: 'PdfCombineCapabilityError',
+                operation: 'djvu-info',
+            }),
+        );
+    });
+
+    it('does not read or create a worker for an absolute path without a native bridge', async () => {
+        const readFile = vi.fn();
+        const readFileRange = vi.fn();
+        const statFile = vi.fn();
+        vi.stubGlobal('window', {electronAPI: {documentFiles: {
+            readFile,
+            readFileRange,
+            statFile,
+        }}});
+        mocks.createWorker.mockRejectedValue(new Error('browser DjVu worker must not be created'));
+
+        await expect(withBrowserDjvuWorker(
+            '/tmp/native.djvu',
+            async () => undefined,
+            'info',
+        )).rejects.toMatchObject({
+            code: 'native-unavailable',
+            operation: 'djvu-info',
+        });
+
+        expect(mocks.createWorker).not.toHaveBeenCalled();
+        expect(statFile).not.toHaveBeenCalled();
+        expect(readFile).not.toHaveBeenCalled();
+        expect(readFileRange).not.toHaveBeenCalled();
+    });
+
+    it('preserves browser document references for the browser worker route', () => {
+        expect(() => assertBrowserDjvuSource('browser://documents/book.djvu', 'info')).not.toThrow();
+    });
+
     it('keeps direct raster exports at the requested source detail', () => {
         expect(resolveBrowserDjvuPdfRenderSettings({
             pdfStrategy: 'direct',

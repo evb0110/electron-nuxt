@@ -408,6 +408,10 @@ pub(crate) fn merge_subtype_hints(
             .clone()
             .or_else(|| incoming.annotation_id.clone()),
         color: existing.color.clone().or_else(|| incoming.color.clone()),
+        contents: existing
+            .contents
+            .clone()
+            .or_else(|| incoming.contents.clone()),
         id: existing.id.clone().or_else(|| incoming.id.clone()),
         page_markup_index: existing.page_markup_index.or(incoming.page_markup_index),
         source: existing.source.clone().or_else(|| incoming.source.clone()),

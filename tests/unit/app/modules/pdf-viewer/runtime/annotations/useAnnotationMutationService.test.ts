@@ -105,6 +105,69 @@ describe('useAnnotationMutationService canonical command ordering', () => {
         );
     });
 
+    it('groups reopened FreeText editor removal and canonical tombstone in one history transaction', async () => {
+        const events: string[] = [];
+        let transactionCount = 0;
+        const runHistoryTransaction: NonNullable<IUseAnnotationMutationServiceOptions['runHistoryTransaction']> =
+            <T>(action: () => T): T => {
+                transactionCount += 1;
+                events.push('transaction-start');
+                const result = action();
+                if (result instanceof Promise) {
+                    return result.finally(() => events.push('transaction-end')) as T;
+                }
+                events.push('transaction-end');
+                return result;
+            };
+        const options = createOptions({
+            runHistoryTransaction,
+            deleteAnnotationComment: vi.fn(async () => {
+                events.push('pdfjs-editor');
+                return true;
+            }),
+            deleteCanonicalAnnotation: vi.fn(() => events.push('store')),
+        });
+        const service = useAnnotationMutationService(options);
+
+        await expect(service.deleteReopenedEditorAnnotation(
+            {comment: createComment()},
+            {source: 'user'},
+        )).resolves.toBe(true);
+
+        expect(events).toEqual([
+            'transaction-start',
+            'pdfjs-editor',
+            'store',
+            'transaction-end',
+        ]);
+        expect(transactionCount).toBe(1);
+        expect(service.visualEffects.effects.value).toEqual(
+            [expect.objectContaining({kind: 'annotation-dom-removal'})],
+        );
+    });
+
+    it.each([
+        [
+            'returns false',
+            vi.fn(async () => false),
+        ],
+        [
+            'throws',
+            vi.fn(async () => { throw new Error('editor delete failed'); }),
+        ],
+    ])('does not tombstone when reopened FreeText editor removal %s', async (_label, deleteEditor) => {
+        const options = createOptions({deleteAnnotationComment: deleteEditor});
+        const service = useAnnotationMutationService(options);
+
+        await expect(service.deleteReopenedEditorAnnotation(
+            {comment: createComment()},
+            {source: 'user'},
+        )).resolves.toBe(false);
+
+        expect(options.deleteCanonicalAnnotation).not.toHaveBeenCalled();
+        expect(service.visualEffects.effects.value).toEqual([]);
+    });
+
     it('commits color and marker movement before their PDF.js projections', () => {
         const colorEvents: string[] = [];
         const moveEvents: string[] = [];

@@ -22,6 +22,7 @@ import type {
     TAnnotationStableKey,
 } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
     EventBus: vi.fn(),
@@ -82,6 +83,32 @@ function createComment(id: string): IAnnotationCommentSummary {
     };
 }
 
+function createPlacedImageComment(annotationId: string): IAnnotationCommentSummary {
+    return {
+        source: 'pdf',
+        id: annotationId,
+        stableKey: 'nm:placed-image-session-1',
+        pageIndex: 0,
+        pageNumber: 1,
+        text: '',
+        subtype: 'Stamp',
+        author: null,
+        createdAt: null,
+        modifiedAt: null,
+        color: null,
+        uid: null,
+        annotationId,
+        annotationName: 'placed-image-session-1',
+        hasNote: false,
+        markerRect: {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.4,
+        },
+    };
+}
+
 const mountedSessions: Array<() => void> = [];
 
 afterEach(() => {
@@ -97,6 +124,7 @@ function mountAnnotationSession(initial: {
     const originalPath = ref<string | null>(initial.originalPath ?? null);
     const workingCopyPath = ref<string | null>(initial.workingCopyPath ?? null);
     const src = shallowRef<TPdfSource | null>(initial.src ?? null);
+    const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
     const emitAnnotationComments = vi.fn();
     let session: ReturnType<typeof createPdfAnnotationSession> | undefined;
     const host = document.createElement('div');
@@ -104,7 +132,7 @@ function mountAnnotationSession(initial: {
     const AnnotationSessionHost = defineComponent({ setup() {
         session = createPdfAnnotationSession({
             document: {
-                pdfDocument: shallowRef(null),
+                pdfDocument,
                 numPages: ref(0),
                 registerDisposable: vi.fn(),
                 subscribe: vi.fn(() => vi.fn()),
@@ -174,6 +202,7 @@ function mountAnnotationSession(initial: {
         originalPath,
         workingCopyPath,
         src,
+        pdfDocument,
         emitAnnotationComments,
         storeDocumentKey: () => activeSession.annotationApplication.value.documentKey,
         snapshotDocumentKey: () => snapshotDocumentIdentity.ref!.value,
@@ -182,6 +211,12 @@ function mountAnnotationSession(initial: {
             .map(entity => entity.identity.id),
         ingest: (id: string) => activeSession.annotationApplication.value
             .ingestLegacySummaries([createComment(id)]),
+        syncPlacedImages: (annotationIds: readonly string[]) => activeSession.annotationCommentModel
+            .applyFromSync(annotationIds.map(createPlacedImageComment)),
+        projectedComments: () => activeSession.annotationApplication.value.listCommentSummaries(),
+        hasCanonicalChanges: () => activeSession.hasCanonicalAnnotationChanges(),
+        deleteEmbeddedAnnotationDeferred: (comment: IAnnotationCommentSummary) =>
+            activeSession.annotationMutationService.deleteEmbeddedAnnotationDeferred(comment),
     };
 }
 
@@ -260,5 +295,78 @@ describe('annotation document identity', () => {
         await nextTick();
 
         expect(harness.storeDocumentKey()).toBe(firstKey);
+    });
+
+    it('imports, reprojects, and deletes a placed image through the production session after a hard reopen', async () => {
+        const harness = mountAnnotationSession({
+            originalPath: '/documents/original.pdf',
+            workingCopyPath: '/managed/working.pdf',
+            src: {
+                kind: 'path',
+                path: '/managed/working.pdf',
+                size: 4,
+            },
+        });
+        const firstDocument = {
+            fingerprints: ['first'],
+            numPages: 1,
+        } as PDFDocumentProxy;
+        const reopenedDocument = {
+            fingerprints: ['reopened'],
+            numPages: 1,
+        } as PDFDocumentProxy;
+
+        harness.syncPlacedImages(['44R']);
+        const [firstComment] = harness.projectedComments();
+        const [firstId] = harness.canonicalAnnotationIds();
+        expect(firstComment).toMatchObject({
+            appAnnotationId: firstId,
+            annotationId: '44R',
+            annotationName: 'placed-image-session-1',
+            subtype: 'Stamp',
+            hasNote: false,
+        });
+        expect(harness.hasCanonicalChanges()).toBe(false);
+
+        harness.pdfDocument.value = firstDocument;
+        await nextTick();
+        harness.pdfDocument.value = null;
+        await nextTick();
+        harness.pdfDocument.value = reopenedDocument;
+        await nextTick();
+
+        harness.syncPlacedImages(['91R']);
+        const [reopenedComment] = harness.projectedComments();
+        expect(harness.canonicalAnnotationIds()).toEqual([firstId]);
+        expect(reopenedComment).toMatchObject({
+            appAnnotationId: firstId,
+            annotationId: '91R',
+            annotationName: 'placed-image-session-1',
+            stableKey: 'nm:placed-image-session-1',
+        });
+        expect(harness.hasCanonicalChanges()).toBe(false);
+
+        expect(harness.deleteEmbeddedAnnotationDeferred(reopenedComment!)).toBe(true);
+        expect(harness.canonicalAnnotationIds()).toEqual([]);
+    });
+
+    it('fails closed on duplicate placed-image names through the production comment sync', () => {
+        const harness = mountAnnotationSession({
+            workingCopyPath: '/managed/working.pdf',
+            src: {
+                kind: 'path',
+                path: '/managed/working.pdf',
+                size: 4,
+            },
+        });
+
+        harness.syncPlacedImages([
+            '44R',
+            '45R',
+        ]);
+
+        expect(harness.canonicalAnnotationIds()).toEqual([]);
+        expect(harness.projectedComments()).toEqual([]);
+        expect(harness.hasCanonicalChanges()).toBe(false);
     });
 });

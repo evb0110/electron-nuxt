@@ -1,6 +1,8 @@
 import type {IManagedTempFileHandle} from '@contracts/electronApiDocuments';
 
 export interface IPdfImagePlacementDraft {
+    stableKey: string;
+    annotationId?: string | null;
     pageNumber: number;
     x: number;
     y: number;
@@ -23,6 +25,10 @@ export interface IPdfImagePlacementRectUpdate {
 }
 
 export interface IPdfPlacedImageFinalizePayload {
+    /** Canonical identity persisted in the Stamp `/NM` entry. */
+    stableKey?: string;
+    /** Existing Stamp object ref when replacing a reopened placed image. */
+    annotationId?: string | null;
     pageNumber: number;
     x: number;
     y: number;

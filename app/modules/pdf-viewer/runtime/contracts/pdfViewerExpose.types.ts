@@ -190,6 +190,10 @@ export interface IPdfViewerAnnotationCommentExpose {
     ) => boolean | Promise<boolean>;
     moveAnnotationMarker: (comment: IAnnotationCommentSummary, rect: IAnnotationMarkerRect) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
+    /** Remove the live PDF.js editor without mutating the canonical store. */
+    deleteAnnotationEditor?: (comment: IAnnotationCommentSummary) => Promise<boolean>;
+    /** Remove a reopened editor and tombstone its canonical entity in one history transaction. */
+    deleteReopenedEditorAnnotation?: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
     rerenderAnnotationPage: (pageNumber: number) => Promise<boolean>;
     deleteEmbeddedAnnotationDeferred?: (comment: IAnnotationCommentSummary) => boolean;
@@ -229,6 +233,8 @@ export interface IPdfViewerImagePlacementExpose {
             pageNumber?: number | null;
             pageX?: number | null;
             pageY?: number | null;
+            stableKey?: string;
+            annotationId?: string | null;
         },
     ) => Promise<boolean>;
     clearPendingImagePlacement: () => void;

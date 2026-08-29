@@ -89,8 +89,8 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('@electron/utils/pathValidator', () => ({
     describeReadPathValidationForDiagnostics: () => 'validator-diagnostics-stub',
-    getManagedTempPathAccessDecision: () => undefined,
-    setManagedTempPathAccessValidator: () => undefined,
+    getManagedTempPathAccessDecision: vi.fn(() => undefined),
+    setManagedTempPathAccessValidator: vi.fn(),
     isAllowedReadPath: mocks.isAllowedReadPath,
     isAllowedWritePath: mocks.isAllowedWritePath,
     resolveAllowedReadPath: mocks.resolveAllowedReadPath,

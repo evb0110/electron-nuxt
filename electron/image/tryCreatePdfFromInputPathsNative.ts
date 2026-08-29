@@ -44,6 +44,12 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import {
+    createPdfCombineOutputTooLargeError,
+    isPdfCombineOutputTooLargeError,
+    normalizePdfCombineOutputLimit,
+    PDF_COMBINE_MAX_OUTPUT_BYTES,
+} from '@contracts/pdfCombineOutputPolicy';
 
 interface INativePdfAssemblerProgress {
     processed: number;
@@ -175,22 +181,30 @@ function throwIfAborted(signal: AbortSignal | undefined) {
 
 function getResourceLimits(
     mode: TNativePdfAssemblerMode = 'memory',
-    allowLargeOutput = false,
 ): INativePdfAssemblerResourceLimits {
     if (mode === 'file-backed') {
         return {
-            // The path-backed route keeps the final document on disk. The
-            // strict large-input route has no product output cap, while the
-            // small compatibility route retains its in-memory cap.
-            maxOutputBytes: allowLargeOutput
-                ? Number.MAX_SAFE_INTEGER
-                : parseIntegerEnv('EVB_PDF_COMBINE_MAX_OUTPUT_MB', 512, 1, 4096) * BYTES_PER_MEBIBYTE,
+            maxOutputBytes: normalizePdfCombineOutputLimit(
+                parseIntegerEnv(
+                    'EVB_PDF_COMBINE_MAX_OUTPUT_MB',
+                    PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
+                    1,
+                    PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
+                ) * BYTES_PER_MEBIBYTE,
+            ),
             maxPages: FILE_BACKED_NATIVE_ASSEMBLER_MAX_PAGES,
         };
     }
 
     return {
-        maxOutputBytes: parseIntegerEnv('EVB_PDF_COMBINE_MAX_OUTPUT_MB', 512, 1, 4096) * 1024 * 1024,
+        maxOutputBytes: normalizePdfCombineOutputLimit(
+            parseIntegerEnv(
+                'EVB_PDF_COMBINE_MAX_OUTPUT_MB',
+                PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
+                1,
+                PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
+            ) * BYTES_PER_MEBIBYTE,
+        ),
         maxPages: parseIntegerEnv(
             'EVB_PDF_COMBINE_MAX_PAGES',
             IN_MEMORY_NATIVE_ASSEMBLER_MAX_PAGES,
@@ -224,7 +238,7 @@ function addPageCounts(currentPageCount: number, addedPageCount: number) {
 
 function assertOutputLimit(byteLength: number, limits: INativePdfAssemblerResourceLimits) {
     if (byteLength > limits.maxOutputBytes) {
-        throw new Error('Combined PDF output is too large to return safely');
+        throw createPdfCombineOutputTooLargeError();
     }
 }
 
@@ -492,6 +506,9 @@ async function writePdfFromInputPathsNativeWithTempDir(
         if (options?.signal?.aborted || isAbortError(error)) {
             throw error;
         }
+        if (isPdfCombineOutputTooLargeError(error)) {
+            throw error;
+        }
         if (isStrictNativeFailure(options)) {
             if (isPdfCombineCapabilityError(error)) {
                 throw error;
@@ -583,7 +600,7 @@ export async function tryWritePdfFromInputPathsNative(
         throw error;
     }
     const stagedOutputPath = makeSiblingTempPath(normalizedOutputPath);
-    const limits = getResourceLimits('file-backed', strict);
+    const limits = getResourceLimits('file-backed');
 
     try {
         await assertNativeCombineDiskSpace(inputPaths, normalizedOutputPath, limits);
@@ -618,7 +635,13 @@ export async function tryWritePdfFromInputPathsNative(
         await atomicReplace(stagedOutputPath, normalizedOutputPath);
         return true;
     } catch (error) {
-        if (!strict || options?.signal?.aborted || isAbortError(error)) {
+        if (options?.signal?.aborted || isAbortError(error)) {
+            throw error;
+        }
+        if (isPdfCombineOutputTooLargeError(error)) {
+            throw error;
+        }
+        if (!strict) {
             throw error;
         }
         if (isPdfCombineCapabilityError(error)) {
@@ -673,9 +696,9 @@ export async function tryCreatePdfFromInputPathsNative(
         throw error;
     }
     const outputPath = join(tempDir, `${randomUUID()}.pdf`);
-    // This API returns a Uint8Array to its caller. Keep its output budget
-    // finite even when strict mode prevents a JS fallback. Callers that need
-    // unrestricted native output should use the file-backed API above.
+    // Both native entrypoints use the same finite output policy. The
+    // file-backed form keeps bytes on disk, but it still cannot publish an
+    // oversized combine result to its caller.
     const limits = getResourceLimits(strict ? 'file-backed' : 'memory');
 
     try {
@@ -702,6 +725,9 @@ export async function tryCreatePdfFromInputPathsNative(
         return await readLimitedPdfOutput(outputPath, limits);
     } catch (error) {
         if (options?.signal?.aborted || isAbortError(error)) {
+            throw error;
+        }
+        if (isPdfCombineOutputTooLargeError(error)) {
             throw error;
         }
         if (strict) {

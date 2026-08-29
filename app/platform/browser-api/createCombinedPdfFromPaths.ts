@@ -49,6 +49,9 @@ import {
     resolveBrowserRasterIccProfile,
 } from '@app/platform/browser-api/browserRasterImageMetadata';
 import {embedPdfImageIccProfile} from '@app/platform/browser-api/embedPdfImageIccProfile';
+import { isNativeDocumentRef } from '@app/utils/documentRef';
+import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
+import {createBrowserPdfCombineOutputError} from '@app/platform/browser-api/browserPdfCombineLimits';
 
 export interface IBrowserBatchOpenProgress {
     processed: number;
@@ -71,6 +74,19 @@ function throwIfCombineAborted(signal: AbortSignal | undefined) {
             ? signal.reason
             : new DOMException('PDF combine was canceled.', 'AbortError');
     }
+}
+
+function assertBrowserCombineSources(paths: string[]) {
+    const nativePath = paths.find(path => isNativeDocumentRef(path));
+    if (!nativePath) {
+        return;
+    }
+
+    throw new PdfCombineCapabilityError(
+        'native-unavailable',
+        `Browser PDF combine cannot process a native document path: ${nativePath}`,
+        {operation: 'pdf-combine'},
+    );
 }
 
 const BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;
@@ -106,7 +122,7 @@ export function assertBrowserCombinedPdfPageCount(pageCount: number) {
 
 export function assertBrowserCombinedPdfOutputBytes(bytes: Uint8Array) {
     if (bytes.byteLength === 0 || bytes.byteLength > BROWSER_COMBINED_PDF_MAX_OUTPUT_BYTES) {
-        throw new Error('ERR_BROWSER_PDF_COMBINE_INVALID_OUTPUT');
+        throw createBrowserPdfCombineOutputError(bytes.byteLength);
     }
 }
 
@@ -460,6 +476,7 @@ export async function createCombinedPdfFromPaths(
     progressOptions?: IBrowserBatchOpenProgressOptions,
 ) {
     throwIfCombineAborted(progressOptions?.signal);
+    assertBrowserCombineSources(paths);
     await ensureBrowserCombinedPdfInputBudget(paths);
     const {
         combinePaths,

@@ -16,6 +16,8 @@ export interface IMarkupSubtypeHint {
     appAnnotationId?: string | null;
     annotationId?: string | null;
     color?: string | null;
+    /** Canonical `/Contents` note text for a native text-markup update. */
+    contents?: string | null;
     id?: string | null;
     pageMarkupIndex?: number | null;
     source?: TMarkupSubtypeHintSource | null;

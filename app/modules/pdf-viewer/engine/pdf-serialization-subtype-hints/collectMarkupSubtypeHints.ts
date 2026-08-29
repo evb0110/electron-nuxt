@@ -67,7 +67,10 @@ function shouldCollectMarkupSubtypeHintColor(comment: IAnnotationCommentSummary)
     return comment.colorEdited === true || comment.source === 'editor';
 }
 
-export function collectMarkupSubtypeHints(comments: IAnnotationCommentSummary[]): IMarkupSubtypeHint[] {
+export function collectMarkupSubtypeHints(
+    comments: IAnnotationCommentSummary[],
+    options: {includeContents?: boolean} = {},
+): IMarkupSubtypeHint[] {
     const hints: IMarkupSubtypeHint[] = [];
     const pageMarkupIndexes = new Map<number, number>();
     for (const comment of comments) {
@@ -87,6 +90,7 @@ export function collectMarkupSubtypeHints(comments: IAnnotationCommentSummary[])
             ...(comment.appAnnotationId ? {appAnnotationId: comment.appAnnotationId} : {}),
             annotationId: comment.annotationId,
             color: shouldCollectMarkupSubtypeHintColor(comment) ? comment.color : null,
+            ...(options.includeContents ? {contents: comment.text} : {}),
             id: comment.id,
             subtype,
             pageIndex: comment.pageIndex,

@@ -11,6 +11,7 @@ import { isImportedEmbeddedShapeSubtype } from '@app/modules/pdf-viewer/engine/p
 import { shouldDemandManagedEmbeddedShapeBaseline } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-import-policy/shouldDemandManagedEmbeddedShapeBaseline';
 import { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {findUniqueAnnotationComment} from '@app/modules/pdf-viewer/runtime/annotations/findUniqueAnnotationComment';
 import { usePdfAnnotationColorCommands } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 import { usePdfAnnotationCommentActions } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentActions';
 import { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
@@ -285,7 +286,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         deletedEmbeddedAnnotationIds.value = annotationApplication.value.deletedEmbeddedAnnotationIds();
         const nextColors = new Map<string, string | null>();
         annotationApplication.value.store.list().forEach((entity) => {
-            if (entity.kind === 'shape') {
+            if (entity.kind === 'shape' || entity.kind === 'placed-image') {
                 return;
             }
             const annotationId = entity.identity.id;
@@ -756,7 +757,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         const presentExternalIds = new Set<string>();
         const relevantPageIndexes = new Set(
             annotationApplication.value.store.list({includeDeleted: true})
-                .filter(entity => entity.kind !== 'shape')
+                .filter(entity => entity.kind !== 'shape' && entity.kind !== 'placed-image')
                 .map(entity => entity.pageIndex),
         );
         for (const pageIndex of relevantPageIndexes) {
@@ -845,8 +846,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         markAnnotationLocallyDeleted: annotationCommentModel.markLocallyDeleted,
         restoreAnnotationLocally: annotationCommentModel.restoreLocally,
         removeAnnotationFromInternalCache: annotationCommentModel.removeFromInternalCache,
-        findAnnotationCommentByStableKey: stableKey =>
-            annotationCommentsCache.value.find(comment => comment.stableKey === stableKey) ?? null,
+        findAnnotationCommentByStableKey: stableKey => findUniqueAnnotationComment(
+            annotationCommentsCache.value,
+            comment => comment.stableKey === stableKey,
+        ),
         clearPendingMarkerMoves: annotationCommentModel.clearPendingMarkerMoves,
         handleMarkerMove: annotationCommentModel.handleMarkerMove,
         findEditorForComment: commentCrud.findEditorForComment,
@@ -855,7 +858,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         resolveCanonicalAnnotationId: comment => annotationApplication.value.annotationIdForSummary(comment),
         setCanonicalNoteText: (id, text) => {
             const entity = annotationApplication.value.store.get(id);
-            if (entity && entity.kind !== 'shape' && entity.text !== normalizeAnnotationText(text)) {
+            if (
+                entity
+                && entity.kind !== 'shape'
+                && entity.kind !== 'placed-image'
+                && entity.text !== normalizeAnnotationText(text)
+            ) {
                 annotationApplication.value.store.setNoteText(id, text);
             }
         },
@@ -866,7 +874,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         },
         setCanonicalColor: (id, color) => {
             const entity = annotationApplication.value.store.get(id);
-            if (entity && entity.kind !== 'shape' && entity.color !== color) {
+            if (
+                entity
+                && entity.kind !== 'shape'
+                && entity.kind !== 'placed-image'
+                && entity.color !== color
+            ) {
                 annotationApplication.value.store.setStyle(id, {color});
             }
         },

@@ -91,7 +91,7 @@ describe('createBrowserPageOpsCapability', () => {
         const clearSearchCaches = vi.fn();
         const pageOps = createPageOps({clearSearchCaches});
 
-        const result = await pageOps.rotate('/tmp/work.pdf', [
+        const result = await pageOps.rotate('browser://documents/work.pdf', [
             1,
             2,
             3,
@@ -114,13 +114,13 @@ describe('createBrowserPageOpsCapability', () => {
         });
 
         const pageOps = createPageOps({});
-        await expect(pageOps.delete('/tmp/work.pdf', [1], 1)).resolves.toEqual({
+        await expect(pageOps.delete('browser://documents/work.pdf', [1], 1)).resolves.toEqual({
             success: true,
             pageCount: 1,
         });
 
         expect(browserPageOpsWorkerMock.run).toHaveBeenCalledTimes(1);
-        expect(browserDocumentStoreMock.write).toHaveBeenCalledWith('/tmp/work.pdf', new Uint8Array([2]));
+        expect(browserDocumentStoreMock.write).toHaveBeenCalledWith('browser://documents/work.pdf', new Uint8Array([2]));
     });
 
     it('rejects browser page-ops jobs above the full-read budget before reading the PDF', async () => {
@@ -128,11 +128,23 @@ describe('createBrowserPageOpsCapability', () => {
 
         const pageOps = createPageOps({});
 
-        await expect(pageOps.delete('/tmp/work.pdf', [1], 1)).rejects.toThrow(
+        await expect(pageOps.delete('browser://documents/work.pdf', [1], 1)).rejects.toThrow(
             'Deleting pages is unavailable in the browser for PDFs larger than 16MB',
         );
         expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
+    });
+
+    it('refuses native page-operation sources instead of using the browser fallback', async () => {
+        const pageOps = createPageOps({});
+
+        await expect(pageOps.delete('/tmp/native.pdf', [1], 1)).rejects.toMatchObject({
+            name: 'PdfPageOpsCapabilityError',
+            code: 'native-unavailable',
+            operation: 'Deleting pages',
+        });
+        expect(browserDocumentStoreMock.stat).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
     });
 
     it('rejects duplicate page selections instead of silently normalizing them', async () => {
@@ -146,7 +158,7 @@ describe('createBrowserPageOpsCapability', () => {
 
         const pageOps = createPageOps({});
 
-        await expect(pageOps.delete('/tmp/work.pdf', [
+        await expect(pageOps.delete('browser://documents/work.pdf', [
             2,
             2,
         ], 3)).rejects.toThrow('deletePages: duplicate page number 2');
@@ -164,7 +176,7 @@ describe('createBrowserPageOpsCapability', () => {
 
         const pageOps = createPageOps({});
 
-        await expect(pageOps.rotate('/tmp/work.pdf', [4], 3, 90)).rejects.toThrow(
+        await expect(pageOps.rotate('browser://documents/work.pdf', [4], 3, 90)).rejects.toThrow(
             'rotatePages: page number 4 is out of range 1-3',
         );
         expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
@@ -181,7 +193,7 @@ describe('createBrowserPageOpsCapability', () => {
 
         const pageOps = createPageOps({});
 
-        await expect(pageOps.reorder('/tmp/work.pdf', [
+        await expect(pageOps.reorder('browser://documents/work.pdf', [
             3,
             1,
         ])).rejects.toThrow('reorderPages: missing page 2 in reorder payload');
@@ -192,7 +204,7 @@ describe('createBrowserPageOpsCapability', () => {
         const pageOps = createPageOps({});
 
         await expect(pageOps.move(
-            '/tmp/work.pdf',
+            'browser://documents/work.pdf',
             900_000,
             900_000,
             0,
@@ -209,7 +221,7 @@ describe('createBrowserPageOpsCapability', () => {
         const pageOps = createPageOps({});
 
         await expect(pageOps.deleteRanges(
-            '/tmp/work.pdf',
+            'browser://documents/work.pdf',
             [{
                 startPage: 2,
                 endPage: BROWSER_PAGE_OP_DELETE_RANGES_MAX_PAGES + 2,
@@ -245,7 +257,7 @@ describe('createBrowserPageOpsCapability', () => {
         const clearSearchCaches = vi.fn();
         const pageOps = createPageOps({clearSearchCaches});
 
-        const result = await pageOps.crop('/tmp/work.pdf', [1], 1, {
+        const result = await pageOps.crop('browser://documents/work.pdf', [1], 1, {
             top: 12,
             bottom: 8,
             left: 6,
@@ -255,7 +267,7 @@ describe('createBrowserPageOpsCapability', () => {
         expect(result.success).toBe(true);
         expect(browserDocumentStoreMock.read).toHaveBeenCalledTimes(1);
         expect(browserDocumentStoreMock.write).toHaveBeenCalledTimes(1);
-        expect(browserDocumentStoreMock.write).toHaveBeenCalledWith('/tmp/work.pdf', workerResult.data);
+        expect(browserDocumentStoreMock.write).toHaveBeenCalledWith('browser://documents/work.pdf', workerResult.data);
         expect(browserPageOpsWorkerMock.run).toHaveBeenCalledWith('crop', {
             data: pdfBytes,
             pages: [1],
@@ -285,7 +297,7 @@ describe('createBrowserPageOpsCapability', () => {
         const clearGate = Promise.withResolvers<undefined>();
         const pageOps = createPageOps({clearSearchCaches: vi.fn(() => clearGate.promise)});
         let settled = false;
-        const operation = pageOps.rotate('/tmp/work.pdf', [1], 1, 90)
+        const operation = pageOps.rotate('browser://documents/work.pdf', [1], 1, 90)
             .finally(() => {
                 settled = true;
             });
@@ -328,7 +340,7 @@ describe('createBrowserPageOpsCapability', () => {
     ])('rejects %s crop margins before browser mutation', async (_label, margins) => {
         const pageOps = createPageOps({});
 
-        await expect(pageOps.crop('/tmp/work.pdf', [1], 1, margins as never))
+        await expect(pageOps.crop('browser://documents/work.pdf', [1], 1, margins as never))
             .rejects.toThrow('Invalid crop margins');
         expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
@@ -345,7 +357,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
         const pageOps = createPageOps({});
 
-        await expect(pageOps.crop('/tmp/work.pdf', [1], 1, {
+        await expect(pageOps.crop('browser://documents/work.pdf', [1], 1, {
             top: 0,
             bottom: 0,
             left: 120,
@@ -376,11 +388,11 @@ describe('createBrowserPageOpsCapability', () => {
         const clearSearchCaches = vi.fn();
         const pageOps = createPageOps({clearSearchCaches});
 
-        await expect(pageOps.delete('/tmp/work.pdf', [2], 3)).resolves.toEqual({
+        await expect(pageOps.delete('browser://documents/work.pdf', [2], 3)).resolves.toEqual({
             success: true,
             pageCount: 2,
         });
-        await expect(pageOps.reorder('/tmp/work.pdf', [
+        await expect(pageOps.reorder('browser://documents/work.pdf', [
             2,
             1,
         ])).resolves.toEqual({
@@ -431,8 +443,8 @@ describe('createBrowserPageOpsCapability', () => {
 
         const pageOps = createPageOps({});
 
-        const rotatePromise = pageOps.rotate('/tmp/work.pdf', [1], 1, 90);
-        const deletePromise = pageOps.delete('/tmp/work.pdf', [1], 1);
+        const rotatePromise = pageOps.rotate('browser://documents/work.pdf', [1], 1, 90);
+        const deletePromise = pageOps.delete('browser://documents/work.pdf', [1], 1);
         await vi.waitFor(() => {
             expect(browserPageOpsWorkerMock.run).toHaveBeenCalledTimes(1);
         });
@@ -470,7 +482,7 @@ describe('createBrowserPageOpsCapability', () => {
 
         const pageOps = createPageOps({});
 
-        await expect(pageOps.getPageGeometry('/tmp/work.pdf', 1)).rejects.toThrow(
+        await expect(pageOps.getPageGeometry('browser://documents/work.pdf', 1)).rejects.toThrow(
             'Inspecting page geometry is unavailable in the browser for PDFs larger than 16MB',
         );
         expect(browserPageOpsWorkerMock.run).not.toHaveBeenCalled();
@@ -491,7 +503,7 @@ describe('createBrowserPageOpsCapability', () => {
 
         const pageOps = createPageOps({});
 
-        await expect(pageOps.getPageGeometry('/tmp/work.pdf', 1)).resolves.toEqual({
+        await expect(pageOps.getPageGeometry('browser://documents/work.pdf', 1)).resolves.toEqual({
             mediaBox: {
                 x: 0,
                 y: 0,
@@ -522,7 +534,7 @@ describe('createBrowserPageOpsCapability', () => {
 
         const pageOps = createPageOps({});
 
-        await expect(pageOps.getPageGeometry('/tmp/work.pdf', 1)).resolves.toEqual({
+        await expect(pageOps.getPageGeometry('browser://documents/work.pdf', 1)).resolves.toEqual({
             mediaBox: {
                 x: 0,
                 y: 0,
@@ -568,7 +580,7 @@ describe('createBrowserPageOpsCapability', () => {
             writeBytesToHandle,
         });
 
-        const result = await pageOps.extract('/tmp/work.pdf', [
+        const result = await pageOps.extract('browser://documents/work.pdf', [
             2,
             3,
         ]);
@@ -632,7 +644,7 @@ describe('createBrowserPageOpsCapability', () => {
             4,
         ]);
         browserDocumentStoreMock.stat.mockImplementation(async (path: string) => {
-            if (path === '/tmp/work.pdf') {
+            if (path === 'browser://documents/work.pdf') {
                 return { size: pdfBytes.byteLength };
             }
 
@@ -675,8 +687,8 @@ describe('createBrowserPageOpsCapability', () => {
             saveBytesToPickerOrDownload,
         });
 
-        await pageOps.extract('/tmp/work.pdf', [1]);
-        await pageOps.insertFile('/tmp/work.pdf', 1, 1, ['browser://documents/picked/image.png']);
+        await pageOps.extract('browser://documents/work.pdf', [1]);
+        await pageOps.insertFile('browser://documents/work.pdf', 1, 1, ['browser://documents/picked/image.png']);
 
         expect(browserPageOpsWorkerMock.run).toHaveBeenNthCalledWith(1, 'extractPages', {
             data: pdfBytes,
@@ -713,7 +725,7 @@ describe('createBrowserPageOpsCapability', () => {
         const insertionBytes = new Uint8Array(await insertionPdf.save());
 
         browserDocumentStoreMock.stat.mockImplementation(async (path: string) => {
-            if (path === '/tmp/work.pdf') {
+            if (path === 'browser://documents/work.pdf') {
                 return { size: BROWSER_MAX_FULL_READ_BYTES + 1 };
             }
 
@@ -725,7 +737,7 @@ describe('createBrowserPageOpsCapability', () => {
         const pageOps = createPageOps({createCombinedPdfFromPaths});
 
         await expect(pageOps.insertFile(
-            '/tmp/work.pdf',
+            'browser://documents/work.pdf',
             1,
             1,
             ['browser://documents/picked/image.png'],
@@ -739,7 +751,7 @@ describe('createBrowserPageOpsCapability', () => {
 
     it('rejects browser insert destinations above the full-read budget before planning the working set', async () => {
         browserDocumentStoreMock.stat.mockImplementation(async (path: string) => {
-            if (path === '/tmp/work.pdf') {
+            if (path === 'browser://documents/work.pdf') {
                 return { size: BROWSER_MAX_FULL_READ_BYTES + 1 };
             }
 
@@ -750,7 +762,7 @@ describe('createBrowserPageOpsCapability', () => {
         const pageOps = createPageOps({createCombinedPdfFromPaths});
 
         await expect(pageOps.insertFile(
-            '/tmp/work.pdf',
+            'browser://documents/work.pdf',
             1,
             1,
             ['browser://documents/picked/insert.pdf'],
@@ -779,21 +791,21 @@ describe('createBrowserPageOpsCapability', () => {
         const insertionBytes = new Uint8Array(await insertionPdf.save());
 
         browserDocumentStoreMock.stat.mockImplementation(async (path: string) => {
-            if (path === '/tmp/work.pdf') {
+            if (path === 'browser://documents/work.pdf') {
                 return { size: destinationBytes.byteLength };
             }
 
             return { size: insertionBytes.byteLength };
         });
         browserDocumentStoreMock.read.mockImplementation(async (path: string) => (
-            path === '/tmp/work.pdf' ? destinationBytes : insertionBytes
+            path === 'browser://documents/work.pdf' ? destinationBytes : insertionBytes
         ));
 
         const createCombinedPdfFromPaths = vi.fn(async () => new Uint8Array([9]));
         const pageOps = createPageOps({createCombinedPdfFromPaths});
 
         const result = await pageOps.insertFile(
-            '/tmp/work.pdf',
+            'browser://documents/work.pdf',
             1,
             1,
             ['browser://documents/picked/insert.pdf'],
@@ -801,7 +813,7 @@ describe('createBrowserPageOpsCapability', () => {
 
         expect(result.success).toBe(true);
         expect(createCombinedPdfFromPaths).not.toHaveBeenCalled();
-        expect(browserDocumentStoreMock.read).toHaveBeenNthCalledWith(1, '/tmp/work.pdf');
+        expect(browserDocumentStoreMock.read).toHaveBeenNthCalledWith(1, 'browser://documents/work.pdf');
         expect(browserDocumentStoreMock.read).toHaveBeenNthCalledWith(2, 'browser://documents/picked/insert.pdf');
         expect(browserDocumentStoreMock.write).toHaveBeenCalledTimes(1);
     });

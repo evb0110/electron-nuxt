@@ -272,6 +272,7 @@ describe('native markup builders', () => {
             id: 'hint-1',
             pageMarkupIndex: 3,
             source: 'editor',
+            contents: 'Edited markup note',
             consumed: false,
         })).toEqual({
             subtype: 'Highlight',
@@ -283,6 +284,7 @@ describe('native markup builders', () => {
             id: 'hint-1',
             pageMarkupIndex: 3,
             source: 'editor',
+            contents: 'Edited markup note',
         });
 
         const mutation = buildNativeMarkupMutationForSave({

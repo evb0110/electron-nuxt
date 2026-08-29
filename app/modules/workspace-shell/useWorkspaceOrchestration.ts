@@ -7,7 +7,6 @@ import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import {
     type IPdfPageRasterScheduler,
-    hasActivePdfjsAnnotationEditorDraft,
     useOcrTextContent,
     usePageContextMenu,
     usePdfHistory,
@@ -207,7 +206,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeSearch,
         resetSearchCache,
     } = sidebarSearch;
-
     const { settings: appSettings } = useSettings();
     const isSaving = ref(false);
     const isSavingAs = ref(false);
@@ -273,27 +271,27 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pageContextMenu,
         closePageContextMenu,
     } = pageContextMenuControls;
-
     const { clearCache: clearOcrCache } = useOcrTextContent();
     const {
-        isExportingDocx: isDocxExporting,
+        isExportingDocx,
         docxExportError,
         exportDocx,
+        cancelDocxExport: cancelActiveDocxExport,
         clearDocxExportError,
     } = useDocxExport();
-    const isExportingDocx = computed(() => isDocxExporting.value);
+    let docxExportCancellationVersion = 0;
+    function cancelDocxExport() { docxExportCancellationVersion += 1; cancelActiveDocxExport(); }
     async function handleExportDocx(selectedLanguages?: string[]) {
+        if (isExportingDocx.value) { cancelDocxExport(); return; }
+        const cancellationVersion = docxExportCancellationVersion;
         const exported = await exportDocx({
             workingCopyPath: workingCopyPath.value,
             documentRevisionToken: documentRevisionToken.value,
             pdfDocument: pdfDocument.value,
             ...(selectedLanguages === undefined ? {} : {selectedLanguages}),
         });
-        if (!exported) {
-            openDropdown('ocr');
-        }
+        if (!exported && cancellationVersion === docxExportCancellationVersion) openDropdown('ocr');
     }
-
     const annotationSession = useWorkspaceAnnotationSession({
         pdfViewerRef,
         pdfDocument,
@@ -411,7 +409,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         return hasAnnotationChanges();
     });
     const hasActivePdfJsEditorDraft = computed(() => (
-        hasActivePdfjsAnnotationEditorDraft(annotationEditorState.value)
+        annotationEditorState.value.hasPendingFreeTextDraft === true
     ));
     const hasPendingUnsavedChanges = computed(() => (
         annotationDirty.value
@@ -1191,6 +1189,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             docxExportError,
             hasPendingUnsavedChanges,
             handleExportDocx,
+            cancelDocxExport,
             handleOcrComplete,
             isExportingDocx,
         },

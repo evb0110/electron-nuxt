@@ -36,6 +36,87 @@ export function hasWindowsSigningCredentials(env = process.env) {
     return Boolean(env.WIN_CSC_LINK && env.WIN_CSC_KEY_PASSWORD);
 }
 
+// Keep the native-save dependency graph in one place. The CI workflow mirrors
+// these paths in its push trigger because GitHub evaluates that trigger before
+// JavaScript can run; the policy tests require the two lists to stay aligned.
+export const NATIVE_PDF_SAVE_DEPENDENCY_PATHS = Object.freeze([
+    '.github/workflows/ci.yml',
+    'app/composables/useAnalytics.ts',
+    'app/modules/pdf-viewer/annotations/**',
+    'app/modules/pdf-viewer/engine/**',
+    'app/modules/pdf-viewer/public.ts',
+    'app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts',
+    'app/modules/pdf-viewer/runtime/save/**',
+    'app/modules/pdf-viewer/serialization/**',
+    'app/modules/workspace-shell/automation/automationReadinessEvents.ts',
+    'app/modules/workspace-shell/composables/document-session/**',
+    'app/modules/workspace-shell/composables/document-session/createDocumentPersistResults.ts',
+    'app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts',
+    'app/modules/workspace-shell/composables/document-session/nativePdfMutationCommit.ts',
+    'app/modules/workspace-shell/composables/file-operations/**',
+    'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
+    'app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult.ts',
+    'app/modules/workspace-shell/composables/file-operations/workspaceSavePlan.ts',
+    'app/modules/workspace-shell/composables/file-operations/workspaceSaveTransactionRequest.ts',
+    'app/modules/workspace-shell/composables/usePageSaveOrchestration.ts',
+    'app/modules/workspace-shell/composables/usePdfFile.ts',
+    'app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts',
+    'app/modules/workspace-shell/composables/nativePdfMutationArtifact.ts',
+    'app/modules/workspace-shell/public/nativePdfMutationArtifact.ts',
+    'app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts',
+    'app/platform/browser-api/public.ts',
+    'app/platform/browser/browserDocumentConstants.ts',
+    'app/services/pdf-file/**',
+    'app/services/pdf-file/savePdfBytesAs.ts',
+    'app/services/pdf-file/savePdfBytesToWorkingCopy.ts',
+    'app/types/documentOperationKind.ts',
+    'app/types/**',
+    'app/types/pdfContracts.ts',
+    'app/types/pdfUi.ts',
+    'app/utils/asyncGuard.ts',
+    'app/utils/browserLogger.ts',
+    'app/utils/**',
+    'app/utils/documentBytes.ts',
+    'app/utils/documentRef.ts',
+    'app/utils/error.ts',
+    'app/utils/pdfDate.ts',
+    'app/utils/platformDocuments.ts',
+    'electron/features/documents/createDocumentsPreloadFileClient.ts',
+    'electron/features/documents/createDocumentsService.ts',
+    'electron/features/documents/contract.ts',
+    'electron/features/documents/documentsIpcCodecs.ts',
+    'electron/features/documents/documentsService.ts',
+    'electron/features/documents/**',
+    'electron/features/documents/registerDocumentsIpcAdapter.ts',
+    'electron/features/documents/serializedPdfPersistenceContract.ts',
+    'electron/file-access/**',
+    'electron/preload/createElectronApi.ts',
+    'electron/preload/**',
+    'electron/platform-ipc/**',
+    'native/pdf-page-ops/**',
+    'native/evb-native-support/**',
+    'packages/contracts/documentPersistenceFrames.ts',
+    'packages/contracts/**',
+    'packages/contracts/document*.ts',
+    'packages/contracts/documentsPersistenceSchemas.ts',
+    'packages/contracts/documentsPlatformFeatureSchemas.ts',
+    'packages/contracts/electronApiDocuments.ts',
+    'packages/contracts/nativePdfMutations.ts',
+    'packages/pdf-core/**',
+    'packages/pdf-core/nativePdfMutationPolicy.ts',
+    'scripts/build-native-tool.mjs',
+    'scripts/ci/runElectronQuarantine.ts',
+    'scripts/ci/stageExactPdfFixture.ts',
+    'tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts',
+    'tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts',
+    'tests/e2e/electron/nativeSaveReopen.e2e.test.ts',
+    'tests/e2e/electron/savePipeline.e2e.test.ts',
+    'tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts',
+    'tests/integration/native/**',
+    'tests/unit/app/services/pdf-save/**',
+    'tests/unit/electron/documentFileWriteAtomic*.test.ts',
+]);
+
 const GATE_POLICY_MANIFEST = Object.freeze({
     ci: {changedAreas: {
         browserIntegration: {
@@ -136,7 +217,15 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'patches/**',
                 'vitest.config.ts',
                 'vitest.shared.config.ts',
+                // Native save changes also need the controlled pressure save
+                // in blocking smoke, not only the focused reopen lane.
+                ...NATIVE_PDF_SAVE_DEPENDENCY_PATHS,
             ],
+        },
+        nativePdfSave: {
+            output: 'electron_save_reopen',
+            owner: 'pr_electron_native_save_reopen',
+            paths: [...NATIVE_PDF_SAVE_DEPENDENCY_PATHS],
         },
         landing: {
             output: 'landing',
@@ -200,6 +289,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'scripts/writeGeneratedFileIfChanged.ts',
                 'scripts/wasm-artifacts.mjs',
                 'scripts/workspace-roots.mjs',
+                'tests/integration/native/**',
                 'electron-builder.yml',
                 'package.json',
                 'pnpm-lock.yaml',
@@ -207,6 +297,9 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'pnpm-workspace.yaml',
                 'rust-toolchain.toml',
                 'types/**',
+                // Keep native integration and build safety coupled to the
+                // same save graph that drives the Electron reopen lane.
+                ...NATIVE_PDF_SAVE_DEPENDENCY_PATHS,
             ],
         },
     }},
@@ -423,6 +516,10 @@ export function getGatePolicyManifest() {
 
 export function getNativeOrBuildChangedAreaPaths() {
     return [...GATE_POLICY_MANIFEST.ci.changedAreas.nativeOrBuild.paths];
+}
+
+export function getNativePdfSaveDependencyPaths() {
+    return [...NATIVE_PDF_SAVE_DEPENDENCY_PATHS];
 }
 
 export function getCiChangedAreaPolicy() {

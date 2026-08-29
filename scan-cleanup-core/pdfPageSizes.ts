@@ -1,4 +1,5 @@
 import { createReadStream } from 'fs';
+import { randomUUID } from 'crypto';
 import {
     open,
     readFile,
@@ -428,6 +429,8 @@ export interface IPdfPageSizeStore {
     readonly pageCount: number | null;
     /** Header capability, when the source provides it. */
     readonly dominantImageAnalysis?: TPdfPageSizeDominantImageAnalysis | undefined;
+    /** Create an independent cursor over the same bounded source, when supported. */
+    readonly fork?: () => IPdfPageSizeStore;
     getPage(pageNumber: number): Promise<IPdfPageSize>;
     readRange(firstPageNumber: number, lastPageNumberExclusive: number): Promise<IPdfPageSize[]>;
     forEachChunk(onChunk: (chunk: IPdfPageSizeChunk) => Promise<void> | void): Promise<void>;
@@ -908,7 +911,7 @@ async function* readNativePageSizeChunks(
 ): AsyncGenerator<IPdfPageSizeChunk> {
     const outputPath = join(
         options.tempDir,
-        `page-sizes-${String(process.pid)}-${String(Date.now())}.jsonl`,
+        `page-sizes-${String(process.pid)}-${randomUUID()}.jsonl`,
     );
     try {
         const args = [
@@ -1111,18 +1114,26 @@ export async function* readPdfPageSizeChunks(
 
 export type TPdfPageSizeChunkReader = () => AsyncGenerator<IPdfPageSizeChunk>;
 
+interface IPdfPageSizeReaderCursor {
+    currentChunk: IPdfPageSizeChunk | null;
+    nextChunkIndex: number;
+}
+
 /**
  * A forward-scanning page geometry view with one bounded chunk in memory.
- * Scalar reads may restart the source when a caller asks for an earlier page;
- * callers reading a run in order should use `readRange` or `forEachChunk` to
- * keep the native process and sidecar pass one-way.
+ * Scalar reads are serialized on this store's cursor, so callers can issue
+ * concurrent sparse requests without corrupting one another. Use `fork` when
+ * two long-lived consumers should advance independently.
  */
 export class PdfPageSizeStore implements IPdfPageSizeStore {
     private readonly createReader: TPdfPageSizeChunkReader;
-    private reader: AsyncGenerator<IPdfPageSizeChunk> | null = null;
-    private currentChunk: IPdfPageSizeChunk | null = null;
-    private nextChunkIndex = 0;
-    private complete = false;
+    private readonly activeReaders = new Set<AsyncGenerator<IPdfPageSizeChunk>>();
+    private pageReader: AsyncGenerator<IPdfPageSizeChunk> | null = null;
+    private pageCursor: IPdfPageSizeReaderCursor = {
+        currentChunk: null,
+        nextChunkIndex: 0,
+    };
+    private pageReadTail = Promise.resolve();
     private closed = false;
     private _pageCount: number | null = null;
     private _dominantImageAnalysis: TPdfPageSizeDominantImageAnalysis | undefined;
@@ -1139,42 +1150,55 @@ export class PdfPageSizeStore implements IPdfPageSizeStore {
         return this._dominantImageAnalysis;
     }
 
-    private ensureReader() {
+    public fork() {
         if (this.closed) {
             throw new Error('Page-size store is closed');
         }
-        this.reader ??= this.createReader();
-        return this.reader;
+        return new PdfPageSizeStore(this.createReader);
     }
 
-    private async restart() {
-        if (this.reader !== null) {
-            await this.reader.return(undefined);
+    private openReader() {
+        if (this.closed) {
+            throw new Error('Page-size store is closed');
         }
-        this.reader = null;
-        this.currentChunk = null;
-        this.nextChunkIndex = 0;
-        this.complete = false;
+        const reader = this.createReader();
+        this.activeReaders.add(reader);
+        return reader;
     }
 
-    private async nextChunk() {
-        if (this.complete) {
-            return null;
+    private async closeReader(reader: AsyncGenerator<IPdfPageSizeChunk>) {
+        if (this.activeReaders.delete(reader)) {
+            await reader.return(undefined);
         }
-        const reader = this.ensureReader();
-        const result = await reader.next();
-        if (result.done) {
-            this.complete = true;
-            this.currentChunk = null;
-            if (this._pageCount === null) {
-                throw new Error('Page-size source returned no chunks');
-            }
-            return null;
+    }
+
+    private async resetPageReader() {
+        const reader = this.pageReader;
+        this.pageReader = null;
+        this.pageCursor = {
+            currentChunk: null,
+            nextChunkIndex: 0,
+        };
+        if (reader !== null) {
+            await this.closeReader(reader);
         }
-        const chunk = result.value;
-        if (chunk.chunkIndex !== this.nextChunkIndex) {
+    }
+
+    private ensurePageReader() {
+        if (this.pageReader === null) {
+            this.pageReader = this.openReader();
+            this.pageCursor = {
+                currentChunk: null,
+                nextChunkIndex: 0,
+            };
+        }
+        return this.pageReader;
+    }
+
+    private validateChunk(chunk: IPdfPageSizeChunk, expectedChunkIndex: number) {
+        if (chunk.chunkIndex !== expectedChunkIndex) {
             throw new Error(
-                `Page-size source returned chunk ${String(chunk.chunkIndex)} after ${String(this.nextChunkIndex)}`,
+                `Page-size source returned chunk ${String(chunk.chunkIndex)} after ${String(expectedChunkIndex)}`,
             );
         }
         if (this._pageCount === null) {
@@ -1204,30 +1228,81 @@ export class PdfPageSizeStore implements IPdfPageSizeStore {
         if (chunk.pages.length === 0 || chunk.firstPageNumber < 1) {
             throw new Error('Page-size source returned an empty or invalid chunk');
         }
-        this.currentChunk = chunk;
-        this.nextChunkIndex += 1;
-        return chunk;
     }
 
-    public async getPage(pageNumber: number) {
-        if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
-            throw new RangeError('Page-size scalar read requires a positive safe page number');
-        }
-        if (this.complete || (this.currentChunk !== null && pageNumber < this.currentChunk.firstPageNumber)) {
-            await this.restart();
-        }
-        while (this.currentChunk === null
-            || pageNumber >= this.currentChunk.firstPageNumber + this.currentChunk.pages.length) {
-            const chunk = await this.nextChunk();
-            if (chunk === null) {
+    private async readPageFromReader(
+        reader: AsyncGenerator<IPdfPageSizeChunk>,
+        pageNumber: number,
+        cursor: IPdfPageSizeReaderCursor = {
+            currentChunk: null,
+            nextChunkIndex: 0,
+        },
+    ) {
+        while (cursor.currentChunk === null
+            || pageNumber >= cursor.currentChunk.firstPageNumber + cursor.currentChunk.pages.length) {
+            const result = await reader.next();
+            if (result.done) {
+                if (this._pageCount === null) {
+                    throw new Error('Page-size source returned no chunks');
+                }
                 throw new RangeError(`Page-size source has no geometry for page ${String(pageNumber)}`);
             }
+            const chunk = result.value;
+            this.validateChunk(chunk, cursor.nextChunkIndex);
+            cursor.nextChunkIndex += 1;
+            cursor.currentChunk = chunk;
         }
-        const page = this.currentChunk.pages[pageNumber - this.currentChunk.firstPageNumber];
+        const page = cursor.currentChunk.pages[pageNumber - cursor.currentChunk.firstPageNumber];
         if (page === undefined || page.pageNumber !== pageNumber) {
             throw new Error(`Page-size source returned no geometry for page ${String(pageNumber)}`);
         }
         return page;
+    }
+
+    private async forEachChunkFromReader(
+        reader: AsyncGenerator<IPdfPageSizeChunk>,
+        onChunk: (chunk: IPdfPageSizeChunk) => Promise<void> | void,
+    ) {
+        let nextChunkIndex = 0;
+        while (true) {
+            const result = await reader.next();
+            if (result.done) {
+                if (this._pageCount === null) {
+                    throw new Error('Page-size source returned no chunks');
+                }
+                return;
+            }
+            const chunk = result.value;
+            this.validateChunk(chunk, nextChunkIndex);
+            nextChunkIndex += 1;
+            await onChunk(chunk);
+        }
+    }
+
+    public getPage(pageNumber: number) {
+        const read = this.pageReadTail.then(async () => {
+            if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
+                throw new RangeError('Page-size scalar read requires a positive safe page number');
+            }
+            if (this.closed) {
+                throw new Error('Page-size store is closed');
+            }
+            if (
+                this.pageCursor.currentChunk !== null
+                && pageNumber < this.pageCursor.currentChunk.firstPageNumber
+            ) {
+                await this.resetPageReader();
+            }
+            const activeReader = this.ensurePageReader();
+            try {
+                return await this.readPageFromReader(activeReader, pageNumber, this.pageCursor);
+            } catch (error) {
+                await this.resetPageReader();
+                throw error;
+            }
+        });
+        this.pageReadTail = read.then(() => undefined, () => undefined);
+        return read;
     }
 
     /** Read [firstPageNumber, lastPageNumberExclusive) into a bounded caller-owned range. */
@@ -1246,28 +1321,29 @@ export class PdfPageSizeStore implements IPdfPageSizeStore {
         if (firstPageNumber === lastPageNumberExclusive) {
             return [] as IPdfPageSize[];
         }
-        const pages: IPdfPageSize[] = [];
-        for (let pageNumber = firstPageNumber; pageNumber < lastPageNumberExclusive; pageNumber += 1) {
-            pages.push(await this.getPage(pageNumber));
+        const reader = this.openReader();
+        try {
+            const pages: IPdfPageSize[] = [];
+            const cursor: IPdfPageSizeReaderCursor = {
+                currentChunk: null,
+                nextChunkIndex: 0,
+            };
+            for (let pageNumber = firstPageNumber; pageNumber < lastPageNumberExclusive; pageNumber += 1) {
+                pages.push(await this.readPageFromReader(reader, pageNumber, cursor));
+            }
+            return pages;
+        } finally {
+            await this.closeReader(reader);
         }
-        return pages;
     }
 
     /** Visit each bounded chunk in source order. */
     public async forEachChunk(onChunk: (chunk: IPdfPageSizeChunk) => Promise<void> | void) {
-        // `getPage` and `readRange` deliberately leave the cursor at the last
-        // chunk they touched.  A full pass has stronger semantics: always
-        // visit every source chunk in order, including chunk zero, regardless
-        // of any earlier scalar/range reads.
-        if (this.reader !== null || this.currentChunk !== null || this.complete) {
-            await this.restart();
-        }
-        while (true) {
-            const chunk = await this.nextChunk();
-            if (chunk === null) {
-                return;
-            }
-            await onChunk(chunk);
+        const reader = this.openReader();
+        try {
+            await this.forEachChunkFromReader(reader, onChunk);
+        } finally {
+            await this.closeReader(reader);
         }
     }
 
@@ -1276,11 +1352,15 @@ export class PdfPageSizeStore implements IPdfPageSizeStore {
             return;
         }
         this.closed = true;
-        if (this.reader !== null) {
-            await this.reader.return(undefined);
-            this.reader = null;
-        }
-        this.currentChunk = null;
+        const readers = [...this.activeReaders];
+        this.activeReaders.clear();
+        await Promise.all(readers.map(reader => reader.return(undefined)));
+        await this.pageReadTail;
+        this.pageReader = null;
+        this.pageCursor = {
+            currentChunk: null,
+            nextChunkIndex: 0,
+        };
     }
 }
 

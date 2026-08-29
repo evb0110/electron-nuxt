@@ -1,5 +1,9 @@
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 
+function throwIfAborted(signal?: AbortSignal) {
+    signal?.throwIfAborted();
+}
+
 /** Text pages are kept separate so callers do not need to merge a catalog first. */
 export type TDocxTextPageSource = Iterable<string> | AsyncIterable<string>;
 
@@ -223,10 +227,12 @@ interface IStreamingEntry {
     data?: Uint8Array;
 }
 
-async function* splitBytes(bytes: Uint8Array) {
+async function* splitBytes(bytes: Uint8Array, signal?: AbortSignal) {
     for (let offset = 0; offset < bytes.byteLength; offset += DOCX_STREAM_CHUNK_BYTES) {
+        throwIfAborted(signal);
         yield bytes.subarray(offset, Math.min(offset + DOCX_STREAM_CHUNK_BYTES, bytes.byteLength));
         await yieldToBrowser();
+        throwIfAborted(signal);
     }
 }
 
@@ -237,12 +243,15 @@ async function* splitBytes(bytes: Uint8Array) {
 export async function* createDocxFromTextChunks(
     pages: TDocxTextPageSource,
     isRtl = false,
+    signal?: AbortSignal,
 ): AsyncGenerator<Uint8Array> {
+    throwIfAborted(signal);
     const centralDirectory: ICentralDirectoryEntry[] = [];
     let archiveOffset = 0;
 
     const emit = async function* (bytes: Uint8Array): AsyncGenerator<Uint8Array> {
-        for await (const chunk of splitBytes(bytes)) {
+        for await (const chunk of splitBytes(bytes, signal)) {
+            throwIfAborted(signal);
             archiveOffset += chunk.byteLength;
             assertZip32Value(archiveOffset, 'archive size');
             yield chunk;
@@ -250,6 +259,7 @@ export async function* createDocxFromTextChunks(
     };
 
     const emitKnownEntry = async function* (entry: IStreamingEntry): AsyncGenerator<Uint8Array> {
+        throwIfAborted(signal);
         const data = entry.data ?? new Uint8Array();
         const name = encodeUtf8(entry.name);
         const entryOffset = archiveOffset;
@@ -264,10 +274,12 @@ export async function* createDocxFromTextChunks(
         });
     };
 
+    throwIfAborted(signal);
     yield* emitKnownEntry({
         name: '[Content_Types].xml',
         data: encodeUtf8(CONTENT_TYPES_XML),
     });
+    throwIfAborted(signal);
     yield* emitKnownEntry({
         name: '_rels/.rels',
         data: encodeUtf8(RELS_XML),
@@ -275,20 +287,24 @@ export async function* createDocxFromTextChunks(
 
     const documentName = encodeUtf8('word/document.xml');
     const documentOffset = archiveOffset;
+    throwIfAborted(signal);
     yield* emit(makeLocalHeader(documentName, 0, 0, true));
 
     let documentCrc = 0xFFFFFFFF;
     let documentSize = 0;
     const emitDocumentBytes = async function* (bytes: Uint8Array): AsyncGenerator<Uint8Array> {
+        throwIfAborted(signal);
         documentCrc = updateCrc32(documentCrc, bytes);
         documentSize += bytes.byteLength;
         assertZip32Value(documentSize, 'document.xml entry size');
         yield* emit(bytes);
     };
     const emitDocumentText = async function* (text: string): AsyncGenerator<Uint8Array> {
+        throwIfAborted(signal);
         yield* emitDocumentBytes(encodeUtf8(text));
     };
     const emitParagraph = async function* (line: string): AsyncGenerator<Uint8Array> {
+        throwIfAborted(signal);
         yield* emitDocumentText(paragraphPrefix(isRtl));
         if (line.length === 0) {
             yield* emitDocumentText(runPrefix(isRtl));
@@ -298,6 +314,7 @@ export async function* createDocxFromTextChunks(
 
         let start = 0;
         while (start < line.length) {
+            throwIfAborted(signal);
             const end = takeTextRun(line, start);
             yield* emitDocumentText(runPrefix(isRtl));
             yield* emitDocumentText(escapeXml(line.slice(start, end)));
@@ -307,9 +324,11 @@ export async function* createDocxFromTextChunks(
         yield* emitDocumentText('</w:p>');
     };
 
+    throwIfAborted(signal);
     yield* emitDocumentText(DOCUMENT_XML_PREFIX);
     let emittedPage = false;
     for await (const page of pages) {
+        throwIfAborted(signal);
         if (typeof page !== 'string') {
             throw new TypeError('DOCX text pages must yield strings');
         }
@@ -318,10 +337,12 @@ export async function* createDocxFromTextChunks(
         }
         emittedPage = true;
         for (const line of iterateLines(page)) {
+            throwIfAborted(signal);
             yield* emitParagraph(line);
         }
     }
 
+    throwIfAborted(signal);
     yield* emitDocumentText(DOCUMENT_XML_SUFFIX);
     const finalDocumentCrc = (documentCrc ^ 0xFFFFFFFF) >>> 0;
     yield* emit(makeDataDescriptor(finalDocumentCrc, documentSize));
@@ -340,10 +361,12 @@ export async function* createDocxFromTextChunks(
     const centralOffset = archiveOffset;
     let centralSize = 0;
     for (const entry of centralDirectory) {
+        throwIfAborted(signal);
         const header = makeCentralHeader(entry.name, entry.crc, entry.size, entry.offset);
         centralSize += header.byteLength;
         assertZip32Value(centralSize, 'central directory size');
         yield* emit(header);
     }
+    throwIfAborted(signal);
     yield* emit(makeEndOfCentralDirectory(centralDirectory.length, centralSize, centralOffset));
 }

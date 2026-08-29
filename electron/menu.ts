@@ -57,6 +57,7 @@ const EMPTY_MENU_DOCUMENT_STATE: TResolvedApplicationMenuDocumentState = {
     canPrint: false,
     supportsExportDocx: false,
     canExportDocx: false,
+    isExportingDocx: false,
     supportsRasterExport: false,
     canExportRaster: false,
     canUndo: false,
@@ -352,7 +353,7 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
 function getFileMenu(state: TResolvedApplicationMenuDocumentState): MenuItemConstructorOptions {
     const exportItems: MenuItemConstructorOptions[] = [
         ...(state.supportsExportDocx ? [createWindowMenuAction({
-            label: te('menu.exportDocx'),
+            label: state.isExportingDocx ? te('ocr.cancel') : te('menu.exportDocx'),
             accelerator: 'CmdOrCtrl+Shift+E',
             enabled: state.canExportDocx,
             channel: DOCUMENTS_EVENT_CHANNELS.onMenuExportDocx,
@@ -874,6 +875,7 @@ function normalizeMenuDocumentState(
         canPrint: value?.canPrint ?? hasDocument,
         supportsExportDocx: value?.supportsExportDocx ?? hasDocument,
         canExportDocx: value?.canExportDocx ?? hasDocument,
+        isExportingDocx: value?.isExportingDocx ?? false,
         supportsRasterExport: value?.supportsRasterExport ?? hasDocument,
         canExportRaster: value?.canExportRaster ?? hasDocument,
         canUndo: value?.canUndo ?? hasDocument,

@@ -18,6 +18,9 @@ import {
     getCheckedWasmMemoryView,
     WASM_REQUEST_ALLOCATION_ABI_VERSION,
 } from '@contracts/getCheckedWasmMemoryView';
+import {PDF_COMBINE_OUTPUT_POLICY} from '@contracts/pdfCombineOutputPolicy';
+import {BROWSER_COMBINED_PDF_MAX_OUTPUT_BYTES} from '@app/platform/browser/browserDocumentConstants';
+import {createBrowserPdfCombineOutputErrorEnvelope} from '@app/platform/browser-api/browserPdfCombineLimits';
 
 interface IPdfImageCombineWasmExports {
     memory: WebAssembly.Memory;
@@ -331,6 +334,29 @@ function getV4RequestLength(
     );
 }
 
+function getWasmRequestLength(
+    inputs: IBrowserPdfCombineInput[],
+    options: IBrowserPdfCombineWasmImagePreprocessing | undefined,
+) {
+    const pageSpecs = resolveRequestPageSpecs(inputs, options);
+    if (pageSpecs) {
+        if (pageSpecs.length > MAX_PAGES) {
+            return Number.POSITIVE_INFINITY;
+        }
+        const encoder = new TextEncoder();
+        const encodedPageInputs = pageSpecs.map(spec => pageSpecInputs(spec).map(input => ({
+            input,
+            name: getEncodedName(input, encoder),
+        })));
+        return getV4RequestLength(pageSpecs, encodedPageInputs);
+    }
+    if (inputs.length > MAX_PAGES) {
+        return Number.POSITIVE_INFINITY;
+    }
+    const encoder = new TextEncoder();
+    return getV1RequestLength(inputs, inputs.map(input => getEncodedName(input, encoder)));
+}
+
 function writeU32(view: DataView, offset: number, value: number) {
     view.setUint32(offset, value, true);
     return offset + 4;
@@ -508,8 +534,20 @@ function readWasmFailure(resultCode: number, exports: IPdfImageCombineWasmExport
     return error;
 }
 
+// Bound the browser WASM request before loading the module. Native and browser
+// combines share the same 16MiB output policy, while this separate request
+// ceiling prevents an oversized pre-build allocation.
 const PDF_IMAGE_COMBINE_WASM_MAX_REQUEST_BYTES = 256 * 1024 * 1024;
-const PDF_IMAGE_COMBINE_WASM_MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
+
+function createWasmRequestTooLargeOutcome(): Extract<TBrowserPdfCombineWasmOutcome, {status: 'fatal'}> {
+    return {
+        status: 'fatal',
+        error: {
+            code: PDF_COMBINE_OUTPUT_POLICY.tooLargeCode,
+            message: 'Image combine WASM request exceeds the admission ceiling',
+        },
+    };
+}
 
 export async function tryCombineImageInputsWithWasm(
     inputs: IBrowserPdfCombineInput[],
@@ -517,6 +555,15 @@ export async function tryCombineImageInputsWithWasm(
 ): Promise<TBrowserPdfCombineWasmOutcome> {
     if (!canUsePdfImageCombineWasm(inputs, options)) {
         return {status: 'unsupported'};
+    }
+
+    const estimatedRequestLength = getWasmRequestLength(inputs, options);
+    if (
+        !Number.isSafeInteger(estimatedRequestLength)
+        || estimatedRequestLength <= 0
+        || estimatedRequestLength > PDF_IMAGE_COMBINE_WASM_MAX_REQUEST_BYTES
+    ) {
+        return createWasmRequestTooLargeOutcome();
     }
 
     const exports = await loadPdfImageCombineWasm();
@@ -530,20 +577,14 @@ export async function tryCombineImageInputsWithWasm(
         const request = buildWasmRequest(inputs, options);
         requestLength = request.byteLength;
         if (requestLength === 0 || requestLength > PDF_IMAGE_COMBINE_WASM_MAX_REQUEST_BYTES) {
-            return {
-                status: 'fatal',
-                error: {
-                    code: 'too-large',
-                    message: 'Image combine WASM request exceeds the admission ceiling',
-                },
-            };
+            return createWasmRequestTooLargeOutcome();
         }
         const allocatedPointer = exports.evb_pdf_image_combine_alloc(requestLength);
         if (allocatedPointer === 0) {
             return {
                 status: 'fatal',
                 error: {
-                    code: 'too-large',
+                    code: PDF_COMBINE_OUTPUT_POLICY.tooLargeCode,
                     message: 'Image combine WASM could not allocate request memory',
                 },
             };
@@ -566,15 +607,10 @@ export async function tryCombineImageInputsWithWasm(
 
         const outputPointer = exports.evb_pdf_image_combine_output_ptr();
         const outputLen = exports.evb_pdf_image_combine_output_len();
-        if (outputLen === 0 || outputLen > PDF_IMAGE_COMBINE_WASM_MAX_OUTPUT_BYTES) {
+        if (outputLen === 0 || outputLen > BROWSER_COMBINED_PDF_MAX_OUTPUT_BYTES) {
             return {
                 status: 'fatal',
-                error: {
-                    code: outputLen > PDF_IMAGE_COMBINE_WASM_MAX_OUTPUT_BYTES
-                        ? 'too-large'
-                        : 'invalid-request',
-                    message: 'Image combine WASM returned an invalid output envelope',
-                },
+                error: createBrowserPdfCombineOutputErrorEnvelope(outputLen),
             };
         }
 

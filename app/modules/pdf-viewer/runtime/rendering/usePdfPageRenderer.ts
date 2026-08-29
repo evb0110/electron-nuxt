@@ -233,6 +233,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             includeAnyPdfTextSelection: pageNumber === viewport.currentPage.value,
         });
         cancelActiveTextLayerRender(pageNumber);
+        annotationLayerController.cancel(pageNumber);
         cleanupTextLayer(pageNumber);
         annotationLayerRenderer.cleanupEditorLayer(pageNumber);
         const textLayer = container?.querySelector<HTMLDivElement>('.text-layer');
@@ -254,6 +255,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
     function cleanupAllLayers() {
         const pending = waitForOptionalTextLayerTasksToSettle();
+        annotationLayerController.cancelAll();
         for (const pageNumber of new Set([
             ...textLayerCleanupFns.keys(),
             ...activeTextLayerAbortControllers.keys(),
@@ -263,6 +265,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         annotationLayerRenderer.clearAllLayers();
         searchController.invalidatePendingRequests();
         return pending;
+    }
+    function dispose() {
+        annotationLayerController.dispose();
+        for (const pageNumber of activeTextLayerAbortControllers.keys()) {
+            cancelActiveTextLayerRender(pageNumber);
+        }
     }
     function logNonCriticalStageError(
         pageNumber: number,
@@ -291,7 +299,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
         pageRenderState.failLayerHydration(pageNumber, version, requestId ?? slot.requestId ?? 0);
     }
-    const renderAnnotationLayersForPage = usePdfRendererAnnotationLayerController({
+    const annotationLayerController = usePdfRendererAnnotationLayerController({
         annotationLayerRenderer,
         showAnnotations,
         annotationUiManager,
@@ -300,6 +308,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         logNonCriticalStageError,
         renderSupervisor,
     });
+    const renderAnnotationLayersForPage = annotationLayerController;
     const renderTextLayerForPage = usePdfRendererTextLayerController({
         textLayerRenderer,
         activeTextLayerAbortControllers,
@@ -519,6 +528,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         const version = options.getRenderVersion();
         const lease = await options.document.leasePage(pageNumber);
         const controller = new AbortController();
+        const unregister = annotationLayerController.register(pageNumber, controller);
         const shouldContinue = () => (
             options.getRenderVersion() === version
             && toValue(isActive)
@@ -556,6 +566,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             logNonCriticalStageError(pageNumber, 'annotation editor layer', error);
             return false;
         } finally {
+            unregister();
             lease.release();
         }
     }
@@ -603,6 +614,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         renderLayerPromotions,
         resolveLayerPromotionDemand,
         cleanupAllLayers,
+        dispose,
         releasePageLayers,
         applySearchHighlights: searchController.applySearchHighlights,
         hideManagedAnnotationEditors: (pageNumber?: number) => {

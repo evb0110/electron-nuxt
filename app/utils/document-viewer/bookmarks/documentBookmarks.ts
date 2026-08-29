@@ -1,13 +1,14 @@
 import type { IDocumentOutlineItem } from '@app/utils/document-viewer/source/documentPageSource';
 
 export type TDocumentBookmarkDisplayMode = 'top-level' | 'all-expanded' | 'current-expanded';
+export type TDocumentBookmarkPersistenceRefusal = 'depth';
 
 /**
  * The single representation of what a bookmark panel is showing. `error` means
  * the outline load failed and `items` is not a trustworthy empty outline, which
  * is why the two must never collapse into one "nothing to show" branch.
  */
-export type TDocumentBookmarkStatus = 'loading' | 'error' | 'empty' | 'ready';
+export type TDocumentBookmarkStatus = 'loading' | 'error' | 'empty' | 'ready' | 'unpersistable';
 
 export interface IDocumentBookmarkTreeItem {
     id: string;

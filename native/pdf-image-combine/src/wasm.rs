@@ -7,6 +7,7 @@ use std::{cell::RefCell, slice, str};
 use crate::{
     is_output_limit_exceeded, write_pdf, FramePolicy, ImageCompression, ImageProcessing, ImageSpec,
     InputSource, JpegSizeGuardrail, PageSpec, PdfBuildOptions, PdfPageSize, PdfPageSpec, Result,
+    PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
 
 const REQUEST_MAGIC: &[u8; 4] = b"EPIC";
@@ -19,7 +20,7 @@ const PAGE_KIND_MASK: u32 = 2;
 const PAGE_KIND_LAYERED: u32 = 3;
 const PAGE_KIND_LAYERED_COLOR: u32 = 4;
 const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
-const MAX_OUTPUT_BYTES: usize = 512 * 1024 * 1024;
+const MAX_OUTPUT_BYTES: usize = PDF_COMBINE_MAX_OUTPUT_BYTES as usize;
 
 thread_local! {
     static REQUEST_ALLOCATION: WasmRequestAllocation = const { WasmRequestAllocation::new(MAX_REQUEST_BYTES) };
@@ -121,7 +122,7 @@ pub extern "C" fn evb_pdf_image_combine_error_len() -> usize {
 }
 
 fn clear_last_result() {
-    LAST_OUTPUT.with(|slot| slot.borrow_mut().clear());
+    LAST_OUTPUT.with(|slot| *slot.borrow_mut() = Vec::new());
     LAST_ERROR.with(|slot| slot.borrow_mut().clear());
 }
 
@@ -132,7 +133,16 @@ fn build_pdf_from_request(request: &[u8]) -> Result<Vec<u8>> {
 fn build_pdf_from_request_with_limit(request: &[u8], max_output_bytes: u64) -> Result<Vec<u8>> {
     let (page_specs, mut options) = parse_request(request)?;
     options.max_output_bytes = max_output_bytes;
-    write_pdf(Vec::new(), page_specs, &options, |_| {}).map_err(|error| {
+    let output_capacity = usize::try_from(max_output_bytes)
+        .unwrap_or(MAX_OUTPUT_BYTES)
+        .min(MAX_OUTPUT_BYTES);
+    write_pdf(
+        Vec::with_capacity(output_capacity),
+        page_specs,
+        &options,
+        |_| {},
+    )
+    .map_err(|error| {
         let is_typed_output_limit =
             error
                 .downcast_ref::<NativeError>()
@@ -478,6 +488,24 @@ mod tests {
             native_error.message,
             "Image-combine WASM output exceeds the admission ceiling"
         );
+    }
+
+    #[test]
+    fn wasm_uses_the_shared_sixteen_mib_output_cap() {
+        assert_eq!(MAX_OUTPUT_BYTES, 16 * 1024 * 1024);
+    }
+
+    #[test]
+    fn clearing_wasm_output_does_not_retain_capacity_above_the_shared_cap() {
+        LAST_OUTPUT.with(|slot| {
+            *slot.borrow_mut() = Vec::with_capacity(MAX_OUTPUT_BYTES.saturating_mul(2));
+        });
+
+        clear_last_result();
+
+        LAST_OUTPUT.with(|slot| {
+            assert!(slot.borrow().capacity() <= MAX_OUTPUT_BYTES);
+        });
     }
 
     #[test]

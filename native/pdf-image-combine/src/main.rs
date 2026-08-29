@@ -19,6 +19,7 @@ use evb_pdf_image_combine::{
     ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail, PageSpec,
     PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement, PdfPageSize, Result,
     DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
+    PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
 use serde::Deserialize;
 
@@ -123,9 +124,9 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                     max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
                     max_output_bytes: read_limit(
                         "EVB_PDF_COMBINE_MAX_OUTPUT_BYTES",
-                        512 * 1024 * 1024,
+                        PDF_COMBINE_MAX_OUTPUT_BYTES,
                         1024 * 1024,
-                        u64::MAX,
+                        PDF_COMBINE_MAX_OUTPUT_BYTES,
                     ),
                     max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000)
                         as usize,
@@ -185,9 +186,9 @@ fn run(raw_args: Vec<String>) -> Result<()> {
             max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
             max_output_bytes: read_limit(
                 "EVB_PDF_COMBINE_MAX_OUTPUT_BYTES",
-                512 * 1024 * 1024,
+                PDF_COMBINE_MAX_OUTPUT_BYTES,
                 1024 * 1024,
-                u64::MAX,
+                PDF_COMBINE_MAX_OUTPUT_BYTES,
             ),
             max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000) as usize,
             provenance_stamp_hex,

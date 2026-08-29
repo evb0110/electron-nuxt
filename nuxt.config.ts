@@ -398,6 +398,7 @@ export default defineNuxtConfig({
         'ph:caret-double-right',
         'ph:warning-circle',
         'ph:check-circle',
+        'ph:stop',
         'ph:stop-circle',
         'ph:x-circle',
         'ph:clock',

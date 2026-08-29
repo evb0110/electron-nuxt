@@ -8,6 +8,7 @@ import {
 import { tmpdir } from 'os';
 import { performance } from 'perf_hooks';
 import {
+    basename,
     dirname,
     join,
 } from 'path';
@@ -17,6 +18,7 @@ import type {
     IPdfNativeStagedCommitOptions,
     IPdfNativeNoteTextSaveResult,
 } from '@contracts/electronApiDocuments';
+import {splitPdfNativeMutationSetIntoBoundedChunks} from '@contracts/nativePdfMutations';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import {
@@ -232,67 +234,93 @@ async function prepareNativeNoteMutation(options: {
     sourcePath: string;
     tempPath: string;
 }) {
-    await measureNativeNotePhase(options.phaseTimings, 'write-payload', async () => {
-        const nativePayload = await materializeNativeBinarySidecars(
-            options.context,
-            options.command.payload,
-        );
-        await writeFile(options.payloadFilePath, JSON.stringify(nativePayload));
-    });
+    const mutationChunks = splitPdfNativeMutationSetIntoBoundedChunks(
+        options.command.payload as IPdfNativeMutationSet,
+    );
     await measureNativeNotePhase(
         options.phaseTimings,
         'clone-working-to-temp',
         () => copyFileCopyOnWrite(options.sourcePath, options.tempPath),
     );
     const sourceBytes = (await stat(options.tempPath)).size;
+    const identityBindings: NonNullable<IPdfNativeNoteTextSaveResult['identityBindings']> = [];
     await measureNativeNotePhase(options.phaseTimings, 'native-command', () =>
-        withLargePdfMutationAdmission(
-            sourceBytes,
-            options.mutationOperation.signal,
-            () => runNativeToolCommand(options.binaryPath, [
-                options.command.command,
-                '--input',
-                options.tempPath,
-                '--output',
-                options.tempPath,
-                options.command.payloadFlag,
-                options.payloadFilePath,
-                ...(options.command.identityBindingsFileName
-                    ? [
-                        '--identity-bindings-file',
-                        join(dirname(options.payloadFilePath), options.command.identityBindingsFileName),
-                    ]
-                    : []),
-                '--qpdf',
-                getPdfNativeToolPaths().qpdf,
-                '--modified-at',
-                options.modifiedAt,
-                '--append',
-            ], {
-                timeoutMs: PDF_NATIVE_MUTATION_TIMEOUT_MS,
-                commandLabel: options.command.commandLabel,
-                signal: options.mutationOperation.signal,
-                cancelGroup: options.mutationOperation.cancelGroup,
-            }),
-        ));
-    await measureNativeNotePhase(options.phaseTimings, 'assert-output', () =>
-        assertNativeOutputReady(options.tempPath));
-    if (!options.command.identityBindingsFileName) {
-        return {validation: createNativeValidationResult()};
-    }
-    const identityBindingsPath = join(dirname(options.payloadFilePath), options.command.identityBindingsFileName);
-    const identityBindings = await measureNativeNotePhase(
-        options.phaseTimings,
-        'read-identity-bindings',
-        async () => normalizePdfNativeAnnotationIdentityBindings(
-            JSON.parse(await readFile(identityBindingsPath, 'utf8')),
-            'native identity bindings',
-            {errorKind: 'error'},
-        ),
-    );
+        withLargePdfMutationAdmission(sourceBytes, options.mutationOperation.signal, async () => {
+            for (const [
+                chunkIndex,
+                chunk,
+            ] of mutationChunks.entries()) {
+                const payloadFilePath = join(
+                    dirname(options.payloadFilePath),
+                    chunkIndex === 0
+                        ? basename(options.payloadFilePath)
+                        : `${basename(options.payloadFilePath, '.json')}-${chunkIndex}.json`,
+                );
+                await measureNativeNotePhase(options.phaseTimings, 'write-payload', async () => {
+                    const nativePayload = await materializeNativeBinarySidecars(options.context, chunk);
+                    const commandPayload = options.command.command === 'update-note-text'
+                        ? {updates: (chunk as IPdfNativeMutationSet).updates ?? []}
+                        : options.command.command === 'save-note-changes'
+                            ? {
+                                ...(chunk.updates ? {updates: chunk.updates} : {}),
+                                ...(chunk.freeTextNotes ? {freeTextNotes: chunk.freeTextNotes} : {}),
+                                ...(chunk.deletes ? {deletes: chunk.deletes} : {}),
+                            }
+                            : nativePayload;
+                    await writeFile(payloadFilePath, JSON.stringify(commandPayload));
+                });
+                const identityBindingsFileName = options.command.identityBindingsFileName
+                    ? chunkIndex === 0
+                        ? basename(options.command.identityBindingsFileName)
+                        : `${basename(options.command.identityBindingsFileName, '.json')}-${chunkIndex}.json`
+                    : undefined;
+                await runNativeToolCommand(options.binaryPath, [
+                    options.command.command,
+                    '--input',
+                    options.tempPath,
+                    '--output',
+                    options.tempPath,
+                    options.command.payloadFlag,
+                    payloadFilePath,
+                    ...(identityBindingsFileName
+                        ? [
+                            '--identity-bindings-file',
+                            join(dirname(payloadFilePath), identityBindingsFileName),
+                        ]
+                        : []),
+                    '--qpdf',
+                    getPdfNativeToolPaths().qpdf,
+                    '--modified-at',
+                    options.modifiedAt,
+                    '--append',
+                ], {
+                    timeoutMs: PDF_NATIVE_MUTATION_TIMEOUT_MS,
+                    commandLabel: options.command.commandLabel,
+                    signal: options.mutationOperation.signal,
+                    cancelGroup: options.mutationOperation.cancelGroup,
+                });
+                await measureNativeNotePhase(options.phaseTimings, 'assert-output', () =>
+                    assertNativeOutputReady(options.tempPath));
+                if (identityBindingsFileName) {
+                    const chunkBindings = await measureNativeNotePhase(
+                        options.phaseTimings,
+                        'read-identity-bindings',
+                        async () => normalizePdfNativeAnnotationIdentityBindings(
+                            JSON.parse(await readFile(join(dirname(payloadFilePath), identityBindingsFileName), 'utf8')),
+                            `native identity bindings chunk ${chunkIndex}`,
+                            {errorKind: 'error'},
+                        ),
+                    );
+                    identityBindings.push(...chunkBindings);
+                }
+            }
+        }));
+    const normalizedIdentityBindings = options.command.identityBindingsFileName
+        ? normalizePdfNativeAnnotationIdentityBindings(identityBindings, 'native identity bindings', {errorKind: 'error'})
+        : undefined;
     return {
         validation: createNativeValidationResult(),
-        identityBindings,
+        ...(normalizedIdentityBindings === undefined ? {} : {identityBindings: normalizedIdentityBindings}),
     };
 }
 

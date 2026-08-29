@@ -38,6 +38,8 @@ import type {
     TBrowserPageOpsWorkerRequestType,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
+import { isNativeDocumentRef } from '@app/utils/documentRef';
+import { PdfPageOpsCapabilityError } from '@contracts/pageOpsErrors';
 
 interface ISaveBytesResult {
     canceled: boolean;
@@ -113,6 +115,17 @@ function buildBrowserPageOpJobLimitError(label: string, maxBytes: number) {
     return buildBrowserByteLimitError(label, maxBytes, 'jobs');
 }
 
+function assertBrowserPageOpsSource(path: string, operation: string) {
+    if (!isNativeDocumentRef(path)) {
+        return;
+    }
+    throw new PdfPageOpsCapabilityError(
+        'native-unavailable',
+        `Native page operations are unavailable for desktop path: ${path}`,
+        {operation},
+    );
+}
+
 function materializePageRanges(
     ranges: readonly IPageMoveRangeSegment[],
     totalPages: number,
@@ -173,6 +186,7 @@ export function createBrowserPageOpsCapability(
         label: string,
         maxBytes = BROWSER_PAGE_OP_PDF_MAX_BYTES,
     ) {
+        assertBrowserPageOpsSource(path, label);
         const { size } = await browserDocumentStore.stat(path);
         if (size > maxBytes) {
             throw buildBrowserPageOpLimitError(label, maxBytes);
@@ -185,6 +199,7 @@ export function createBrowserPageOpsCapability(
             index,
             path,
         ] of paths.entries()) {
+            assertBrowserPageOpsSource(path, 'Combining page-operation inputs');
             if (index > 0) {
                 await yieldToBrowser();
             }
@@ -206,6 +221,7 @@ export function createBrowserPageOpsCapability(
     }
 
     async function readWorkingCopyBytes(path: string) {
+        assertBrowserPageOpsSource(path, 'Reading page-operation input');
         await yieldToBrowser();
         return browserDocumentStore.read(path);
     }
@@ -223,6 +239,9 @@ export function createBrowserPageOpsCapability(
         sourcePaths: string[],
         requestId: string | undefined,
     ) {
+        for (const sourcePath of sourcePaths) {
+            assertBrowserPageOpsSource(sourcePath, 'Inserting pages');
+        }
         if (shouldReadSinglePdfInsertionSource(sourcePaths)) {
             return browserDocumentStore.read(sourcePaths[0]!);
         }
@@ -438,6 +457,7 @@ export function createBrowserPageOpsCapability(
             });
         },
         async move(workingCopyPath, startPage, endPage, insertAt, totalPages, mutationOptions) {
+            assertBrowserPageOpsSource(workingCopyPath, 'Moving pages');
             if (totalPages > BROWSER_PAGE_OP_MOVE_MAX_PAGES) {
                 throw new Error(
                     `Moving pages in the browser is limited to ${BROWSER_PAGE_OP_MOVE_MAX_PAGES} pages; use the desktop app for larger documents`,
@@ -457,6 +477,7 @@ export function createBrowserPageOpsCapability(
             );
         },
         async moveRanges(workingCopyPath, ranges, insertAt, totalPages, mutationOptions) {
+            assertBrowserPageOpsSource(workingCopyPath, 'Moving pages');
             if (totalPages > BROWSER_PAGE_OP_MOVE_MAX_PAGES) {
                 throw new Error(
                     `Moving pages in the browser is limited to ${BROWSER_PAGE_OP_MOVE_MAX_PAGES} pages; use the desktop app for larger documents`,

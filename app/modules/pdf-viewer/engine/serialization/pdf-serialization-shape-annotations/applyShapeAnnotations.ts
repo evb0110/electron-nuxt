@@ -1,12 +1,13 @@
-import type {
-    PDFDict,
-    PDFDocument,
-    PDFRef,
-} from 'pdf-lib';
 import {
+    PDFDict,
     PDFArray,
     PDFName,
+    PDFNumber,
     PDFString,
+} from 'pdf-lib';
+import type {
+    PDFDocument,
+    PDFRef,
 } from 'pdf-lib';
 import type {
     IShapeAnnotation,
@@ -37,6 +38,8 @@ import { toPdfLinePoints } from '@app/modules/pdf-viewer/engine/serialization/pd
 import { toPdfVertexPoints } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-geometry/toPdfVertexPoints';
 import { applyInkAnnotationAppearance } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shape-annotations/applyInkAnnotationAppearance';
 import { isImportedShapeRectUnchanged } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shape-annotations/isImportedShapeRectUnchanged';
+import { parsePdfColor } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-colors/parsePdfColor';
+import { readPdfRectFromDict } from '@pdf-core';
 
 function updateShapeStyle(annotDict: PDFDict, doc: PDFDocument, shape: IShapeAnnotation) {
     setRgbColor(annotDict, doc, 'C', shape.color);
@@ -385,6 +388,148 @@ function updateInkAnnotationDict(
     return true;
 }
 
+const SHAPE_SEMANTIC_NUMBER_EPSILON = 0.0001;
+
+function readPdfNumberArray(annotDict: PDFDict, key: string) {
+    const array = annotDict.lookupMaybe(PDFName.of(key), PDFArray);
+    if (!(array instanceof PDFArray)) {
+        return null;
+    }
+
+    const values: number[] = [];
+    for (let index = 0; index < array.size(); index += 1) {
+        const value = array.get(index);
+        if (!(value instanceof PDFNumber)) {
+            return null;
+        }
+        values.push(value.asNumber());
+    }
+    return values;
+}
+
+function approximatelyEqual(left: number, right: number) {
+    return Math.abs(left - right) <= SHAPE_SEMANTIC_NUMBER_EPSILON;
+}
+
+function approximatelyEqualArray(
+    actual: number[] | null,
+    expected: readonly number[] | null,
+) {
+    if (actual === null || expected === null) {
+        return actual === expected;
+    }
+    return actual.length === expected.length
+        && actual.every((value, index) => approximatelyEqual(value, expected[index]!));
+}
+
+function readShapeOpacity(annotDict: PDFDict) {
+    return annotDict.lookupMaybe(PDFName.of('CA'), PDFNumber)?.asNumber() ?? 1;
+}
+
+function readShapeStrokeWidth(annotDict: PDFDict) {
+    const border = annotDict.lookupMaybe(PDFName.of('Border'), PDFArray);
+    if (border instanceof PDFArray && border.size() >= 3) {
+        const width = border.get(2);
+        if (width instanceof PDFNumber && width.asNumber() >= 0) {
+            return width.asNumber();
+        }
+    }
+
+    const borderStyle = annotDict.lookupMaybe(PDFName.of('BS'), PDFDict);
+    const width = borderStyle?.lookupMaybe(PDFName.of('W'), PDFNumber);
+    return width?.asNumber() ?? 1;
+}
+
+function readShapeLineEndings(annotDict: PDFDict) {
+    const endings = annotDict.lookupMaybe(PDFName.of('LE'), PDFArray);
+    if (!(endings instanceof PDFArray)) {
+        return [
+            'none',
+            'none',
+        ] as const;
+    }
+
+    return [
+        0,
+        1,
+    ].map(index => (endings.get(index)?.toString() ?? '/None')
+        .replace(/^\//u, '')
+        .toLowerCase()) as [string, string];
+}
+
+function expectedLineEnding(style: IShapeAnnotation['lineStartStyle']) {
+    switch (style) {
+        case 'openArrow':
+            return 'openarrow';
+        case 'closedArrow':
+            return 'closedarrow';
+        default:
+            return 'none';
+    }
+}
+
+function shapeSemanticChange(
+    annotDict: PDFDict,
+    shape: IShapeAnnotation,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const subtype = getPdfDictSubtype(annotDict);
+    if (subtype === 'Ink') {
+        return false;
+    }
+
+    if (!approximatelyEqual(readShapeOpacity(annotDict), shape.opacity)
+        || !approximatelyEqual(readShapeStrokeWidth(annotDict), shape.strokeWidth)
+        || !approximatelyEqualArray(readPdfNumberArray(annotDict, 'C'), parsePdfColor(shape.color))
+        || !approximatelyEqualArray(readPdfNumberArray(annotDict, 'IC'), parsePdfColor(shape.fillColor))) {
+        return true;
+    }
+
+    if (subtype === 'Line' || subtype === 'PolyLine') {
+        const [
+            actualStart,
+            actualEnd,
+        ] = readShapeLineEndings(annotDict);
+        if (actualStart !== expectedLineEnding(shape.lineStartStyle)
+            || actualEnd !== expectedLineEnding(shape.lineEndStyle)) {
+            return true;
+        }
+    } else if (subtype === 'Polygon' && annotDict.has(PDFName.of('LE'))) {
+        return true;
+    }
+
+    switch (subtype) {
+        case 'Square':
+        case 'Circle':
+            // The marker rect is clamped on import. The helper therefore
+            // decides whether the on-disk rect represents an edit.
+            return !isImportedShapeRectUnchanged(
+                annotDict,
+                getShapeMarkerRect(shape),
+                pageView,
+                pageRotation,
+            );
+        case 'Line': {
+            const geometry = resolvePdfLineGeometry(shape, pageView, pageRotation);
+            return !geometry
+                || !approximatelyEqualArray(readPdfRectFromDict(annotDict), geometry.rect)
+                || !approximatelyEqualArray(readPdfNumberArray(annotDict, 'L'), geometry.linePoints);
+        }
+        case 'PolyLine':
+        case 'Polygon': {
+            const pdfPoints = toPdfVertexPoints(shape.points, pageView, pageRotation);
+            const rect = pdfPoints ? toPdfBoundsRect(pdfPoints, shape.strokeWidth) : null;
+            const vertices = pdfPoints ? toFlatPdfPoints(pdfPoints) : null;
+            return !rect
+                || !approximatelyEqualArray(readPdfRectFromDict(annotDict), rect)
+                || !approximatelyEqualArray(readPdfNumberArray(annotDict, 'Vertices'), vertices);
+        }
+        default:
+            return true;
+    }
+}
+
 function createShapeAnnotationDict(
     doc: PDFDocument,
     shape: IShapeAnnotation,
@@ -419,21 +564,36 @@ function updateEmbeddedShapeAnnotationDict(
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ) {
     const subtype = getPdfDictSubtype(annotDict);
+    const semanticChanged = subtype !== 'Ink'
+        && shapeSemanticChange(annotDict, shape, pageView, pageRotation);
+    let updated = false;
     switch (subtype) {
         case 'Square':
         case 'Circle':
-            return updateRectAnnotationDict(annotDict, doc, shape, pageView, pageRotation);
+            updated = updateRectAnnotationDict(annotDict, doc, shape, pageView, pageRotation);
+            break;
         case 'Line':
-            return updateLineAnnotationDict(annotDict, doc, shape, pageView, pageRotation);
+            updated = updateLineAnnotationDict(annotDict, doc, shape, pageView, pageRotation);
+            break;
         case 'PolyLine':
-            return updateVertexAnnotationDict(annotDict, doc, shape, pageView, pageRotation, 'PolyLine');
+            updated = updateVertexAnnotationDict(annotDict, doc, shape, pageView, pageRotation, 'PolyLine');
+            break;
         case 'Polygon':
-            return updateVertexAnnotationDict(annotDict, doc, shape, pageView, pageRotation, 'Polygon');
+            updated = updateVertexAnnotationDict(annotDict, doc, shape, pageView, pageRotation, 'Polygon');
+            break;
         case 'Ink':
-            return updateInkAnnotationDict(annotDict, doc, shape, pageView, pageRotation);
+            updated = updateInkAnnotationDict(annotDict, doc, shape, pageView, pageRotation);
+            break;
         default:
-            return false;
+            break;
     }
+    if (updated && subtype !== 'Ink' && semanticChanged) {
+        // The semantic shape fields above are the source of truth after an
+        // edit. An imported normal appearance describes the old geometry or
+        // style, so keeping it would make readers draw stale pixels.
+        annotDict.delete(PDFName.of('AP'));
+    }
+    return updated;
 }
 
 function applyEmbeddedShapeUpdate(

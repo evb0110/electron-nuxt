@@ -189,12 +189,33 @@ export async function validateBrowserPdfPath(path: string): Promise<IPdfValidati
         await yieldToBrowser();
         const pdfjsLib = await getPdfjsLib();
         const rangeRead: { error: Error | null } = { error: null };
+        let resolveRangeReadFailure: ((error: Error) => void) | undefined;
+        const rangeReadFailure = new Promise<Error>((resolve) => {
+            resolveRangeReadFailure = resolve;
+        });
         const loadingTask = pdfjsLib.getDocument(
             await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, path, {onRangeReadFailure: (error) => {
                 rangeRead.error = error;
+                resolveRangeReadFailure?.(error);
             }}),
         );
-        await loadAndDestroyPdfDocument(loadingTask);
+        // A failed later range can leave PDF.js waiting for data. Race its
+        // loading task so the public validator reports the range failure and
+        // tears down the task instead of waiting forever.
+        const documentLoad = loadAndDestroyPdfDocument(loadingTask);
+        documentLoad.catch(() => undefined);
+        const rangeFailure = await Promise.race([
+            documentLoad.then(() => null),
+            rangeReadFailure,
+        ]);
+        if (rangeFailure) {
+            try {
+                await loadingTask.destroy();
+            } catch {
+                // Preserve the original range-read failure.
+            }
+            throw rangeFailure;
+        }
         if (rangeRead.error) {
             throw rangeRead.error;
         }

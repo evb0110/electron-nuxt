@@ -9,6 +9,7 @@ import {
     ref,
 } from 'vue';
 import {usePdfThumbnailVirtualLayout} from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailVirtualLayout';
+import {DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
 
 describe('usePdfThumbnailVirtualLayout', () => {
     it('keeps aspect ratios sparse for pages late in a large document', () => {
@@ -54,5 +55,28 @@ describe('usePdfThumbnailVirtualLayout', () => {
         expect(layout.aspectRatios.value.size).toBe(0);
         expect(layout.layout.value.getLoadedBlockCount()).toBe(0);
         expect(layout.contentHeight.value).toBeGreaterThan(0);
+    });
+
+    it('maps the last page into a bounded physical segment', () => {
+        const pageCount = ref(138_000);
+        const layout = usePdfThumbnailVirtualLayout({
+            captureAnchor: () => null,
+            pageCount,
+            scheduleReaction: () => {},
+        });
+
+        layout.setActiveScrollSegmentForPage(pageCount.value);
+
+        expect(layout.activeScrollSegmentIndex.value).toBeGreaterThan(0);
+        expect(layout.contentHeight.value).toBeLessThanOrEqual(DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT);
+        expect(layout.resolvePageAtOffset(layout.contentHeight.value)).toBe(pageCount.value);
+        expect(layout.getPageTop(pageCount.value)).toBeLessThan(layout.contentHeight.value);
+
+        const transition = layout.resolveScrollSegmentTransition(
+            layout.contentHeight.value,
+            0,
+            500,
+        );
+        expect(transition).toBeNull();
     });
 });

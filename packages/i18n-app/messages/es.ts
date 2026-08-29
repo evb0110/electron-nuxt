@@ -1229,6 +1229,7 @@ export default {
     },
     'bookmarks': {
         'unavailable': 'Marcadores no disponibles',
+        'persistenceRefusalDepth': '{count} marcadores superan la profundidad nativa de {limit}; se conservan como solo lectura porque esta profundidad no se puede guardar.',
         'noBookmarks': 'No hay marcadores disponibles',
         'loading': 'Cargando marcadores...',
         'enterEditMode': 'Modo de edición de marcadores',

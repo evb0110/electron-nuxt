@@ -9,6 +9,7 @@ import {
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import {
+    EmbeddedShapeImportCapabilityError,
     importEmbeddedShapeAnnotationsFromPathInWorker,
     importEmbeddedShapeAnnotationsUsingWorker,
 } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient';
@@ -52,11 +53,24 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         ]);
         vi.mocked(readDocumentBytes).mockResolvedValue(bytes);
 
-        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('/tmp/browser.pdf'))
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('browser://documents/browser.pdf'))
             .resolves.toEqual([]);
 
-        expect(readDocumentBytes).toHaveBeenCalledWith('/tmp/browser.pdf', {maxBytes: EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES});
+        expect(readDocumentBytes).toHaveBeenCalledWith('browser://documents/browser.pdf', {maxBytes: EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES});
         expect(importEmbeddedShapeAnnotations).toHaveBeenCalledWith(bytes);
+    });
+
+    it('refuses a native shape import when the desktop index bridge is missing', async () => {
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('/tmp/native.pdf'))
+            .rejects.toBeInstanceOf(EmbeddedShapeImportCapabilityError);
+
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('/tmp/native.pdf'))
+            .rejects.toMatchObject({
+                name: 'EmbeddedShapeImportCapabilityError',
+                reason: 'native-index-capability-unavailable',
+            });
+        expect(readDocumentBytes).not.toHaveBeenCalled();
+        expect(importEmbeddedShapeAnnotations).not.toHaveBeenCalled();
     });
 
     it('transfers an owned copy to a module worker without detaching session bytes', async () => {
@@ -235,10 +249,10 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
 
-        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('/tmp/large.pdf')).resolves.toEqual([]);
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('browser://documents/large.pdf')).resolves.toEqual([]);
 
-        expect(documentMocks.readFileRange).toHaveBeenNthCalledWith(1, '/tmp/large.pdf', 0, 4 * 1024 * 1024);
-        expect(documentMocks.readFileRange).toHaveBeenNthCalledWith(2, '/tmp/large.pdf', 4 * 1024 * 1024, 1024 * 1024);
+        expect(documentMocks.readFileRange).toHaveBeenNthCalledWith(1, 'browser://documents/large.pdf', 0, 4 * 1024 * 1024);
+        expect(documentMocks.readFileRange).toHaveBeenNthCalledWith(2, 'browser://documents/large.pdf', 4 * 1024 * 1024, 1024 * 1024);
         expect(posted.map(entry => entry.message.type)).toEqual([
             'path-start',
             'path-chunk',
@@ -274,7 +288,7 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', PendingWorker);
 
-        const importPromise = importEmbeddedShapeAnnotationsFromPathInWorker('/tmp/slow.pdf');
+        const importPromise = importEmbeddedShapeAnnotationsFromPathInWorker('browser://documents/slow.pdf');
         const timeoutExpectation = expect(importPromise)
             .rejects.toThrow('Embedded PDF shape import worker timed out');
         await vi.waitFor(() => expect(documentMocks.readFileRange).toHaveBeenCalledOnce());
@@ -317,7 +331,7 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
 
-        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('/tmp/oversized.pdf'))
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('browser://documents/oversized.pdf'))
             .rejects.toThrow(RangeError);
         await expect(importEmbeddedShapeAnnotationsUsingWorker(new Uint8Array(documentSize)))
             .rejects.toThrow(RangeError);

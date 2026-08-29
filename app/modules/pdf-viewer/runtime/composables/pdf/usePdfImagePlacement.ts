@@ -177,6 +177,8 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             pageNumber?: number | null;
             pageX?: number | null;
             pageY?: number | null;
+            stableKey?: string;
+            annotationId?: string | null;
         },
     ) {
         const requestId = latestImagePlacementRequestId + 1;
@@ -222,6 +224,8 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         clearPendingImagePlacement({ invalidatePendingStarts: false });
         const nativeSourceHandle = (file as File & {nativeSourceHandle?: IManagedTempFileHandle}).nativeSourceHandle;
         pendingImagePlacement.value = {
+            stableKey: optionsOverride?.stableKey ?? `placed-image-${crypto.randomUUID()}`,
+            ...(optionsOverride?.annotationId ? {annotationId: optionsOverride.annotationId} : {}),
             ...placementRect,
             rotationDegrees: 0,
             previewUrl,
@@ -274,6 +278,8 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         const targetPixels = getPendingImagePlacementTargetPixels(placement);
         isPendingImagePlacementFinalizing.value = true;
         emitFinalize({
+            stableKey: placement.stableKey,
+            ...(placement.annotationId ? {annotationId: placement.annotationId} : {}),
             pageNumber: placement.pageNumber,
             x: placement.x,
             y: placement.y,

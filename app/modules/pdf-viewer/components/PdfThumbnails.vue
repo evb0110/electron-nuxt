@@ -25,6 +25,7 @@
     <div
       role="presentation"
       class="pdf-thumbnails-virtual-wrapper"
+      :data-thumbnail-scroll-segment="thumbnailScrollSegmentIndex"
       :style="virtualWrapperStyle"
     >
       <DocumentThumbnailItem
@@ -113,14 +114,10 @@ import DocumentThumbnailItem from '@app/components/document-viewer/DocumentThumb
 import DocumentThumbnailRail from '@app/components/document-viewer/DocumentThumbnailRail.vue';
 import type {IDocumentThumbnailLayoutAnchor} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
 import {usePdfThumbnailVirtualLayout} from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailVirtualLayout';
+import {createPdfThumbnailScrollController} from '@app/modules/pdf-viewer/thumbnails/createPdfThumbnailScrollController';
 import {
     DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS,
     DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS,
-    getDocumentThumbnailComfortPadding,
-    getDocumentThumbnailMaxScrollTop,
-    isDocumentThumbnailWithinComfortViewport,
-    resolveDocumentThumbnailPageBounds,
-    resolveDocumentThumbnailRevealScrollTop,
 } from '@app/utils/document-viewer/thumbnails/documentThumbnailViewport';
 import {
     describeContainerGeometry,
@@ -182,15 +179,21 @@ let getThumbnailRenderSummary = () => ({
     renderingCount: 0,
 });
 const {
+    activeScrollSegmentIndex: thumbnailScrollSegmentIndex,
     aspectRatios: thumbnailAspectRatios,
     clearAspectRatios: clearThumbnailAspectRatios,
     contentHeight: thumbnailContentHeight,
+    getMaxScrollTop: getThumbnailMaxScrollTop,
+    getPageBounds: getThumbnailPageBounds,
     getPageTop: getThumbnailTop,
+    getViewport: getThumbnailViewport,
     itemChromeHeight: thumbnailItemChromeHeight,
     layout: thumbnailLayout,
     layoutWidth: thumbnailLayoutWidth,
     resolveInsertionIndex,
     resolvePageAtOffset: resolvePageAtScrollOffset,
+    resolveScrollSegmentTransition,
+    setActiveScrollSegmentForPage,
     updateAspectRatio: updateThumbnailAspectRatio,
 } = usePdfThumbnailVirtualLayout({
     captureAnchor: captureThumbnailLayoutAnchor,
@@ -229,6 +232,7 @@ const virtualPages = computed(() => {
         visibleEndIndex.value,
         totalPages,
         currentPage,
+        thumbnailLayout.value.getScrollSegment(thumbnailScrollSegmentIndex.value),
     );
 });
 const virtualWrapperStyle = computed(() => {
@@ -237,6 +241,10 @@ const virtualWrapperStyle = computed(() => {
     }
     return {height: `${Math.max(0, thumbnailContentHeight.value)}px`};
 });
+
+watch(() => currentPage, page => {
+    setActiveScrollSegmentForPage(page);
+}, {immediate: true});
 
 function getThumbnailCanvasStyle(page: number) {
     return createThumbnailCanvasStyle(thumbnailLayout.value.getPageAspect(page));
@@ -437,10 +445,11 @@ function restoreThumbnailLayoutAnchor(anchor: IDocumentThumbnailLayoutAnchor | n
     if (!container) {
         return false;
     }
+    setActiveScrollSegmentForPage(anchor.page);
     const nextScrollTop = getThumbnailTop(anchor.page) + anchor.offset;
     return applyThumbnailScrollTop(
         container,
-        clamp(nextScrollTop, 0, getDocumentThumbnailMaxScrollTop(container)),
+        clamp(nextScrollTop, 0, getThumbnailMaxScrollTop(container.clientHeight)),
     );
 }
 
@@ -479,50 +488,37 @@ function scheduleThumbnailLayoutReaction(
     });
 }
 
-function scrollPageIntoKeyboardView(page: number) {
+function scrollPageIntoKeyboardView(page: number): void | Promise<void> {
     const container = resolveVisibleContainer('keyboard-selection');
     if (!container) {
         return;
+    }
+
+    const switchedSegment = setActiveScrollSegmentForPage(page);
+    if (switchedSegment) {
+        return nextTick(async () => {
+            const currentContainer = resolveVisibleContainer('keyboard-selection-segment');
+            if (!currentContainer) {
+                return;
+            }
+            // The segment wrapper must be in the DOM before this geometry is
+            // resolved. Updating the viewport also makes the target page part
+            // of the next virtual range before focus is requested.
+            updateViewportMetrics();
+            const targetScrollTop = resolveCurrentPageSyncScrollTop(currentContainer, page);
+            if (targetScrollTop !== null) {
+                applyThumbnailScrollTop(currentContainer, targetScrollTop);
+            } else {
+                void scheduleVisibleThumbnailRender();
+            }
+            await nextTick();
+        });
     }
 
     const targetScrollTop = resolveCurrentPageSyncScrollTop(container, page);
     if (targetScrollTop !== null) {
         applyThumbnailScrollTop(container, targetScrollTop);
     }
-}
-
-function resolveCurrentPageSyncScrollTop(container: HTMLElement, page: number) {
-    return resolveDocumentThumbnailRevealScrollTop(
-        container,
-        resolveDocumentThumbnailPageBounds(page, thumbnailLayout.value),
-    );
-}
-
-function resolveRefinedCurrentPageScrollTop(container: HTMLElement, page: number) {
-    const thumbnail = getThumbnailElement(page);
-    if (
-        !thumbnail
-        || isDocumentThumbnailWithinComfortViewport(
-            container,
-            resolveDocumentThumbnailPageBounds(page, thumbnailLayout.value),
-        )
-    ) {
-        return null;
-    }
-
-    const containerRect = container.getBoundingClientRect();
-    const thumbnailRect = thumbnail.getBoundingClientRect();
-    const thumbnailTop = container.scrollTop + thumbnailRect.top - containerRect.top;
-    const thumbnailBottom = thumbnailTop + thumbnailRect.height;
-    const comfortPadding = getDocumentThumbnailComfortPadding(container);
-    const scrollsTowardBottom = thumbnailBottom > (
-        container.scrollTop + container.clientHeight - comfortPadding
-    );
-    const nextScrollTop = scrollsTowardBottom
-        ? thumbnailBottom + comfortPadding - container.clientHeight
-        : thumbnailTop - comfortPadding;
-
-    return clamp(nextScrollTop, 0, getDocumentThumbnailMaxScrollTop(container));
 }
 
 function isThumbnailElementFullyVisible(container: HTMLElement, page: number) {
@@ -537,18 +533,6 @@ function isThumbnailElementFullyVisible(container: HTMLElement, page: number) {
         thumbnailRect.top >= containerRect.top
         && thumbnailRect.bottom <= containerRect.bottom
     );
-}
-
-function applyThumbnailScrollTop(container: HTMLElement, nextScrollTop: number) {
-    if (Math.abs(nextScrollTop - container.scrollTop) < 1) {
-        return false;
-    }
-
-    lastProgrammaticScrollAtMs = Date.now();
-    container.scrollTop = nextScrollTop;
-    updateViewportMetrics();
-    void scheduleVisibleThumbnailRender();
-    return true;
 }
 
 function resolveCurrentPageSyncRequest(
@@ -739,14 +723,6 @@ const measureThumbnailHeight = useDebounceFn(() => {
     }
 }, 16);
 
-function handleContainerScroll() {
-    updateScrollPosition();
-    if (!isRecentProgrammaticScroll()) {
-        markManualThumbnailScroll('scroll');
-    }
-    void scheduleVisibleThumbnailRender();
-}
-
 function handleContainerWheel() {
     if (!isRecentProgrammaticScroll()) {
         markManualThumbnailScroll('wheel');
@@ -844,6 +820,30 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
 });
 const { scheduleVisibleThumbnailRender } = thumbnailRenderRuntime;
 getThumbnailRenderSummary = thumbnailRenderRuntime.getRenderSummary;
+const {
+    applyScrollTop: applyThumbnailScrollTop,
+    cancel: cancelThumbnailScroll,
+    handleContainerScroll,
+    resolveCurrentPageSyncScrollTop,
+    resolveRefinedCurrentPageScrollTop,
+} = createPdfThumbnailScrollController({
+    activeSegmentIndex: thumbnailScrollSegmentIndex,
+    containerRef,
+    getMaxScrollTop: getThumbnailMaxScrollTop,
+    getPageBounds: getThumbnailPageBounds,
+    getThumbnailElement,
+    getViewport: getThumbnailViewport,
+    isRecentProgrammaticScroll,
+    markManualScroll: markManualThumbnailScroll,
+    markProgrammaticScroll: () => {
+        lastProgrammaticScrollAtMs = Date.now();
+    },
+    resolveSegmentTransition: resolveScrollSegmentTransition,
+    scheduleVisibleThumbnailRender,
+    setActiveSegmentForPage: setActiveScrollSegmentForPage,
+    updateScrollPosition,
+    updateViewportMetrics,
+});
 
 watch(
     containerRef,
@@ -907,7 +907,9 @@ watch(
     },
 );
 
-onBeforeUnmount(() => thumbnailResizeAnchorLifecycle.cancel());
+onBeforeUnmount(() => {
+    cancelThumbnailScroll();
+    thumbnailResizeAnchorLifecycle.cancel();
+});
 </script>
-
 <style scoped src="./PdfThumbnails.css"></style>

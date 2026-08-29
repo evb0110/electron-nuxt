@@ -11,22 +11,34 @@ export function resolveThumbnailVirtualPages(
     visibleEndIndex: number,
     totalPages: number,
     currentPage: number,
+    pageBounds?: {
+        endPage?: number;
+        startPage?: number;
+    },
 ) {
     if (totalPages <= 0) {
         return [] as number[];
     }
 
     const pages = new Set<number>();
-    const startIndex = Math.max(0, visibleStartIndex);
-    const endIndex = Math.min(totalPages - 1, visibleEndIndex);
+    const firstPage = Math.min(
+        totalPages,
+        Math.max(1, Math.trunc(pageBounds?.startPage ?? 1)),
+    );
+    const lastPage = Math.max(
+        firstPage,
+        Math.min(totalPages, Math.trunc(pageBounds?.endPage ?? totalPages)),
+    );
+    const startIndex = Math.max(firstPage - 1, visibleStartIndex);
+    const endIndex = Math.min(lastPage - 1, visibleEndIndex);
     for (let index = startIndex; index <= endIndex; index += 1) {
         pages.add(index + 1);
     }
 
-    const clampedCurrentPage = Math.min(Math.max(currentPage, 1), totalPages);
+    const clampedCurrentPage = Math.min(Math.max(currentPage, firstPage), lastPage);
     for (
-        let page = Math.max(1, clampedCurrentPage - CURRENT_PAGE_NEIGHBOR_COUNT);
-        page <= Math.min(totalPages, clampedCurrentPage + CURRENT_PAGE_NEIGHBOR_COUNT);
+        let page = Math.max(firstPage, clampedCurrentPage - CURRENT_PAGE_NEIGHBOR_COUNT);
+        page <= Math.min(lastPage, clampedCurrentPage + CURRENT_PAGE_NEIGHBOR_COUNT);
         page += 1
     ) {
         pages.add(page);

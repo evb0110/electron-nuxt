@@ -1,6 +1,7 @@
 import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IDjvuWorker } from '@app/platform/browser-api/djvujsLoader';
+import { getDjvuWorkerPageSizes } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 import {
     createDjvuCanvas as createCanvas,
     createDjvuImageData as createImageDataFromTransfer,
@@ -96,7 +97,7 @@ function canvasImageDataToPpm(canvas: TDjvuCanvas, width: number, height: number
 }
 
 async function assertWorkerDjvuRasterBudget(worker: IDjvuWorker, pageNumber: number) {
-    const pageSize = (await worker.doc.getPagesSizes().run())[pageNumber - 1];
+    const pageSize = (await getDjvuWorkerPageSizes(worker))[pageNumber - 1];
     if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
     assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
 }

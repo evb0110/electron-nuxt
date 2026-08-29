@@ -163,6 +163,7 @@ describe('Electron E2E quarantine graduation policy', () => {
         expect(declaredPaths).toEqual(actualTestPaths);
         expect(diagnosticPaths).toEqual([
             'tests/e2e/electron/quarantine/scanCleanupAppTruthProbe.e2e.test.ts',
+            'tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts',
             'tests/e2e/electron/quarantine/scanCleanupUniformity.e2e.test.ts',
         ]);
         expect(policy.operatorDiagnostics.every(diagnostic => diagnostic.reason.includes('excluded from graduation evidence')))
@@ -205,15 +206,14 @@ describe('Electron E2E quarantine graduation policy', () => {
         expect(quarantineJob).toContain(
             'if: ${{ github.event_name == \'workflow_dispatch\' }}',
         );
-        expect(quarantineJob).toContain('continue-on-error: true');
+        expect(quarantineJob).not.toContain('continue-on-error: true');
         expect(quarantineJob).toContain(
             'run: pnpm exec vitest run --project unit-static-architecture tests/unit/architecture/quarantineGraduationPolicy.test.ts',
         );
         expect(quarantineJob).toContain('run: pnpm run test:e2e:electron:quarantine');
         expect(vitestConfig).toMatch(/condition: \/\\\[INFRA\\\]\/u,[\s\S]*?count: 2,/u);
-        expect(packageJson).toContain(
-            'scripts/test-electron-e2e-headless.sh --no-build e2e-quarantine --passWithNoTests',
-        );
+        expect(packageJson).toContain('scripts/ci/runElectronQuarantine.ts');
+        expect(packageJson).not.toContain('--passWithNoTests');
         expect(readme).toContain('`graduation-policy.json`');
         expect(readme).toContain('`[INFRA]`');
         expect(readme).toContain('GitHub Actions manual-run history');

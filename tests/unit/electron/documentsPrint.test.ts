@@ -128,9 +128,9 @@ vi.mock('crypto', async (importOriginal) => {
 vi.mock('pdf-lib', () => ({ PDFDocument: { load: (...args: unknown[]) => mocks.pdfDocumentLoad(...args) } }));
 
 vi.mock('@electron/utils/pathValidator', () => ({
-    getManagedTempPathAccessDecision: () => undefined,
+    getManagedTempPathAccessDecision: vi.fn(() => undefined),
     resolveAllowedReadPath: mocks.resolveAllowedReadPath,
-    setManagedTempPathAccessValidator: () => undefined,
+    setManagedTempPathAccessValidator: vi.fn(),
 }));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({

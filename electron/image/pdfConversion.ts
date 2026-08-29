@@ -25,6 +25,7 @@ import {
     isImagePath,
 } from '@electron/image/pdfCombineShared';
 import {
+    DJVU_PAGE_SIZE_ARRAY_MAX_PAGES,
     buildCompactDjvuAwarePdfFromDjvu,
     cancelConversion,
     getDjvuPageSizesForViewing,
@@ -49,8 +50,11 @@ import {
 import {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { abortErrorFromSignal } from '@electron/utils/abort';
-
-export { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
+import {
+    createPdfCombineOutputTooLargeError,
+    normalizePdfCombineOutputLimit,
+    PDF_COMBINE_MAX_OUTPUT_BYTES,
+} from '@contracts/pdfCombineOutputPolicy';
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
@@ -167,8 +171,11 @@ const PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = (() => {
     return Math.min(parsed, 256) * 1024 * 1024;
 })();
 const PDF_COMBINE_SMALL_MEMORY_MAX_OUTPUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_OUTPUT_MB ?? '512', 10);
-    return (Number.isFinite(parsed) && parsed >= 1 ? parsed : 512) * 1024 * 1024;
+    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_OUTPUT_MB ?? '16', 10);
+    return normalizePdfCombineOutputLimit(
+        (Number.isFinite(parsed) && parsed >= 1 ? parsed : PDF_COMBINE_MAX_OUTPUT_BYTES / (1024 * 1024))
+            * 1024 * 1024,
+    );
 })();
 const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
     [
@@ -321,7 +328,7 @@ async function createPdfFromInputPathsLocal(
                 }
                 const pageCount = await getOptionalDjvuPageCount(sourcePath, options?.signal);
                 const sourceDpi = await getDjvuResolution(sourcePath, options?.signal ? { signal: options.signal } : {});
-                const pageSizes = pageCount > 0
+                const pageSizes = pageCount > 0 && pageCount <= DJVU_PAGE_SIZE_ARRAY_MAX_PAGES
                     ? await getDjvuPageSizesForViewing(sourcePath, pageCount, options?.signal ? { signal: options.signal } : {})
                     : null;
                 const result = await buildCompactDjvuAwarePdfFromDjvu({
@@ -457,7 +464,7 @@ function assertMemoryCombineInputResourceLimits(resourceUsage: ICombineInputReso
     }
     const estimatedMinimumOutputBytes = Math.ceil(resourceUsage.totalBytes * 1.25);
     if (estimatedMinimumOutputBytes > PDF_COMBINE_SMALL_MEMORY_MAX_OUTPUT_BYTES) {
-        throw new Error('Combined PDF is estimated to exceed the in-memory output limit; use file-backed conversion');
+        throw createPdfCombineOutputTooLargeError();
     }
 }
 
@@ -601,7 +608,7 @@ function createPdfFromInputPathsWorker(
                         return;
                     }
                     if (data.byteLength > PDF_COMBINE_SMALL_MEMORY_MAX_OUTPUT_BYTES) {
-                        reject(new Error('Combined PDF output is too large to return safely'));
+                        reject(createPdfCombineOutputTooLargeError());
                         return;
                     }
 

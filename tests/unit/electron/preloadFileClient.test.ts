@@ -66,20 +66,6 @@ interface INativeBookmarkTestItem {
     items: INativeBookmarkTestItem[];
 }
 
-function createNativeFreeTextNote() {
-    return {
-        pageIndex: requirePageIndex(0),
-        stableKey: 'uid:0:pdfjs_internal_editor_0',
-        text: 'Editor note',
-        markerRect: {
-            left: 0.1,
-            top: 0.2,
-            width: 0.0016,
-            height: 0.0016,
-        },
-    };
-}
-
 function createNativeBookmark(title = 'Chapter'): INativeBookmarkTestItem {
     return {
         title,
@@ -266,6 +252,63 @@ describe('createDocumentsPreloadFileClient', () => {
         await expect(client.writeDocxFileChunks('/tmp/export.docx', [new Uint8Array(DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES + 1)])).rejects.toThrow('writeDocxFileChunks chunk exceeds maximum size');
         expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(
             DOCX_EXPORT_STREAM_CHANNELS.cancel,
+            'docx-session',
+        );
+    });
+
+    it('cancels exactly once when the renderer aborts during a DOCX chunk write', async () => {
+        const controller = new AbortController();
+        let resolveWriteStarted: (() => void) | undefined;
+        const writeStarted = new Promise<void>(resolve => {
+            resolveWriteStarted = resolve;
+        });
+        let resolveCancelStarted: (() => void) | undefined;
+        const cancelStarted = new Promise<void>(resolve => {
+            resolveCancelStarted = resolve;
+        });
+        let resolveWrite: (() => void) | undefined;
+        const writeRelease = new Promise<void>(resolve => {
+            resolveWrite = resolve;
+        });
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => {
+                if (channel === DOCX_EXPORT_STREAM_CHANNELS.begin) {
+                    return {sessionId: 'docx-session'};
+                }
+                if (channel === DOCX_EXPORT_STREAM_CHANNELS.writeChunk) {
+                    resolveWriteStarted?.();
+                    await writeRelease;
+                    return true;
+                }
+                if (channel === DOCX_EXPORT_STREAM_CHANNELS.cancel) {
+                    resolveCancelStarted?.();
+                    return true;
+                }
+                if (channel === DOCX_EXPORT_STREAM_CHANNELS.commit) {
+                    throw new Error('DOCX commit must not be reached after renderer cancellation');
+                }
+                return true;
+            }),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const writePromise = client.writeDocxFileChunks(
+            '/tmp/export.docx',
+            [Uint8Array.of(1, 2)],
+            controller.signal,
+        );
+
+        await writeStarted;
+        controller.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
+        await cancelStarted;
+        resolveWrite?.();
+
+        await expect(writePromise).rejects.toMatchObject({name: 'AbortError'});
+        expect(ipcRenderer.invoke.mock.calls.filter(([channel]) => (
+            channel === DOCX_EXPORT_STREAM_CHANNELS.cancel
+        ))).toHaveLength(1);
+        expect(ipcRenderer.invoke).not.toHaveBeenCalledWith(
+            DOCX_EXPORT_STREAM_CHANNELS.commit,
             'docx-session',
         );
     });
@@ -1351,29 +1394,27 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const modifiedAt = 'D:20260609133855+03\'00\'';
+        const tooManyCollectionItems = () => Array.from(
+            {length: PDF_NATIVE_MUTATION_LIMITS.collectionItems + 1},
+            () => undefined as never,
+        );
 
         expect(() => client.savePdfNoteChanges!(
             '/tmp/working.pdf',
-            {freeTextNotes: Array.from(
-                {length: PDF_NATIVE_MUTATION_LIMITS.noteChanges + 1},
-                createNativeFreeTextNote,
-            )},
+            {freeTextNotes: tooManyCollectionItems()},
             modifiedAt,
-        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.noteChanges} notes`);
+            revisionOptions,
+        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} notes`);
 
         expect(() => client.savePdfNativeMutations!(
             '/tmp/working.pdf',
             {pageLabels: {
                 totalPages: 3,
-                ranges: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges + 1}, () => ({
-                    startPage: 1,
-                    style: 'D',
-                    prefix: '',
-                    startNumber: 1,
-                })),
+                ranges: tooManyCollectionItems(),
             }},
             modifiedAt,
-        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges} ranges`);
+            revisionOptions,
+        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} ranges`);
 
         expect(() => client.savePdfNativeMutations!(
             '/tmp/working.pdf',
@@ -1383,6 +1424,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 items: createDeepNativeBookmarkItems(PDF_NATIVE_MUTATION_LIMITS.bookmarkDepth + 1),
             }},
             modifiedAt,
+            revisionOptions,
         )).toThrow('maximum bookmark depth');
 
         expect(() => client.savePdfNativeMutations!(
@@ -1401,29 +1443,25 @@ describe('createDocumentsPreloadFileClient', () => {
                 deletedStableKeys: [],
             }},
             modifiedAt,
+            revisionOptions,
         )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.shapePoints} points`);
 
         expect(() => client.savePdfNativeMutations!(
             '/tmp/working.pdf',
             {markup: {
-                overrides: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.markupItems + 1}, (_, index) => [
-                    `${index}R`,
-                    'Highlight',
-                ]),
+                overrides: tooManyCollectionItems(),
                 hints: [],
             }},
             modifiedAt,
-        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.markupItems} items`);
+            revisionOptions,
+        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} items`);
 
         expect(() => client.applyPdfNativeMutationsToWorkingCopy!(
             '/tmp/working.pdf',
-            {placedImages: Array.from(
-                {length: PDF_NATIVE_MUTATION_LIMITS.placedImages + 1},
-                createNativePlacedImage,
-            )},
+            {placedImages: tooManyCollectionItems()},
             modifiedAt,
             revisionOptions,
-        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.placedImages} images`);
+        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} images`);
 
         expect(() => client.applyPdfNativeMutationsToWorkingCopy!(
             '/tmp/working.pdf',

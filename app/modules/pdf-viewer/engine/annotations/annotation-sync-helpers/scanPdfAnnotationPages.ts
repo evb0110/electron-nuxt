@@ -114,6 +114,19 @@ export async function scanPdfAnnotationPages(
         const pageBundle = skipPageLoad
             ? null
             : await loadPage(pageNumber, pageAnnotationNames);
+        if (
+            pageAnnotationNames === null
+            && pageBundle?.annotations.some(annotation => (
+                annotation.subtype?.trim().toLowerCase() === 'stamp'
+                && !annotation.annotationName?.trim()
+            ))
+        ) {
+            // PDF.js does not expose /NM. If the bounded native/page-local
+            // identity read is unavailable, an unnamed Stamp may be an
+            // app-owned placed image. Keep the inventory explicitly
+            // incomplete instead of silently presenting update/delete as safe.
+            omissions.add('annotation-name-unavailable');
+        }
         visitedPageCount += 1;
         pagesSinceYield += 1;
         if (skipPageLoad) {

@@ -42,6 +42,7 @@ export const allGatesValidationStages = [
             'e2e-blocking-smoke',
         ],
         command: 'bash',
+        env: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
         heavyWeight: 2,
         id: 'electron.blocking-smoke',
         parallelPhase: 3,

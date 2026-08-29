@@ -314,6 +314,134 @@ pub(crate) fn is_imported_shape_rect_unchanged(
         && (imported.height - shape.height).abs() <= EPSILON
 }
 
+const SHAPE_SEMANTIC_NUMBER_EPSILON: f64 = 0.0001;
+
+fn equivalent_pdf_objects(
+    document: &impl PdfObjectSource,
+    left: &Object,
+    right: &Object,
+) -> Result<bool> {
+    let left = document.resolved(left)?;
+    let right = document.resolved(right)?;
+    match (left, right) {
+        (Object::Integer(left), Object::Integer(right)) => Ok(left == right),
+        (Object::Integer(left), Object::Real(right))
+        | (Object::Real(right), Object::Integer(left)) => {
+            Ok((*left as f64 - f64::from(*right)).abs() <= SHAPE_SEMANTIC_NUMBER_EPSILON)
+        }
+        (Object::Real(left), Object::Real(right)) => {
+            Ok((f64::from(*left) - f64::from(*right)).abs() <= SHAPE_SEMANTIC_NUMBER_EPSILON)
+        }
+        (Object::Name(left), Object::Name(right)) => Ok(left == right),
+        (Object::String(left, left_format), Object::String(right, right_format)) => {
+            Ok(left == right && left_format == right_format)
+        }
+        (Object::Null, Object::Null) => Ok(true),
+        (Object::Array(left), Object::Array(right)) => {
+            if left.len() != right.len() {
+                return Ok(false);
+            }
+            left.iter()
+                .zip(right)
+                .try_fold(true, |same, (left, right)| {
+                    Ok(same && equivalent_pdf_objects(document, left, right)?)
+                })
+        }
+        (left, right) => Ok(left == right),
+    }
+}
+
+fn equivalent_shape_field(
+    document: &impl PdfObjectSource,
+    before: &Dictionary,
+    after: &Dictionary,
+    key: &[u8],
+) -> Result<bool> {
+    match (before.get(key), after.get(key)) {
+        (Ok(before), Ok(after)) => equivalent_pdf_objects(document, before, after),
+        (Err(_), Err(_)) => Ok(true),
+        _ => Ok(false),
+    }
+}
+
+fn shape_stroke_width(document: &impl PdfObjectSource, dict: &Dictionary) -> Option<f64> {
+    if let Ok(border) = dict.get(b"Border") {
+        if let Some(values) = document
+            .resolved(border)
+            .ok()
+            .and_then(|value| value.as_array().ok())
+        {
+            if let Some(width) = values
+                .get(2)
+                .and_then(|value| document.resolved(value).ok())
+                .and_then(|value| object_to_f64(value).ok())
+            {
+                return Some(width);
+            }
+        }
+    }
+    let border_style = dict.get(b"BS").ok()?.clone();
+    let border_style = document.resolved(&border_style).ok()?.as_dict().ok()?;
+    let width = border_style.get(b"W").ok()?;
+    object_to_f64(document.resolved(width).ok()?).ok()
+}
+
+fn shape_semantic_change(
+    document: &impl PdfObjectSource,
+    dict: &Dictionary,
+    shape: &ShapeAnnotation,
+    page_view: PdfRect,
+    page_rotation: i64,
+    existing_rect: Option<PdfRect>,
+) -> Result<bool> {
+    let subtype = annotation_subtype(dict);
+    if subtype == "ink" {
+        return Ok(false);
+    }
+
+    // Project the requested fields into a detached dictionary. This reuses
+    // the same geometry/style normalization as the actual write, including
+    // the off-page rectangle preservation rule. Dates and identity fields are
+    // intentionally ignored below because they do not affect the appearance.
+    let mut projected = dict.clone();
+    match subtype.as_str() {
+        "square" | "circle" => {
+            set_rect_shape_fields(
+                &mut projected,
+                shape,
+                page_view,
+                page_rotation,
+                existing_rect,
+            )?;
+        }
+        "line" => set_line_shape_fields(&mut projected, shape, page_view, page_rotation)?,
+        "polyline" => {
+            set_vertex_shape_fields(&mut projected, shape, page_view, page_rotation, false)?;
+        }
+        "polygon" => {
+            set_vertex_shape_fields(&mut projected, shape, page_view, page_rotation, true)?;
+        }
+        _ => return Ok(true),
+    }
+
+    for key in [
+        b"Rect".as_slice(),
+        b"L",
+        b"Vertices",
+        b"C",
+        b"IC",
+        b"CA",
+        b"LE",
+    ] {
+        if !equivalent_shape_field(document, dict, &projected, key)? {
+            return Ok(true);
+        }
+    }
+    let requested_width = shape.stroke_width;
+    let existing_width = shape_stroke_width(document, dict).unwrap_or(1.0);
+    Ok((existing_width - requested_width).abs() > SHAPE_SEMANTIC_NUMBER_EPSILON)
+}
+
 pub(crate) fn set_rect_shape_fields(
     dict: &mut Dictionary,
     shape: &ShapeAnnotation,
@@ -515,6 +643,7 @@ pub(crate) fn update_shape_annotation_dict(
     page_rotation: i64,
     modified_at: &str,
     existing_rect: Option<PdfRect>,
+    remove_appearance: bool,
 ) -> Result<bool> {
     let subtype = annotation_subtype(dict);
     if !is_supported_shape_subtype(&subtype) {
@@ -529,6 +658,12 @@ pub(crate) fn update_shape_annotation_dict(
         "polygon" => set_vertex_shape_fields(dict, shape, page_view, page_rotation, true)?,
         "ink" => set_ink_shape_fields(dict, shape, page_view, page_rotation)?,
         _ => return Ok(false),
+    }
+    if subtype != "ink" && remove_appearance {
+        // The semantic shape fields above are the source of truth after an
+        // edit. An imported normal appearance describes the old geometry or
+        // style, so keeping it would make readers draw stale pixels.
+        dict.remove(b"AP");
     }
     set_shape_dates(dict, shape, modified_at);
     write_managed_shape_stable_key(dict, shape.stable_key.as_deref());
@@ -704,6 +839,15 @@ pub(crate) fn apply_shape_annotation_decision(
                 .get_dictionary(object_id)
                 .ok()
                 .and_then(|dict| read_shape_annotation_rect(&*document, dict));
+            let remove_appearance = subtype != "ink"
+                && shape_semantic_change(
+                    &*document,
+                    document.get_dictionary(object_id)?,
+                    &shape,
+                    page.page_view,
+                    page.page_rotation,
+                    existing_rect,
+                )?;
             let dict = document.get_dictionary_mut(object_id)?;
             let modified = update_shape_annotation_dict(
                 dict,
@@ -712,6 +856,7 @@ pub(crate) fn apply_shape_annotation_decision(
                 page.page_rotation,
                 modified_at,
                 existing_rect,
+                remove_appearance,
             )?;
             dict.set("P", Object::Reference(page.page_id));
             if let Some(appearance_ref) = appearance_ref {
@@ -739,6 +884,15 @@ pub(crate) fn apply_shape_annotation_decision(
             .get_dictionary(object_id)
             .ok()
             .and_then(|dict| read_shape_annotation_rect(&*document, dict));
+        let remove_appearance = subtype != "ink"
+            && shape_semantic_change(
+                &*document,
+                document.get_dictionary(object_id)?,
+                &shape,
+                page.page_view,
+                page.page_rotation,
+                existing_rect,
+            )?;
         let dict = document.get_dictionary_mut(object_id)?;
         let modified = update_shape_annotation_dict(
             dict,
@@ -747,6 +901,7 @@ pub(crate) fn apply_shape_annotation_decision(
             page.page_rotation,
             modified_at,
             existing_rect,
+            remove_appearance,
         )?;
         dict.set("P", Object::Reference(page.page_id));
         if let Some(appearance_ref) = appearance_ref {
@@ -817,6 +972,19 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
                 .ok()
                 .and_then(|dict| read_shape_annotation_rect(&source, dict))
         };
+        let remove_appearance = if subtype == "ink" {
+            false
+        } else {
+            let source = AppendedRevision::new(incremental);
+            shape_semantic_change(
+                &source,
+                source.dictionary(object_id)?,
+                &shape,
+                page.page_view,
+                page.page_rotation,
+                existing_rect,
+            )?
+        };
         let dict = incremental.new_document.get_dictionary_mut(object_id)?;
         let modified = update_shape_annotation_dict(
             dict,
@@ -825,6 +993,7 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
             page.page_rotation,
             modified_at,
             existing_rect,
+            remove_appearance,
         )?;
         dict.set("P", Object::Reference(page.page_id));
         if let Some(appearance_ref) = appearance_ref {

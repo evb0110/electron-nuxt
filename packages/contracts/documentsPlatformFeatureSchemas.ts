@@ -131,6 +131,7 @@ const applicationMenuOptionalBooleanFields = [
     'canPrint',
     'supportsExportDocx',
     'canExportDocx',
+    'isExportingDocx',
     'supportsRasterExport',
     'canExportRaster',
     'canUndo',

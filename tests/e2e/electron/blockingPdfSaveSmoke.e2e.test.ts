@@ -3,21 +3,28 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
 } from 'vitest';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
+    createLargeScannedFixturePdf,
     createMultiPageTextFixturePdf,
+    cleanupRunFixtures,
     readPdfAnnotationSummary,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
     openAnnotationsTab,
+    saveViaWindowHandle,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import { createFreeTextAnnotation } from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {
+    createFreeTextAnnotation,
+    createFreeTextAnnotationWithPointer,
+} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
@@ -253,4 +260,90 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             visualPresentation: 'canvas',
         });
     }, BLOCKING_SMOKE_TIMEOUT_MS);
+
+    it('saves one bounded pressure annotation and reopens it in a fresh Electron process', async () => {
+        const runOwner = `blocking-pressure-save-${Date.now()}`;
+        const pdfPath = await createLargeScannedFixturePdf(
+            'blocking-pressure-annotation.pdf',
+            431,
+            28 * 1024 * 1024,
+            1,
+            {runOwner},
+        );
+        onTestFinished(() => cleanupRunFixtures(runOwner));
+        const annotationText = `blocking pressure annotation ${Date.now()}`;
+
+        session = await startElectronE2ESession(`e2e-blocking-pressure-save-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+            initialOpenPaths: [pdfPath],
+        });
+        await Promise.all([
+            waitForAutomationEvent(session.page, 'document-opened', {
+                path: pdfPath,
+                timeoutMs: 60_000,
+            }),
+            waitForAutomationEvent(session.page, 'first-page-rendered', {
+                path: pdfPath,
+                timeoutMs: 60_000,
+            }),
+        ]);
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        await openAnnotationsTab(session.page, 30_000);
+        expect(await createFreeTextAnnotationWithPointer(session.page, annotationText, {
+            x: 0.5,
+            y: 0.5,
+        })).toBeGreaterThan(0);
+        await expect.poll(async () => (
+            await readWorkspaceStateValues<{dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;}}>(
+                session!.page,
+                ['dirtyState'],
+            )
+        ).dirtyState?.hasLivePdfJsAnnotationChanges ?? false, {timeout: 20_000}).toBe(true);
+
+        const saveBaselineEventId = await getLatestAutomationEventId(session.page);
+        await saveViaWindowHandle(session.page, 60_000);
+        await waitForAutomationEvent(session.page, 'save-committed', {
+            afterEventId: saveBaselineEventId,
+            path: pdfPath,
+            timeoutMs: 60_000,
+        });
+        await expect.poll(async () => (
+            await readWorkspaceStateValues<{dirtyState?: {
+                fileDirty?: boolean;
+                hasLivePdfJsAnnotationChanges?: boolean;
+                hasPendingUnsavedChanges?: boolean;
+            };}>(session!.page, ['dirtyState'])
+        ).dirtyState, {timeout: 20_000}).toMatchObject({
+            fileDirty: false,
+            hasLivePdfJsAnnotationChanges: false,
+            hasPendingUnsavedChanges: false,
+        });
+        const savedSummary = await readPdfAnnotationSummary(pdfPath);
+        expect(savedSummary.bySubtype.FreeText ?? 0).toBeGreaterThan(0);
+
+        const savedSession = session;
+        session = null;
+        await savedSession.stop();
+        session = await startElectronE2ESession(`e2e-blocking-pressure-reopen-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+            initialOpenPaths: [pdfPath],
+        });
+        await Promise.all([
+            waitForAutomationEvent(session.page, 'document-opened', {
+                path: pdfPath,
+                timeoutMs: 60_000,
+            }),
+            waitForAutomationEvent(session.page, 'first-page-rendered', {
+                path: pdfPath,
+                timeoutMs: 60_000,
+            }),
+        ]);
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0)
+            .toBe(savedSummary.bySubtype.FreeText);
+    }, BLOCKING_SMOKE_TIMEOUT_MS * 2);
 });

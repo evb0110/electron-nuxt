@@ -18,6 +18,7 @@ export async function deleteEmbeddedAnnotation(
     if (!removeAnnotationRefsFromPages(doc, refsToDelete)) {
         return null;
     }
+    refsToDelete.forEach(ref => doc.context.delete(ref));
 
     return new Uint8Array(await doc.save());
 }

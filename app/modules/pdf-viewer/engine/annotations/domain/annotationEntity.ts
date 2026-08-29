@@ -62,13 +62,19 @@ export interface ITextMarkupEntity extends IAnnotationEntityBase {
     readonly opacity: number | null;
 }
 
+/** A persisted image whose PDF representation is an app-owned Stamp. */
+export interface IPlacedImageEntity extends IAnnotationEntityBase {
+    readonly kind: 'placed-image';
+    readonly rect: IAnnotationMarkerRect;
+}
+
 export interface IShapeEntity extends IAnnotationEntityBase {
     readonly kind: 'shape';
     readonly geometry: Readonly<IShapeAnnotation>;
 }
 
 // eslint-disable-next-line @typescript-eslint/naming-convention
-export type AnnotationEntity = IStickyNoteEntity | ITextMarkupEntity | IShapeEntity;
+export type AnnotationEntity = IStickyNoteEntity | ITextMarkupEntity | IPlacedImageEntity | IShapeEntity;
 
 export type TAnnotationStyle =
     | {

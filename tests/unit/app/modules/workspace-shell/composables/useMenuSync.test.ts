@@ -344,6 +344,45 @@ describe('useMenuSync', () => {
         }));
     });
 
+    it('keeps the DOCX menu command available as a cancellation action while exporting', async () => {
+        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'dictionary.pdf',
+                originalPath: '/documents/dictionary.pdf',
+                isDirty: false,
+                isDjvu: false,
+            },
+            toolbarSnapshot: {
+                hasPdf: true,
+                totalPages: 1,
+                canExportDocx: false,
+                isExportingDocx: true,
+                viewerCapabilities: {
+                    ...createDefaultWorkspaceViewerCapabilities(),
+                    pdfDocument: true,
+                },
+            },
+        }));
+
+        useMenuSync({
+            activeDocumentRecord,
+            activeTabId: ref<string | null>('tab-1'),
+            tabs: ref([{
+                id: 'tab-1',
+                fileName: 'dictionary.pdf',
+                originalPath: '/documents/dictionary.pdf',
+                isDirty: false,
+                isDjvu: false,
+            }]),
+        });
+        await nextTick();
+
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
+            canExportDocx: true,
+            isExportingDocx: true,
+        }));
+    });
+
     it('syncs selection, view, feature, and tab applicability from authoritative shell state', async () => {
         const activeDocumentRecord = ref(createWorkspaceDocumentRecord({toolbarSnapshot: {
             hasPdf: true,

@@ -329,7 +329,6 @@ function assertPersistenceData(value: unknown, fieldName: string) {
     }
     return value;
 }
-
 function assertDocxExportChunk(value: unknown) {
     if (!(value instanceof Uint8Array) || value.byteLength === 0) {
         throw new Error('writeDocxFileChunks chunks must yield non-empty Uint8Array values');
@@ -341,15 +340,12 @@ function assertDocxExportChunk(value: unknown) {
     }
     return value;
 }
-
 function createDocxExportFileCapability(
     ipcRenderer: Pick<IpcRenderer, 'invoke'>,
 ): IDocxExportFileCapability {
-    const invoke = async <TResult>(channel: string, ...args: unknown[]) =>
-        await ipcRenderer.invoke(channel, ...args) as TResult;
-
-    const writeDocxFileChunks = async (path: Parameters<IDocxExportFileCapability['writeDocxFileChunks']>[0], chunks: TDocxExportChunkSource) => {
-        const checkedPath = assertAbsolutePath(path, 'writeDocxFileChunks.path');
+    const invoke = async <TResult>(channel: string, ...args: unknown[]) => await ipcRenderer.invoke(channel, ...args) as TResult;
+    const writeDocxFileChunks = async (path: Parameters<IDocxExportFileCapability['writeDocxFileChunks']>[0], chunks: TDocxExportChunkSource, signal?: AbortSignal) => {
+        const checkedPath = assertAbsolutePath(path, 'writeDocxFileChunks.path'); throwIfAborted(signal);
         const beginResult = await invoke<IDocxExportStreamBeginResult>(
             DOCX_EXPORT_STREAM_CHANNELS.begin,
             checkedPath,
@@ -361,19 +357,29 @@ function createDocxExportFileCapability(
         ) {
             throw new Error('Invalid DOCX stream begin response');
         }
-
         const sessionId = beginResult.sessionId;
         let wroteChunk = false;
+        let cancelPromise: Promise<boolean> | null = null;
+        const cancelSession = () => cancelPromise ??= invoke<boolean>(
+            DOCX_EXPORT_STREAM_CHANNELS.cancel,
+            sessionId,
+        ).catch(() => false);
+        const handleAbort = () => { void cancelSession(); };
+        signal?.addEventListener('abort', handleAbort, {once: true});
         try {
+            throwIfAborted(signal);
             for await (const chunk of chunks) {
+                throwIfAborted(signal);
                 const checkedChunk = assertDocxExportChunk(chunk);
                 await invoke(
                     DOCX_EXPORT_STREAM_CHANNELS.writeChunk,
                     sessionId,
                     checkedChunk,
                 );
+                throwIfAborted(signal);
                 wroteChunk = true;
             }
+            throwIfAborted(signal);
             if (!wroteChunk) {
                 throw new Error('writeDocxFileChunks requires at least one chunk');
             }
@@ -386,14 +392,10 @@ function createDocxExportFileCapability(
             }
             return true;
         } catch (error) {
-            await invoke<boolean>(
-                DOCX_EXPORT_STREAM_CHANNELS.cancel,
-                sessionId,
-            ).catch(() => false);
+            await cancelSession();
             throw error;
-        }
+        } finally { signal?.removeEventListener('abort', handleAbort); }
     };
-
     return {writeDocxFileChunks};
 }
 

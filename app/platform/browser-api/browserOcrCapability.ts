@@ -39,7 +39,7 @@ export const browserOcrCapability: IOcrCapability = {
     getLanguages() {
         return Promise.resolve([]);
     },
-    resolveDocumentTextCatalog(_workingCopyPath, documentRevision, pageCount = 0) {
+    resolveDocumentTextCatalog(_workingCopyPath, documentRevision, pageCount = 0, _requestId?: string) {
         return Promise.resolve({
             documentRevision,
             pageCount,
@@ -47,7 +47,14 @@ export const browserOcrCapability: IOcrCapability = {
             contentDigest: '',
         });
     },
-    resolveDocumentTextCatalogWindow(_workingCopyPath, documentRevision, firstPage, lastPage, pageCount = lastPage) {
+    resolveDocumentTextCatalogWindow(
+        _workingCopyPath,
+        documentRevision,
+        firstPage,
+        lastPage,
+        pageCount = lastPage,
+        _requestId?: string,
+    ) {
         return Promise.resolve({
             documentRevision,
             pageCount,

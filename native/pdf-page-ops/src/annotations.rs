@@ -228,10 +228,12 @@ pub(crate) fn upsert_free_text_editors_with_counter(
         let rect = validate_free_text_editor_rect(editor, page_view)?;
         let name = free_text_editor_name(editor);
         let appearance_ref = build_free_text_editor_appearance(document, editor, rect)?;
-        if let Some(annotation_ref) = annotation_indexes
-            .get(&page_id)
-            .and_then(|index| index.first_free_text_named(&name))
-        {
+        let existing_annotation_ref = resolve_free_text_editor_target(document, page_id, editor)?;
+        if let Some(annotation_ref) = existing_annotation_ref.or_else(|| {
+            annotation_indexes
+                .get(&page_id)
+                .and_then(|index| index.first_free_text_named(&name))
+        }) {
             let dict = document.get_dictionary_mut(annotation_ref)?;
             set_free_text_editor_fields(dict, editor, &name, rect, modified_at, appearance_ref);
             continue;
@@ -282,10 +284,13 @@ pub(crate) fn upsert_free_text_editors_incremental_with_counter(
         let name = free_text_editor_name(editor);
         let appearance_ref =
             build_free_text_editor_appearance(&mut incremental.new_document, editor, rect)?;
-        if let Some(annotation_ref) = annotation_indexes
-            .get(&page_id)
-            .and_then(|index| index.first_free_text_named(&name))
-        {
+        let existing_annotation_ref =
+            resolve_free_text_editor_target(&AppendedRevision::new(incremental), page_id, editor)?;
+        if let Some(annotation_ref) = existing_annotation_ref.or_else(|| {
+            annotation_indexes
+                .get(&page_id)
+                .and_then(|index| index.first_free_text_named(&name))
+        }) {
             incremental.opt_clone_object_to_new_document(annotation_ref)?;
             let dict = incremental
                 .new_document
@@ -315,6 +320,34 @@ pub(crate) fn upsert_free_text_editors_incremental_with_counter(
 
 pub(crate) fn free_text_editor_name(editor: &FreeTextEditor) -> String {
     format!("evb-freetext:{}", editor.stable_key.trim())
+}
+
+fn resolve_free_text_editor_target(
+    document: &impl PdfObjectSource,
+    page_id: ObjectId,
+    editor: &FreeTextEditor,
+) -> Result<Option<ObjectId>> {
+    let Some(annotation_id) = editor.annotation_id.as_deref() else {
+        return Ok(None);
+    };
+    let object_id = parse_pdfjs_annotation_object_id(annotation_id)
+        .ok_or("Invalid imported FreeText annotation id")?;
+    if !get_page_annots(document, page_id)?
+        .iter()
+        .any(|annotation| annotation.as_reference().ok() == Some(object_id))
+    {
+        return Err("Imported FreeText annotation is not owned by the requested page".into());
+    }
+    let dict = document.dictionary(object_id)?;
+    if dict
+        .get(b"Subtype")
+        .ok()
+        .and_then(|value| value.as_name().ok())
+        != Some(b"FreeText")
+    {
+        return Err("Imported FreeText target is not a FreeText annotation".into());
+    }
+    Ok(Some(object_id))
 }
 
 pub(crate) fn validate_free_text_editor_rect(
@@ -479,10 +512,12 @@ fn set_free_text_editor_fields(
         ),
     );
     dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
-    dict.set(
-        "NM",
-        Object::String(encode_pdf_text_string(name), StringFormat::Hexadecimal),
-    );
+    if editor.annotation_id.is_none() {
+        dict.set(
+            "NM",
+            Object::String(encode_pdf_text_string(name), StringFormat::Hexadecimal),
+        );
+    }
     dict.set(
         "Border",
         Object::Array(vec![
@@ -960,6 +995,49 @@ pub(crate) fn collect_annotation_refs_to_delete(
             Ok(dict) => dict,
             Err(_) => continue,
         };
+        if annotation_subtype(dict) == "stamp"
+            && dict
+                .get(b"NM")
+                .ok()
+                .and_then(pdf_string_to_text)
+                .is_some_and(|name| name.starts_with("placed-image-"))
+        {
+            if let Ok(appearance) = dict.get(b"AP") {
+                if let Some(appearance_dict) = document
+                    .resolved(appearance)
+                    .ok()
+                    .and_then(|value| value.as_dict().ok())
+                {
+                    if let Some(appearance_id) = annotation_related_ref(appearance_dict, b"N") {
+                        pending.push(appearance_id);
+                        if let Ok(Object::Stream(appearance_stream)) =
+                            document.object(appearance_id)
+                        {
+                            if let Some(resources) = appearance_stream
+                                .dict
+                                .get(b"Resources")
+                                .ok()
+                                .and_then(|value| document.resolved(value).ok())
+                                .and_then(|value| value.as_dict().ok())
+                            {
+                                if let Some(xobjects) = resources
+                                    .get(b"XObject")
+                                    .ok()
+                                    .and_then(|value| document.resolved(value).ok())
+                                    .and_then(|value| value.as_dict().ok())
+                                {
+                                    pending.extend(
+                                        xobjects
+                                            .iter()
+                                            .filter_map(|(_, value)| value.as_reference().ok()),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if let Some(popup_id) = annotation_related_ref(dict, b"Popup") {
             pending.push(popup_id);
         }
@@ -1031,21 +1109,6 @@ pub(crate) fn annotation_matches_stable_delete_name(
         replayable_free_text_note_name_from_parts(stable_key, None)
     );
     Ok(note_name.starts_with(&stable_prefix))
-}
-
-pub(crate) fn resolve_annotation_delete_target_refs(
-    document: &impl PdfObjectSource,
-    page_id: ObjectId,
-    delete: &AnnotationDelete,
-) -> Result<Vec<ObjectId>> {
-    if let (Some(object_number), Some(generation_number)) =
-        (delete.object_number, delete.generation_number)
-    {
-        return Ok(vec![(object_number, generation_number)]);
-    }
-
-    let (index, _) = build_page_annotation_index(document, page_id)?;
-    resolve_annotation_delete_target_refs_from_index(&index, delete)
 }
 
 fn resolve_annotation_delete_target_refs_from_index(
@@ -1172,6 +1235,9 @@ pub(crate) fn delete_annotations(
     if !removed_any {
         return Err("No requested annotation delete target was referenced from page Annots".into());
     }
+    for object_id in refs_to_delete {
+        document.objects.remove(&object_id);
+    }
     Ok(())
 }
 
@@ -1208,6 +1274,9 @@ pub(crate) fn delete_annotations_incremental(
 
     if !removed_any {
         return Err("No requested annotation delete target was referenced from page Annots".into());
+    }
+    for object_id in refs_to_delete {
+        incremental.new_document.set_object(object_id, Object::Null);
     }
     Ok(())
 }
