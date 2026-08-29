@@ -100,7 +100,10 @@ const electronE2EBlockingSmokeTestFiles = [
     'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
     'tests/e2e/electron/scanCleanupToolbarContract.e2e.test.ts',
 ];
-const electronE2ENativeSaveReopenTestFiles = ['tests/e2e/electron/nativeSaveReopen.e2e.test.ts'];
+const electronE2ENativeSaveReopenTestFiles = [
+    'tests/e2e/electron/nativeSaveReopen.e2e.test.ts',
+    'tests/e2e/electron/compactPageLabelsStructuralOperations.e2e.test.ts',
+];
 const electronE2EDrawShapeTestFiles = [
     'tests/e2e/electron/annotationStrokeParity.e2e.test.ts',
     'tests/e2e/electron/drawShapeLifecycle.e2e.test.ts',
