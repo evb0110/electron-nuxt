@@ -1,0 +1,36 @@
+tests/unit/app/modules/document-viewer/documentViewerArchitectureBoundaries.test.ts
+  s_b2ece6dfe48478::t_653d0f7a4ef906 132-137
+tests/unit/app/modules/pdf-viewer/pdfViewportWritePort.test.ts
+  s_b2ece6dfe48478::t_653d0f7a4ef906 17-18,34-43
+  s_b2ece6dfe48478::t_ab468fed75fcf9 11-16,19-33,44-47
+app/utils/document-viewer/chassis/documentViewportWritePort.ts
+  s_b2ece6dfe48478::t_4655be32683c17 27-42,86-117
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_b2ece6dfe48478::t_0cd25c64a5c875 182
+  s_b2ece6dfe48478::t_387c5f16f314ce 179
+app/utils/document-viewer/thumbnails/useDocumentThumbnailController.ts
+  s_b2ece6dfe48478::t_6fb61bc176b675 59-63,130,133-136,148-149,151-159,161-183,186-196,201,205,221,230-233,371,380-383,393,402-405,425-429,557-559,650,660,668,691
+  s_b2ece6dfe48478::t_653d0f7a4ef906 137-147,150
+app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts
+  s_b2ece6dfe48478::t_f9694c6b629c31 513-516
+  s_b2ece6dfe48478::t_35465870a4cf53 492,503-505,511-512,517
+  s_b2ece6dfe48478::t_a4eabf8c7f24be 466-469,487,493-502,506-510
+  s_b2ece6dfe48478::t_ec231785e42516 474-476,484
+  s_b2ece6dfe48478::t_4655be32683c17 425-427,443-444,446-452
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "dcef228360ab6605e0fa2fd7c9225e5c180f17dc",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
