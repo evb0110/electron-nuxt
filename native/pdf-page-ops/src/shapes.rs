@@ -424,15 +424,14 @@ fn shape_semantic_change(
         _ => return Ok(true),
     }
 
-    for key in [
-        b"Rect".as_slice(),
-        b"L",
-        b"Vertices",
-        b"C",
-        b"IC",
-        b"CA",
-        b"LE",
-    ] {
+    let keys: &[&[u8]] = match subtype.as_str() {
+        "square" | "circle" => &[b"Rect", b"C", b"IC", b"CA"],
+        "line" => &[b"Rect", b"L", b"C", b"CA", b"LE"],
+        "polyline" => &[b"Rect", b"Vertices", b"C", b"CA", b"LE"],
+        "polygon" => &[b"Rect", b"Vertices", b"C", b"IC", b"CA"],
+        _ => return Ok(true),
+    };
+    for key in keys {
         if !equivalent_shape_field(document, dict, &projected, key)? {
             return Ok(true);
         }

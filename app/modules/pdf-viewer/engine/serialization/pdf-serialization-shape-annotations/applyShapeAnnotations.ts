@@ -481,8 +481,7 @@ function shapeSemanticChange(
 
     if (!approximatelyEqual(readShapeOpacity(annotDict), shape.opacity)
         || !approximatelyEqual(readShapeStrokeWidth(annotDict), shape.strokeWidth)
-        || !approximatelyEqualArray(readPdfNumberArray(annotDict, 'C'), parsePdfColor(shape.color))
-        || !approximatelyEqualArray(readPdfNumberArray(annotDict, 'IC'), parsePdfColor(shape.fillColor))) {
+        || !approximatelyEqualArray(readPdfNumberArray(annotDict, 'C'), parsePdfColor(shape.color))) {
         return true;
     }
 
@@ -495,8 +494,13 @@ function shapeSemanticChange(
             || actualEnd !== expectedLineEnding(shape.lineEndStyle)) {
             return true;
         }
-    } else if (subtype === 'Polygon' && annotDict.has(PDFName.of('LE'))) {
-        return true;
+    } else if (subtype === 'Square' || subtype === 'Circle' || subtype === 'Polygon') {
+        if (!approximatelyEqualArray(
+            readPdfNumberArray(annotDict, 'IC'),
+            parsePdfColor(shape.fillColor),
+        )) {
+            return true;
+        }
     }
 
     switch (subtype) {

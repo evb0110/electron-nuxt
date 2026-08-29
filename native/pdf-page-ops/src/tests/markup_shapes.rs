@@ -1566,6 +1566,9 @@ fn shape_with_stale_appearance(subtype: &str) -> Dictionary {
     match subtype {
         "Line" => {
             dict.set("L", vec![20.into(), 20.into(), 100.into(), 60.into()]);
+            dict.set("Rect", vec![18.into(), 18.into(), 102.into(), 62.into()]);
+            // A Line has no interior. Some producers still leave /IC behind.
+            dict.set("IC", vec![0.into(), 1.into(), 0.into()]);
         }
         "PolyLine" => {
             dict.set(
@@ -1725,6 +1728,45 @@ fn preserves_an_untouched_imported_appearance_when_a_sibling_shape_changes() {
     untouched.stroke_width = 2.0;
     let mut changed = untouched.clone();
     changed.stable_key = Some(changed_key.to_string());
+    changed.x += 0.05;
+
+    append_native_mutations(
+        &pdf_path,
+        &pdf_path,
+        &shapes_mutation(vec![untouched, changed]),
+        "D:20260609123456+03'00'",
+    )
+    .unwrap();
+
+    let loaded = Document::load(&pdf_path).unwrap();
+    assert!(shape_dict(&loaded, untouched_key).get(b"AP").is_ok());
+    assert!(shape_dict(&loaded, changed_key).get(b"AP").is_err());
+
+    let _ = remove_file(pdf_path);
+}
+
+#[test]
+fn preserves_an_untouched_line_appearance_when_a_sibling_shape_changes() {
+    let untouched_key = "evb-shape:untouched-line-appearance";
+    let changed_key = "evb-shape:changed-square-appearance";
+    let (mut document, _page_id) = embedded_shape_pdf_with_indirect_appearances(&[
+        (untouched_key, shape_with_stale_appearance("Line")),
+        (changed_key, shape_with_stale_appearance("Square")),
+    ]);
+    let pdf_path = seed_shape_pdf(&mut document, "shape-preserve-untouched-line-appearance");
+
+    let mut untouched = rectangle_shape(untouched_key, "#ff0000");
+    untouched.shape_type = "line".to_string();
+    untouched.fill_color = None;
+    untouched.x = 0.1;
+    untouched.y = 0.8;
+    untouched.x2 = Some(0.5);
+    untouched.y2 = Some(0.4);
+    untouched.width = 0.4;
+    untouched.height = 0.4;
+    untouched.opacity = 1.0;
+    untouched.stroke_width = 2.0;
+    let mut changed = imported_on_page_square(changed_key);
     changed.x += 0.05;
 
     append_native_mutations(

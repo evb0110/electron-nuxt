@@ -255,10 +255,10 @@ const STALE_APPEARANCE_ANNOTATIONS: IFixtureAnnotation[] = [
             Type: 'Annot',
             Subtype: 'Line',
             Rect: [
-                100,
-                300,
-                450,
-                450,
+                98,
+                298,
+                452,
+                452,
             ],
             L: [
                 100,
@@ -269,6 +269,12 @@ const STALE_APPEARANCE_ANNOTATIONS: IFixtureAnnotation[] = [
             C: [
                 1,
                 0,
+                0,
+            ],
+            // A Line has no interior. Some producers still leave /IC behind.
+            IC: [
+                0,
+                1,
                 0,
             ],
             CA: 1,
@@ -645,5 +651,41 @@ describe('embedded shape rect preservation on the serialized save route', () => 
 
         expect(saved.get('evb-shape:stale-square')?.get(PDFName.of('AP'))).toBeDefined();
         expect(saved.get('evb-shape:stale-circle')?.get(PDFName.of('AP'))).toBeUndefined();
+    });
+
+    it('preserves an untouched Line appearance when a sibling shape changes', async () => {
+        const bytes = await createShapeFixturePdfWithStaleAppearances([
+            STALE_APPEARANCE_ANNOTATIONS[2]!,
+            STALE_APPEARANCE_ANNOTATIONS[0]!,
+        ]);
+        const imported = await importEmbeddedShapeAnnotations(bytes);
+        const importedLine = requireShape(imported, 'evb-shape:stale-line');
+        const importedSquare = requireShape(imported, 'evb-shape:stale-square');
+        const untouched = {
+            ...importedLine,
+            x: 100 / PAGE_WIDTH,
+            y: (PAGE_HEIGHT - 300) / PAGE_HEIGHT,
+            x2: 450 / PAGE_WIDTH,
+            y2: (PAGE_HEIGHT - 450) / PAGE_HEIGHT,
+            width: 350 / PAGE_WIDTH,
+            height: 150 / PAGE_HEIGHT,
+            color: '#ff0000',
+            opacity: 1,
+            strokeWidth: 2,
+            fillColor: undefined,
+        };
+        const edited = {
+            ...importedSquare,
+            x: importedSquare.x + 0.05,
+        };
+
+        const savedBytes = await saveWithShapes(bytes, [
+            untouched,
+            edited,
+        ]);
+        const saved = await readShapeDictsByStableKey(savedBytes);
+
+        expect(saved.get('evb-shape:stale-line')?.get(PDFName.of('AP'))).toBeDefined();
+        expect(saved.get('evb-shape:stale-square')?.get(PDFName.of('AP'))).toBeUndefined();
     });
 });
