@@ -462,6 +462,63 @@ pub(crate) fn append_native_mutations_with_qpdf(
     )
 }
 
+/// Appends one revision directly to a caller-owned private staging file.
+///
+/// The caller must provide an unpublished copy and retain the outer atomic
+/// publication boundary. Native still validates the admitted file and rolls
+/// back a partial revision on every write or postcondition failure, but it
+/// does not create another sibling clone of the already staged PDF.
+pub(crate) fn append_native_mutations_in_place_with_qpdf(
+    input_path: &Path,
+    output_path: &Path,
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+    qpdf_path: Option<&Path>,
+    identity_bindings_path: Option<&Path>,
+) -> Result<()> {
+    if input_path != output_path {
+        return Err(domain_error(
+            NativeErrorCode::InvalidRequest,
+            "In-place native mutation append requires identical input and output paths",
+        ));
+    }
+
+    let source_witness = PathRevisionWitness::capture(input_path)
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    if incremental.get_prev_documents().is_encrypted() {
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Encrypted PDFs are not supported by native page ops",
+        ));
+    }
+
+    let previous_len = incremental.previous_len();
+    let previous_last_byte = incremental.previous_last_byte();
+    let previous_xref_start = incremental.get_prev_documents().xref_start;
+    source_witness
+        .assert_current()
+        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    assert_append_path_unchanged(
+        input_path,
+        previous_len,
+        previous_last_byte,
+        previous_xref_start,
+    )?;
+
+    write_native_mutations_revision(
+        &mut incremental,
+        input_path,
+        output_path,
+        mutations,
+        modified_at,
+        true,
+        None,
+        identity_bindings_path,
+    )
+}
+
 fn write_native_mutations_revision(
     incremental: &mut IncrementalDocument,
     input_path: &Path,

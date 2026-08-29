@@ -340,6 +340,7 @@ async function prepareNativeNoteMutation(options: {
                     '--modified-at',
                     options.modifiedAt,
                     '--append',
+                    '--append-in-place',
                 ], {
                     timeoutMs: PDF_NATIVE_MUTATION_TIMEOUT_MS,
                     commandLabel: options.command.commandLabel,

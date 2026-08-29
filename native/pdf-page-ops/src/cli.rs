@@ -25,6 +25,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut page_number = None;
     let mut qpdf_path = None;
     let mut append = false;
+    let mut append_in_place = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -109,8 +110,23 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             "--append" => {
                 append = true;
             }
+            "--append-in-place" => {
+                append_in_place = true;
+            }
             _ => return Err(format!("Unknown argument: {arg}").into()),
         }
+    }
+
+    if append_in_place && !append {
+        return Err("--append-in-place requires --append".into());
+    }
+    if append_in_place
+        && !matches!(
+            command.as_str(),
+            "update-note-text" | "save-note-changes" | "save-mutations"
+        )
+    {
+        return Err("--append-in-place is only valid for native mutation saves".into());
     }
 
     if identity_bindings_file.is_some() && command != "save-mutations" {
@@ -141,16 +157,19 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             updates_file: updates_file.ok_or("Missing --updates-file value")?,
             modified_at: modified_at.ok_or("Missing --modified-at value")?,
             append,
+            append_in_place,
         },
         "save-note-changes" => Operation::SaveNoteChanges {
             changes_file: changes_file.ok_or("Missing --changes-file value")?,
             modified_at: modified_at.ok_or("Missing --modified-at value")?,
             append,
+            append_in_place,
         },
         "save-mutations" => Operation::SaveMutations {
             mutations_file: mutations_file.ok_or("Missing --mutations-file value")?,
             modified_at: modified_at.ok_or("Missing --modified-at value")?,
             append,
+            append_in_place,
             identity_bindings_file,
         },
         "annotation-index" | "annotation-name-index" => Operation::AnnotationNameIndex,
@@ -223,5 +242,61 @@ mod tests {
         .to_string();
 
         assert!(error.contains("Page number must be positive"));
+    }
+
+    #[test]
+    fn parses_private_staged_append_mode() {
+        let config = parse_args(
+            [
+                "save-mutations",
+                "--input",
+                "staged.pdf",
+                "--output",
+                "staged.pdf",
+                "--mutations-file",
+                "mutations.json",
+                "--modified-at",
+                "D:20260829120000Z",
+                "--append",
+                "--append-in-place",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            config.operation,
+            Operation::SaveMutations {
+                append: true,
+                append_in_place: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_private_staged_append_without_append_mode() {
+        let error = parse_args(
+            [
+                "save-mutations",
+                "--input",
+                "staged.pdf",
+                "--output",
+                "staged.pdf",
+                "--mutations-file",
+                "mutations.json",
+                "--modified-at",
+                "D:20260829120000Z",
+                "--append-in-place",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .err()
+        .expect("private staged mode without append should be rejected")
+        .to_string();
+
+        assert!(error.contains("requires --append"));
     }
 }

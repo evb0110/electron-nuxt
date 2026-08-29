@@ -363,6 +363,98 @@ fn appends_note_text_update_when_input_and_output_are_same_file() {
 }
 
 #[test]
+fn appends_private_staged_mutations_in_place_and_rolls_back_failed_revisions() {
+    let (mut document, target_id, _) = create_test_note_pdf();
+    let pdf_path = temp_pdf_path("append-private-stage-in-place");
+    let mut original_bytes = Vec::new();
+    document.save_to(&mut original_bytes).unwrap();
+    write(&pdf_path, &original_bytes).unwrap();
+
+    append_native_mutations_in_place_with_qpdf(
+        &pdf_path,
+        &pdf_path,
+        &NativeMutationsFile {
+            updates: vec![NoteTextUpdate {
+                object_number: target_id.0,
+                generation_number: target_id.1,
+                text: "private staged update".to_string(),
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260609123456+03'00'",
+        None,
+        None,
+    )
+    .unwrap();
+
+    let after_success = read(&pdf_path).unwrap();
+    assert!(after_success.starts_with(&original_bytes));
+    assert!(after_success.len() > original_bytes.len());
+
+    let failed_revision = append_native_mutations_in_place_with_qpdf(
+        &pdf_path,
+        &pdf_path,
+        &NativeMutationsFile {
+            updates: vec![NoteTextUpdate {
+                object_number: 404,
+                generation_number: 0,
+                text: "must roll back".to_string(),
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260609123456+03'00'",
+        None,
+        None,
+    );
+    assert!(failed_revision.is_err());
+    assert_eq!(read(&pdf_path).unwrap(), after_success);
+
+    let prefix = format!(
+        ".{}.evb-tmp-",
+        pdf_path.file_name().unwrap().to_string_lossy()
+    );
+    assert!(!fs::read_dir(pdf_path.parent().unwrap())
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .any(|entry| entry.file_name().to_string_lossy().starts_with(&prefix)));
+    let _ = remove_file(pdf_path);
+}
+
+#[test]
+fn rejects_private_staged_append_to_a_distinct_output_path() {
+    let (mut document, target_id, _) = create_test_note_pdf();
+    let input_path = temp_pdf_path("append-private-stage-input");
+    let output_path = temp_pdf_path("append-private-stage-output");
+    let mut original_bytes = Vec::new();
+    document.save_to(&mut original_bytes).unwrap();
+    write(&input_path, &original_bytes).unwrap();
+    write(&output_path, &original_bytes).unwrap();
+
+    let error = append_native_mutations_in_place_with_qpdf(
+        &input_path,
+        &output_path,
+        &NativeMutationsFile {
+            updates: vec![NoteTextUpdate {
+                object_number: target_id.0,
+                generation_number: target_id.1,
+                text: "must be rejected".to_string(),
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260609123456Z",
+        None,
+        None,
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("identical input and output paths"));
+    assert_eq!(read(&input_path).unwrap(), original_bytes);
+    assert_eq!(read(&output_path).unwrap(), original_bytes);
+    let _ = remove_file(input_path);
+    let _ = remove_file(output_path);
+}
+
+#[test]
 fn appends_annotation_delete_as_incremental_revision() {
     let (mut document, page_id) = create_test_document();
     let popup_id = document.add_object(dictionary! {
@@ -1291,6 +1383,7 @@ fn reports_an_unreadable_append_payload_as_an_invalid_request() {
             mutations_file: mutations_path.clone(),
             modified_at: "D:20260609123456Z".to_string(),
             append: true,
+            append_in_place: false,
             identity_bindings_file: None,
         },
         input_path: pdf_path.clone(),

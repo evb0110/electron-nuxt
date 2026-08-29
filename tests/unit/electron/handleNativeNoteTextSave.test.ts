@@ -12,6 +12,7 @@ import {
     readFileSync,
     rmSync,
     statSync,
+    truncateSync,
     writeFileSync,
 } from 'fs';
 import { createHash } from 'crypto';
@@ -515,6 +516,52 @@ describe('handleNativeNoteTextSave', () => {
         expect(mocks.copyFileCopyOnWrite).not.toHaveBeenCalledWith(originalPath, requestedWorkingPath);
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native incremental update');
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
+    });
+
+    it('uses one externally staged copy for a 700 MiB native mutation save', async () => {
+        const {
+            requestedWorkingPath,
+            tempPath,
+        } = createOriginalMutationFixture();
+        const largeWorkingCopyBytes = 700 * 1024 * 1024 + 1;
+        truncateSync(requestedWorkingPath, largeWorkingCopyBytes);
+        mocks.copyFileCopyOnWrite.mockImplementationOnce(async (_sourcePath: string, targetPath: string) => {
+            writeFileSync(targetPath, '');
+            truncateSync(targetPath, largeWorkingCopyBytes);
+        });
+        mocks.runNativeToolCommand.mockResolvedValue(undefined);
+        mocks.transitionOriginalAndWorkingCopyRevision.mockResolvedValueOnce({token: requireDocumentRevisionToken('revision-after-native-mutation')});
+        const {handleNativeNoteTextSave} = await import(
+            '@electron/features/documents/main/nativePdfMutationSaveHandlers'
+        );
+
+        const result = await handleNativeNoteTextSave(
+            context,
+            requestedWorkingPath,
+            [{
+                objectNumber: 42,
+                generationNumber: 0,
+                text: 'Updated large note',
+            }],
+            'D:20260609133855+03\'00\'',
+            revisionOptions,
+        );
+        expect(result).toMatchObject({applied: true});
+
+        expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledOnce();
+        expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledWith(requestedWorkingPath, tempPath);
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/native/evb-pdf-page-ops',
+            expect.arrayContaining([
+                '--input',
+                tempPath,
+                '--output',
+                tempPath,
+                '--append',
+                '--append-in-place',
+            ]),
+            expect.anything(),
+        );
     });
 
     it('propagates materialization failure before fingerprinting or native staging', async () => {

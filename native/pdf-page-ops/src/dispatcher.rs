@@ -107,6 +107,28 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             } => identity_bindings_file.as_deref(),
             _ => None,
         };
+        let append_in_place = match &config.operation {
+            Operation::UpdateNoteText {
+                append_in_place, ..
+            }
+            | Operation::SaveNoteChanges {
+                append_in_place, ..
+            }
+            | Operation::SaveMutations {
+                append_in_place, ..
+            } => *append_in_place,
+            _ => false,
+        };
+        if append_in_place {
+            return append_native_mutations_in_place_with_qpdf(
+                &config.input_path,
+                &config.output_path,
+                &mutations,
+                modified_at,
+                config.qpdf_path.as_deref(),
+                identity_bindings_path,
+            );
+        }
         return append_native_mutations_with_qpdf(
             &config.input_path,
             &config.output_path,
@@ -156,6 +178,7 @@ fn read_append_mutations(operation: &Operation) -> Result<Option<(NativeMutation
             updates_file,
             modified_at,
             append: true,
+            ..
         } => (
             NativeMutationsFile {
                 updates: read_note_text_updates(updates_file)?,
@@ -167,6 +190,7 @@ fn read_append_mutations(operation: &Operation) -> Result<Option<(NativeMutation
             changes_file,
             modified_at,
             append: true,
+            ..
         } => {
             let changes = read_note_changes(changes_file)?;
             (
@@ -196,6 +220,7 @@ fn read_non_append_mutations(operation: &Operation) -> Result<Option<(NativeMuta
             updates_file,
             modified_at,
             append: false,
+            ..
         } => (
             NativeMutationsFile {
                 updates: read_note_text_updates(updates_file)?,
@@ -207,6 +232,7 @@ fn read_non_append_mutations(operation: &Operation) -> Result<Option<(NativeMuta
             changes_file,
             modified_at,
             append: false,
+            ..
         } => {
             let changes = read_note_changes(changes_file)?;
             (
