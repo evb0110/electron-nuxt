@@ -76,6 +76,34 @@ describe('mainOperationLifecycle', () => {
         expect(other.signal.aborted).toBe(false);
     });
 
+    it('revokes an owner-bound materialization flight before its staged lease can be reused', () => {
+        const leaseUsable = {value: true};
+        const materialization = registerMainOperation({
+            kind: 'abortable-work',
+            ownerWebContentsId: 42,
+            cancel: () => {
+                leaseUsable.value = false;
+            },
+        });
+
+        cancelMainOperationsForOwner(42, 'Renderer lifecycle ended');
+
+        expect(materialization.signal.aborted).toBe(true);
+        expect(leaseUsable.value).toBe(false);
+    });
+
+    it('settles a completion boundary once even when teardown races a late completion', () => {
+        const operation = registerMainOperation({
+            kind: 'critical-write',
+            ownerWebContentsId: 42,
+        });
+        operation.complete();
+        operation.complete();
+
+        expect(snapshotMainOperations()).toEqual([]);
+        expect(operation.signal.aborted).toBe(false);
+    });
+
     it('does not abort critical writes after commit starts and drains until completion', async () => {
         const operation = registerMainOperation({
             kind: 'critical-write',
