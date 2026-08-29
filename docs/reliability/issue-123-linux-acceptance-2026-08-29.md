@@ -53,6 +53,16 @@ timing check belongs to #134, not the #123 working-copy assertions.
 
 Raw artifact: `.devkit/evidence/xlarge-document-acceptance.json`.
 
+## Gates
+
+- Focused working-copy suites: 3 files, 65 tests passed.
+- Focused ESLint on the working-copy implementation and regression files passed.
+- `pnpm run typecheck` passed after generating the fresh Nuxt metadata.
+- `pnpm run fallow:all` passed, including duplication regression.
+- `node scripts/architecture/boundary-check.mjs --scope=focused` passed.
+- `node scripts/run-all-gates.mjs --only validate` completed coverage with 1,158 files and 10,084 tests, but recorded one unrelated 5-second timeout in `pdfOutlineToolbarState.test.ts`; its type-coverage ratchets passed. The coordinator's full lint child then stopped progressing under shared-host saturation, so the wrapper was stopped and the gate is recorded as non-green. The failed file rerun alone passed 8/8 tests.
+- CodeRabbit `coderabbit review --agent --base main` was rate-limited because the account had exhausted its included reviews. No paid capacity was requested.
+
 ## Platform boundary
 
 macOS clone behavior and `/var` versus `/private/var` alias coverage are out of
