@@ -180,13 +180,13 @@ describe('PdfOutline bookmark toolbar state', () => {
             .toBe('bookmarks.noBookmarks');
     });
 
-    it('keeps more than 5000 outline entries editable for native continuation', async () => {
+    it('keeps more than 10000 outline entries editable for native continuation', async () => {
         const outline = await mountOutline(() => Promise.resolve([]));
         await outline.settle();
         outline.setEditMode(true);
         await outline.settle();
         outline.editModeUpdates.length = 0;
-        outline.applyExternalBookmarks(Array.from({length: 5_001}, (_, index) => ({
+        outline.applyExternalBookmarks(Array.from({length: 10_001}, (_, index) => ({
             title: `Bookmark ${index}`,
             pageIndex: index,
             namedDest: null,
@@ -203,10 +203,21 @@ describe('PdfOutline bookmark toolbar state', () => {
         expect(outline.editModeUpdates).toEqual([]);
     });
 
-    it('surfaces a typed persistence refusal when native bookmark depth is exceeded', async () => {
+    it('keeps native bookmark depth 64 editable', async () => {
         const outline = await mountOutline(() => Promise.resolve([]));
         await outline.settle();
         outline.applyExternalBookmarks(createDeepBookmarkEntries(65));
+
+        await outline.settle();
+
+        expect(outline.host.querySelector('[data-bookmark-persistence-refusal]')).toBeNull();
+        expect(toolbar(outline.host)).not.toBeNull();
+    });
+
+    it('surfaces a typed persistence refusal when native bookmark depth is exceeded', async () => {
+        const outline = await mountOutline(() => Promise.resolve([]));
+        await outline.settle();
+        outline.applyExternalBookmarks(createDeepBookmarkEntries(66));
 
         await outline.settle();
 

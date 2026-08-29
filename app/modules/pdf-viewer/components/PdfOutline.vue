@@ -203,7 +203,7 @@ const outlinePersistenceRefusal = computed<{
     reason: TDocumentBookmarkPersistenceRefusal;
 } | null>(() => {
     const count = flatBookmarks.value.length;
-    if (resolveMaxBookmarkDepth(bookmarks.value) >= nativeBookmarkDepthLimit) {
+    if (resolveMaxBookmarkDepth(bookmarks.value) > nativeBookmarkDepthLimit) {
         return {
             count,
             limit: nativeBookmarkDepthLimit,
