@@ -1,0 +1,42 @@
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_b2ece6dfe48478::t_dfdf33d6ea4422 343
+native/pdf-page-ops/src/incremental.rs
+  s_b2ece6dfe48478::t_7dbb8b6303da04 465-521
+native/pdf-page-ops/src/types.rs
+  s_b2ece6dfe48478::t_c227074654f3dc 600,606,612
+native/pdf-page-ops/src/dispatcher.rs
+  s_b2ece6dfe48478::t_cd58b16280c70b 110-131,181,193,223,235
+native/pdf-page-ops/src/cli.rs
+  s_b2ece6dfe48478::t_2b173738f2a855 28,113-115,120-131,160,166,172
+  s_b2ece6dfe48478::t_19ecfae48449a3 296-297
+  s_b2ece6dfe48478::t_ce38cb559a7ed0 301
+  s_b2ece6dfe48478::t_ccedcbb9ca15e9 246-295,298-300
+native/pdf-page-ops/src/tests/notes.rs
+  s_b2ece6dfe48478::t_0210e7dbb8d485 365-415,417-423
+  s_b2ece6dfe48478::t_62c0d02e1d88d8 416
+  s_b2ece6dfe48478::t_d1bdc7c6628aeb 1386
+  s_b2ece6dfe48478::t_d8c28f1b0b83f5 424-456
+tests/unit/electron/handleNativeNoteTextSave.test.ts
+  s_b2ece6dfe48478::t_6f26576a909f5e 533
+  s_b2ece6dfe48478::t_dc5168816a2aa7 15
+  s_b2ece6dfe48478::t_f0ab64eb1b73d6 521-528,530-532,534-537,539-547,550-564
+  s_b2ece6dfe48478::t_d84af7bbd25c5c 529
+  s_b2ece6dfe48478::t_89971066d659c7 538,548-549
+  s_b2ece6dfe48478::t_df1589845304b2 565-566
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9d9ffb44c4a84d6b2520ec5ef0190e8f6423d1d6",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
