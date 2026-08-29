@@ -1,0 +1,19 @@
+tests/e2e/electron/compactPageLabelsStructuralOperations.e2e.test.ts
+  s_1f0952d2813e9c::t_4fcf2b03a5e9dd 224,227-229
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "583b89c3d3a6f0f44a1b14bff313ec865caaf30e",
+  "prompts": {},
+  "sessions": {
+    "s_1f0952d2813e9c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04e2c-3a78-7250-80c2-d7481c084e67",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
