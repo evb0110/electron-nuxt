@@ -1,0 +1,24 @@
+tests/unit/electron/handleNativeNoteTextSave.test.ts
+  s_b2ece6dfe48478::t_092e6a53357ece 219,238-244,907-950,1142-1179,1183-1200
+  s_b2ece6dfe48478::t_362045a3bbe870 220
+  s_b2ece6dfe48478::t_1e003dfe00bbcb 221-237,1180-1182
+  s_b2ece6dfe48478::t_cbef6f6d42f0e4 1201
+native/Cargo.lock
+  s_b2ece6dfe48478::t_1c9673ad9fb8c6 63,65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1aeb9e679ab49008d21251e1961d6e3cc380f065",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
