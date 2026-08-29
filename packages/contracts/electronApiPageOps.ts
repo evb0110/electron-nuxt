@@ -8,8 +8,10 @@ import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 export type TPageOpsRotationAngle = 90 | 180 | 270;
 
 export interface IPageOpsMetadataSnapshot {
-    pageLabels: string[] | null;
-    bookmarks: IPdfBookmarkEntry[];
+    /** Omitted until the viewer has read the document's page labels. */
+    pageLabels?: string[] | null;
+    /** Omitted until the viewer has read the document's outline tree. */
+    bookmarks?: IPdfBookmarkEntry[];
     untitledBookmarkLabel: string;
 }
 

@@ -86,13 +86,18 @@ describe('page metadata remap', () => {
             ],
         });
 
-        expect(result.pageLabels.ranges.map(range => range.prefix)).toEqual([
+        const pageLabels = result.pageLabels;
+        const bookmarks = result.bookmarks;
+        expect(pageLabels).toBeDefined();
+        expect(bookmarks).toBeDefined();
+        if (!pageLabels || !bookmarks) throw new Error('known metadata was not remapped');
+        expect(pageLabels.ranges.map(range => range.prefix)).toEqual([
             '2',
             '2',
             'i',
             '1',
         ]);
-        expect(result.bookmarks.items).toEqual([
+        expect(bookmarks.items).toEqual([
             expect.objectContaining({
                 title: 'surviving child',
                 pageIndex: 0,
@@ -107,6 +112,19 @@ describe('page metadata remap', () => {
                 namedDest: 'named',
             }),
         ]);
+    });
+
+    it('does not turn unknown metadata into deletion mutations', () => {
+        const result = remapPageMetadata({untitledBookmarkLabel: 'Untitled'}, {
+            previousPageCount: 2,
+            pages: [
+                {fromPageNumber: 2},
+                {fromPageNumber: 1},
+            ],
+        });
+
+        expect(result.pageLabels).toBeUndefined();
+        expect(result.bookmarks).toBeUndefined();
     });
 
     it('writes the remapped metadata as an incremental append', async () => {

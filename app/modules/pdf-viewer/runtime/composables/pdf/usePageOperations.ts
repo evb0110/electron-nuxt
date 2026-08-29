@@ -99,7 +99,9 @@ export const usePageOperations = (deps: {
     workingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     pageLabels?: Ref<string[] | null>;
+    pageLabelsResolved?: Ref<boolean>;
     bookmarkItems?: Ref<IPdfBookmarkEntry[]>;
+    bookmarksResolved?: Ref<boolean>;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     materializeAnnotationsForPageMutation?: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
@@ -119,7 +121,9 @@ export const usePageOperations = (deps: {
         workingCopyPath,
         documentRevisionToken,
         pageLabels,
+        pageLabelsResolved,
         bookmarkItems,
+        bookmarksResolved,
         ensureHistoryBaselineForMutation,
         materializeAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
@@ -158,10 +162,14 @@ export const usePageOperations = (deps: {
 
     function capturePageMutationOptions(): IPageOpsMutationOptions | undefined {
         const token = documentRevisionToken?.value;
-        const metadataSnapshot = pageLabels && bookmarkItems
+        const metadataSnapshot = pageLabels || bookmarkItems
             ? {
-                pageLabels: pageLabels.value ? [...pageLabels.value] : null,
-                bookmarks: structuredClone(bookmarkItems.value),
+                ...(pageLabelsResolved?.value === false ? {} : pageLabels
+                    ? {pageLabels: pageLabels.value ? [...pageLabels.value] : null}
+                    : {}),
+                ...(bookmarksResolved?.value === false ? {} : bookmarkItems
+                    ? {bookmarks: structuredClone(bookmarkItems.value)}
+                    : {}),
                 untitledBookmarkLabel: t('bookmarks.untitled', undefined),
             }
             : undefined;

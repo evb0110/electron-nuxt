@@ -17,6 +17,7 @@ export const useBookmarkState = (deps: {
     // serialization worker: deep reactivity would hand out a Proxy that
     // structured clone refuses.
     const bookmarkItems = shallowRef<IPdfBookmarkEntry[]>([]);
+    const bookmarksResolved = ref(false);
     const bookmarksDirty = ref(false);
     const bookmarkEditMode = ref(false);
     let bookmarkRevision = 0;
@@ -27,6 +28,7 @@ export const useBookmarkState = (deps: {
     }
 
     function handleBookmarksChange(payload: IPdfBookmarkChangePayload) {
+        bookmarksResolved.value = true;
         bookmarkItems.value = payload.bookmarks;
         bookmarkRevision += 1;
         const historyMode = payload.history ?? (payload.dirty ? 'record' : 'reset');
@@ -47,6 +49,7 @@ export const useBookmarkState = (deps: {
 
     return {
         bookmarkItems,
+        bookmarksResolved,
         bookmarksDirty,
         bookmarkEditMode,
         markBookmarksSaved,
