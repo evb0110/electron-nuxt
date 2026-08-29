@@ -309,6 +309,30 @@ describe('documents print', () => {
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps the macOS PDF plugin window hidden until its surface settles', async () => {
+        vi.useFakeTimers();
+        const resultPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+        );
+
+        for (let index = 0; index < 40; index += 1) {
+            await Promise.resolve();
+        }
+
+        const printWindow = mocks.browserWindowInstances[0];
+        expect(printWindow?.loadURL).toHaveBeenCalled();
+        expect(printWindow?.showInactive).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1_999);
+        expect(printWindow?.showInactive).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(printWindow?.showInactive).toHaveBeenCalledTimes(1);
+        await expect(resultPromise).resolves.toEqual({success: true});
+    });
+
     it('dispatches a path larger than 2 GiB without applying the byte handoff cap', async () => {
         vi.useFakeTimers();
         mocks.stat.mockResolvedValue({

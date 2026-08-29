@@ -671,14 +671,15 @@ export async function openNativePrintDialogForPath(
         throwIfPrintHandoffAborted(handoffOptions.signal);
         await printWindow.loadURL(rasterSurface ? pathToFileURL(rasterSurface.htmlPath).toString() : pathToFileURL(path).toString());
         throwIfPrintHandoffAborted(handoffOptions.signal);
-        if (!rasterSurface) {
-            revealPrintWindowForNativeDialog(printWindow);
-        } else {
+        if (rasterSurface) {
             await waitForRasterPrintSurfaceReady(printWindow);
         }
         throwIfPrintHandoffAborted(handoffOptions.signal);
         await delay(PRINT_LOAD_SETTLE_DELAY_MS);
         throwIfPrintHandoffAborted(handoffOptions.signal);
+        if (!rasterSurface) {
+            revealPrintWindowForNativeDialog(printWindow);
+        }
         const result = await runNativePrintDialog(printWindow, printOptions);
         if (handoffOptions.signal?.aborted) {
             return {
