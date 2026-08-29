@@ -53,6 +53,11 @@ import {
 
 const E2E_TIMEOUT_MS = 180_000;
 const SAVE_TIMEOUT_MS = 60_000;
+const COMMITTED_FIRST_PAGE_CANVAS_SELECTOR = [
+    '.editor-pane.is-active #pdf-viewer',
+    '.page_container[data-page="1"].page_container--rendered',
+    '.page_canvas__render-layer canvas',
+].join(' ');
 
 interface ISaveReceiptProbe {
     barrierFinished: boolean;
@@ -183,13 +188,13 @@ async function waitForStagedArtifact(page: Page) {
 
 async function captureCommittedCanvasForSaveContinuity(page: Page) {
     await waitForVisibleMountedPdfCanvases(page, SAVE_TIMEOUT_MS);
-    return page.evaluate(() => {
-        const pageContainer = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .page_container',
-        );
-        const canvas = pageContainer?.querySelector<HTMLCanvasElement>(
-            '.page_canvas__render-layer canvas',
-        );
+    await page.waitForFunction((selector) => {
+        const canvas = document.querySelector<HTMLCanvasElement>(selector);
+        return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+    }, {timeout: SAVE_TIMEOUT_MS}, COMMITTED_FIRST_PAGE_CANVAS_SELECTOR);
+    return page.evaluate((selector) => {
+        const canvas = document.querySelector<HTMLCanvasElement>(selector);
+        const pageContainer = canvas?.closest<HTMLElement>('.page_container');
         if (!pageContainer || !canvas || canvas.width <= 0 || canvas.height <= 0) {
             throw new Error('No committed PDF canvas was available before save');
         }
@@ -207,7 +212,7 @@ async function captureCommittedCanvasForSaveContinuity(page: Page) {
             rendered: pageContainer.classList.contains('page_container--rendered'),
             width: snapshot.width,
         };
-    });
+    }, COMMITTED_FIRST_PAGE_CANVAS_SELECTOR);
 }
 
 function expectVisiblePdfPagesStayedPainted(
@@ -260,17 +265,17 @@ async function expectCommittedCanvasSurvivedSave(
     page: Page,
 ) {
     await waitForVisibleMountedPdfCanvases(page, SAVE_TIMEOUT_MS);
-    const continuity = await page.evaluate(() => {
+    await page.waitForFunction((selector) => {
+        const canvas = document.querySelector<HTMLCanvasElement>(selector);
+        return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+    }, {timeout: SAVE_TIMEOUT_MS}, COMMITTED_FIRST_PAGE_CANVAS_SELECTOR);
+    const continuity = await page.evaluate((selector) => {
         const snapshot = (window as TSaveReceiptProbeWindow).__committedCanvasContinuitySnapshot;
         if (!snapshot) {
             throw new Error('No committed PDF canvas continuity snapshot was captured before save');
         }
-        const pageContainer = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .page_container',
-        );
-        const canvas = pageContainer?.querySelector<HTMLCanvasElement>(
-            '.page_canvas__render-layer canvas',
-        );
+        const canvas = document.querySelector<HTMLCanvasElement>(selector);
+        const pageContainer = canvas?.closest<HTMLElement>('.page_container');
         if (!pageContainer || !canvas) {
             throw new Error('No committed PDF canvas was available after save');
         }
@@ -283,7 +288,7 @@ async function expectCommittedCanvasSurvivedSave(
             sameWidth: canvas.width === snapshot.width,
             width: canvas.width,
         };
-    });
+    }, COMMITTED_FIRST_PAGE_CANVAS_SELECTOR);
     expect(continuity).toEqual({
         height: expect.any(Number),
         rendered: true,
