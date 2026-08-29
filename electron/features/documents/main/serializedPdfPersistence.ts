@@ -71,6 +71,7 @@ import {
 } from '@electron/file-access/workingCopyMutationQueue';
 import {
     markWorkingCopySyncRequired,
+    markWorkingCopyContentChanged,
     transitionWorkingCopyContentRevision,
 } from '@electron/file-access/documentRevisionStore';
 import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
@@ -673,12 +674,14 @@ async function commitSession(
             await transitionWorkingCopyContentRevision(
                 session.workingPath,
                 'replace-working-copy',
-                () => commitPdfTempFile(session.tempPath, session.workingPath, {
-                    signal: session.lifecycleOperation.signal,
-                    ownerId: `serialized-pdf:${session.id}`,
-                    receipt,
-                    ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
-                }),
+                async () => {
+                    await commitPdfTempFile(session.tempPath, session.workingPath, {
+                        signal: session.lifecycleOperation.signal,
+                        ownerId: `serialized-pdf:${session.id}`,
+                        receipt,
+                        ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
+                    });
+                },
                 session.senderId,
             );
             await clearWorkingCopyOcrArtifacts(session.workingPath);
