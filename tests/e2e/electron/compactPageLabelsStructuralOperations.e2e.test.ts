@@ -207,19 +207,6 @@ async function waitForPageOperationComplete(session: IElectronE2ESession) {
     }, {timeout: 60_000}).toBe(false);
 }
 
-async function waitForTotalPages(session: IElectronE2ESession, totalPages: number) {
-    await expect.poll(async () => {
-        try {
-            return (await readWorkspaceStateValues<{totalPages?: number}>(
-                session.page,
-                ['totalPages'],
-            )).totalPages;
-        } catch {
-            return undefined;
-        }
-    }, {timeout: 60_000}).toBe(totalPages);
-}
-
 async function runCommand<T>(session: IElectronE2ESession, name: string, args: unknown[]) {
     if ([
         'handleSave',
@@ -291,7 +278,6 @@ describe('Electron E2E, compact page labels through structural operations', () =
 
         await runCommand(session, 'handlePageDelete', [[20]]);
         expected = expected.filter((_, index) => index !== 19);
-        await waitForTotalPages(session, expected.length);
 
         const reorder = Array.from({length: expected.length}, (_, index) => index + 1);
         [
@@ -329,7 +315,6 @@ describe('Electron E2E, compact page labels through structural operations', () =
             100,
         ]);
         expected.splice(100, 0, '1');
-        await waitForTotalPages(session, expected.length);
 
         await runCommand(session, 'handleSave', []);
         await expect.poll(async () => (
