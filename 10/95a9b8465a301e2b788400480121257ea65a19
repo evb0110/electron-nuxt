@@ -1,0 +1,22 @@
+app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges.ts
+  s_b2ece6dfe48478::t_8853586049c513 330-335,337
+tests/unit/app/services/pdf-save/pdfAnnotationStorageChanges.test.ts
+  s_b2ece6dfe48478::t_c929dbc68a88b6 633-672
+  s_b2ece6dfe48478::t_5b5dc09e4ebcc1 673-677
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1095a9b8465a301e2b788400480121257ea65a19",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
