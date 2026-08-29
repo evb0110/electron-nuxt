@@ -25,7 +25,6 @@ const COPY_ON_WRITE_FALLBACK_CODES = new Set([
 ]);
 const MAC_CLONE_TIMEOUT_MS = 30_000;
 const MAC_CLONE_MAX_STDERR_BYTES = 16 * 1024;
-const STABLE_COPY_CHUNK_BYTES = 16 * 1024 * 1024;
 const MAC_CLONE_UNSUPPORTED_PATTERN = /(?:operation not supported|not supported|invalid argument|cross-device|function not implemented)/iu;
 const logger = createLogger('working-copy-directory');
 
@@ -223,7 +222,7 @@ export async function copyFileFromStableSource(sourcePath: string, targetPath: s
             throw new Error('Working-copy source is not a regular file');
         }
         targetHandle = await open(targetPath, 'wx');
-        const buffer = Buffer.allocUnsafe(STABLE_COPY_CHUNK_BYTES);
+        const buffer = Buffer.allocUnsafe(1024 * 1024);
         let offset = 0n;
         while (offset < sourceStat.size) {
             const length = Number(
@@ -237,7 +236,9 @@ export async function copyFileFromStableSource(sourcePath: string, targetPath: s
             }
             await targetHandle.write(buffer, 0, length, Number(offset));
             offset += BigInt(length);
-            await new Promise<void>(resolveCopyYield => setImmediate(resolveCopyYield));
+            if (offset < sourceStat.size) {
+                await new Promise<void>(resolveCopyYield => setImmediate(resolveCopyYield));
+            }
         }
         const currentHandleStat = await sourceHandle.stat({bigint: true});
         const currentPathStat = await stat(sourcePath, {bigint: true});
