@@ -57,7 +57,6 @@ import { createWorkspaceViewerUpdateHandlers } from '@app/modules/workspace-shel
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
-
 interface IWorkspaceOrchestrationDeps {
     analyticsDocumentScope: IAnalyticsDocumentScope;
     tabId: string;
@@ -75,7 +74,6 @@ interface IWorkspaceOrchestrationDeps {
         (e: 'open-settings'): void;
     };
 }
-
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 interface IWorkspaceDocumentViewBindingOptions {
     documentSourceCurrentResultIndex: TReadableRef<number>;
@@ -99,7 +97,6 @@ interface IWorkspaceProjectionBindingOptions {
     publishRecord: (record: IWorkspaceDocumentRecord) => void;
 }
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
-
 export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => {
     const {
         isActive,
@@ -259,17 +256,18 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,
+        pageLabelsResolved,
         markPageLabelsSaved,
         getPageLabelsRevision,
     } = pageLabelState;
     const {
         bookmarkItems,
+        bookmarksResolved,
         bookmarksDirty,
         bookmarkEditMode,
         markBookmarksSaved,
         getBookmarksRevision,
     } = bookmarkState;
-
     const pageContextMenuControls = usePageContextMenu();
     const {
         pageContextMenu,
@@ -722,7 +720,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         workingCopyPath,
         documentRevisionToken,
         pageLabels,
+        pageLabelsResolved,
         bookmarkItems,
+        bookmarksResolved,
         currentPage,
         effectiveZoom,
         knownFileSizeBytes: djvuSourceSizeBytes,

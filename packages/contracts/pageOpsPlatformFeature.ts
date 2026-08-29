@@ -220,21 +220,22 @@ function decodeMetadataSnapshot(value: unknown): IPageOpsMetadataSnapshot {
     }
     const pageLabels = value.pageLabels;
     if (
-        pageLabels !== null
+        pageLabels !== undefined
+        && pageLabels !== null
         && (
             !Array.isArray(pageLabels)
             || pageLabels.length > 1_000_000
             || !pageLabels.every(label => typeof label === 'string' && label.length <= 4_096)
         )
     ) {
-        throw new Error('options.metadataSnapshot.pageLabels must be a string array or null');
+        throw new Error('options.metadataSnapshot.pageLabels must be a string array, null, or omitted');
     }
     if (typeof value.untitledBookmarkLabel !== 'string') {
         throw new Error('options.metadataSnapshot.untitledBookmarkLabel must be a string');
     }
     return {
-        pageLabels,
-        bookmarks: decodeBookmarkEntries(value.bookmarks),
+        ...(pageLabels === undefined ? {} : {pageLabels}),
+        ...(value.bookmarks === undefined ? {} : {bookmarks: decodeBookmarkEntries(value.bookmarks)}),
         untitledBookmarkLabel: value.untitledBookmarkLabel,
     };
 }

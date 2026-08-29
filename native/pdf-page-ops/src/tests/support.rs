@@ -22,6 +22,52 @@
         (document, page_id)
     }
 
+    /// Small metadata fixture shared by page-operation regression tests.
+    fn create_outline_fixture() -> (Document, ObjectId) {
+        let (mut document, page_id) = create_test_document();
+        set_page_labels(
+            &mut document,
+            &PageLabelsMutation {
+                total_pages: 1,
+                ranges: vec![PageLabelRange {
+                    start_page: 1,
+                    style: Some("r".to_string()),
+                    prefix: "intro-".to_string(),
+                    start_number: 1,
+                }],
+            },
+        )
+        .unwrap();
+        set_bookmarks(
+            &mut document,
+            &BookmarksMutation {
+                total_pages: 1,
+                untitled_label: "Untitled".to_string(),
+                items: vec![BookmarkEntry {
+                    title: "Parent".to_string(),
+                    page_index: Some(0),
+                    page_y_ratio: None,
+                    named_dest: None,
+                    bold: false,
+                    italic: false,
+                    color: None,
+                    items: vec![BookmarkEntry {
+                        title: "Child".to_string(),
+                        page_index: Some(0),
+                        page_y_ratio: None,
+                        named_dest: None,
+                        bold: false,
+                        italic: false,
+                        color: None,
+                        items: Vec::new(),
+                    }],
+                }],
+            },
+        )
+        .unwrap();
+        (document, page_id)
+    }
+
     fn crop_box(document: &Document, page_id: ObjectId) -> Vec<f64> {
         document
             .get_dictionary(page_id)

@@ -43,7 +43,9 @@ export interface IPageOpsHandlersDeps {
     workingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     pageLabels: Ref<string[] | null>;
+    pageLabelsResolved?: Ref<boolean>;
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
+    bookmarksResolved?: Ref<boolean>;
     currentPage: Ref<number>;
     totalPages: Ref<number>;
     selectedThumbnailPages: Ref<number[]>;
@@ -84,7 +86,9 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         workingCopyPath,
         documentRevisionToken,
         pageLabels,
+        pageLabelsResolved,
         bookmarkItems,
+        bookmarksResolved,
         currentPage,
         totalPages,
         selectedThumbnailPages,
@@ -132,7 +136,9 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         workingCopyPath,
         ...(documentRevisionToken !== undefined ? { documentRevisionToken } : {}),
         pageLabels,
+        ...(pageLabelsResolved !== undefined ? {pageLabelsResolved} : {}),
         bookmarkItems,
+        ...(bookmarksResolved !== undefined ? {bookmarksResolved} : {}),
         ensureHistoryBaselineForMutation,
         materializeAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,

@@ -94,6 +94,18 @@
     }
 
     #[test]
+    fn omitted_metadata_mutations_preserve_existing_catalog_metadata() {
+        let (mut document, _page_id) = create_outline_fixture();
+        let before = catalog(&document).clone();
+
+        apply_native_mutations(&mut document, &NativeMutationsFile::default(), "D:20260609123456Z").unwrap();
+
+        let after = catalog(&document);
+        assert_eq!(after.get(b"PageLabels").unwrap(), before.get(b"PageLabels").unwrap());
+        assert_eq!(after.get(b"Outlines").unwrap(), before.get(b"Outlines").unwrap());
+    }
+
+    #[test]
     fn appends_metadata_removal_as_incremental_revision() {
         let (mut document, _page_id) = create_test_document();
         set_page_labels(

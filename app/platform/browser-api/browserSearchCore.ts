@@ -8,6 +8,7 @@ import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { extractBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
 import type { IBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
 import { BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT } from '@app/platform/browser-api/browserSearchLegacyArrayPageLimit';
+import {validateBrowserSearchPageCount} from '@app/platform/browser-api/browserSearchLimits';
 
 interface ILoadedBrowserSearchDocument {
     pdfDocument: {
@@ -102,6 +103,7 @@ export async function extractBrowserSearchDocumentText(
 ): Promise<IExtractedBrowserSearchDocumentText> {
     const document = await loadBrowserSearchDocument(pdfPath);
     try {
+        validateBrowserSearchPageCount(document.pageCount);
         await throwIfBrowserSearchCanceled(options.shouldContinue);
         if (document.pageCount > BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT) {
             throw new Error('ERR_BROWSER_SEARCH_STREAM_REQUIRED');
@@ -136,6 +138,7 @@ export async function* streamBrowserSearchDocumentPages(
 ): AsyncGenerator<IBrowserSearchDocumentPageRecord, void, void> {
     const document = await loadBrowserSearchDocument(pdfPath);
     try {
+        validateBrowserSearchPageCount(document.pageCount);
         for (let pageNumber = 1; pageNumber <= document.pageCount; pageNumber += 1) {
             const page = await extractBrowserSearchDocumentPage(document, pageNumber, options);
             yield {

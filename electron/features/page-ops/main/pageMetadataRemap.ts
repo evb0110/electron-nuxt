@@ -47,47 +47,77 @@ function remapBookmarkItems(
     });
 }
 
+function remapKnownPageLabels(
+    pageLabels: readonly string[],
+    delta: IPageIdentityDelta,
+    nextPageCount: number | undefined,
+) {
+    if (pageLabels.length !== delta.previousPageCount || nextPageCount === undefined) {
+        return undefined;
+    }
+    const remapped = Array<string | undefined>(nextPageCount);
+    if (delta.pages !== undefined) {
+        delta.pages.forEach((page, index) => {
+            remapped[index] = 'fromPageNumber' in page
+                ? pageLabels[page.fromPageNumber - 1]
+                : undefined;
+        });
+    } else {
+        for (const range of delta.ranges ?? []) {
+            if (range.kind !== 'retain' && range.kind !== 'move') continue;
+            for (let offset = 0; offset < range.count; offset += 1) {
+                remapped[range.toPageNumber - 1 + offset] = pageLabels[range.fromPageNumber - 1 + offset];
+            }
+        }
+    }
+    return remapped.map((label, index) => label ?? String(index + 1));
+}
+
 export function remapPageMetadata(
     metadata: IPageOpsMetadataSnapshot,
     delta: IPageIdentityDelta,
 ) {
     const nextPageCount = delta.nextPageCount ?? delta.pages?.length;
-    const labels = metadata.pageLabels?.length === delta.previousPageCount && nextPageCount !== undefined
-        ? (() => {
-            const remapped = Array<string | undefined>(nextPageCount);
-            if (delta.pages !== undefined) {
-                delta.pages.forEach((page, index) => {
-                    remapped[index] = 'fromPageNumber' in page
-                        ? metadata.pageLabels![page.fromPageNumber - 1]
-                        : undefined;
-                });
-            } else {
-                for (const range of delta.ranges ?? []) {
-                    if (range.kind !== 'retain' && range.kind !== 'move') continue;
-                    for (let offset = 0; offset < range.count; offset += 1) {
-                        remapped[range.toPageNumber - 1 + offset] = metadata.pageLabels[range.fromPageNumber - 1 + offset];
-                    }
-                }
-            }
-            return remapped.map((label, index) => label ?? String(index + 1));
-        })()
-        : null;
-    return {
-        pageLabels: {
+    const labels = metadata.pageLabels === undefined
+        ? undefined
+        : metadata.pageLabels === null
+            ? []
+            : remapKnownPageLabels(metadata.pageLabels, delta, nextPageCount);
+    const result: {
+        pageLabels?: {
+            totalPages: number;
+            ranges: Array<{
+                startPage: number;
+                style: null;
+                prefix: string;
+                startNumber: number;
+            }>;
+        };
+        bookmarks?: {
+            totalPages: number;
+            untitledLabel: string;
+            items: IPdfBookmarkEntry[];
+        };
+    } = {};
+    if (labels !== undefined) {
+        result.pageLabels = {
             totalPages: nextPageCount ?? 0,
-            ranges: labels?.map((label, index) => ({
+            ranges: labels.map((label, index) => ({
                 startPage: index + 1,
                 style: null,
                 prefix: label,
                 startNumber: 1,
-            })) ?? [],
-        },
-        bookmarks: {
+            })),
+        };
+    }
+    if (metadata.bookmarks !== undefined) {
+        result.bookmarks = {
             totalPages: nextPageCount ?? 0,
             untitledLabel: metadata.untitledBookmarkLabel,
             items: remapBookmarkItems(metadata.bookmarks, delta),
-        },
-    };
+        };
+    }
+    return result;
 }
 
 function createNativeModifiedAt() {
@@ -120,11 +150,11 @@ export async function applyPageMetadataRemap(input: {
         if (!workingCopyStat.isFile() || workingCopyStat.nlink !== 1n) {
             throw new Error('Page metadata remap requires an exclusively owned working-copy inode');
         }
-        await writeFile(
-            mutationsPath,
-            JSON.stringify(remapPageMetadata(input.metadataSnapshot, input.delta)),
-            'utf8',
-        );
+        const mutations = remapPageMetadata(input.metadataSnapshot, input.delta);
+        if (Object.keys(mutations).length === 0) {
+            return;
+        }
+        await writeFile(mutationsPath, JSON.stringify(mutations), 'utf8');
         await runNativeToolCommand(binaryPath, [
             'save-mutations',
             '--input',

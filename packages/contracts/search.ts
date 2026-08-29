@@ -20,6 +20,7 @@ import {
 /** Shared user-visible search limits. Keep every runtime on these values. */
 export const SEARCH_RESULT_LIMIT = 500;
 export const SEARCH_EXCERPT_CONTEXT_CHARS = 56;
+export const SEARCH_MAX_NORMALIZED_PAGE_TEXT_BYTES = 8 * 1024 * 1024;
 
 /**
  * Minimum query lengths every search surface must honor, backend and UI alike.
@@ -313,6 +314,7 @@ const SEARCH_LIGATURE_FOLDS: Readonly<Record<string, string>> = {
     '\uFB05': 'st',
     '\uFB06': 'st',
 };
+const searchTextEncoder = new TextEncoder();
 
 interface INormalizedSearchText {
     text: string;
@@ -320,14 +322,42 @@ interface INormalizedSearchText {
     sourceEnds: number[];
 }
 
+export class SearchTextBudgetError extends Error {
+    constructor(actualBytes: number, maxBytes: number) {
+        super(`normalized search text exceeds ${maxBytes} bytes (at least ${actualBytes} bytes)`);
+        this.name = 'SearchTextBudgetError';
+    }
+}
+
 /**
  * Search normalization is deliberately narrower than NFKC: canonical Unicode
  * composition plus the presentation ligatures commonly emitted by PDF fonts.
  */
-export function normalizeSearchText(text: string) {
-    return Array.from(text, character => SEARCH_LIGATURE_FOLDS[character] ?? character)
-        .join('')
-        .normalize('NFC');
+function normalizedTextByteLength(text: string) {
+    return /^[\x00-\x7F]*$/u.test(text)
+        ? text.length
+        : searchTextEncoder.encode(text).byteLength;
+}
+
+export function normalizeSearchText(
+    text: string,
+    maxOutputBytes = SEARCH_MAX_NORMALIZED_PAGE_TEXT_BYTES,
+) {
+    let outputBytes = 0;
+    const foldedParts: string[] = [];
+    for (const character of text) {
+        const folded = SEARCH_LIGATURE_FOLDS[character] ?? character;
+        outputBytes += normalizedTextByteLength(folded);
+        if (outputBytes > maxOutputBytes) {
+            throw new SearchTextBudgetError(outputBytes, maxOutputBytes);
+        }
+        foldedParts.push(folded);
+    }
+    const normalized = foldedParts.join('').normalize('NFC');
+    if (normalizedTextByteLength(normalized) > maxOutputBytes) {
+        throw new SearchTextBudgetError(normalizedTextByteLength(normalized), maxOutputBytes);
+    }
+    return normalized;
 }
 
 function normalizeSearchTextWithOffsets(text: string): INormalizedSearchText {
@@ -335,12 +365,17 @@ function normalizeSearchTextWithOffsets(text: string): INormalizedSearchText {
     const sourceStarts: number[] = [];
     const sourceEnds: number[] = [];
     const graphemePattern = /\P{M}\p{M}*|\p{M}+/gu;
+    let normalizedBytes = 0;
 
     for (const match of text.matchAll(graphemePattern)) {
         const source = match[0];
         const sourceStart = match.index;
         const sourceEnd = sourceStart + source.length;
         const normalized = normalizeSearchText(source);
+        normalizedBytes += normalizedTextByteLength(normalized);
+        if (normalizedBytes > SEARCH_MAX_NORMALIZED_PAGE_TEXT_BYTES) {
+            throw new SearchTextBudgetError(normalizedBytes, SEARCH_MAX_NORMALIZED_PAGE_TEXT_BYTES);
+        }
         normalizedParts.push(normalized);
         for (let index = 0; index < normalized.length; index += 1) {
             sourceStarts.push(sourceStart);

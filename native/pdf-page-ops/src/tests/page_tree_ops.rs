@@ -1,3 +1,148 @@
+#[test]
+fn page_subset_operations_preserve_and_remap_outlines_and_page_labels() {
+    fn document_with_pages(widths: &[i64]) -> (Document, ObjectId, Vec<ObjectId>) {
+        let mut document = Document::with_version("1.4");
+        let pages_id = document.new_object_id();
+        let page_ids = widths
+            .iter()
+            .map(|width| {
+                document.add_object(dictionary! {
+                    "Type" => "Page",
+                    "Parent" => pages_id,
+                    "MediaBox" => vec![0.into(), 0.into(), (*width).into(), 100.into()],
+                })
+            })
+            .collect::<Vec<_>>();
+        document.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+                "Count" => page_ids.len() as i64,
+            },
+        );
+        (document, pages_id, page_ids)
+    }
+
+    let (mut source, pages_id, source_pages) = document_with_pages(&[200, 300, 400]);
+    let page_labels = source.add_object(dictionary! {
+        "Nums" => vec![
+            Object::Integer(0),
+            Object::Dictionary(dictionary! {"S" => "D", "St" => 1}),
+            Object::Integer(1),
+            Object::Dictionary(dictionary! {"S" => "R", "St" => 1}),
+        ],
+    });
+    let outline_item = source.add_object(dictionary! {
+        "Title" => Object::string_literal("Page three"),
+        "Dest" => vec![Object::Reference(source_pages[2]), Object::Name(b"Fit".to_vec())],
+    });
+    let outlines = source.add_object(dictionary! {
+        "Type" => "Outlines",
+        "First" => outline_item,
+        "Last" => outline_item,
+        "Count" => 1,
+    });
+    source
+        .get_dictionary_mut(outline_item)
+        .unwrap()
+        .set("Parent", outlines);
+    let catalog = source.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+        "PageLabels" => page_labels,
+        "Outlines" => outlines,
+    });
+    source.trailer.set("Root", catalog);
+
+    let (mut insertion, insertion_pages_id, insertion_pages) = document_with_pages(&[500]);
+    let insertion_catalog = insertion.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => insertion_pages_id,
+    });
+    insertion.trailer.set("Root", insertion_catalog);
+
+    let mut source_bytes = Vec::new();
+    source.save_to(&mut source_bytes).unwrap();
+    let mut insertion_bytes = Vec::new();
+    insertion.save_to(&mut insertion_bytes).unwrap();
+
+    let cases = [
+        (
+            delete_browser_pdf_pages(&source_bytes, &[2]).unwrap(),
+            2,
+            400.0,
+            vec!["1", "II"],
+        ),
+        (
+            reorder_browser_pdf_pages(&source_bytes, &[3, 1, 2]).unwrap(),
+            1,
+            400.0,
+            vec!["II", "1", "I"],
+        ),
+        (
+            insert_browser_pdf_pages(&source_bytes, &insertion_bytes, 1).unwrap(),
+            4,
+            400.0,
+            vec!["1", "2", "I", "II"],
+        ),
+    ];
+    let _ = insertion_pages;
+
+    for (result, expected_page_number, expected_width, expected_labels) in cases {
+        let output = Document::load_mem(&result.data).unwrap();
+        let catalog = output.catalog().unwrap();
+        let page_labels = resolve_dictionary_object(
+            &output,
+            catalog.get(b"PageLabels").unwrap(),
+            "PageLabels",
+        )
+        .unwrap();
+        let page_label_values = page_labels
+            .get(b"Nums")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .chunks_exact(2)
+            .map(|pair| {
+                resolve_dictionary_object(&output, &pair[1], "PageLabel")
+                    .unwrap()
+                    .get(b"P")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_vec()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            page_label_values,
+            expected_labels
+                .iter()
+                .map(|label| label.as_bytes().to_vec())
+                .collect::<Vec<_>>()
+        );
+        let outlines_id = catalog.get(b"Outlines").unwrap().as_reference().unwrap();
+        let outlines = output.get_dictionary(outlines_id).unwrap();
+        let first_id = outlines.get(b"First").unwrap().as_reference().unwrap();
+        let destination = output
+            .get_dictionary(first_id)
+            .unwrap()
+            .get(b"Dest")
+            .unwrap()
+            .as_array()
+            .unwrap()[0]
+            .as_reference()
+            .unwrap();
+        assert_eq!(
+            resolve_inherited_box(&output, destination, b"MediaBox")
+                .unwrap()
+                .width(),
+            expected_width,
+        );
+        assert_eq!(output.get_pages().get(&expected_page_number), Some(&destination));
+    }
+}
+
     #[test]
     fn reorders_pages_by_cloning_selected_page_tree() {
         let mut document = Document::with_version("1.4");

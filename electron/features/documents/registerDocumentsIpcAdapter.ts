@@ -53,6 +53,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 import type { IWorkingCopyBackingStatus } from '@contracts/electronApiDocuments';
+import {revokeManagedTempFileHandlesForSender} from '@electron/features/documents/main/managedTempFileHandles';
 
 interface IRendererFileOpenToken {expiresAtMs: number;}
 interface IDocumentsIpcEventRegistrar {on: (channel: string, handler: (event: IpcMainEvent, ...args: unknown[]) => void) => void;}
@@ -161,6 +162,7 @@ function registerRendererFileOpenTokenCleanup(event: IpcMainInvokeEvent, senderI
         event.sender.removeListener('render-process-gone', cleanup);
         event.sender.removeListener('did-start-navigation', handleNavigation);
         rendererFileOpenTokens.delete(senderId);
+        revokeManagedTempFileHandlesForSender(senderId);
         rendererFileOpenTokenCleanupSenders.delete(senderId);
     };
     const handleNavigation = (

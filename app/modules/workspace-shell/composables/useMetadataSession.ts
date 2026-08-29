@@ -70,8 +70,13 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     });
     const {
         bookmarkItems,
+        bookmarksResolved,
         bookmarksDirty,
     } = bookmarkState;
+
+    watch(pdfDocument, () => {
+        bookmarksResolved.value = false;
+    }, { immediate: true });
 
     metadataHistory = useWorkspaceMetadataHistory({
         bookmarkItems,

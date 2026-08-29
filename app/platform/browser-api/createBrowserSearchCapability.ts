@@ -3,6 +3,7 @@ import type {
     IPdfSearchResponse,
     IPdfSearchResult,
 } from '@contracts/search';
+import {validateSearchQuery} from '@contracts/search';
 import {
     buildPdfSearchExcerpt,
     iteratePdfSearchMatches,
@@ -17,6 +18,8 @@ import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
+    validateBrowserSearchPageCount,
+    validateBrowserSearchQueryCost,
 } from '@app/platform/browser-api/browserSearchLimits';
 import {
     BrowserSearchWorkerUnavailableError,
@@ -417,7 +420,10 @@ function rememberPageText(
 
     cache.canCacheWholeDocumentText = false;
     cache.isComplete = false;
-    while (cache.pageTexts.size > SEARCH_PAGE_CACHE_LIMIT) {
+    while (
+        cache.pageTexts.size > SEARCH_PAGE_CACHE_LIMIT
+        || cache.pageTextBytes > SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES
+    ) {
         const oldestPage = cache.pageTexts.keys().next().value;
         if (typeof oldestPage !== 'number') {
             break;
@@ -989,17 +995,22 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 };
             }
 
-            const requestId = options.requestId ?? createBrowserSafeId();
-            const results: IPdfSearchResult[] = [];
-            let emittedResultCount = 0;
-            let truncated = false;
-            const pageMatchCounts = new Map<number, number>();
             const matchOptions = {
                 matchCase: Boolean(options.matchCase),
                 wholeWord: Boolean(options.wholeWord),
                 useRegex: Boolean(options.useRegex),
             };
+            validateSearchQuery(query, matchOptions);
+            if (options.pageCount !== undefined) {
+                validateBrowserSearchPageCount(options.pageCount);
+            }
+            validateBrowserSearchQueryCost(query, options.pageCount);
 
+            const requestId = options.requestId ?? createBrowserSafeId();
+            const results: IPdfSearchResult[] = [];
+            let emittedResultCount = 0;
+            let truncated = false;
+            const pageMatchCounts = new Map<number, number>();
             startSearchRequest(requestId);
             try {
                 const { size } = await browserDocumentStore.stat(pdfPath);

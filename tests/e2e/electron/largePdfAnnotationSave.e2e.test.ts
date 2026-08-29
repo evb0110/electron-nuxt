@@ -1085,7 +1085,7 @@ async function tryCreatePageNoteViaAgentAction(page: Page, text: string) {
     };
 }
 
-async function placePageNote(
+async function _placePageNote(
     page: Page,
     text: string,
     options: {
@@ -1631,8 +1631,10 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             (window as Window & {__diagnosticWarnAsWarn?: boolean}).__diagnosticWarnAsWarn = true;
         });
 
-        const placement = await placePageNote(page, firstText, {toolbarOnly: true});
-        await page.keyboard.press('Escape');
+        await createStickyNoteWithPointer(page, firstText, {
+            x: 0.72,
+            y: 0.24,
+        });
         await openAnnotationsTab(page, 30_000);
         expect(await createFreeTextAnnotationWithPointer(
             page,
@@ -1652,11 +1654,11 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         )).toBeGreaterThan(0);
         const saveStartedAt = Date.now();
         try {
-            await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);
+            const saveEvent = await saveViaVisibleToolbar(page, LARGE_PDF_TIMEOUT_MS, fixturePath);
+            expect(saveEvent.detail.documentRevisionToken).toEqual(expect.any(String));
         } catch (error) {
             const debugState = await collectLargePdfAnnotationDebugState(page).catch(() => null);
-            throw new Error(`Large PDF save failed after ${placement.branch}: ${JSON.stringify({
-                placement,
+            throw new Error(`Large PDF save failed after visible pointer input: ${JSON.stringify({
                 debugState,
                 cause: error instanceof Error ? error.message : String(error),
             })}`);
@@ -1676,20 +1678,17 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 ? fallbackSavedState.originalPath
                 : fixturePath;
         const savedPath = fallbackSavedPath;
-        const secondPlacement = await placePageNote(page, secondText, {
-            position: {
-                xRatio: 0.58,
-                yRatio: 0.42,
-            },
-            toolbarOnly: true,
+        await createStickyNoteWithPointer(page, secondText, {
+            x: 0.58,
+            y: 0.42,
         });
         const secondSaveStartedAt = Date.now();
         try {
-            await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);
+            const saveEvent = await saveViaVisibleToolbar(page, LARGE_PDF_TIMEOUT_MS, fixturePath);
+            expect(saveEvent.detail.documentRevisionToken).toEqual(expect.any(String));
         } catch (error) {
             const debugState = await collectLargePdfAnnotationDebugState(page).catch(() => null);
-            throw new Error(`Second large PDF save failed after ${secondPlacement.branch}: ${JSON.stringify({
-                secondPlacement,
+            throw new Error(`Second large PDF save failed after visible pointer input: ${JSON.stringify({
                 debugState,
                 cause: error instanceof Error ? error.message : String(error),
             })}`);

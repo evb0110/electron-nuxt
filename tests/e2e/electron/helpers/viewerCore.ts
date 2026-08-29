@@ -1329,30 +1329,14 @@ export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOU
         })}`);
     }
 
-    const domWait = page.waitForFunction(() => {
-        const hasPendingToolbarLoading = document.querySelector('.toolbar-btn.is-loading');
-        if (hasPendingToolbarLoading) {
-            return false;
-        }
-
-        const savingStatuses = Array.from(document.querySelectorAll('.note-window__status, .pdf-annotation-note-window__status'));
-        return savingStatuses.length === 0;
-    }, {timeout: timeoutMs});
-    const eventWait = waitForAutomationEvent(page, 'save-committed', {
+    const event = await waitForAutomationEvent(page, 'save-committed', {
         afterEventId: saveBaselineEventId,
         timeoutMs,
-    })
-        .then(async (event) => {
-            if (event) {
-                return;
-            }
-            await domWait;
-        })
-        .catch(() => domWait);
-    await Promise.race([
-        eventWait,
-        domWait,
-    ]);
+    });
+    if (!event) {
+        throw new Error('Active workspace save completed without a save-committed event');
+    }
+    return event;
 }
 
 /**

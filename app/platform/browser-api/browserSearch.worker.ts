@@ -10,6 +10,7 @@ import {
     type TBrowserSearchWorkerResponse,
 } from '@app/platform/browser-api/browserSearchWorker.types';
 import { BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT } from '@app/platform/browser-api/browserSearchLegacyArrayPageLimit';
+import {validateBrowserSearchPageCount} from '@app/platform/browser-api/browserSearchLimits';
 import { getErrorMessage } from '@app/utils/error';
 
 const canceledRequestIds = new Set<number>();
@@ -65,6 +66,7 @@ async function handleExtractDocumentTextRequest(
         canceledRequestIds.delete(request.id);
         throw new Error('ERR_BROWSER_SEARCH_CANCELED');
     }
+    validateBrowserSearchPageCount(pdfDocument.numPages);
     if (pdfDocument.numPages > BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT) {
         await pdfDocument.destroy();
         canceledRequestIds.delete(request.id);
@@ -127,6 +129,7 @@ async function handleStreamDocumentTextRequest(
     const pdfDocument = await loadBrowserSearchDocument(request);
 
     try {
+        validateBrowserSearchPageCount(pdfDocument.numPages);
         for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
             if (canceledRequestIds.has(request.id)) {
                 throw new Error('ERR_BROWSER_SEARCH_CANCELED');
