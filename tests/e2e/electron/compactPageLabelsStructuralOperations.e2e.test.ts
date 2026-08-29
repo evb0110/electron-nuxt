@@ -194,6 +194,19 @@ async function waitForPageOperation(session: IElectronE2ESession) {
     await new Promise(resolve => setTimeout(resolve, 3_000));
 }
 
+async function waitForPageOperationComplete(session: IElectronE2ESession) {
+    await expect.poll(async () => {
+        try {
+            return (await readWorkspaceStateValues<{isPageOperationInProgress?: boolean}>(
+                session.page,
+                ['isPageOperationInProgress'],
+            )).isPageOperationInProgress;
+        } catch {
+            return undefined;
+        }
+    }, {timeout: 60_000}).toBe(false);
+}
+
 async function waitForTotalPages(session: IElectronE2ESession, totalPages: number) {
     await expect.poll(async () => {
         try {
@@ -263,6 +276,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
             [1],
             90,
         ]);
+        await waitForPageOperationComplete(session);
 
         await runCommand(session, 'pageOpsDelete', [
             [20],
