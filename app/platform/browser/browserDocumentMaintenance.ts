@@ -147,13 +147,19 @@ export async function sweepBrowserDocumentMaintenance(
         recentFiles,
         evictedRefs,
     } = pruneRecentFiles(currentRecentFiles);
+    let recentFilesForCleanup = recentFiles;
     if (
         evictedRefs.length > 0
         || recentFiles.length !== currentRecentFiles.length
     ) {
-        writeRecentFilesToStorage(recentFiles);
+        const committed = writeRecentFilesToStorage(recentFiles);
+        if (!committed) {
+            // IndexedDB cleanup must use the last committed recent-file
+            // snapshot. A failed localStorage write cannot authorize eviction.
+            recentFilesForCleanup = currentRecentFiles;
+        }
     }
-    const recentRefs = new Set<string>(recentFiles.map((file) => file.originalPath));
+    const recentRefs = new Set<string>(recentFilesForCleanup.map((file) => file.originalPath));
     const nonWorkingDependentCounts = countNonWorkingDependents(records);
     const refsToRemove = records
         .filter((record) => shouldRemovePersistedRecord(

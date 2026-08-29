@@ -1,4 +1,5 @@
 use super::*;
+use evb_native_support::output::AtomicOutput;
 use lopdf::dictionary;
 use std::path::Path;
 
@@ -743,7 +744,9 @@ pub(crate) fn split_pages(
         });
         document.trailer.set("Info", info_id);
     }
-    document.save(output_path)?;
+    let mut output = AtomicOutput::create(output_path)?;
+    document.save_to(output.file_mut()?)?;
+    output.publish_if_unchanged()?;
     Ok(())
 }
 

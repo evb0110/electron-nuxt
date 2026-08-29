@@ -155,6 +155,54 @@ fn pdf_conformance_accepts_only_valid_qpdf_warning_output() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn pdf_conformance_output_is_safe_for_same_path_and_hardlink_output() {
+    const VALID_STRUCTURE: &str = r#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.4","maxobjectid":1},{"trailer":{"value":{"/Root":"1 0 R"}},"obj:1 0 R":{"value":{"/Type":"/Catalog"}}}]}"#;
+    let qpdf = path("qpdf-alias", "sh");
+    write_fake_qpdf(&qpdf, 0, VALID_STRUCTURE);
+
+    for hardlink_output in [false, true] {
+        let label = if hardlink_output {
+            "conformance-alias-hardlink"
+        } else {
+            "conformance-alias-same-path"
+        };
+        let input = path(label, "pdf");
+        let output = path(&format!("{label}-output"), "json");
+        let mut document = Document::with_version("1.4");
+        let catalog_id = document.add_object(dictionary! { "Type" => "Catalog" });
+        document.trailer.set("Root", catalog_id);
+        document.save(&input).unwrap();
+        let original_input = read(&input).unwrap();
+        let destination = if hardlink_output {
+            std::fs::hard_link(&input, &output).unwrap();
+            output.clone()
+        } else {
+            input.clone()
+        };
+
+        let result = run_pdf_conformance(&input, &destination, &qpdf);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let facts: Value = serde_json::from_slice(&read(&destination).unwrap()).unwrap();
+        assert_eq!(facts["isSigned"], false);
+        if hardlink_output {
+            assert_eq!(read(&input).unwrap(), original_input);
+            assert!(Document::load(&input).is_ok());
+        }
+
+        for file in [input, output] {
+            let _ = remove_file(file);
+        }
+    }
+
+    let _ = remove_file(qpdf);
+}
+
 #[test]
 fn crop_seeds_a_distinct_output_before_appending() {
     let input = path("crop-distinct-input", "pdf");

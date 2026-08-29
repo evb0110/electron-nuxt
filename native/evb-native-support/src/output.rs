@@ -33,6 +33,11 @@ fn open_existing_temporary_file(path: &Path) -> io::Result<File> {
 }
 
 /// Owns an unpublished sibling file until it is durably replaced into place.
+///
+/// An output destination may be the same path as an input or a hard link to an
+/// input. Staging never truncates the destination. Publication replaces only
+/// the destination directory entry, so other hard links keep the old bytes.
+/// A failed or dropped output leaves every existing alias unchanged.
 pub struct AtomicOutput {
     file: Option<File>,
     temporary_path: PathBuf,
@@ -566,6 +571,36 @@ mod tests {
         drop(output);
         assert_eq!(fs::read(&destination).unwrap(), b"existing-output");
         assert!(!temporary_path.exists());
+        fs::remove_file(destination).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writer_failure_preserves_hardlinked_input_and_cleans_temporary() {
+        use std::os::{fd::OwnedFd, unix::net::UnixStream};
+
+        let input = test_path("flush-failure-alias-input");
+        let destination = test_path("flush-failure-alias-output");
+        fs::write(&input, b"existing-output").unwrap();
+        fs::hard_link(&input, &destination).unwrap();
+        let mut output = AtomicOutput::create(&destination).unwrap();
+        let temporary_path = output.temporary_path.clone();
+        let (stream, peer) = UnixStream::pair().unwrap();
+        drop(peer);
+        let descriptor: OwnedFd = stream.into();
+        output.file = Some(File::from(descriptor));
+
+        let flush_result = {
+            let mut writer = BufWriter::new(output.file_mut().unwrap());
+            writer.write_all(b"buffered replacement").unwrap();
+            writer.flush()
+        };
+        assert!(flush_result.is_err());
+        drop(output);
+        assert_eq!(fs::read(&input).unwrap(), b"existing-output");
+        assert_eq!(fs::read(&destination).unwrap(), b"existing-output");
+        assert!(!temporary_path.exists());
+        fs::remove_file(input).unwrap();
         fs::remove_file(destination).unwrap();
     }
 

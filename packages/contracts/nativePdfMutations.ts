@@ -70,6 +70,8 @@ export const PDF_NATIVE_MUTATION_ENUM_VALUES = {
 
 export const PDF_NATIVE_DATE_PATTERN = /^D:\d{14}(?:Z|[+-]\d{2}'\d{2}')?$/u;
 
+const PDF_NATIVE_F32_MAX = 3.4028234663852886e38;
+
 type TPdfNativeValidationErrorKind = 'typeError' | 'error';
 export type IPdfNativePlacedImageNativeToolPayload = Simplify<
     Omit<SetRequired<IPdfNativePlacedImage, 'rotationDegrees'>, 'source'> & {
@@ -104,6 +106,10 @@ function createValidationError(message: string, options: IPdfNativeValidationOpt
         : new TypeError(message);
 }
 
+function isNativeF32(value: number) {
+    return Number.isFinite(value) && Math.abs(value) <= PDF_NATIVE_F32_MAX;
+}
+
 function fail(message: string, options: IPdfNativeValidationOptions = {}): never {
     throw createValidationError(message, options);
 }
@@ -116,14 +122,14 @@ function normalizePositiveInteger(value: unknown, label: string, options: IPdfNa
 }
 
 function normalizeFiniteUnitNumber(value: unknown, label: string, options: IPdfNativeValidationOptions) {
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    if (typeof value !== 'number' || !isNativeF32(value) || value < 0 || value > 1) {
         fail(`${label} must be a finite number from 0 to 1`, options);
     }
     return value;
 }
 
 function normalizeFiniteNonNegativeNumber(value: unknown, label: string, options: IPdfNativeValidationOptions) {
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    if (typeof value !== 'number' || !isNativeF32(value) || value < 0) {
         fail(`${label} must be a finite non-negative number`, options);
     }
     return value;
@@ -321,7 +327,7 @@ function normalizeFreeTextEditors(
         if (
             !Array.isArray(editor.rect)
             || editor.rect.length !== 4
-            || editor.rect.some(coordinate => typeof coordinate !== 'number' || !Number.isFinite(coordinate))
+            || editor.rect.some(coordinate => typeof coordinate !== 'number' || !isNativeF32(coordinate))
             || editor.rect[2] <= editor.rect[0]
             || editor.rect[3] <= editor.rect[1]
         ) {
@@ -335,7 +341,7 @@ function normalizeFreeTextEditors(
         ].includes(editor.rotation as number)) {
             fail(`${label}[${index}].rotation must be 0, 90, 180, or 270`, options);
         }
-        if (typeof editor.fontSize !== 'number' || !Number.isFinite(editor.fontSize) || editor.fontSize <= 0 || editor.fontSize > 512) {
+        if (typeof editor.fontSize !== 'number' || !isNativeF32(editor.fontSize) || editor.fontSize <= 0 || editor.fontSize > 512) {
             fail(`${label}[${index}].fontSize must be a finite number from 0 to 512`, options);
         }
         if (
@@ -533,7 +539,7 @@ function normalizeBookmarkItems(
             && pageYRatio !== null
             && (
                 typeof pageYRatio !== 'number'
-                || !Number.isFinite(pageYRatio)
+                || !isNativeF32(pageYRatio)
                 || pageYRatio < 0
                 || pageYRatio > 1
             )
@@ -679,7 +685,7 @@ function normalizeShapeAnnotation(
         fail(`${label}.color must be a color string`, options);
     }
     const opacity = value.opacity;
-    if (typeof opacity !== 'number' || !Number.isFinite(opacity) || opacity < 0 || opacity > 1) {
+    if (typeof opacity !== 'number' || !isNativeF32(opacity) || opacity < 0 || opacity > 1) {
         fail(`${label}.opacity must be a finite number from 0 to 1`, options);
     }
     const id = normalizeNativeShapeOptionalString(value.id, `${label}.id`, options);
@@ -935,7 +941,7 @@ function normalizePlacedImage(
     const rotationDegrees = value.rotationDegrees ?? null;
     if (
         rotationDegrees !== null
-        && (typeof rotationDegrees !== 'number' || !Number.isFinite(rotationDegrees))
+        && (typeof rotationDegrees !== 'number' || !isNativeF32(rotationDegrees))
     ) {
         fail(`${label}.rotationDegrees must be a finite number or null`, options);
     }

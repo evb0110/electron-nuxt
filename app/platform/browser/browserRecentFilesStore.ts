@@ -33,8 +33,12 @@ export function hasRecentFilesStorageSnapshot() {
 
 export function writeRecentFilesToStorage(recentFiles: IRecentFile[]) {
     const payload = serializeRecentFilesPayload(recentFiles);
-    safeSetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY, payload);
+    const committed = safeSetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY, payload);
+    if (!committed) {
+        return false;
+    }
     expireLegacyRecentFilesCookie();
+    return true;
 }
 
 function normalizeRecentFileSize(fileSize: number | undefined) {
@@ -120,8 +124,9 @@ export class BrowserRecentFilesStore {
             recentFiles,
             evictedRefs,
         } = pruneRecentFiles(nextRecentFiles);
-        writeRecentFilesToStorage(recentFiles);
-        await this.repository.cleanupEvictedRecentRefs(evictedRefs);
+        if (writeRecentFilesToStorage(recentFiles)) {
+            await this.repository.cleanupEvictedRecentRefs(evictedRefs);
+        }
     }
 
     public getRecentFiles() {
@@ -152,8 +157,8 @@ export class BrowserRecentFilesStore {
             (candidate) => candidate.originalPath !== ref,
         );
 
-        writeRecentFilesToStorage(nextRecentFiles);
-        if (nextRecentFiles.length !== currentRecentFiles.length) {
+        const committed = writeRecentFilesToStorage(nextRecentFiles);
+        if (committed && nextRecentFiles.length !== currentRecentFiles.length) {
             await this.repository.cleanupEvictedRecentRefs([ref]);
         }
     }
@@ -162,7 +167,8 @@ export class BrowserRecentFilesStore {
         const evictedRefs = readRecentFilesFromStorage().map(
             (candidate) => candidate.originalPath,
         );
-        writeRecentFilesToStorage([]);
-        await this.repository.cleanupEvictedRecentRefs(evictedRefs);
+        if (writeRecentFilesToStorage([])) {
+            await this.repository.cleanupEvictedRecentRefs(evictedRefs);
+        }
     }
 }

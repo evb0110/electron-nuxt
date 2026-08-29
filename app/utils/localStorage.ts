@@ -27,12 +27,14 @@ export function safeGetLocalStorageItem(key: string) {
 export function safeSetLocalStorageItem(key: string, value: string) {
     const storage = getLocalStorageSafe();
     if (!storage || typeof storage.setItem !== 'function') {
-        return;
+        return false;
     }
 
     try {
         storage.setItem(key, value);
+        return true;
     } catch {
         // Best-effort write only.
+        return false;
     }
 }

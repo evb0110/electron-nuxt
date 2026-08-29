@@ -44,14 +44,23 @@ describe('safeGetLocalStorageItem', () => {
 describe('safeSetLocalStorageItem', () => {
     it('does not throw when localStorage is unavailable', () => {
         testGlobal.window = {};
-        expect(() => safeSetLocalStorageItem('k', 'v')).not.toThrow();
+        expect(safeSetLocalStorageItem('k', 'v')).toBe(false);
     });
 
     it('writes value when setItem is available', () => {
         const setItem = vi.fn();
         testGlobal.window = {localStorage: { setItem }};
 
-        safeSetLocalStorageItem('k', 'v');
+        expect(safeSetLocalStorageItem('k', 'v')).toBe(true);
         expect(setItem).toHaveBeenCalledWith('k', 'v');
+    });
+
+    it('reports a failed write without throwing', () => {
+        const setItem = vi.fn(() => {
+            throw new Error('quota exceeded');
+        });
+        testGlobal.window = {localStorage: { setItem }};
+
+        expect(safeSetLocalStorageItem('k', 'v')).toBe(false);
     });
 });

@@ -1,4 +1,5 @@
 use super::*;
+use evb_native_support::output::write_bytes_atomically;
 use serde::Serialize;
 
 const PDF_REFERENCE_LIMIT: usize = 128;
@@ -103,7 +104,7 @@ pub(crate) fn write_pdf_conformance_path(
         has_acro_form: acro_form.is_some(),
         has_xfa: acro_form.is_some_and(|dictionary| dictionary.has(b"XFA")),
     };
-    fs::write(output_path, serde_json::to_vec(&facts)?)?;
+    write_bytes_atomically(output_path, &serde_json::to_vec(&facts)?)?;
     Ok(())
 }
 

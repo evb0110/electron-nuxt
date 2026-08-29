@@ -72,6 +72,7 @@ describe('browserDocumentMaintenance', () => {
         });
         recoveryMocks.loadBrowserWorkspaceRecoveryLeasedRefs.mockResolvedValue(new Set());
         documentIdbMocks.recoveryRecordsAtDelete = [];
+        recentFilesStoreMocks.writeRecentFilesToStorage.mockReturnValue(true);
     });
 
     it('retains a working document while the recovery journal leases it', async () => {
@@ -196,5 +197,48 @@ describe('browserDocumentMaintenance', () => {
         expect(documentIdbMocks.deleteRecord).not.toHaveBeenCalled();
         expect(chunkMocks.deleteChunkRecord).not.toHaveBeenCalled();
         expect(entries.has(ref)).toBe(true);
+    });
+
+    it('does not use an uncommitted pruned list as deletion authority', async () => {
+        const { sweepBrowserDocumentMaintenance } = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/retained.pdf';
+        const recentFile = {
+            originalPath: ref,
+            backend: 'browser' as const,
+            fileName: 'retained.pdf',
+            timestamp: 1,
+            fileSize: 1,
+        };
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: {
+                ref,
+                fileName: 'retained.pdf',
+                mimeType: 'application/pdf',
+                kind: 'source',
+                retention: 'durable',
+                data: Uint8Array.of(1),
+                fileSize: 1,
+                updatedAt: 1,
+                storageMode: 'inline',
+                chunkCount: 0,
+                chunkSize: 4,
+            },
+        });
+        recentFilesStoreMocks.hasRecentFilesStorageSnapshot.mockReturnValue(true);
+        recentFilesStoreMocks.readRecentFilesFromStorage.mockReturnValue([recentFile]);
+        recentFilesStoreMocks.pruneRecentFiles.mockReturnValue({
+            recentFiles: [],
+            evictedRefs: [ref],
+        });
+        recentFilesStoreMocks.writeRecentFilesToStorage.mockReturnValue(false);
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(documentIdbMocks.deleteRecord).not.toHaveBeenCalledWith(ref);
     });
 });

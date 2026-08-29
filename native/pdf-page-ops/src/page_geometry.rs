@@ -522,6 +522,8 @@ pub(crate) fn number_object(value: f64) -> Object {
     {
         Object::Integer(rounded as i64)
     } else {
-        Object::Real(value as f32)
+        let real = value as f32;
+        assert!(real.is_finite(), "PDF real number exceeds f32");
+        Object::Real(real)
     }
 }

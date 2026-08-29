@@ -356,6 +356,46 @@ fn split_pages_preserves_vector_objects_and_applies_boxes_and_rotation() {
 }
 
 #[test]
+fn split_pages_small_rewrite_is_safe_for_same_path_and_hardlink_output() {
+    for hardlink_output in [false, true] {
+        let label = if hardlink_output {
+            "split-alias-hardlink"
+        } else {
+            "split-alias-same-path"
+        };
+        let input = path(&format!("{label}-input"), "pdf");
+        let output = path(&format!("{label}-output"), "pdf");
+        let instructions = path(&format!("{label}-instructions"), "json");
+        save_single_page_pdf(&input, Stream::new(dictionary! {}, Vec::new()));
+        let original_input = std::fs::read(&input).unwrap();
+        let destination = if hardlink_output {
+            std::fs::hard_link(&input, &output).unwrap();
+            output.clone()
+        } else {
+            input.clone()
+        };
+        write(
+            &instructions,
+            r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120}}]}]}"#,
+        )
+        .unwrap();
+
+        run_split_pages(&input, &destination, &instructions);
+
+        let split = Document::load(&destination).unwrap();
+        assert_eq!(split.get_pages().len(), 1);
+        if hardlink_output {
+            assert_eq!(std::fs::read(&input).unwrap(), original_input);
+            assert!(Document::load(&input).is_ok());
+        }
+
+        for file in [input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+#[test]
 fn split_pages_preserves_valid_optional_content_properties() {
     let input = path("split-ocg-input", "pdf");
     let output = path("split-ocg-output", "pdf");

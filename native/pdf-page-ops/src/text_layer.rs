@@ -1,4 +1,5 @@
 use super::*;
+use evb_native_support::output::AtomicOutput;
 use lopdf::{
     content::{Content, Operation as ContentOperation},
     DecompressError, Error as LopdfError,
@@ -1628,7 +1629,9 @@ pub(crate) fn write_overlay_text_layers_path(
             ));
         }
         overlay_text_layers(&mut target, &source, instructions)?;
-        target.save(output_path)?;
+        let mut output = AtomicOutput::create(output_path)?;
+        target.save_to(output.file_mut()?)?;
+        output.publish_if_unchanged()?;
         return Ok(());
     }
 

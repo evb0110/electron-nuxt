@@ -292,6 +292,12 @@ describe('native PDF mutation contracts', () => {
         expect(() => normalizePdfNativeMutationSet({bookmarks: {
             totalPages: 3,
             untitledLabel: 'Untitled',
+            items: createDeepBookmarkItems(10_000),
+        }}, 'mutations')).toThrow('maximum bookmark depth');
+
+        expect(() => normalizePdfNativeMutationSet({bookmarks: {
+            totalPages: 3,
+            untitledLabel: 'Untitled',
             items: [{
                 ...createBookmark(),
                 pageYRatio: 1.5,
@@ -444,6 +450,44 @@ describe('native PDF mutation contracts', () => {
             width: 0.25,
             height: 0.5,
         });
+    });
+
+    it.each([
+        [
+            'shape width',
+            {shapes: {
+                totalPages: 3,
+                rewriteShapeState: true,
+                shapes: [{
+                    ...validShape,
+                    width: Number.MAX_VALUE,
+                }],
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            }},
+        ],
+        [
+            'FreeText editor rectangle coordinate',
+            {freeTextEditors: [{
+                ...validFreeTextEditor,
+                rect: [
+                    0,
+                    0,
+                    Number.MAX_VALUE,
+                    1,
+                ],
+            }]},
+        ],
+        [
+            'placed image rotation',
+            {placedImages: [{
+                ...validImage,
+                rotationDegrees: Number.MAX_VALUE,
+            }]},
+        ],
+    ])('rejects finite %s values outside the native f32 range at the IPC boundary', (_label, mutations) => {
+        expect(() => normalizePdfNativeMutationSet(mutations, 'mutations'))
+            .toThrowError(TypeError);
     });
 
     it('rejects zero-sized and overflowing normalized page bounds', () => {

@@ -283,7 +283,7 @@ export function readBrowserRecentFilesSnapshot(): IRecentFilesCookieSnapshot {
         readCookieValue(RECENT_FILES_COOKIE_KEY),
     );
     if (legacySnapshot.hasSnapshot) {
-        safeSetLocalStorageItem(
+        const committed = safeSetLocalStorageItem(
             BROWSER_RECENT_FILES_STORAGE_KEY,
             legacySnapshot.truncated
                 ? JSON.stringify({
@@ -292,7 +292,9 @@ export function readBrowserRecentFilesSnapshot(): IRecentFilesCookieSnapshot {
                 })
                 : serializeRecentFilesPayload(legacySnapshot.recentFiles),
         );
-        expireLegacyRecentFilesCookie();
+        if (committed) {
+            expireLegacyRecentFilesCookie();
+        }
         return legacySnapshot;
     }
     expireLegacyRecentFilesCookie();

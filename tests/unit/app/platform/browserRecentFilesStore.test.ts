@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { BrowserRecentFilesStore } from '@app/platform/browser/browserRecentFilesStore';
+import { BROWSER_MAX_RECENT_FILES } from '@app/platform/browser/browserDocumentConstants';
 import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 
 describe('BrowserRecentFilesStore', () => {
@@ -98,5 +99,40 @@ describe('BrowserRecentFilesStore', () => {
         const store = new BrowserRecentFilesStore(repository);
         await expect(store.recoverRecentFilesIfStorageMissing()).resolves.toEqual([expect.objectContaining({originalPath: 'browser://documents/recovered'})]);
         expect(repository.getAllPersistedRecords).toHaveBeenCalledOnce();
+    });
+
+    it('does not evict durable records when the recent-file write fails', async () => {
+        const existingRecentFiles = Array.from({length: BROWSER_MAX_RECENT_FILES}, (_, index) => ({
+            originalPath: `browser://documents/${index}.pdf`,
+            backend: 'browser' as const,
+            fileName: `${index}.pdf`,
+            timestamp: index,
+            fileSize: 1,
+        }));
+        globalThis.localStorage.setItem(
+            BROWSER_RECENT_FILES_STORAGE_KEY,
+            JSON.stringify(existingRecentFiles),
+        );
+        vi.mocked(globalThis.localStorage.setItem).mockImplementation(() => {
+            throw new Error('quota exceeded');
+        });
+        const repository = {
+            requireEntry: vi.fn(async () => ({
+                retention: 'durable' as const,
+                fileName: 'new.pdf',
+                fileSize: 1,
+                updatedAt: 31,
+            })),
+            getAllPersistedRecords: vi.fn(),
+            cleanupEvictedRecentRefs: vi.fn(async () => undefined),
+        };
+        const store = new BrowserRecentFilesStore(repository);
+
+        await store.touchRecentFile('browser://documents/new.pdf');
+
+        expect(repository.cleanupEvictedRecentRefs).not.toHaveBeenCalled();
+        expect(JSON.parse(
+            globalThis.localStorage.getItem(BROWSER_RECENT_FILES_STORAGE_KEY)!,
+        )).toEqual(existingRecentFiles);
     });
 });

@@ -437,6 +437,60 @@ fn overlay_text_copies_only_invisible_text_and_renames_colliding_fonts() {
 }
 
 #[test]
+fn overlay_text_small_rewrite_is_safe_for_same_path_and_hardlink_output() {
+    for hardlink_output in [false, true] {
+        let label = if hardlink_output {
+            "text-alias-hardlink"
+        } else {
+            "text-alias-same-path"
+        };
+        let source = path(&format!("{label}-source"), "pdf");
+        let input = path(&format!("{label}-input"), "pdf");
+        let output = path(&format!("{label}-output"), "pdf");
+        let instructions = path(&format!("{label}-instructions"), "json");
+        save_single_page(
+            &source,
+            b"BT /F1 12 Tf 3 Tr 10 20 Td (Alias safe OCR) Tj ET".to_vec(),
+            dictionary! { "Font" => dictionary! { "F1" => measurable_helvetica_font() } },
+        );
+        save_single_page(&input, Vec::new(), Dictionary::new());
+        let original_input = fs::read(&input).unwrap();
+        let destination = if hardlink_output {
+            fs::hard_link(&input, &output).unwrap();
+            output.clone()
+        } else {
+            input.clone()
+        };
+        write(
+            &instructions,
+            r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+        )
+        .unwrap();
+
+        let result = run_overlay_text(&input, &source, &destination, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+
+        let overlaid = Document::load(&destination).unwrap();
+        assert!(overlaid
+            .extract_text(&[1])
+            .unwrap()
+            .contains("Alias safe OCR"));
+        if hardlink_output {
+            assert_eq!(fs::read(&input).unwrap(), original_input);
+            assert!(Document::load(&input).is_ok());
+        }
+
+        for file in [source, input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+#[test]
 fn overlay_text_rejects_singular_affines_before_mutating_the_pdf() {
     let source = path("singular-source", "pdf");
     let input = path("singular-input", "pdf");

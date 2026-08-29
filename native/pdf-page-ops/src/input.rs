@@ -712,4 +712,36 @@ mod bounded_input_tests {
         }
         fs::remove_file(path).unwrap();
     }
+
+    #[test]
+    fn native_mutation_decode_rejects_a_deep_bookmark_tree_without_stack_overflow() {
+        let path = temp_path("deep-bookmark");
+        let mut source =
+            String::from(r#"{"bookmarks":{"totalPages":1,"untitledLabel":"Untitled","items":["#);
+        for index in 0..=10_000 {
+            source.push_str(&format!(
+                r#"{{"title":"Bookmark {index}","pageIndex":0,"pageYRatio":null,"namedDest":null,"bold":false,"italic":false,"color":null,"items":["#
+            ));
+        }
+        for _ in 0..=10_000 {
+            source.push_str("]}");
+        }
+        source.push_str("]}}");
+        fs::write(&path, source).unwrap();
+
+        let error = match read_native_mutations(&path) {
+            Ok(_) => panic!("deep bookmark mutations must be rejected before native output"),
+            Err(error) => error,
+        };
+        let native_error = error
+            .downcast_ref::<NativeError>()
+            .expect("sidecar decode failures should carry a native error");
+        assert_eq!(native_error.code, NativeErrorCode::InvalidRequest);
+        assert!(
+            native_error.message.contains("recursion limit exceeded"),
+            "unexpected deep bookmark error: {}",
+            native_error.message
+        );
+        fs::remove_file(path).unwrap();
+    }
 }
