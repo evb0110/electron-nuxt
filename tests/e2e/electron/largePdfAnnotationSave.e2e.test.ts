@@ -716,7 +716,13 @@ async function waitForStagedArtifact(
 ) {
     await page.waitForFunction(
         () => (window as IStagedArtifactCaptureWindow).__largePdfStagedArtifactCapture?.artifact !== null,
-        {timeout: timeoutMs},
+        // A hard-restarted large-PDF renderer can be busy while the native
+        // staged receipt is published. Fixed polling does not depend on RAF
+        // delivery during that interval.
+        {
+            polling: 100,
+            timeout: timeoutMs,
+        },
     );
     const artifact = await page.evaluate(
         () => (window as IStagedArtifactCaptureWindow).__largePdfStagedArtifactCapture?.artifact ?? null,
