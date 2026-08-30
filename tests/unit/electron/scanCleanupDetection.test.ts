@@ -511,6 +511,8 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         expect(renderPage).toHaveBeenCalledTimes(8);
         expect(pageSizeSource.largestChunk()).toBeLessThanOrEqual(1_024);
         expect(pageSizeSource.largestReadRange()).toBeLessThanOrEqual(1_024);
+        expect(pageSizeSource.store.readRange).not.toHaveBeenCalled();
+        expect(pageSizeSource.store.getPage).toHaveBeenCalledTimes(2_048);
         expect(pageSizeSource.store.close).toHaveBeenCalledOnce();
     }, 15_000);
 

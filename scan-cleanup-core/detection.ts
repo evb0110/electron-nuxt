@@ -596,12 +596,10 @@ async function readDetectionPageSizeBatch(
             page: IPdfPageSize
         }>;
     }
-    const contiguous = pageNumbers.every((pageNumber, index) => (
-        index === 0 || pageNumber === pageNumbers[index - 1]! + 1
-    ));
-    const rawPages = contiguous
-        ? await pageSizeStore.readRange(pageNumbers[0]!, pageNumbers[pageNumbers.length - 1]! + 1)
-        : await Promise.all(pageNumbers.map(pageNumber => pageSizeStore.getPage(pageNumber)));
+    // Detection advances through pages in document order. Keep the store's
+    // forward cursor alive across batches instead of opening a range reader,
+    // which must scan from page 1 for every window on streaming sources.
+    const rawPages = await Promise.all(pageNumbers.map(pageNumber => pageSizeStore.getPage(pageNumber)));
     if (rawPages.length !== pageNumbers.length) {
         throw new Error(
             `Scan cleanup page-size store returned ${String(rawPages.length)} pages for ${String(pageNumbers.length)} requested pages`,
