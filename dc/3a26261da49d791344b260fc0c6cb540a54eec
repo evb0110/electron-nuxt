@@ -1,0 +1,19 @@
+package.json
+  s_90243f0be7f87a::t_0bc19f426c2501 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "dc3a26261da49d791344b260fc0c6cb540a54eec",
+  "prompts": {},
+  "sessions": {
+    "s_90243f0be7f87a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05417-6423-72d0-b202-16b96f09fe9a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
