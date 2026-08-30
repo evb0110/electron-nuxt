@@ -1,0 +1,29 @@
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_b2ece6dfe48478::t_e0f64f1f4703eb 8-13,119-154,175,508-509,511,538-539
+  s_b2ece6dfe48478::t_b2b2ffba0ba54b 2,513-516,518-529,537
+  s_b2ece6dfe48478::t_f26e1d9cad0824 155-174,510,512,517,531-533
+  s_b2ece6dfe48478::t_74150006101422 24
+  s_b2ece6dfe48478::t_9e35b6d72f8d43 176
+  s_b2ece6dfe48478::t_8ec937b2db1155 530
+  s_b2ece6dfe48478::t_2d115651259d3e 534-536
+  s_b2ece6dfe48478::t_370903022e8df9 540
+scripts/validation-gates.mjs
+  s_b2ece6dfe48478::t_b7aa574fc3f1be 4-6,794-827
+  s_b2ece6dfe48478::t_5eebfd6ee92790 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "42601baf084625486b8a45aa41eea57c09ad9fc2",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
