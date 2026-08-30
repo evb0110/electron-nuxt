@@ -52,6 +52,7 @@ import {
 import type {Page} from 'puppeteer-core';
 
 const MATRIX_TIMEOUT_MS = 15 * 60_000;
+const PLACED_IMAGE_SAVE_TIMEOUT_MS = 60_000;
 const ANNOTATION_INDEX_CHUNK_BYTES = 512 * 1_024;
 const MODIFIED_AT = 'D:20260830020000Z';
 const MATRIX_PAGE_INDEX = 24;
@@ -895,7 +896,7 @@ async function clickPlacedImageContextAction(page: Page, text: string) {
 async function savePlacedImageRevision(page: Page, documentPath: string, label: string) {
     const event = await saveViaVisibleToolbarWithDeadline(
         page,
-        15_000,
+        PLACED_IMAGE_SAVE_TIMEOUT_MS,
         documentPath,
         {label},
     );

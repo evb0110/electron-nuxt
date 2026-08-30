@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { parsePageIndex } from '@contracts/pageNumbers';
+import {decodeManagedTempFileHandle} from '@contracts/electronApiDocuments';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
@@ -241,10 +242,11 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     }
 
     function toNativePlacedImagePayload(payload: IPdfSerializedPlacedImagePayload) {
+        const nativeSourceHandle = decodeManagedTempFileHandle(payload.nativeSourceHandle);
         if (
             payload.mimeType !== 'image/jpeg'
             || payload.bytes.length === 0
-            || !payload.nativeSourceHandle
+            || !nativeSourceHandle
             || !Number.isSafeInteger(payload.pageNumber)
             || payload.pageNumber < 1
         ) {
@@ -266,7 +268,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             height: payload.height,
             rotationDegrees: payload.rotationDegrees,
             mimeType: 'image/jpeg' as const,
-            source: payload.nativeSourceHandle,
+            source: nativeSourceHandle,
         };
     }
 
