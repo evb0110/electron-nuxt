@@ -519,10 +519,10 @@ describe('native PDF mutation contracts', () => {
         }
     });
 
-    it('preserves an oversized bookmark subtree across path-addressed fragments', () => {
+    it('preserves exactly 10,001 bookmarks across path-addressed fragments', () => {
         const root = createBookmark('Root');
         root.items = Array.from(
-            {length: PDF_NATIVE_MUTATION_LIMITS.bookmarkItems + 1},
+            {length: 10_000},
             (_, index) => createBookmark(`Child ${index}`),
         );
         const normalized = normalizePdfNativeMutationSet({bookmarks: {
@@ -542,14 +542,14 @@ describe('native PDF mutation contracts', () => {
         expect(bookmarkChunks.slice(1).reduce(
             (count, chunk) => count + countBookmarkItems(chunk.bookmarks!.items),
             0,
-        )).toBe(PDF_NATIVE_MUTATION_LIMITS.bookmarkItems + 1);
+        )).toBe(10_000);
         for (const chunk of bookmarkChunks) {
             expect(countBookmarkItems(chunk.bookmarks!.items))
                 .toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.bookmarkItems);
         }
         expect(bookmarkChunks.slice(1).flatMap(chunk => chunk.bookmarks!.items)
             .map(item => item.title)).toEqual([...Array.from(
-            {length: PDF_NATIVE_MUTATION_LIMITS.bookmarkItems + 1},
+            {length: 10_000},
             (_, index) => `Child ${index}`,
         )]);
     });

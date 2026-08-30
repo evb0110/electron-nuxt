@@ -264,7 +264,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
     function closePrintDialogForSystemDialog() {
         closeDialogForSystemPrint = true;
-        clearPreparingPrintToast();
         printDialogOpen.value = false;
     }
 
@@ -779,6 +778,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
         throwIfPrintAborted(signal);
         closePrintDialogForSystemDialog();
+        showPreparingPrintToast();
         const result = pageNumbers === undefined
             ? await printPdfPath(printPath, deps.fileName.value ?? undefined)
             : await printPdfPath(printPath, deps.fileName.value ?? undefined, pageNumbers);

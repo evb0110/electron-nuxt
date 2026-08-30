@@ -1095,11 +1095,12 @@ describe('useWorkspacePrint', () => {
             });
 
             startNativePrintHandoff();
-            expect(toastRemoveMock).toHaveBeenCalledWith('toast-id');
+            expect(toastRemoveMock).not.toHaveBeenCalled();
 
             finishPrint();
             await printPromise;
 
+            expect(toastRemoveMock).toHaveBeenCalledWith('toast-id');
             expect(state.isPreparingPrint.value).toBe(false);
             expect(state.printError.value).toBeNull();
         } finally {

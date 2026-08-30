@@ -423,7 +423,7 @@ acceptanceDescribe('scan cleanup xlarge page-source acceptance', () => {
                 expect(telemetry.firstRail.activeSegment).toBeGreaterThan(0);
             }
             expect(telemetry.firstRail.contentHeightPx).toBeGreaterThan(0);
-            expect(telemetry.firstRail.contentHeightPx).toBeLessThanOrEqual(16_000_000);
+            expect(telemetry.firstRail.contentHeightPx).toBeLessThanOrEqual(8_388_608);
             expect(telemetry.firstRail.currentPageMounted).toBe(true);
 
             telemetry.analysisStatus = await waitForAnalysisTerminal(session.page);
@@ -491,6 +491,7 @@ acceptanceDescribe('scan cleanup xlarge page-source acceptance', () => {
             });
             telemetry.restartedRail = await driveRailToLastPage(restarted.page);
             expect(telemetry.restartedRail.mountedPageCount).toBeLessThanOrEqual(40);
+            expect(telemetry.restartedRail.contentHeightPx).toBeLessThanOrEqual(8_388_608);
             expect(telemetry.restartedRail.currentPageMounted).toBe(true);
             const restartedToggle = `[data-page-number="${String(PAGE_COUNT)}"] .scan-thumbnail-exclude-toggle`;
             await waitForAriaChecked(restarted.page, restartedToggle, 'false');

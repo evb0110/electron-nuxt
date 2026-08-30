@@ -20,6 +20,7 @@ import {cancelMainOperationsForOwner} from '@electron/operation-lifecycle/mainOp
 
 const mocks = vi.hoisted(() => {
     const browserWindowInstances: MockBrowserWindow[] = [];
+    const paintedBitmap = Buffer.alloc(4 * 4 * 4, 255);
     const printHandler = vi.fn((
         _options: unknown,
         callback: (success: boolean, failureReason?: string) => void,
@@ -52,6 +53,13 @@ const mocks = vi.hoisted(() => {
         public readonly setOpacity = vi.fn();
         public readonly showInactive = vi.fn();
         public readonly webContents = {
+            capturePage: vi.fn(async () => ({
+                getSize: () => ({
+                    width: 4,
+                    height: 4,
+                }),
+                toBitmap: () => mocks.printSurfaceBitmap,
+            })),
             executeJavaScript: vi.fn(async () => true),
             on: vi.fn(),
             print: vi.fn(printHandler),
@@ -80,6 +88,7 @@ const mocks = vi.hoisted(() => {
         appGetPath: vi.fn(() => '/tmp'),
         browserWindowInstances,
         openPath: vi.fn(async () => ''),
+        printSurfaceBitmap: paintedBitmap,
         printHandler,
         pdfPageCount: 1,
         pdfPageSize: {
@@ -193,7 +202,10 @@ const {
     handlePrintPdfPath,
     sweepStaleDefaultAppTempPdfs,
 } = await import('@electron/features/documents/main/print');
-const { printManagedTempPdfPath } = await import('@electron/utils/printHandoff');
+const {
+    isCapturedPrintSurfaceBitmap,
+    printManagedTempPdfPath,
+} = await import('@electron/utils/printHandoff');
 
 const tempRoot = '/tmp/evb-viewer-test-profile';
 const validPdfBytes = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
@@ -211,6 +223,7 @@ describe('documents print', () => {
         vi.clearAllMocks();
         mocks.browserWindowInstances.length = 0;
         mocks.MockBrowserWindow.emitReadyToShowByDefault = true;
+        mocks.printSurfaceBitmap = Buffer.alloc(4 * 4 * 4, 255);
         mocks.appGetPath.mockReturnValue('/tmp');
         mocks.randomUUID.mockReturnValue('print-job-id');
         mocks.pdfPageCount = 1;
@@ -341,9 +354,10 @@ describe('documents print', () => {
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
     });
 
-    it.runIf(process.platform === 'darwin')('keeps the macOS PDF plugin window hidden until its surface settles', async () => {
+    it.runIf(process.platform === 'darwin')('keeps the macOS PDF plugin window hidden until its surface paints and settles', async () => {
         vi.useFakeTimers();
         mocks.MockBrowserWindow.emitReadyToShowByDefault = false;
+        mocks.printSurfaceBitmap = Buffer.alloc(0);
         const resultPromise = handlePrintPdfPath(
             windowContext,
             sourcePdfPath,
@@ -363,15 +377,30 @@ describe('documents print', () => {
 
         printWindow?.emit('ready-to-show');
         await Promise.resolve();
-        expect(printWindow?.setOpacity).toHaveBeenCalledWith(0);
-        expect(printWindow?.showInactive).toHaveBeenCalledTimes(1);
-        expect(printWindow?.setOpacity.mock.invocationCallOrder[0])
-            .toBeLessThan(printWindow?.showInactive.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY);
+        await vi.advanceTimersByTimeAsync(500);
+        expect(printWindow?.showInactive).not.toHaveBeenCalled();
+
+        mocks.printSurfaceBitmap = Buffer.alloc(4 * 4 * 4, 255);
+        await vi.advanceTimersByTimeAsync(250);
+        expect(printWindow?.showInactive).not.toHaveBeenCalled();
 
         await vi.advanceTimersByTimeAsync(2_000);
         await expect(resultPromise).resolves.toEqual({success: true});
+        expect(printWindow?.showInactive).toHaveBeenCalledTimes(1);
+        expect(printWindow?.setOpacity).not.toHaveBeenCalledWith(0);
         expect(printWindow?.hide).toHaveBeenCalledTimes(1);
-        expect(printWindow?.setOpacity).toHaveBeenLastCalledWith(1);
+    });
+
+    it('accepts captured print pixels regardless of page color', () => {
+        const dark = Buffer.alloc(4 * 4 * 4, 20);
+        const light = Buffer.alloc(4 * 4 * 4, 255);
+        for (let offset = 3; offset < light.byteLength; offset += 4) {
+            light[offset] = 0;
+        }
+
+        expect(isCapturedPrintSurfaceBitmap(Buffer.alloc(0), 4, 4)).toBe(false);
+        expect(isCapturedPrintSurfaceBitmap(dark, 4, 4)).toBe(true);
+        expect(isCapturedPrintSurfaceBitmap(light, 4, 4)).toBe(true);
     });
 
     it('dispatches a path larger than 2 GiB without applying the byte handoff cap', async () => {
@@ -422,6 +451,7 @@ describe('documents print', () => {
         );
         expect(mocks.browserWindowInstances[0]?.close).not.toHaveBeenCalled();
         expect(mocks.browserWindowInstances[0]?.showInactive).not.toHaveBeenCalled();
+        expect(mocks.browserWindowInstances[0]?.webContents.capturePage).not.toHaveBeenCalled();
 
         await vi.runOnlyPendingTimersAsync();
 
@@ -487,6 +517,7 @@ describe('documents print', () => {
             pathToFileURL('/tmp/evb-viewer-test-profile/raster-work/print.html').toString(),
         );
         expect(mocks.browserWindowInstances[0]?.showInactive).not.toHaveBeenCalled();
+        expect(mocks.browserWindowInstances[0]?.webContents.capturePage).not.toHaveBeenCalled();
         expect(mocks.browserWindowInstances[0]?.webContents.executeJavaScript).toHaveBeenCalledTimes(1);
         expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalledWith(
             expect.objectContaining({ printBackground: true }),
@@ -719,6 +750,45 @@ describe('documents print', () => {
         expect(mocks.cancelNativeCommandGroup).toHaveBeenCalledWith(extractionCancelGroup);
         expect(mocks.browserWindowInstances).toHaveLength(0);
         expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-pages-print-job-id-source.pdf`);
+    });
+
+    it('cancels the selected-page native handoff while the plugin surface is still dark', async () => {
+        vi.useFakeTimers();
+        mocks.printSurfaceBitmap = Buffer.alloc(0);
+        const printPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+            [4],
+        );
+        for (let index = 0; index < 40; index += 1) {
+            await Promise.resolve();
+        }
+        expect(mocks.browserWindowInstances[0]?.webContents.capturePage).toHaveBeenCalled();
+
+        cancelMainOperationsForOwner(senderId, 'Renderer lifecycle ended');
+        await vi.advanceTimersByTimeAsync(250);
+
+        await expect(printPromise).resolves.toMatchObject({
+            success: false,
+            canceled: true,
+        });
+        expect(mocks.browserWindowInstances[0]?.webContents.print).not.toHaveBeenCalled();
+        expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens the native dialog after the bounded paint probe times out', async () => {
+        vi.useFakeTimers();
+        mocks.printSurfaceBitmap = Buffer.alloc(0);
+        const resultPromise = handlePrintPdfPath(windowContext, sourcePdfPath, 'source.pdf');
+        for (let index = 0; index < 40; index += 1) {
+            await Promise.resolve();
+        }
+
+        await vi.advanceTimersByTimeAsync(17_000);
+
+        await expect(resultPromise).resolves.toEqual({success: true});
+        expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalledTimes(1);
     });
 
     it('cleans up print resources immediately when native printing fails', async () => {

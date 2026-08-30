@@ -108,7 +108,7 @@
     }
 
     #[test]
-    fn appends_oversized_bookmark_subtree_as_path_addressed_fragments() {
+    fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
         let (mut document, _page_id) = create_test_document();
         let input_path = temp_pdf_path("append-bookmark-subtree-input");
         let mut original_bytes = Vec::new();
@@ -149,7 +149,7 @@
         )
         .unwrap();
 
-        let mut children = (0..5_001)
+        let mut children = (0..10_000)
             .map(|index| BookmarkEntry {
                 title: format!("Child {index}"),
                 page_index: Some(0),
@@ -199,18 +199,18 @@
             .as_reference()
             .unwrap();
         let outlines = loaded.get_dictionary(outlines_ref).unwrap();
-        assert_eq!(outlines.get(b"Count").unwrap().as_i64().unwrap(), 5_002);
+        assert_eq!(outlines.get(b"Count").unwrap().as_i64().unwrap(), 10_001);
         let root_ref = outlines.get(b"First").unwrap().as_reference().unwrap();
         let root = loaded.get_dictionary(root_ref).unwrap();
-        assert_eq!(root.get(b"Count").unwrap().as_i64().unwrap(), 5_001);
+        assert_eq!(root.get(b"Count").unwrap().as_i64().unwrap(), 10_000);
         let mut child_ref = root.get(b"First").unwrap().as_reference().unwrap();
-        for expected_index in 0..5_001 {
+        for expected_index in 0..10_000 {
             let child = loaded.get_dictionary(child_ref).unwrap();
             assert_eq!(
                 pdf_string_to_text(child.get(b"Title").unwrap()).unwrap(),
                 format!("Child {expected_index}"),
             );
-            if expected_index < 5_000 {
+            if expected_index < 9_999 {
                 child_ref = child.get(b"Next").unwrap().as_reference().unwrap();
             } else {
                 assert!(child.get(b"Next").is_err());

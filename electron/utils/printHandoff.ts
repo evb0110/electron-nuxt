@@ -15,7 +15,6 @@ import {
     parse,
 } from 'path';
 import { pathToFileURL } from 'url';
-import { delay } from 'es-toolkit/promise';
 import { tmpdir } from 'os';
 import { sortBy } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
@@ -30,6 +29,9 @@ import { includesAsciiToken } from '@electron/utils/includesAsciiToken';
 const logger = createLogger('documents-print');
 // Low-end Windows machines can report the PDF plugin as loaded before it has painted.
 const PRINT_LOAD_SETTLE_DELAY_MS = 2_000;
+const PRINT_SURFACE_PROBE_INTERVAL_MS = parseIntegerEnv('EVB_PRINT_SURFACE_PROBE_INTERVAL_MS', 250, 50, 2_000);
+const PRINT_SURFACE_READY_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_SURFACE_READY_TIMEOUT_MS', 15_000, 1_000, 120_000);
+const PRINT_SURFACE_PROBE_SIZE_PX = 480;
 const PRINT_JOB_RESOURCE_RETENTION_MS = 30_000;
 const PRINT_DIALOG_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_DIALOG_TIMEOUT_MS', 5 * 60 * 1000, 5_000);
 const PRINT_DIALOG_TEST_MODE_ENV = 'EVB_PRINT_DIALOG_TEST_MODE';
@@ -506,15 +508,64 @@ function lockPrintWindowTitle(printWindow: BrowserWindow, documentTitle: string)
     };
 }
 
-function revealPrintWindowForNativeDialog(printWindow: BrowserWindow) {
+export function isCapturedPrintSurfaceBitmap(bitmap: Buffer, width: number, height: number) {
+    const pixelCount = width * height;
+    return Number.isSafeInteger(pixelCount) && pixelCount > 0 && bitmap.byteLength >= pixelCount * 4;
+}
+
+function waitForPrintHandoffDelay(delayMs: number, signal?: AbortSignal) {
+    return new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(finish, delayMs);
+        const handleAbort = () => finish(true);
+        function finish(aborted = false) {
+            clearTimeout(timer);
+            signal?.removeEventListener('abort', handleAbort);
+            if (aborted) {
+                const error = new Error('Print handoff canceled');
+                error.name = 'AbortError';
+                reject(error);
+                return;
+            }
+            resolve();
+        }
+        signal?.addEventListener('abort', handleAbort, {once: true});
+        if (signal?.aborted) {
+            handleAbort();
+        }
+    });
+}
+
+async function waitForPrintSurfacePainted(printWindow: BrowserWindow, signal?: AbortSignal) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < PRINT_SURFACE_READY_TIMEOUT_MS) {
+        throwIfPrintHandoffAborted(signal);
+        try {
+            const image = await printWindow.webContents.capturePage({
+                x: Math.max(0, Math.floor((PRINT_WINDOW_WIDTH_PX - PRINT_SURFACE_PROBE_SIZE_PX) / 2)),
+                y: Math.max(0, Math.floor((PRINT_WINDOW_HEIGHT_PX - PRINT_SURFACE_PROBE_SIZE_PX) / 2)),
+                width: PRINT_SURFACE_PROBE_SIZE_PX,
+                height: PRINT_SURFACE_PROBE_SIZE_PX,
+            }, {stayHidden: true});
+            const size = image.getSize();
+            if (isCapturedPrintSurfaceBitmap(image.toBitmap(), size.width, size.height)) {
+                return true;
+            }
+        } catch (error) {
+            logger.debug(`Print surface paint probe failed: ${getErrorMessage(error)}`);
+        }
+        await waitForPrintHandoffDelay(PRINT_SURFACE_PROBE_INTERVAL_MS, signal);
+    }
+    return false;
+}
+
+function revealPrintWindowForNativeDialog(printWindow: BrowserWindow, painted: boolean) {
     if (!PRINT_WINDOW_VISIBLE_ON_DARWIN || shouldRunPrintToPdfSmoke()) {
         return;
     }
 
-    // macOS can hand a blank hidden PDF plugin surface to the native print dialog.
-    // Make the transient window compositor-visible so Chromium gets a real surface,
-    // but keep it transparent so the user never sees the unpainted plugin frame.
-    printWindow.setOpacity(0);
+    if (!painted) {
+        logger.warn(`Print surface did not paint within ${PRINT_SURFACE_READY_TIMEOUT_MS}ms; opening the native dialog with the visible fallback`);
+    }
     printWindow.showInactive();
 }
 
@@ -544,7 +595,6 @@ function waitForPrintWindowReady(printWindow: BrowserWindow) {
 function hideRevealedPrintWindow(printWindow: BrowserWindow) {
     if (PRINT_WINDOW_VISIBLE_ON_DARWIN && !printWindow.isDestroyed()) {
         printWindow.hide();
-        printWindow.setOpacity(1);
     }
 }
 
@@ -682,14 +732,16 @@ export async function openNativePrintDialogForPath(
     let rasterSurface: Awaited<ReturnType<typeof createRasterPrintHtmlPath>> | null = null;
     const printWindow = createPrintWindow(ownerWindow, documentTitle);
     const releasePrintWindowTitle = lockPrintWindowTitle(printWindow, documentTitle);
-    const printWindowReady = PRINT_WINDOW_VISIBLE_ON_DARWIN && !shouldUseRasterSurface
+    const printWindowReady = !shouldUseRasterSurface
         ? waitForPrintWindowReady(printWindow)
         : null;
     if (printWindowReady) {
         void printWindowReady.catch(() => undefined);
     }
     let shouldRetainPrintWindow = false;
+    let closedForAbort = false;
     const closeForAbort = () => {
+        closedForAbort = true;
         closePrintWindow(printWindow);
     };
     handoffOptions.signal?.addEventListener('abort', closeForAbort, { once: true });
@@ -708,13 +760,14 @@ export async function openNativePrintDialogForPath(
             await printWindowReady;
         }
         throwIfPrintHandoffAborted(handoffOptions.signal);
-        if (!rasterSurface) {
-            // Keep the plugin compositor-visible during its settle delay without
-            // exposing the blank/dark backing window before the native sheet opens.
-            revealPrintWindowForNativeDialog(printWindow);
-        }
-        await delay(PRINT_LOAD_SETTLE_DELAY_MS);
+        const printSurfacePainted = rasterSurface || shouldRunPrintToPdfSmoke() || !PRINT_WINDOW_VISIBLE_ON_DARWIN
+            ? false
+            : await waitForPrintSurfacePainted(printWindow, handoffOptions.signal);
+        await waitForPrintHandoffDelay(PRINT_LOAD_SETTLE_DELAY_MS, handoffOptions.signal);
         throwIfPrintHandoffAborted(handoffOptions.signal);
+        if (!rasterSurface) {
+            revealPrintWindowForNativeDialog(printWindow, printSurfacePainted);
+        }
         const result = await runNativePrintDialog(printWindow, printOptions);
         if (handoffOptions.signal?.aborted) {
             return {
@@ -747,7 +800,7 @@ export async function openNativePrintDialogForPath(
     } finally {
         handoffOptions.signal?.removeEventListener('abort', closeForAbort);
         releasePrintWindowTitle();
-        if (!shouldRetainPrintWindow) {
+        if (!shouldRetainPrintWindow && !closedForAbort) {
             closePrintWindow(printWindow);
         }
         if (rasterSurface) {

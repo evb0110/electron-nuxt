@@ -273,7 +273,7 @@ export async function handlePrintPdfPath(
         const result = await openNativePrintDialogForPath(ownerWindow, tempPath, {pageRanges: [{
             from: 0,
             to: normalizedPageNumbers.length - 1,
-        }]}, _fileName);
+        }]}, _fileName, {signal: operation.signal});
         if (result.success) {
             shouldRetainTempPdf = true;
             schedulePrintTempCleanup(tempPath);

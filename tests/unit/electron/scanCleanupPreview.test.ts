@@ -6434,17 +6434,18 @@ describe('scan cleanup preview', () => {
             started.jobId,
             detectionRequest,
         )?.status).toBe('completed'), {timeout: 30_000});
-        const runningStates = owner.send.mock.calls
+        const xlargeStates = owner.send.mock.calls
             .filter(([channel]) => channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState)
             .map(([
                 _channel,
                 state,
             ]) => state as TScanCleanupDetectionJobState)
-            .filter(state => state.progress.totalUnits === totalPages && state.status === 'running');
+            .filter(state => state.progress.totalUnits === totalPages);
 
-        expect(runningStates.length).toBeGreaterThan(0);
-        expect(Math.max(...runningStates.map(state => state.results.length))).toBeLessThanOrEqual(256);
-        expect(runningStates.flatMap(state => state.results)).toEqual(
+        expect(xlargeStates.length).toBeGreaterThan(0);
+        expect(xlargeStates.at(-1)?.status).toBe('completed');
+        expect(Math.max(...xlargeStates.map(state => state.results.length))).toBeLessThanOrEqual(256);
+        expect(xlargeStates.flatMap(state => state.results)).toEqual(
             expect.not.arrayContaining([
                 expect.objectContaining({pagePlanEvidence: expect.anything()}),
                 expect.objectContaining({sourcePageMetadata: expect.anything()}),

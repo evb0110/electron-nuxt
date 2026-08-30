@@ -3447,7 +3447,11 @@ export function createScanCleanupPreviewService(
                     return;
                 }
                 deliveredDetectionResults.delete(deliveryKey);
-                subscriber.send(channel, state);
+                // Terminal states can be reconstructed from the file-backed
+                // result store after a restart. Project them through the same
+                // bounded window as live xlarge progress before they cross
+                // into the renderer.
+                subscriber.send(channel, rendererDetectionState(state));
             },
         },
         toError: (cause, kind) => ({
