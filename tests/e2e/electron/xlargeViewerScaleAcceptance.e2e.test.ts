@@ -305,11 +305,7 @@ async function installPreviewReachabilityProbe(page: Page) {
             });
         };
         document.addEventListener('load', capture, true);
-        new MutationObserver(capture).observe(document.documentElement, {
-            attributes: true,
-            childList: true,
-            subtree: true,
-        });
+        capture();
     });
 }
 
