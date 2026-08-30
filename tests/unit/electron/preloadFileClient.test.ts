@@ -103,6 +103,27 @@ function createNativeShape() {
     };
 }
 
+function createNativeFreeTextEditor() {
+    return {
+        pageIndex: requirePageIndex(0),
+        stableKey: 'pdfjs_internal_editor_0',
+        text: 'Editor text',
+        rect: [
+            0.1,
+            0.2,
+            0.4,
+            0.3,
+        ] as [number, number, number, number],
+        rotation: 0 as const,
+        fontSize: 12,
+        color: [
+            17,
+            24,
+            39,
+        ] as [number, number, number],
+    };
+}
+
 function createNativePlacedImage() {
     return {
         pageIndex: requirePageIndex(0),
@@ -1385,6 +1406,162 @@ describe('createDocumentsPreloadFileClient', () => {
         const mutations = firstCall[2];
         expect(mutations.placedImages[0]).not.toHaveProperty('bytes');
         expect(mutations.placedImages[0]?.source).toEqual(imageSource);
+    });
+
+    it('admits every cap-plus-one mutation family in one normalized preload request', async () => {
+        const invoke = vi.fn<(
+            channel: string,
+            ...args: unknown[]
+        ) => Promise<unknown>>(async () => ({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native' as const,
+                errors: [],
+                warnings: [],
+            },
+        }));
+        const ipcRenderer = {
+            invoke,
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const cap = PDF_NATIVE_MUTATION_LIMITS;
+        const imageSource = createNativePlacedImage().source;
+
+        await expect(client.savePdfNativeMutations!(
+            '/tmp/working.pdf',
+            {
+                updates: Array.from({length: cap.noteTextUpdates + 1}, (_, index) => ({
+                    objectNumber: index + 1,
+                    generationNumber: 0,
+                    text: `Updated note ${index}`,
+                })),
+                geometryUpdates: Array.from({length: cap.noteGeometryUpdates + 1}, (_, index) => ({
+                    objectNumber: index + 1,
+                    generationNumber: 0,
+                    pageIndex: requirePageIndex(0),
+                    markerRect: {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.2,
+                    },
+                })),
+                freeTextNotes: Array.from({length: cap.noteChanges + 1}, (_, index) => ({
+                    pageIndex: requirePageIndex(0),
+                    stableKey: `note-${index}`,
+                    text: `Editor note ${index}`,
+                    markerRect: {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.0016,
+                        height: 0.0016,
+                    },
+                })),
+                freeTextEditors: Array.from({length: cap.freeTextEditors + 1}, (_, index) => ({
+                    ...createNativeFreeTextEditor(),
+                    stableKey: `editor-${index}`,
+                })),
+                deletes: Array.from({length: cap.noteChanges + 1}, (_, index) => ({
+                    pageIndex: requirePageIndex(0),
+                    objectNumber: index + 1,
+                    generationNumber: 0,
+                })),
+                pageLabels: {
+                    totalPages: cap.pageLabelRanges + 1,
+                    ranges: Array.from({length: cap.pageLabelRanges + 1}, (_, index) => ({
+                        startPage: index + 1,
+                        style: 'D' as const,
+                        prefix: `${index}-`,
+                        startNumber: 1,
+                    })),
+                },
+                bookmarks: {
+                    totalPages: 3,
+                    untitledLabel: 'Untitled',
+                    items: Array.from(
+                        {length: cap.bookmarkItems + 1},
+                        (_, index) => createNativeBookmark(`Chapter ${index}`),
+                    ),
+                },
+                shapes: {
+                    totalPages: 3,
+                    rewriteShapeState: true,
+                    shapes: Array.from({length: cap.shapes + 1}, (_, index) => ({
+                        ...createNativeShape(),
+                        id: `shape-${index}`,
+                    })),
+                    deletedAnnotationIds: [],
+                    deletedStableKeys: [],
+                },
+                markup: {
+                    overrides: Array.from({length: cap.markupItems + 1}, (_, index) => [
+                        `${index + 1}R`,
+                        'Highlight',
+                    ] as const),
+                    hints: [],
+                },
+                placedImages: Array.from({length: cap.placedImages + 1}, (_, index) => ({
+                    ...createNativePlacedImage(),
+                    stableKey: `image-${index}`,
+                    source: imageSource,
+                })),
+            },
+            'D:20260609133855+03\'00\'',
+            revisionOptions,
+        )).resolves.toMatchObject({applied: true});
+
+        expect(ipcRenderer.invoke).toHaveBeenCalledOnce();
+        const payload = ipcRenderer.invoke.mock.calls[0]?.[2];
+        expect(payload).toBeDefined();
+        const normalizedPayload = payload as {
+            updates: unknown[];
+            geometryUpdates: unknown[];
+            freeTextNotes: unknown[];
+            freeTextEditors: unknown[];
+            deletes: unknown[];
+            pageLabels: {ranges: unknown[]};
+            bookmarks: {items: unknown[]};
+            shapes: {shapes: unknown[]};
+            markup: {overrides: unknown[]};
+            placedImages: unknown[];
+        };
+        expect(normalizedPayload.updates).toHaveLength(cap.noteTextUpdates + 1);
+        expect(normalizedPayload.geometryUpdates).toHaveLength(cap.noteGeometryUpdates + 1);
+        expect(normalizedPayload.freeTextNotes).toHaveLength(cap.noteChanges + 1);
+        expect(normalizedPayload.freeTextEditors).toHaveLength(cap.freeTextEditors + 1);
+        expect(normalizedPayload.deletes).toHaveLength(cap.noteChanges + 1);
+        expect(normalizedPayload.pageLabels.ranges).toHaveLength(cap.pageLabelRanges + 1);
+        expect(normalizedPayload.bookmarks.items).toHaveLength(cap.bookmarkItems + 1);
+        expect(normalizedPayload.shapes.shapes).toHaveLength(cap.shapes + 1);
+        expect(normalizedPayload.markup.overrides).toHaveLength(cap.markupItems + 1);
+        expect(normalizedPayload.placedImages).toHaveLength(cap.placedImages + 1);
+        expect(normalizedPayload.updates.at(-1)).toMatchObject({
+            objectNumber: cap.noteTextUpdates + 1,
+            text: `Updated note ${cap.noteTextUpdates}`,
+        });
+        expect(normalizedPayload.geometryUpdates.at(-1)).toMatchObject({objectNumber: cap.noteGeometryUpdates + 1});
+        expect(normalizedPayload.freeTextNotes.at(-1)).toMatchObject({
+            stableKey: `note-${cap.noteChanges}`,
+            text: `Editor note ${cap.noteChanges}`,
+        });
+        expect(normalizedPayload.freeTextEditors.at(-1)).toMatchObject({stableKey: `editor-${cap.freeTextEditors}`});
+        expect(normalizedPayload.deletes.at(-1)).toMatchObject({objectNumber: cap.noteChanges + 1});
+        expect(normalizedPayload.pageLabels.ranges.at(-1)).toMatchObject({
+            startPage: cap.pageLabelRanges + 1,
+            prefix: `${cap.pageLabelRanges}-`,
+        });
+        expect(normalizedPayload.bookmarks.items.at(-1)).toMatchObject({title: `Chapter ${cap.bookmarkItems}`});
+        expect(normalizedPayload.shapes.shapes.at(-1)).toMatchObject({id: `shape-${cap.shapes}`});
+        expect(normalizedPayload.markup.overrides.at(-1)).toEqual([
+            `${cap.markupItems + 1}R`,
+            'Highlight',
+        ]);
+        expect(normalizedPayload.placedImages.at(-1)).toMatchObject({
+            stableKey: `image-${cap.placedImages}`,
+            source: imageSource,
+        });
     });
 
     it('rejects shared native mutation limit violations before IPC', () => {
