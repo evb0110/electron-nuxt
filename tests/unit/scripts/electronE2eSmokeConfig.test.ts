@@ -112,6 +112,7 @@ const electronE2ELargePdfTestFiles = [
     'tests/e2e/electron/largePdfNativePreview.e2e.test.ts',
     'tests/e2e/electron/nativePdfSplitPaneLifecycle.e2e.test.ts',
     'tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts',
+    'tests/e2e/electron/xlargeViewerScaleAcceptance.e2e.test.ts',
 ];
 const electronE2ERapidNavigationTestFiles = [
     'tests/e2e/electron/rapidPdfNavigation.e2e.test.ts',
@@ -132,7 +133,10 @@ const electronE2ENativeSaveReopenTestFiles = [
     'tests/e2e/electron/nativeSaveReopen.e2e.test.ts',
     'tests/e2e/electron/compactPageLabelsStructuralOperations.e2e.test.ts',
 ];
-const electronE2EXlargePdfTestFiles = ['tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts'];
+const electronE2EXlargePdfTestFiles = [
+    'tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts',
+    'tests/e2e/electron/xlargeViewerScaleAcceptance.e2e.test.ts',
+];
 
 let importNonce = 0;
 

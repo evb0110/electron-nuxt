@@ -112,6 +112,7 @@ export const NATIVE_PDF_SAVE_DEPENDENCY_PATHS = Object.freeze([
     'tests/e2e/electron/nativeSaveReopen.e2e.test.ts',
     'tests/e2e/electron/savePipeline.e2e.test.ts',
     'tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts',
+    'tests/e2e/electron/xlargeViewerScaleAcceptance.e2e.test.ts',
     'tests/integration/native/**',
     'tests/unit/app/services/pdf-save/**',
     'tests/unit/electron/documentFileWriteAtomic*.test.ts',

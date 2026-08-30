@@ -39,6 +39,11 @@ import {
     type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
+    createXlargeDocumentRssSampler,
+    type IRendererRssTelemetry,
+    type IRssSampler,
+} from '@tests/e2e/electron/helpers/xlargeDocumentTelemetry';
+import {
     createFreeTextAnnotationWithPointer,
     createStickyNoteWithPointer,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
@@ -284,31 +289,6 @@ interface IRendererLongTaskProbeWindow extends Window {
     __evbXlargeLongTaskObserver?: PerformanceObserver;
 }
 
-interface IRendererRssSample {
-    atMs: number;
-    electronBytes: number | null;
-    rendererJsHeapUsedBytes: number | null;
-    rendererJsHeapTotalBytes: number | null;
-    runnerBytes: number;
-}
-
-interface IRendererRssTelemetry {
-    electronPid: number | null;
-    baselineElectronBytes: number | null;
-    peakElectronBytes: number | null;
-    lastElectronBytes: number | null;
-    baselineRunnerBytes: number | null;
-    peakRunnerBytes: number | null;
-    lastRunnerBytes: number | null;
-    baselineRendererJsHeapUsedBytes: number | null;
-    peakRendererJsHeapUsedBytes: number | null;
-    lastRendererJsHeapUsedBytes: number | null;
-    rendererJsHeapDeltaBytes: number | null;
-    samples: IRendererRssSample[];
-}
-
-interface IRssSampler {stop: () => Promise<IRendererRssTelemetry>;}
-
 interface IAnnotationIndexRead {
     session: IPdfAnnotationIndexSession;
     entries: IPdfAnnotationIndexEntry[];
@@ -491,151 +471,6 @@ async function timed<T>(
             endedAtEpochMs,
         });
     }
-}
-
-async function readResidentBytes(pid: number | null) {
-    if (!pid || process.platform === 'win32') {
-        return null;
-    }
-    try {
-        const {stdout} = await execFileAsync('ps', [
-            '-o',
-            'rss=',
-            '-p',
-            String(pid),
-        ], {encoding: 'utf8'});
-        const kib = Number.parseInt(stdout.trim(), 10);
-        return Number.isFinite(kib) ? kib * 1_024 : null;
-    } catch {
-        return null;
-    }
-}
-
-interface IRendererJsHeapSample {
-    usedBytes: number | null;
-    totalBytes: number | null;
-}
-
-async function readRendererJsHeap(page: Page): Promise<IRendererJsHeapSample> {
-    try {
-        const metrics = await page.metrics();
-        const usedBytes = typeof metrics.JSHeapUsedSize === 'number'
-            && Number.isFinite(metrics.JSHeapUsedSize)
-            ? metrics.JSHeapUsedSize
-            : null;
-        const totalBytes = typeof metrics.JSHeapTotalSize === 'number'
-            && Number.isFinite(metrics.JSHeapTotalSize)
-            ? metrics.JSHeapTotalSize
-            : null;
-        if (usedBytes !== null || totalBytes !== null) {
-            return {
-                totalBytes,
-                usedBytes,
-            };
-        }
-    } catch {
-        // Fall through to performance.memory for browsers without CDP metrics.
-    }
-
-    try {
-        return await page.evaluate(() => {
-            const memory = (performance as Performance & {memory?: {
-                totalJSHeapSize?: unknown;
-                usedJSHeapSize?: unknown;
-            };}).memory;
-            const usedBytes = typeof memory?.usedJSHeapSize === 'number'
-                && Number.isFinite(memory.usedJSHeapSize)
-                ? memory.usedJSHeapSize
-                : null;
-            const totalBytes = typeof memory?.totalJSHeapSize === 'number'
-                && Number.isFinite(memory.totalJSHeapSize)
-                ? memory.totalJSHeapSize
-                : null;
-            return {
-                totalBytes,
-                usedBytes,
-            };
-        });
-    } catch {
-        return {
-            totalBytes: null,
-            usedBytes: null,
-        };
-    }
-}
-
-function createRssSampler(page: Page, electronPid: number | null): IRssSampler {
-    const startedAt = performance.now();
-    const samples: IRendererRssSample[] = [];
-    let running = true;
-    let result: IRendererRssTelemetry | null = null;
-
-    const sample = async () => {
-        const [
-            electronBytes,
-            rendererJsHeap,
-        ] = await Promise.all([
-            readResidentBytes(electronPid),
-            readRendererJsHeap(page),
-        ]);
-        if (running) {
-            samples.push({
-                atMs: Math.round((performance.now() - startedAt) * 10) / 10,
-                electronBytes,
-                rendererJsHeapTotalBytes: rendererJsHeap.totalBytes,
-                rendererJsHeapUsedBytes: rendererJsHeap.usedBytes,
-                runnerBytes: process.memoryUsage().rss,
-            });
-        }
-    };
-
-    const loop = (async () => {
-        while (running) {
-            await sample();
-            if (running) {
-                await new Promise<void>(resolvePromise => {
-                    setTimeout(resolvePromise, XLARGE_RSS_SAMPLE_INTERVAL_MS);
-                });
-            }
-        }
-    })();
-
-    return {stop: async () => {
-        if (result) {
-            return result;
-        }
-        running = false;
-        await loop;
-        const electronValues = samples
-            .map(sampleValue => sampleValue.electronBytes)
-            .filter((value): value is number => value !== null);
-        const rendererJsHeapValues = samples
-            .map(sampleValue => sampleValue.rendererJsHeapUsedBytes)
-            .filter((value): value is number => value !== null);
-        const runnerValues = samples.map(sampleValue => sampleValue.runnerBytes);
-        const baselineRendererJsHeapUsedBytes = rendererJsHeapValues[0] ?? null;
-        const peakRendererJsHeapUsedBytes = rendererJsHeapValues.length > 0
-            ? Math.max(...rendererJsHeapValues)
-            : null;
-        result = {
-            electronPid,
-            baselineElectronBytes: electronValues[0] ?? null,
-            peakElectronBytes: electronValues.length > 0 ? Math.max(...electronValues) : null,
-            lastElectronBytes: electronValues.at(-1) ?? null,
-            baselineRunnerBytes: runnerValues[0] ?? null,
-            peakRunnerBytes: runnerValues.length > 0 ? Math.max(...runnerValues) : null,
-            lastRunnerBytes: runnerValues.at(-1) ?? null,
-            baselineRendererJsHeapUsedBytes,
-            peakRendererJsHeapUsedBytes,
-            lastRendererJsHeapUsedBytes: rendererJsHeapValues.at(-1) ?? null,
-            rendererJsHeapDeltaBytes: baselineRendererJsHeapUsedBytes !== null
-                && peakRendererJsHeapUsedBytes !== null
-                ? Math.max(0, peakRendererJsHeapUsedBytes - baselineRendererJsHeapUsedBytes)
-                : null,
-            samples,
-        };
-        return result;
-    }};
 }
 
 async function stageFixture(sourcePath: string): Promise<IStagedFixture> {
@@ -1430,9 +1265,10 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                     extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
                 }),
             );
-            activeRssSampler = createRssSampler(
+            activeRssSampler = createXlargeDocumentRssSampler(
                 sessionA.page,
                 getSessionInfo(sessionA.name)?.electronPid ?? null,
+                XLARGE_RSS_SAMPLE_INTERVAL_MS,
             );
             activeHeartbeat = await startRendererHeartbeat(sessionA.page);
             await timed(telemetry, 'session-a-open', async () => {
@@ -1507,9 +1343,10 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                     extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
                 }),
             );
-            activeRssSampler = createRssSampler(
+            activeRssSampler = createXlargeDocumentRssSampler(
                 sessionB.page,
                 getSessionInfo(sessionB.name)?.electronPid ?? null,
+                XLARGE_RSS_SAMPLE_INTERVAL_MS,
             );
             activeHeartbeat = await startRendererHeartbeat(sessionB.page);
             await timed(telemetry, 'session-b-open', async () => {

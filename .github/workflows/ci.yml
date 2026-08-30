@@ -516,7 +516,8 @@ jobs:
           EVB_PDF_PAGE_OPS_ENABLE: '1'
         run: |
           bash scripts/test-electron-e2e-headless.sh --no-build e2e-xlarge-pdf \
-            tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts --reporter verbose
+            tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts \
+            tests/e2e/electron/xlargeViewerScaleAcceptance.e2e.test.ts --reporter verbose
 
       - name: Upload xlarge Electron E2E artifacts
         if: ${{ always() }}
