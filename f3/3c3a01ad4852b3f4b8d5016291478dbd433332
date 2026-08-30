@@ -1,0 +1,27 @@
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.test.ts
+  s_32b865e8b0fa20::t_f0f78fa90f9c9d 1577,1582
+  s_32b865e8b0fa20::t_2f4030a29af4f0 1594-1597
+tests/unit/app/modules/pdf-viewer/annotations/annotationApplication.test.ts
+  s_32b865e8b0fa20::t_60faec96a72ab1 162-188,195,202-203
+  ai_agent 189-194,196-201
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts
+  s_32b865e8b0fa20::t_b5f39db4788462 351,354
+app/modules/pdf-viewer/annotations/annotationApplication.ts
+  s_32b865e8b0fa20::t_48133bb9471075 378
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f33c3a01ad4852b3f4b8d5016291478dbd433332",
+  "prompts": {},
+  "sessions": {
+    "s_32b865e8b0fa20": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f85-a671-77d1-98cf-bea9b5d96645",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
