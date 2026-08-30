@@ -1,0 +1,23 @@
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_6a84feff6ba4cb::t_6dea97647eea3c 55,899
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts
+  s_6a84feff6ba4cb::t_6dea97647eea3c 5,245,249,271
+tests/unit/app/modules/pdf-viewer/composables/usePdfSerialization.test.ts
+  s_6a84feff6ba4cb::t_6dea97647eea3c 10,352,358,366-368
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "57475b2532fd87bf91db6cb771be72e9a0fc4a0a",
+  "prompts": {},
+  "sessions": {
+    "s_6a84feff6ba4cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0503f-a9cd-7462-8314-52624a8e85dd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
