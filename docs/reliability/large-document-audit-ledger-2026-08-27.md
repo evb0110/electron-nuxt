@@ -50,6 +50,8 @@ chunk identity for placed images without stable keys), and `8b2095da3`
 (earlier long-task probe coverage for xlarge FreeText placement), and
 `35cb76aff` (symlink-destination policy coverage for atomic replacement). The
 probe improves attribution only; it does not close the #149 stall acceptance.
+The later `aabbc5191` test alignment keeps shape projections keyed by their
+native stable keys and does not change the #144 acceptance status.
 
 Post-audit follow-ups are tracked with their owning issues even when they do
 not add a new baseline row. Issue #125 now also includes the published
