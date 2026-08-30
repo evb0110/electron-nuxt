@@ -345,6 +345,84 @@ describe('AnnotationApplication', () => {
         });
     });
 
+    it('projects one PDF-backed non-point FreeText from PDF and editor snapshots', () => {
+        const application = new AnnotationApplication('document');
+        const markerRect = {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.15,
+        };
+
+        application.ingestLegacySummaries([
+            {
+                id: '42R',
+                stableKey: 'nm:imported-freetext',
+                pageIndex: 0,
+                pageNumber: 1,
+                text: 'visible imported text from Contents',
+                subtype: 'FreeText',
+                author: null,
+                modifiedAt: null,
+                color: '#ff00aa',
+                uid: null,
+                annotationId: '42R',
+                annotationName: 'imported-freetext',
+                source: 'pdf',
+                hasNote: false,
+                markerRect,
+            },
+            {
+                id: '42R0',
+                stableKey: 'src:editor:0:42R0',
+                pageIndex: 0,
+                pageNumber: 1,
+                text: 'visible imported text from Contents',
+                subtype: 'FreeText',
+                author: null,
+                modifiedAt: null,
+                color: '#ff00aa',
+                uid: 'pdfjs-editor-42R0',
+                annotationId: '42R0',
+                source: 'editor',
+                hasNote: false,
+                markerRect,
+            },
+        ]);
+
+        expect(application.store.list()).toHaveLength(1);
+        expect(application.listCommentSummaries()).toHaveLength(1);
+        const [summary] = application.listCommentSummaries();
+        expect(summary).toMatchObject({
+            source: 'pdf',
+            subtype: 'FreeText',
+            text: 'visible imported text from Contents',
+            annotationId: '42R',
+            markerRect,
+            hasNote: true,
+        });
+
+        const canonicalId = application.store.list()[0]?.identity.id;
+        expect(canonicalId).toBeDefined();
+        const reopened = new AnnotationApplication('document');
+        const reopenedPdfSummary = {...summary!};
+        delete reopenedPdfSummary.appAnnotationId;
+        reopened.ingestLegacySummaries([
+            reopenedPdfSummary,
+            {
+                ...reopenedPdfSummary,
+                id: '42R0',
+                stableKey: 'src:editor:0:42R0',
+                source: 'editor',
+                uid: 'pdfjs-editor-42R0',
+                annotationId: '42R0',
+                hasNote: false,
+            },
+        ]);
+        expect(reopened.store.list()).toHaveLength(1);
+        expect(reopened.store.list()[0]?.identity.id).toBe(canonicalId);
+    });
+
     it('imports a persisted Typewriter editor into the canonical store', () => {
         const application = new AnnotationApplication('document');
 

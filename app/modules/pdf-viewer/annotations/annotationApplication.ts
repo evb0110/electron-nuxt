@@ -229,7 +229,8 @@ export class AnnotationApplication {
                 this.legacyIdentityConflicts.add(persistentIdentity(comment));
                 return;
             }
-            const persistentKey = imageAnnotationName ?? persistentIdentity(comment);
+            const commentPdfRef = normalizedPdfRef(comment.annotationId);
+            const persistentKey = imageAnnotationName ?? commentPdfRef ?? persistentIdentity(comment);
             const persisted = isPersistedSummary(comment);
             const annotationNameId = comment.annotationName
                 ? asAnnotationId(comment.annotationName)
@@ -274,7 +275,7 @@ export class AnnotationApplication {
                     // disambiguate. The external-key comparisons below only guard
                     // identities this ingest had to guess.
                     Boolean(comment.appAnnotationId)
-                    || (Boolean(comment.annotationId) && existing.identity.pdfRef === comment.annotationId)
+                    || (Boolean(commentPdfRef) && normalizedPdfRef(existing.identity.pdfRef) === commentPdfRef)
                     || (Boolean(imageAnnotationName)
                         && existing.kind === 'placed-image'
                         && existing.identity.pdfName === imageAnnotationName)
@@ -291,7 +292,7 @@ export class AnnotationApplication {
                 if (
                     identifiesSameRecord
                     && comment.source === 'pdf'
-                    && (comment.annotationId || comment.annotationName)
+                    && (commentPdfRef || comment.annotationName)
                     && !(imageAnnotationName && existing.kind === 'placed-image')
                 ) {
                     const {
@@ -655,8 +656,9 @@ export class AnnotationApplication {
                 return annotationId;
             }
         }
+        const pdfRef = normalizedPdfRef(comment.annotationId);
         return this.store.resolveExternal({
-            ...(comment.annotationId ? {pdfRef: comment.annotationId} : {}),
+            ...(pdfRef ? {pdfRef} : {}),
             ...(comment.annotationName ? {pdfName: comment.annotationName} : {}),
             ...(comment.uid ? {pdfjsUid: comment.uid} : {}),
             ...(comment.id ? {elementId: comment.id} : {}),
@@ -667,13 +669,14 @@ export class AnnotationApplication {
         comment: IAnnotationCommentSummary,
         annotationName: string,
     ) {
+        const pdfRef = normalizedPdfRef(comment.annotationId);
         const appAnnotationId = comment.appAnnotationId
             ? asAnnotationId(comment.appAnnotationId)
             : null;
         const annotationId = appAnnotationId && this.store.get(appAnnotationId)
             ? appAnnotationId
             : this.store.resolveExternal({pdfName: annotationName})
-                ?? this.store.resolveExternal({...(comment.annotationId ? {pdfRef: comment.annotationId} : {})});
+                ?? this.store.resolveExternal({...(pdfRef ? {pdfRef} : {})});
         if (!annotationId) {
             return null;
         }
