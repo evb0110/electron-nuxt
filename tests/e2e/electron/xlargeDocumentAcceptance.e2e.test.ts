@@ -277,6 +277,7 @@ interface IRendererLongTask {
     durationMs: number;
     name: string;
     startTime: number;
+    startEpochMs: number;
 }
 
 interface IRendererLongTaskProbeWindow extends Window {
@@ -872,6 +873,7 @@ async function startRendererLongTaskProbe(page: Page) {
                     durationMs: Math.round(entry.duration * 10) / 10,
                     name: entry.name,
                     startTime: Math.round(entry.startTime * 10) / 10,
+                    startEpochMs: Math.round((performance.timeOrigin + entry.startTime) * 10) / 10,
                 });
             });
         });
@@ -1534,6 +1536,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             await openAnnotationsTab(sessionB.page, XLARGE_SAVE_TIMEOUT_MS);
             const freeTextOne = `xlarge ordinary freetext one ${Date.now()}`;
             const freeTextTwo = `xlarge ordinary freetext two ${Date.now()}`;
+            await startRendererLongTaskProbe(sessionB.page);
             const firstEditorCount = await timed(
                 telemetry,
                 'session-b-free-text-editor-one',
@@ -1607,7 +1610,6 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             }
             activeHeartbeat = await startRendererHeartbeat(sessionB.page);
             await installSaveReceiptProbe(sessionB.page);
-            await startRendererLongTaskProbe(sessionB.page);
             const saveTargetPath = sessionBOpenState.pdfSourceState?.reloadPath
                 ?? sessionBOpenState.workingCopyPath
                 ?? stagedFixture.stagedPath;
