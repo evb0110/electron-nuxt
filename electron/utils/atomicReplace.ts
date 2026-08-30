@@ -110,7 +110,7 @@ export function makeSiblingTempPath(targetPath: string) {
     return join(dirname(targetPath), `.${randomSuffix()}.tmp`);
 }
 
-export function getAtomicReplaceBackupDestination(backupPath: string) {
+function getAtomicReplaceBackupDestination(backupPath: string) {
     const destinationName = basename(backupPath).match(ATOMIC_REPLACE_BACKUP_NAME_PATTERN)?.groups?.destination;
     return destinationName ? join(dirname(backupPath), destinationName) : null;
 }
