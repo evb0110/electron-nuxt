@@ -275,9 +275,10 @@ async function readRouteEvidence(
 }
 
 async function installPreviewReachabilityProbe(page: Page) {
-    await page.evaluate(() => {
+    await page.evaluate((targetCount: number) => {
         const probeWindow = window as IPreviewReachabilityProbeWindow;
         probeWindow.__issue132PreviewReachability = [];
+        let observer: MutationObserver | null = null;
         const capture = () => {
             const image = document.querySelector<HTMLImageElement>(
                 '.editor-pane.is-active [data-testid="document-opening-native-preview"]',
@@ -303,10 +304,25 @@ async function installPreviewReachabilityProbe(page: Page) {
                 scrollHeight: openingViewport?.scrollHeight ?? null,
                 scrollSegment: null,
             });
+            if (evidence.length === targetCount) {
+                document.removeEventListener('load', capture, true);
+                observer?.disconnect();
+            }
         };
         document.addEventListener('load', capture, true);
+        const root = document.querySelector('.editor-pane.is-active .workspace-host') ?? document.body;
+        observer = new MutationObserver(capture);
+        observer.observe(root, {
+            attributeFilter: [
+                'data-document-page-number',
+                'src',
+            ],
+            attributes: true,
+            childList: true,
+            subtree: true,
+        });
         capture();
-    });
+    }, TARGET_PAGES.length);
 }
 
 async function pollFreshPageUntil<T>(
