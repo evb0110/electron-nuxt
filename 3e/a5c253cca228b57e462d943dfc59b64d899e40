@@ -1,0 +1,24 @@
+tests/unit/app/modules/pdf-viewer/composables/usePdfViewerResizeLifecycle.test.ts
+  s_32b865e8b0fa20::t_dea2c87d89ce40 352-397,401-424
+  s_32b865e8b0fa20::t_2ae0ef89924b1f 398-400
+app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle.ts
+  s_32b865e8b0fa20::t_3fd55231b980dd 7,9,94,99,452,456,459,467,472,477,483,744
+  s_32b865e8b0fa20::t_5c1b7b874ede48 8,404
+  s_32b865e8b0fa20::t_af014fc29aef89 398-403,405-411,455,499-500
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3ea5c253cca228b57e462d943dfc59b64d899e40",
+  "prompts": {},
+  "sessions": {
+    "s_32b865e8b0fa20": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f85-a671-77d1-98cf-bea9b5d96645",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
