@@ -92,6 +92,8 @@ import {
 
 const LARGE_PDF_TIMEOUT_MS = 360_000;
 const LARGE_PDF_SAVE_TIMEOUT_MS = 8_000;
+const IMPORTED_MARKUP_NOTE_SAVE_TIMEOUT_MS = 5 * 60_000;
+const IMPORTED_MARKUP_NOTE_STAGE_TIMEOUT_MS = 60_000;
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
 const execFileAsync = promisify(execFile);
 const EXACT_ZALIZNYAK_REQUIRED_ENV = 'EVB_E2E_REQUIRE_EXACT_ZALIZNYAK';
@@ -113,6 +115,8 @@ const runStickyRestartScenario = qpdfAvailable
     || process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] === '1';
 const IMPORTED_TEXT_POPUP_NAME = 'evb-pdf-003-text-parent';
 const IMPORTED_TEXT_POPUP_TEXT = 'PDF-003 imported Text Popup note';
+const IMPORTED_MARKUP_NOTE_NAME = 'evb-pdf-001-highlight-parent';
+const IMPORTED_MARKUP_NOTE_TEXT = 'PDF-001 imported Highlight Popup note';
 const IMPORTED_TEXT_POPUP_PARENT_RECT = [
     72,
     680,
@@ -150,7 +154,7 @@ interface IImportedTextPopupFixture {
     pageHeight: number;
     pageWidth: number;
     parentRect: readonly [number, number, number, number];
-    pdfSubtype: 'FreeText' | 'Text';
+    pdfSubtype: 'FreeText' | 'Highlight' | 'Text';
     popupRect: readonly [number, number, number, number];
     text: string;
 }
@@ -242,10 +246,13 @@ async function installStagedArtifactCapture(page: Page) {
     });
 }
 
-async function waitForStagedArtifact(page: Page) {
+async function waitForStagedArtifact(
+    page: Page,
+    timeoutMs = LARGE_PDF_SAVE_TIMEOUT_MS,
+) {
     await page.waitForFunction(
         () => (window as IStagedArtifactCaptureWindow).__largePdfStagedArtifactCapture?.artifact !== null,
-        {timeout: LARGE_PDF_SAVE_TIMEOUT_MS},
+        {timeout: timeoutMs},
     );
     const artifact = await page.evaluate(
         () => (window as IStagedArtifactCaptureWindow).__largePdfStagedArtifactCapture?.artifact ?? null,
@@ -268,6 +275,24 @@ async function resumeStagedArtifactCommit(page: Page) {
     try {
         await page.evaluate(() => {
             (window as IStagedArtifactCaptureWindow).__resumeLargePdfStagedArtifactCommit?.();
+        });
+    } catch (error) {
+        if (!page.isClosed() && !isPageContextUnavailableError(error)) {
+            throw error;
+        }
+    }
+}
+
+async function clearStagedArtifactCapture(page: Page) {
+    if (page.isClosed()) {
+        return;
+    }
+    try {
+        await page.evaluate(() => {
+            const captureWindow = window as IStagedArtifactCaptureWindow;
+            delete captureWindow.__largePdfStagedArtifactCapture;
+            delete captureWindow.__resumeLargePdfStagedArtifactCommit;
+            delete captureWindow.__stagedPdfNativeMutationCommitBarrierForAutomation;
         });
     } catch (error) {
         if (!page.isClosed() && !isPageContextUnavailableError(error)) {
@@ -483,6 +508,7 @@ async function waitForCanonicalImportedTextPopupComment(
     page: Page,
     fixture: IImportedTextPopupFixture,
     timeoutMs = NOTE_TEXT_ENTRY_TIMEOUT_MS,
+    expectedSubtype = 'FreeText',
 ) {
     await expect.poll(
         () => readCanonicalImportedTextPopupComments(page),
@@ -491,7 +517,7 @@ async function waitForCanonicalImportedTextPopupComment(
         annotationName: fixture.annotationName,
         hasNote: true,
         source: 'pdf',
-        subtype: 'FreeText',
+        subtype: expectedSubtype,
         text: fixture.text,
     })]);
 }
@@ -667,7 +693,13 @@ async function createImportedTextPopupFixture(
     filePath: string,
     parentRect: readonly [number, number, number, number] = IMPORTED_TEXT_POPUP_PARENT_RECT,
     pdfSubtype: IImportedTextPopupFixture['pdfSubtype'] = 'Text',
+    options: {
+        annotationName?: string;
+        text?: string;
+    } = {},
 ): Promise<IImportedTextPopupFixture> {
+    const annotationName = options.annotationName ?? IMPORTED_TEXT_POPUP_NAME;
+    const text = options.text ?? IMPORTED_TEXT_POPUP_TEXT;
     const document = await PDFDocument.create();
     const page = document.addPage([
         612,
@@ -681,14 +713,27 @@ async function createImportedTextPopupFixture(
         y: 720,
     });
 
+    const highlightProperties = pdfSubtype === 'Highlight'
+        ? {QuadPoints: [
+            parentRect[0],
+            parentRect[3],
+            parentRect[2],
+            parentRect[3],
+            parentRect[0],
+            parentRect[1],
+            parentRect[2],
+            parentRect[1],
+        ]}
+        : {};
     const parentRef = document.context.nextRef();
     const popupRef = document.context.nextRef();
     const parent = document.context.obj({
         Type: PDFName.of('Annot'),
         Subtype: PDFName.of(pdfSubtype),
         Rect: [...parentRect],
-        NM: PDFHexString.fromText(IMPORTED_TEXT_POPUP_NAME),
-        Contents: PDFHexString.fromText(IMPORTED_TEXT_POPUP_TEXT),
+        ...highlightProperties,
+        NM: PDFHexString.fromText(annotationName),
+        Contents: PDFHexString.fromText(text),
         Popup: popupRef,
         Open: false,
         F: 4,
@@ -705,7 +750,7 @@ async function createImportedTextPopupFixture(
         Subtype: PDFName.of('Popup'),
         Rect: [...IMPORTED_TEXT_POPUP_RECT],
         Parent: parentRef,
-        Contents: PDFHexString.fromText(IMPORTED_TEXT_POPUP_TEXT),
+        Contents: PDFHexString.fromText(text),
         Open: false,
         F: 4,
         M: PDFString.of('D:20260829000000Z'),
@@ -719,13 +764,13 @@ async function createImportedTextPopupFixture(
         useObjectStreams: false,
     }));
     return {
-        annotationName: IMPORTED_TEXT_POPUP_NAME,
+        annotationName,
         pageHeight: 792,
         pageWidth: 612,
         parentRect,
         pdfSubtype,
         popupRect: IMPORTED_TEXT_POPUP_RECT,
-        text: IMPORTED_TEXT_POPUP_TEXT,
+        text,
     };
 }
 
@@ -967,6 +1012,19 @@ async function inspectImportedTextPopupStructure(
     const popupRect = parseRectFromQpdfObject(popupObject);
     expectPdfRectClose(parentRect, expectedRects.parent ?? fixture.parentRect);
     expectPdfRectClose(popupRect, expectedRects.popup ?? fixture.popupRect);
+    if (fixture.pdfSubtype === 'Highlight') {
+        const quadPoints = parseQuadPointsFromQpdfObject(parentEntry.object);
+        expect(quadPoints).toEqual([
+            fixture.parentRect[0],
+            fixture.parentRect[3],
+            fixture.parentRect[2],
+            fixture.parentRect[3],
+            fixture.parentRect[0],
+            fixture.parentRect[1],
+            fixture.parentRect[2],
+            fixture.parentRect[1],
+        ]);
+    }
     return {
         annotation: parentEntry.ref,
         pageNumber: 1,
@@ -986,6 +1044,18 @@ function parseRectFromQpdfObject(value: string): [number, number, number, number
         throw new Error(`Annotation object has an invalid /Rect: ${JSON.stringify(rect)}`);
     }
     return rect;
+}
+
+function parseQuadPointsFromQpdfObject(value: string): [number, number, number, number, number, number, number, number] {
+    const match = value.match(/\/QuadPoints\s*\[\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\]/u);
+    if (!match) {
+        throw new Error(`Annotation object has no bounded /QuadPoints: ${value.slice(0, 1000)}`);
+    }
+    const points = match.slice(1).map(Number) as [number, number, number, number, number, number, number, number];
+    if (points.some(point => !Number.isFinite(point))) {
+        throw new Error(`Annotation object has invalid /QuadPoints: ${JSON.stringify(points)}`);
+    }
+    return points;
 }
 
 function parseAppearanceRefFromQpdfObject(value: string) {
@@ -2399,6 +2469,163 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         );
         await qpdfCheck(fixtureRealPath);
         await inspectImportedTextPopupStructure(fixtureRealPath, fixture);
+    }, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
+
+    it.runIf(runImportedTextPopupScenario)('edits an imported text-markup note through the bounded native route and hard-reopens it', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            throw new Error('Electron session is unavailable for the imported text-markup note test');
+        }
+        if (exactZaliznyakSourcePath === null || !existsSync(exactZaliznyakSourcePath)) {
+            throw new Error('Set EVB_E2E_LARGE_PDF_FIXTURE to the exact Zaliznyak fixture');
+        }
+
+        const exactSourceIdentity = await readExactPdfFixtureIdentity(
+            exactZaliznyakSourcePath,
+            {timeoutMs: IMPORTED_TEXT_POPUP_TIMEOUT_MS},
+        );
+        validateExactPdfFixtureIdentity(exactSourceIdentity, EXACT_ZALIZNYAK_EXPECTATION);
+        expect(exactSourceIdentity.pages).toBe(882);
+
+        const artifactDirectory = mkdtempSync(join(tmpdir(), '.evb-pdf-001-markup-note-'));
+        onTestFinished(() => rmSync(artifactDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const onePageFixturePath = join(artifactDirectory, 'highlight-popup-one-page.pdf');
+        const fixturePath = join(artifactDirectory, 'highlight-popup-882-pages.pdf');
+        const fixture = await createImportedTextPopupFixture(
+            onePageFixturePath,
+            IMPORTED_TEXT_POPUP_PARENT_RECT,
+            'Highlight',
+            {
+                annotationName: IMPORTED_MARKUP_NOTE_NAME,
+                text: IMPORTED_MARKUP_NOTE_TEXT,
+            },
+        );
+        await combineImportedTextPopupWithExactFixture(
+            onePageFixturePath,
+            exactZaliznyakSourcePath,
+            fixturePath,
+        );
+        const fixtureRealPath = realpathSync(fixturePath);
+        expect(await qpdfPageCount(fixtureRealPath)).toBe(EXACT_ZALIZNYAK_EXPECTATION.pages);
+        await qpdfCheck(fixtureRealPath);
+        await inspectImportedTextPopupStructure(fixtureRealPath, fixture);
+
+        await openPdfInApp(session.page, fixtureRealPath, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
+        await expect.poll(async () => (
+            await getWorkspaceToolbarSnapshot(session.page)
+        )?.totalPages, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(EXACT_ZALIZNYAK_EXPECTATION.pages);
+        await waitForCanonicalImportedTextPopupComment(
+            session.page,
+            fixture,
+            IMPORTED_TEXT_POPUP_TIMEOUT_MS,
+            'Highlight',
+        );
+
+        const editedText = `${fixture.text} edited through the visible note window`;
+        const editedFixture = {
+            ...fixture,
+            text: editedText,
+        };
+        await editVisibleStickyNote(session.page, fixture.text, editedText);
+        await waitForSaveFrontierReady(session.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+
+        // The native commit barrier is installed before the save starts. A
+        // PDF.js materialization never reaches this callback, so waiting for
+        // the staged receipt makes the route assertion fail instead of merely
+        // checking the final bytes after a full-document rewrite.
+        await installStagedArtifactCapture(session.page);
+        const savePromise = saveViaVisibleToolbarWithDeadline(
+            session.page,
+            IMPORTED_MARKUP_NOTE_SAVE_TIMEOUT_MS,
+            fixtureRealPath,
+            {
+                label: 'large PDF imported text-markup note save',
+                onTimeout: () => session.stop(),
+                diagnostics: () => `phase=large-pdf-imported-text-markup-note-save session=${session.name}`,
+            },
+        );
+        const saveState: {
+            error: unknown;
+            event: Awaited<typeof savePromise> | null;
+        } = {
+            error: null,
+            event: null,
+        };
+        const saveSettled = savePromise.then(
+            event => {
+                saveState.event = event;
+            },
+            error => {
+                saveState.error = error;
+            },
+        );
+        let stagedArtifact: ITypedStagedArtifact | null = null;
+        let stagedCaptureFailure: unknown = null;
+        try {
+            try {
+                stagedArtifact = await waitForStagedArtifact(session.page, IMPORTED_MARKUP_NOTE_STAGE_TIMEOUT_MS);
+                expect(stagedArtifact.validations.semanticCheck).toBe(true);
+                await qpdfCheck(String(stagedArtifact.path));
+                await inspectImportedTextPopupStructure(String(stagedArtifact.path), editedFixture);
+            } catch (error) {
+                stagedCaptureFailure = error;
+            } finally {
+                await resumeStagedArtifactCommit(session.page);
+            }
+            await saveSettled;
+            if (saveState.error) {
+                throw saveState.error;
+            }
+            if (stagedCaptureFailure) {
+                throw stagedCaptureFailure;
+            }
+            if (!stagedArtifact || !saveState.event) {
+                throw new Error('The imported text-markup note save did not produce a staged native artifact');
+            }
+
+            expect(stagedArtifact.validations.semanticCheck).toBe(true);
+        } finally {
+            await resumeStagedArtifactCommit(session.page);
+            await saveSettled;
+            await clearStagedArtifactCapture(session.page);
+        }
+        if (!saveState.event) {
+            throw new Error('The imported text-markup note save did not produce a committed event');
+        }
+        const saveEvent = saveState.event;
+        expect(realpathSync(String(saveEvent.detail.path))).toBe(fixtureRealPath);
+        expect(saveEvent.detail.documentRevisionToken).toEqual(expect.any(String));
+        await qpdfCheck(fixtureRealPath);
+        await inspectImportedTextPopupStructure(fixtureRealPath, editedFixture);
+
+        await waitForCrashCheckpointPath(session.name, fixtureRealPath);
+        const firstProcesses = readSessionProcessSnapshot(session.name);
+        const restartedSession = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+            keepNuxt: true,
+        });
+        if (!restartedSession) {
+            throw new Error('Hard restart did not produce a new Electron process for the imported text-markup note test');
+        }
+        await expectProcessesExited(firstProcesses.pids);
+        const restartedProcesses = readSessionProcessSnapshot(restartedSession.name);
+        expect(restartedProcesses.rootPid).not.toBe(firstProcesses.rootPid);
+        await waitForRestoredDocument(restartedSession.page, fixtureRealPath);
+        await waitForCanonicalImportedTextPopupComment(
+            restartedSession.page,
+            editedFixture,
+            IMPORTED_TEXT_POPUP_TIMEOUT_MS,
+            'Highlight',
+        );
+        await expectCleanAnnotationHydration(restartedSession.page);
+        await qpdfCheck(fixtureRealPath);
+        await inspectImportedTextPopupStructure(fixtureRealPath, editedFixture);
     }, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
 
     it.runIf(runImportedTextPopupScenario)('persists a moved imported sticky-note marker and Popup rectangle through native save and hard restart', async () => {
