@@ -309,7 +309,11 @@ async function installPreviewReachabilityProbe(page: Page) {
     });
 }
 
-async function waitForOpeningPreviewPage(page: Page, pageNumber: number): Promise<IRouteEvidence> {
+async function pollFreshPageUntil<T>(
+    page: Page,
+    label: string,
+    probe: (probePage: Page) => Promise<T | null>,
+): Promise<T> {
     const deadline = Date.now() + STEP_TIMEOUT_MS;
     let lastError: unknown = null;
 
@@ -324,15 +328,9 @@ async function waitForOpeningPreviewPage(page: Page, pageNumber: number): Promis
             if (!probePage) {
                 throw new Error(`Electron page target ${page.url()} was unavailable`);
             }
-            const evidence = await probePage.evaluate((targetPage: number) => {
-                const records = (window as IPreviewReachabilityProbeWindow)
-                    .__issue132PreviewReachability ?? [];
-                return records.find(entry => entry.page === targetPage) ?? null;
-            }, pageNumber);
-            if (evidence) {
-                expect(evidence.mountedPageCount).toBeGreaterThan(0);
-                expect(evidence.mountedPageCount).toBeLessThanOrEqual(RENDERER_COLLECTION_MAX_ITEMS);
-                return evidence;
+            const result = await probe(probePage);
+            if (result !== null) {
+                return result;
             }
             lastError = null;
         } catch (error) {
@@ -344,7 +342,22 @@ async function waitForOpeningPreviewPage(page: Page, pageNumber: number): Promis
     }
 
     const detail = lastError instanceof Error ? `: ${lastError.message}` : '';
-    throw new Error(`Timed out waiting for native preview page ${String(pageNumber)}${detail}`);
+    throw new Error(`Timed out waiting for ${label}${detail}`);
+}
+
+async function waitForOpeningPreviewPage(page: Page, pageNumber: number): Promise<IRouteEvidence> {
+    const evidence = await pollFreshPageUntil(
+        page,
+        `native preview page ${String(pageNumber)}`,
+        probePage => probePage.evaluate((targetPage: number) => {
+            const records = (window as IPreviewReachabilityProbeWindow)
+                .__issue132PreviewReachability ?? [];
+            return records.find(entry => entry.page === targetPage) ?? null;
+        }, pageNumber),
+    );
+    expect(evidence.mountedPageCount).toBeGreaterThan(0);
+    expect(evidence.mountedPageCount).toBeLessThanOrEqual(RENDERER_COLLECTION_MAX_ITEMS);
+    return evidence;
 }
 
 async function proveNativePreviewReachability(
@@ -372,22 +385,28 @@ async function proveNativePreviewReachability(
 
 async function waitForRenderedPage(page: Page, pageNumber: number) {
     await scrollViewerToPage(page, pageNumber);
-    await page.waitForFunction((targetPage: number) => {
-        const pageElement = document.querySelector<HTMLElement>(
-            `.editor-pane.is-active .page_container[data-page="${String(targetPage)}"]`,
-        );
-        const canvas = pageElement?.querySelector<HTMLCanvasElement>(
-            '.page_canvas__render-layer canvas, .page_canvas canvas, canvas',
-        ) ?? null;
-        const viewer = pageElement?.closest<HTMLElement>('.pdfViewer') ?? null;
-        if (!pageElement || !canvas || !viewer || canvas.width <= 0 || canvas.height <= 0) {
-            return false;
-        }
-        const pageRect = pageElement.getBoundingClientRect();
-        const viewerRect = viewer.getBoundingClientRect();
-        return pageElement.classList.contains('page_container--rendered')
-            && Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top) > 8;
-    }, {timeout: STEP_TIMEOUT_MS}, pageNumber);
+    await pollFreshPageUntil(
+        page,
+        `rendered viewer page ${String(pageNumber)}`,
+        probePage => probePage.evaluate((targetPage: number) => {
+            const pageElement = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .page_container[data-page="${String(targetPage)}"]`,
+            );
+            const canvas = pageElement?.querySelector<HTMLCanvasElement>(
+                '.page_canvas__render-layer canvas, .page_canvas canvas, canvas',
+            ) ?? null;
+            const viewer = pageElement?.closest<HTMLElement>('.pdfViewer') ?? null;
+            if (!pageElement || !canvas || !viewer || canvas.width <= 0 || canvas.height <= 0) {
+                return null;
+            }
+            const pageRect = pageElement.getBoundingClientRect();
+            const viewerRect = viewer.getBoundingClientRect();
+            return pageElement.classList.contains('page_container--rendered')
+                && Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top) > 8
+                ? true
+                : null;
+        }, pageNumber),
+    );
 }
 
 async function proveToolbarNavigationReachability(
@@ -412,19 +431,23 @@ async function proveThumbnailReachability(
     for (const pageNumber of TARGET_PAGES) {
         await goToPageViaToolbar(page, thumbnailNeighbor(pageNumber), STEP_TIMEOUT_MS);
         await openDocumentSidebarTab(page, 'Pages', STEP_TIMEOUT_MS);
-        await page.waitForFunction((targetPage: number) => {
-            const thumbnail = document.querySelector<HTMLElement>(
-                `.editor-pane.is-active .pdf-thumbnail[data-page="${String(targetPage)}"]`,
-            );
-            const canvas = thumbnail?.querySelector<HTMLCanvasElement>('.pdf-thumbnail-canvas') ?? null;
-            return Boolean(
-                thumbnail
-                && canvas
-                && canvas.dataset.thumbnailRendered === 'true'
-                && canvas.width > 0
-                && canvas.height > 0,
-            );
-        }, {timeout: STEP_TIMEOUT_MS}, pageNumber);
+        await pollFreshPageUntil(
+            page,
+            `rendered thumbnail page ${String(pageNumber)}`,
+            probePage => probePage.evaluate((targetPage: number) => {
+                const thumbnail = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .pdf-thumbnail[data-page="${String(targetPage)}"]`,
+                );
+                const canvas = thumbnail?.querySelector<HTMLCanvasElement>('.pdf-thumbnail-canvas') ?? null;
+                return thumbnail
+                    && canvas
+                    && canvas.dataset.thumbnailRendered === 'true'
+                    && canvas.width > 0
+                    && canvas.height > 0
+                    ? true
+                    : null;
+            }, pageNumber),
+        );
         await page.click(`.editor-pane.is-active .pdf-thumbnail[data-page="${String(pageNumber)}"]`);
         await waitForWorkspaceToolbarSnapshot(page, {currentPage: pageNumber}, {timeoutMs: STEP_TIMEOUT_MS});
         await waitForRenderedPage(page, pageNumber);
@@ -433,14 +456,15 @@ async function proveThumbnailReachability(
 }
 
 async function waitForOutlineTitle(page: Page, title: string) {
-    await page.waitForFunction((expectedTitle: string) => Array.from(
-        document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .document-bookmark-item__title',
-        ),
-    ).some(element => element.textContent?.trim() === expectedTitle), {
-        polling: 'raf',
-        timeout: STEP_TIMEOUT_MS,
-    }, title);
+    await pollFreshPageUntil(
+        page,
+        `outline title ${title}`,
+        probePage => probePage.evaluate((expectedTitle: string) => Array.from(
+            document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .document-bookmark-item__title',
+            ),
+        ).some(element => element.textContent?.trim() === expectedTitle) ? true : null, title),
+    );
 }
 
 async function clickOutlineTitle(page: Page, title: string) {
