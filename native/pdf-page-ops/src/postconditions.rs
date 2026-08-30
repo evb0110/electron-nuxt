@@ -1087,6 +1087,23 @@ pub(crate) fn validate_markup_document_postconditions(
         let Some(object_id) = parse_pdfjs_annotation_object_id(annotation_id) else {
             continue;
         };
+        // A deleted PDF.js annotation ref can remain in the subtype-intent
+        // map when undo recreates the editor record. The matching editor hint
+        // creates a new annotation, so the explicit null tombstone is
+        // intentionally a no-op. Non-null or missing objects still validate
+        // normally and fail closed.
+        if matches!(document.object(object_id), Ok(Object::Null))
+            && markup.hints.iter().any(|hint| {
+                is_new_markup_hint_data(hint)
+                    && [hint.app_annotation_id.as_deref(), hint.id.as_deref()]
+                        .into_iter()
+                        .flatten()
+                        .filter_map(parse_pdfjs_annotation_object_id)
+                        .any(|hint_object_id| hint_object_id == object_id)
+            })
+        {
+            continue;
+        }
         validate_markup_target(document, object_id, subtype, None, None)?;
     }
     for hint in &markup.hints {

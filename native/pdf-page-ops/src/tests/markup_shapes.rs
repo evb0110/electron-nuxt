@@ -174,6 +174,65 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
 }
 
 #[test]
+fn recreates_markup_after_deleted_pdf_ref_without_null_override_failure() {
+    let (document, page_id, markup_id) = create_test_markup_pdf("Highlight");
+    let mut incremental = IncrementalDocument::from_document(document, 0, None);
+    let delete = AnnotationDelete {
+        page_index: 0,
+        object_number: Some(markup_id.0),
+        generation_number: Some(markup_id.1),
+        stable_key: None,
+        created_at: None,
+    };
+    delete_annotations_incremental(&mut incremental, std::slice::from_ref(&delete)).unwrap();
+
+    let mutation = MarkupMutation {
+        overrides: vec![(format_pdfjs_annotation_ref(markup_id), "Highlight".to_string())],
+        hints: vec![MarkupSubtypeHint {
+            subtype: "Highlight".to_string(),
+            page_index: 0,
+            marker_rect: MarkerRect {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.1,
+            },
+            markup_geometry: None,
+            app_annotation_id: Some("annotation-1".to_string()),
+            annotation_id: None,
+            color: Some("#ff0000".to_string()),
+            contents: None,
+            id: Some(format_pdfjs_annotation_ref(markup_id)),
+            page_markup_index: None,
+            source: Some("editor".to_string()),
+        }],
+    };
+    apply_markup_mutations_incremental(&mut incremental, &mutation, "D:20260829120500+04'00'")
+        .unwrap();
+
+    let revision = AppendedRevision::new(&incremental);
+    validate_markup_document_postconditions(&revision, &mutation)
+        .expect("a recreated editor markup must not validate a deleted PDF ref");
+
+    let annots = get_page_annots(&revision, page_id).unwrap();
+    let refs: Vec<ObjectId> = annots
+        .iter()
+        .filter_map(|object| object.as_reference().ok())
+        .collect();
+    assert_eq!(refs.len(), 1);
+    assert_ne!(refs[0], markup_id);
+    assert!(matches!(revision.object(markup_id), Ok(Object::Null)));
+
+    incremental
+        .new_document
+        .set_object(markup_id, Object::Integer(7));
+    let malformed_revision = AppendedRevision::new(&incremental);
+    let error = validate_markup_document_postconditions(&malformed_revision, &mutation)
+        .expect_err("a non-null retired object must still fail validation");
+    assert!(error.to_string().contains("Dictionary"), "{error}");
+}
+
+#[test]
 fn emits_exact_identity_binding_for_new_native_markup() {
     let (document, page_id) = create_test_document();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
