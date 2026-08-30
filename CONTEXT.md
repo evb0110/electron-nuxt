@@ -17,8 +17,9 @@ of annotations it does not edit. It never produces PDF bytes.
 _Avoid_: engine, viewer core
 
 **Writer**:
-The single component that produces PDF bytes for a save, whether by appending
-an incremental update or rewriting the file.
+The single component that reads annotations from a file into the canonical
+annotation store and produces PDF bytes for a save, whether by appending an
+incremental update or rewriting the file.
 _Avoid_: save route, materializer, saveDocument
 
 ## Annotations

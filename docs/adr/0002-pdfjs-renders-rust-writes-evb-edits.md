@@ -33,7 +33,9 @@ Three roles, one owner each (terms in `CONTEXT.md`):
   move to a source fork of pdf.js built into `pdfjs-dist` by this repo; the
   fork rebases to the current upstream major only after the editor cutover.
 - The **writer** is `native/pdf-page-ops` (native and wasm), the only
-  producer of PDF bytes. `pdfjs-save-document`, `pdfjs-materialize`, and
+  producer of PDF bytes and, since issue #160, the only parser of editable
+  annotations into the store on open; pdf.js `getAnnotations()` feeds the
+  renderer's static display only. `pdfjs-save-document`, `pdfjs-materialize`, and
   pdf-lib as a writer are retired. Decryption of the working copy moves into
   the writer so encrypted input is no longer refused. Browser saves above the
   wasm request cap tell the user to use the native app.
