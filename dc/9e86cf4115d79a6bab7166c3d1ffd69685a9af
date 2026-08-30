@@ -1,0 +1,47 @@
+tests/unit/electron/documentsPrint.test.ts
+  s_292b96694fcbc2::t_eed5a5b0d7ff94 57-60
+  s_292b96694fcbc2::t_654c4527adda51 520
+  s_292b96694fcbc2::t_ded562abe5d5df 755-756,758-781,783-793
+  s_292b96694fcbc2::t_173e9fbf69a3d7 23,56,61-62,91,205,207-208,226,357,380-385,389-390,392-393,395-400,454
+  s_292b96694fcbc2::t_9374a864b39886 757,782
+  s_292b96694fcbc2::t_2c2f078464c2bc 206,360,394,401-403
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_292b96694fcbc2::t_ae848dd3730230 1098,1103
+tests/e2e/electron/scanCleanupXlargeAcceptance.e2e.test.ts
+  s_292b96694fcbc2::t_fc4d4c2bbfc700 426
+  s_292b96694fcbc2::t_d1baf8c0f34cdb 494
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_292b96694fcbc2::t_7068668a037c9d 781
+electron/utils/printHandoff.ts
+  s_292b96694fcbc2::t_7068668a037c9d 32-34,512,530,536-549,551-555,557-561,566-568,735,764-765,769
+  s_292b96694fcbc2::t_48f7ca21c91c5e 763
+  s_292b96694fcbc2::t_60fe33535b2aae 742,744,803
+  s_292b96694fcbc2::t_d45aaff07da06b 511,513-529,531-535,550,556,766
+  s_292b96694fcbc2::t_5382cd2ed0ffeb 767
+tests/unit/contracts/nativePdfMutations.test.ts
+  s_292b96694fcbc2::t_96213c76bfe035 522,525,545,552
+native/pdf-page-ops/src/tests/catalog.rs
+  s_292b96694fcbc2::t_96213c76bfe035 111,152,202,205,207,213
+electron/features/documents/main/print.ts
+  s_292b96694fcbc2::t_7068668a037c9d 276
+electron/features/scan-cleanup/createScanCleanupPreviewService.ts
+  s_292b96694fcbc2::t_6305cd74b34e75 3450-3454
+tests/unit/electron/scanCleanupPreview.test.ts
+  s_292b96694fcbc2::t_6305cd74b34e75 6437,6443,6445-6448
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "dc9e86cf4115d79a6bab7166c3d1ffd69685a9af",
+  "prompts": {},
+  "sessions": {
+    "s_292b96694fcbc2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053a0-d285-7733-911e-8f2bec065f5c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
