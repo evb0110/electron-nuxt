@@ -1,0 +1,22 @@
+CONTEXT.md
+  s_5510c4ed16ce9c::t_61d180fb80069d 1-39
+  s_5510c4ed16ce9c::t_b12953e3a14d82 40-50
+docs/adr/0002-pdfjs-renders-rust-writes-evb-edits.md
+  s_5510c4ed16ce9c::t_b12953e3a14d82 1-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1168a2781ba868605aa19335792476b9c9aa1690",
+  "prompts": {},
+  "sessions": {
+    "s_5510c4ed16ce9c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "15d2fd53-483d-423f-8f6d-6f6cbb64c73e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,65 @@
+docs/research/pdfjs-dependency-cost-assessment-2026-08-30.md
+  s_050a06f3de0543::t_d855e97e95d8b5 1-348
+docs/research/pdf-engine-architecture-assessment-2026-08-30.md
+  s_bea0c409f38279::t_565036456d2717 10-13
+  s_bea0c409f38279::t_8b7dd7cb5d5c9a 1-2,14-132,134-213,215-216
+  s_bea0c409f38279::t_c6401c22a77331 133,214
+  s_5510c4ed16ce9c::t_963e76309d8083 3-9
+docs/research/rust-pdf-engine-rewrite-feasibility-2026-08-30.md
+  s_47e761a2a0b811::t_e19448c98d1149 83-86
+  s_47e761a2a0b811::t_352c2fbdc8a0c1 1-82,87-137,158-586
+  s_47e761a2a0b811::t_239330d4000932 138-157
+docs/research/pdf-engine-strategy-assessment-2026-08-30.md
+  s_eeb429e0d9a0e0::t_72cc96eeaef200 43-51,54,86-87,188-193,431,447
+  s_eeb429e0d9a0e0::t_3eea23c04d9bce 443
+  s_eeb429e0d9a0e0::t_b8ad8721ca05c8 1-42,52-53,55-85,88-187,194-366,371,373-430,432-442,444-446
+  s_eeb429e0d9a0e0::t_02644e87f9ebaf 367-370,372
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a74ab1d26ac5ff63821c129771bbf327d76c9732",
+  "prompts": {},
+  "sessions": {
+    "s_050a06f3de0543": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "80528244-b3f0-495d-afb4-f9a57b7904c1",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_47e761a2a0b811": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0529d-1085-7d72-968a-e987c7ac6e7e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_5510c4ed16ce9c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "15d2fd53-483d-423f-8f6d-6f6cbb64c73e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_bea0c409f38279": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a052c8-fdf8-72f2-840c-413890b81c86",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_eeb429e0d9a0e0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a052d7-48f0-7940-9511-064da5623dc5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
