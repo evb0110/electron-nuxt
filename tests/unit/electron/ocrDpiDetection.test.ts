@@ -301,32 +301,32 @@ describe('ocr dpi detection', () => {
             vi.fn(),
             undefined,
             undefined,
-            Array.from({ length: 392 }, (_value, index) => index + 1),
+            Array.from({ length: 4096 }, (_value, index) => index + 1),
             (completed, total) => progress.push([
                 completed,
                 total,
             ]),
         );
 
-        expect(mocks.runOcrCommand).toHaveBeenCalledTimes(9);
+        expect(mocks.runOcrCommand).toHaveBeenCalledTimes(4);
         expect(peakProbes).toBe(4);
         expect(progress.at(-1)).toEqual([
-            392,
-            392,
+            4096,
+            4096,
         ]);
         expect(mocks.runOcrCommand.mock.calls[0]?.[1]).toEqual([
             '-f',
             '1',
             '-l',
-            '48',
+            '1024',
             '-list',
             '/tmp/input.pdf',
         ]);
         expect(mocks.runOcrCommand.mock.calls.at(-1)?.[1]).toEqual([
             '-f',
-            '385',
+            '3073',
             '-l',
-            '392',
+            '4096',
             '-list',
             '/tmp/input.pdf',
         ]);
@@ -343,7 +343,7 @@ describe('ocr dpi detection', () => {
             expect.anything(),
         );
         expect(result.documentDpi).toBe(360);
-        expect(result.pageDpiByNumber.size).toBe(392);
+        expect(result.pageDpiByNumber.size).toBe(4096);
         expect(result.pageDpiByNumber.get(1)).toBe(360);
         expect(result.pageDpiByNumber.get(196)).toBe(360);
         expect(result.pageDpiByNumber.get(392)).toBe(360);

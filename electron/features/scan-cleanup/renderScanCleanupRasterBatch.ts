@@ -17,7 +17,7 @@ import type {
 } from '@scan-cleanup-core/types';
 
 const PDFTOPPM_BATCH_TIMEOUT_MS = 3 * 60 * 1_000;
-const MAX_RASTER_BATCH_PAGES = 16;
+const MAX_RASTER_BATCH_PAGES = 64;
 
 interface IScanCleanupRasterBatchTarget {
     limits: IScanCleanupRasterRenderLimits;

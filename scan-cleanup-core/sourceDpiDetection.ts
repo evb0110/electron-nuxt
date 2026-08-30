@@ -16,7 +16,7 @@ export {
 } from '@scan-cleanup-core/types';
 
 const PDFIMAGES_TIMEOUT_MS = 30 * 1000;
-const PDFIMAGES_MAX_CONTIGUOUS_PROBE_SPAN = 48;
+const PDFIMAGES_MAX_CONTIGUOUS_PROBE_SPAN = 1_024;
 const PDFIMAGES_PROBE_CONCURRENCY = 4;
 
 interface IPdfImagesProbe {

@@ -128,4 +128,44 @@ describe('scan cleanup raster batch renderer', () => {
         })).rejects.toThrow('contiguous');
         expect(runCommand).not.toHaveBeenCalled();
     });
+
+    it('accepts the widened bounded process window without changing per-page limits', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-test-'));
+        roots.push(root);
+        const runCommand = vi.fn(async (_binary: string, args: string[]) => {
+            const prefix = args.at(-1)!;
+            const firstPage = Number(args[args.indexOf('-f') + 1]);
+            const lastPage = Number(args[args.indexOf('-l') + 1]);
+            expect(firstPage).toBe(1);
+            expect(lastPage).toBe(64);
+            await Promise.all(Array.from({length: lastPage - firstPage + 1}, (_, index) =>
+                writeFile(`${prefix}-${String(index + 1).padStart(4, '0')}.png`, PNG)));
+            return {
+                exitCode: 0,
+                stderr: '',
+                stdout: '',
+            };
+        });
+        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand);
+        const targets = Array.from({length: 64}, (_, index) => ({
+            limits: {
+                expectedHeightPx: 1,
+                expectedWidthPx: 1,
+                maxDimensionPx: 100,
+                maxPixels: 10_000,
+            },
+            outputPath: join(root, `page-${String(index + 1)}.png`),
+            pageNumber: index + 1,
+        }));
+
+        await expect(renderBatch({
+            dpi: 150,
+            log: vi.fn(),
+            pdftoppmBinary: '/pdftoppm',
+            signal: new AbortController().signal,
+            sourcePdfPath: '/source.pdf',
+            targets,
+        })).resolves.toHaveLength(64);
+        expect(runCommand).toHaveBeenCalledOnce();
+    });
 });

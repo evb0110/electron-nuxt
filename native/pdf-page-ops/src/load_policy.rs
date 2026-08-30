@@ -70,9 +70,9 @@ fn admit_loaded_object(object_id: ObjectId, object: &mut Object) -> Option<(Obje
 }
 
 pub(crate) fn load_pdf_path(path: &Path) -> Result<Document> {
-    let bytes = read_file_bounded(path, PDF_LOAD_POLICY.max_encoded_bytes, "PDF input")
+    let bytes = read_file_bounded(path, PDF_PATH_LOAD_POLICY.max_encoded_bytes, "PDF input")
         .map_err(|error| Box::new(error) as Box<dyn Error>)?;
-    load_pdf_bytes_with_policy(&bytes, PDF_LOAD_POLICY)
+    load_pdf_bytes_with_policy(&bytes, PDF_PATH_LOAD_POLICY)
 }
 
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
@@ -1326,6 +1326,55 @@ mod tests {
             1
         );
         assert_eq!(loaded.previous_len(), u64::try_from(bytes.len()).unwrap());
+    }
+
+    #[test]
+    fn page_path_load_accepts_a_document_above_the_byte_input_page_ceiling() {
+        const PAGE_COUNT: usize = 100_001;
+        struct RemoveOnDrop(std::path::PathBuf);
+
+        impl Drop for RemoveOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let page_id = document.add_object(lopdf::dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+        });
+        document.set_object(
+            pages_id,
+            lopdf::dictionary! {
+                "Type" => "Pages",
+                "Kids" => Object::Array(vec![Object::Reference(page_id); PAGE_COUNT]),
+                "Count" => i64::try_from(PAGE_COUNT).unwrap(),
+            },
+        );
+        let catalog_id = document.add_object(lopdf::dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_file = RemoveOnDrop(std::env::temp_dir().join(format!(
+            "evb-pdf-page-ops-page-size-load-policy-{unique}.pdf"
+        )));
+        std::fs::write(&temp_file.0, bytes).unwrap();
+
+        let loaded = load_pdf_path(&temp_file.0).unwrap();
+        assert_eq!(
+            PageTreeResolver::new(&loaded).unwrap().page_count(),
+            u32::try_from(PAGE_COUNT).unwrap()
+        );
     }
 
     #[test]
