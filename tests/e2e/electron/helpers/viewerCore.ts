@@ -1032,7 +1032,13 @@ export async function openDocumentSidebarTab(
     if (tabIndex < 0) {
         throw new Error(`Document sidebar tab '${label}' was unavailable: ${JSON.stringify(tabLabels)}`);
     }
-    await tabs[tabIndex]!.click();
+    const tabIsActive = await tabs[tabIndex]!.evaluate(element => (
+        element.getAttribute('aria-selected') === 'true'
+        || (element as HTMLElement).dataset.state === 'active'
+    ));
+    if (!tabIsActive) {
+        await tabs[tabIndex]!.click();
+    }
     await page.waitForFunction((expectedLabel: string) => {
         const normalized = expectedLabel.trim().toLocaleLowerCase();
         return Array.from(document.querySelectorAll<HTMLElement>(
