@@ -344,11 +344,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         }
         return previewText;
     }
-    function resolveEditorSummarySubtype(
-        editor: IPdfjsEditor,
-        pageIndex: number,
-        markupSubtype: ISyncMarkupSubtype,
-    ) {
+    function resolveEditorSummarySubtype(editor: IPdfjsEditor, pageIndex: number, markupSubtype: ISyncMarkupSubtype) {
         return markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex)
             ?? markupSubtype.resolveEditorSubtypeFromPresentation(editor)
             ?? detectEditorSubtype(editor);
@@ -622,7 +618,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         ) {
             return pdfAnnotationSnapshot;
         }
-
         const sharedKey = getSharedSnapshotKey(pageCount);
         const shared = readSharedPdfAnnotationSnapshot(sharedKey, doc);
         if (

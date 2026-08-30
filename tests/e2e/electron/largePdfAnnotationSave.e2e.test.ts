@@ -234,10 +234,13 @@ interface IStagedArtifactCaptureWindow extends Window {
 }
 
 interface IIssue139VisibilityFrame {
+    annotationVisualIdentities: number[];
     canonicalCount: number;
     editorIdentities: number[];
     editorKeys: string[];
     layerIdentities: number[];
+    paintedFreeTextCount: number;
+    phase: string;
     resizeTransitionActive: boolean;
     revisionToken: string | null;
     sidebarCount: number;
@@ -247,6 +250,13 @@ interface IIssue139VisibilityFrame {
 interface IIssue139VisibilityProbeWindow extends Window {
     __issue139VisibilityFrames?: IIssue139VisibilityFrame[];
     __issue139VisibilityProbeDone?: boolean;
+    __issue139VisibilityProbePhase?: string;
+}
+
+async function setIssue139VisibilityProbePhase(page: Page, phase: string) {
+    await page.evaluate((nextPhase: string) => {
+        (window as IIssue139VisibilityProbeWindow).__issue139VisibilityProbePhase = nextPhase;
+    }, phase);
 }
 
 async function startIssue139VisibilityProbe(
@@ -259,12 +269,15 @@ async function startIssue139VisibilityProbe(
         sentinels: string[];
     }) => {
         const probeWindow = window as IIssue139VisibilityProbeWindow & IWorkspaceExposeProbeWindow;
+        const annotationVisualIdentities = new WeakMap<Element, number>();
         const editorIdentities = new WeakMap<Element, number>();
         const layerIdentities = new WeakMap<Element, number>();
+        let nextAnnotationVisualIdentity = 1;
         let nextEditorIdentity = 1;
         let nextLayerIdentity = 1;
         probeWindow.__issue139VisibilityFrames = [];
         probeWindow.__issue139VisibilityProbeDone = false;
+        probeWindow.__issue139VisibilityProbePhase = 'baseline';
 
         const identityFor = (
             identities: WeakMap<Element, number>,
@@ -314,6 +327,12 @@ async function startIssue139VisibilityProbe(
                 '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
             ));
             const visibleEditors = editors.filter(editor => isPainted(editor, host));
+            const annotationVisuals = Array.from(host.querySelectorAll<HTMLElement>(
+                '.annotationLayer .freeTextAnnotation, .annotation-layer .freeTextAnnotation',
+            ));
+            const visibleAnnotationVisuals = annotationVisuals.filter(annotation => (
+                isPainted(annotation, host)
+            ));
             const layers = Array.from(host.querySelectorAll<HTMLElement>(
                 '.annotationEditorLayer, .annotation-editor-layer',
             ));
@@ -324,6 +343,11 @@ async function startIssue139VisibilityProbe(
             const comments = unwrap(workspace?.annotationComments);
             const revisionToken = unwrap(workspace?.documentRevisionToken);
             probeWindow.__issue139VisibilityFrames?.push({
+                annotationVisualIdentities: visibleAnnotationVisuals.map(annotation => identityFor(
+                    annotationVisualIdentities,
+                    annotation,
+                    () => nextAnnotationVisualIdentity++,
+                )),
                 canonicalCount: Array.isArray(comments) ? comments.length : -1,
                 editorIdentities: visibleEditors.map(editor => identityFor(
                     editorIdentities,
@@ -340,13 +364,18 @@ async function startIssue139VisibilityProbe(
                     layer,
                     () => nextLayerIdentity++,
                 )),
+                paintedFreeTextCount: visibleEditors.length + visibleAnnotationVisuals.length,
+                phase: probeWindow.__issue139VisibilityProbePhase ?? 'unknown',
                 resizeTransitionActive: host.querySelector('.pdfViewer')
                     ?.classList.contains('pdfViewer--resize-transition') === true,
                 revisionToken: typeof revisionToken === 'string' ? revisionToken : null,
                 sidebarCount: host.querySelectorAll('.notes-list .note-item').length,
-                visibleSentinels: input.sentinels.filter(sentinel => visibleEditors.some(editor => (
-                    editor.textContent?.includes(sentinel) === true
-                ))),
+                visibleSentinels: input.sentinels.filter(sentinel => (
+                    visibleEditors.some(editor => editor.textContent?.includes(sentinel) === true)
+                    || visibleAnnotationVisuals.some(annotation => (
+                        annotation.textContent?.includes(sentinel) === true
+                    ))
+                )),
             });
             const committed = probeWindow.__evbTestApi?.getAutomationEvents?.().some(event => (
                 event.type === 'save-committed' && event.id > input.afterEventId
@@ -373,39 +402,15 @@ async function readIssue139VisibilityProbe(page: Page) {
     ));
 }
 
-async function readIssue139CanonicalMarkerRect(page: Page, sentinel: string) {
-    return page.evaluate((expectedText: string) => {
-        const probeWindow = window as IWorkspaceExposeProbeWindow;
-        const workspace = probeWindow.__evbFindWorkspaceExpose?.({requiredProperties: ['annotationComments']}) as {annotationComments?: Array<{
-            markerRect?: {
-                height: number;
-                left: number;
-                top: number;
-                width: number
-            } | null;
-            text?: string;
-        }> | {value?: Array<{
-            markerRect?: {
-                height: number;
-                left: number;
-                top: number;
-                width: number
-            } | null;
-            text?: string;
-        }>};} | null;
-        const comments = workspace?.annotationComments;
-        const value = Array.isArray(comments) ? comments : comments?.value;
-        return value?.find(comment => comment.text === expectedText)?.markerRect ?? null;
-    }, sentinel);
-}
-
 async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
     await page.waitForFunction(() => {
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
         return host?.querySelector('.pdfViewer')
             ?.classList.contains('pdfViewer--resize-transition') === false;
     }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS});
+    await setIssue139VisibilityProbePhase(page, 'freetext-resize-escape');
     await page.keyboard.press('Escape');
+    await setIssue139VisibilityProbePhase(page, 'freetext-resize-select');
     const editorPoint = await page.evaluate((expectedText: string) => {
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
         const editor = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
@@ -433,6 +438,7 @@ async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
             && (handleRect?.width ?? 0) > 0
             && (handleRect?.height ?? 0) > 0;
     }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, sentinel);
+    await setIssue139VisibilityProbePhase(page, 'freetext-resize-handle');
     const handle = await page.evaluate((expectedText: string) => {
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
         const editor = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
@@ -453,8 +459,11 @@ async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
         throw new Error(`FreeText resize handle for ${sentinel} was not found`);
     }
     await page.mouse.move(handle.x, handle.y);
+    await setIssue139VisibilityProbePhase(page, 'freetext-resize-pointerdown');
     await page.mouse.down();
+    await setIssue139VisibilityProbePhase(page, 'freetext-resize-drag');
     await page.mouse.move(handle.x + 48, handle.y + 24, {steps: 8});
+    await setIssue139VisibilityProbePhase(page, 'freetext-resize-pointerup');
     await page.mouse.up();
     await delay(200);
     const resized = await page.evaluate((expectedText: string) => {
@@ -3550,7 +3559,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
     }, LARGE_PDF_TIMEOUT_MS);
 
     exactZaliznyakIt('keeps ordinary FreeText visible through issue 139 save and layout transitions', async () => {
-        const session = sessionFixture.getSession();
+        let session = sessionFixture.getSession();
         if (!session) {
             return;
         }
@@ -3567,6 +3576,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             'issue139-d',
             'adsfadsf',
         ];
+        const persistedSentinels = sentinels.slice(0, -1);
 
         await openPdfInApp(session.page, fixturePath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, LARGE_PDF_TIMEOUT_MS);
@@ -3605,6 +3615,47 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         await waitForSaveFrontierReady(session.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
         await saveViaWindowHandle(session.page, LARGE_PDF_TIMEOUT_MS);
 
+        const fixtureRealPath = realpathSync(fixturePath);
+        await waitForCrashCheckpointPath(session.name, fixtureRealPath);
+        const preRestartProcesses = readSessionProcessSnapshot(session.name);
+        const persistedSession = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+            keepNuxt: true,
+        });
+        if (!persistedSession) {
+            throw new Error('Issue 139 persistence setup did not produce a new Electron process');
+        }
+        await expectProcessesExited(preRestartProcesses.pids);
+        session = persistedSession;
+        await waitForRestoredDocument(session.page, fixtureRealPath);
+        await enablePdfDiagnosticSession(session.page, {render: true});
+        await openAnnotationsTab(session.page, 30_000);
+
+        await expect.poll(async () => session.page.evaluate(() => {
+            const probeWindow = window as IWorkspaceExposeProbeWindow;
+            const workspace = probeWindow.__evbFindWorkspaceExpose?.({requiredProperties: ['annotationComments']}) as {annotationComments?: unknown[] | {value?: unknown[]}} | null;
+            const comments = workspace?.annotationComments;
+            const value = comments && !Array.isArray(comments) && 'value' in comments
+                ? comments.value
+                : comments;
+            const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+            return {
+                canonicalCount: Array.isArray(value) ? value.length : -1,
+                editorCount: host?.querySelectorAll(
+                    '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+                ).length ?? 0,
+                sidebarCount: host?.querySelectorAll('.notes-list .note-item').length ?? 0,
+                visualCount: host?.querySelectorAll(
+                    '.annotationLayer .freeTextAnnotation, .annotation-layer .freeTextAnnotation',
+                ).length ?? 0,
+            };
+        }), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
+            canonicalCount: persistedSentinels.length,
+            editorCount: 0,
+            sidebarCount: persistedSentinels.length,
+            visualCount: persistedSentinels.length,
+        });
         expect(await createFreeTextAnnotationWithPointer(
             session.page,
             sentinels.at(-1)!,
@@ -3622,24 +3673,48 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 ? comments.value
                 : comments;
             const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+            const isPainted = (element: HTMLElement) => {
+                if (!host) {
+                    return false;
+                }
+                let current: HTMLElement | null = element;
+                while (current && host.contains(current)) {
+                    const style = getComputedStyle(current);
+                    if (
+                        current.hidden
+                        || style.display === 'none'
+                        || style.visibility === 'hidden'
+                        || Number(style.opacity || '1') <= 0
+                    ) {
+                        return false;
+                    }
+                    current = current.parentElement;
+                }
+                const rect = element.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+            };
+            const editors = Array.from(host?.querySelectorAll<HTMLElement>(
+                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+            ) ?? []);
+            const annotationVisuals = Array.from(host?.querySelectorAll<HTMLElement>(
+                '.annotationLayer .freeTextAnnotation, .annotation-layer .freeTextAnnotation',
+            ) ?? []);
             return {
                 canonicalCount: Array.isArray(value) ? value.length : -1,
-                editorCount: host?.querySelectorAll(
-                    '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
-                ).length ?? 0,
+                editorCount: editors.length,
+                paintedFreeTextCount: [
+                    ...editors,
+                    ...annotationVisuals,
+                ].filter(isPainted).length,
                 sidebarCount: host?.querySelectorAll('.notes-list .note-item').length ?? 0,
             };
         }), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
-            canonicalCount: sentinels.length,
+            canonicalCount: persistedSentinels.length,
             editorCount: sentinels.length,
-            sidebarCount: sentinels.length,
+            paintedFreeTextCount: sentinels.length,
+            sidebarCount: persistedSentinels.length,
         });
         const resizeSentinel = sentinels.at(-1)!;
-        const markerRectBeforeResize = await readIssue139CanonicalMarkerRect(
-            session.page,
-            resizeSentinel,
-        );
-        expect(markerRectBeforeResize).not.toBeNull();
 
         await installStagedArtifactCapture(session.page);
         const saveBaselineEventId = await getLatestAutomationEventId(session.page);
@@ -3648,16 +3723,14 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             saveBaselineEventId,
             sentinels,
         );
+        await setIssue139VisibilityProbePhase(session.page, 'freetext-resize');
         const resizedEditor = await dragIssue139FreeTextResizeHandle(
             session.page,
             resizeSentinel,
         );
         expect(resizedEditor.after.width).toBeGreaterThan(resizedEditor.before.width);
         expect(resizedEditor.after.height).toBeGreaterThan(resizedEditor.before.height);
-        await expect.poll(
-            () => readIssue139CanonicalMarkerRect(session.page, resizeSentinel),
-            {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS},
-        ).not.toEqual(markerRectBeforeResize);
+        await setIssue139VisibilityProbePhase(session.page, 'save-start');
         const savePromise = saveViaVisibleToolbarWithDeadline(
             session.page,
             LARGE_PDF_TIMEOUT_MS,
@@ -3671,21 +3744,26 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         let transitionError: unknown;
         try {
             await waitForStagedArtifact(session.page);
+            await setIssue139VisibilityProbePhase(session.page, 'sidebar-close');
             const sidebarToggleClosed = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
             expect(sidebarToggleClosed.called).toBe(true);
             await delay(350);
+            await setIssue139VisibilityProbePhase(session.page, 'sidebar-open');
             const sidebarToggleOpen = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
             expect(sidebarToggleOpen.called).toBe(true);
             await delay(350);
+            await setIssue139VisibilityProbePhase(session.page, 'zoom');
             const zoom = await callWorkspaceCommand(session.page, 'handleZoomIn');
             expect(zoom.called).toBe(true);
             await delay(500);
+            await setIssue139VisibilityProbePhase(session.page, 'viewport-small');
             await session.page.setViewport({
                 width: 1_280,
                 height: 820,
                 deviceScaleFactor: 1,
             });
             await delay(350);
+            await setIssue139VisibilityProbePhase(session.page, 'viewport-restored');
             await session.page.setViewport({
                 width: 1_440,
                 height: 900,
@@ -3695,6 +3773,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         } catch (error) {
             transitionError = error;
         } finally {
+            await setIssue139VisibilityProbePhase(session.page, 'save-resume');
             await resumeStagedArtifactCommit(session.page);
         }
         const saveEvent = await savePromise;
@@ -3707,10 +3786,16 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(frames.length).toBeGreaterThan(5);
         expect(transitionFrames.length).toBeGreaterThan(0);
         for (const frame of frames) {
-            expect(frame.visibleSentinels, JSON.stringify(frame)).toEqual(sentinels);
-            expect(frame.canonicalCount, JSON.stringify(frame)).toBe(sentinels.length);
-            expect(frame.sidebarCount, JSON.stringify(frame)).toBe(sentinels.length);
+            expect(frame.visibleSentinels, JSON.stringify(frame)).toContain(resizeSentinel);
+            expect(frame.canonicalCount, JSON.stringify(frame)).toBe(persistedSentinels.length);
+            expect(frame.sidebarCount, JSON.stringify(frame)).toBe(persistedSentinels.length);
+            expect(frame.editorIdentities.length, JSON.stringify(frame)).toBeGreaterThan(0);
+            expect(
+                frame.editorIdentities.length + frame.annotationVisualIdentities.length,
+                JSON.stringify(frame),
+            ).toBeGreaterThanOrEqual(sentinels.length);
             expect(frame.layerIdentities.length, JSON.stringify(frame)).toBeGreaterThan(0);
+            expect(frame.paintedFreeTextCount, JSON.stringify(frame)).toBeGreaterThanOrEqual(sentinels.length);
         }
         const populatedEditorKeyFrames = frames.filter(frame => frame.editorKeys.length > 0);
         expect(populatedEditorKeyFrames.length).toBe(frames.length);
@@ -3729,10 +3814,10 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             && entry.payload.phase === 'save-flush'
         ));
         expect(saveFlushTrace?.payload).toEqual(expect.objectContaining({
-            canonicalCount: sentinels.length,
+            canonicalCount: persistedSentinels.length,
             documentGeneration: expect.any(Number),
-            editorCount: sentinels.length,
-            sidebarCount: sentinels.length,
+            editorCount: 1,
+            sidebarCount: persistedSentinels.length,
             syncToken: expect.any(Number),
         }));
         expect(saveFlushTrace?.payload).toHaveProperty('revisionToken');

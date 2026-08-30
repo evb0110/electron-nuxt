@@ -430,7 +430,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
                 }
                 logPdfRenderTrace('freetext-resize', {
                     phase: 'resizing',
-                    editorIdentity: editorHistoryKey(editor),
+                    editorIdentity: editorHistoryTarget(editor)?.key ?? null,
                     width: editor.width ?? null,
                     height: editor.height ?? null,
                     targetFont,
@@ -457,7 +457,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
                 scheduleFreeTextFontSync(editor, targetFont);
                 logPdfRenderTrace('freetext-resize', {
                     phase: 'resized',
-                    editorIdentity: editorHistoryKey(editor),
+                    editorIdentity: editorHistoryTarget(editor)?.key ?? null,
                     width: editor.width ?? null,
                     height: editor.height ?? null,
                     targetFont,
@@ -542,7 +542,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
             ) {
                 logPdfRenderTrace('freetext-resize', {
                     phase: 'font-committed',
-                    editorIdentity: editorHistoryKey(currentEditor),
+                    editorIdentity: editorHistoryTarget(currentEditor)?.key ?? null,
                     width: currentEditor.width ?? null,
                     height: currentEditor.height ?? null,
                     targetFont,
