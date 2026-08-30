@@ -337,7 +337,7 @@ async function proveToolbarNavigationReachability(
     telemetry: IScaleAcceptanceTelemetry,
 ) {
     for (const pageNumber of TARGET_PAGES) {
-        await goToPageViaToolbar(page, pageNumber);
+        await goToPageViaToolbar(page, pageNumber, STEP_TIMEOUT_MS);
         await waitForRenderedPage(page, pageNumber);
         telemetry.routes.push(await readRouteEvidence(page, 'navigation', pageNumber));
     }
@@ -353,7 +353,7 @@ async function proveThumbnailReachability(
 ) {
     await openDocumentSidebarTab(page, 'Pages', STEP_TIMEOUT_MS);
     for (const pageNumber of TARGET_PAGES) {
-        await goToPageViaToolbar(page, thumbnailNeighbor(pageNumber));
+        await goToPageViaToolbar(page, thumbnailNeighbor(pageNumber), STEP_TIMEOUT_MS);
         await page.waitForFunction((targetPage: number) => {
             const thumbnail = document.querySelector<HTMLElement>(
                 `.editor-pane.is-active .pdf-thumbnail[data-page="${String(targetPage)}"]`,
@@ -406,9 +406,9 @@ async function proveOutlineReachability(
         pageNumber,
     ] of TARGET_PAGES.entries()) {
         const title = TARGET_OUTLINE_TITLES[index]!;
-        await goToPageViaToolbar(page, pageNumber);
+        await goToPageViaToolbar(page, pageNumber, STEP_TIMEOUT_MS);
         await waitForOutlineTitle(page, title);
-        await goToPageViaToolbar(page, thumbnailNeighbor(pageNumber));
+        await goToPageViaToolbar(page, thumbnailNeighbor(pageNumber), STEP_TIMEOUT_MS);
         await clickOutlineTitle(page, title);
         await waitForWorkspaceToolbarSnapshot(page, {currentPage: pageNumber}, {timeoutMs: STEP_TIMEOUT_MS});
         await waitForRenderedPage(page, pageNumber);
@@ -417,7 +417,7 @@ async function proveOutlineReachability(
 }
 
 async function renameFirstOutlineForNativeSave(page: Page) {
-    await goToPageViaToolbar(page, FIRST_PAGE);
+    await goToPageViaToolbar(page, FIRST_PAGE, STEP_TIMEOUT_MS);
     await openDocumentSidebarTab(page, 'Bookmarks', STEP_TIMEOUT_MS);
     await waitForOutlineTitle(page, TARGET_OUTLINE_TITLES[0]);
     await page.click('.editor-pane.is-active button[aria-label="Enter bookmark edit mode"]');
@@ -461,7 +461,7 @@ async function installSaveReceiptProbe(page: Page) {
 async function readReopenedOutlineState(page: Page) {
     await openDocumentSidebarTab(page, 'Bookmarks', STEP_TIMEOUT_MS);
     await waitForOutlineTitle(page, RENAMED_FIRST_OUTLINE);
-    await goToPageViaToolbar(page, LAST_PAGE);
+    await goToPageViaToolbar(page, LAST_PAGE, STEP_TIMEOUT_MS);
     await waitForOutlineTitle(page, TARGET_OUTLINE_TITLES[2]);
     return page.evaluate(() => {
         const rows = Array.from(document.querySelectorAll<HTMLElement>(

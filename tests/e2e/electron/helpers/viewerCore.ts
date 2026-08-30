@@ -1229,8 +1229,12 @@ export async function dismissScanCleanupFirstRunGuidance(
     return true;
 }
 
-export async function goToPageViaToolbar(page: Page, pageNumber: number) {
-    const deadline = Date.now() + DEFAULT_TIMEOUT_MS;
+export async function goToPageViaToolbar(
+    page: Page,
+    pageNumber: number,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
+    const deadline = Date.now() + timeoutMs;
     let lastFailure = 'toolbar page control never became clickable';
 
     while (Date.now() < deadline) {
@@ -1272,11 +1276,11 @@ export async function goToPageViaToolbar(page: Page, pageNumber: number) {
         await page.click('.page-controls-inline-input', { count: 3 });
         await page.keyboard.type(String(pageNumber));
         await page.keyboard.press('Enter');
-        await waitForToolbarCurrentPage(page, pageNumber);
+        await waitForToolbarCurrentPage(page, pageNumber, Math.max(1, deadline - Date.now()));
         return;
     }
 
-    throw new Error(`Toolbar page navigation to ${pageNumber} failed within ${DEFAULT_TIMEOUT_MS}ms (${lastFailure})`);
+    throw new Error(`Toolbar page navigation to ${pageNumber} failed within ${timeoutMs}ms (${lastFailure})`);
 }
 
 export async function getToolbarCurrentPage(page: Page) {

@@ -8,7 +8,10 @@ import {
     ref,
 } from 'vue';
 import type { TPdfViewMode } from '@contracts/shared';
-import { usePdfViewerVirtualization } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
+import {
+    PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+    usePdfViewerVirtualization,
+} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import {
     resolvePdfRenderPerformancePolicy,
@@ -436,6 +439,52 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.pagesToRender.value).toContain(450);
         expect(virtualization.pagesToRender.value).toContain(928);
         expect(virtualization.pagesToRender.value).not.toContain(700);
+    });
+
+    it('rebases far navigation targets into a bounded physical scroll segment', () => {
+        const totalPages = 138_000;
+        const pageMetrics = ref<IPdfPageMetric[]>([]);
+        pageMetrics.value[0] = {
+            width: 64,
+            height: 64,
+        };
+        pageMetrics.value[totalPages - 1] = {
+            width: 64,
+            height: 64,
+        };
+        const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
+            bufferPages: computed(() => 2),
+            viewMode: computed(() => 'single'),
+            numPages: ref(totalPages),
+            currentPage: ref(1),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(64),
+            basePageHeight: ref(64),
+            pageMetrics,
+            pageMetricsVersion: ref(1),
+            effectiveScale: ref(10),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            navigationAnchorPage: ref(69_001),
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+        });
+
+        expect(virtualization.virtualPageSegments.value).toHaveLength(1);
+        expect(virtualization.pagesToRender.value).toContain(69_001);
+        expect(virtualization.pagesToRender.value.length).toBeLessThan(100);
+        const leadingHeight = Number.parseFloat(
+            virtualization.virtualPageSegments.value[0]?.spacerBeforeStyle?.height ?? '0',
+        );
+        const trailingHeight = Number.parseFloat(
+            virtualization.bottomVirtualSpacerStyle.value?.height ?? '0',
+        );
+        expect(leadingHeight).toBeLessThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
+        expect(trailingHeight).toBeLessThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
     });
 
     it('ignores a zoom freeze that would hide the active navigation anchor', () => {
