@@ -273,6 +273,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             const sidecarPath = `${workingCopyPath}.evb-revision.json`;
             const oldSidecar = JSON.parse(await readFile(sidecarPath, 'utf8')) as {token: string};
             const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+            const {originalPathSaveBaseMatches} = await import('@electron/file-access/originalPathSaveWitness');
+            const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
             const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
 
             await expect(transitionOriginalAndWorkingCopyRevision({
@@ -281,10 +283,17 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 reason: 'native-mutation',
                 senderId: 7,
                 publishOriginal: () => publishImmutableFileAtomic(stagedPath, originalPath),
+                afterWorkingCopySync: async () => {
+                    expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
+                },
+                afterOriginalRestore: async () => {
+                    expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
+                },
             })).rejects.toThrow('sidecar publication failed');
 
             await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+            await expect(originalPathSaveBaseMatches(workingCopyPath, originalPath, 7)).resolves.toBe(true);
             const restoredSidecar = JSON.parse(await readFile(sidecarPath, 'utf8')) as {token: string};
             expect(restoredSidecar.token).toBe(oldSidecar.token);
             await expect(readFile(`${workingCopyPath}.evb-revision-journal.json`, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});

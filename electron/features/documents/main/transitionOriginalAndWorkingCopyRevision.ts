@@ -41,6 +41,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
     captureOriginalWitness?: () => Promise<IOriginalPathSaveWitness | null>;
     publishOriginal: (assertDestinationCurrent?: () => Promise<void>) => Promise<void>;
     afterWorkingCopySync?: () => Promise<void>;
+    afterOriginalRestore?: () => Promise<void>;
     onPhase?: (phase: string, durationMs: number) => void;
 }) {
     await measureTransitionPhase('transition-materialize', input.onPhase, () =>
@@ -64,6 +65,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
         let backupCreated = false;
         let committed = false;
         let shouldRestoreOriginal = false;
+        let originalRestoredByRollback = false;
         try {
             const previousRevision = await measureTransitionPhase(
                 'transition-read-revision',
@@ -169,15 +171,25 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         : {assertDestinationCurrent: () => witness.assertCurrent({allowBackupMetadataChange: true})};
                     await copyFileAtomic(originalBackupPath, input.originalPath, restoreOptions);
                     originalRestored = true;
+                    originalRestoredByRollback = true;
                 }
             } finally {
-                if (!committed && originalRestored) {
-                    await Promise.all([
-                        rm(originalBackupPath, {force: true}),
-                        rm(journalPath(input.workingCopyPath), {force: true}),
-                    ]);
+                try {
+                    if (originalRestoredByRollback) {
+                        await input.afterOriginalRestore?.();
+                    }
+                } finally {
+                    try {
+                        if (!committed && originalRestored) {
+                            await Promise.all([
+                                rm(originalBackupPath, {force: true}),
+                                rm(journalPath(input.workingCopyPath), {force: true}),
+                            ]);
+                        }
+                    } finally {
+                        await witness?.close();
+                    }
                 }
-                await witness?.close();
             }
         }
     });

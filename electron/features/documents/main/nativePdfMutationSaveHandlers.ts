@@ -457,6 +457,10 @@ async function runNativeNoteCommand(
                     normalizedWorkingPath,
                     senderId,
                 ),
+                afterOriginalRestore: () => syncNativeOutputToRequestingWorkingCopy(
+                    normalizedWorkingPath,
+                    senderId,
+                ),
                 onPhase: (phase, durationMs) => phaseTimings.push({
                     phase,
                     durationMs,
@@ -652,6 +656,10 @@ export async function handleCommitStagedPdfNativeMutations(
                     await publishImmutableFileAtomic(currentArtifact.path, originalPath, {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})});
                 },
                 afterWorkingCopySync: () => syncNativeOutputToRequestingWorkingCopy(
+                    normalizedWorkingPath,
+                    senderId,
+                ),
+                afterOriginalRestore: () => syncNativeOutputToRequestingWorkingCopy(
                     normalizedWorkingPath,
                     senderId,
                 ),

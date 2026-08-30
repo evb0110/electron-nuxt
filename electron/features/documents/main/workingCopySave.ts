@@ -193,6 +193,10 @@ async function replaceOriginalWithValidatedTemp(
                 workingPath,
                 senderWebContentsId,
             ),
+            afterOriginalRestore: () => refreshWorkingCopyOriginalFileExpectationForSave(
+                workingPath,
+                senderWebContentsId,
+            ),
         });
         if (!transition) {
             return {

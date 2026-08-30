@@ -736,6 +736,11 @@ async function commitSession(
                     }
                     workingCopyRefreshed = true;
                 },
+                afterOriginalRestore: async () => {
+                    if (!await refreshWorkingCopyOriginalFileExpectation(session.workingPath, session.senderId)) {
+                        throw new Error('Working copy registration changed after original restore');
+                    }
+                },
             });
             if (!transition) {
                 conflictValidation = createOriginalChangedValidationResult();
