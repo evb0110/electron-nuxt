@@ -44,12 +44,15 @@ window readiness ordering), and `acf4c1505` (registered PDF.js
 editor-constructor caching for xlarge annotation activation). All are
 published on remote `main`.
 
+`d0ab3779c` bounds save-time editor page scans, and `45ed63210` restores the
+all-stage xlarge heartbeat assertion after the quiet-host rerun passed. Both
+are published on remote `main`.
+
 The next published follow-ups are `1d4034d16` (persisted sticky-note
 geometry), `0d531209d` (its ledger reconciliation), `b08951d91` (continuation
 chunk identity for placed images without stable keys), and `8b2095da3`
 (earlier long-task probe coverage for xlarge FreeText placement), and
-`35cb76aff` (symlink-destination policy coverage for atomic replacement). The
-probe improves attribution only; it does not close the #149 stall acceptance.
+`35cb76aff` (symlink-destination policy coverage for atomic replacement).
 The later `aabbc5191` test alignment keeps shape projections keyed by their
 native stable keys and does not change the #144 acceptance status.
 
@@ -71,6 +74,8 @@ Issue #139 has a verified exact persisted-FreeText sidebar-delete slice in
 `df72592c0`, while its broader projection, resize, and close-transition
 acceptance remains open. Issue #145 has the published handoff ordering fix in
 `17d61287e`, with real system-sheet and nonblank-output acceptance still open.
+Issue #149 is verified and closed against `45ed63210` after the exact quiet-host
+2646-page lane passed with the placement-stage heartbeat assertion restored.
 
 The reconciliation also includes `9ef3f01b0` (deprecated OCR DOCX
 cancellation), `b4bafc271` (lazy sparse zoom-anchor projection), and
@@ -472,11 +477,11 @@ Post-audit issues and follow-ups:
 | [#139 Large-PDF FreeText annotations](https://github.com/evb0110/evb-viewer/issues/139) | `ANN-005` is complete for the persisted-sidebar-delete reproduction at `df72592c0`; the broader projection, resize, close-transition, and multi-existing-editor acceptance remains open. |
 | [#145 macOS print handoff](https://github.com/evb0110/evb-viewer/issues/145) | The readiness ordering fix is published at `17d61287e`; a real macOS system-sheet and nonblank-output run remains open. |
 | [#146 Save transaction follow-ups](https://github.com/evb0110/evb-viewer/issues/146) | `SAV-020` remains open; `b6df6e832` adds conservative stale atomic-replace backup cleanup, while Windows witness and transaction acceptance remain. |
-| [#149 Xlarge pre-save renderer stall](https://github.com/evb0110/evb-viewer/issues/149) | `acf4c1505` avoids the registered-editor constructor discovery scan during xlarge annotation activation, with a red-to-green 16-test bridge gate. The exact 9.1 s pre-save placement attribution and quiet-host <5 s acceptance remain open. |
+| [#149 Xlarge pre-save renderer stall](https://github.com/evb0110/evb-viewer/issues/149) | `d0ab3779c` bounds save-time editor-page discovery, and `45ed63210` restores the all-stage heartbeat assertion. The exact quiet-host 2646-page lane passed 2/2 with placement and save gaps below 5 s. Verified and closed. |
 
 ### TEST-012 / TEST-017 follow-up for #149, 2026-08-30
 
-The rebased instrumented exact 2,646-page rerun used owner commit `acf4c1505`
+The earlier instrumented exact 2,646-page rerun used owner commit `acf4c1505`
 and local bounded-call-site commit `3c969013a`. The pre-save FreeText placement
 window still failed the restored all-stage heartbeat assertion at 11,569.0 ms
 for `setInterval` and 12,146.2 ms for `MessageChannel`; the Worker gap was
@@ -484,13 +489,24 @@ for `setInterval` and 12,146.2 ms for `MessageChannel`; the Worker gap was
 DOM mutations, and a maximum requestAnimationFrame gap of 766.6 ms. The save
 window measured 881.2 ms, 896.2 ms, and 257.2 ms for those same three probes.
 
-This keeps the save-window decision at a 3,000 ms target. The remaining failure
-is the pre-save placement stage. Its page-count-sized synchronous path is
-`collectEditorCommentSummaries` in `useAnnotationSync.ts:724-735`, owned by
-#139. The exact fixture telemetry is
-`.devkit/test/electron-e2e-artifacts/xlarge-document-acceptance.json` and the
-wrapper evidence is
-`.devkit/analysis/gates/2026-08-30T02-30-01-915Z-3446087-a078d0fd.ndjson`.
+The earlier 11,569.0 ms and 12,146.2 ms pre-save gaps came from the
+page-count-sized `collectEditorCommentSummaries` path in #139. After
+`d0ab3779c` bounded that scan to materialized annotation pages, the quiet-host
+exact 2,646-page lane passed 2/2 with the all-stage assertion enabled. Session B
+pre-save measured 1,941.5 ms (`setInterval`) and 2,048.1 ms (`MessageChannel`),
+with a 110.1 ms Worker gap. The save stage measured 254.7 ms, 342.2 ms, and
+110 ms. Every heartbeat had a valid MessageChannel sample, and the renderer
+placement probe recorded 77,065 DOM mutations with a 183.3 ms maximum frame
+gap. The fixture was 2,168,527,413 bytes and 2,646 pages, staged through the
+bounded stream path.
+
+Final telemetry:
+`.devkit/test/electron-e2e-artifacts/xlarge-document-acceptance-d0ab3779c-full-heartbeat.json`.
+Wrapper evidence:
+`.devkit/analysis/gates/2026-08-30T03-44-19-773Z-72471-83525993.ndjson`.
+The placement and save heartbeat requirements are enforced by `45ed63210`,
+so #149 is verified and closed. CodeRabbit's final pass found no remaining
+issue.
 | #142, #147, and #148 | Closed after their published source fixes and focused or cross-process acceptance. #142 is `0ef7011d2`, #147 is `85670d391`, and #148 is `42601baf0`. |
 
 Fixed and verified in the umbrella: `SAV-001`, `SAV-007`, `TEST-011`,
