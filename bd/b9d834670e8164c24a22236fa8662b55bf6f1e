@@ -1,0 +1,24 @@
+tests/unit/app/modules/pdf-viewer/pdfjsEditToolbarRemovalGuard.test.ts
+  s_a2c78f8fbcffdf::t_db9901f7a8adc9 24-36,53-54
+  s_a2c78f8fbcffdf::t_14bec427cfab41 1-23,37-52,55-56
+pnpm-lock.yaml
+  ai_agent 97,217,17109
+patches/pdfjs-dist@5.7.284.patch
+  s_a2c78f8fbcffdf::t_75b54a76c4b2cc 2,5-23,32,50,59,68,77,86,108,128,137,148,164,167,179,203,244,250-252,260,272,286,295,304,310,320,323,339,389,397,409,418,428,597,615,624-625,645,650,657-658,671,681,684-702,711,729,738,747,756,765,787,807,816,827,843,846,858,882,923,929-931,939,951,965,974,983,989,999,1002,1018,1068,1076,1088,1097,1107,1276,1294,1303-1304,1324,1329,1336-1337,1350
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bdb9d834670e8164c24a22236fa8662b55bf6f1e",
+  "prompts": {},
+  "sessions": {
+    "s_a2c78f8fbcffdf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0f1be617-b6dc-4fea-8165-c9c64cadc457",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
