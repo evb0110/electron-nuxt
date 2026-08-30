@@ -1847,13 +1847,12 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 ...rssB,
             });
             activeRssSampler = null;
-            const policyHeartbeatStages = new Set(['save-before-fresh-renderer-reopen']);
             for (const heartbeat of telemetry.heartbeats) {
                 expect(heartbeat.sampleCount).toBeGreaterThan(0);
-                if (policyHeartbeatStages.has(heartbeat.stage)) {
-                    expect(heartbeat.maxGapMs).toBeLessThan(XLARGE_HEARTBEAT_MAX_GAP_MS);
-                    expect(heartbeat.messageChannelMaxGapMs).toBeLessThan(XLARGE_HEARTBEAT_MAX_GAP_MS);
-                }
+                expect(heartbeat.maxGapMs).toBeLessThan(XLARGE_HEARTBEAT_MAX_GAP_MS);
+                expect(heartbeat.messageChannelMaxGapStartEpochMs).not.toBeNull();
+                expect(heartbeat.messageChannelMaxGapEndEpochMs).not.toBeNull();
+                expect(heartbeat.messageChannelMaxGapMs).toBeLessThan(XLARGE_HEARTBEAT_MAX_GAP_MS);
             }
             for (const rss of telemetry.rss) {
                 expect(rss.rendererJsHeapDeltaBytes).not.toBeNull();
