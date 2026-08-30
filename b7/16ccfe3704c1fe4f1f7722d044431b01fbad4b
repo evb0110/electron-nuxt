@@ -1,0 +1,23 @@
+CONTEXT.md
+  s_5510c4ed16ce9c::t_3fe9d84d823b45 41-69
+docs/freetext-note-persistence.md
+  s_5510c4ed16ce9c::t_3fe9d84d823b45 3-7
+docs/adr/0003-notes-are-text-annotations.md
+  s_5510c4ed16ce9c::t_3fe9d84d823b45 1-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b716ccfe3704c1fe4f1f7722d044431b01fbad4b",
+  "prompts": {},
+  "sessions": {
+    "s_5510c4ed16ce9c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "15d2fd53-483d-423f-8f6d-6f6cbb64c73e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
