@@ -1,0 +1,34 @@
+tests/unit/electron/mainOperationLifecycle.test.ts
+  s_b2ece6dfe48478::t_0a5c0503800196 225-248
+tests/unit/electron/fileOpsPathSecurity.test.ts
+  s_b2ece6dfe48478::t_99f14aa26a062f 113,1228-1240,1242-1245,1251
+  s_b2ece6dfe48478::t_6bc04de2bb8424 1241
+  s_b2ece6dfe48478::t_4ffae1fd019c45 1131-1167,1246-1250,1252
+  s_b2ece6dfe48478::t_ed371d1406952e 1253
+electron/features/documents/main/documentFileReadHandlers.ts
+  s_b2ece6dfe48478::t_613f627ed90870 222-223,230
+  s_b2ece6dfe48478::t_48c3a64c68d897 246,252-253,262,267,271,274,278,301,306,309,311-312,316-317,321
+  s_b2ece6dfe48478::t_3904581a32131e 13
+  s_b2ece6dfe48478::t_f5069269455edd 84-87,89,91,95,97
+  s_b2ece6dfe48478::t_5cf0d01c2aaaa5 145-146,148,150,157,161-163,168-170,187-189,203,211
+  s_b2ece6dfe48478::t_1e329c1fcb188a 331,336-337,351
+  s_b2ece6dfe48478::t_0ecdcd39faa0bd 686-687
+electron/operation-lifecycle/mainOperationLifecycle.ts
+  s_b2ece6dfe48478::t_1124db0065ab5d 3,202,206-207,230,233-234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9d016f200538e604b68b7e8f0c5696394c82f653",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
