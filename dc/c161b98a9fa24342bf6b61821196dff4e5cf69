@@ -1,0 +1,23 @@
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_32b865e8b0fa20::t_3cdf9d68583ae5 2995
+  s_32b865e8b0fa20::t_5254833c26b84d 3051-3067
+  s_32b865e8b0fa20::t_8971e0f5c6783b 304-309,340-345,3012,3082-3091,3117-3119,3186-3187,3207,3209-3210
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.test.ts
+  s_5ac4a3281ca4f3::t_e338a34a3586e6 1577,1582,1594-1595
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dcc161b98a9fa24342bf6b61821196dff4e5cf69",
+  "prompts": {},
+  "sessions": {
+    "s_32b865e8b0fa20": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f85-a671-77d1-98cf-bea9b5d96645",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
