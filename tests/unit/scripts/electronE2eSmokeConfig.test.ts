@@ -118,7 +118,10 @@ const electronE2ERapidNavigationTestFiles = [
     'tests/e2e/electron/rapidPdfNavigation.e2e.test.ts',
     'tests/e2e/electron/standardPdfFitModeContinuity.e2e.test.ts',
 ];
-const electronE2EVisibleWindowTestFiles = ['tests/e2e/electron/visibleWindowLifecycle.e2e.test.ts'];
+const electronE2EVisibleWindowTestFiles = [
+    'tests/e2e/electron/visibleWindowLifecycle.e2e.test.ts',
+    'tests/e2e/electron/macOsPrintAcceptance.e2e.test.ts',
+];
 const electronE2EQuarantineTestFiles = ['tests/e2e/electron/quarantine/**/*.e2e.test.ts'];
 const electronE2EQuarantineOperatorDiagnosticFiles = [
     'tests/e2e/electron/quarantine/scanCleanupAppTruthProbe.e2e.test.ts',
@@ -128,6 +131,7 @@ const electronE2EQuarantineOperatorDiagnosticFiles = [
 const electronE2ESavePipelineTestFiles = [
     'tests/e2e/electron/savePipeline.e2e.test.ts',
     'tests/e2e/electron/savePipelineBenchmark.e2e.test.ts',
+    'tests/e2e/electron/issue124LifecycleAcceptance.e2e.test.ts',
 ];
 const electronE2ENativeSaveReopenTestFiles = [
     'tests/e2e/electron/nativeSaveReopen.e2e.test.ts',
@@ -272,10 +276,11 @@ describe('electron e2e Vitest project topology', () => {
         }
 
         const visibleProject = projectByName(config, 'e2e-visible-window');
-        const visibleFile = 'tests/e2e/electron/visibleWindowLifecycle.e2e.test.ts';
-        expect(visibleProject.test?.include).toEqual([visibleFile]);
+        expect(visibleProject.test?.include).toEqual(electronE2EVisibleWindowTestFiles);
         for (const projectName of ordinaryProjects) {
-            expect(projectByName(config, projectName).test?.include).not.toContain(visibleFile);
+            for (const visibleFile of electronE2EVisibleWindowTestFiles) {
+                expect(projectByName(config, projectName).test?.include).not.toContain(visibleFile);
+            }
         }
         expect(packageScripts['test:e2e:electron:visible-window'])
             .not.toContain('scripts/test-electron-e2e-headless.sh');
