@@ -1,0 +1,46 @@
+app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService.ts
+  s_54d017eb59948f::t_7ca6ab68b81fdf 296-298
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_54d017eb59948f::t_639bbf2bb1acae 285-287
+  s_54d017eb59948f::t_6e10889acce548 288
+native/pdf-page-ops/src/annotations.rs
+  s_54d017eb59948f::t_639bbf2bb1acae 132-135,139,251-254,258-262
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService.test.ts
+  s_54d017eb59948f::t_41d480a36f7ad4 324
+  s_54d017eb59948f::t_4ef535727eaf3f 282-323,325-326
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_54d017eb59948f::t_7bf16ab2d63da3 122-127,666-668,670,689,723
+  s_54d017eb59948f::t_6815a03ad103cf 503,604-608,2454,2456
+  s_54d017eb59948f::t_7fae1325ae949d 632-635
+  s_54d017eb59948f::t_66f37e5fb22d00 2403-2423,2429-2453,2455,2457-2474,2476-2517,2519-2522
+  s_54d017eb59948f::t_438b9a9f54bde7 536-596
+  s_54d017eb59948f::t_e5b9d3eb569cb4 505-535
+  s_54d017eb59948f::t_5200c248075e09 438-445,447,462-471,473,498,500,504,597-603,609-631,636-637,879-881,883,964-967,970-971,973
+  s_54d017eb59948f::t_27754a0a477a18 882,919-922,952-954,2475,2518
+  s_54d017eb59948f::t_088e3a210616fd 2424-2426,2428
+  s_54d017eb59948f::t_1e055fde7e68dd 497,499,501-502
+  s_54d017eb59948f::t_ec43f05d57315e 2402
+  s_54d017eb59948f::t_7ea73e9e131d7c 151,669,688,724,937,940,2427
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_54d017eb59948f::t_c94cd79fc228b4 921-925,936-954
+  s_54d017eb59948f::t_8c4f822870240c 965-985
+  s_54d017eb59948f::t_f1897769fe264c 895
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_54d017eb59948f::t_5a8961dd78107c 268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e1a9de30b6dcfa712c53a78c0f1fd38992fff1fb",
+  "prompts": {},
+  "sessions": {
+    "s_54d017eb59948f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f85-48a3-7f80-ae3f-b3e6dde552c5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
