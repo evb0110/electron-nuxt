@@ -517,6 +517,29 @@ function revealPrintWindowForNativeDialog(printWindow: BrowserWindow) {
     printWindow.showInactive();
 }
 
+function waitForPrintWindowReady(printWindow: BrowserWindow) {
+    // Electron emits this only after a hidden window has rendered a frame. The
+    // settle delay below still gives Chromium's PDF plugin time to finish its
+    // own load, but it must not be the first visibility guarantee.
+    return new Promise<void>((resolve, reject) => {
+        const cleanup = () => {
+            printWindow.removeListener('ready-to-show', handleReady);
+            printWindow.removeListener('closed', handleClosed);
+        };
+        const handleReady = () => {
+            cleanup();
+            resolve();
+        };
+        const handleClosed = () => {
+            cleanup();
+            reject(new Error('Print window closed before its surface became ready'));
+        };
+
+        printWindow.once('ready-to-show', handleReady);
+        printWindow.once('closed', handleClosed);
+    });
+}
+
 function hideRevealedPrintWindow(printWindow: BrowserWindow) {
     if (PRINT_WINDOW_VISIBLE_ON_DARWIN && !printWindow.isDestroyed()) {
         printWindow.hide();
@@ -657,6 +680,12 @@ export async function openNativePrintDialogForPath(
     let rasterSurface: Awaited<ReturnType<typeof createRasterPrintHtmlPath>> | null = null;
     const printWindow = createPrintWindow(ownerWindow, documentTitle);
     const releasePrintWindowTitle = lockPrintWindowTitle(printWindow, documentTitle);
+    const printWindowReady = PRINT_WINDOW_VISIBLE_ON_DARWIN && !shouldUseRasterSurface
+        ? waitForPrintWindowReady(printWindow)
+        : null;
+    if (printWindowReady) {
+        void printWindowReady.catch(() => undefined);
+    }
     let shouldRetainPrintWindow = false;
     const closeForAbort = () => {
         closePrintWindow(printWindow);
@@ -673,6 +702,8 @@ export async function openNativePrintDialogForPath(
         throwIfPrintHandoffAborted(handoffOptions.signal);
         if (rasterSurface) {
             await waitForRasterPrintSurfaceReady(printWindow);
+        } else if (printWindowReady) {
+            await printWindowReady;
         }
         throwIfPrintHandoffAborted(handoffOptions.signal);
         await delay(PRINT_LOAD_SETTLE_DELAY_MS);

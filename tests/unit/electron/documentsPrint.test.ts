@@ -25,12 +25,28 @@ const mocks = vi.hoisted(() => {
     ) => callback(true));
 
     class MockBrowserWindow {
+        public static emitReadyToShowByDefault = true;
+
+        private readonly eventHandlers = new Map<string, Set<(...args: unknown[]) => void>>();
+
+        public autoEmitReadyToShow = MockBrowserWindow.emitReadyToShowByDefault;
+
         public readonly close = vi.fn();
         public readonly hide = vi.fn();
         public readonly isDestroyed = vi.fn(() => false);
-        public readonly loadURL = vi.fn(async () => {});
-        public readonly once = vi.fn();
-        public readonly removeListener = vi.fn();
+        public readonly loadURL = vi.fn(async () => {
+            if (this.autoEmitReadyToShow) {
+                this.emit('ready-to-show');
+            }
+        });
+        public readonly once = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+            const handlers = this.eventHandlers.get(event) ?? new Set();
+            handlers.add(handler);
+            this.eventHandlers.set(event, handlers);
+        });
+        public readonly removeListener = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+            this.eventHandlers.get(event)?.delete(handler);
+        });
         public readonly setTitle = vi.fn();
         public readonly showInactive = vi.fn();
         public readonly webContents = {
@@ -44,6 +60,14 @@ const mocks = vi.hoisted(() => {
 
         public constructor(public readonly options: Record<string, unknown>) {
             browserWindowInstances.push(this);
+        }
+
+        public emit(event: string, ...args: unknown[]) {
+            const handlers = [...(this.eventHandlers.get(event) ?? [])];
+            this.eventHandlers.delete(event);
+            for (const handler of handlers) {
+                handler(...args);
+            }
         }
 
         public static fromWebContents = vi.fn(() => null);
@@ -179,6 +203,7 @@ describe('documents print', () => {
         process.env.EVB_APP_TEMP_NAMESPACE = 'test-profile';
         vi.clearAllMocks();
         mocks.browserWindowInstances.length = 0;
+        mocks.MockBrowserWindow.emitReadyToShowByDefault = true;
         mocks.appGetPath.mockReturnValue('/tmp');
         mocks.randomUUID.mockReturnValue('print-job-id');
         mocks.pdfPageCount = 1;
@@ -311,6 +336,7 @@ describe('documents print', () => {
 
     it.runIf(process.platform === 'darwin')('keeps the macOS PDF plugin window hidden until its surface settles', async () => {
         vi.useFakeTimers();
+        mocks.MockBrowserWindow.emitReadyToShowByDefault = false;
         const resultPromise = handlePrintPdfPath(
             windowContext,
             sourcePdfPath,
@@ -325,6 +351,10 @@ describe('documents print', () => {
         expect(printWindow?.loadURL).toHaveBeenCalled();
         expect(printWindow?.showInactive).not.toHaveBeenCalled();
 
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(printWindow?.showInactive).not.toHaveBeenCalled();
+
+        printWindow?.emit('ready-to-show');
         await vi.advanceTimersByTimeAsync(1_999);
         expect(printWindow?.showInactive).not.toHaveBeenCalled();
 
