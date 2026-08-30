@@ -1,0 +1,27 @@
+docs/adr/0002-pdfjs-renders-rust-writes-evb-edits.md
+  s_5510c4ed16ce9c::t_effa8d58379ff3 46-49
+docs/research/pdfjs-noview-editor-free-rendering-2026-08-30.md
+  s_5510c4ed16ce9c::t_28f561d4c52a12 1-194
+docs/research/rust-writer-decryption-lopdf-2026-08-30.md
+  s_5510c4ed16ce9c::t_5e7d4f94668b66 1-57
+docs/research/pdfjs-source-fork-build-2026-08-30.md
+  s_5510c4ed16ce9c::t_d0da02575d743d 1-28,30-37,39-70
+  s_5510c4ed16ce9c::t_2eadbb912e996c 29
+  s_5510c4ed16ce9c::t_df1797b1394f87 38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "059940e9f8d45d37bea6ab0ee3cbe342e3d95e64",
+  "prompts": {},
+  "sessions": {
+    "s_5510c4ed16ce9c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "15d2fd53-483d-423f-8f6d-6f6cbb64c73e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
