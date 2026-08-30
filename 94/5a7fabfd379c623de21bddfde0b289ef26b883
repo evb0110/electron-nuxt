@@ -1,0 +1,24 @@
+scripts/verify-packaged-native-tools.sh
+  s_90243f0be7f87a::t_926668647ba2b8 5,76
+scripts/release/packaged-native-root-set.sh
+  s_90243f0be7f87a::t_926668647ba2b8 1-12
+tests/unit/scripts/macosNativeToolWorkflow.test.ts
+  s_90243f0be7f87a::t_926668647ba2b8 22,203-204,207-208,210-219,221-224
+  s_90243f0be7f87a::t_533a43d72858b0 205-206
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "945a7fabfd379c623de21bddfde0b289ef26b883",
+  "prompts": {},
+  "sessions": {
+    "s_90243f0be7f87a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05417-6423-72d0-b202-16b96f09fe9a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
