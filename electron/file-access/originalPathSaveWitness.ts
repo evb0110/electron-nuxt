@@ -6,7 +6,9 @@ import {
     type FileHandle,
 } from 'node:fs/promises';
 import {
+    getWorkingCopyBackingEntry,
     getWorkingCopyOriginalFileExpectation,
+    refreshWorkingCopyOriginalFileExpectation,
     type IWorkingCopyOriginalFileExpectation,
 } from '@electron/file-access/workingCopyStore';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
@@ -440,7 +442,7 @@ export async function captureOriginalPathSaveWitness(
     originalPath: string,
     senderWebContentsId: number,
 ): Promise<IOriginalPathSaveWitness | null> {
-    const expected = getWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);
+    let expected = getWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);
     if (!expected) {
         return null;
     }
@@ -455,8 +457,18 @@ export async function captureOriginalPathSaveWitness(
         const snapshot = await captureHandleSnapshot(handle);
         const handleStat = await handle.stat({bigint: true});
         if (!expectationMatchesStat(expected, handleStat)) {
-            await handle.close().catch(() => undefined);
-            return null;
+            const restored = await restoreAppPublishedOriginalExpectation(
+                workingPath,
+                originalPath,
+                senderWebContentsId,
+                expected,
+                handleStat,
+            );
+            if (!restored) {
+                await handle.close().catch(() => undefined);
+                return null;
+            }
+            expected = restored;
         }
         if (!await matchesExpectedContentFingerprint(originalPath, expected, handleStat)) {
             await handle.close().catch(() => undefined);
@@ -472,6 +484,65 @@ export async function captureOriginalPathSaveWitness(
         await handle.close().catch(() => undefined);
         return null;
     }
+}
+
+async function restoreAppPublishedOriginalExpectation(
+    workingPath: string,
+    originalPath: string,
+    senderWebContentsId: number,
+    expected: IWorkingCopyOriginalFileExpectation,
+    originalStat: BigIntStats,
+) {
+    if (
+        expected.deviceId === undefined
+        || expected.inode === undefined
+        || (
+            expected.deviceId === originalStat.dev.toString()
+            && expected.inode === originalStat.ino.toString()
+        )
+    ) {
+        return null;
+    }
+
+    const registration = getWorkingCopyBackingEntry(workingPath, senderWebContentsId);
+    if (!registration || registration.originalPath !== originalPath) {
+        return null;
+    }
+
+    let workingStat: BigIntStats;
+    try {
+        workingStat = await stat(workingPath, {bigint: true});
+    } catch {
+        return null;
+    }
+    // The transition publishes a new inode, then links that immutable inode
+    // into the managed working-copy path. A restored checkpoint may still name
+    // the pre-publication inode. Recover only that exact pair. An in-place edit
+    // keeps the expected inode, while an external replacement leaves the
+    // working copy on a different inode, so both remain conflicts.
+    if (
+        !workingStat.isFile()
+        || workingStat.dev !== originalStat.dev
+        || workingStat.ino !== originalStat.ino
+        || originalStat.nlink < 2n
+    ) {
+        return null;
+    }
+    if (!await refreshWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId)) {
+        return null;
+    }
+    const currentRegistration = getWorkingCopyBackingEntry(workingPath, senderWebContentsId);
+    if (
+        !currentRegistration
+        || currentRegistration.registrationId !== registration.registrationId
+        || currentRegistration.originalPath !== originalPath
+    ) {
+        return null;
+    }
+    const restored = getWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);
+    return restored && expectationMatchesStat(restored, originalStat)
+        ? restored
+        : null;
 }
 
 /**

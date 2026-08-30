@@ -396,6 +396,145 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('second-committed-pdf');
     });
 
+    it('restores the app-published original witness after a hard reopen before a second save', async () => {
+        const {
+            originalPath,
+            stagedPath,
+            workingCopyPath,
+        } = await prepare();
+        const secondStagedPath = join(tempRoot, 'second-staged.pdf');
+        await writeFile(secondStagedPath, 'second-committed-pdf');
+        const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+        const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+        const {
+            clearWorkingCopyOriginalPaths,
+            getWorkingCopyOriginalFileExpectation,
+            refreshWorkingCopyOriginalFileExpectation,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const reopenedExpectation = getWorkingCopyOriginalFileExpectation(workingCopyPath, 7);
+        expect(reopenedExpectation).not.toBeNull();
+
+        await expect(transitionOriginalAndWorkingCopyRevision({
+            workingCopyPath,
+            originalPath,
+            reason: 'native-mutation',
+            senderId: 7,
+            captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
+            publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
+                stagedPath,
+                originalPath,
+                {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
+            ),
+            afterWorkingCopySync: async () => {
+                expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
+            },
+        })).resolves.toMatchObject({contentRevision: 2});
+
+        // A checkpoint can outlive the first app-owned atomic publication. A
+        // hard reopen restores that checkpoint witness onto the now-linked
+        // original and working-copy paths before the next native save.
+        clearWorkingCopyOriginalPaths();
+        await setWorkingCopyOriginalPath(workingCopyPath, originalPath, 7, {
+            backingState: 'eager',
+            originalFileExpectation: reopenedExpectation!,
+        });
+
+        await expect(transitionOriginalAndWorkingCopyRevision({
+            workingCopyPath,
+            originalPath,
+            reason: 'native-mutation',
+            senderId: 7,
+            captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
+            publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
+                secondStagedPath,
+                originalPath,
+                {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
+            ),
+        })).resolves.toMatchObject({contentRevision: 3});
+
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('second-committed-pdf');
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('second-committed-pdf');
+    });
+
+    it('rejects a same-inode external edit after the app-published witness is current', async () => {
+        const {
+            originalPath,
+            stagedPath,
+            workingCopyPath,
+        } = await prepare();
+        const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+        const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+        const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+
+        await expect(transitionOriginalAndWorkingCopyRevision({
+            workingCopyPath,
+            originalPath,
+            reason: 'native-mutation',
+            senderId: 7,
+            captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
+            publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
+                stagedPath,
+                originalPath,
+                {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
+            ),
+            afterWorkingCopySync: async () => {
+                expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
+            },
+        })).resolves.toMatchObject({contentRevision: 2});
+
+        await appendFile(originalPath, '-external-change');
+        await expect(captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7)).resolves.toBeNull();
+    });
+
+    it('rejects a distinct-inode external replacement after restoring a stale checkpoint', async () => {
+        const {
+            originalPath,
+            stagedPath,
+            workingCopyPath,
+        } = await prepare();
+        const replacementPath = join(tempRoot, 'external-replacement.pdf');
+        await writeFile(replacementPath, 'external-replacement');
+        const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+        const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+        const {
+            clearWorkingCopyOriginalPaths,
+            getWorkingCopyOriginalFileExpectation,
+            refreshWorkingCopyOriginalFileExpectation,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const staleExpectation = getWorkingCopyOriginalFileExpectation(workingCopyPath, 7);
+        expect(staleExpectation).not.toBeNull();
+
+        await expect(transitionOriginalAndWorkingCopyRevision({
+            workingCopyPath,
+            originalPath,
+            reason: 'native-mutation',
+            senderId: 7,
+            captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
+            publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
+                stagedPath,
+                originalPath,
+                {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
+            ),
+            afterWorkingCopySync: async () => {
+                expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
+            },
+        })).resolves.toMatchObject({contentRevision: 2});
+
+        clearWorkingCopyOriginalPaths();
+        await setWorkingCopyOriginalPath(workingCopyPath, originalPath, 7, {
+            backingState: 'eager',
+            originalFileExpectation: staleExpectation!,
+        });
+        await rename(replacementPath, originalPath);
+
+        await expect(captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7)).resolves.toBeNull();
+    });
+
     it('preserves a same-size external replacement made after save admission', async () => {
         const initialBytes = 'original-version';
         const externalBytes = 'external-version';
