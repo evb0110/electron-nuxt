@@ -631,6 +631,7 @@ async function initializePageIdentityStore(
     signal?: AbortSignal,
 ) {
     signal?.throwIfAborted();
+    const capturedRevision = await readWorkingCopyRevisionSidecar(workingCopyPath) ?? revision;
     const pageCount = await getPdfPageCount(workingCopyPath, signal ? {signal} : {});
     signal?.throwIfAborted();
     const sourceState = sourcePath
@@ -639,6 +640,17 @@ async function initializePageIdentityStore(
     const state = sourceState ?? createIdentityState(pageCount);
     signal?.throwIfAborted();
     if (shouldPublish()) {
+        await assertRevisionFence(
+            workingCopyPath,
+            {
+                ...state,
+                documentRevisionToken: capturedRevision.token,
+            },
+            capturedRevision,
+        );
+        if (!shouldPublish()) {
+            return state;
+        }
         const sidecarSource = state.sidecarSource;
         if (sidecarSource !== undefined) {
             await writeIdentityStateFromSidecarSource(
@@ -659,12 +671,12 @@ async function initializePageIdentityStore(
                             count: pageCount,
                         }],
                 },
-                revision.token,
+                capturedRevision.token,
                 PAGE_IDENTITY_SIDECAR_VERSION,
                 derivePageIdentity,
             );
         } else {
-            await writeIdentityState(workingCopyPath, state, revision.token);
+            await writeIdentityState(workingCopyPath, state, capturedRevision.token);
         }
     }
     return state;

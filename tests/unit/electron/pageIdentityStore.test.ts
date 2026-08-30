@@ -850,6 +850,10 @@ describe('page identity deltas', () => {
         const path = join(root, 'working.pdf');
         await writeFile(path, '%PDF fixture');
         vi.mocked(getPdfPageCount).mockClear();
+        let releasePageCount!: (pageCount: number) => void;
+        vi.mocked(getPdfPageCount).mockImplementationOnce(() => new Promise(resolve => {
+            releasePageCount = resolve;
+        }));
         schedulePageIdentityStoreInitialization(path, {
             version: 1,
             documentRef: path,
@@ -862,15 +866,66 @@ describe('page identity deltas', () => {
         expect(getPdfPageCount).not.toHaveBeenCalled();
         const task = awaitPageIdentityStoreInitialization(path);
         const rejection = expect(task).rejects.toMatchObject({name: 'AbortError'});
+        await vi.waitFor(() => expect(getPdfPageCount).toHaveBeenCalled());
         forgetPageIdentityStoreInitialization(path);
         const signal = vi.mocked(getPdfPageCount).mock.calls.at(-1)?.[1]?.signal;
         expect(signal?.aborted).toBe(true);
+        releasePageCount(3);
+        await rejection;
         await rm(root, {
             recursive: true,
             force: true,
         });
-        await rejection;
         await expect(readFile(`${path}.evb-pages.json`, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('publishes deferred initialization with the revision current when initialization starts', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-page-identity-revision-'));
+        const path = join(root, 'working.pdf');
+        await writeFile(path, '%PDF fixture');
+        schedulePageIdentityStoreInitialization(path, {
+            version: 1,
+            documentRef: path,
+            authority: 'electron-working-copy',
+            token: OLD_TOKEN,
+            contentRevision: 1,
+            mintedAt: 1,
+        });
+
+        await publishRevisionSidecar(path, NEW_TOKEN);
+        await awaitPageIdentityStoreInitialization(path);
+
+        const sidecar = JSON.parse(await readFile(`${path}.evb-pages.json`, 'utf8')) as {documentRevisionToken: string};
+        expect(sidecar.documentRevisionToken).toBe(NEW_TOKEN);
+        forgetPageIdentityStoreInitialization(path);
+    });
+
+    it('rejects deferred initialization when the working copy revision changes during page discovery', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-page-identity-revision-race-'));
+        const path = join(root, 'working.pdf');
+        await writeFile(path, '%PDF fixture');
+        await publishRevisionSidecar(path, OLD_TOKEN);
+        let releasePageCount!: (pageCount: number) => void;
+        vi.mocked(getPdfPageCount).mockImplementationOnce(() => new Promise(resolve => {
+            releasePageCount = resolve;
+        }));
+        schedulePageIdentityStoreInitialization(path, {
+            version: 1,
+            documentRef: path,
+            authority: 'electron-working-copy',
+            token: OLD_TOKEN,
+            contentRevision: 1,
+            mintedAt: 1,
+        });
+
+        const task = awaitPageIdentityStoreInitialization(path);
+        await vi.waitFor(() => expect(getPdfPageCount).toHaveBeenCalled());
+        await publishRevisionSidecar(path, NEW_TOKEN);
+        releasePageCount(3);
+
+        await expect(task).rejects.toThrow('Page identity state belongs to a stale document revision');
+        await expect(readFile(`${path}.evb-pages.json`, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+        forgetPageIdentityStoreInitialization(path);
     });
 
     it('conserves page IDs, OCR, and both search indexes through one structural delta', async () => {

@@ -20,6 +20,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
+import {atomicReplace} from '@electron/utils/atomicReplace';
 
 const log = createLogger('documentFileWriteAtomic');
 
@@ -157,9 +158,20 @@ export async function copyFileAtomic(
             }
         }
         assertNoSymlinkPathSegments(resolvedTargetPath);
-        await options.assertDestinationCurrent?.();
-        await measureCopyPhase(options.onPhase, 'rename', () =>
-            rename(temporaryPath, resolvedTargetPath));
+        await measureCopyPhase(options.onPhase, 'rename', async () => {
+            if (process.platform === 'win32') {
+                await atomicReplace(temporaryPath, resolvedTargetPath, {
+                    durable: false,
+                    markMutationCommitStarted: false,
+                    ...(options.assertDestinationCurrent === undefined
+                        ? {}
+                        : {assertDestinationCurrent: options.assertDestinationCurrent}),
+                });
+                return;
+            }
+            await options.assertDestinationCurrent?.();
+            await rename(temporaryPath, resolvedTargetPath);
+        });
         if (options.durable !== false) {
             await measureCopyPhase(options.onPhase, 'fsync-directory', () =>
                 fsyncDirectoryBestEffort(directoryPath));

@@ -150,14 +150,7 @@ pub(crate) fn load_qpdf_structural_incremental_pdf(
     let structure_output = create_private_temp_file(&temp.structure)?;
     let diagnostic_output = create_private_temp_file(&temp.diagnostics)?;
     let mut child = Command::new(qpdf_path)
-        .args([
-            "--suppress-recovery",
-            "--json-output=2",
-            "--json-key=qpdf",
-            "--json-stream-data=none",
-            "--decode-level=none",
-            "--",
-        ])
+        .args(["--suppress-recovery", "--json", "--decode-level=none", "--"])
         .arg(path)
         .stdout(Stdio::from(structure_output))
         .stderr(Stdio::from(diagnostic_output))
@@ -224,7 +217,8 @@ pub(crate) fn load_qpdf_structural_incremental_pdf(
         ));
     }
 
-    let (mut document, unavailable_base_streams) = parse_qpdf_structure(&temp.structure)?;
+    let (mut document, unavailable_base_streams) =
+        parse_qpdf_structure(&temp.structure, Some(path))?;
     let (previous_xref_start, xref_type) = read_terminal_xref(path, previous_len)?;
     document.xref_start = usize::try_from(previous_xref_start)
         .map_err(|_| "Previous PDF xref offset exceeds this platform's address space")?;
@@ -257,10 +251,82 @@ fn create_private_temp_file(path: &Path) -> Result<File> {
     options.open(path).map_err(io_domain_error)
 }
 
+enum QpdfRoot {
+    V2(QpdfRootV2),
+    V1(QpdfRootV1),
+}
+
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct QpdfRoot {
+struct QpdfRootV2 {
     qpdf: (QpdfMetadata, QpdfObjects),
+}
+
+#[derive(Deserialize)]
+struct QpdfRootV1 {
+    version: u64,
+    objects: QpdfLegacyObjects,
+}
+
+impl<'de> Deserialize<'de> for QpdfRoot {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct QpdfRootVisitor;
+
+        impl<'de> Visitor<'de> for QpdfRootVisitor {
+            type Value = QpdfRoot;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("qpdf JSON version 1 or 2")
+            }
+
+            fn visit_map<M>(self, mut map: M) -> std::result::Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut qpdf = None;
+                let mut version = None;
+                let mut objects = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "qpdf" => {
+                            if qpdf.is_some() {
+                                return Err(de::Error::duplicate_field("qpdf"));
+                            }
+                            qpdf = Some(map.next_value::<(QpdfMetadata, QpdfObjects)>()?);
+                        }
+                        "version" => {
+                            if version.is_some() {
+                                return Err(de::Error::duplicate_field("version"));
+                            }
+                            version = Some(map.next_value::<u64>()?);
+                        }
+                        "objects" => {
+                            if objects.is_some() {
+                                return Err(de::Error::duplicate_field("objects"));
+                            }
+                            objects = Some(map.next_value::<QpdfLegacyObjects>()?);
+                        }
+                        _ => {
+                            let _: serde::de::IgnoredAny = map.next_value()?;
+                        }
+                    }
+                }
+                if let Some(qpdf) = qpdf {
+                    return Ok(QpdfRoot::V2(QpdfRootV2 { qpdf }));
+                }
+                if let (Some(version), Some(objects)) = (version, objects) {
+                    return Ok(QpdfRoot::V1(QpdfRootV1 { version, objects }));
+                }
+                Err(de::Error::custom(
+                    "qpdf JSON is missing its versioned object section",
+                ))
+            }
+        }
+
+        deserializer.deserialize_map(QpdfRootVisitor)
+    }
 }
 
 #[derive(Deserialize)]
@@ -275,116 +341,161 @@ struct QpdfObjects {
     unavailable_base_streams: HashSet<ObjectId>,
 }
 
+struct QpdfLegacyObjects(QpdfObjects);
+
 impl<'de> Deserialize<'de> for QpdfObjects {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        struct QpdfObjectsVisitor;
+        deserialize_qpdf_objects(deserializer, false)
+    }
+}
 
-        impl<'de> Visitor<'de> for QpdfObjectsVisitor {
-            type Value = QpdfObjects;
+impl<'de> Deserialize<'de> for QpdfLegacyObjects {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_qpdf_objects(deserializer, true).map(Self)
+    }
+}
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a qpdf JSON object section")
-            }
+fn deserialize_qpdf_objects<'de, D>(
+    deserializer: D,
+    allow_legacy_encoding: bool,
+) -> std::result::Result<QpdfObjects, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct QpdfObjectsVisitor {
+        allow_legacy_encoding: bool,
+    }
 
-            fn visit_map<M>(self, mut map: M) -> std::result::Result<Self::Value, M::Error>
-            where
-                M: MapAccess<'de>,
-            {
-                let mut document = Document::with_version("1.7");
-                let mut unavailable_base_streams = HashSet::new();
-                let mut trailer_seen = false;
-                let mut retained_structure_cost = 0_usize;
-                while let Some((key, raw_envelope)) = map.next_entry::<String, Box<RawValue>>()? {
-                    let object_bytes =
-                        key.len()
-                            .checked_add(raw_envelope.get().len())
-                            .ok_or_else(|| {
-                                de::Error::custom("resource-limit: qpdf object size overflow")
-                            })?;
-                    if object_bytes > MAX_QPDF_OBJECT_BYTES {
-                        return Err(de::Error::custom(format!(
-                            "resource-limit: qpdf object exceeds the {MAX_QPDF_OBJECT_BYTES}-byte resource limit"
-                        )));
-                    }
-                    let envelope: Value =
-                        serde_json::from_str(raw_envelope.get()).map_err(de::Error::custom)?;
-                    let Some(envelope_cost) =
-                        qpdf_value_retained_cost(&envelope, MAX_QPDF_OBJECT_ELEMENTS)
-                    else {
-                        return Err(de::Error::custom(format!(
-                            "resource-limit: qpdf object exceeds the {MAX_QPDF_OBJECT_ELEMENTS}-element resource limit"
-                        )));
-                    };
-                    retained_structure_cost = retained_structure_cost
-                        .checked_add(key.len())
-                        .and_then(|cost| cost.checked_add(envelope_cost))
+    impl<'de> Visitor<'de> for QpdfObjectsVisitor {
+        type Value = QpdfObjects;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a qpdf JSON object section")
+        }
+
+        fn visit_map<M>(self, mut map: M) -> std::result::Result<Self::Value, M::Error>
+        where
+            M: MapAccess<'de>,
+        {
+            let mut document = Document::with_version("1.7");
+            let mut unavailable_base_streams = HashSet::new();
+            let mut trailer_seen = false;
+            let mut retained_structure_cost = 0_usize;
+            while let Some((key, raw_envelope)) = map.next_entry::<String, Box<RawValue>>()? {
+                let object_bytes =
+                    key.len()
+                        .checked_add(raw_envelope.get().len())
                         .ok_or_else(|| {
-                            de::Error::custom("resource-limit: qpdf structural size overflow")
+                            de::Error::custom("resource-limit: qpdf object size overflow")
                         })?;
-                    if retained_structure_cost > MAX_QPDF_RETAINED_STRUCTURE_BYTES {
-                        return Err(de::Error::custom(format!(
-                            "resource-limit: retained qpdf structure exceeds the {MAX_QPDF_RETAINED_STRUCTURE_BYTES}-byte estimated memory limit"
-                        )));
+                if object_bytes > MAX_QPDF_OBJECT_BYTES {
+                    return Err(de::Error::custom(format!(
+                        "resource-limit: qpdf object exceeds the {MAX_QPDF_OBJECT_BYTES}-byte resource limit"
+                    )));
+                }
+                let envelope: Value =
+                    serde_json::from_str(raw_envelope.get()).map_err(de::Error::custom)?;
+                let Some(envelope_cost) =
+                    qpdf_value_retained_cost(&envelope, MAX_QPDF_OBJECT_ELEMENTS)
+                else {
+                    return Err(de::Error::custom(format!(
+                        "resource-limit: qpdf object exceeds the {MAX_QPDF_OBJECT_ELEMENTS}-element resource limit"
+                    )));
+                };
+                retained_structure_cost = retained_structure_cost
+                    .checked_add(key.len())
+                    .and_then(|cost| cost.checked_add(envelope_cost))
+                    .ok_or_else(|| {
+                        de::Error::custom("resource-limit: qpdf structural size overflow")
+                    })?;
+                if retained_structure_cost > MAX_QPDF_RETAINED_STRUCTURE_BYTES {
+                    return Err(de::Error::custom(format!(
+                        "resource-limit: retained qpdf structure exceeds the {MAX_QPDF_RETAINED_STRUCTURE_BYTES}-byte estimated memory limit"
+                    )));
+                }
+                if key == "trailer" {
+                    if trailer_seen {
+                        return Err(de::Error::custom("qpdf JSON contains two trailers"));
                     }
-                    if key == "trailer" {
-                        if trailer_seen {
-                            return Err(de::Error::custom("qpdf JSON contains two trailers"));
-                        }
-                        let value = envelope.get("value").ok_or_else(|| {
-                            de::Error::custom("qpdf trailer is missing its value")
-                        })?;
-                        document.trailer = qpdf_dictionary(value).map_err(de::Error::custom)?;
-                        trailer_seen = true;
-                        continue;
-                    }
-                    if document.objects.len() == 1_000_000 {
-                        return Err(de::Error::custom(
-                            "resource-limit: qpdf structural output exceeds the 1000000-object resource limit",
-                        ));
-                    }
-                    let object_id = parse_qpdf_object_key(&key).map_err(de::Error::custom)?;
-                    if document.objects.contains_key(&object_id) {
-                        return Err(de::Error::custom(format!(
-                            "qpdf JSON repeats object {} {}",
+                    let value = if self.allow_legacy_encoding {
+                        &envelope
+                    } else {
+                        envelope
+                            .get("value")
+                            .ok_or_else(|| de::Error::custom("qpdf trailer is missing its value"))?
+                    };
+                    document.trailer = qpdf_dictionary_with_mode(value, self.allow_legacy_encoding)
+                        .map_err(de::Error::custom)?;
+                    trailer_seen = true;
+                    continue;
+                }
+                if document.objects.len() == 1_000_000 {
+                    return Err(de::Error::custom(
+                        "resource-limit: qpdf structural output exceeds the 1000000-object resource limit",
+                    ));
+                }
+                let object_id = parse_qpdf_object_key(&key, self.allow_legacy_encoding)
+                    .map_err(de::Error::custom)?;
+                if document.objects.contains_key(&object_id) {
+                    return Err(de::Error::custom(format!(
+                        "qpdf JSON repeats object {} {}",
+                        object_id.0, object_id.1
+                    )));
+                }
+                let object = if let Some(value) = envelope.get("value") {
+                    qpdf_object(value).map_err(de::Error::custom)?
+                } else if let Some(stream) = envelope.get("stream") {
+                    let dict = stream.get("dict").ok_or_else(|| {
+                        de::Error::custom(format!(
+                            "qpdf stream object {} {} is missing its dictionary",
                             object_id.0, object_id.1
-                        )));
-                    }
-                    let object = if let Some(value) = envelope.get("value") {
-                        qpdf_object(value).map_err(de::Error::custom)?
-                    } else if let Some(stream) = envelope.get("stream") {
-                        let dict = stream.get("dict").ok_or_else(|| {
-                            de::Error::custom(format!(
-                                "qpdf stream object {} {} is missing its dictionary",
-                                object_id.0, object_id.1
-                            ))
-                        })?;
+                        ))
+                    })?;
+                    unavailable_base_streams.insert(object_id);
+                    Object::Stream(Stream::with_position(
+                        qpdf_dictionary(dict).map_err(de::Error::custom)?,
+                        0,
+                    ))
+                } else if self.allow_legacy_encoding {
+                    let is_stream = envelope
+                        .as_object()
+                        .is_some_and(|values| values.contains_key("/Length"));
+                    if is_stream {
                         unavailable_base_streams.insert(object_id);
                         Object::Stream(Stream::with_position(
-                            qpdf_dictionary(dict).map_err(de::Error::custom)?,
+                            qpdf_dictionary_with_mode(&envelope, true)
+                                .map_err(de::Error::custom)?,
                             0,
                         ))
                     } else {
-                        return Err(de::Error::custom(format!(
-                            "qpdf object {key} has no value or stream"
-                        )));
-                    };
-                    document.objects.insert(object_id, object);
-                }
-                if !trailer_seen {
-                    return Err(de::Error::custom("qpdf JSON is missing its trailer"));
-                }
-                Ok(QpdfObjects {
-                    document,
-                    unavailable_base_streams,
-                })
+                        qpdf_object_with_mode(&envelope, true).map_err(de::Error::custom)?
+                    }
+                } else {
+                    return Err(de::Error::custom(format!(
+                        "qpdf object {key} has no value or stream"
+                    )));
+                };
+                document.objects.insert(object_id, object);
             }
+            if !trailer_seen {
+                return Err(de::Error::custom("qpdf JSON is missing its trailer"));
+            }
+            Ok(QpdfObjects {
+                document,
+                unavailable_base_streams,
+            })
         }
-
-        deserializer.deserialize_map(QpdfObjectsVisitor)
     }
+
+    deserializer.deserialize_map(QpdfObjectsVisitor {
+        allow_legacy_encoding,
+    })
 }
 
 fn qpdf_value_retained_cost(value: &Value, element_limit: usize) -> Option<usize> {
@@ -414,7 +525,10 @@ fn qpdf_value_retained_cost(value: &Value, element_limit: usize) -> Option<usize
     Some(estimated_bytes)
 }
 
-fn parse_qpdf_structure(path: &Path) -> Result<(Document, HashSet<ObjectId>)> {
+fn parse_qpdf_structure(
+    path: &Path,
+    source_pdf_path: Option<&Path>,
+) -> Result<(Document, HashSet<ObjectId>)> {
     let file = File::open(path).map_err(io_domain_error)?;
     if file.metadata().map_err(io_domain_error)?.len() > MAX_QPDF_STRUCTURE_BYTES as u64 {
         return Err(domain_error(
@@ -436,17 +550,57 @@ fn parse_qpdf_structure(path: &Path) -> Result<(Document, HashSet<ObjectId>)> {
         }
     })?;
     deserializer.end()?;
-    let QpdfRoot {
-        qpdf: (metadata, objects),
-    } = root;
-    if metadata.jsonversion != 2 {
-        return Err("qpdf JSON version is not 2".into());
-    }
-    let max_id = checked_qpdf_max_id(metadata.maxobjectid)?;
-    let QpdfObjects {
-        mut document,
-        unavailable_base_streams,
-    } = objects;
+    let (mut document, unavailable_base_streams, max_id, pdf_version) = match root {
+        QpdfRoot::V2(QpdfRootV2 {
+            qpdf: (metadata, objects),
+        }) => {
+            if metadata.jsonversion != 2 {
+                return Err("qpdf JSON version is not 2".into());
+            }
+            let max_id = checked_qpdf_max_id(metadata.maxobjectid)?;
+            let QpdfObjects {
+                document,
+                unavailable_base_streams,
+            } = objects;
+            (
+                document,
+                unavailable_base_streams,
+                max_id,
+                metadata.pdfversion,
+            )
+        }
+        QpdfRoot::V1(QpdfRootV1 { version, objects }) => {
+            if version != 1 {
+                return Err("qpdf JSON version is not 1 or 2".into());
+            }
+            let QpdfObjects {
+                document,
+                unavailable_base_streams,
+            } = objects.0;
+            let parsed_max_id = max_qpdf_object_id(&document)?;
+            let trailer_size = document
+                .trailer
+                .get(b"Size")
+                .map_err(|_| "qpdf legacy JSON trailer is missing /Size")?
+                .as_i64()
+                .map_err(|_| "qpdf legacy JSON trailer /Size is not an integer")?;
+            if trailer_size <= 0 {
+                return Err("qpdf legacy JSON trailer /Size must be positive".into());
+            }
+            let trailer_max_id = u64::try_from(trailer_size - 1)
+                .map_err(|_| "qpdf legacy JSON trailer /Size is invalid")?;
+            if trailer_max_id < u64::from(parsed_max_id) {
+                return Err(
+                    "qpdf legacy JSON trailer /Size is lower than a returned object number".into(),
+                );
+            }
+            let max_id = checked_qpdf_max_id(trailer_max_id)?;
+            let source_pdf_path =
+                source_pdf_path.ok_or("qpdf legacy JSON requires the source PDF path")?;
+            let pdf_version = read_pdf_version(source_pdf_path)?;
+            (document, unavailable_base_streams, max_id, pdf_version)
+        }
+    };
     if document
         .objects
         .keys()
@@ -454,12 +608,41 @@ fn parse_qpdf_structure(path: &Path) -> Result<(Document, HashSet<ObjectId>)> {
     {
         return Err("qpdf maxobjectid is lower than a returned object number".into());
     }
-    document.version = metadata.pdfversion;
+    document.version = pdf_version;
     document.max_id = max_id;
     if document.trailer.get(b"Root").is_err() {
         return Err("qpdf trailer is missing /Root".into());
     }
     Ok((document, unavailable_base_streams))
+}
+
+fn max_qpdf_object_id(document: &Document) -> Result<u32> {
+    let max_id = document
+        .objects
+        .keys()
+        .map(|object_id| u64::from(object_id.0))
+        .max()
+        .unwrap_or(0);
+    checked_qpdf_max_id(max_id)
+}
+
+fn read_pdf_version(path: &Path) -> Result<String> {
+    let mut file = File::open(path).map_err(io_domain_error)?;
+    let mut header = [0_u8; 1024];
+    let bytes_read = file.read(&mut header).map_err(io_domain_error)?;
+    let header = &header[..bytes_read];
+    let marker = b"%PDF-";
+    let start = header
+        .windows(marker.len())
+        .position(|window| window == marker)
+        .ok_or("PDF header is missing its version marker")?;
+    let version = header
+        .get(start + marker.len()..start + marker.len() + 3)
+        .ok_or("PDF header version is incomplete")?;
+    if !version[0].is_ascii_digit() || version[1] != b'.' || !version[2].is_ascii_digit() {
+        return Err("PDF header version is invalid".into());
+    }
+    Ok(format!("{}.{}", version[0] - b'0', version[2] - b'0'))
 }
 
 fn checked_qpdf_max_id(value: u64) -> Result<u32> {
@@ -475,12 +658,14 @@ fn checked_qpdf_max_id(value: u64) -> Result<u32> {
     Ok(max_id)
 }
 
-fn parse_qpdf_object_key(key: &str) -> Result<ObjectId> {
-    parse_qpdf_reference(
-        key.strip_prefix("obj:")
-            .ok_or("qpdf object key is missing obj prefix")?,
-    )
-    .ok_or_else(|| format!("qpdf object key is invalid: {key}").into())
+fn parse_qpdf_object_key(key: &str, allow_legacy_encoding: bool) -> Result<ObjectId> {
+    let reference = match key.strip_prefix("obj:") {
+        Some(reference) => reference,
+        None if allow_legacy_encoding => key,
+        None => return Err("qpdf object key is missing obj prefix".into()),
+    };
+    parse_qpdf_reference(reference)
+        .ok_or_else(|| format!("qpdf object key is invalid: {key}").into())
 }
 
 fn parse_qpdf_reference(value: &str) -> Option<ObjectId> {
@@ -491,17 +676,28 @@ fn parse_qpdf_reference(value: &str) -> Option<ObjectId> {
 }
 
 fn qpdf_dictionary(value: &Value) -> Result<Dictionary> {
+    qpdf_dictionary_with_mode(value, false)
+}
+
+fn qpdf_dictionary_with_mode(value: &Value, allow_legacy_encoding: bool) -> Result<Dictionary> {
     let values = value
         .as_object()
         .ok_or("qpdf dictionary value is not an object")?;
     let mut dictionary = Dictionary::new();
     for (key, value) in values {
-        dictionary.set(decode_qpdf_name(key)?, qpdf_object(value)?);
+        dictionary.set(
+            decode_qpdf_name(key)?,
+            qpdf_object_with_mode(value, allow_legacy_encoding)?,
+        );
     }
     Ok(dictionary)
 }
 
 fn qpdf_object(value: &Value) -> Result<Object> {
+    qpdf_object_with_mode(value, false)
+}
+
+fn qpdf_object_with_mode(value: &Value, allow_legacy_encoding: bool) -> Result<Object> {
     Ok(match value {
         Value::Null => Object::Null,
         Value::Bool(value) => Object::Boolean(*value),
@@ -522,15 +718,30 @@ fn qpdf_object(value: &Value) -> Result<Object> {
                 Object::Real(real)
             }
         }
-        Value::String(value) => qpdf_string_object(value)?,
-        Value::Array(values) => {
-            Object::Array(values.iter().map(qpdf_object).collect::<Result<Vec<_>>>()?)
+        Value::String(value) => {
+            if allow_legacy_encoding {
+                qpdf_string_object_with_mode(value, true)?
+            } else {
+                qpdf_string_object(value)?
+            }
         }
-        Value::Object(_) => Object::Dictionary(qpdf_dictionary(value)?),
+        Value::Array(values) => Object::Array(
+            values
+                .iter()
+                .map(|value| qpdf_object_with_mode(value, allow_legacy_encoding))
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        Value::Object(_) => {
+            Object::Dictionary(qpdf_dictionary_with_mode(value, allow_legacy_encoding)?)
+        }
     })
 }
 
 fn qpdf_string_object(value: &str) -> Result<Object> {
+    qpdf_string_object_with_mode(value, false)
+}
+
+fn qpdf_string_object_with_mode(value: &str, allow_legacy_encoding: bool) -> Result<Object> {
     if let Some(reference) = parse_qpdf_reference(value) {
         return Ok(Object::Reference(reference));
     }
@@ -547,6 +758,12 @@ fn qpdf_string_object(value: &str) -> Result<Object> {
         return Ok(Object::String(
             decode_hex_bytes(hex)?,
             StringFormat::Hexadecimal,
+        ));
+    }
+    if allow_legacy_encoding {
+        return Ok(Object::String(
+            value.as_bytes().to_vec(),
+            StringFormat::Literal,
         ));
     }
     Err("qpdf JSON string has an unknown PDF encoding".into())
@@ -719,7 +936,7 @@ mod tests {
         let metadata = file.metadata().unwrap();
         assert!(metadata.len() > 8 * 1024 * 1024);
         drop(file);
-        let parsed = parse_qpdf_structure(&path).unwrap();
+        let parsed = parse_qpdf_structure(&path, None).unwrap();
         assert_eq!(
             parsed
                 .0
@@ -793,6 +1010,38 @@ mod tests {
 
         assert_eq!(result.previous_document.max_id, 1);
         assert_eq!(result.previous_document.root_id().unwrap(), (1, 0));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn qpdf_legacy_json_loads_plain_strings_and_marks_streams_unavailable() {
+        let mut result = load_with_fake_qpdf(
+            0,
+            r#"{"version":1,"objects":{"trailer":{"/Size":3,"/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog","/Title":"Legacy title"},"2 0 R":{"/Length":4,"/Filter":"/FlateDecode"}}}"#,
+        )
+        .expect("qpdf legacy JSON should load");
+
+        assert_eq!(result.previous_document.version, "1.4");
+        assert_eq!(result.previous_document.max_id, 2);
+        assert_eq!(result.previous_document.root_id().unwrap(), (1, 0));
+        assert_eq!(
+            result
+                .previous_document
+                .get_object((1, 0))
+                .unwrap()
+                .as_dict()
+                .unwrap()
+                .get(b"Title")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            b"Legacy title"
+        );
+        assert!(matches!(
+            result.previous_document.get_object((2, 0)).unwrap(),
+            Object::Stream(_)
+        ));
+        assert!(result.opt_clone_object_to_new_document((2, 0)).is_err());
     }
 
     #[cfg(unix)]

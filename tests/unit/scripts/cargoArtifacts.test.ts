@@ -18,6 +18,7 @@ import {
     createNativeToolBuildPlan,
     getCargoBuildEnvironment,
     getCargoFingerprintEnvironment,
+    getNativeBuildEnvironment,
     parseNativeToolBuildRequest,
 } from '@scripts/build-native-tool.mjs';
 import { createWasmToolBuildPlan } from '@scripts/build-wasm-tool.mjs';
@@ -209,6 +210,23 @@ describe('Cargo artifact staging', () => {
             CARGO_TARGET_DIR: '/target',
             RUSTFLAGS: '--cfg receipt',
         });
+    });
+
+    it('statically links Linux native tools so release binaries keep the GLIBC baseline', () => {
+        const existing = {RUSTFLAGS: '--cfg release'};
+        expect(getNativeBuildEnvironment(existing, {platform: 'linux'})).toEqual({RUSTFLAGS: '--cfg release -C target-feature=+crt-static'});
+        expect(getNativeBuildEnvironment({RUSTFLAGS: '-C target-feature=+crt-static'}, {platform: 'linux'})).toEqual({RUSTFLAGS: '-C target-feature=+crt-static'});
+        expect(getNativeBuildEnvironment({}, {platform: 'linux'})).toEqual({RUSTFLAGS: '-C target-feature=+crt-static'});
+        expect(getNativeBuildEnvironment({
+            CARGO_ENCODED_RUSTFLAGS: '--cfg\x1frelease',
+            RUSTFLAGS: '--cfg ignored-by-cargo',
+        }, {platform: 'linux'})).toEqual({
+            CARGO_ENCODED_RUSTFLAGS: '--cfg\x1frelease\x1f-C\x1ftarget-feature=+crt-static',
+            RUSTFLAGS: '--cfg ignored-by-cargo',
+        });
+        const encodedStatic = {CARGO_ENCODED_RUSTFLAGS: '-C\x1ftarget-feature=+crt-static'};
+        expect(getNativeBuildEnvironment(encodedStatic, {platform: 'linux'})).toBe(encodedStatic);
+        expect(getNativeBuildEnvironment(existing, {platform: 'darwin'})).toBe(existing);
     });
 
     it('uses Cargo metadata as the authority for a shared workspace target directory', () => {

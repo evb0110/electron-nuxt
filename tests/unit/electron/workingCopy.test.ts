@@ -535,6 +535,7 @@ describe('workingCopy', () => {
             6,
         ]));
         const mutation = awaitPageIdentityStoreInitialization(workingPath);
+        await vi.waitFor(() => expect(getPdfPageCount).toHaveBeenCalled());
         pageCount.reject(new Error('page count unavailable'));
 
         await expect(mutation).rejects.toThrow('page count unavailable');

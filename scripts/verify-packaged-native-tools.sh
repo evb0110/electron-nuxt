@@ -71,8 +71,17 @@ echo "Verifying packaged native tools in: $native_tool_root"
 # staging generator, and the afterPack hook never drift on their target lists.
 packaged_family_roots=()
 while IFS=$'\037' read -r entry_scope staged_root _relative_path _entry_type _entry_label _entry_id; do
-  if [ "$entry_scope" = "native" ] && [[ " ${packaged_family_roots[*]} " != *" $staged_root "* ]]; then
-    packaged_family_roots+=("$staged_root")
+  if [ "$entry_scope" = "native" ]; then
+    already_present=0
+    for existing_root in ${packaged_family_roots[@]+"${packaged_family_roots[@]}"}; do
+      if [ "$existing_root" = "$staged_root" ]; then
+        already_present=1
+        break
+      fi
+    done
+    if [ "$already_present" -eq 0 ]; then
+      packaged_family_roots+=("$staged_root")
+    fi
   fi
 done < "$release_entries_file"
 

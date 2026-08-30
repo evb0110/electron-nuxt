@@ -148,6 +148,44 @@ export function getCargoBuildEnvironment({
     };
 }
 
+const STATIC_LINUX_RUSTFLAG = '-C target-feature=+crt-static';
+const STATIC_LINUX_ENCODED_RUSTFLAGS = [
+    '-C',
+    'target-feature=+crt-static',
+];
+
+export function getNativeBuildEnvironment(env, target) {
+    if (target.platform !== 'linux') {
+        return env;
+    }
+    if (env.CARGO_ENCODED_RUSTFLAGS !== undefined) {
+        const encodedRustflags = env.CARGO_ENCODED_RUSTFLAGS
+            .split('\x1f')
+            .filter(Boolean);
+        if (encodedRustflags.some(flag => flag.includes('+crt-static'))) {
+            return env;
+        }
+        return {
+            ...env,
+            CARGO_ENCODED_RUSTFLAGS: [
+                ...encodedRustflags,
+                ...STATIC_LINUX_ENCODED_RUSTFLAGS,
+            ].join('\x1f'),
+        };
+    }
+    const rustflags = env.RUSTFLAGS?.trim();
+    if (rustflags?.includes('+crt-static')) {
+        return env;
+    }
+    return {
+        ...env,
+        RUSTFLAGS: [
+            rustflags,
+            STATIC_LINUX_RUSTFLAG,
+        ].filter(Boolean).join(' '),
+    };
+}
+
 export function getCargoFingerprintEnvironment(env) {
     const exactKeys = new Set([
         'AR',
@@ -242,6 +280,11 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
         await generateNativeToolProtocols();
     }
     const cargoEnvironment = getCargoBuildEnvironment();
+    const buildEnvironment = getNativeBuildEnvironment(cargoEnvironment.env, target);
+    const cargoBuildEnvironment = {
+        ...cargoEnvironment,
+        env: buildEnvironment,
+    };
     const metadataArgs = [
         'metadata',
         '--manifest-path',
@@ -253,7 +296,7 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
     const metadataResult = spawnSync('cargo', metadataArgs, {
         cwd: projectRoot,
         encoding: 'utf8',
-        env: cargoEnvironment.env,
+        env: cargoBuildEnvironment.env,
     });
     if (metadataResult.status !== 0) {
         throw new Error(`cargo ${metadataArgs.join(' ')} failed with status ${metadataResult.status ?? 'unknown'}`);
@@ -283,8 +326,8 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
                 // Optional Cargo configuration files are absent in most worktrees.
             }
         }
-        const cargoHome = cargoEnvironment.env.CARGO_HOME
-            ? path.resolve(cargoEnvironment.env.CARGO_HOME)
+        const cargoHome = cargoBuildEnvironment.env.CARGO_HOME
+            ? path.resolve(cargoBuildEnvironment.env.CARGO_HOME)
             : path.join(os.homedir(), '.cargo');
         for (const cargoConfigName of [
             'config',
@@ -298,7 +341,7 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
                 // A user-level Cargo config is optional, but affects builds when present.
             }
         }
-        const environment = getCargoFingerprintEnvironment(cargoEnvironment.env);
+        const environment = getCargoFingerprintEnvironment(cargoBuildEnvironment.env);
         const input = await computeCargoInputFingerprint({
             cargoArgs: plan.cargoArgs,
             environment,
@@ -331,12 +374,12 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
     }
 
     console.log(
-        `Building ${missingPlans.length} native tool(s) with shared protocol/metadata preparation; sccache ${cargoEnvironment.sccache}.`,
+        `Building ${missingPlans.length} native tool(s) with shared protocol/metadata preparation; sccache ${cargoBuildEnvironment.sccache}.`,
     );
     for (const plan of missingPlans) {
         const result = spawnSync('cargo', plan.cargoArgs, {
             cwd: projectRoot,
-            env: cargoEnvironment.env,
+            env: cargoBuildEnvironment.env,
             stdio: 'inherit',
         });
         if (result.status !== 0) {
