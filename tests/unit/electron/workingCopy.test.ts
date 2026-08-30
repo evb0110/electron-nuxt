@@ -30,6 +30,14 @@ import type * as WorkingCopyStore from '@electron/file-access/workingCopyStore';
 import type * as FsPromises from 'fs/promises';
 
 let tempRoot = '';
+const originalPlatform = process.platform;
+
+function setPlatform(platform: NodeJS.Platform) {
+    Object.defineProperty(process, 'platform', {
+        configurable: true,
+        value: platform,
+    });
+}
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn((_name: string) => tempRoot) } }));
 
@@ -47,6 +55,7 @@ describe('workingCopy', () => {
     });
 
     afterEach(() => {
+        setPlatform(originalPlatform);
         delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
         delete process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE;
         vi.useRealTimers();
@@ -1126,6 +1135,86 @@ describe('workingCopy', () => {
         });
         expect(existsSync(workDir)).toBe(false);
         expect(existsSync(ocrDir)).toBe(false);
+    });
+
+    it('removes a stale atomic-replace backup after a Windows promotion crash when its destination survived', async () => {
+        setPlatform('win32');
+        const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+        const appTempDir = join(tempRoot, 'evb-viewer');
+        const workDir = join(appTempDir, 'pdf-work-orphaned-atomic-backup');
+        const destinationPath = join(workDir, 'document.pdf');
+        const backupPath = `${destinationPath}.bak-0123456789abcdef`;
+        mkdirSync(workDir, {recursive: true});
+        writeFileSync(destinationPath, new Uint8Array([2]));
+        writeFileSync(backupPath, new Uint8Array([1]));
+        const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
+        utimesSync(backupPath, staleDate, staleDate);
+
+        await cleanupStaleWorkingCopyDirectories();
+
+        expect(existsSync(destinationPath)).toBe(true);
+        expect(existsSync(backupPath)).toBe(false);
+    });
+
+    it('retains fresh, destinationless, active, and unrelated backup siblings during the Windows sweep', async () => {
+        setPlatform('win32');
+        const {
+            cleanupStaleWorkingCopyDirectories,
+            clearAllWorkingCopies,
+        } = await import('@electron/file-access/workingCopyCleanup');
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const appTempDir = join(tempRoot, 'evb-viewer');
+        const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
+        const createBackup = (name: string, hasDestination: boolean, backupDate: Date) => {
+            const workDir = join(appTempDir, `pdf-work-${name}`);
+            const destinationPath = join(workDir, `${name}.pdf`);
+            const backupPath = `${destinationPath}.bak-0123456789abcdef`;
+            mkdirSync(workDir, {recursive: true});
+            if (hasDestination) {
+                writeFileSync(destinationPath, new Uint8Array([2]));
+            }
+            writeFileSync(backupPath, new Uint8Array([1]));
+            utimesSync(backupPath, backupDate, backupDate);
+            utimesSync(workDir, staleDate, staleDate);
+            return {
+                backupPath,
+                destinationPath,
+                workDir,
+            };
+        };
+        const fresh = createBackup('fresh', true, new Date());
+        const destinationless = createBackup('destinationless', false, staleDate);
+        const active = createBackup('active', true, staleDate);
+        const unrelatedWorkDir = join(appTempDir, 'pdf-work-unrelated');
+        const unrelatedPath = join(unrelatedWorkDir, 'unrelated.bak-not-an-atomic-backup');
+        mkdirSync(unrelatedWorkDir, {recursive: true});
+        writeFileSync(unrelatedPath, new Uint8Array([3]));
+        utimesSync(unrelatedWorkDir, staleDate, staleDate);
+        const unmanagedDir = join(tempRoot, 'user-files');
+        const unmanagedDestinationPath = join(unmanagedDir, 'document.pdf');
+        const unmanagedBackupPath = `${unmanagedDestinationPath}.bak-0123456789abcdef`;
+        mkdirSync(unmanagedDir, {recursive: true});
+        writeFileSync(unmanagedDestinationPath, new Uint8Array([4]));
+        writeFileSync(unmanagedBackupPath, new Uint8Array([5]));
+        utimesSync(unmanagedBackupPath, staleDate, staleDate);
+        const originalPath = join(tempRoot, 'active-original.pdf');
+
+        try {
+            await setWorkingCopyOriginalPath(active.destinationPath, originalPath, undefined, {deferOriginalFileExpectation: true});
+            await cleanupStaleWorkingCopyDirectories();
+
+            expect(existsSync(fresh.backupPath)).toBe(true);
+            expect(existsSync(destinationless.backupPath)).toBe(true);
+            expect(existsSync(active.backupPath)).toBe(true);
+            expect(existsSync(unrelatedPath)).toBe(true);
+            expect(existsSync(fresh.workDir)).toBe(true);
+            expect(existsSync(destinationless.workDir)).toBe(true);
+            expect(existsSync(active.workDir)).toBe(true);
+            expect(existsSync(unrelatedWorkDir)).toBe(true);
+            expect(existsSync(unmanagedBackupPath)).toBe(true);
+        } finally {
+            await clearAllWorkingCopies();
+        }
     });
 
     it('never sweeps an actively registered working-copy directory', async () => {

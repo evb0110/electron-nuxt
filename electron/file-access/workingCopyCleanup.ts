@@ -43,6 +43,7 @@ import {
     clearPageIdentityStoreInitializations,
     forgetPageIdentityStoreInitialization,
 } from '@electron/file-access/pageIdentityStore';
+import {cleanupStaleAtomicReplaceBackups} from '@electron/utils/atomicReplace';
 import {
     cancelWorkingCopyMaterialization,
     ensureWorkingCopyMaterialized,
@@ -170,6 +171,30 @@ export async function cleanupStaleWorkingCopyDirectories(
         candidates.length,
         Math.max(1, Math.trunc(options.statConcurrency ?? 8)),
     );
+    const retainedAtomicReplaceBackupDirectories = new Set<string>();
+    let removedAtomicReplaceBackups = 0;
+    let nextBackupCleanupIndex = 0;
+
+    await Promise.all(Array.from({length: workerCount}, async () => {
+        while (nextBackupCleanupIndex < candidates.length) {
+            const candidateIndex = nextBackupCleanupIndex;
+            nextBackupCleanupIndex += 1;
+            const candidate = candidates[candidateIndex];
+            if (!candidate) {
+                continue;
+            }
+            const backupCleanup = await cleanupStaleAtomicReplaceBackups(candidate.workDir, {
+                isDestinationActive: destinationPath => isRegisteredWorkingCopyDirectory(dirname(destinationPath)),
+                maxAgeMs: STALE_WORK_DIR_MAX_AGE_MS,
+                now,
+            });
+            if (backupCleanup.hasRetainedBackup) {
+                retainedAtomicReplaceBackupDirectories.add(candidate.workDir);
+            }
+            removedAtomicReplaceBackups += backupCleanup.removedBackups;
+        }
+    }));
+
     let nextCandidateIndex = 0;
 
     await Promise.all(Array.from({length: workerCount}, async () => {
@@ -194,6 +219,9 @@ export async function cleanupStaleWorkingCopyDirectories(
             if (isRegisteredWorkingCopyDirectory(workDir)) {
                 continue;
             }
+            if (retainedAtomicReplaceBackupDirectories.has(workDir)) {
+                continue;
+            }
 
             if (await safeRemoveDirectory(workDir)) {
                 removedDirectories += 1;
@@ -204,6 +232,9 @@ export async function cleanupStaleWorkingCopyDirectories(
         }
     }));
 
+    if (removedAtomicReplaceBackups > 0) {
+        logger.info(`Cleaned stale atomic replace backups: ${removedAtomicReplaceBackups}`);
+    }
     if (removedDirectories > 0 || removedOcrDirectories > 0) {
         logger.info(
             `Cleaned stale working copy temp directories (work=${removedDirectories}, ocr=${removedOcrDirectories}, scanned=${candidates.length})`,
