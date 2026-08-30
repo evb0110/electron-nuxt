@@ -351,9 +351,9 @@ async function proveThumbnailReachability(
     page: Page,
     telemetry: IScaleAcceptanceTelemetry,
 ) {
-    await openDocumentSidebarTab(page, 'Pages', STEP_TIMEOUT_MS);
     for (const pageNumber of TARGET_PAGES) {
         await goToPageViaToolbar(page, thumbnailNeighbor(pageNumber), STEP_TIMEOUT_MS);
+        await openDocumentSidebarTab(page, 'Pages', STEP_TIMEOUT_MS);
         await page.waitForFunction((targetPage: number) => {
             const thumbnail = document.querySelector<HTMLElement>(
                 `.editor-pane.is-active .pdf-thumbnail[data-page="${String(targetPage)}"]`,
@@ -400,13 +400,13 @@ async function proveOutlineReachability(
     page: Page,
     telemetry: IScaleAcceptanceTelemetry,
 ) {
-    await openDocumentSidebarTab(page, 'Bookmarks', STEP_TIMEOUT_MS);
     for (const [
         index,
         pageNumber,
     ] of TARGET_PAGES.entries()) {
         const title = TARGET_OUTLINE_TITLES[index]!;
         await goToPageViaToolbar(page, pageNumber, STEP_TIMEOUT_MS);
+        await openDocumentSidebarTab(page, 'Bookmarks', STEP_TIMEOUT_MS);
         await waitForOutlineTitle(page, title);
         await goToPageViaToolbar(page, thumbnailNeighbor(pageNumber), STEP_TIMEOUT_MS);
         await clickOutlineTitle(page, title);
