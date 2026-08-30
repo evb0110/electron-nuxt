@@ -58,7 +58,12 @@ pub(crate) fn validate_appended_revision_postconditions(
     if let Some(markup) = &mutations.markup {
         validate_markup_document_postconditions(document, markup)?;
     }
-    validate_placed_image_document_postconditions(document, &mutations.placed_images, modified_at)
+    validate_placed_image_document_postconditions(
+        document,
+        &mutations.placed_images,
+        placed_image_chunk_index(mutations),
+        modified_at,
+    )
 }
 
 pub(crate) fn validate_note_text_document_postconditions(
@@ -412,6 +417,7 @@ pub(crate) fn validate_annotation_delete_document_postconditions(
 pub(crate) fn validate_placed_image_document_postconditions(
     document: &impl PdfObjectSource,
     images: &[PlacedImage],
+    chunk_index: u32,
     modified_at: &str,
 ) -> Result<()> {
     if images.is_empty() {
@@ -428,7 +434,7 @@ pub(crate) fn validate_placed_image_document_postconditions(
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let expected_geometry = placed_image_geometry(image, page_view, page_rotation)?;
-        let expected_name = placed_image_annotation_name(image, index, modified_at);
+        let expected_name = placed_image_annotation_name(image, index, chunk_index, modified_at);
         let found = get_page_annots(document, page_id)?
             .iter()
             .filter_map(|object| object.as_reference().ok())

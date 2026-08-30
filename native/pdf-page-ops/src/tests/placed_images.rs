@@ -5,6 +5,20 @@
         ]
     }
 
+    struct PlacedImageContinuationCleanup {
+        pdf_path: PathBuf,
+        image_paths: Vec<PathBuf>,
+    }
+
+    impl Drop for PlacedImageContinuationCleanup {
+        fn drop(&mut self) {
+            let _ = remove_file(&self.pdf_path);
+            for image_path in &self.image_paths {
+                let _ = remove_file(image_path);
+            }
+        }
+    }
+
     fn placed_jpeg_mutation() -> PlacedImage {
         let bytes_path = temp_pdf_path("placed-image-jpeg");
         let bytes = minimal_jpeg_bytes();
@@ -228,6 +242,71 @@
 
         let _ = remove_file(input_path);
         let _ = remove_file(output_path);
+    }
+
+    #[test]
+    fn keeps_fallback_names_unique_when_placed_images_continue_across_chunks() {
+        let (mut document, page_id) = create_test_document();
+        let pdf_path = temp_pdf_path("continued-placed-images");
+        let mut original_bytes = Vec::new();
+        document.save_to(&mut original_bytes).unwrap();
+        write(&pdf_path, &original_bytes).unwrap();
+
+        let mut images = (0..17).map(|_| placed_jpeg_mutation()).collect::<Vec<_>>();
+        let trailing_images = images.split_off(16);
+        let image_paths = images
+            .iter()
+            .chain(trailing_images.iter())
+            .map(|image| image.bytes_path.clone())
+            .collect::<Vec<_>>();
+        let _cleanup = PlacedImageContinuationCleanup {
+            pdf_path: pdf_path.clone(),
+            image_paths,
+        };
+        let modified_at = "D:20260829121300+04'00'";
+        append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &NativeMutationsFile {
+                placed_images: images,
+                ..NativeMutationsFile::default()
+            },
+            modified_at,
+        )
+        .unwrap();
+        append_native_mutations(
+            &pdf_path,
+            &pdf_path,
+            &NativeMutationsFile {
+                placed_images: trailing_images,
+                continuation: Some(NativeMutationContinuation {
+                    family: NativeMutationContinuationFamily::PlacedImages,
+                    chunk_index: 1,
+                    chunk_count: 2,
+                    bookmark_path: Vec::new(),
+                }),
+                ..NativeMutationsFile::default()
+            },
+            modified_at,
+        )
+        .unwrap();
+
+        let loaded = Document::load(&pdf_path).unwrap();
+        let mut names = get_page_annots(&loaded, page_id)
+            .unwrap()
+            .iter()
+            .filter_map(|annotation| annotation.as_reference().ok())
+            .filter_map(|annotation_id| loaded.get_dictionary(annotation_id).ok())
+            .filter_map(|annotation| annotation.get(b"NM").ok().and_then(pdf_string_to_text))
+            .collect::<Vec<_>>();
+        assert_eq!(names.len(), 17);
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), 17);
+        assert!(names.iter().any(|name| {
+            name == "placed-image-native:0:16:D:20260829121300+04'00'"
+        }));
+
     }
 
     #[test]

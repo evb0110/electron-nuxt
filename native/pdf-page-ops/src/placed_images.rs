@@ -238,15 +238,29 @@ pub(crate) fn is_jpeg_start_of_frame_marker(marker: u8) -> bool {
 pub(crate) fn placed_image_annotation_name(
     image: &PlacedImage,
     index: usize,
+    chunk_index: u32,
     modified_at: &str,
 ) -> String {
     if let Some(stable_key) = image.stable_key.as_deref() {
         return stable_key.trim().to_string();
     }
+    let global_index = u64::from(chunk_index)
+        .saturating_mul(MAX_PLACED_IMAGE_MUTATIONS as u64)
+        .saturating_add(index as u64);
     format!(
         "placed-image-native:{}:{}:{}",
-        image.page_index, index, modified_at
+        image.page_index, global_index, modified_at
     )
+}
+
+pub(crate) fn placed_image_chunk_index(mutations: &NativeMutationsFile) -> u32 {
+    mutations
+        .continuation
+        .as_ref()
+        .filter(|continuation| {
+            continuation.family == NativeMutationContinuationFamily::PlacedImages
+        })
+        .map_or(0, |continuation| continuation.chunk_index)
 }
 
 pub(crate) fn placed_image_geometry(
@@ -397,6 +411,7 @@ pub(crate) fn build_placed_image_stamp_dict(
     geometry: &PlacedImageGeometry,
     appearance_ref: ObjectId,
     index: usize,
+    chunk_index: u32,
     modified_at: &str,
 ) -> Dictionary {
     let mut ap_dict = Dictionary::new();
@@ -411,7 +426,12 @@ pub(crate) fn build_placed_image_stamp_dict(
     dict.set(
         "NM",
         Object::String(
-            encode_pdf_text_string(&placed_image_annotation_name(image, index, modified_at)),
+            encode_pdf_text_string(&placed_image_annotation_name(
+                image,
+                index,
+                chunk_index,
+                modified_at,
+            )),
             StringFormat::Hexadecimal,
         ),
     );
@@ -500,6 +520,7 @@ pub(crate) fn apply_placed_images(
     document: &mut Document,
     images: &[PlacedImage],
     image_bytes: Vec<Vec<u8>>,
+    chunk_index: u32,
     modified_at: &str,
 ) -> Result<()> {
     if images.is_empty() {
@@ -531,7 +552,7 @@ pub(crate) fn apply_placed_images(
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let jpeg_info = parse_jpeg_info(&image_bytes)?;
         let geometry = placed_image_geometry(image, page_view, page_rotation)?;
-        let expected_name = placed_image_annotation_name(image, index, modified_at);
+        let expected_name = placed_image_annotation_name(image, index, chunk_index, modified_at);
         let existing_stamp_ref =
             resolve_placed_image_target(document, page_id, image, &expected_name)?;
         let existing_appearance = existing_stamp_ref
@@ -553,8 +574,14 @@ pub(crate) fn apply_placed_images(
             document.add_object(appearance_stream)
         };
         let stamp_ref = existing_stamp_ref.unwrap_or_else(|| document.new_object_id());
-        let stamp_dict =
-            build_placed_image_stamp_dict(image, &geometry, appearance_ref, index, modified_at);
+        let stamp_dict = build_placed_image_stamp_dict(
+            image,
+            &geometry,
+            appearance_ref,
+            index,
+            chunk_index,
+            modified_at,
+        );
         document.set_object(stamp_ref, Object::Dictionary(stamp_dict));
         if existing_stamp_ref.is_none() {
             annotation_indexes
@@ -573,6 +600,7 @@ pub(crate) fn apply_placed_images_incremental(
     incremental: &mut IncrementalDocument,
     images: &[PlacedImage],
     image_bytes: Vec<Vec<u8>>,
+    chunk_index: u32,
     modified_at: &str,
 ) -> Result<()> {
     if images.is_empty() {
@@ -604,7 +632,7 @@ pub(crate) fn apply_placed_images_incremental(
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let jpeg_info = parse_jpeg_info(&image_bytes)?;
         let geometry = placed_image_geometry(image, page_view, page_rotation)?;
-        let expected_name = placed_image_annotation_name(image, index, modified_at);
+        let expected_name = placed_image_annotation_name(image, index, chunk_index, modified_at);
         let existing_stamp_ref = resolve_placed_image_target(
             &AppendedRevision::new(incremental),
             page_id,
@@ -636,8 +664,14 @@ pub(crate) fn apply_placed_images_incremental(
         };
         let stamp_ref =
             existing_stamp_ref.unwrap_or_else(|| incremental.new_document.new_object_id());
-        let stamp_dict =
-            build_placed_image_stamp_dict(image, &geometry, appearance_ref, index, modified_at);
+        let stamp_dict = build_placed_image_stamp_dict(
+            image,
+            &geometry,
+            appearance_ref,
+            index,
+            chunk_index,
+            modified_at,
+        );
         incremental
             .new_document
             .set_object(stamp_ref, Object::Dictionary(stamp_dict));

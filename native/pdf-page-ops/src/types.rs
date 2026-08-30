@@ -134,7 +134,7 @@ fn deserialize_placed_images<'de, D>(
 where
     D: serde::Deserializer<'de>,
 {
-    deserialize_bounded_vec::<D, PlacedImage, 16>(deserializer)
+    deserialize_bounded_vec::<D, PlacedImage, MAX_PLACED_IMAGE_MUTATIONS>(deserializer)
 }
 
 #[derive(Clone, Deserialize)]
@@ -160,6 +160,7 @@ pub(crate) enum NativeMutationContinuationFamily {
 }
 
 pub(crate) const MAX_MARKUP_GEOMETRY_ITEMS: usize = 512;
+pub(crate) const MAX_PLACED_IMAGE_MUTATIONS: usize = 16;
 pub(crate) const MAX_SHAPE_MUTATION_POINTS: usize = 20_000;
 pub(crate) const MAX_SHAPE_MUTATION_STROKES: usize = 4_096;
 

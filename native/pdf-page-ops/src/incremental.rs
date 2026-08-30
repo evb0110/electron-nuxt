@@ -302,7 +302,13 @@ fn apply_native_mutations_internal(
     }
     if !mutations.placed_images.is_empty() {
         let image_bytes = take_or_validate_placed_image_payloads(mutations)?;
-        apply_placed_images(document, &mutations.placed_images, image_bytes, modified_at)?;
+        apply_placed_images(
+            document,
+            &mutations.placed_images,
+            image_bytes,
+            placed_image_chunk_index(mutations),
+            modified_at,
+        )?;
     }
     Ok(())
 }
@@ -395,6 +401,7 @@ fn apply_native_mutations_incremental_internal(
             incremental,
             &mutations.placed_images,
             image_bytes,
+            placed_image_chunk_index(mutations),
             modified_at,
         )?;
     }

@@ -509,7 +509,7 @@ pub(crate) fn validate_markup_mutation(markup: &MarkupMutation) -> Result<()> {
 }
 
 pub(crate) fn validate_placed_images(images: &[PlacedImage]) -> Result<()> {
-    if images.len() > 16 {
+    if images.len() > MAX_PLACED_IMAGE_MUTATIONS {
         return Err(domain_error(
             NativeErrorCode::TooLarge,
             "Too many placed image mutations",
