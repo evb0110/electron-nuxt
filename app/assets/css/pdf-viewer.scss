@@ -336,6 +336,19 @@ html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-
     pointer-events: none;
 }
 
+.pdfViewer.pdfViewer--resize-transition .annotation-editor-layer.disabled.nonEditing .freeTextEditor,
+.pdfViewer.pdfViewer--resize-transition .annotationEditorLayer.disabled.nonEditing .freeTextEditor,
+.pdfViewer.pdfViewer--resize-transition .annotation-editor-layer.disabled.nonEditing .freeTextEditor > .resizers,
+.pdfViewer.pdfViewer--resize-transition .annotationEditorLayer.disabled.nonEditing .freeTextEditor > .resizers,
+.pdfViewer.pdfViewer--resize-transition .annotation-editor-layer.disabled.nonEditing .freeTextEditor > .resizers > .resizer,
+.pdfViewer.pdfViewer--resize-transition .annotationEditorLayer.disabled.nonEditing .freeTextEditor > .resizers > .resizer,
+.pdfViewer.pdfViewer--resize-transition .annotation-editor-layer.disabled.nonEditing .freeTextEditor .overlay,
+.pdfViewer.pdfViewer--resize-transition .annotationEditorLayer.disabled.nonEditing .freeTextEditor .overlay {
+    /* stylelint-disable declaration-no-important -- css-important-allow: transition input must stay locked even when PDF.js marks FreeText controls interactive. */
+    pointer-events: none !important;
+    /* stylelint-enable declaration-no-important */
+}
+
 /* ── Container & Viewer ────────────────────────────────────────────── */
 
 .pdfViewer {

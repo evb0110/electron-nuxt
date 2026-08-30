@@ -596,6 +596,24 @@ async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
     await page.mouse.move(handle.x, handle.y);
     await setIssue139VisibilityProbePhase(page, 'freetext-resize-pointerdown');
     await page.mouse.down();
+    await expect.poll(async () => page.evaluate(() => {
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        const editor = host?.querySelector<HTMLElement>('.freeTextEditor.selectedEditor');
+        const pageContainer = editor?.closest<HTMLElement>('.page_container');
+        const layer = editor?.closest<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
+        const textLayer = pageContainer?.querySelector<HTMLElement>('.textLayer, .text-layer');
+        const rootClasses = document.documentElement.classList;
+        return {
+            gestureClassActive: rootClasses.contains('pdf-resizing-nwse')
+                || rootClasses.contains('pdf-resizing-nesw'),
+            layerPointerEvents: layer ? getComputedStyle(layer).pointerEvents : null,
+            textLayerPointerEvents: textLayer ? getComputedStyle(textLayer).pointerEvents : null,
+        };
+    }), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
+        gestureClassActive: true,
+        layerPointerEvents: 'auto',
+        textLayerPointerEvents: 'none',
+    });
     await setIssue139VisibilityProbePhase(page, 'freetext-resize-drag');
     await page.mouse.move(handle.x + 48, handle.y + 24, {steps: 8});
     await setIssue139VisibilityProbePhase(page, 'freetext-resize-pointerup');
@@ -3815,7 +3833,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         await enablePdfDiagnosticSession(session.page, {render: true});
         await openAnnotationsTab(session.page, 30_000);
 
-        await expect.poll(async () => session.page.evaluate(() => {
+        await expect.poll(async () => session!.page.evaluate(() => {
             const probeWindow = window as IWorkspaceExposeProbeWindow;
             const workspace = probeWindow.__evbFindWorkspaceExpose?.({requiredProperties: ['annotationComments']}) as {annotationComments?: unknown[] | {value?: unknown[]}} | null;
             const comments = workspace?.annotationComments;
@@ -3855,8 +3873,8 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             saveBaselineEventId,
             sentinels,
         );
-        onTestFinished(() => stopIssue139VisibilityProbe(session.page));
-        await expect.poll(async () => session.page.evaluate(() => {
+        onTestFinished(() => stopIssue139VisibilityProbe(session!.page));
+        await expect.poll(async () => session!.page.evaluate(() => {
             const probeWindow = window as IIssue139VisibilityProbeWindow & IWorkspaceExposeProbeWindow;
             const workspace = probeWindow.__evbFindWorkspaceExpose?.({requiredProperties: ['annotationComments']}) as {annotationComments?: unknown[] | {value?: unknown[]}} | null;
             const comments = workspace?.annotationComments;
@@ -3904,8 +3922,8 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             fixturePath,
             {
                 label: 'issue 139 transition save',
-                onTimeout: () => session.stop(),
-                diagnostics: () => `phase=issue-139-transition-save session=${session.name}`,
+                onTimeout: () => session!.stop(),
+                diagnostics: () => `phase=issue-139-transition-save session=${session!.name}`,
             },
         );
         let transitionError: unknown;
@@ -3983,6 +4001,18 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(transitionFrames.length).toBeGreaterThan(0);
         for (const frame of frames) {
             expect(frame.visibleSentinels, JSON.stringify(frame)).toContain(resizeSentinel);
+            // Escape briefly hands persisted FreeText from the editor layer
+            // back to PDF.js' page annotation layer. During that handoff the
+            // text-bearing DOM nodes can be absent even though the page pixels
+            // remain painted. Assert every sentinel once the layout probe is
+            // in the transition path, and keep the handoff frame covered by
+            // the selected editor/layer paint checks below.
+            if (![
+                'freetext-resize-escape',
+                'freetext-resize-select',
+            ].includes(frame.phase)) {
+                expect(frame.visibleSentinels, JSON.stringify(frame)).toEqual(expect.arrayContaining(sentinels));
+            }
             expect(frame.canonicalCount, JSON.stringify(frame)).toBe(persistedSentinels.length);
             expect(frame.sidebarCount, JSON.stringify(frame)).toBe(persistedSentinels.length);
             expect(
@@ -4001,7 +4031,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             timeoutMs: LARGE_PDF_TIMEOUT_MS,
         });
         await expect.poll(
-            () => readIssue139ApplicationCounts(session.page),
+            () => readIssue139ApplicationCounts(session!.page),
             {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS},
         ).toEqual({
             canonicalCount: persistedSentinels.length,
@@ -4014,6 +4044,45 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 subtype: '/FreeText',
             })),
         ));
+        await qpdfCheck(fixtureRealPath);
+        await stopIssue139VisibilityProbe(session.page);
+        await waitForCrashCheckpointPath(session.name, fixtureRealPath);
+        const transitionProcesses = readSessionProcessSnapshot(session.name);
+        const reopenedSession = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+            keepNuxt: true,
+        });
+        if (!reopenedSession) {
+            throw new Error('Issue 139 transition save did not produce a hard-restart session');
+        }
+        await expectProcessesExited(transitionProcesses.pids);
+        session = reopenedSession;
+        await waitForRestoredDocument(session.page, fixtureRealPath);
+        await waitForPdfLoaded(session.page, LARGE_PDF_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, LARGE_PDF_TIMEOUT_MS);
+        await openAnnotationsTab(session.page, 30_000);
+        await expect.poll(
+            () => readIssue139ApplicationCounts(session.page),
+            {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS},
+        ).toEqual({
+            canonicalCount: sentinels.length,
+            sidebarCount: sentinels.length,
+        });
+        await session.page.waitForFunction((expectedTexts: string[]) => {
+            const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+            const sidebarText = host?.querySelector('.notes-list')?.textContent ?? '';
+            return expectedTexts.every(expectedText => sidebarText.includes(expectedText));
+        }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, sentinels);
+        // PDF.js mounts annotation DOM only for the visible viewport. The
+        // sidebar count plus the independent PDF object check below cover all
+        // five notes after reopen; waitForPdfLoaded above covers the rendered
+        // page canvas without making lazy annotation mounting a false failure.
+        const reopenedNotes = await readPdfNoteContents(fixtureRealPath);
+        const reopenedSentinelNotes = reopenedNotes.filter(note => sentinels.includes(note.contents));
+        expect(reopenedSentinelNotes).toHaveLength(sentinels.length);
+        expect(reopenedSentinelNotes.map(note => note.contents).sort()).toEqual([...sentinels].sort());
+        expect(reopenedSentinelNotes.every(note => note.subtype === '/FreeText')).toBe(true);
     }, LARGE_PDF_TIMEOUT_MS);
 
     it('creates, saves, and reopens an ordinary FreeText box on a large PDF', async () => {
