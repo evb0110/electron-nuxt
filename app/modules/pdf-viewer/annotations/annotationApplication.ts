@@ -64,6 +64,7 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/pdfAnnotationPreviewTextTypes';
 import {getOptionalNumber} from '@app/services/pdfjs/runtime';
 import {isTextMarkupSubtype} from '@app/services/pdf/annotationSubtype';
+import {resolvePdfAnnotationCanonicalKind} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/resolvePdfAnnotationCanonicalKind';
 import {BrowserLogger} from '@app/utils/browserLogger';
 
 const ANNOTATION_VERIFICATION_RANGE_BYTES = 1024 * 1024;
@@ -175,11 +176,6 @@ function markerRectsEqual(
 function isPersistedSummary(comment: IAnnotationCommentSummary) {
     return comment.source === 'pdf'
         || Boolean(normalizePdfJsAnnotationId(comment.annotationId));
-}
-
-function isImportedFreeTextSummary(comment: IAnnotationCommentSummary) {
-    return comment.source === 'pdf'
-        && comment.subtype?.trim().toLowerCase() === 'freetext';
 }
 
 function toMarkupSubtype(value: string | null | undefined): TMarkupSubtype | null {
@@ -379,11 +375,12 @@ export class AnnotationApplication {
                 this.store.import(entity);
                 return;
             }
-            // `hasNote` distinguishes point-note/sidebar semantics from a
-            // regular FreeText box. A persisted FreeText still needs a
-            // canonical entity so its visible editor has an identity and can
-            // participate in save and delete projection.
-            if (!comment.hasNote && !isImportedFreeTextSummary(comment)) {
+            const canonicalKind = comment.source === 'pdf'
+                ? resolvePdfAnnotationCanonicalKind(comment.subtype, comment.hasNote === true)
+                : comment.hasNote
+                    ? 'sticky-note'
+                    : null;
+            if (canonicalKind !== 'sticky-note') {
                 return;
             }
             const entity: IStickyNoteEntity = {
