@@ -82,13 +82,16 @@ import {
 import {
     callWorkspaceCommand,
     collectWorkspaceExposeDebugState,
+    getLatestAutomationEventId,
     getWorkspaceToolbarSnapshot,
     installWorkspaceExposeProbe,
     readWorkspaceStateValues,
+    waitForAutomationEvent,
     waitForSaveFrontierReady,
     type IWorkspaceExpose,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import {enablePdfDiagnosticSession} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 
 const LARGE_PDF_TIMEOUT_MS = 360_000;
 const LARGE_PDF_SAVE_TIMEOUT_MS = 8_000;
@@ -163,6 +166,9 @@ interface IQpdfObjectRef {
     generationNumber: number;
     objectNumber: number;
 }
+const exactZaliznyakIt = process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] === '1'
+    ? it
+    : it.skip;
 
 interface ICommentAtPointViewer {commentAtPoint?: (
     pageNumber: number,
@@ -225,6 +231,446 @@ interface IVerifiedStickyNote {
 interface IStagedArtifactCaptureWindow extends Window {
     __largePdfStagedArtifactCapture?: {artifact: ITypedStagedArtifact | null;};
     __resumeLargePdfStagedArtifactCommit?: () => void;
+}
+
+interface IIssue139VisibilityFrame {
+    annotationVisualIdentities: number[];
+    canonicalCount: number;
+    editorIdentities: number[];
+    editorKeys: string[];
+    layerIdentities: number[];
+    paintedFreeTextCount: number;
+    phase: string;
+    resizeTransitionActive: boolean;
+    revisionToken: string | null;
+    sidebarCount: number;
+    visibleSentinels: string[];
+}
+
+interface IIssue139VisibilityProbeWindow extends Window {
+    __issue139IsPainted?: (element: HTMLElement, boundary: HTMLElement) => boolean;
+    __issue139VisibilityProbeStop?: boolean;
+    __issue139VisibilityFrames?: IIssue139VisibilityFrame[];
+    __issue139VisibilityProbeDone?: boolean;
+    __issue139VisibilityProbePhase?: string;
+}
+
+async function setIssue139VisibilityProbePhase(page: Page, phase: string) {
+    await page.evaluate((nextPhase: string) => {
+        (window as IIssue139VisibilityProbeWindow).__issue139VisibilityProbePhase = nextPhase;
+    }, phase);
+}
+
+async function startIssue139VisibilityProbe(
+    page: Page,
+    afterEventId: number,
+    sentinels: string[],
+) {
+    await page.evaluate((input: {
+        afterEventId: number;
+        sentinels: string[];
+    }) => {
+        const probeWindow = window as IIssue139VisibilityProbeWindow & IWorkspaceExposeProbeWindow;
+        const annotationVisualIdentities = new WeakMap<Element, number>();
+        const editorIdentities = new WeakMap<Element, number>();
+        const layerIdentities = new WeakMap<Element, number>();
+        let nextAnnotationVisualIdentity = 1;
+        let nextEditorIdentity = 1;
+        let nextLayerIdentity = 1;
+        probeWindow.__issue139VisibilityFrames = [];
+        probeWindow.__issue139VisibilityProbeStop = false;
+        probeWindow.__issue139VisibilityProbeDone = false;
+        probeWindow.__issue139VisibilityProbePhase = 'baseline';
+
+        const identityFor = (
+            identities: WeakMap<Element, number>,
+            element: Element,
+            next: () => number,
+        ) => {
+            const existing = identities.get(element);
+            if (existing !== undefined) {
+                return existing;
+            }
+            const identity = next();
+            identities.set(element, identity);
+            return identity;
+        };
+        const isPainted = (element: HTMLElement, boundary: HTMLElement) => {
+            let current: HTMLElement | null = element;
+            while (current && boundary.contains(current)) {
+                const style = getComputedStyle(current);
+                if (
+                    current.hidden
+                    || style.display === 'none'
+                    || style.visibility === 'hidden'
+                    || Number(style.opacity || '1') <= 0
+                ) {
+                    return false;
+                }
+                if (current === boundary) {
+                    break;
+                }
+                current = current.parentElement;
+            }
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        };
+        probeWindow.__issue139IsPainted = isPainted;
+        const unwrap = <T>(value: T | {value?: T} | undefined) => (
+            value && typeof value === 'object' && 'value' in value
+                ? value.value
+                : value
+        );
+        const probeStartedAt = performance.now();
+        const maxFrames = 20_000;
+        const maxDurationMs = 355_000;
+        const sample = () => {
+            if (probeWindow.__issue139VisibilityProbeStop === true) {
+                probeWindow.__issue139VisibilityProbeDone = true;
+                return;
+            }
+            const committed = probeWindow.__evbTestApi?.getAutomationEvents?.().some(event => (
+                event.type === 'save-committed' && event.id > input.afterEventId
+            )) === true;
+            if (committed) {
+                probeWindow.__issue139VisibilityProbeDone = true;
+                return;
+            }
+            const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+            if (!host) {
+                if (performance.now() - probeStartedAt >= maxDurationMs) {
+                    probeWindow.__issue139VisibilityProbeDone = true;
+                    return;
+                }
+                requestAnimationFrame(sample);
+                return;
+            }
+            const editors = Array.from(host.querySelectorAll<HTMLElement>(
+                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+            ));
+            const visibleEditors = editors.filter(editor => (
+                probeWindow.__issue139IsPainted?.(editor, host) === true
+            ));
+            const annotationVisuals = Array.from(host.querySelectorAll<HTMLElement>(
+                '.annotationLayer .freeTextAnnotation, .annotation-layer .freeTextAnnotation',
+            ));
+            const visibleAnnotationVisuals = annotationVisuals.filter(annotation => (
+                probeWindow.__issue139IsPainted?.(annotation, host) === true
+            ));
+            const layers = Array.from(host.querySelectorAll<HTMLElement>(
+                '.annotationEditorLayer, .annotation-editor-layer',
+            ));
+            const workspace = probeWindow.__evbFindWorkspaceExpose?.({requiredProperties: ['annotationComments']}) as {
+                annotationComments?: unknown[] | {value?: unknown[]};
+                documentRevisionToken?: string | null | {value?: string | null};
+            } | null;
+            const comments = unwrap(workspace?.annotationComments);
+            const revisionToken = unwrap(workspace?.documentRevisionToken);
+            probeWindow.__issue139VisibilityFrames?.push({
+                annotationVisualIdentities: visibleAnnotationVisuals.map(annotation => identityFor(
+                    annotationVisualIdentities,
+                    annotation,
+                    () => nextAnnotationVisualIdentity++,
+                )),
+                canonicalCount: Array.isArray(comments) ? comments.length : -1,
+                editorIdentities: visibleEditors.map(editor => identityFor(
+                    editorIdentities,
+                    editor,
+                    () => nextEditorIdentity++,
+                )),
+                editorKeys: visibleEditors.map(editor => (
+                    editor.dataset.annotationId
+                    ?? editor.dataset.editorId
+                    ?? editor.id
+                )).filter(Boolean).sort(),
+                layerIdentities: layers.filter(layer => (
+                    probeWindow.__issue139IsPainted?.(layer, host) === true
+                )).map(layer => identityFor(
+                    layerIdentities,
+                    layer,
+                    () => nextLayerIdentity++,
+                )),
+                paintedFreeTextCount: visibleEditors.length + visibleAnnotationVisuals.length,
+                phase: probeWindow.__issue139VisibilityProbePhase ?? 'unknown',
+                resizeTransitionActive: host.querySelector('.pdfViewer')
+                    ?.classList.contains('pdfViewer--resize-transition') === true,
+                revisionToken: typeof revisionToken === 'string' ? revisionToken : null,
+                sidebarCount: host.querySelectorAll('.notes-list .note-item').length,
+                // Persisted ordinary FreeText is painted by PDF.js' page
+                // annotation appearance after a restart. Its DOM annotation
+                // node can be deliberately non-interactive while a live
+                // editor is being created, so keep the sentinel check tied to
+                // the node's text rather than treating that implementation
+                // detail as a disappearance of the page content.
+                visibleSentinels: input.sentinels.filter(sentinel => (
+                    visibleEditors.some(editor => editor.textContent?.includes(sentinel) === true)
+                    || visibleAnnotationVisuals.some(annotation => (
+                        annotation.textContent?.includes(sentinel) === true
+                    ))
+                )),
+            });
+            const reachedLimit = (probeWindow.__issue139VisibilityFrames?.length ?? 0) >= maxFrames
+                || performance.now() - probeStartedAt >= maxDurationMs;
+            if (committed || reachedLimit) {
+                probeWindow.__issue139VisibilityProbeDone = true;
+                return;
+            }
+            requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+    }, {
+        afterEventId,
+        sentinels,
+    });
+}
+
+async function readIssue139VisibilityProbe(page: Page) {
+    await page.waitForFunction(() => (
+        (window as IIssue139VisibilityProbeWindow).__issue139VisibilityProbeDone === true
+    ), {timeout: LARGE_PDF_TIMEOUT_MS});
+    return page.evaluate(() => (
+        (window as IIssue139VisibilityProbeWindow).__issue139VisibilityFrames ?? []
+    ));
+}
+
+async function getIssue139VisibilityFrameCount(page: Page) {
+    if (page.isClosed()) {
+        return 0;
+    }
+    return page.evaluate(() => (
+        (window as IIssue139VisibilityProbeWindow).__issue139VisibilityFrames?.length ?? 0
+    ));
+}
+
+async function readIssue139ApplicationCounts(page: Page) {
+    return page.evaluate(() => {
+        const probeWindow = window as IWorkspaceExposeProbeWindow;
+        const workspace = probeWindow.__evbFindWorkspaceExpose?.({requiredProperties: ['annotationComments']}) as {annotationComments?: unknown[] | {value?: unknown[]}} | null;
+        const comments = workspace?.annotationComments;
+        const value = comments && !Array.isArray(comments) && 'value' in comments
+            ? comments.value
+            : comments;
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        return {
+            canonicalCount: Array.isArray(value) ? value.length : -1,
+            sidebarCount: host?.querySelectorAll('.notes-list .note-item').length ?? 0,
+        };
+    });
+}
+
+async function waitForIssue139VisibilityFrame(
+    page: Page,
+    phase: string,
+    afterFrameCount: number,
+) {
+    await page.waitForFunction((input: {
+        afterFrameCount: number;
+        phase: string;
+    }) => {
+        const frames = (window as IIssue139VisibilityProbeWindow).__issue139VisibilityFrames ?? [];
+        return frames.length > input.afterFrameCount
+            && frames.some(frame => frame.phase === input.phase);
+    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, {
+        afterFrameCount,
+        phase,
+    });
+}
+
+async function stopIssue139VisibilityProbe(page: Page) {
+    if (page.isClosed()) {
+        return;
+    }
+    try {
+        await page.evaluate(async () => {
+            const probeWindow = window as IIssue139VisibilityProbeWindow;
+            probeWindow.__issue139VisibilityProbeStop = true;
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            delete probeWindow.__issue139VisibilityFrames;
+            delete probeWindow.__issue139IsPainted;
+            delete probeWindow.__issue139VisibilityProbePhase;
+            delete probeWindow.__issue139VisibilityProbeStop;
+        });
+    } catch (error) {
+        if (!isPageContextUnavailableError(error)) {
+            throw error;
+        }
+    }
+}
+
+async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
+    await page.waitForFunction(() => {
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        return host?.querySelector('.pdfViewer')
+            ?.classList.contains('pdfViewer--resize-transition') === false;
+    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS});
+    await setIssue139VisibilityProbePhase(page, 'freetext-resize-escape');
+    await page.keyboard.press('Escape');
+    await setIssue139VisibilityProbePhase(page, 'freetext-resize-select');
+    const editorPoint = await page.evaluate((expectedText: string) => {
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        const editor = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
+            .find(candidate => candidate.textContent?.includes(expectedText) === true);
+        const rect = editor?.getBoundingClientRect();
+        return rect
+            ? {
+                x: rect.left + 3,
+                y: rect.top + 3,
+            }
+            : null;
+    }, sentinel);
+    if (!editorPoint) {
+        throw new Error(`FreeText editor for ${sentinel} was not found`);
+    }
+    await page.mouse.click(editorPoint.x, editorPoint.y);
+    await page.waitForFunction((expectedText: string) => {
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        const editor = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
+            .find(candidate => candidate.textContent?.includes(expectedText) === true);
+        const handleRect = editor?.querySelector<HTMLElement>('.resizer.bottomRight')
+            ?.getBoundingClientRect();
+        return editor?.classList.contains('selectedEditor') === true
+            && editor.querySelector('.overlay.enabled') !== null
+            && (handleRect?.width ?? 0) > 0
+            && (handleRect?.height ?? 0) > 0;
+    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, sentinel);
+    await setIssue139VisibilityProbePhase(page, 'freetext-resize-handle');
+    const handle = await page.evaluate((expectedText: string) => {
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        const editor = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
+            .find(candidate => candidate.textContent?.includes(expectedText) === true);
+        const editorRect = editor?.getBoundingClientRect();
+        const handleRect = editor?.querySelector<HTMLElement>('.resizer.bottomRight')
+            ?.getBoundingClientRect();
+        const hitTarget = handleRect
+            ? document.elementFromPoint(
+                handleRect.left + handleRect.width / 2,
+                handleRect.top + handleRect.height / 2,
+            )
+            : null;
+        const hitStack = handleRect
+            ? document.elementsFromPoint(
+                handleRect.left + handleRect.width / 2,
+                handleRect.top + handleRect.height / 2,
+            ).slice(0, 8).map(element => ({
+                className: typeof element.className === 'string' ? element.className : '',
+                pointerEvents: getComputedStyle(element).pointerEvents,
+                tagName: element.tagName,
+                zIndex: getComputedStyle(element).zIndex,
+            }))
+            : [];
+        return editorRect && handleRect
+            ? {
+                editorHeight: editorRect.height,
+                editorWidth: editorRect.width,
+                editorClassName: editor?.className ?? '',
+                editorZIndex: editor ? getComputedStyle(editor).zIndex : null,
+                editorOpacity: editor ? getComputedStyle(editor).opacity : null,
+                editorPointerEvents: editor ? getComputedStyle(editor).pointerEvents : null,
+                layerClassName: editor?.parentElement?.className ?? '',
+                layerZIndex: editor?.parentElement ? getComputedStyle(editor.parentElement).zIndex : null,
+                layerOpacity: editor?.parentElement ? getComputedStyle(editor.parentElement).opacity : null,
+                layerPointerEvents: editor?.parentElement
+                    ? getComputedStyle(editor.parentElement).pointerEvents
+                    : null,
+                resizerPointerEvents: editor?.querySelector<HTMLElement>('.resizer.bottomRight')
+                    ? getComputedStyle(editor.querySelector<HTMLElement>('.resizer.bottomRight')!).pointerEvents
+                    : null,
+                hitTarget: hitTarget
+                    ? {
+                        className: hitTarget.className,
+                        isBottomRightResizer: hitTarget instanceof HTMLElement
+                            && hitTarget.closest('.resizer.bottomRight') !== null,
+                        tagName: hitTarget.tagName,
+                    }
+                    : null,
+                hitStack,
+                textLayerClassName: editor?.parentElement?.parentElement?.querySelector('.textLayer, .text-layer')?.className ?? '',
+                x: handleRect.left + handleRect.width / 2,
+                y: handleRect.top + handleRect.height / 2,
+            }
+            : null;
+    }, sentinel);
+    if (!handle) {
+        throw new Error(`FreeText resize handle for ${sentinel} was not found`);
+    }
+    await page.mouse.move(handle.x, handle.y);
+    await setIssue139VisibilityProbePhase(page, 'freetext-resize-pointerdown');
+    await page.mouse.down();
+    await setIssue139VisibilityProbePhase(page, 'freetext-resize-drag');
+    await page.mouse.move(handle.x + 48, handle.y + 24, {steps: 8});
+    await setIssue139VisibilityProbePhase(page, 'freetext-resize-pointerup');
+    await page.mouse.up();
+    const immediatelyResized = await page.evaluate((expectedText: string) => {
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        const editor = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
+            .find(candidate => candidate.textContent?.includes(expectedText) === true);
+        const rect = editor?.getBoundingClientRect();
+        const trace = (window as Window & {__getPdfRenderTrace?: () => Array<{
+            event: string;
+            payload: Record<string, unknown>
+        }>}).__getPdfRenderTrace?.() ?? [];
+        return {
+            rect: rect
+                ? {
+                    height: rect.height,
+                    width: rect.width,
+                }
+                : null,
+            resizeTrace: trace.filter(entry => entry.event === 'freetext-resize').slice(-8),
+        };
+    }, sentinel);
+    await page.waitForFunction((input: {
+        beforeHeight: number;
+        beforeWidth: number;
+        sentinel: string;
+    }) => {
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        const editor = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
+            .find(candidate => candidate.textContent?.includes(input.sentinel) === true);
+        const rect = editor?.getBoundingClientRect();
+        return rect !== undefined
+            && rect.width > input.beforeWidth
+            && rect.height > input.beforeHeight;
+    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, {
+        beforeHeight: handle.editorHeight,
+        beforeWidth: handle.editorWidth,
+        sentinel,
+    });
+    const resized = await page.evaluate((expectedText: string) => {
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        const editor = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
+            .find(candidate => candidate.textContent?.includes(expectedText) === true);
+        const rect = editor?.getBoundingClientRect();
+        return rect
+            ? {
+                height: rect.height,
+                width: rect.width,
+            }
+            : null;
+    }, sentinel);
+    if (!resized) {
+        throw new Error(`Resized FreeText editor for ${sentinel} was not found`);
+    }
+    return {
+        after: resized,
+        before: {
+            height: handle.editorHeight,
+            width: handle.editorWidth,
+        },
+        editorClassName: handle.editorClassName,
+        editorOpacity: handle.editorOpacity,
+        editorPointerEvents: handle.editorPointerEvents,
+        editorZIndex: handle.editorZIndex,
+        hitTarget: handle.hitTarget,
+        hitStack: handle.hitStack,
+        immediatelyAfter: immediatelyResized,
+        layerClassName: handle.layerClassName,
+        layerOpacity: handle.layerOpacity,
+        layerPointerEvents: handle.layerPointerEvents,
+        layerZIndex: handle.layerZIndex,
+        resizerPointerEvents: handle.resizerPointerEvents,
+        textLayerClassName: handle.textLayerClassName,
+    };
 }
 
 async function installStagedArtifactCapture(page: Page) {
@@ -3293,6 +3739,281 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             String(secondRevisionToken),
             restoredSecondIdentity.workingCopyPath,
         );
+    }, LARGE_PDF_TIMEOUT_MS);
+
+    exactZaliznyakIt('keeps ordinary FreeText visible through issue 139 save and layout transitions', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            throw new Error('Issue 139 visibility test requires a live Electron session');
+        }
+        const fixtureSourcePath = largePdfFixture.path;
+        if (!fixtureSourcePath) {
+            throw new Error(`Required exact Zaliznyak fixture is unavailable: ${largePdfFixture.reason}`);
+        }
+        await admitExactZaliznyakFixture(fixtureSourcePath);
+        const fixturePath = copyLargePdfFixture(`issue-139-visibility-${Date.now()}.pdf`);
+        const sentinels = [
+            'issue139-a',
+            'issue139-b',
+            'issue139-c',
+            'issue139-d',
+            'adsfadsf',
+        ];
+        const persistedSentinels = sentinels.slice(0, -1);
+
+        await openPdfInApp(session.page, fixturePath, LARGE_PDF_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, LARGE_PDF_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, LARGE_PDF_TIMEOUT_MS);
+        await enablePdfDiagnosticSession(session.page, {render: true});
+        await openAnnotationsTab(session.page, 30_000);
+
+        const positions = [
+            {
+                x: 0.25,
+                y: 0.2,
+            },
+            {
+                x: 0.65,
+                y: 0.32,
+            },
+            {
+                x: 0.3,
+                y: 0.52,
+            },
+            {
+                x: 0.68,
+                y: 0.64,
+            },
+        ];
+        for (const [
+            index,
+            position,
+        ] of positions.entries()) {
+            expect(await createFreeTextAnnotationWithPointer(
+                session.page,
+                sentinels[index]!,
+                position,
+            )).toBe(index + 1);
+        }
+        await waitForSaveFrontierReady(session.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+        await saveViaWindowHandle(session.page, LARGE_PDF_TIMEOUT_MS);
+
+        const fixtureRealPath = realpathSync(fixturePath);
+        await waitForCrashCheckpointPath(session.name, fixtureRealPath);
+        const preRestartProcesses = readSessionProcessSnapshot(session.name);
+        const persistedSession = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+            keepNuxt: true,
+        });
+        if (!persistedSession) {
+            throw new Error('Issue 139 persistence setup did not produce a new Electron process');
+        }
+        await expectProcessesExited(preRestartProcesses.pids);
+        session = persistedSession;
+        await waitForRestoredDocument(session.page, fixtureRealPath);
+        await enablePdfDiagnosticSession(session.page, {render: true});
+        await openAnnotationsTab(session.page, 30_000);
+
+        await expect.poll(async () => session.page.evaluate(() => {
+            const probeWindow = window as IWorkspaceExposeProbeWindow;
+            const workspace = probeWindow.__evbFindWorkspaceExpose?.({requiredProperties: ['annotationComments']}) as {annotationComments?: unknown[] | {value?: unknown[]}} | null;
+            const comments = workspace?.annotationComments;
+            const value = comments && !Array.isArray(comments) && 'value' in comments
+                ? comments.value
+                : comments;
+            const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+            return {
+                canonicalCount: Array.isArray(value) ? value.length : -1,
+                editorCount: host?.querySelectorAll(
+                    '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+                ).length ?? 0,
+                sidebarCount: host?.querySelectorAll('.notes-list .note-item').length ?? 0,
+                visualCount: host?.querySelectorAll(
+                    '.annotationLayer .freeTextAnnotation, .annotation-layer .freeTextAnnotation',
+                ).length ?? 0,
+            };
+        }), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
+            canonicalCount: persistedSentinels.length,
+            editorCount: 0,
+            sidebarCount: persistedSentinels.length,
+            visualCount: persistedSentinels.length,
+        });
+        expect(await createFreeTextAnnotationWithPointer(
+            session.page,
+            sentinels.at(-1)!,
+            {
+                x: 0.48,
+                y: 0.76,
+            },
+        )).toBe(sentinels.length);
+        await waitForSaveFrontierReady(session.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+        await installStagedArtifactCapture(session.page);
+        const saveBaselineEventId = await getLatestAutomationEventId(session.page);
+        await startIssue139VisibilityProbe(
+            session.page,
+            saveBaselineEventId,
+            sentinels,
+        );
+        onTestFinished(() => stopIssue139VisibilityProbe(session.page));
+        await expect.poll(async () => session.page.evaluate(() => {
+            const probeWindow = window as IIssue139VisibilityProbeWindow & IWorkspaceExposeProbeWindow;
+            const workspace = probeWindow.__evbFindWorkspaceExpose?.({requiredProperties: ['annotationComments']}) as {annotationComments?: unknown[] | {value?: unknown[]}} | null;
+            const comments = workspace?.annotationComments;
+            const value = comments && !Array.isArray(comments) && 'value' in comments
+                ? comments.value
+                : comments;
+            const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+            const editors = Array.from(host?.querySelectorAll<HTMLElement>(
+                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+            ) ?? []);
+            const annotationVisuals = Array.from(host?.querySelectorAll<HTMLElement>(
+                '.annotationLayer .freeTextAnnotation, .annotation-layer .freeTextAnnotation',
+            ) ?? []);
+            return {
+                canonicalCount: Array.isArray(value) ? value.length : -1,
+                editorCount: editors.length,
+                paintedFreeTextCount: [
+                    ...editors,
+                    ...annotationVisuals,
+                ].filter(element => (
+                    host !== null
+                    && probeWindow.__issue139IsPainted?.(element, host) === true
+                )).length,
+                sidebarCount: host?.querySelectorAll('.notes-list .note-item').length ?? 0,
+            };
+        }), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
+            canonicalCount: persistedSentinels.length,
+            editorCount: sentinels.length,
+            paintedFreeTextCount: sentinels.length,
+            sidebarCount: persistedSentinels.length,
+        });
+        const resizeSentinel = sentinels.at(-1)!;
+        await setIssue139VisibilityProbePhase(session.page, 'freetext-resize');
+        const resizedEditor = await dragIssue139FreeTextResizeHandle(
+            session.page,
+            resizeSentinel,
+        );
+        expect(resizedEditor.hitTarget, JSON.stringify(resizedEditor)).toEqual(expect.objectContaining({isBottomRightResizer: true}));
+        expect(resizedEditor.after.width, JSON.stringify(resizedEditor)).toBeGreaterThan(resizedEditor.before.width);
+        expect(resizedEditor.after.height, JSON.stringify(resizedEditor)).toBeGreaterThan(resizedEditor.before.height);
+        await setIssue139VisibilityProbePhase(session.page, 'save-start');
+        const savePromise = saveViaVisibleToolbarWithDeadline(
+            session.page,
+            LARGE_PDF_TIMEOUT_MS,
+            fixturePath,
+            {
+                label: 'issue 139 transition save',
+                onTimeout: () => session.stop(),
+                diagnostics: () => `phase=issue-139-transition-save session=${session.name}`,
+            },
+        );
+        let transitionError: unknown;
+        try {
+            await waitForStagedArtifact(session.page);
+            await setIssue139VisibilityProbePhase(session.page, 'sidebar-close');
+            const sidebarToggleClosed = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
+            expect(sidebarToggleClosed.called).toBe(true);
+            await waitForIssue139VisibilityFrame(
+                session.page,
+                'sidebar-close',
+                await getIssue139VisibilityFrameCount(session.page),
+            );
+            await setIssue139VisibilityProbePhase(session.page, 'sidebar-open');
+            const sidebarToggleOpen = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
+            expect(sidebarToggleOpen.called).toBe(true);
+            await waitForIssue139VisibilityFrame(
+                session.page,
+                'sidebar-open',
+                await getIssue139VisibilityFrameCount(session.page),
+            );
+            await setIssue139VisibilityProbePhase(session.page, 'zoom');
+            const zoom = await callWorkspaceCommand(session.page, 'handleZoomIn');
+            expect(zoom.called).toBe(true);
+            await waitForIssue139VisibilityFrame(
+                session.page,
+                'zoom',
+                await getIssue139VisibilityFrameCount(session.page),
+            );
+            await setIssue139VisibilityProbePhase(session.page, 'viewport-small');
+            await session.page.setViewport({
+                width: 1_280,
+                height: 820,
+                deviceScaleFactor: 1,
+            });
+            await waitForIssue139VisibilityFrame(
+                session.page,
+                'viewport-small',
+                await getIssue139VisibilityFrameCount(session.page),
+            );
+            await setIssue139VisibilityProbePhase(session.page, 'viewport-restored');
+            await session.page.setViewport({
+                width: 1_440,
+                height: 900,
+                deviceScaleFactor: 1,
+            });
+            await waitForIssue139VisibilityFrame(
+                session.page,
+                'viewport-restored',
+                await getIssue139VisibilityFrameCount(session.page),
+            );
+        } catch (error) {
+            transitionError = error;
+        } finally {
+            try {
+                if (!session.page.isClosed()) {
+                    await setIssue139VisibilityProbePhase(session.page, 'save-resume');
+                }
+            } catch (error) {
+                if (!session.page.isClosed() && !isPageContextUnavailableError(error)) {
+                    transitionError ??= error;
+                }
+            } finally {
+                await resumeStagedArtifactCommit(session.page);
+            }
+        }
+        const saveEvent = await savePromise;
+        if (transitionError) {
+            throw transitionError;
+        }
+        expect(saveEvent.id).toBeGreaterThan(saveBaselineEventId);
+        const frames = await readIssue139VisibilityProbe(session.page);
+        const transitionFrames = frames.filter(frame => frame.resizeTransitionActive);
+        expect(frames.length).toBeGreaterThan(5);
+        expect(transitionFrames.length).toBeGreaterThan(0);
+        for (const frame of frames) {
+            expect(frame.visibleSentinels, JSON.stringify(frame)).toContain(resizeSentinel);
+            expect(frame.canonicalCount, JSON.stringify(frame)).toBe(persistedSentinels.length);
+            expect(frame.sidebarCount, JSON.stringify(frame)).toBe(persistedSentinels.length);
+            expect(
+                frame.editorIdentities.length + frame.annotationVisualIdentities.length,
+                JSON.stringify(frame),
+            ).toBeGreaterThan(0);
+            expect(frame.layerIdentities.length, JSON.stringify(frame)).toBeGreaterThan(0);
+            expect(frame.paintedFreeTextCount, JSON.stringify(frame)).toBeGreaterThan(0);
+        }
+        // Layout transitions may remount PDF.js' editor layer. The DOM id is
+        // therefore not part of the persistence invariant; every frame above
+        // still exposes the expected visible content and application state.
+
+        await waitForAutomationEvent(session.page, 'save-committed', {
+            afterEventId: saveBaselineEventId,
+            timeoutMs: LARGE_PDF_TIMEOUT_MS,
+        });
+        await expect.poll(
+            () => readIssue139ApplicationCounts(session.page),
+            {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS},
+        ).toEqual({
+            canonicalCount: persistedSentinels.length,
+            sidebarCount: persistedSentinels.length,
+        });
+        expect(await readPdfNoteContents(fixturePath)).toEqual(expect.arrayContaining(
+            sentinels.map(contents => expect.objectContaining({
+                contents,
+                popup: '',
+                subtype: '/FreeText',
+            })),
+        ));
     }, LARGE_PDF_TIMEOUT_MS);
 
     it('creates, saves, and reopens an ordinary FreeText box on a large PDF', async () => {

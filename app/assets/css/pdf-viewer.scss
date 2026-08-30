@@ -249,6 +249,41 @@
     /* stylelint-enable declaration-no-important */
 }
 
+/* Text selection remains the default viewer mode, but a selected FreeText
+   editor must still receive its resize-handle pointer events. The layer is
+   disabled above to keep text selection on the page; re-enable only the
+   selected editor subtree so its handle is not covered by the text layer. */
+.pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .annotation-editor-layer .freeTextEditor.selectedEditor,
+.pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .annotationEditorLayer .freeTextEditor.selectedEditor,
+.pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .annotation-editor-layer .freeTextEditor.selectedEditor > .resizers > .resizer,
+.pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .annotationEditorLayer .freeTextEditor.selectedEditor > .resizers > .resizer {
+    /* stylelint-disable declaration-no-important -- css-important-allow: selected FreeText resize handles must override the text-selection layer lock. */
+    pointer-events: auto !important;
+    /* stylelint-enable declaration-no-important */
+}
+
+html.pdf-resizing-nwse .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .annotation-editor-layer:has(.freeTextEditor.selectedEditor),
+html.pdf-resizing-nwse .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .annotationEditorLayer:has(.freeTextEditor.selectedEditor),
+html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .annotation-editor-layer:has(.freeTextEditor.selectedEditor),
+html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .annotationEditorLayer:has(.freeTextEditor.selectedEditor) {
+    /* stylelint-disable declaration-no-important -- css-important-allow: selected FreeText resizing must override the text-selection layer lock only while an editor is selected. */
+    pointer-events: auto !important;
+    /* stylelint-enable declaration-no-important */
+}
+
+html.pdf-resizing-nwse .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .page_container:has(.annotation-editor-layer .freeTextEditor.selectedEditor) .text-layer,
+html.pdf-resizing-nwse .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .page_container:has(.annotation-editor-layer .freeTextEditor.selectedEditor) .textLayer,
+html.pdf-resizing-nwse .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .page_container:has(.annotationEditorLayer .freeTextEditor.selectedEditor) .text-layer,
+html.pdf-resizing-nwse .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .page_container:has(.annotationEditorLayer .freeTextEditor.selectedEditor) .textLayer,
+html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .page_container:has(.annotation-editor-layer .freeTextEditor.selectedEditor) .text-layer,
+html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .page_container:has(.annotation-editor-layer .freeTextEditor.selectedEditor) .textLayer,
+html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .page_container:has(.annotationEditorLayer .freeTextEditor.selectedEditor) .text-layer,
+html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-transition) .page_container:has(.annotationEditorLayer .freeTextEditor.selectedEditor) .textLayer {
+    /* stylelint-disable declaration-no-important -- css-important-allow: the selected editor must win hit testing over the text-selection overlay during resize. */
+    pointer-events: none !important;
+    /* stylelint-enable declaration-no-important */
+}
+
 .pdfViewer.is-selection-markup-tool .text-layer,
 .pdfViewer.is-selection-markup-tool .textLayer,
 .pdfViewer.is-text-selection-mode .text-layer,
@@ -287,10 +322,17 @@
 .pdfViewer.pdfViewer--resize-transition .text-layer,
 .pdfViewer.pdfViewer--resize-transition .textLayer,
 .pdfViewer.pdfViewer--resize-transition .annotation-layer,
-.pdfViewer.pdfViewer--resize-transition .annotationLayer,
+.pdfViewer.pdfViewer--resize-transition .annotationLayer {
+    opacity: 0;
+    pointer-events: none;
+}
+
 .pdfViewer.pdfViewer--resize-transition .annotation-editor-layer,
 .pdfViewer.pdfViewer--resize-transition .annotationEditorLayer {
-    opacity: 0;
+    /* Keep live FreeText pixels visible while the page layout settles. The
+       transition still blocks pointer input, so the layer cannot receive a
+       stale drag until its geometry is current again. */
+    opacity: 1;
     pointer-events: none;
 }
 
