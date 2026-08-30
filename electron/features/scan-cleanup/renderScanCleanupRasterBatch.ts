@@ -19,19 +19,19 @@ import type {
 const PDFTOPPM_BATCH_TIMEOUT_MS = 3 * 60 * 1_000;
 const MAX_RASTER_BATCH_PAGES = 16;
 
-export interface IScanCleanupRasterBatchTarget {
+interface IScanCleanupRasterBatchTarget {
     limits: IScanCleanupRasterRenderLimits;
     outputPath: string;
     pageNumber: number;
 }
 
-export interface IScanCleanupRasterBatchResult {
+interface IScanCleanupRasterBatchResult {
     height: number;
     pageNumber: number;
     width: number;
 }
 
-export interface IScanCleanupRasterBatchInput {
+interface IScanCleanupRasterBatchInput {
     dpi: number;
     log: TScanCleanupLog;
     pdftoppmBinary: string;
