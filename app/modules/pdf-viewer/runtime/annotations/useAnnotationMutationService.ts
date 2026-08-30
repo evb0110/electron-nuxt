@@ -293,7 +293,10 @@ export const useAnnotationMutationService = (
             return false;
         }
         options.moveCanonicalAnchor(id, input.rect);
-        options.handleMarkerMove(input.comment, input.rect, {
+        const persistThroughNativeGeometry = input.comment.source === 'pdf'
+            && input.comment.hasNote === true
+            && isPdfBackedFreeTextComment(input.comment);
+        options.handleMarkerMove(input.comment, input.rect, {...(!persistThroughNativeGeometry ? {
             markEditorPending: (updated, original, markerRect) => {
                 const editor = options.findEditorForComment(updated) ?? options.findEditorForComment(original);
                 if (!editor) {
@@ -302,7 +305,7 @@ export const useAnnotationMutationService = (
                 syncPdfjsCommentMarkerAnchor(editor, markerRect);
             },
             markModified: options.markModified,
-        });
+        } : {})});
         return true;
     }
 

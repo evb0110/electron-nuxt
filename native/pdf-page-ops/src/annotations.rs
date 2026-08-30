@@ -68,6 +68,7 @@ fn append_missing_annotation_refs_to_page(
     refs: &[ObjectId],
 ) -> Result<()> {
     let mut annots = get_page_annots(document, page_id)?;
+    let initial_len = annots.len();
     for object_id in refs {
         if !annots
             .iter()
@@ -75,6 +76,9 @@ fn append_missing_annotation_refs_to_page(
         {
             annots.push(Object::Reference(*object_id));
         }
+    }
+    if annots.len() == initial_len {
+        return Ok(());
     }
     document
         .get_dictionary_mut(page_id)?
@@ -129,14 +133,14 @@ pub(crate) fn update_note_geometry(
             set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect);
         }
 
-        if source_page_id != destination_page_id {
-            let mut refs = vec![target_id];
-            if let Some(popup_id) = popup_ref {
-                refs.push(popup_id);
-            }
-            remove_annotation_refs_from_page(document, source_page_id, &refs)?;
-            append_missing_annotation_refs_to_page(document, destination_page_id, &refs)?;
+        let mut refs = vec![target_id];
+        if let Some(popup_id) = popup_ref {
+            refs.push(popup_id);
         }
+        if source_page_id != destination_page_id {
+            remove_annotation_refs_from_page(document, source_page_id, &refs)?;
+        }
+        append_missing_annotation_refs_to_page(document, destination_page_id, &refs)?;
         updated_count += 1;
     }
     if updated_count != updates.len() {
@@ -181,6 +185,7 @@ fn append_missing_annotation_refs_to_page_incremental(
     refs: &[ObjectId],
 ) -> Result<()> {
     let mut annots = get_incremental_page_annots(incremental, page_id)?;
+    let initial_len = annots.len();
     for object_id in refs {
         if !annots
             .iter()
@@ -188,6 +193,9 @@ fn append_missing_annotation_refs_to_page_incremental(
         {
             annots.push(Object::Reference(*object_id));
         }
+    }
+    if annots.len() == initial_len {
+        return Ok(());
     }
     incremental.opt_clone_object_to_new_document(page_id)?;
     incremental
@@ -248,18 +256,18 @@ pub(crate) fn update_note_geometry_incremental(
             set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect);
         }
 
-        if source_page_id != destination_page_id {
-            let mut refs = vec![target_id];
-            if let Some(popup_id) = popup_ref {
-                refs.push(popup_id);
-            }
-            remove_annotation_refs_from_page_incremental(incremental, source_page_id, &refs)?;
-            append_missing_annotation_refs_to_page_incremental(
-                incremental,
-                destination_page_id,
-                &refs,
-            )?;
+        let mut refs = vec![target_id];
+        if let Some(popup_id) = popup_ref {
+            refs.push(popup_id);
         }
+        if source_page_id != destination_page_id {
+            remove_annotation_refs_from_page_incremental(incremental, source_page_id, &refs)?;
+        }
+        append_missing_annotation_refs_to_page_incremental(
+            incremental,
+            destination_page_id,
+            &refs,
+        )?;
     }
     Ok(())
 }

@@ -279,6 +279,51 @@ describe('useAnnotationMutationService canonical command ordering', () => {
         ]);
     });
 
+    it('keeps imported sticky-note moves out of PDF.js live storage', () => {
+        const comment: IAnnotationCommentSummary = {
+            ...createComment(),
+            annotationId: '12R',
+            hasNote: true,
+            source: 'pdf',
+            subtype: 'FreeText',
+        };
+        const editor = {};
+        const findEditorForComment = vi.fn(() => editor);
+        const markModified = vi.fn();
+        const handleMarkerMove = vi.fn((
+            current: IAnnotationCommentSummary,
+            markerRect: NonNullable<IAnnotationCommentSummary['markerRect']>,
+            moveOptions?: Parameters<IUseAnnotationMutationServiceOptions['handleMarkerMove']>[2],
+        ) => {
+            moveOptions?.markEditorPending?.(current, current, markerRect);
+            moveOptions?.markModified?.();
+            return true;
+        });
+        const options = createOptions({
+            findEditorForComment,
+            handleMarkerMove,
+            markModified,
+        });
+        const service = useAnnotationMutationService(options);
+
+        expect(service.moveMarker(
+            {
+                comment,
+                rect: {
+                    left: 0.2,
+                    top: 0.3,
+                    width: 0.015,
+                    height: 0.015,
+                },
+            },
+            {source: 'user'},
+        )).toBe(true);
+
+        expect(options.moveCanonicalAnchor).toHaveBeenCalledOnce();
+        expect(findEditorForComment).not.toHaveBeenCalled();
+        expect(markModified).not.toHaveBeenCalled();
+    });
+
     it('does not enqueue duplicate overlay work when a connected highlight owns its paint', () => {
         const comment = {
             ...createComment(),

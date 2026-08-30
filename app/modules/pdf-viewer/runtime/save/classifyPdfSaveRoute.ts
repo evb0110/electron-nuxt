@@ -282,6 +282,10 @@ function collectReplayableEmbeddedAnnotationIds(input: {
     input.pendingTexts.forEach((_text, stableKey) => {
         addEmbeddedAnnotationIdFromStableKey(ids, stableKey);
         addEditorRuntimeAnnotationIdFromStableKey(ids, stableKey);
+        const matchingComments = input.comments.filter(candidate => candidate.stableKey === stableKey);
+        if (matchingComments.length === 1) {
+            addCommentIdentityAliases(ids, matchingComments[0]!);
+        }
     });
     input.pendingDeletes.forEach((comment) => {
         [

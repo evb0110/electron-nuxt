@@ -119,6 +119,12 @@ const IMPORTED_TEXT_POPUP_PARENT_RECT = [
     96,
     704,
 ] as const;
+const IMPORTED_MOVABLE_NOTE_PARENT_RECT = [
+    72,
+    680,
+    82,
+    690,
+] as const;
 const IMPORTED_TEXT_POPUP_RECT = [
     100,
     560,
@@ -141,7 +147,10 @@ const runImportedTextPopupScenario = qpdfAvailable
 
 interface IImportedTextPopupFixture {
     annotationName: string;
+    pageHeight: number;
+    pageWidth: number;
     parentRect: readonly [number, number, number, number];
+    pdfSubtype: 'FreeText' | 'Text';
     popupRect: readonly [number, number, number, number];
     text: string;
 }
@@ -428,7 +437,16 @@ async function readDocumentSaveIdentity(page: Page) {
 interface ICanonicalImportedTextPopupComment extends Record<string, unknown> {
     annotationName: string | null;
     hasNote: boolean | null;
+    markerRect: {
+        height: number;
+        left: number;
+        top: number;
+        width: number;
+    } | null;
+    pageIndex: number | null;
+    pageNumber: number | null;
     source: string | null;
+    stableKey: string | null;
     subtype: string | null;
     text: string | null;
 }
@@ -443,7 +461,18 @@ async function readCanonicalImportedTextPopupComments(page: Page) {
         return (state?.annotationComments ?? []).map(comment => ({
             annotationName: comment.annotationName ?? null,
             hasNote: comment.hasNote ?? null,
+            markerRect: comment.markerRect
+                ? {
+                    height: comment.markerRect.height,
+                    left: comment.markerRect.left,
+                    top: comment.markerRect.top,
+                    width: comment.markerRect.width,
+                }
+                : null,
+            pageIndex: comment.pageIndex ?? null,
+            pageNumber: comment.pageNumber ?? null,
             source: comment.source ?? null,
+            stableKey: comment.stableKey ?? null,
             subtype: comment.subtype ?? null,
             text: comment.text ?? null,
         }));
@@ -465,6 +494,147 @@ async function waitForCanonicalImportedTextPopupComment(
         subtype: 'FreeText',
         text: fixture.text,
     })]);
+}
+
+async function moveImportedTextPopupMarker(
+    page: Page,
+    comment: ICanonicalImportedTextPopupComment,
+) {
+    const before = comment.markerRect;
+    if (!before || !comment.stableKey) {
+        throw new Error('Imported Text annotation has no canonical marker rectangle before move');
+    }
+    try {
+        await page.waitForFunction((stableKey) => Array.from(
+            document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'),
+        ).some((marker) => {
+            const rect = marker.getBoundingClientRect();
+            const style = window.getComputedStyle(marker);
+            return marker.dataset.stableKey === stableKey
+                && style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0;
+        }), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, comment.stableKey);
+    } catch (error) {
+        const debug = await page.evaluate(() => ({
+            markerKeys: Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
+                .map(marker => marker.dataset.stableKey ?? null),
+            markerLayers: Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-layer-vue'))
+                .map(layer => layer.outerHTML.slice(0, 2_000)),
+            pageContainers: Array.from(document.querySelectorAll<HTMLElement>('.page_container'))
+                .slice(0, 4)
+                .map(container => ({
+                    page: container.dataset.page ?? null,
+                    rect: container.getBoundingClientRect().toJSON(),
+                })),
+        }));
+        throw new Error(`Imported Text marker did not mount: ${JSON.stringify({
+            comment,
+            debug,
+        })}`, {cause: error});
+    }
+    const dispatched = await page.evaluate((stableKey) => {
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
+            .filter(marker => marker.dataset.stableKey === stableKey);
+        const isVisible = (marker: HTMLElement) => {
+            const rect = marker.getBoundingClientRect();
+            const style = window.getComputedStyle(marker);
+            return style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0;
+        };
+        const marker = markers.find(candidate => activeHost?.contains(candidate) && isVisible(candidate))
+            ?? markers.find(isVisible)
+            ?? null;
+        if (!marker) {
+            return false;
+        }
+        const rect = marker.getBoundingClientRect();
+        const startX = Math.round(rect.x + rect.width / 2);
+        const startY = Math.round(rect.y + rect.height / 2);
+        const pointerId = 1;
+        marker.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            buttons: 1,
+            cancelable: true,
+            clientX: startX,
+            clientY: startY,
+            isPrimary: true,
+            pointerId,
+            pointerType: 'mouse',
+        }));
+        window.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            button: 0,
+            buttons: 1,
+            cancelable: true,
+            clientX: startX + 110,
+            clientY: startY + 70,
+            isPrimary: true,
+            pointerId,
+            pointerType: 'mouse',
+        }));
+        window.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+            buttons: 0,
+            cancelable: true,
+            clientX: startX + 110,
+            clientY: startY + 70,
+            isPrimary: true,
+            pointerId,
+            pointerType: 'mouse',
+        }));
+        return true;
+    }, comment.stableKey);
+    if (!dispatched) {
+        throw new Error(`Could not find the imported Text marker for ${comment.stableKey}`);
+    }
+
+    await expect.poll(async () => {
+        const markerRect = (await readCanonicalImportedTextPopupComments(page))[0]?.markerRect ?? null;
+        return markerRect
+            ? Math.hypot(markerRect.left - before.left, markerRect.top - before.top)
+            : 0;
+    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBeGreaterThan(0.01);
+    const movedMarkerRect = (await readCanonicalImportedTextPopupComments(page))[0]?.markerRect ?? null;
+    if (!movedMarkerRect) {
+        throw new Error('Imported Text annotation lost its canonical marker rectangle after move');
+    }
+    return movedMarkerRect;
+}
+
+function markerRectToPdfRect(markerRect: {
+    height: number;
+    left: number;
+    top: number;
+    width: number;
+}, pageSize: Pick<IImportedTextPopupFixture, 'pageHeight' | 'pageWidth'>) {
+    return [
+        markerRect.left * pageSize.pageWidth,
+        (1 - markerRect.top - markerRect.height) * pageSize.pageHeight,
+        (markerRect.left + markerRect.width) * pageSize.pageWidth,
+        (1 - markerRect.top) * pageSize.pageHeight,
+    ] as const;
+}
+
+function expectPdfRectClose(
+    actual: readonly number[],
+    expected: readonly number[],
+) {
+    expect(actual).toHaveLength(expected.length);
+    for (const [
+        index,
+        value,
+    ] of expected.entries()) {
+        expect(actual[index]).toBeCloseTo(value, 3);
+    }
 }
 
 async function qpdfCheck(filePath: string) {
@@ -493,7 +663,11 @@ async function qpdfPageCount(filePath: string) {
     return pageCount;
 }
 
-async function createImportedTextPopupFixture(filePath: string): Promise<IImportedTextPopupFixture> {
+async function createImportedTextPopupFixture(
+    filePath: string,
+    parentRect: readonly [number, number, number, number] = IMPORTED_TEXT_POPUP_PARENT_RECT,
+    pdfSubtype: IImportedTextPopupFixture['pdfSubtype'] = 'Text',
+): Promise<IImportedTextPopupFixture> {
     const document = await PDFDocument.create();
     const page = document.addPage([
         612,
@@ -511,8 +685,8 @@ async function createImportedTextPopupFixture(filePath: string): Promise<IImport
     const popupRef = document.context.nextRef();
     const parent = document.context.obj({
         Type: PDFName.of('Annot'),
-        Subtype: PDFName.of('Text'),
-        Rect: [...IMPORTED_TEXT_POPUP_PARENT_RECT],
+        Subtype: PDFName.of(pdfSubtype),
+        Rect: [...parentRect],
         NM: PDFHexString.fromText(IMPORTED_TEXT_POPUP_NAME),
         Contents: PDFHexString.fromText(IMPORTED_TEXT_POPUP_TEXT),
         Popup: popupRef,
@@ -546,7 +720,10 @@ async function createImportedTextPopupFixture(filePath: string): Promise<IImport
     }));
     return {
         annotationName: IMPORTED_TEXT_POPUP_NAME,
-        parentRect: IMPORTED_TEXT_POPUP_PARENT_RECT,
+        pageHeight: 792,
+        pageWidth: 612,
+        parentRect,
+        pdfSubtype,
         popupRect: IMPORTED_TEXT_POPUP_RECT,
         text: IMPORTED_TEXT_POPUP_TEXT,
     };
@@ -701,6 +878,11 @@ async function readQpdfObject(
 async function inspectImportedTextPopupStructure(
     filePath: string,
     fixture: IImportedTextPopupFixture,
+    expectedRects: {
+        parent?: readonly [number, number, number, number];
+        popup?: readonly [number, number, number, number];
+        popupInPageAnnots?: boolean;
+    } = {},
 ) {
     const {stdout: pagesOutput} = await execFileAsync('qpdf', [
         '--show-pages',
@@ -736,7 +918,10 @@ async function inspectImportedTextPopupStructure(
             generationNumber: Number(match[2]),
         }))
         : [];
-    expect(annotationRefs, `First page has no bounded annotation array: ${annotsSource}`).toHaveLength(1);
+    expect(annotationRefs.length, `First page has no bounded annotation array: ${annotsSource}`)
+        .toBeGreaterThanOrEqual(1);
+    expect(annotationRefs.length, `First page annotation array was not bounded: ${annotsSource}`)
+        .toBeLessThanOrEqual(2);
 
     const annotationObjects: Array<{
         object: string;
@@ -751,10 +936,10 @@ async function inspectImportedTextPopupStructure(
             subtype: object.match(/\/Subtype\s+\/([A-Za-z]+)/u)?.[1] ?? null,
         });
     }
-    const parentEntry = annotationObjects.find(entry => entry.subtype === 'Text');
+    const parentEntry = annotationObjects.find(entry => entry.subtype === fixture.pdfSubtype);
     expect(parentEntry, JSON.stringify(annotationObjects)).toBeDefined();
     if (!parentEntry) {
-        throw new Error(`First page did not retain its Text object: ${JSON.stringify(annotationObjects)}`);
+        throw new Error(`First page did not retain its ${fixture.pdfSubtype} object: ${JSON.stringify(annotationObjects)}`);
     }
 
     const popupRefMatch = parentEntry.object.match(/\/Popup\s+(\d+)\s+(\d+)\s+R/u);
@@ -766,6 +951,9 @@ async function inspectImportedTextPopupStructure(
         objectNumber: Number(popupRefMatch[1]),
         generationNumber: Number(popupRefMatch[2]),
     };
+    if (expectedRects.popupInPageAnnots) {
+        expect(annotationRefs).toContainEqual(popupRef);
+    }
     const popupObject = await readQpdfObject(filePath, popupRef, 'none');
     expect(popupObject).toMatch(/\/Subtype\s+\/Popup/u);
     expect(popupObject).toMatch(new RegExp(
@@ -775,11 +963,16 @@ async function inspectImportedTextPopupStructure(
     expect(qpdfDictionaryContainsText(parentEntry.object, 'NM', fixture.annotationName)).toBe(true);
     expect(qpdfDictionaryContainsText(parentEntry.object, 'Contents', fixture.text)).toBe(true);
     expect(qpdfDictionaryContainsText(popupObject, 'Contents', fixture.text)).toBe(true);
-    expect(parseRectFromQpdfObject(parentEntry.object)).toEqual(fixture.parentRect);
-    expect(parseRectFromQpdfObject(popupObject)).toEqual(fixture.popupRect);
+    const parentRect = parseRectFromQpdfObject(parentEntry.object);
+    const popupRect = parseRectFromQpdfObject(popupObject);
+    expectPdfRectClose(parentRect, expectedRects.parent ?? fixture.parentRect);
+    expectPdfRectClose(popupRect, expectedRects.popup ?? fixture.popupRect);
     return {
         annotation: parentEntry.ref,
+        pageNumber: 1,
+        parentRect,
         popup: popupRef,
+        popupRect,
     };
 }
 
@@ -2206,6 +2399,127 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         );
         await qpdfCheck(fixtureRealPath);
         await inspectImportedTextPopupStructure(fixtureRealPath, fixture);
+    }, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
+
+    it.runIf(runImportedTextPopupScenario)('persists a moved imported sticky-note marker and Popup rectangle through native save and hard restart', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            throw new Error('Electron session is unavailable for the imported Text geometry test');
+        }
+        if (exactZaliznyakSourcePath === null || !existsSync(exactZaliznyakSourcePath)) {
+            throw new Error('Set EVB_E2E_LARGE_PDF_FIXTURE to the exact Zaliznyak fixture');
+        }
+
+        const exactSourceIdentity = await readExactPdfFixtureIdentity(
+            exactZaliznyakSourcePath,
+            {timeoutMs: IMPORTED_TEXT_POPUP_TIMEOUT_MS},
+        );
+        validateExactPdfFixtureIdentity(exactSourceIdentity, EXACT_ZALIZNYAK_EXPECTATION);
+
+        const artifactDirectory = mkdtempSync(join(tmpdir(), '.evb-pdf-004-note-geometry-'));
+        onTestFinished(() => rmSync(artifactDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const onePageFixturePath = join(artifactDirectory, 'text-popup-one-page.pdf');
+        const fixturePath = join(artifactDirectory, 'moved-text-popup-882-pages.pdf');
+        const fixture = await createImportedTextPopupFixture(
+            onePageFixturePath,
+            IMPORTED_MOVABLE_NOTE_PARENT_RECT,
+            'FreeText',
+        );
+        await combineImportedTextPopupWithExactFixture(
+            onePageFixturePath,
+            exactZaliznyakSourcePath,
+            fixturePath,
+        );
+        const fixtureRealPath = realpathSync(fixturePath);
+        expect(await qpdfPageCount(fixtureRealPath)).toBe(EXACT_ZALIZNYAK_EXPECTATION.pages);
+        await qpdfCheck(fixtureRealPath);
+        const initialPdfGeometry = await inspectImportedTextPopupStructure(fixtureRealPath, fixture);
+        expect(initialPdfGeometry.pageNumber).toBe(1);
+
+        await openPdfInApp(session.page, fixtureRealPath, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
+        await openAnnotationsTab(session.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+        await waitForCanonicalImportedTextPopupComment(
+            session.page,
+            fixture,
+            IMPORTED_TEXT_POPUP_TIMEOUT_MS,
+        );
+        const importedComment = (await readCanonicalImportedTextPopupComments(session.page))[0];
+        if (!importedComment?.stableKey || !importedComment.markerRect) {
+            throw new Error(`Imported Text marker is unavailable: ${JSON.stringify(importedComment)}`);
+        }
+
+        const movedMarkerRect = await moveImportedTextPopupMarker(
+            session.page,
+            importedComment,
+        );
+        const movedCanonical = (await readCanonicalImportedTextPopupComments(session.page))[0];
+        expect(movedCanonical).toMatchObject({
+            annotationName: fixture.annotationName,
+            pageIndex: 0,
+            pageNumber: 1,
+            stableKey: importedComment.stableKey,
+        });
+        expect(movedCanonical?.markerRect).toEqual(movedMarkerRect);
+        expect(movedMarkerRect).not.toEqual(importedComment.markerRect);
+
+        await waitForSaveFrontierReady(session.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+        await saveViaWindowHandle(session.page, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
+        const movedPdfRect = markerRectToPdfRect(movedMarkerRect, fixture);
+        await qpdfCheck(fixtureRealPath);
+        const savedPdfGeometry = await inspectImportedTextPopupStructure(fixtureRealPath, fixture, {
+            parent: movedPdfRect,
+            popup: movedPdfRect,
+            popupInPageAnnots: true,
+        });
+        expect(savedPdfGeometry.pageNumber).toBe(movedCanonical?.pageNumber);
+        expect(savedPdfGeometry.parentRect).not.toEqual(initialPdfGeometry.parentRect);
+        expect(savedPdfGeometry.popupRect).not.toEqual(initialPdfGeometry.popupRect);
+
+        await waitForCrashCheckpointPath(session.name, fixtureRealPath);
+        const firstProcesses = readSessionProcessSnapshot(session.name);
+        const restartedSession = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+            keepNuxt: true,
+        });
+        if (!restartedSession) {
+            throw new Error('Hard restart did not produce a new Electron process for the imported Text geometry test');
+        }
+        await expectProcessesExited(firstProcesses.pids);
+        const restartedProcesses = readSessionProcessSnapshot(restartedSession.name);
+        expect(restartedProcesses.rootPid).not.toBe(firstProcesses.rootPid);
+        await waitForRestoredDocument(restartedSession.page, fixtureRealPath);
+        await waitForCanonicalImportedTextPopupComment(
+            restartedSession.page,
+            fixture,
+            IMPORTED_TEXT_POPUP_TIMEOUT_MS,
+        );
+        const restoredCanonical = (await readCanonicalImportedTextPopupComments(restartedSession.page))[0];
+        expect(restoredCanonical).toMatchObject({
+            annotationName: fixture.annotationName,
+            pageIndex: 0,
+            pageNumber: 1,
+            stableKey: importedComment.stableKey,
+        });
+        if (!restoredCanonical?.markerRect) {
+            throw new Error(`Restored Text marker has no rectangle: ${JSON.stringify(restoredCanonical)}`);
+        }
+        expectPdfRectClose(
+            markerRectToPdfRect(restoredCanonical.markerRect, fixture),
+            movedPdfRect,
+        );
+        await qpdfCheck(fixtureRealPath);
+        const restartedPdfGeometry = await inspectImportedTextPopupStructure(fixtureRealPath, fixture, {
+            parent: movedPdfRect,
+            popup: movedPdfRect,
+            popupInPageAnnots: true,
+        });
+        expect(restartedPdfGeometry.pageNumber).toBe(restoredCanonical.pageNumber);
     }, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
 
     it('saves a toolbar note with multiple ordinary FreeText editors on a large PDF', async () => {

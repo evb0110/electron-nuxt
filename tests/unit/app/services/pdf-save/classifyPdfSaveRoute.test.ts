@@ -892,7 +892,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             })],
             pageLabels: {ranges: [expect.objectContaining({prefix: 'A-'})]},
             bookmarks: {items: [expect.objectContaining({title: 'Chapter'})]},
-            shapes: {shapes: [expect.objectContaining({id: 'shape-1'})]},
+            shapes: {shapes: [expect.objectContaining({annotationId: '22R'})]},
             markup: {overrides: [[
                 '44R',
                 'Underline',
@@ -918,6 +918,11 @@ describe('classifyPdfSaveRoute native-append grant', () => {
     it('projects an imported sticky-note move to a native geometry update', () => {
         const moved: IStickyNoteEntity = {
             ...embeddedNote('anno_moved_text', '12R'),
+            identity: {
+                id: asAnnotationId('anno_moved_text'),
+                pdfName: 'evb-pdf-004-text-parent',
+                pdfRef: '12R',
+            },
             pageIndex: 1,
             anchor: {
                 left: 0.6,
@@ -928,7 +933,25 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         };
         const decision = classifyPdfSaveRoute(
             planOf([moved]),
-            capabilities({totalPageCount: 2}),
+            capabilities({
+                totalPageCount: 2,
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: true,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_moved_text',
+                        '12R',
+                    ]),
+                    replayableEditorNoteIds: new Set(['12R']),
+                    hasChanges: true,
+                    fingerprint: 'moved-imported-sticky-note',
+                }),
+            }),
         );
 
         expect(decision.route).toBe('native-append');
@@ -939,6 +962,34 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             pageIndex: 1,
             markerRect: moved.anchor,
         }]});
+
+        const unrelatedLiveChange = classifyPdfSaveRoute(
+            planOf([moved]),
+            capabilities({
+                totalPageCount: 2,
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: true,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_moved_text',
+                        '12R',
+                        'unrelated-runtime-id',
+                    ]),
+                    replayableEditorNoteIds: new Set(['12R']),
+                    hasChanges: true,
+                    fingerprint: 'moved-imported-sticky-note-plus-unrelated-change',
+                }),
+            }),
+        );
+        expect(unrelatedLiveChange.route).toBe('pdfjs-materialize');
+        if (unrelatedLiveChange.route === 'native-append') throw new Error('expected a byte route');
+        expect(unrelatedLiveChange.annotationPlan.unreplayableLiveAnnotationIds)
+            .toEqual(['unrelated-runtime-id']);
     });
 
     it('projects imported FreeText geometry and style edits through the native editor route', () => {
