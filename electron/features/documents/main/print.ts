@@ -243,15 +243,13 @@ export async function handlePrintPdfPath(
     pageNumbers?: number[],
 ): Promise<IPrintPdfResult> {
     const ownerWindow = context.window ?? undefined;
-    const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId);
-    await assertPdfPathWithinSizeLimit(resolvedPath);
     const normalizedPageNumbers = normalizePrintPageNumbers(pageNumbers);
     if (!normalizedPageNumbers) {
+        const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId);
+        await assertPdfPathWithinSizeLimit(resolvedPath);
         return openNativePrintDialogForPath(ownerWindow, resolvedPath, {}, _fileName);
     }
 
-    const tempFileName = `${PRINT_PAGE_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(_fileName)}`;
-    const tempPath = join(getAppTempDir(), tempFileName);
     const cancelGroup = `print-selected-pages:${randomUUID()}`;
     const operation = registerMainOperation({
         kind: 'abortable-work',
@@ -260,8 +258,14 @@ export async function handlePrintPdfPath(
             cancelNativeCommandGroup(cancelGroup);
         },
     });
+    let tempPath: string | null = null;
     let shouldRetainTempPdf = false;
     try {
+        const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId, operation.signal);
+        await assertPdfPathWithinSizeLimit(resolvedPath);
+        operation.signal.throwIfAborted();
+        const tempFileName = `${PRINT_PAGE_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(_fileName)}`;
+        tempPath = join(getAppTempDir(), tempFileName);
         await extractPages(resolvedPath, tempPath, normalizedPageNumbers, {
             cancelGroup,
             signal: operation.signal,
@@ -277,7 +281,7 @@ export async function handlePrintPdfPath(
         return result;
     } finally {
         operation.complete();
-        if (!shouldRetainTempPdf) {
+        if (!shouldRetainTempPdf && tempPath !== null) {
             await cleanupPrintTempPath(tempPath);
         }
     }

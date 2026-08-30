@@ -16,6 +16,7 @@ import { join } from 'path';
 import { pathToFileURL } from 'url';
 import type * as NodeCrypto from 'crypto';
 import type * as FsPromises from 'fs/promises';
+import {cancelMainOperationsForOwner} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 const mocks = vi.hoisted(() => {
     const browserWindowInstances: MockBrowserWindow[] = [];
@@ -647,6 +648,36 @@ describe('documents print', () => {
 
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
         expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-pages-print-job-id-source.pdf`);
+    });
+
+    it('cancels selected-page print when the renderer ends during materialization', async () => {
+        const materialization = Promise.withResolvers<undefined>();
+        mocks.ensureWorkingCopyMaterialized.mockImplementationOnce(async (path: string, options: {signal?: AbortSignal}) => {
+            await materialization.promise;
+            if (options.signal?.aborted) {
+                throw options.signal.reason;
+            }
+            return {
+                logicalRef: path,
+                physicalWorkingCopyPath: path,
+                sourceFingerprint: '',
+            };
+        });
+
+        const printPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+            [4],
+        );
+        await vi.waitFor(() => expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledOnce());
+
+        cancelMainOperationsForOwner(senderId, 'Renderer lifecycle ended');
+        materialization.resolve(undefined);
+
+        await expect(printPromise).rejects.toMatchObject({message: 'Renderer lifecycle ended'});
+        expect(mocks.extractPages).not.toHaveBeenCalled();
+        expect(mocks.browserWindowInstances).toHaveLength(0);
     });
 
     it('cleans up print resources immediately when native printing fails', async () => {
