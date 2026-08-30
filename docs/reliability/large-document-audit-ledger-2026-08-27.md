@@ -75,8 +75,12 @@ Issue #139 has a verified exact persisted-FreeText sidebar-delete slice in
 `df72592c0` and a verified Mac resize-transition visibility slice in
 `4f89f9a11`, with the hard-reopen and five-editor follow-up in `029e84c4f`,
 while its broader projection and close-transition acceptance remains open.
-Issue #145 has the published handoff ordering fix in
-`17d61287e`, with real system-sheet and nonblank-output acceptance still open.
+Issue #145 has the published handoff ordering fixes in
+`17d61287e` and `46cdef1b5`. The latter keeps the PDF-plugin window
+compositor-visible but fully transparent before the native sheet opens, so the
+plugin can paint without exposing the dark backing window. The 18-test print
+unit suite, Electron/tests typechecks, ESLint, and diff check pass; real
+system-sheet and nonblank-output acceptance remains open.
 Issue #149 is verified and closed against `45ed63210` after the exact quiet-host
 2646-page lane passed with the placement-stage heartbeat assertion restored.
 Issue #123 is verified and closed against `9d016f200`. The exact 2.168 GB
@@ -483,7 +487,7 @@ Post-audit issues and follow-ups:
 | Issue | Current state and ledger connection |
 | --- | --- |
 | [#139 Large-PDF FreeText annotations](https://github.com/evb0110/evb-viewer/issues/139) | `ANN-005` is complete for the persisted-sidebar-delete reproduction at `df72592c0`; `575d0e9a7` also admits persisted PDF.js `Typewriter` editors into the canonical store, `f992d0654` bounds page-local FreeText resize-history lookup, and `4f89f9a11` with follow-up `029e84c4f` keep painted FreeText visible through the exact Mac save/layout-transition and hard-reopen case. The follow-up uses the exact local 882-page fixture, qpdf-checks all five saved `/FreeText` objects, and confirms five sidebar entries after reopen. The user recording `CleanShot 2026-08-29 at 11.30.45.mp4` shows two existing Inline Note texts still painted after the sidebar reaches zero annotations, so the broader projection, close-transition, and multi-existing-editor acceptance remains open. |
-| [#145 macOS print handoff](https://github.com/evb0110/evb-viewer/issues/145) | The readiness ordering fix is published at `17d61287e`; a real macOS system-sheet and nonblank-output run remains open. |
+| [#145 macOS print handoff](https://github.com/evb0110/evb-viewer/issues/145) | `17d61287e` waits for the hidden PDF-plugin surface, and `46cdef1b5` keeps that compositor-visible surface fully transparent through the settle delay and restores opacity after teardown. The 18-test print unit suite plus Electron/tests typechecks, ESLint, and diff check pass. A real macOS system-sheet and nonblank-output run remains open. |
 | [#146 Save transaction follow-ups](https://github.com/evb0110/evb-viewer/issues/146) | Closed. `SAV-020` records the completed transaction policy: journaled persistence, fenced rollback and recovery, symlink refusal, destination-scoped backup cleanup, and bounded Windows content fingerprints. `c6c5fd44b` adds the final POSIX real-filesystem regressions. |
 | [#149 Xlarge pre-save renderer stall](https://github.com/evb0110/evb-viewer/issues/149) | `d0ab3779c` bounds save-time editor-page discovery, and `45ed63210` restores the all-stage heartbeat assertion. The exact quiet-host 2646-page lane passed 2/2 with placement and save gaps below 5 s. Verified and closed. |
 
