@@ -1,0 +1,24 @@
+tests/unit/electron/transitionOriginalAndWorkingCopyRevision.test.ts
+  s_b2ece6dfe48478::t_384f51c8e28efa 399-460
+  s_b2ece6dfe48478::t_8cff9f5741b456 461-537
+electron/file-access/originalPathSaveWitness.ts
+  s_b2ece6dfe48478::t_41e18f8f22721b 11,445,460-461,463-471,489-490,492-503,509-531,542-545
+  s_b2ece6dfe48478::t_5268a6e9597d7f 9,462,491,504-508,532-541
+  s_b2ece6dfe48478::t_eab33718c6f0e4 546-547
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4793119b3258a7713fe63d0ac4411ce3f7e99910",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
