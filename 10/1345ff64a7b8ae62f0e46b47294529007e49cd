@@ -1,0 +1,56 @@
+app/modules/workspace-shell/composables/useWorkspaceSidebarOpenGeneration.ts
+  s_32b865e8b0fa20::t_845351db1de5c2 85-91
+  s_32b865e8b0fa20::t_010d9ede033f4e 6,95-103
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize.ts
+  s_32b865e8b0fa20::t_010d9ede033f4e 403-409,430-436,515-521
+  s_32b865e8b0fa20::t_5a0577240d216b 31
+app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue
+  s_32b865e8b0fa20::t_010d9ede033f4e 34,60-65,115-119
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_32b865e8b0fa20::t_ec57e20d290ff0 239,386
+app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle.ts
+  s_32b865e8b0fa20::t_5a0577240d216b 4,189-199
+app/utils/pdfAnnotationTransitionTrace.ts
+  s_32b865e8b0fa20::t_1b3bcf9df97521 1-2,19-29,31-57
+  s_32b865e8b0fa20::t_f60dfebe4aca93 3-18,30
+app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts
+  s_32b865e8b0fa20::t_1b3bcf9df97521 39,620,683,831,912
+  s_32b865e8b0fa20::t_834eb4498b8911 859-862
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts
+  s_32b865e8b0fa20::t_1b3bcf9df97521 31,301,924,954,990,1119
+  s_32b865e8b0fa20::t_5a0577240d216b 166,300,972-975
+app/assets/css/pdf-viewer.scss
+  s_32b865e8b0fa20::t_e4397f78c61d4e 288-292
+  s_32b865e8b0fa20::t_360e8e1bae669d 297-298
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_32b865e8b0fa20::t_806966deb9ab4f 331,348-358
+  s_32b865e8b0fa20::t_23d4a5f0d83793 2509-2510,2512,2515-2519,2534-2537,2588-2589,2609,2612
+  s_32b865e8b0fa20::t_f9adc92bc357c1 162,256-260
+  s_32b865e8b0fa20::t_fc8529bdaf4e76 326-330
+  s_32b865e8b0fa20::t_7306c4aab29479 299-301,319,321-325,332-338,342-347,359-367,373-389,393-406
+  s_32b865e8b0fa20::t_ec8c90b092b3fe 2604
+  s_32b865e8b0fa20::t_faf795b246c2ac 2607-2608,2610-2611,2613-2634
+  s_32b865e8b0fa20::t_1b974ca7183875 302-318,368-372,390-392
+  s_32b865e8b0fa20::t_5df059d2172cd8 339-341
+  s_32b865e8b0fa20::t_0b1ae42f75240e 2429-2456,2458-2460,2462-2464,2466-2468,2470-2473,2475-2489,2491-2508,2511,2513,2520-2527,2538-2587,2590-2603,2605-2606,2635-2647
+  s_32b865e8b0fa20::t_4c2de2d724e5c8 78,82,87,110-112,159-161,163-255,261-296
+  s_32b865e8b0fa20::t_2fd8544073ebc5 2528-2533
+  s_32b865e8b0fa20::t_1c8358e7c691b7 320
+  s_32b865e8b0fa20::t_5abe1abb9901ca 2514
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "101345ff64a7b8ae62f0e46b47294529007e49cd",
+  "prompts": {},
+  "sessions": {
+    "s_32b865e8b0fa20": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f85-a671-77d1-98cf-bea9b5d96645",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

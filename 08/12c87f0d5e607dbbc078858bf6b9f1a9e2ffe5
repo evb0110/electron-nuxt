@@ -1,0 +1,32 @@
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_be8b4e0de7d61d::t_9017b53fd1d3fe 55,240,387
+  s_be8b4e0de7d61d::t_f50d5eee65d202 239
+native/pdf-page-ops/src/tests/markup_shapes.rs
+  s_be8b4e0de7d61d::t_2c78b7c3aebbdd 463,470-508
+  s_be8b4e0de7d61d::t_397e0287d9c013 465,524-525,546
+  s_be8b4e0de7d61d::t_19482078ec257b 461-462,464,466-469,510-519,521-523,526-545,547-548
+  s_be8b4e0de7d61d::t_1d702736551ecf 509,520
+app/modules/pdf-viewer/runtime/save/nativeShapeMutations.ts
+  s_be8b4e0de7d61d::t_23f3710e1e4d81 128-133,138-147,166-173,177-181
+  s_be8b4e0de7d61d::t_0f3288bd1d4ee7 134-137
+tests/unit/app/services/pdf-save/nativePdfMutationProjection.test.ts
+  s_be8b4e0de7d61d::t_3cee24ee02a709 261
+  s_be8b4e0de7d61d::t_0cb67312f3241f 282
+  s_be8b4e0de7d61d::t_327b4a1ba0db9b 254-260,262-281,283-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0812c87f0d5e607dbbc078858bf6b9f1a9e2ffe5",
+  "prompts": {},
+  "sessions": {
+    "s_be8b4e0de7d61d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f85-75d5-77f3-b900-3f7841189a07",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
