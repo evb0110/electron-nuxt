@@ -1,0 +1,29 @@
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_b2ece6dfe48478::t_b1d2896a44ac29 460-463,662-665
+electron/features/documents/main/serializedPdfPersistence.ts
+  s_b2ece6dfe48478::t_b1d2896a44ac29 739-743
+electron/features/documents/main/workingCopySave.ts
+  s_b2ece6dfe48478::t_b1d2896a44ac29 196-199
+electron/features/documents/main/transitionOriginalAndWorkingCopyRevision.ts
+  s_b2ece6dfe48478::t_02cb8eccb72103 177-191
+  s_b2ece6dfe48478::t_b1d2896a44ac29 44,68,174
+tests/unit/electron/transitionOriginalAndWorkingCopyRevision.test.ts
+  s_b2ece6dfe48478::t_b1d2896a44ac29 289-291
+  s_b2ece6dfe48478::t_8c7c9249df5562 276-277,286-288,296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0b813bbea0329f8157fcab2da7cf218155354a29",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
