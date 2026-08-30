@@ -1,0 +1,84 @@
+native/pdf-page-ops/src/annotations.rs
+  s_7fe07412ad5143::t_86d09160f109a3 280,351,363-374,380,458,475,515,532,579
+native/pdf-page-ops/src/tests/identity_bindings.rs
+  s_7fe07412ad5143::t_cc07bc98870dab 1-135
+  s_7fe07412ad5143::t_b0d4717c75d1b3 136-186
+tests/unit/contracts/pdfAnnotationParse.test.ts
+  s_7fe07412ad5143::t_fa5fc4b6c7365e 279-283,300-303,318-321,335-338
+  s_7fe07412ad5143::t_3ae8751f92d97a 276-278,284-299,304-317,322-334,339-341
+native/pdf-page-ops/src/annotation_identity.rs
+  s_7fe07412ad5143::t_86d09160f109a3 14-36
+  s_7fe07412ad5143::t_9eea6bf64af3fc 5-6,11,50-54,68,112,115-118,128,133,137,147,152
+  s_7fe07412ad5143::t_e16ddc3a18413d 12-13
+native/pdf-page-ops/src/shapes.rs
+  s_7fe07412ad5143::t_86d09160f109a3 1154,1173,1185,1206,1213-1228,1233,1271-1277,1293,1351
+native/pdf-page-ops/src/annotation_parse.rs
+  s_7fe07412ad5143::t_1fd6569c8af3d2 1668,1687
+  s_7fe07412ad5143::t_a3a705f2f63465 1813
+  s_7fe07412ad5143::t_cd81d926d24016 1621-1623,1625,1634,1641-1644,2296-2299
+  s_7fe07412ad5143::t_faa6442268ced6 2295,2300-2322
+  s_7fe07412ad5143::t_ff0b4f19a639bb 432
+  s_7fe07412ad5143::t_6bb4bd0145cc6d 1582-1607,1615-1620,1626-1633,1635-1640,1645-1667
+  s_7fe07412ad5143::t_bace0d5636478e 743-759
+  s_7fe07412ad5143::t_d5ef755eb42a5b 1699-1702
+  s_7fe07412ad5143::t_bbff2378936fc0 2323-2340
+  s_7fe07412ad5143::t_51e5832e980c22 15-17,77-155,161-163,178,428-429,488-519,580-741,760-932,1689,1695,1899,1910-1921,1928-2294,2341-2507
+  s_7fe07412ad5143::t_c66d6c73e8cb29 1127
+  s_7fe07412ad5143::t_971482a5761d20 742
+  s_7fe07412ad5143::t_49500322752089 430-431
+  s_7fe07412ad5143::t_f6888c1b4817fe 1608-1614,1624
+  s_eb7ba9db0ef355::t_e188eb7d2614af 933,1688,1690-1694,1696-1697
+native/pdf-page-ops/src/placed_images.rs
+  s_7fe07412ad5143::t_86d09160f109a3 524,587,606,681,693-707
+  s_7fe07412ad5143::t_1e6caa8e6dcbba 708
+native/pdf-page-ops/src/incremental.rs
+  s_7fe07412ad5143::t_016cb3c8e4f118 705-707,723
+  s_7fe07412ad5143::t_324e85d0696efb 717,719,725
+  s_7fe07412ad5143::t_7938ae23c5a2e4 7-8,251,260,275,284,297,315,333,347,362,371,390-395,418,566-568,613,620,622,624-633,644,658-659,664-665,667
+  s_7fe07412ad5143::t_90b05dba704fee 610-612,619,720-722
+  s_7fe07412ad5143::t_4d37ff65d512a4 724
+packages/contracts/pdfAnnotationParseSchemas.ts
+  s_7fe07412ad5143::t_c74c031009132d 70-79,189,286,399,421-424
+native/pdf-page-ops/src/lib.rs
+  s_7fe07412ad5143::t_b8db03eecf577a 113
+native/pdf-page-ops/src/markup.rs
+  s_7fe07412ad5143::t_1eeb958dda988b 755,773,798,973,991,1021,1048,1057,1130,1144
+native/pdf-page-ops/src/shape_index.rs
+  s_7fe07412ad5143::t_49cbe0b83517a1 389,869
+native/pdf-page-ops/src/tests/catalog.rs
+  s_7fe07412ad5143::t_c274297977ad69 643,660,726
+native/pdf-page-ops/src/tests/markup_shapes.rs
+  s_7fe07412ad5143::t_ab9a47e522df7f 274,281,332-333,336,340,345,349,355,359,1398-1399,1436-1437,1957-1958,1985-1986,2077-2078,2173-2174,2203-2204
+native/pdf-page-ops/src/tests/notes.rs
+  s_7fe07412ad5143::t_a347e87191d86b 1263,1315
+native/pdf-page-ops/src/types.rs
+  s_7fe07412ad5143::t_69c32691a5adf3 1027-1029,1032
+native/protocol-fixtures/pdf-page-ops-parse-annotations.json
+  s_7fe07412ad5143::t_b9e7825b9b0c55 48-119
+tests/unit/scripts/nativeInteropProtocolFixtures.test.ts
+  s_7fe07412ad5143::t_a0ee06dac601c4 65-67,83-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "25e20363f0c2f862974c724f6eb18f42b238e50f",
+  "prompts": {},
+  "sessions": {
+    "s_7fe07412ad5143": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053f1-8791-7880-94f2-4cc9164f385c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_eb7ba9db0ef355": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a054cc-c322-7f11-a391-79ed1aa0897e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
