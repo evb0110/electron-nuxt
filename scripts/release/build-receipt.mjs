@@ -41,7 +41,6 @@ function getBuildOutputs(env, projectRoot) {
     ];
 }
 const BUILD_ENVIRONMENT_KEYS = [
-    'CARGO_ENCODED_RUSTFLAGS',
     'NODE_ENV',
     'RUSTFLAGS',
     'TARGET_ARCH',

@@ -18,7 +18,6 @@ import {
     createNativeToolBuildPlan,
     getCargoBuildEnvironment,
     getCargoFingerprintEnvironment,
-    getNativeBuildEnvironment,
     parseNativeToolBuildRequest,
 } from '@scripts/build-native-tool.mjs';
 import { createWasmToolBuildPlan } from '@scripts/build-wasm-tool.mjs';
@@ -212,21 +211,40 @@ describe('Cargo artifact staging', () => {
         });
     });
 
-    it('statically links Linux native tools so release binaries keep the GLIBC baseline', () => {
-        const existing = {RUSTFLAGS: '--cfg release'};
-        expect(getNativeBuildEnvironment(existing, {platform: 'linux'})).toEqual({RUSTFLAGS: '--cfg release -C target-feature=+crt-static'});
-        expect(getNativeBuildEnvironment({RUSTFLAGS: '-C target-feature=+crt-static'}, {platform: 'linux'})).toEqual({RUSTFLAGS: '-C target-feature=+crt-static'});
-        expect(getNativeBuildEnvironment({}, {platform: 'linux'})).toEqual({RUSTFLAGS: '-C target-feature=+crt-static'});
-        expect(getNativeBuildEnvironment({
-            CARGO_ENCODED_RUSTFLAGS: '--cfg\x1frelease',
-            RUSTFLAGS: '--cfg ignored-by-cargo',
-        }, {platform: 'linux'})).toEqual({
-            CARGO_ENCODED_RUSTFLAGS: '--cfg\x1frelease\x1f-C\x1ftarget-feature=+crt-static',
-            RUSTFLAGS: '--cfg ignored-by-cargo',
+    it('applies static CRT only to a release native binary, not its proc-macro dependencies', () => {
+        const target = {
+            binaryExtension: '',
+            cargoTargetArgs: [],
+            platform: 'linux',
+            platformArch: 'linux-x64',
+        };
+        const tool = getGeneratedNativeToolResource('pdf-page-ops');
+        const normal = createNativeToolBuildPlan({
+            projectRoot: '/repo',
+            target,
+            tool,
         });
-        const encodedStatic = {CARGO_ENCODED_RUSTFLAGS: '-C\x1ftarget-feature=+crt-static'};
-        expect(getNativeBuildEnvironment(encodedStatic, {platform: 'linux'})).toBe(encodedStatic);
-        expect(getNativeBuildEnvironment(existing, {platform: 'darwin'})).toBe(existing);
+        const release = createNativeToolBuildPlan({
+            projectRoot: '/repo',
+            staticLinuxCrt: true,
+            target,
+            tool,
+        });
+
+        expect(normal.cargoArgs[0]).toBe('build');
+        expect(normal.cargoArgs).not.toContain('target-feature=+crt-static');
+        expect(release.cargoArgs).toEqual([
+            'rustc',
+            '--manifest-path',
+            'native/pdf-page-ops/Cargo.toml',
+            '--release',
+            '--locked',
+            '--bin',
+            'evb-pdf-page-ops',
+            '--',
+            '-C',
+            'target-feature=+crt-static',
+        ]);
     });
 
     it('uses Cargo metadata as the authority for a shared workspace target directory', () => {
