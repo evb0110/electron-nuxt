@@ -764,7 +764,9 @@ describe('documents print', () => {
         for (let index = 0; index < 40; index += 1) {
             await Promise.resolve();
         }
-        expect(mocks.browserWindowInstances[0]?.webContents.capturePage).toHaveBeenCalled();
+        // The paint probe only runs where the plugin window is compositor-visible (macOS).
+        expect(mocks.browserWindowInstances[0]?.webContents.capturePage)
+            .toHaveBeenCalledTimes(process.platform === 'darwin' ? 1 : 0);
 
         cancelMainOperationsForOwner(senderId, 'Renderer lifecycle ended');
         await vi.advanceTimersByTimeAsync(250);
