@@ -87,6 +87,10 @@ export const DETECTION_DPI = 150;
 export const PREVIEW_DPI = DETECTION_DPI;
 /** Array results remain a deliberate compatibility path for small documents. */
 export const SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
+/** Completed pages a large document keeps in each progress event. */
+const RECENT_PROGRESS_PAGES = 256;
+/** Minimum gap between large-document progress events; batch ends always publish. */
+const LARGE_PROGRESS_PUBLISH_INTERVAL_MS = 100;
 
 /**
  * The progress contract accepts a page list only when it is exactly the
@@ -772,10 +776,31 @@ async function runBatchedScanCleanupDetection<TDocument>(
     const compatibilityResults = totalPages <= SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES
         ? new Map<number, IScanCleanupDetectionResult>()
         : null;
+    // Large documents publish only the results recorded since the previous
+    // event: re-sorting a 20,000-page native batch on every page made the
+    // per-page cost grow with the batch and a 138,000-page analysis take
+    // three hours. The renderer keeps its own bounded view of recent
+    // classifications and the file-backed store holds the full set.
+    const recentResults: IScanCleanupDetectionResult[] = [];
+    let lastLargePublishAt = 0;
     const publishedResults = () => compatibilityResults === null
         ? []
         : [...compatibilityResults.values()]
             .sort((left, right) => left.pageNumber - right.pageNumber);
+    const takePublishableResults = () => compatibilityResults === null
+        ? recentResults.splice(0).sort((left, right) => left.pageNumber - right.pageNumber)
+        : publishedResults();
+    const shouldPublishLargeProgress = (terminal: boolean) => {
+        if (compatibilityResults !== null || terminal) {
+            return true;
+        }
+        const now = Date.now();
+        if (now - lastLargePublishAt < LARGE_PROGRESS_PUBLISH_INTERVAL_MS) {
+            return false;
+        }
+        lastLargePublishAt = now;
+        return true;
+    };
     const detectionDpiForPage = (_pageNumber: number) => DETECTION_DPI;
     const binary = dependencies.resolveBinary();
     if (!binary) throw new ScanCleanupNativeToolUnavailableError('evb-scan-cleanup');
@@ -1183,6 +1208,9 @@ async function runBatchedScanCleanupDetection<TDocument>(
             };
             batchResults.set(sourcePageNumber, result);
             compatibilityResults?.set(sourcePageNumber, result);
+            if (compatibilityResults === null) {
+                recentResults.push(result);
+            }
             if (isFirstClassification) {
                 addScanCleanupDocumentCanvasObservedPage(
                     canvasAccumulator,
@@ -1251,8 +1279,9 @@ async function runBatchedScanCleanupDetection<TDocument>(
                                 `Scan cleanup detection reported unknown page ${String(nativeProgress.pageNumber)}`,
                             );
                         }
-                        if (reportedPageNumbers.size < SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES) {
-                            reportedPageNumbers.add(sourcePageNumber);
+                        reportedPageNumbers.add(sourcePageNumber);
+                        if (reportedPageNumbers.size > RECENT_PROGRESS_PAGES) {
+                            reportedPageNumbers.delete(reportedPageNumbers.values().next().value!);
                         }
                         if (nativeProgress.stage === 'page-analyzed') {
                             analyzedPages = Math.max(
@@ -1266,9 +1295,10 @@ async function runBatchedScanCleanupDetection<TDocument>(
                                 return;
                             }
                             recordResult(nativeProgress, sourcePageNumber);
-                            publish(compatibilityResults === null
-                                ? [...batchResults.values()].sort((left, right) => left.pageNumber - right.pageNumber)
-                                : publishedResults(), {
+                            if (!shouldPublishLargeProgress(analyzedPages >= totalPages)) {
+                                return;
+                            }
+                            publish(takePublishableResults(), {
                                 stage: 'detecting',
                                 completedUnits: analyzedPages,
                                 totalUnits: totalPages,
@@ -1288,9 +1318,10 @@ async function runBatchedScanCleanupDetection<TDocument>(
                             analyzedPages,
                             batch.startOffset + nativeProgress.completedPages,
                         );
-                        publish(compatibilityResults === null
-                            ? [...batchResults.values()].sort((left, right) => left.pageNumber - right.pageNumber)
-                            : publishedResults(), {
+                        if (!shouldPublishLargeProgress(completedUnits >= totalPages)) {
+                            return;
+                        }
+                        publish(takePublishableResults(), {
                             stage: 'detecting',
                             completedUnits,
                             totalUnits: totalPages,
