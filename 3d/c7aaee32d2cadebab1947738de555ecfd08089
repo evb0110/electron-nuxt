@@ -1,0 +1,34 @@
+app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService.ts
+  s_54d017eb59948f::t_7ca6ab68b81fdf 296-298
+  ai_agent 300,306
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService.test.ts
+  s_54d017eb59948f::t_4ef535727eaf3f 282-326
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_54d017eb59948f::t_7bf16ab2d63da3 122-127,666-668,670,689,723
+  s_54d017eb59948f::t_7ea73e9e131d7c 151,669,688,724,933,936,2420
+  s_54d017eb59948f::t_5200c248075e09 438-445,447,462-471,473,498,500,504,597-603,609-631,636-637,879-882,957-960,963-964,966
+  s_54d017eb59948f::t_1e055fde7e68dd 497,499,501-502
+  s_54d017eb59948f::t_6815a03ad103cf 503,604-608,2447,2449
+  s_54d017eb59948f::t_e5b9d3eb569cb4 505-535
+  s_54d017eb59948f::t_438b9a9f54bde7 536-596
+  s_54d017eb59948f::t_7fae1325ae949d 632-635
+  s_54d017eb59948f::t_ec43f05d57315e 2395
+  s_54d017eb59948f::t_66f37e5fb22d00 2396-2416,2422-2446,2448,2450-2513
+  s_54d017eb59948f::t_088e3a210616fd 2417-2419,2421
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3dc7aaee32d2cadebab1947738de555ecfd08089",
+  "prompts": {},
+  "sessions": {
+    "s_54d017eb59948f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f85-48a3-7f80-ae3f-b3e6dde552c5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
