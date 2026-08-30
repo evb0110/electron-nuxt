@@ -67,6 +67,7 @@ import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSe
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import { collectLivePdfJsAnnotationChangeIds } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import { useTextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
+import { getAnnotationEditorPageSearchOrder } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/getAnnotationEditorPageSearchOrder';
 
 
 export interface ICreatePdfAnnotationSessionOptions {
@@ -452,6 +453,13 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         }),
         syncInlineCommentIndicators: inlineIndicators.syncInlineCommentIndicators,
         textMarkupPresentation,
+        getEditorPageIndexes: () => getAnnotationEditorPageSearchOrder({
+            annotationPageIndexes: annotationCommentsCache.value.map(comment => comment.pageIndex),
+            mountedPageIndexes: viewport.demand.value.mountedPages.map(pageNumber => pageNumber - 1),
+            numPages: documentSession.numPages.value,
+            preferredPageIndex: viewport.currentPage.value - 1,
+            fallbackPageRadius: 0,
+        }).sort((left, right) => left - right),
         getAnnotationNameReadLimits: () => {
             const policy = resolveOpenPathSecondaryPerformancePolicy(getPerformanceProfile());
             return {

@@ -129,6 +129,7 @@ interface IUseAnnotationSyncOptions {
     getPdfSourceByteSize: () => number | null;
     isPdfSourceBlob: () => boolean;
     getPdfSourcePath?: () => string | null;
+    getEditorPageIndexes?: () => readonly number[];
 }
 type TPdfAnnotationNameReadIntent = TAnnotationEnrichmentIntent;
 type TPdfAnnotationNameReconciliationResult =
@@ -138,7 +139,6 @@ type TPdfAnnotationNameReconciliationResult =
     | 'stale'
     | 'failed';
 type TEditorData = ReturnType<typeof safeReadEditorData>;
-
 export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     const { t } = useTypedI18n();
     const {
@@ -388,7 +388,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const identity = getIdentity();
         const markupSubtype = getMarkupSubtype();
         const data = safeReadEditorData(editor);
-
         const text = resolveEditorSummaryText(editor, textOverride);
         const previewText = resolveEditorSummaryPreviewText(editor, text);
         const displayText = !text.trim() && previewText ? previewText : null;
@@ -533,7 +532,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         if (!pageScanResult) {
             return null;
         }
-
         const completeness = resolveAnnotationInventoryCompleteness({
             omissions: pageScanResult.omissions,
             visitedPageCount: pageScanResult.visitedPageCount,
@@ -585,7 +583,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         ) {
             return null;
         }
-
         return pdfAnnotationSnapshotPromise.promise;
     }
     function shouldCachePdfAnnotationSnapshot(
@@ -720,7 +717,10 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             };
         }
 
-        for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
+        const editorPageIndexes = options.getEditorPageIndexes?.();
+        for (const pageIndex of editorPageIndexes?.length
+            ? editorPageIndexes
+            : [Math.max(0, Math.trunc(currentPage.value) - 1)]) {
             for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
                 hasPostOpenUserMutation ||= trackedCreatedEditors.has(editor);
                 const text = getCommentText(editor);

@@ -229,6 +229,7 @@ async function createSyncHarness(options: {
     setLinkAnnotations?: ReturnType<typeof vi.fn>;
     numPages?: ReturnType<typeof ref<number>>;
     currentPage?: ReturnType<typeof ref<number>>;
+    getEditorPageIndexes?: () => readonly number[];
     useAnnotationSyncImplementation?: TUseAnnotationSync;
 } = {}) {
     const annotationCommentsCache = options.annotationCommentsCache ?? ref<IAnnotationCommentSummary[]>([]);
@@ -266,6 +267,7 @@ async function createSyncHarness(options: {
         getPdfSourceByteSize: options.getPdfSourceByteSize ?? (() => null),
         isPdfSourceBlob: options.isPdfSourceBlob ?? (() => false),
         getPdfSourcePath: options.getPdfSourcePath,
+        getEditorPageIndexes: options.getEditorPageIndexes,
     } as never);
     return {
         annotationCommentsCache,
@@ -1627,6 +1629,100 @@ describe('useAnnotationSync', () => {
 
             expect(setAnnotations).toHaveBeenCalledTimes(1);
             expect(setAnnotations.mock.calls[0]?.[0]).toEqual([expect.objectContaining({uid: 'editor-uid-1'})]);
+        });
+    });
+
+    it('bounds save-time editor collection to mounted and indexed pages', async () => {
+        const editors = [
+            {
+                id: 'mounted-editor',
+                uid: 'mounted-editor',
+                parentPageIndex: 0,
+            },
+            {
+                id: 'indexed-editor',
+                uid: 'indexed-editor',
+                parentPageIndex: 5_999,
+            },
+        ];
+        const getEditors = vi.fn((pageIndex: number) => (
+            editors.filter(editor => editor.parentPageIndex === pageIndex)
+        ));
+        const annotationUiManager = shallowRef({getEditors});
+
+        await withAnnotationSyncScope(async () => {
+            const {
+                sync,
+                setAnnotations,
+            } = await createSyncHarness({
+                annotationUiManager,
+                numPages: ref(6_000),
+                currentPage: ref(1),
+                getEditorPageIndexes: () => [
+                    0,
+                    5_999,
+                ],
+            });
+
+            sync.flushEditorCommentsForSave();
+
+            expect(getEditors.mock.calls.map(([pageIndex]) => pageIndex)).toEqual([
+                0,
+                5_999,
+            ]);
+            expect(setAnnotations).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        uid: 'mounted-editor',
+                        pageIndex: 0,
+                    }),
+                    expect.objectContaining({
+                        uid: 'indexed-editor',
+                        pageIndex: 5_999,
+                    }),
+                ]),
+                {
+                    adoptAsSavedBaseline: false,
+                    reconcileMissingTransient: false,
+                },
+            );
+        });
+    });
+
+    it('falls back to the current page when the editor page index list is empty', async () => {
+        const getEditors = vi.fn((pageIndex: number) => pageIndex === 0
+            ? [{
+                id: 'current-editor',
+                uid: 'current-editor',
+                parentPageIndex: 0,
+            }]
+            : []);
+        const annotationUiManager = shallowRef({getEditors});
+
+        await withAnnotationSyncScope(async () => {
+            const {
+                sync,
+                setAnnotations,
+            } = await createSyncHarness({
+                annotationUiManager,
+                numPages: ref(6_000),
+                currentPage: ref(1.7),
+                getEditorPageIndexes: () => [],
+            });
+
+            sync.flushEditorCommentsForSave();
+
+            expect(getEditors.mock.calls.map(([pageIndex]) => pageIndex)).toEqual([0]);
+            expect(setAnnotations).toHaveBeenCalledWith(
+                expect.arrayContaining([expect.objectContaining({
+                    uid: 'current-editor',
+                    pageIndex: 0,
+                })]),
+                {
+                    adoptAsSavedBaseline: false,
+                    reconcileMissingTransient: false,
+                },
+            );
         });
     });
 
