@@ -371,5 +371,30 @@ export function createFileBackedScanCleanupDetectionResultStore(
     return createFileBackedScanCleanupResultStore<IScanCleanupDetectionResult>({
         ...options,
         pageNumberOf: result => result.pageNumber,
+    }).then(store => {
+        const persistedResult = (result: IScanCleanupDetectionResult): IScanCleanupDetectionResult => {
+            if (result.outputModeDiagnostics === undefined) {
+                return result;
+            }
+            const persisted = {...result};
+            delete persisted.outputModeDiagnostics;
+            return persisted;
+        };
+        return {
+            close: () => store.close(),
+            forEachChunk: onChunk => store.forEachChunk(onChunk),
+            get pageCount() {
+                return store.pageCount;
+            },
+            get resultCount() {
+                return store.resultCount;
+            },
+            getPage: pageNumber => store.getPage(pageNumber),
+            readRange: (firstPageNumber, lastPageNumberExclusive) => (
+                store.readRange(firstPageNumber, lastPageNumberExclusive)
+            ),
+            append: result => store.append(persistedResult(result)),
+            replace: (pageNumber, result) => store.replace(pageNumber, persistedResult(result)),
+        };
     });
 }

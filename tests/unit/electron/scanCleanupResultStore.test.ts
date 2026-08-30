@@ -12,7 +12,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import {createFileBackedScanCleanupResultStore} from '@scan-cleanup-core/fileBackedResultStore';
+import {
+    createFileBackedScanCleanupDetectionResultStore,
+    createFileBackedScanCleanupResultStore,
+} from '@scan-cleanup-core/fileBackedResultStore';
 import {runLosslessScanCleanup} from '@scan-cleanup-core/runLosslessScanCleanup';
 import {resolveScanCleanupPageScopeLazy} from '@scan-cleanup-core/pageScope';
 import type {
@@ -23,6 +26,7 @@ import type {
 } from '@scan-cleanup-core/types';
 import type {IPdfPageSizeStore} from '@scan-cleanup-core/pdfPageSizes';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
+import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
 
 const roots: string[] = [];
 
@@ -44,6 +48,45 @@ afterEach(async () => {
 });
 
 describe('file-backed scan-cleanup result store', () => {
+    it('omits analysis-only diagnostics from persisted detection records', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-result-store-test-'));
+        roots.push(root);
+        const store = await createFileBackedScanCleanupDetectionResultStore({
+            pageCount: 1,
+            rootDir: root,
+        });
+        const outputModeDiagnostics = {rule: 'blank'} as NonNullable<
+            IScanCleanupDetectionResult['outputModeDiagnostics']
+        >;
+        const result: IScanCleanupDetectionResult = {
+            pageNumber: 1,
+            revision: 1,
+            classification: 'single-uncut-page',
+            confidence: 1,
+            cutterXPx: null,
+            tier1Verdict: 'single-uncut-page',
+            reconciled: false,
+            clusterAgreement: 1,
+            documentPrior: null,
+            recommendedOutputMode: 'grayscale',
+            outputModeDiagnostics,
+            pagePlanEvidence: {
+                pageNumber: 1,
+                rotationDegrees: 0,
+                layoutClassification: 'single-uncut-page',
+                outputs: {},
+            },
+        };
+
+        await store.append(result);
+
+        const persisted = await store.getPage(1);
+        expect(persisted).not.toHaveProperty('outputModeDiagnostics');
+        expect(persisted?.recommendedOutputMode).toBe('grayscale');
+        expect(persisted?.pagePlanEvidence).toEqual(result.pagePlanEvidence);
+        await store.close();
+    });
+
     it('keeps million-page indexes sparse and limits reads to bounded windows', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-result-store-test-'));
         roots.push(root);
