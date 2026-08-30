@@ -36,6 +36,7 @@ import {
     type IPdfPageSize,
     type IScanCleanupDetectionResultStore,
     type IScanCleanupPageRasterSource,
+    type IScanCleanupRasterRenderLimits,
     type TScanCleanupLog,
     type TScanCleanupRenderPage,
     type TScanCleanupRunSidecar,
@@ -398,6 +399,22 @@ export interface IScanCleanupDetectionDependencies {
     resolveBinary: () => string | null;
     renderPage: TScanCleanupRenderPage;
     renderPagePpm: TScanCleanupRenderPage;
+    renderPageBatch?: (input: {
+        dpi: number;
+        log: TScanCleanupLog;
+        pdftoppmBinary: string;
+        signal: AbortSignal;
+        sourcePdfPath: string;
+        targets: ReadonlyArray<{
+            limits: IScanCleanupRasterRenderLimits;
+            outputPath: string;
+            pageNumber: number
+        }>;
+    }) => Promise<ReadonlyArray<{
+        height: number;
+        pageNumber: number;
+        width: number
+    }>>;
     createRasterPipes?: (
         paths: readonly string[],
         signal: AbortSignal,
@@ -815,10 +832,12 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 },
             };
         });
-        const requestedWindowPages = Math.min(
-            SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW,
-            Math.max(2, Math.max(1, policy.rasterConcurrency) * 2),
-        );
+        const requestedWindowPages = dependencies.renderPageBatch === undefined
+            ? Math.min(
+                SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW,
+                Math.max(2, Math.max(1, policy.rasterConcurrency) * 2),
+            )
+            : SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW;
         const admission = await resolveStagedRasterWindow(
             stagingPlans,
             requestedWindowPages,
@@ -947,6 +966,62 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     throw error;
                 }
             }),
+            ...(dependencies.renderPageBatch === undefined
+                ? {}
+                : {stageBatch: async (pageNumbers: readonly number[]) => {
+                    const scratchPathByPage = new Map(await Promise.all(pageNumbers.map(async pageNumber => [
+                        pageNumber,
+                        await retention.rasterScratchPath(document, pageNumber, DETECTION_DPI),
+                    ] as const)));
+                    try {
+                        const rendered = await dependencies.renderPageBatch!({
+                            dpi: DETECTION_DPI,
+                            log,
+                            pdftoppmBinary: dependencies.getPdftoppmBinary(),
+                            signal: operationSignal,
+                            sourcePdfPath: request.sourcePdfPath,
+                            targets: pageNumbers.map(pageNumber => ({
+                                limits: rasterLimitsByPage.get(pageNumber)!,
+                                outputPath: scratchPathByPage.get(pageNumber)!,
+                                pageNumber,
+                            })),
+                        });
+                        const dimensionsByPage = new Map(rendered.map(result => [
+                            result.pageNumber,
+                            result,
+                        ]));
+                        if (dimensionsByPage.size !== pageNumbers.length) {
+                            throw new Error('Poppler raster batch returned an incomplete page window');
+                        }
+                        for (const pageNumber of pageNumbers) {
+                            const dimensions = dimensionsByPage.get(pageNumber);
+                            if (dimensions === undefined) {
+                                throw new Error(`Poppler raster batch omitted page ${String(pageNumber)}`);
+                            }
+                            const scratchPath = scratchPathByPage.get(pageNumber)!;
+                            const raster = await retention.retain({
+                                document,
+                                dpi: DETECTION_DPI,
+                                height: dimensions.height,
+                                pageNumber,
+                                scratchPath,
+                                sizeBytes: (await stat(scratchPath)).size,
+                                width: dimensions.width,
+                            });
+                            if (raster.path !== stagedPathByPage.get(pageNumber)) {
+                                throw new ScanCleanupContractError(
+                                    `page ${String(pageNumber)} was staged at ${raster.path} instead of its manifest input path`,
+                                );
+                            }
+                        }
+                    } catch (error) {
+                        await Promise.allSettled(pageNumbers.flatMap(pageNumber => [
+                            rm(scratchPathByPage.get(pageNumber)!, {force: true}),
+                            retention.releaseRaster(document, pageNumber, DETECTION_DPI),
+                        ]));
+                        throw error;
+                    }
+                }}),
             unstage: pageNumber => retention.releaseRaster(
                 document,
                 pageNumber,

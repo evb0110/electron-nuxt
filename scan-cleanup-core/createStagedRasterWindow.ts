@@ -15,6 +15,8 @@ export interface IStagedRasterWindowDependencies {
     window: number;
     /** Renders one page and publishes it atomically at its manifest path. */
     stage: (pageNumber: number) => Promise<void>;
+    /** Renders one bounded forward window in a single native invocation. */
+    stageBatch?: (pageNumbers: readonly number[]) => Promise<void>;
     /** Drops one staged raster. Called once per page the window admitted. */
     unstage: (pageNumber: number) => Promise<void>;
     /**
@@ -138,7 +140,7 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
         held.set(pageNumber, 'staging');
         observeResident();
     };
-    const stagePage = (pageNumber: number) => {
+    const stageSinglePage = (pageNumber: number) => {
         const pending = inFlight.get(pageNumber);
         if (pending) {
             return pending;
@@ -172,6 +174,78 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
             }
             dependencies.onStaged?.(pageNumber);
         })();
+        const tracked = task.finally(() => {
+            if (inFlight.get(pageNumber) === tracked) inFlight.delete(pageNumber);
+        });
+        inFlight.set(pageNumber, tracked);
+        return tracked;
+    };
+    let batchStageTail = Promise.resolve();
+    const stagePage = (pageNumber: number) => {
+        if (dependencies.stageBatch === undefined) {
+            return stageSinglePage(pageNumber);
+        }
+        const pending = inFlight.get(pageNumber);
+        if (pending) {
+            return pending;
+        }
+        const task = batchStageTail.then(async () => {
+            if (external.has(pageNumber)) {
+                if (await dependencies.isStaged(pageNumber)) {
+                    return;
+                }
+                external.delete(pageNumber);
+            }
+            if (held.get(pageNumber) === 'ready' && await dependencies.isStaged(pageNumber)) {
+                return;
+            }
+            held.delete(pageNumber);
+            const firstIndex = dependencies.pages.indexOf(pageNumber);
+            const forwardPages = firstIndex < 0
+                ? [pageNumber]
+                : dependencies.pages.slice(firstIndex, firstIndex + window);
+            const evictable = [...held].filter(([
+                candidate,
+                state,
+            ]) => (
+                state === 'ready' && !leased.has(candidate)
+            )).length;
+            const capacity = Math.max(1, window - held.size + evictable);
+            const batch = forwardPages
+                .filter(candidate => (
+                    !external.has(candidate)
+                    && held.get(candidate) !== 'ready'
+                ))
+                .slice(0, capacity);
+            if (!batch.includes(pageNumber)) {
+                batch.unshift(pageNumber);
+                batch.splice(capacity);
+            }
+            for (const candidate of batch) {
+                held.delete(candidate);
+                await reserveSlot(candidate);
+            }
+            try {
+                await dependencies.stageBatch!(batch);
+                for (const candidate of batch) {
+                    if (!await dependencies.isStaged(candidate)) {
+                        throw new Error(`Scan cleanup batch did not publish page ${String(candidate)}`);
+                    }
+                    held.set(candidate, 'ready');
+                    if (!admitted.has(candidate)) {
+                        admitted.add(candidate);
+                    }
+                    dependencies.onStaged?.(candidate);
+                }
+                observeResident();
+            } catch (error) {
+                for (const candidate of batch) {
+                    held.delete(candidate);
+                }
+                throw error;
+            }
+        });
+        batchStageTail = task.then(() => undefined, () => undefined);
         const tracked = task.finally(() => {
             if (inFlight.get(pageNumber) === tracked) inFlight.delete(pageNumber);
         });

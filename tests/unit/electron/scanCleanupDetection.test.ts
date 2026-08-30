@@ -425,8 +425,17 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         const controller = new AbortController();
         const manifests: number[] = [];
         const pageSizeSource = createLazyPageSizeStore(pageCount);
-        const renderPage = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
-            await writeFile(outputPath, PNG_1X1);
+        const renderPage = vi.fn();
+        const renderPageBatch = vi.fn(async (input: {targets: ReadonlyArray<{
+            outputPath: string;
+            pageNumber: number
+        }>}) => {
+            await Promise.all(input.targets.map(target => writeFile(target.outputPath, PNG_1X1)));
+            return input.targets.map(target => ({
+                height: 1,
+                pageNumber: target.pageNumber,
+                width: 1,
+            }));
         });
         const retention: IScanCleanupDetectionRetention<{id: string}> = {
             openDocument: vi.fn(async () => ({id: 'document'})),
@@ -472,6 +481,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 getPdftoppmBinary: () => 'pdftoppm',
                 resolveBinary: () => 'evb-scan-cleanup',
                 renderPage,
+                renderPageBatch,
                 renderPagePpm: vi.fn(),
                 runSidecar: vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
                     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
@@ -508,7 +518,12 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             1_024,
             1_024,
         ]);
-        expect(renderPage).toHaveBeenCalledTimes(8);
+        expect(renderPage).not.toHaveBeenCalled();
+        expect(renderPageBatch).toHaveBeenCalledTimes(2);
+        expect(renderPageBatch.mock.calls.map(([input]) => input.targets.map(target => target.pageNumber))).toEqual([
+            Array.from({length: 16}, (_, index) => index + 1),
+            Array.from({length: 16}, (_, index) => index + 1_025),
+        ]);
         expect(pageSizeSource.largestChunk()).toBeLessThanOrEqual(1_024);
         expect(pageSizeSource.largestReadRange()).toBeLessThanOrEqual(1_024);
         expect(pageSizeSource.store.readRange).not.toHaveBeenCalled();

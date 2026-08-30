@@ -111,6 +111,7 @@ import {
 import type {TWorkerLog} from '@electron/ocr/worker/types';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {runScanCleanupSidecar} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
+import {renderScanCleanupRasterBatch} from '@electron/features/scan-cleanup/renderScanCleanupRasterBatch';
 import {
     logRasterHandoff,
     readAvailableScratchBytes,
@@ -493,6 +494,7 @@ export interface IScanCleanupPreviewDependencies {
     publishRaster: typeof atomicReplace;
     renderPage: typeof renderPdfPageToPng;
     renderPagePpm: typeof renderPdfPageToPpm;
+    renderPageBatch?: typeof renderScanCleanupRasterBatch;
     createRasterPipes?: (
         paths: readonly string[],
         signal: AbortSignal,
@@ -541,6 +543,7 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
     publishRaster: atomicReplace,
     renderPage: renderPdfPageToPng,
     renderPagePpm: renderPdfPageToPpm,
+    renderPageBatch: renderScanCleanupRasterBatch,
     createRasterPipes: async (paths, signal, log) => {
         await runNativeToolCommand('mkfifo', [...paths], {
             signal,
@@ -1150,11 +1153,11 @@ export function createRawRasterRetention(dependencies: IScanCleanupPreviewDepend
             };
 
             const pageRasterCache = new Map<number, Promise<IDetectedPageRaster | undefined>>();
-            const pendingRasterProbes = new Map<number, {
+            const pendingRasterReads = new Map<number, {
                 reject: (error: unknown) => void;
                 resolve: (raster: IDetectedPageRaster | undefined) => void
             }>();
-            let rasterProbeFlushScheduled = false;
+            let rasterReadFlushScheduled = false;
             let documentDpi: number | null = null;
             const observeRaster = (raster: IDetectedPageRaster | undefined) => {
                 if (
@@ -1166,30 +1169,52 @@ export function createRawRasterRetention(dependencies: IScanCleanupPreviewDepend
                 }
                 return raster;
             };
-            const flushRasterProbes = () => {
-                rasterProbeFlushScheduled = false;
-                if (pendingRasterProbes.size === 0 || dependencies.detectRasterPages === undefined) {
+            const flushRasterReads = () => {
+                rasterReadFlushScheduled = false;
+                if (pendingRasterReads.size === 0) {
                     return;
                 }
-                const entries = [...pendingRasterProbes.entries()]
+                const entries = [...pendingRasterReads.entries()]
                     .slice(0, RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES);
-                for (const [pageNumber] of entries) pendingRasterProbes.delete(pageNumber);
+                for (const [pageNumber] of entries) pendingRasterReads.delete(pageNumber);
                 const pageNumbers = entries.map(([pageNumber]) => pageNumber);
-                void dependencies.detectRasterPages(
-                    document.sourcePdfPath,
-                    document.lifetime.signal,
-                    pageNumbers,
-                ).then(probed => {
-                    for (const dpi of probed.sourceDpiByPage?.values() ?? []) {
+                void Promise.all(pageNumbers.map(async pageNumber => {
+                    try {
+                        return await readPageSize(pageNumber);
+                    } catch (error) {
+                        if (document.lifetime.signal.aborted) throw error;
+                        logger.warn(`Scan cleanup could not read page ${String(pageNumber)} geometry for raster facts: ${getErrorMessage(error)}`);
+                        return undefined;
+                    }
+                })).then(async pageSizes => {
+                    const rasters = pageSizes.map(pageSize => (
+                        pageSize === undefined ? undefined : detectPageRasterFromPageSize(pageSize)
+                    ));
+                    const missingPageNumbers = pageNumbers.filter((_, index) => rasters[index] === undefined);
+                    const probed = missingPageNumbers.length === 0 || dependencies.detectRasterPages === undefined
+                        ? undefined
+                        : await dependencies.detectRasterPages(
+                            document.sourcePdfPath,
+                            document.lifetime.signal,
+                            missingPageNumbers,
+                        );
+                    for (const dpi of probed?.sourceDpiByPage?.values() ?? []) {
                         if (Number.isFinite(dpi) && dpi > 0) {
                             documentDpi = Math.max(documentDpi ?? 0, dpi);
                         }
                     }
                     for (const [
-                        pageNumber,
-                        waiter,
-                    ] of entries) {
-                        waiter.resolve(observeRaster(rasterFromLegacyProbe(probed, pageNumber)));
+                        index,
+                        [
+                            pageNumber,
+                            waiter,
+                        ],
+                    ] of entries.entries()) {
+                        waiter.resolve(observeRaster(
+                            rasters[index] ?? (probed === undefined
+                                ? undefined
+                                : rasterFromLegacyProbe(probed, pageNumber)),
+                        ));
                     }
                 }, error => {
                     for (const [
@@ -1199,20 +1224,20 @@ export function createRawRasterRetention(dependencies: IScanCleanupPreviewDepend
                         waiter.reject(error);
                     }
                 }).finally(() => {
-                    if (pendingRasterProbes.size > 0) {
-                        rasterProbeFlushScheduled = true;
-                        void Promise.resolve().then(flushRasterProbes);
+                    if (pendingRasterReads.size > 0) {
+                        rasterReadFlushScheduled = true;
+                        void Promise.resolve().then(flushRasterReads);
                     }
                 }).catch(() => undefined);
             };
-            const probeRasterPage = (pageNumber: number) => new Promise<IDetectedPageRaster | undefined>((resolve, reject) => {
-                pendingRasterProbes.set(pageNumber, {
+            const readRasterPage = (pageNumber: number) => new Promise<IDetectedPageRaster | undefined>((resolve, reject) => {
+                pendingRasterReads.set(pageNumber, {
                     resolve,
                     reject,
                 });
-                if (!rasterProbeFlushScheduled) {
-                    rasterProbeFlushScheduled = true;
-                    void Promise.resolve().then(flushRasterProbes);
+                if (!rasterReadFlushScheduled) {
+                    rasterReadFlushScheduled = true;
+                    void Promise.resolve().then(flushRasterReads);
                 }
             });
             const getPageRaster = (pageNumber: number) => {
@@ -1222,25 +1247,7 @@ export function createRawRasterRetention(dependencies: IScanCleanupPreviewDepend
                     pageRasterCache.set(pageNumber, cached);
                     return cached;
                 }
-                const pending = (async () => {
-                    let pageSize: IPdfPageSize | undefined;
-                    try {
-                        pageSize = await readPageSize(pageNumber);
-                    } catch (error) {
-                        if (document.lifetime.signal.aborted) throw error;
-                        logger.warn(`Scan cleanup could not read page ${String(pageNumber)} geometry for raster facts: ${getErrorMessage(error)}`);
-                    }
-                    const metadataRaster = pageSize === undefined
-                        ? undefined
-                        : detectPageRasterFromPageSize(pageSize);
-                    if (metadataRaster !== undefined) {
-                        return observeRaster(metadataRaster);
-                    }
-                    if (dependencies.detectRasterPages === undefined) {
-                        return undefined;
-                    }
-                    return probeRasterPage(pageNumber);
-                })();
+                const pending = readRasterPage(pageNumber);
                 pageRasterCache.set(pageNumber, pending);
                 if (pageRasterCache.size > RASTER_PAGE_SOURCE_CACHE_LIMIT) {
                     const oldest = pageRasterCache.keys().next().value;
@@ -3959,6 +3966,9 @@ export function createScanCleanupPreviewService(
                             resolveBinary: dependencies.resolveBinary,
                             renderPage: dependencies.renderPage,
                             renderPagePpm: dependencies.renderPagePpm,
+                            ...(dependencies.renderPageBatch === undefined
+                                ? {}
+                                : {renderPageBatch: dependencies.renderPageBatch}),
                             ...(!rasterPolicy.rasterStreaming || dependencies.createRasterPipes === undefined
                                 ? {}
                                 : {createRasterPipes: dependencies.createRasterPipes}),

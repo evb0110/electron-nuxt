@@ -4704,6 +4704,56 @@ describe('scan cleanup preview', () => {
         await retention.dispose();
     });
 
+    it('coalesces serialized raster facts into bounded native batches', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const pageCount = 96;
+        const pages = Array.from({length: pageCount}, (_, index) => ({
+            ...DOCUMENT_PAGE_SIZES[0]!,
+            pageNumber: index + 1,
+        }));
+        let readTail = Promise.resolve();
+        const store: IPdfPageSizeStore = {
+            pageCount,
+            getPage: vi.fn(pageNumber => {
+                const read = readTail.then(() => pages[pageNumber - 1]!);
+                readTail = read.then(() => undefined, () => undefined);
+                return read;
+            }),
+            readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) => (
+                pages.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)
+            )),
+            forEachChunk: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
+            fork: vi.fn(() => store),
+        };
+        deps.getPageCount = vi.fn(async () => pageCount);
+        deps.getPageSizeStore = vi.fn(() => store);
+        deps.isRasterDetectionAvailable = () => true;
+        deps.detectRasterPages = vi.fn(async () => ({
+            detected: true,
+            pages: new Set<number>(),
+            bilevelLayerPages: new Set<number>(),
+            dominantBilevelLayerPages: new Set<number>(),
+            backgroundDpiByPage: new Map<number, number>(),
+        }));
+        const retention = createRawRasterRetention(deps);
+        const document = await retention.openDocument({
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'revision-1',
+        });
+        const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
+
+        await Promise.all(pages.map(page => rasterSource.getPageRaster(page.pageNumber)));
+
+        expect(deps.detectRasterPages).toHaveBeenCalledTimes(2);
+        expect(vi.mocked(deps.detectRasterPages).mock.calls.map(call => call[2])).toEqual([
+            pages.slice(0, 48).map(page => page.pageNumber),
+            pages.slice(48).map(page => page.pageNumber),
+        ]);
+        await retention.dispose();
+    });
+
     it('opens bounded page geometry and raster facts without the legacy arrays', async () => {
         const dir = await setup();
         const deps = dependencies(dir);

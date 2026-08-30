@@ -42,6 +42,52 @@ function createRecordingWindow(
 }
 
 describe('createStagedRasterWindow', () => {
+    it('stages each forward window through one bounded batch', async () => {
+        const pages = Array.from({length: 8}, (_, index) => index + 1);
+        const resident = new Set<number>();
+        const stage = vi.fn(async (pageNumber: number) => {
+            resident.add(pageNumber);
+        });
+        const stageBatch = vi.fn(async (pageNumbers: readonly number[]) => {
+            for (const pageNumber of pageNumbers) resident.add(pageNumber);
+        });
+        const controller = createStagedRasterWindow({
+            pages,
+            window: 4,
+            stage,
+            stageBatch,
+            unstage: vi.fn(async pageNumber => {
+                resident.delete(pageNumber);
+            }),
+            isStaged: vi.fn(async pageNumber => resident.has(pageNumber)),
+        });
+
+        await controller.prime();
+        for (const pageNumber of pages) {
+            await controller.acquire(pageNumber);
+            controller.release(pageNumber);
+        }
+
+        expect(stage).not.toHaveBeenCalled();
+        expect(stageBatch.mock.calls.map(call => call[0])).toEqual([
+            [
+                1,
+                2,
+                3,
+                4,
+            ],
+            [
+                5,
+                6,
+                7,
+                8,
+            ],
+        ]);
+        expect(controller.peakResidentPages()).toBe(4);
+        await controller.dispose();
+        expect(resident.size).toBe(0);
+    });
+
     it('keeps at most one window of rasters on disk across a long document', async () => {
         const pages = Array.from({length: 148}, (_, index) => index + 1);
         const harness = createRecordingWindow(pages, 3);
