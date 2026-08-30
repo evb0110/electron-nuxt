@@ -1,0 +1,43 @@
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_6a84feff6ba4cb::t_a27d9def87109d 395
+  s_6a84feff6ba4cb::t_df88ebcc9bbcc7 726-728
+  s_6a84feff6ba4cb::t_edefb434e98e3a 715-717,720-725,729-733,742-744,746-748,753,771-794,796-798,803-808,817-818,823-832,835-846,848-937
+  s_6a84feff6ba4cb::t_1c29e8aacf15c4 1056-1069,1072,1076-1107,1109,1111-1140,1142-1176
+  s_6a84feff6ba4cb::t_adc008be540a91 64-65,712-713,718,734-735,745,1074,1108
+  s_6a84feff6ba4cb::t_96b70fe71daa7a 147,154-156,719,736-741,749-752,754-770,1073
+  s_6a84feff6ba4cb::t_7231e2e7abe72c 847
+  s_6a84feff6ba4cb::t_743823761d74aa 15,35,37-38,42-45,58,66-67
+  s_6a84feff6ba4cb::t_3882303add8fc3 153
+  s_6a84feff6ba4cb::t_c9489621705978 1110,1141
+  s_6a84feff6ba4cb::t_775825cf1b9f13 25,283-333,404,409,412,420
+  s_6a84feff6ba4cb::t_a29913404a2d36 59,795,799-802,809-816,819-822,833-834
+  s_6a84feff6ba4cb::t_b4483718d4c69c 701-708,979,998,1017
+  s_6a84feff6ba4cb::t_53efaef79c11b0 18-21,231-234,369-372,405-408,493-504,519-530,545-556,563-566,596-600,602-606,610-628,635-646,650-659
+  s_6a84feff6ba4cb::t_7c4ebb268ae58c 69-94,982-983,985-988
+  s_6a84feff6ba4cb::t_1f95df44b17069 1075
+  s_6a84feff6ba4cb::t_9a5b16ed6648fd 411,414-419,711,714,1070-1071
+  s_6a84feff6ba4cb::t_29ba0accf8cd42 1-11,13-14,16-17,22-24,26-34,36,39-41,46-57,60-63,68,99-146,148-152,157-230,235-249,251-267,272-282,334-366,368,373-389,391-394,396-403,410,413,421-492,505-518,531-544,557-562,567-595,601,607-609,629-634,647-649,660-700,709-710,938-978,980-981,984,989-997,999-1016,1018-1055,1177
+  s_6a84feff6ba4cb::t_c37437385bcfc6 12,95-98,250,268-271,367,390
+vitest.shared.config.ts
+  s_6a84feff6ba4cb::t_4c2c095b1d6bf3 113
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_6a84feff6ba4cb::t_52e3099a42e048 895,901-902
+tests/unit/scripts/electronE2eSmokeConfig.test.ts
+  s_6a84feff6ba4cb::t_4c2c095b1d6bf3 112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6699217f07b9b0c00c4be84c705dcba9ee2fa4d2",
+  "prompts": {},
+  "sessions": {
+    "s_6a84feff6ba4cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0503f-a9cd-7462-8314-52624a8e85dd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
