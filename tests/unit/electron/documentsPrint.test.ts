@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => {
             this.eventHandlers.get(event)?.delete(handler);
         });
         public readonly setTitle = vi.fn();
+        public readonly setOpacity = vi.fn();
         public readonly showInactive = vi.fn();
         public readonly webContents = {
             executeJavaScript: vi.fn(async () => true),
@@ -361,12 +362,16 @@ describe('documents print', () => {
         expect(printWindow?.showInactive).not.toHaveBeenCalled();
 
         printWindow?.emit('ready-to-show');
-        await vi.advanceTimersByTimeAsync(1_999);
-        expect(printWindow?.showInactive).not.toHaveBeenCalled();
-
-        await vi.advanceTimersByTimeAsync(1);
+        await Promise.resolve();
+        expect(printWindow?.setOpacity).toHaveBeenCalledWith(0);
         expect(printWindow?.showInactive).toHaveBeenCalledTimes(1);
+        expect(printWindow?.setOpacity.mock.invocationCallOrder[0])
+            .toBeLessThan(printWindow?.showInactive.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY);
+
+        await vi.advanceTimersByTimeAsync(2_000);
         await expect(resultPromise).resolves.toEqual({success: true});
+        expect(printWindow?.hide).toHaveBeenCalledTimes(1);
+        expect(printWindow?.setOpacity).toHaveBeenLastCalledWith(1);
     });
 
     it('dispatches a path larger than 2 GiB without applying the byte handoff cap', async () => {

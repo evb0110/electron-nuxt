@@ -512,8 +512,9 @@ function revealPrintWindowForNativeDialog(printWindow: BrowserWindow) {
     }
 
     // macOS can hand a blank hidden PDF plugin surface to the native print dialog.
-    // Showing the transient print window gives Chromium's PDF viewer a real surface
-    // while the dialog is open; the window is hidden again after the print callback.
+    // Make the transient window compositor-visible so Chromium gets a real surface,
+    // but keep it transparent so the user never sees the unpainted plugin frame.
+    printWindow.setOpacity(0);
     printWindow.showInactive();
 }
 
@@ -543,6 +544,7 @@ function waitForPrintWindowReady(printWindow: BrowserWindow) {
 function hideRevealedPrintWindow(printWindow: BrowserWindow) {
     if (PRINT_WINDOW_VISIBLE_ON_DARWIN && !printWindow.isDestroyed()) {
         printWindow.hide();
+        printWindow.setOpacity(1);
     }
 }
 
@@ -706,11 +708,13 @@ export async function openNativePrintDialogForPath(
             await printWindowReady;
         }
         throwIfPrintHandoffAborted(handoffOptions.signal);
-        await delay(PRINT_LOAD_SETTLE_DELAY_MS);
-        throwIfPrintHandoffAborted(handoffOptions.signal);
         if (!rasterSurface) {
+            // Keep the plugin compositor-visible during its settle delay without
+            // exposing the blank/dark backing window before the native sheet opens.
             revealPrintWindowForNativeDialog(printWindow);
         }
+        await delay(PRINT_LOAD_SETTLE_DELAY_MS);
+        throwIfPrintHandoffAborted(handoffOptions.signal);
         const result = await runNativePrintDialog(printWindow, printOptions);
         if (handoffOptions.signal?.aborted) {
             return {
