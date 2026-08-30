@@ -1,5 +1,7 @@
 import {
     mkdtempSync,
+    readFileSync,
+    readlinkSync,
     rmSync,
     symlinkSync,
     writeFileSync,
@@ -177,12 +179,27 @@ describe('atomicReplace', () => {
                 .toThrow(`Invalid file path: symlink path segment is not allowed (${destinationPath})`);
 
             expect(mocks.rename).not.toHaveBeenCalled();
+            expect(readlinkSync(destinationPath)).toBe(referentPath);
+            expect(readFileSync(referentPath, 'utf8')).toBe('referent bytes');
         } finally {
             rmSync(tempRoot, {
                 force: true,
                 recursive: true,
             });
         }
+    });
+
+    it('allows a regular destination below the permitted /tmp ancestor', async () => {
+        setPlatform('darwin');
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
+
+        await expect(atomicReplace('/tmp/evb-atomic-replace-source.tmp', '/tmp/evb-atomic-replace-target.pdf'))
+            .resolves.toBeUndefined();
+
+        expect(mocks.rename).toHaveBeenCalledWith(
+            '/tmp/evb-atomic-replace-source.tmp',
+            '/tmp/evb-atomic-replace-target.pdf',
+        );
     });
 
     it('reports both promotion and restore failures on Windows', async () => {
