@@ -287,8 +287,8 @@ describe('useAnnotationShapes', () => {
             deletedStableKeys: [],
         });
         expect(mutation).not.toBeNull();
-        const retiredNative = mutation!.shapes.find(shape => shape.id === retiredShape.id);
-        const liveNative = mutation!.shapes.find(shape => shape.id === liveShape.id);
+        const retiredNative = mutation!.shapes.find(shape => shape.stableKey === retiredShape.stableKey);
+        const liveNative = mutation!.shapes.find(shape => shape.stableKey === liveShape.stableKey);
         expect(retiredNative).toMatchObject({
             annotationId: null,
             color: '#dc2626',

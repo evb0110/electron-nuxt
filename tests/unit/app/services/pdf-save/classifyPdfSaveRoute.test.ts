@@ -898,6 +898,8 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                 'Underline',
             ]]},
         });
+        expect(decision.nativeMutationProjection.mutations.shapes?.shapes[0])
+            .not.toHaveProperty('id');
     });
 
     it('projects a PDF-backed FreeText edit to a native text update', () => {

@@ -487,7 +487,6 @@ describe('workspaceSaveService native persistence', () => {
                 totalPages: 2,
                 rewriteShapeState: true,
                 shapes: [expect.objectContaining({
-                    id: 'shape-1',
                     type: 'rectangle',
                     pageIndex: 0,
                     stableKey: 'evb-shape:shape-1',
@@ -504,6 +503,10 @@ describe('workspaceSaveService native persistence', () => {
                 preserveLoadedSource: true,
             }),
         );
+        expect(trySavePdfNativeMutations.mock.calls).toEqual([[
+            expect.objectContaining({shapes: expect.objectContaining({shapes: [expect.not.objectContaining({id: expect.anything()})]})}),
+            expect.anything(),
+        ]]);
         expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         expect(deps.preparePersistedShapeStateForSave).toHaveBeenCalledWith(savedBytes);
         expect(deps.serializePdfForSave).not.toHaveBeenCalled();
