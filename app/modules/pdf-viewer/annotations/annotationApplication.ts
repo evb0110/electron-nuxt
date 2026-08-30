@@ -178,6 +178,12 @@ function isPersistedSummary(comment: IAnnotationCommentSummary) {
         || Boolean(normalizePdfJsAnnotationId(comment.annotationId));
 }
 
+function isPersistedEditorFreeTextSummary(comment: IAnnotationCommentSummary) {
+    return comment.source === 'editor'
+        && comment.subtype?.trim().toLowerCase() === 'freetext'
+        && Boolean(parsePdfJsAnnotationRef(comment.annotationId));
+}
+
 function toMarkupSubtype(value: string | null | undefined): TMarkupSubtype | null {
     if (value === 'Highlight' || value === 'Underline' || value === 'StrikeOut' || value === 'Squiggly') {
         return value;
@@ -377,7 +383,7 @@ export class AnnotationApplication {
             }
             const canonicalKind = comment.source === 'pdf'
                 ? resolvePdfAnnotationCanonicalKind(comment.subtype, comment.hasNote === true)
-                : comment.hasNote
+                : comment.hasNote || isPersistedEditorFreeTextSummary(comment)
                     ? 'sticky-note'
                     : null;
             if (canonicalKind !== 'sticky-note') {

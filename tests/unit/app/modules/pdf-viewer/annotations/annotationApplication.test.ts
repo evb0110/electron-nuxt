@@ -307,6 +307,72 @@ describe('AnnotationApplication', () => {
         }])[0]?.hasNote).toBe(true);
     });
 
+    it('imports a persisted non-point FreeText editor into the canonical store', () => {
+        const application = new AnnotationApplication('document');
+
+        application.ingestLegacySummaries([{
+            id: '44R',
+            stableKey: 'src:editor:0:44R',
+            pageIndex: 0,
+            pageNumber: 1,
+            text: 'visible imported text',
+            subtype: 'FreeText',
+            author: null,
+            modifiedAt: null,
+            color: '#ff00aa',
+            uid: 'pdfjs-editor-44R',
+            annotationId: '44R',
+            source: 'editor',
+            hasNote: false,
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.15,
+            },
+        }]);
+
+        expect(application.store.list()).toHaveLength(1);
+        expect(application.store.list()[0]).toMatchObject({
+            kind: 'sticky-note',
+            text: 'visible imported text',
+            pageIndex: 0,
+            identity: {
+                pdfRef: '44R',
+                pdfjsUid: 'pdfjs-editor-44R',
+                elementId: '44R',
+            },
+        });
+    });
+
+    it('does not admit a transient FreeText editor from its generated id alone', () => {
+        const application = new AnnotationApplication('document');
+
+        application.ingestLegacySummaries([{
+            id: 'pdfjs_internal_editor_0',
+            stableKey: 'src:editor:0:pdfjs_internal_editor_0',
+            pageIndex: 0,
+            pageNumber: 1,
+            text: '',
+            subtype: 'FreeText',
+            author: null,
+            modifiedAt: null,
+            color: '#ff00aa',
+            uid: 'pdfjs_internal_editor_0',
+            annotationId: 'pdfjs_internal_editor_0',
+            source: 'editor',
+            hasNote: false,
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.15,
+            },
+        }]);
+
+        expect(application.store.list()).toHaveLength(0);
+    });
+
     it('fails closed when one PDF snapshot repeats a placed-image NM', () => {
         const application = new AnnotationApplication('document');
 
