@@ -130,6 +130,8 @@ interface ISaveReceiptProbeWindow extends Window {
     ) => Promise<void> | void;
 }
 
+interface IPreviewReachabilityProbeWindow extends Window { __issue132PreviewReachability?: IRouteEvidence[]; }
+
 function createTelemetry(): IScaleAcceptanceTelemetry {
     return {
         fixture: {
@@ -272,7 +274,46 @@ async function readRouteEvidence(
     };
 }
 
-async function waitForOpeningPreviewPage(page: Page, pageNumber: number) {
+async function installPreviewReachabilityProbe(page: Page) {
+    await page.evaluate(() => {
+        const probeWindow = window as IPreviewReachabilityProbeWindow;
+        probeWindow.__issue132PreviewReachability = [];
+        const capture = () => {
+            const image = document.querySelector<HTMLImageElement>(
+                '.editor-pane.is-active [data-testid="document-opening-native-preview"]',
+            );
+            const shell = image?.closest<HTMLElement>('[data-document-page-number]') ?? null;
+            const pageNumber = Number(shell?.dataset.documentPageNumber ?? 0);
+            if (!image?.complete || image.naturalWidth <= 0 || pageNumber <= 0) {
+                return;
+            }
+            const evidence = probeWindow.__issue132PreviewReachability!;
+            if (evidence.some(entry => entry.page === pageNumber)) {
+                return;
+            }
+            const host = image.closest<HTMLElement>('.workspace-host');
+            const openingViewport = host?.querySelector<HTMLElement>('[data-open-surface-phase]') ?? null;
+            evidence.push({
+                route: 'preview',
+                page: pageNumber,
+                mountedPageCount: host?.querySelectorAll(
+                    '[data-testid="document-page-source-page"], [data-document-page-number]',
+                ).length ?? 0,
+                observedAtEpochMs: Date.now(),
+                scrollHeight: openingViewport?.scrollHeight ?? null,
+                scrollSegment: null,
+            });
+        };
+        document.addEventListener('load', capture, true);
+        new MutationObserver(capture).observe(document.documentElement, {
+            attributes: true,
+            childList: true,
+            subtree: true,
+        });
+    });
+}
+
+async function waitForOpeningPreviewPage(page: Page, pageNumber: number): Promise<IRouteEvidence> {
     const deadline = Date.now() + STEP_TIMEOUT_MS;
     let lastError: unknown = null;
 
@@ -287,19 +328,15 @@ async function waitForOpeningPreviewPage(page: Page, pageNumber: number) {
             if (!probePage) {
                 throw new Error(`Electron page target ${page.url()} was unavailable`);
             }
-            const ready = await probePage.evaluate((targetPage: number) => {
-                const image = document.querySelector<HTMLImageElement>(
-                    '.editor-pane.is-active [data-testid="document-opening-native-preview"]',
-                );
-                const shell = image?.closest<HTMLElement>('[data-document-page-number]') ?? null;
-                return Boolean(
-                    image?.complete
-                    && image.naturalWidth > 0
-                    && Number(shell?.dataset.documentPageNumber ?? 0) === targetPage,
-                );
+            const evidence = await probePage.evaluate((targetPage: number) => {
+                const records = (window as IPreviewReachabilityProbeWindow)
+                    .__issue132PreviewReachability ?? [];
+                return records.find(entry => entry.page === targetPage) ?? null;
             }, pageNumber);
-            if (ready) {
-                return;
+            if (evidence) {
+                expect(evidence.mountedPageCount).toBeGreaterThan(0);
+                expect(evidence.mountedPageCount).toBeLessThanOrEqual(RENDERER_COLLECTION_MAX_ITEMS);
+                return evidence;
             }
             lastError = null;
         } catch (error) {
@@ -319,6 +356,7 @@ async function proveNativePreviewReachability(
     pdfPath: string,
     telemetry: IScaleAcceptanceTelemetry,
 ) {
+    await installPreviewReachabilityProbe(page);
     const openPromise = triggerOpenPathInApp(page, pdfPath, STEP_TIMEOUT_MS);
     for (const pageNumber of TARGET_PAGES) {
         if (pageNumber !== FIRST_PAGE) {
@@ -329,8 +367,7 @@ async function proveNativePreviewReachability(
                 minTotalPages: PAGE_COUNT,
             }, {timeoutMs: STEP_TIMEOUT_MS});
         }
-        await waitForOpeningPreviewPage(page, pageNumber);
-        telemetry.routes.push(await readRouteEvidence(page, 'preview', pageNumber));
+        telemetry.routes.push(await waitForOpeningPreviewPage(page, pageNumber));
     }
     await openPromise;
     await waitForPdfLoaded(page, STEP_TIMEOUT_MS);
