@@ -235,17 +235,18 @@ async function readRouteEvidence(
         const pdfViewer = host?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
         const thumbnails = host?.querySelector<HTMLElement>('.pdf-thumbnails') ?? null;
         const wrapper = thumbnails?.querySelector<HTMLElement>('.pdf-thumbnails-virtual-wrapper') ?? null;
-        const pageSource = host?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
-        const routeRoot = routeName === 'preview' ? pageSource : routeName === 'thumbnail' ? thumbnails : pdfViewer;
+        const openingViewport = host?.querySelector<HTMLElement>('[data-open-surface-phase]') ?? null;
+        const pageSourceSelector = '[data-testid="document-page-source-page"], [data-document-page-number]';
+        const routeRoot = routeName === 'preview' ? openingViewport : routeName === 'thumbnail' ? thumbnails : pdfViewer;
         return {
             bookmarkRows: host?.querySelectorAll('.document-bookmark-item__row, .pdf-bookmark-item-row').length ?? 0,
             mountedPageCount: routeName === 'preview'
-                ? pageSource?.querySelectorAll('[data-testid="document-page-source-page"], [data-document-page-number]').length ?? 0
+                ? host?.querySelectorAll(pageSourceSelector).length ?? 0
                 : routeName === 'thumbnail'
                     ? thumbnails?.querySelectorAll('.pdf-thumbnail[data-page]').length ?? 0
                     : pdfViewer?.querySelectorAll('.page_container[data-page]').length ?? 0,
             pageContainers: pdfViewer?.querySelectorAll('.page_container[data-page]').length ?? 0,
-            pageSourcePages: pageSource?.querySelectorAll('[data-testid="document-page-source-page"], [data-document-page-number]').length ?? 0,
+            pageSourcePages: host?.querySelectorAll(pageSourceSelector).length ?? 0,
             scrollHeight: routeRoot?.scrollHeight ?? null,
             scrollSegment: wrapper ? Number(wrapper.dataset.thumbnailScrollSegment ?? 0) : null,
             thumbnailRows: thumbnails?.querySelectorAll('.pdf-thumbnail[data-page]').length ?? 0,
@@ -477,6 +478,7 @@ async function readReopenedOutlineState(page: Page) {
 describe('Electron E2E - 138,000-page viewer scale acceptance', () => {
     it('keeps preview, layout, thumbnails, and outlines reachable and saves every outline natively', async () => {
         const telemetry = createTelemetry();
+        await mkdir(resolve('.devkit', 'tmp'), {recursive: true});
         const tempRoot = await mkdtemp(resolve('.devkit', 'tmp', 'issue-132-scale-'));
         const fixturePath = join(tempRoot, '138000-pages-10001-outlines.pdf');
         let session: IElectronE2ESession | null = null;
