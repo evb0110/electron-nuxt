@@ -14,7 +14,10 @@ import {
     shallowRef,
 } from 'vue';
 import { shouldIgnoreEditorEvent } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-event-guards/shouldIgnoreEditorEvent';
-import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
+import {
+    getPdfjsEditorFacadeState,
+    updateEditorDefaultParams,
+} from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
@@ -140,6 +143,7 @@ async function createBridgeHarness(
     options?: {
         autoResetTo?: TAnnotationTool | null;
         markupSubtype?: Partial<IMarkupSubtypeHarness>;
+        numPages?: number;
     },
 ) {
     const { useAnnotationEditorBridge } = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge');
@@ -170,7 +174,7 @@ async function createBridgeHarness(
     const bridge = useAnnotationEditorBridge({
         viewerContainer: ref(container),
         pdfDocument,
-        numPages: ref(1),
+        numPages: ref(options?.numPages ?? 1),
         currentPage: ref(1),
         effectiveScale: ref(1),
         annotationTool,
@@ -313,6 +317,36 @@ describe('useAnnotationEditorBridge', () => {
 
         expect(emitAnnotationState).toHaveBeenNthCalledWith(1, {isEditing: true});
         expect(emitAnnotationState).toHaveBeenNthCalledWith(2, {hasSomethingToUndo: true});
+    });
+
+    it('updates registered editor types without scanning every page', async () => {
+        const {uiManager} = await createBridgeHarness('text', {numPages: 2_646});
+        const editorType = {updateDefaultParams: vi.fn()};
+        uiManager.registerEditorTypes(cast<Parameters<AnnotationEditorUIManager['registerEditorTypes']>[0]>([editorType]));
+        uiManager.getEditors.mockClear();
+
+        expect(updateEditorDefaultParams(uiManager, 3, '#98ff98')).toBe(true);
+        expect(editorType.updateDefaultParams).toHaveBeenCalledWith(3, '#98ff98');
+        expect(uiManager.getEditors).not.toHaveBeenCalled();
+    });
+
+    it('falls back to page discovery before editor types are registered', async () => {
+        const {uiManager} = await createBridgeHarness('text', {numPages: 3});
+        const editorType = {updateDefaultParams: vi.fn()};
+        const editor = cast<IPdfjsEditor>({
+            id: 'existing-editor',
+            div: document.createElement('div'),
+            annotationElementId: null,
+            parentPageIndex: 1,
+            isEmpty: vi.fn(() => false),
+            constructor: editorType,
+        });
+        const getEditors = vi.fn((pageIndex: number) => pageIndex === 1 ? [editor] : []);
+        uiManager.getEditors = cast<typeof uiManager.getEditors>(getEditors);
+
+        expect(updateEditorDefaultParams(uiManager, 3, '#98ff98')).toBe(true);
+        expect(getEditors).toHaveBeenCalledTimes(3);
+        expect(editorType.updateDefaultParams).toHaveBeenCalledWith(3, '#98ff98');
     });
 
     it('clears selection after committing a new ink editor', async () => {

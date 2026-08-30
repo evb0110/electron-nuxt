@@ -419,11 +419,13 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         value: TEditorParamValue,
     ) {
         const constructors = new Set<IPdfjsEditorConstructorLike>(registeredEditorTypes);
-        for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
-            for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
-                const ctor = getEditorConstructor(editor);
-                if (ctor) {
-                    constructors.add(ctor);
+        if (constructors.size === 0) {
+            for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
+                for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
+                    const ctor = getEditorConstructor(editor);
+                    if (ctor) {
+                        constructors.add(ctor);
+                    }
                 }
             }
         }
@@ -488,6 +490,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         }
         annotationUiManager.value?.destroy();
         annotationUiManager.value = null;
+        registeredEditorTypes.clear();
         pendingFreeTextDrafts.clear();
         annotationEventBus.value = null;
         annotationL10n.value = null;
