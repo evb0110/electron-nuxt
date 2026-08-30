@@ -44,6 +44,7 @@ export interface IRunCommandOptions {
     rejectOnStdoutTruncation?: boolean;
     onStdout?: (chunk: string) => void;
     onStderr?: (chunk: string) => void;
+    onSpawn?: (pid: number) => void;
     terminationGraceMs?: number;
 }
 
@@ -314,6 +315,7 @@ export async function runNativeCommand(
         rejectOnStdoutTruncation = false,
         onStdout,
         onStderr,
+        onSpawn,
         terminationGraceMs = DEFAULT_TERMINATION_GRACE_MS,
     } = options;
 
@@ -510,6 +512,26 @@ export async function runNativeCommand(
             log?.('error', `${message}; cmd=${context.displayCommand}`);
             finalizeReject(new Error(message));
             return;
+        }
+        if (onSpawn) {
+            const pid = proc.pid;
+            if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) {
+                proc.on('error', ignoreLateProcessError);
+                requestTermination(new Error(`${context.displayName} spawned without a valid process id`));
+                return;
+            }
+            try {
+                onSpawn(pid);
+            } catch (error) {
+                // The callback runs before the regular process listeners are
+                // attached. Keep late child errors from becoming uncaught
+                // exceptions while the failed spawn hook is being cleaned up.
+                proc.on('error', ignoreLateProcessError);
+                requestTermination(new Error(
+                    `${context.displayName} spawn handler failed: ${getErrorMessage(error)}`,
+                ));
+                return;
+            }
         }
         if (settled) {
             killProcessBestEffort(proc);

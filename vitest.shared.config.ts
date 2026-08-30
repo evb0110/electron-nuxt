@@ -119,7 +119,10 @@ const electronE2ERapidNavigationTestFiles = [
     'tests/e2e/electron/rapidPdfNavigation.e2e.test.ts',
     'tests/e2e/electron/standardPdfFitModeContinuity.e2e.test.ts',
 ];
-const electronE2EVisibleWindowTestFiles = ['tests/e2e/electron/visibleWindowLifecycle.e2e.test.ts'];
+const electronE2EVisibleWindowTestFiles = [
+    'tests/e2e/electron/visibleWindowLifecycle.e2e.test.ts',
+    'tests/e2e/electron/macOsPrintAcceptance.e2e.test.ts',
+];
 const electronE2EQuarantineTestFiles = ['tests/e2e/electron/quarantine/**/*.e2e.test.ts'];
 const electronE2EQuarantineOperatorDiagnosticFiles = [
     'tests/e2e/electron/quarantine/scanCleanupAppTruthProbe.e2e.test.ts',
@@ -129,6 +132,7 @@ const electronE2EQuarantineOperatorDiagnosticFiles = [
 const electronE2ESavePipelineTestFiles = [
     'tests/e2e/electron/savePipeline.e2e.test.ts',
     'tests/e2e/electron/savePipelineBenchmark.e2e.test.ts',
+    'tests/e2e/electron/issue124LifecycleAcceptance.e2e.test.ts',
 ];
 const electronE2EXlargePdfTestFiles = [
     'tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts',

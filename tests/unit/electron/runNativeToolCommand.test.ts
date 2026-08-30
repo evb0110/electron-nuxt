@@ -90,6 +90,7 @@ describe('runNativeToolCommand', () => {
         });
         expect(handshakeOptions.signal).toBeInstanceOf(AbortSignal);
         expect(handshakeOptions.signal).not.toBe(controller.signal);
+        expect(handshakeOptions.onSpawn).toBeUndefined();
         expect(commandOptions).toMatchObject({
             cancelGroup: 'search-request-1',
             cwd: '/work',
@@ -120,6 +121,7 @@ describe('runNativeToolCommand', () => {
 
     it('forwards every execution limit after completing the shared handshake', async () => {
         const {runNativeToolCommand} = await loadModule();
+        const onSpawn = vi.fn();
 
         await runNativeToolCommand('/tools/evb-pdf-search.exe', ['search'], {
             allowedExitCodes: [
@@ -129,6 +131,7 @@ describe('runNativeToolCommand', () => {
             commandLabel: 'search request',
             maxStderrBytes: 2_048,
             maxStdoutBytes: 4_096,
+            onSpawn,
             rejectOnStdoutTruncation: true,
             timeoutMs: 12_000,
         });
@@ -145,6 +148,7 @@ describe('runNativeToolCommand', () => {
                 commandLabel: 'search request',
                 maxStderrBytes: 2_048,
                 maxStdoutBytes: 4_096,
+                onSpawn,
                 rejectOnStdoutTruncation: true,
                 timeoutMs: 12_000,
             }),

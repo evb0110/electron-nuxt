@@ -12,6 +12,7 @@ import {
     stat,
     writeFile,
 } from 'fs/promises';
+import {existsSync} from 'node:fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type * as NodeCrypto from 'node:crypto';
@@ -23,6 +24,8 @@ const ensureWorkingCopyMaterializedMock = vi.hoisted(() => vi.fn());
 const getWorkingCopyBackingEntryMock = vi.hoisted(() => vi.fn());
 
 interface IQpdfRunCommandOptionsExpectation { allowedExitCodes?: number[] }
+
+interface IQpdfSpawnHoldOptionsExpectation extends IQpdfRunCommandOptionsExpectation { onSpawn?: (pid: number) => void }
 
 async function readQpdfArgFile(args: string[]) {
     const argFile = args[0];
@@ -64,6 +67,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 describe('page-ops qpdf extract', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.unstubAllEnvs();
         ensureWorkingCopyDirectoryMock.mockResolvedValue(true);
         ensureWorkingCopyMaterializedMock.mockImplementation(async (path: string) => ({
             logicalRef: path,
@@ -71,6 +75,106 @@ describe('page-ops qpdf extract', () => {
             sourceFingerprint: '',
         }));
         getWorkingCopyBackingEntryMock.mockReturnValue(null);
+    });
+
+    it('holds selected-page print qpdf at spawn and publishes its argument file', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-hold-'));
+        const srcPath = join(workDir, 'source.pdf');
+        const destPath = join(workDir, 'extract.pdf');
+        const markerPath = join(workDir, 'qpdf-hold.json');
+        const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+        vi.stubEnv('EVB_E2E_ISSUE_124_ACCEPTANCE', '1');
+        vi.stubEnv('EVB_E2E_HOLD_SELECTED_PAGE_QPDF_MARKER', markerPath);
+
+        try {
+            await writeFile(srcPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockImplementationOnce(async (
+                _qpdf,
+                args: string[],
+                options: IQpdfSpawnHoldOptionsExpectation,
+            ) => {
+                expect(options.onSpawn).toBeTypeOf('function');
+                options.onSpawn?.(12_345);
+                const marker = JSON.parse(await readFile(markerPath, 'utf8')) as {
+                    argsPath: string;
+                    pid: number;
+                };
+                expect(marker).toEqual({
+                    argsPath: args[0]?.slice(1),
+                    pid: 12_345,
+                });
+                expect(killSpy).toHaveBeenCalledWith(12_345, 'SIGSTOP');
+                const qpdfArgs = await readQpdfArgFile(args);
+                await writeFile(qpdfArgs.at(-1)!, '%PDF-1.7\nextracted');
+                return {
+                    exitCode: 0,
+                    stderr: '',
+                    stdout: '',
+                };
+            });
+
+            const {extractPages} = await import('@electron/features/page-ops/main/qpdf');
+
+            await extractPages(srcPath, destPath, [1], {cancelGroup: 'print-selected-pages:test'});
+        } finally {
+            killSpy.mockRestore();
+            vi.unstubAllEnvs();
+            await rm(workDir, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it.each([
+        [
+            'without the acceptance flag',
+            undefined,
+            'print-selected-pages:test',
+        ],
+        [
+            'for a non-selected-page command',
+            '1',
+            'print-pages:test',
+        ],
+    ])('does not install the qpdf hold %s', async (_label, acceptanceFlag, cancelGroup) => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-no-hold-'));
+        const srcPath = join(workDir, 'source.pdf');
+        const destPath = join(workDir, 'extract.pdf');
+        const markerPath = join(workDir, 'qpdf-hold.json');
+        let observedOptions: IQpdfSpawnHoldOptionsExpectation | undefined;
+
+        try {
+            await writeFile(srcPath, '%PDF-1.7\n');
+            vi.stubEnv('EVB_E2E_ISSUE_124_ACCEPTANCE', acceptanceFlag ?? '');
+            vi.stubEnv('EVB_E2E_HOLD_SELECTED_PAGE_QPDF_MARKER', markerPath);
+            runNativeToolCommandMock.mockImplementationOnce(async (
+                _qpdf,
+                args: string[],
+                options: IQpdfSpawnHoldOptionsExpectation,
+            ) => {
+                observedOptions = options;
+                const qpdfArgs = await readQpdfArgFile(args);
+                await writeFile(qpdfArgs.at(-1)!, '%PDF-1.7\nextracted');
+                return {
+                    exitCode: 0,
+                    stderr: '',
+                    stdout: '',
+                };
+            });
+
+            const {extractPages} = await import('@electron/features/page-ops/main/qpdf');
+            await extractPages(srcPath, destPath, [1], {cancelGroup});
+
+            expect(observedOptions?.onSpawn).toBeUndefined();
+            expect(existsSync(markerPath)).toBe(false);
+        } finally {
+            vi.unstubAllEnvs();
+            await rm(workDir, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 
     it('rejects empty qpdf output and removes an empty destination placeholder', async () => {

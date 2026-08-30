@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 class MockNativeProcess extends EventEmitter {
+    readonly pid = 42_424;
+
     readonly stdout = Object.assign(new EventEmitter(), {
         destroy: vi.fn(),
         unpipe: vi.fn(),
@@ -92,6 +94,55 @@ describe('runNativeCommand', () => {
             stderr: 'warn',
             exitCode: 3,
         });
+    });
+
+    it('reports the spawned process before it can finish', async () => {
+        const proc = new MockNativeProcess();
+        const onSpawn = vi.fn();
+        mocks.spawn.mockReturnValue(proc);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', [], {onSpawn});
+
+        expect(onSpawn).toHaveBeenCalledOnce();
+        expect(onSpawn).toHaveBeenCalledWith(proc.pid);
+        proc.emit('close', 0, null);
+        await expect(resultPromise).resolves.toMatchObject({exitCode: 0});
+    });
+
+    it('terminates the process when the spawn callback fails', async () => {
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(true);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', [], {
+            onSpawn: () => {
+                throw new Error('spawn callback exploded');
+            },
+            terminationGraceMs: 2_345,
+        });
+
+        await expect(resultPromise).rejects.toThrow('spawn handler failed: spawn callback exploded');
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 2_345);
+    });
+
+    it('rejects a spawn callback when the child has no usable process id', async () => {
+        const proc = new MockNativeProcess();
+        Object.defineProperty(proc, 'pid', {value: 0});
+        mocks.spawn.mockReturnValue(proc);
+        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(true);
+        const onSpawn = vi.fn();
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', [], {
+            onSpawn,
+            terminationGraceMs: 2_345,
+        });
+
+        await expect(resultPromise).rejects.toThrow('spawned without a valid process id');
+        expect(onSpawn).not.toHaveBeenCalled();
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 2_345);
     });
 
     it.each([

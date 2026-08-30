@@ -20,6 +20,7 @@ export interface IRunNativeToolCommandOptions {
     cancelGroup?: string;
     commandLabel?: string;
     onStdout?: (chunk: string) => void;
+    onSpawn?: (pid: number) => void;
     log?: (level: 'debug' | 'warn' | 'error', message: string) => void;
 }
 

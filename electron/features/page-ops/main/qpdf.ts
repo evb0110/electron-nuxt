@@ -5,6 +5,7 @@ import {
     unlink,
     writeFile,
 } from 'fs/promises';
+import {writeFileSync} from 'node:fs';
 import { join } from 'path';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -40,6 +41,7 @@ import type {
 } from '@contracts/pageNumbers';
 
 const log = createLogger('page-ops-qpdf');
+const E2E_SELECTED_PAGE_QPDF_HOLD_MARKER_ENV = 'EVB_E2E_HOLD_SELECTED_PAGE_QPDF_MARKER';
 export {
     getPdfPageCount,
     QPDF_OUTPUT_SUCCESS_EXIT_CODES,
@@ -120,6 +122,25 @@ function formatPageRangeList(ranges: readonly IPageMoveRangeSegment[]) {
         .join(',');
 }
 
+function createSelectedPagePrintQpdfSpawnHold(argsPath: string, cancelGroup?: string) {
+    const markerPath = process.env[E2E_SELECTED_PAGE_QPDF_HOLD_MARKER_ENV]?.trim();
+    if (
+        process.env.EVB_E2E_ISSUE_124_ACCEPTANCE !== '1'
+        || !markerPath
+        || !cancelGroup?.startsWith('print-selected-pages:')
+    ) {
+        return undefined;
+    }
+
+    return (pid: number) => {
+        process.kill(pid, 'SIGSTOP');
+        writeFileSync(markerPath, JSON.stringify({
+            argsPath,
+            pid,
+        }));
+    };
+}
+
 function formatComplementPageList(pagesToRemove: number[], totalPages: number) {
     const removePages = [...new Set(pagesToRemove)]
         .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= totalPages)
@@ -179,8 +200,12 @@ export async function runQpdfCommand(
         );
     }
     const argsFile = await writeQpdfArgsFile(args);
+    const onSpawn = createSelectedPagePrintQpdfSpawnHold(argsFile.argsPath, nativeOptions.cancelGroup);
     try {
-        await runNativeToolCommand(getQpdfBinary(), [`@${argsFile.argsPath}`], nativeOptions);
+        await runNativeToolCommand(getQpdfBinary(), [`@${argsFile.argsPath}`], {
+            ...nativeOptions,
+            ...(onSpawn ? {onSpawn} : {}),
+        });
     } finally {
         await argsFile.cleanup();
     }
