@@ -204,4 +204,57 @@ describe('useFreeTextResize', () => {
         expect(staleEditor.width).toBe(2);
         scope.stop();
     });
+
+    it('resolves a reloaded editor on its known page without scanning the document', () => {
+        vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+        vi.stubGlobal('cancelAnimationFrame', vi.fn());
+        const scope = effectScope();
+        const {editor: staleEditor} = createFreeTextEditor();
+        staleEditor.id = 'free-text-large-document';
+        staleEditor.parentPageIndex = 2_645;
+        staleEditor.x = 0.1;
+        staleEditor.y = 0.2;
+        const {editor: rebuiltEditor} = createFreeTextEditor();
+        rebuiltEditor.id = 'free-text-large-document';
+        rebuiltEditor.parentPageIndex = 2_645;
+        rebuiltEditor.x = 0.6;
+        rebuiltEditor.y = 0.7;
+        rebuiltEditor.width = 3;
+        rebuiltEditor.height = 4;
+        const getEditors = vi.fn((pageIndex: number) => {
+            if (pageIndex !== 2_645) {
+                throw new Error(`Unexpected document-wide editor scan for page ${pageIndex}`);
+            }
+            return [rebuiltEditor];
+        });
+        const registerHistoryCommand = vi.fn();
+        const resize = scope.run(() => useFreeTextResize({
+            getAnnotationUiManager: () => ({getEditors}) as never,
+            getNumPages: () => 2_646,
+            emitAnnotationModified: vi.fn(),
+            emitAnnotationSetting: vi.fn(),
+            scheduleAnnotationCommentsSync: vi.fn(),
+            registerHistoryCommand,
+        }));
+        if (!resize) throw new Error('Expected FreeText resize scope');
+        resize.ensureFreeTextEditorCanResize(staleEditor);
+
+        staleEditor._onResizing?.();
+        staleEditor.width = 2;
+        staleEditor.height = 2;
+        staleEditor._onResized?.();
+
+        const command = registerHistoryCommand.mock.calls[0]?.[0];
+        expect(command).toBeDefined();
+        command.undo();
+
+        expect(getEditors).toHaveBeenCalledOnce();
+        expect(rebuiltEditor).toMatchObject({
+            x: 0.1,
+            y: 0.2,
+            width: 1,
+            height: 1,
+        });
+        scope.stop();
+    });
 });

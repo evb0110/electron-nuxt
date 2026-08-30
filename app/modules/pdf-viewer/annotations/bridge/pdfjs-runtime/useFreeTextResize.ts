@@ -53,6 +53,11 @@ interface IFreeTextResizeSnapshot {
     fontSize: number;
 }
 
+interface IFreeTextResizeHistoryTarget {
+    key: string;
+    pageIndex: number | null;
+}
+
 export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
     const {
         getAnnotationUiManager,
@@ -68,22 +73,45 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
     let disposed = false;
     const resizeStartSnapshots = new WeakMap<IPdfjsEditor, IFreeTextResizeSnapshot>();
 
-    function editorHistoryKey(editor: IPdfjsEditor) {
-        return editor.annotationElementId ?? editor.id ?? null;
+    function editorHistoryTarget(editor: IPdfjsEditor): IFreeTextResizeHistoryTarget | null {
+        const key = editor.annotationElementId ?? editor.id ?? null;
+        if (!key) {
+            return null;
+        }
+        const parentPageIndex = editor.parentPageIndex;
+        const pageIndex = typeof parentPageIndex === 'number'
+            && Number.isSafeInteger(parentPageIndex)
+            && parentPageIndex >= 0
+            ? parentPageIndex
+            : null;
+        return {
+            key,
+            pageIndex,
+        };
     }
 
-    function resolveCurrentEditor(key: string | null) {
-        if (!key) {
+    function resolveCurrentEditor(target: IFreeTextResizeHistoryTarget | null) {
+        if (!target) {
             return null;
         }
         const manager = getAnnotationUiManager();
         if (!manager) {
             return null;
         }
+        const findEditorOnPage = (pageIndex: number) => getEditorsOnPage(manager, pageIndex).find(candidate => (
+            candidate.annotationElementId === target.key || candidate.id === target.key
+        ));
+        if (target.pageIndex !== null) {
+            const editor = findEditorOnPage(target.pageIndex);
+            if (editor) {
+                return editor;
+            }
+        }
         for (let pageIndex = 0; pageIndex < getNumPages(); pageIndex += 1) {
-            const editor = getEditorsOnPage(manager, pageIndex).find(candidate => (
-                candidate.annotationElementId === key || candidate.id === key
-            ));
+            if (pageIndex === target.pageIndex) {
+                continue;
+            }
+            const editor = findEditorOnPage(pageIndex);
             if (editor) {
                 return editor;
             }
@@ -421,14 +449,14 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
                 scheduleFreeTextFontSync(editor, targetFont);
                 if (before && registerHistoryCommand) {
                     const after = captureResizeSnapshot(editor, targetFont);
-                    const key = editorHistoryKey(editor);
+                    const target = editorHistoryTarget(editor);
                     registerHistoryCommand({
                         cmd: () => {
-                            const currentEditor = resolveCurrentEditor(key);
+                            const currentEditor = resolveCurrentEditor(target);
                             if (currentEditor) applyResizeSnapshot(currentEditor, after);
                         },
                         undo: () => {
-                            const currentEditor = resolveCurrentEditor(key);
+                            const currentEditor = resolveCurrentEditor(target);
                             if (currentEditor) applyResizeSnapshot(currentEditor, before);
                         },
                     });
