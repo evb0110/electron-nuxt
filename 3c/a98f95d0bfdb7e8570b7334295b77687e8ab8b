@@ -1,0 +1,19 @@
+tests/e2e/electron/xlargeViewerScaleAcceptance.e2e.test.ts
+  s_3865fe7b20fcc6::t_596ae789a35e29 58-62,330,391
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3ca98f95d0bfdb7e8570b7334295b77687e8ab8b",
+  "prompts": {},
+  "sessions": {
+    "s_3865fe7b20fcc6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0508f-778b-7211-a6cb-37295d830a61",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
