@@ -408,7 +408,7 @@ async function collectMatrixRefs(
     const freeTextNote = requireNamedEntry(
         entries,
         `evb-note:${matrixStableKeys.freeTextNote}:created:1788048000000`,
-        'FreeText',
+        'Text',
     );
     const freeTextEditor = requireNamedEntry(
         entries,

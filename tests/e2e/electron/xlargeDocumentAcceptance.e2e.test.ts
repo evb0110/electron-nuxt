@@ -1234,7 +1234,7 @@ function assertFinalAnnotationIndex(index: IAnnotationIndexRead) {
 
     const toolbarNote = index.entries.find(entry => (
         entry.pageIndex === XLARGE_MIDDLE_PAGE - 1
-        && entry.subtype === 'FreeText'
+        && entry.subtype === 'Text'
         && entry.popupRef !== null
         && entry.name !== BASELINE_NOTE_NAME
     ));

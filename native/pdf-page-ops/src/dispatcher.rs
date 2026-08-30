@@ -211,6 +211,7 @@ fn read_append_mutations(operation: &Operation) -> Result<Option<(NativeMutation
             (
                 NativeMutationsFile {
                     updates: changes.updates,
+                    notes: changes.notes,
                     free_text_notes: changes.free_text_notes,
                     deletes: changes.deletes,
                     ..NativeMutationsFile::default()
@@ -253,6 +254,7 @@ fn read_non_append_mutations(operation: &Operation) -> Result<Option<(NativeMuta
             (
                 NativeMutationsFile {
                     updates: changes.updates,
+                    notes: changes.notes,
                     free_text_notes: changes.free_text_notes,
                     deletes: changes.deletes,
                     ..NativeMutationsFile::default()

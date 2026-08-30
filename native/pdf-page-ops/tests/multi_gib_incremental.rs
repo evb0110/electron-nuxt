@@ -298,19 +298,24 @@ fn append_mutations(pdf: &Path, mutations: &Path) -> Output {
         .unwrap()
 }
 
-fn qpdf_object(pdf: &Path, object_number: u32) -> String {
+fn qpdf_objects_json(pdf: &Path) -> String {
     let output = Command::new(qpdf_path())
-        .arg(format!("--show-object={object_number},0"))
+        .args(["--json=1", "--json-key=objects", "--json-stream-data=none"])
         .arg("--")
         .arg(pdf)
         .output()
         .unwrap();
     assert!(
         output.status.success(),
-        "qpdf object read failed: {}",
+        "qpdf object JSON read failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
+}
+
+fn qpdf_contains_pdf_text(pdf: &Path, text: &str) -> bool {
+    let objects = qpdf_objects_json(pdf).to_lowercase();
+    objects.contains(&pdf_utf16be_hex(text)) || objects.contains(&text.to_lowercase())
 }
 
 fn pdf_utf16be_hex(value: &str) -> String {
@@ -581,9 +586,7 @@ fn qpdf_structural_loader_resolves_repeated_native_mutations() {
         "first append failed: {}",
         String::from_utf8_lossy(&first.stderr)
     );
-    assert!(qpdf_object(&pdf, 5)
-        .to_lowercase()
-        .contains(&pdf_utf16be_hex("first text")));
+    assert!(qpdf_contains_pdf_text(&pdf, "first text"));
 
     fs::write(
         &second_mutations,
@@ -597,16 +600,8 @@ fn qpdf_structural_loader_resolves_repeated_native_mutations() {
         "second append failed: {}",
         String::from_utf8_lossy(&second.stderr)
     );
-    let edited = qpdf_object(&pdf, 5);
-    assert!(
-        edited
-            .to_lowercase()
-            .contains(&pdf_utf16be_hex("edited text")),
-        "external reader resolved the prior annotation revision: {edited}"
-    );
-    assert!(qpdf_object(&pdf, 8)
-        .to_lowercase()
-        .contains(&pdf_utf16be_hex("second text")));
+    assert!(qpdf_contains_pdf_text(&pdf, "edited text"));
+    assert!(qpdf_contains_pdf_text(&pdf, "second text"));
     assert_qpdf_check(&pdf);
 }
 

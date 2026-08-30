@@ -818,6 +818,9 @@ pub(crate) struct NoteChangesFile {
     pub(crate) geometry_updates: Vec<NoteGeometryUpdate>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
+    pub(crate) notes: Vec<TextNote>,
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) free_text_notes: Vec<FreeTextNote>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
@@ -833,6 +836,9 @@ pub(crate) struct NativeMutationsFile {
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) geometry_updates: Vec<NoteGeometryUpdate>,
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
+    pub(crate) notes: Vec<TextNote>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) free_text_notes: Vec<FreeTextNote>,
@@ -881,7 +887,7 @@ pub(crate) struct MarkerRect {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct FreeTextNote {
+pub(crate) struct TextNote {
     pub(crate) page_index: u32,
     pub(crate) stable_key: String,
     pub(crate) text: String,
@@ -890,6 +896,10 @@ pub(crate) struct FreeTextNote {
     pub(crate) color: Option<String>,
     pub(crate) created_at: Option<u64>,
 }
+
+/// Legacy mutation callers still send `freeTextNotes`. Keep the old Rust name
+/// as an alias while `/Text` is now the only note representation written.
+pub(crate) type FreeTextNote = TextNote;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

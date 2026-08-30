@@ -266,10 +266,13 @@ fn apply_native_mutations_internal(
     if !mutations.geometry_updates.is_empty() {
         update_note_geometry(document, &mutations.geometry_updates)?;
     }
-    if !mutations.free_text_notes.is_empty() {
-        upsert_free_text_notes_with_counter(
+    if !mutations.notes.is_empty() || !mutations.free_text_notes.is_empty() {
+        upsert_text_notes_with_counter(
             document,
-            &mutations.free_text_notes,
+            mutations
+                .notes
+                .iter()
+                .chain(mutations.free_text_notes.iter()),
             modified_at,
             &mut annotation_visits,
             &mut identity_bindings,
@@ -353,10 +356,13 @@ fn apply_native_mutations_incremental_internal(
     if !mutations.geometry_updates.is_empty() {
         update_note_geometry_incremental(incremental, &mutations.geometry_updates)?;
     }
-    if !mutations.free_text_notes.is_empty() {
-        upsert_free_text_notes_incremental_with_counter(
+    if !mutations.notes.is_empty() || !mutations.free_text_notes.is_empty() {
+        upsert_text_notes_incremental_with_counter(
             incremental,
-            &mutations.free_text_notes,
+            mutations
+                .notes
+                .iter()
+                .chain(mutations.free_text_notes.iter()),
             modified_at,
             &mut annotation_visits,
             &mut identity_bindings,

@@ -14,6 +14,7 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 geometry_updates: Vec::new(),
+                notes: Vec::new(),
                 free_text_notes: Vec::new(),
                 free_text_editors: Vec::new(),
                 deletes: Vec::new(),
@@ -131,6 +132,7 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 geometry_updates: Vec::new(),
+                notes: Vec::new(),
                 free_text_notes: Vec::new(),
                 free_text_editors: Vec::new(),
                 deletes: Vec::new(),
@@ -168,6 +170,7 @@
                 &NativeMutationsFile {
                     updates: Vec::new(),
                     geometry_updates: Vec::new(),
+                    notes: Vec::new(),
                     free_text_notes: Vec::new(),
                     free_text_editors: Vec::new(),
                     deletes: Vec::new(),
@@ -266,6 +269,7 @@
             &NativeMutationsFile {
                 updates: Vec::new(),
                 geometry_updates: Vec::new(),
+                notes: Vec::new(),
                 free_text_notes: Vec::new(),
                 free_text_editors: Vec::new(),
                 deletes: Vec::new(),

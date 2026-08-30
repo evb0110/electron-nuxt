@@ -19,6 +19,7 @@ pub(crate) fn validate_appended_revision_postconditions(
 ) -> Result<()> {
     validate_note_text_document_postconditions(document, &mutations.updates, modified_at)?;
     validate_note_geometry_document_postconditions(document, &mutations.geometry_updates)?;
+    validate_text_note_document_postconditions(document, &mutations.notes, modified_at)?;
     validate_free_text_note_document_postconditions(
         document,
         &mutations.free_text_notes,
@@ -64,6 +65,34 @@ pub(crate) fn validate_appended_revision_postconditions(
         placed_image_chunk_index(mutations),
         modified_at,
     )
+}
+
+/// Compare a rewritten annotation with its source while ignoring keys owned
+/// by the mutation. This is used by conversion tests and is intentionally
+/// small enough to reuse for other annotation migrations.
+#[allow(dead_code)]
+pub(crate) fn assert_unowned_keys_unchanged(
+    before: &Dictionary,
+    after: &Dictionary,
+    owned_keys: &[&[u8]],
+) -> Result<()> {
+    let owned = owned_keys.iter().copied().collect::<HashSet<_>>();
+    let mut keys = HashSet::new();
+    keys.extend(before.iter().map(|(key, _)| key.to_vec()));
+    keys.extend(after.iter().map(|(key, _)| key.to_vec()));
+    for key in keys {
+        if owned.contains(key.as_slice()) {
+            continue;
+        }
+        if before.get(key.as_slice()).ok() != after.get(key.as_slice()).ok() {
+            return Err(format!(
+                "Annotation key /{} changed outside the mutation-owned set",
+                String::from_utf8_lossy(&key)
+            )
+            .into());
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_note_text_document_postconditions(
@@ -138,17 +167,22 @@ pub(crate) fn validate_note_geometry_document_postconditions(
         let page_id = page_resolver.page_id(document, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
-        let expected_rect = marker_rect_to_pdf_rect(update.marker_rect, page_view, page_rotation)?;
         let target_id = (update.object_number, update.generation_number);
-        let target_dict = document.dictionary(target_id)?;
+        let target = resolve_note_target(document, target_id)?;
+        let target_dict = document.dictionary(target.annotation_id)?;
         let target_subtype = annotation_subtype(target_dict);
         if target_subtype != "text" && target_subtype != "freetext" {
             return Err("Note geometry target has an unsupported subtype".into());
         }
+        let expected_rect = if target_subtype == "text" {
+            text_note_pdf_rect(update.marker_rect, page_view, page_rotation)?
+        } else {
+            marker_rect_to_pdf_rect(update.marker_rect, page_view, page_rotation)?
+        };
         let page_annots = get_page_annots(document, page_id)?;
         if !page_annots
             .iter()
-            .any(|object| object.as_reference().ok() == Some(target_id))
+            .any(|object| object.as_reference().ok() == Some(target.annotation_id))
         {
             return Err("Note geometry target is missing from destination page Annots".into());
         }
@@ -173,7 +207,7 @@ pub(crate) fn validate_note_geometry_document_postconditions(
                 "Note geometry embedded Popup Rect",
             )?;
         }
-        if let Some(popup_id) = annotation_related_ref(target_dict, b"Popup") {
+        if let Some(popup_id) = target.popup_ref {
             if !page_annots
                 .iter()
                 .any(|object| object.as_reference().ok() == Some(popup_id))
@@ -189,7 +223,7 @@ pub(crate) fn validate_note_geometry_document_postconditions(
                 expected_rect,
                 "Note geometry Popup Rect",
             )?;
-            if annotation_related_ref(popup_dict, b"Parent") != Some(target_id) {
+            if annotation_related_ref(popup_dict, b"Parent") != Some(target.annotation_id) {
                 return Err("Note geometry Popup Parent did not reference its target".into());
             }
             if popup_dict
@@ -210,6 +244,14 @@ pub(crate) fn validate_free_text_note_document_postconditions(
     notes: &[FreeTextNote],
     modified_at: &str,
 ) -> Result<()> {
+    validate_text_note_document_postconditions(document, notes, modified_at)
+}
+
+pub(crate) fn validate_text_note_document_postconditions(
+    document: &impl PdfObjectSource,
+    notes: &[TextNote],
+    modified_at: &str,
+) -> Result<()> {
     if notes.is_empty() {
         return Ok(());
     }
@@ -223,7 +265,7 @@ pub(crate) fn validate_free_text_note_document_postconditions(
         let page_id = page_resolver.page_id(document, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
-        let expected_rect = marker_rect_to_pdf_rect(note.marker_rect, page_view, page_rotation)?;
+        let expected_rect = text_note_pdf_rect(note.marker_rect, page_view, page_rotation)?;
         let note_name = replayable_free_text_note_name(note);
         let annots = get_page_annots(document, page_id)?;
         let matching_refs: Vec<ObjectId> = annots
@@ -233,7 +275,7 @@ pub(crate) fn validate_free_text_note_document_postconditions(
                 document
                     .dictionary(*object_id)
                     .ok()
-                    .filter(|dict| annotation_subtype(dict) == "freetext")
+                    .filter(|dict| annotation_subtype(dict) == "text")
                     .and_then(|dict| dict.get(b"NM").ok())
                     .and_then(pdf_string_to_text)
                     .as_deref()
@@ -243,7 +285,7 @@ pub(crate) fn validate_free_text_note_document_postconditions(
 
         if matching_refs.len() != 1 {
             return Err(format!(
-                "Expected exactly one FreeText annotation named {note_name}, found {}",
+                "Expected exactly one Text annotation named {note_name}, found {}",
                 matching_refs.len()
             )
             .into());
@@ -251,24 +293,69 @@ pub(crate) fn validate_free_text_note_document_postconditions(
 
         let annot_ref = matching_refs[0];
         let annot_dict = document.dictionary(annot_ref)?;
-        validate_free_text_annotation_fields(
-            document,
-            annot_dict,
-            note,
-            &note_name,
+        if annotation_subtype(annot_dict) != "text" {
+            return Err("Text note annotation has the wrong subtype".into());
+        }
+        if annot_dict
+            .get(b"Name")
+            .ok()
+            .and_then(|object| object.as_name().ok())
+            != Some(b"Note")
+        {
+            return Err("Text note annotation has the wrong icon name".into());
+        }
+        validate_annotation_text_fields(annot_dict, &note.text, modified_at, "Text note")?;
+        validate_optional_author(annot_dict, note.author.as_deref(), "Text note")?;
+        let actual_name = annot_dict
+            .get(b"NM")
+            .ok()
+            .and_then(pdf_string_to_text)
+            .ok_or("Text note annotation is missing NM")?;
+        if actual_name != note_name {
+            return Err("Text note annotation NM did not match requested note name".into());
+        }
+        if annot_dict
+            .get(b"CreationDate")
+            .ok()
+            .and_then(pdf_string_to_text)
+            .is_none()
+        {
+            return Err("Text note annotation is missing CreationDate".into());
+        }
+        if annot_dict.get(b"AP").is_ok() {
+            return Err("Text note annotation unexpectedly contains AP".into());
+        }
+        validate_rect_approximately(
+            parse_rect(annot_dict.get(b"Rect")?)?,
             expected_rect,
-            modified_at,
+            "Text note annotation Rect",
         )?;
+        if annot_dict
+            .get(b"P")
+            .ok()
+            .and_then(|object| object.as_reference().ok())
+            != Some(page_id)
+        {
+            return Err("Text note annotation /P did not match its page".into());
+        }
         let popup_ref = annotation_related_ref(annot_dict, b"Popup")
-            .ok_or("FreeText annotation is missing Popup")?;
+            .ok_or("Text note annotation is missing Popup")?;
         if !annots
             .iter()
             .any(|object| object.as_reference().ok() == Some(popup_ref))
         {
-            return Err("FreeText popup is missing from page Annots".into());
+            return Err("Text note popup is missing from page Annots".into());
         }
         let popup_dict = document.dictionary(popup_ref)?;
         validate_popup_annotation_fields(popup_dict, note, expected_rect, modified_at, annot_ref)?;
+        if popup_dict
+            .get(b"P")
+            .ok()
+            .and_then(|object| object.as_reference().ok())
+            != Some(page_id)
+        {
+            return Err("Text note Popup /P did not match its page".into());
+        }
     }
     Ok(())
 }
@@ -533,6 +620,7 @@ pub(crate) fn validate_annotation_text_fields(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn validate_free_text_annotation_fields(
     document: &impl PdfObjectSource,
     dict: &Dictionary,

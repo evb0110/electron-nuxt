@@ -219,10 +219,6 @@ interface IAnnotationIndexRead {
 interface IVerifiedStickyNote {
     annotation: IPdfAnnotationIndexEntry;
     annotationObject: string;
-    appearanceRef: {
-        generationNumber: number;
-        objectNumber: number
-    };
     name: string;
     popup: IPdfAnnotationIndexEntry;
     rect: [number, number, number, number];
@@ -1522,17 +1518,6 @@ function parseQuadPointsFromQpdfObject(value: string): [number, number, number, 
     return points;
 }
 
-function parseAppearanceRefFromQpdfObject(value: string) {
-    const match = value.match(/\/AP\s*<<[\s\S]*?\/N\s+(\d+)\s+(\d+)\s+R/u);
-    if (!match) {
-        throw new Error(`Annotation object has no indirect normal appearance: ${value.slice(0, 1000)}`);
-    }
-    return {
-        objectNumber: Number(match[1]),
-        generationNumber: Number(match[2]),
-    };
-}
-
 function findQpdfLiteralStringEnd(value: string, start: number) {
     let depth = 0;
     let escaped = false;
@@ -1912,7 +1897,7 @@ async function verifyStickyNoteStructure(
 
     const candidates = index.entries.filter(entry => (
         entry.pageIndex === expectedPageIndex
-        && entry.subtype === 'FreeText'
+        && entry.subtype === 'Text'
         && entry.popupRef !== null
         && typeof entry.name === 'string'
         && entry.name.length > 0
@@ -1964,21 +1949,15 @@ async function verifyStickyNoteStructure(
     expect(popupObject).toMatch(new RegExp(`/Parent\\s+${match.annotation.objectNumber}\\s+${match.annotation.generationNumber}\\s+R`, 'u'));
 
     const rect = parseRectFromQpdfObject(match.annotationObject);
-    const appearanceRef = parseAppearanceRefFromQpdfObject(match.annotationObject);
-    const appearanceObject = await readQpdfObject(filePath, appearanceRef, 'none');
-    const appearanceStream = await readQpdfObject(filePath, appearanceRef, 'filtered');
-    expect(appearanceObject).toMatch(/\/Type\s*\/XObject/u);
-    expect(appearanceObject).toMatch(/\/Subtype\s*\/Form/u);
-    expect(appearanceObject).toMatch(/\/BBox\s*\[\s*0\s+0\s+0\s+0\s*\]/u);
-    // Sticky-note FreeText annotations deliberately use a shared blank form.
-    // The visible marker is rendered by the comment UI, not by this PDF form.
-    expect(appearanceStream).toBe('');
+    // Native sticky notes use the PDF /Text annotation and leave appearance
+    // generation to the viewer. They must not carry the legacy blank form.
+    expect(match.annotationObject).not.toMatch(/\/AP(?:\s|$)/u);
+    expect(match.annotationObject).toMatch(/\/Name\s*\/Note(?:\s|$)/u);
     expect(qpdfDictionaryContainsText(match.annotationObject, 'Contents', expectedText)).toBe(true);
     expect(match.annotationObject).toMatch(/\/NM\s*(?:\(|<)/u);
     return {
         annotation: match.annotation,
         annotationObject: match.annotationObject,
-        appearanceRef,
         name: match.annotation.name,
         popup,
         rect,

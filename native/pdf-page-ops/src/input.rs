@@ -82,14 +82,18 @@ pub(crate) fn read_note_text_updates(path: &Path) -> Result<Vec<NoteTextUpdate>>
     Ok(parsed.updates)
 }
 
-pub(crate) fn validate_free_text_notes(notes: &[FreeTextNote]) -> Result<()> {
+pub(crate) fn validate_text_notes(notes: &[TextNote]) -> Result<()> {
     for note in notes {
         if note.stable_key.trim().is_empty() {
-            return Err("Invalid FreeText note stable key".into());
+            return Err("Invalid text note stable key".into());
         }
         validate_marker_rect(note.marker_rect)?;
     }
     Ok(())
+}
+
+pub(crate) fn validate_free_text_notes(notes: &[FreeTextNote]) -> Result<()> {
+    validate_text_notes(notes)
 }
 
 pub(crate) fn validate_free_text_editors(editors: &[FreeTextEditor]) -> Result<()> {
@@ -175,6 +179,7 @@ pub(crate) fn read_note_changes(path: &Path) -> Result<NoteChangesFile> {
     let parsed: NoteChangesFile = read_json_sidecar(path, "note changes")?;
     if parsed.updates.is_empty()
         && parsed.geometry_updates.is_empty()
+        && parsed.notes.is_empty()
         && parsed.free_text_notes.is_empty()
         && parsed.deletes.is_empty()
     {
@@ -186,17 +191,23 @@ pub(crate) fn read_note_changes(path: &Path) -> Result<NoteChangesFile> {
         }
     }
     validate_note_geometry_updates(&parsed.geometry_updates)?;
+    validate_text_notes(&parsed.notes)?;
     validate_free_text_notes(&parsed.free_text_notes)?;
+    let note_count = parsed
+        .notes
+        .len()
+        .saturating_add(parsed.free_text_notes.len());
     validate_note_change_caps(
         parsed.updates.len(),
         parsed.geometry_updates.len(),
-        parsed.free_text_notes.len(),
+        note_count,
         parsed.deletes.len(),
     )?;
     validate_annotation_deletes(&parsed.deletes)?;
     validate_mutation_collection_budget(&[
         parsed.updates.len(),
         parsed.geometry_updates.len(),
+        parsed.notes.len(),
         parsed.free_text_notes.len(),
         parsed.deletes.len(),
     ])?;
@@ -557,6 +568,7 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
     let parsed: NativeMutationsFile = read_json_sidecar(path, "native PDF mutations")?;
     if parsed.updates.is_empty()
         && parsed.geometry_updates.is_empty()
+        && parsed.notes.is_empty()
         && parsed.free_text_notes.is_empty()
         && parsed.free_text_editors.is_empty()
         && parsed.deletes.is_empty()
@@ -575,13 +587,18 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
         }
     }
     validate_note_geometry_updates(&parsed.geometry_updates)?;
+    validate_text_notes(&parsed.notes)?;
     validate_free_text_notes(&parsed.free_text_notes)?;
     validate_free_text_editors(&parsed.free_text_editors)?;
     validate_annotation_deletes(&parsed.deletes)?;
+    let note_count = parsed
+        .notes
+        .len()
+        .saturating_add(parsed.free_text_notes.len());
     validate_note_change_caps(
         parsed.updates.len(),
         parsed.geometry_updates.len(),
-        parsed.free_text_notes.len(),
+        note_count,
         parsed.deletes.len(),
     )?;
     if parsed.free_text_editors.len() > MAX_FREE_TEXT_EDITORS {
@@ -606,6 +623,7 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
     validate_mutation_collection_budget(&[
         parsed.updates.len(),
         parsed.geometry_updates.len(),
+        parsed.notes.len(),
         parsed.free_text_notes.len(),
         parsed.free_text_editors.len(),
         parsed.deletes.len(),
@@ -642,6 +660,7 @@ fn count_native_mutation_items(mutations: &NativeMutationsFile) -> usize {
 
     add(mutations.updates.len());
     add(mutations.geometry_updates.len());
+    add(mutations.notes.len());
     add(mutations.free_text_notes.len());
     add(mutations.free_text_editors.len());
     add(mutations.deletes.len());
@@ -689,7 +708,7 @@ fn validate_native_mutation_collection_budget(mutations: &NativeMutationsFile) -
 fn validate_note_change_caps(
     updates: usize,
     geometry_updates: usize,
-    free_text_notes: usize,
+    text_notes: usize,
     deletes: usize,
 ) -> Result<()> {
     if updates > MAX_NOTE_TEXT_UPDATES {
@@ -704,7 +723,7 @@ fn validate_note_change_caps(
             format!("Too many note geometry updates (maximum {MAX_NOTE_GEOMETRY_UPDATES})"),
         ));
     }
-    if free_text_notes > MAX_NOTE_CHANGES || deletes > MAX_NOTE_CHANGES {
+    if text_notes > MAX_NOTE_CHANGES || deletes > MAX_NOTE_CHANGES {
         return Err(domain_error(
             NativeErrorCode::TooLarge,
             format!("Too many note changes (maximum {MAX_NOTE_CHANGES} per family)"),
@@ -712,7 +731,7 @@ fn validate_note_change_caps(
     }
     let total = updates
         .checked_add(geometry_updates)
-        .and_then(|value| value.checked_add(free_text_notes))
+        .and_then(|value| value.checked_add(text_notes))
         .and_then(|value| value.checked_add(deletes))
         .unwrap_or(usize::MAX);
     if total > MAX_NOTE_CHANGES {
@@ -754,6 +773,7 @@ fn validate_native_mutation_continuation(mutations: &NativeMutationsFile) -> Res
         NativeMutationContinuationFamily::Notes => {
             !mutations.updates.is_empty()
                 || !mutations.geometry_updates.is_empty()
+                || !mutations.notes.is_empty()
                 || !mutations.free_text_notes.is_empty()
                 || !mutations.deletes.is_empty()
         }
@@ -799,6 +819,16 @@ fn validate_note_changes_text_budget(changes: &NoteChangesFile) -> Result<()> {
     for update in &changes.updates {
         consume_text_bytes(&mut total, &update.text)?;
     }
+    for note in &changes.notes {
+        consume_text_bytes(&mut total, &note.stable_key)?;
+        consume_text_bytes(&mut total, &note.text)?;
+        for value in [note.author.as_deref(), note.color.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            consume_text_bytes(&mut total, value)?;
+        }
+    }
     for note in &changes.free_text_notes {
         consume_text_bytes(&mut total, &note.stable_key)?;
         consume_text_bytes(&mut total, &note.text)?;
@@ -835,6 +865,16 @@ fn validate_native_mutation_text_budget(mutations: &NativeMutationsFile) -> Resu
     let mut total = 0usize;
     for update in &mutations.updates {
         consume_text_bytes(&mut total, &update.text)?;
+    }
+    for note in &mutations.notes {
+        consume_text_bytes(&mut total, &note.stable_key)?;
+        consume_text_bytes(&mut total, &note.text)?;
+        for value in [note.author.as_deref(), note.color.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            consume_text_bytes(&mut total, value)?;
+        }
     }
     for note in &mutations.free_text_notes {
         consume_text_bytes(&mut total, &note.stable_key)?;

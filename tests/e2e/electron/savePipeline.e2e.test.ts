@@ -399,7 +399,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             reloadKind: 'path',
             reloadPath: sourceState.workingCopyPath,
         });
-        expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBeGreaterThan(0);
+        expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.Text ?? 0).toBeGreaterThan(0);
 
         await createDirtyStickyNote(session.page);
         expect((await captureCommittedCanvasForSaveContinuity(session.page)).rendered).toBe(true);
@@ -409,7 +409,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         const secondSaveVisualTrace = await stopSaveVisualContinuitySampler(session.page);
         expectVisiblePdfPagesStayedPainted(secondSaveVisualTrace);
         await expectCommittedCanvasSurvivedSave(session.page);
-        expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBeGreaterThan(1);
+        expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.Text ?? 0).toBeGreaterThan(1);
 
         const navigated = await callWorkspaceCommand(session.page, 'handleGoToPage', [2]);
         expect(navigated.called).toBe(true);
@@ -489,7 +489,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
                 initialOpenPaths: [pdfPath],
             });
             await waitForOpenedPdf(session.page, pdfPath);
-            expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBe(0);
+            expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.Text ?? 0).toBe(0);
         },
         E2E_TIMEOUT_MS,
     );
