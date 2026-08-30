@@ -1,0 +1,23 @@
+tests/unit/electron/scanCleanupDetection.test.ts
+  s_0a22255c3393fd::t_7d8dfcd27d5546 203-205,508-509,513,606-607,610
+  s_0a22255c3393fd::t_6d4600cb44020f 514-515
+scan-cleanup-core/detection.ts
+  s_0a22255c3393fd::t_bf642a39f31003 764-767
+  s_0a22255c3393fd::t_79ad80d4b75677 599-602
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d37c10451b11a772b27f64b81689e3f29e4a8249",
+  "prompts": {},
+  "sessions": {
+    "s_0a22255c3393fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0508f-515a-7261-9f0a-ced43b4eae7a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
