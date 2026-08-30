@@ -1,0 +1,26 @@
+app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel.ts
+  s_b2ece6dfe48478::t_12e5319ed39482 69-74,76
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_b2ece6dfe48478::t_f7642d26c7e143 356-367,958
+  s_b2ece6dfe48478::t_13a1ed1a46ca17 55-57
+  s_b2ece6dfe48478::t_f2883d27cd875b 877-895
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel.test.ts
+  s_b2ece6dfe48478::t_e13e36a1b17a21 118,151-163
+  s_b2ece6dfe48478::t_e91105fe666345 119-150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "14b986201b6dd5b29215a9ac2327a882c2c823e3",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
