@@ -131,7 +131,7 @@ function createToolStateOptions(uiManager: ReturnType<typeof createUiManager>, o
         forgetCanonicalMarkupSubtypeIntents: (externalIds: readonly string[]) => {
             externalIds.forEach(id => pendingSubtypes.delete(id));
         },
-        getFreeTextResize: () => ({ patchResizableFreeTextEditors: vi.fn() }),
+        getFreeTextResize: () => ({ ensureFreeTextEditorCanResize: vi.fn() }),
         emitAnnotationToolAutoReset: vi.fn(),
         ...overrides,
     };
@@ -237,26 +237,32 @@ describe('useAnnotationToolState', () => {
         expect(uiManager.updateMode).toHaveBeenCalledWith(manager.getAnnotationMode('draw'));
     });
 
-    it('patches FreeText editors after a stable tool switch completes', async () => {
+    it('patches mounted FreeText editors after a stable tool switch completes', async () => {
         const useAnnotationToolState = await loadUseAnnotationToolState();
-        const uiManager = createUiManager();
-        const patchResizableFreeTextEditors = vi.fn();
-        const manager = useAnnotationToolState(createToolStateOptions(uiManager, {getFreeTextResize: () => ({patchResizableFreeTextEditors})}));
+        const editor = {id: 'mounted-editor'};
+        const uiManager = createUiManager({getEditors: vi.fn(() => [editor])});
+        const ensureFreeTextEditorCanResize = vi.fn();
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
+            getMountedPageNumbers: () => [1],
+            getFreeTextResize: () => ({ensureFreeTextEditorCanResize}),
+        }));
 
         manager.applyAnnotationSettings(createAnnotationSettings());
-        patchResizableFreeTextEditors.mockClear();
+        ensureFreeTextEditorCanResize.mockClear();
         await manager.setAnnotationTool('text');
 
-        expect(patchResizableFreeTextEditors).toHaveBeenCalledOnce();
-        expect(patchResizableFreeTextEditors).toHaveBeenCalledWith(uiManager);
+        expect(ensureFreeTextEditorCanResize).toHaveBeenCalled();
     });
 
     it('does not patch or configure a captured manager after document identity changes', async () => {
         const useAnnotationToolState = await loadUseAnnotationToolState();
         const modeUpdate = Promise.withResolvers<undefined>();
         const uiManager = createUiManager({updateMode: vi.fn(() => modeUpdate.promise)});
-        const patchResizableFreeTextEditors = vi.fn();
-        const options = createToolStateOptions(uiManager, {getFreeTextResize: () => ({patchResizableFreeTextEditors})});
+        const ensureFreeTextEditorCanResize = vi.fn();
+        const options = createToolStateOptions(uiManager, {
+            getMountedPageNumbers: () => [1],
+            getFreeTextResize: () => ({ensureFreeTextEditorCanResize}),
+        });
         const manager = useAnnotationToolState(options);
 
         const update = manager.setAnnotationTool('text');
@@ -265,7 +271,7 @@ describe('useAnnotationToolState', () => {
         modeUpdate.resolve(undefined);
         await update;
 
-        expect(patchResizableFreeTextEditors).not.toHaveBeenCalled();
+        expect(ensureFreeTextEditorCanResize).not.toHaveBeenCalled();
     });
 
     it('does not retry a captured manager after the current UI manager changes', async () => {

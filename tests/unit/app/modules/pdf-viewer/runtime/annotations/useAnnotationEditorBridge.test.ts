@@ -202,10 +202,7 @@ async function createBridgeHarness(
             enforceHighlightDefaultsForNewEditor: vi.fn(),
         }),
         getMarkupSubtype: () => markupSubtype,
-        getFreeTextResize: () => ({
-            ensureFreeTextEditorCanResize: vi.fn(),
-            patchResizableFreeTextEditors: vi.fn(),
-        }),
+        getFreeTextResize: () => ({ensureFreeTextEditorCanResize: vi.fn()}),
         emitAnnotationModified,
         emitAnnotationState,
         emitAnnotationOpenNote,

@@ -103,7 +103,7 @@ interface IUseAnnotationToolStateOptions {
     resolveCanonicalMarkupSubtype: (externalIds: readonly string[]) => TMarkupSubtype | null;
     forgetCanonicalMarkupSubtypeIntents: (externalIds: readonly string[]) => void;
     clearCanonicalMarkupSubtypeIntents: () => void;
-    getFreeTextResize: () => {patchResizableFreeTextEditors: (mgr: AnnotationEditorUIManager) => void;};
+    getFreeTextResize: () => {ensureFreeTextEditorCanResize: (editor: IPdfjsEditor) => void;};
     emitAnnotationToolAutoReset: () => void;
 }
 
@@ -533,7 +533,18 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         applyToolbarDefaultParam(uiManager, AnnotationEditorParamsType.INK_THICKNESS, settings.inkThickness);
         applyToolbarDefaultParam(uiManager, AnnotationEditorParamsType.FREETEXT_COLOR, settings.textColor);
         applyToolbarDefaultParam(uiManager, AnnotationEditorParamsType.FREETEXT_SIZE, settings.textSize);
-        getFreeTextResize().patchResizableFreeTextEditors(uiManager);
+        const ensureFreeTextEditorCanResize = getFreeTextResize().ensureFreeTextEditorCanResize;
+        const mountedPageIndexes = resolveMountedPageIndexes();
+        const visitedPageIndexes = new Set<number>();
+        for (const pageIndex of mountedPageIndexes) {
+            if (!Number.isSafeInteger(pageIndex) || pageIndex < 0 || visitedPageIndexes.has(pageIndex)) {
+                continue;
+            }
+            visitedPageIndexes.add(pageIndex);
+            for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
+                ensureFreeTextEditorCanResize(editor);
+            }
+        }
     }
 
     async function waitForEditorsRenderedBeforeModeRetry(

@@ -37,6 +37,7 @@ import {
     createPdfjsGenericL10n,
     createPdfjsUiManager,
     getEditorConstructor,
+    getActiveEditor,
     getEditorsOnPage,
     getPdfjsEditorCompatibilityRuntime,
     getPdfjsEditorFacadeState,
@@ -127,10 +128,7 @@ interface IEditorBridgeDeps {
         ) => void;
         clearOverrides: () => void;
     };
-    getFreeTextResize: () => {
-        ensureFreeTextEditorCanResize: (editor: IPdfjsEditor) => void;
-        patchResizableFreeTextEditors: (mgr: TAnnotationEditorUIManager) => void;
-    };
+    getFreeTextResize: () => {ensureFreeTextEditorCanResize: (editor: IPdfjsEditor) => void;};
     emitAnnotationModified: (payload?: IAnnotationModifiedPayload) => void;
     emitAnnotationState: (patch: Partial<IPdfjsAnnotationEditorState>) => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
@@ -212,7 +210,10 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         emitAnnotationModified();
         getCommentSync().scheduleAnnotationCommentsSync();
         const manager = annotationUiManager.value;
-        if (manager) getFreeTextResize().patchResizableFreeTextEditors(manager);
+        const activeEditor = manager ? asPdfjsEditor(getActiveEditor(manager)) : null;
+        if (activeEditor) {
+            getFreeTextResize().ensureFreeTextEditorCanResize(activeEditor);
+        }
     });
     const annotationEditorCompatibilityAdapter = createPdfAnnotationEditorCompatibilityAdapter({
         failInDev: import.meta.dev,

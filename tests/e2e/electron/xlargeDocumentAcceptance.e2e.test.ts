@@ -285,6 +285,25 @@ interface IRendererLongTaskProbeWindow extends Window {
     __evbXlargeLongTaskObserver?: PerformanceObserver;
 }
 
+interface IRendererPlacementSampling {
+    annotationEditorLayerCount: number;
+    annotationLayerCount: number;
+    animationFrameSampleCount: number;
+    domMutationCount: number;
+    maxAnimationFrameGapMs: number;
+}
+
+interface IRendererPlacementSamplingState {
+    animationFrameId: number;
+    lastAnimationFrameAt: number;
+    maxAnimationFrameGapMs: number;
+    animationFrameSampleCount: number;
+    domMutationCount: number;
+    mutationObserver: MutationObserver | null;
+}
+
+interface IRendererPlacementSamplingWindow extends Window {__evbXlargePlacementSampling?: IRendererPlacementSamplingState;}
+
 interface IRendererRssSample {
     atMs: number;
     electronBytes: number | null;
@@ -363,6 +382,7 @@ interface IXlargeAcceptanceTelemetry {
         stage: string
     }>;
     rendererLongTasks: IRendererLongTask[];
+    rendererPlacementSampling: IRendererPlacementSampling | null;
     windowHosting: {
         automationHideWindow: string | null;
         automationNoFocus: string | null;
@@ -407,6 +427,7 @@ function createTelemetry(): IXlargeAcceptanceTelemetry {
         phases: [],
         heartbeats: [],
         rendererLongTasks: [],
+        rendererPlacementSampling: null,
         windowHosting: {
             automationHideWindow: process.env.EVB_AUTOMATION_HIDE_WINDOW ?? null,
             automationNoFocus: process.env.EVB_AUTOMATION_NO_FOCUS ?? null,
@@ -890,6 +911,58 @@ async function readRendererLongTaskProbe(page: Page) {
         const target = window as IRendererLongTaskProbeWindow;
         target.__evbXlargeLongTaskObserver?.disconnect();
         return target.__evbXlargeLongTasks ?? [];
+    });
+}
+
+async function startRendererPlacementSampling(page: Page) {
+    await page.evaluate(() => {
+        const target = window as IRendererPlacementSamplingWindow;
+        const startedAt = performance.now();
+        const state = {
+            animationFrameId: 0,
+            lastAnimationFrameAt: startedAt,
+            maxAnimationFrameGapMs: 0,
+            animationFrameSampleCount: 0,
+            domMutationCount: 0,
+            mutationObserver: typeof MutationObserver === 'function' ? new MutationObserver((records) => {
+                state.domMutationCount += records.length;
+            }) : null,
+        };
+        state.mutationObserver?.observe(document.body, {
+            attributes: true,
+            childList: true,
+            subtree: true,
+        });
+        const sampleAnimationFrame = (at: number) => {
+            state.maxAnimationFrameGapMs = Math.max(
+                state.maxAnimationFrameGapMs,
+                at - state.lastAnimationFrameAt,
+            );
+            state.lastAnimationFrameAt = at;
+            state.animationFrameSampleCount += 1;
+            state.animationFrameId = window.requestAnimationFrame(sampleAnimationFrame);
+        };
+        state.animationFrameId = window.requestAnimationFrame(sampleAnimationFrame);
+        target.__evbXlargePlacementSampling = state;
+    });
+}
+
+async function readRendererPlacementSampling(page: Page) {
+    return page.evaluate(() => {
+        const target = window as IRendererPlacementSamplingWindow;
+        const state = target.__evbXlargePlacementSampling;
+        if (!state) {
+            throw new Error('Xlarge renderer placement sampling probe is unavailable');
+        }
+        window.cancelAnimationFrame(state.animationFrameId);
+        state.mutationObserver?.disconnect();
+        return {
+            animationFrameSampleCount: state.animationFrameSampleCount,
+            annotationEditorLayerCount: document.querySelectorAll('.annotation-editor-layer, .annotationEditorLayer').length,
+            annotationLayerCount: document.querySelectorAll('.annotation-layer, .annotationLayer').length,
+            domMutationCount: state.domMutationCount,
+            maxAnimationFrameGapMs: Math.round(state.maxAnimationFrameGapMs * 10) / 10,
+        } satisfies IRendererPlacementSampling;
     });
 }
 
@@ -1534,6 +1607,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             });
             await waitForRenderedPage(sessionB.page, XLARGE_MIDDLE_PAGE, XLARGE_SAVE_TIMEOUT_MS);
             await openAnnotationsTab(sessionB.page, XLARGE_SAVE_TIMEOUT_MS);
+            await startRendererPlacementSampling(sessionB.page);
             const freeTextOne = `xlarge ordinary freetext one ${Date.now()}`;
             const freeTextTwo = `xlarge ordinary freetext two ${Date.now()}`;
             await startRendererLongTaskProbe(sessionB.page);
@@ -1565,6 +1639,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 ),
             );
             expect(secondEditorCount).toBeGreaterThan(firstEditorCount);
+            telemetry.rendererPlacementSampling = await readRendererPlacementSampling(sessionB.page);
             // Prove the ordinary FreeText path owns its own dirty frontier.
             // The popup note below must not mask a missing editor commit.
             await waitForSaveFrontierReady(sessionB.page, 30_000);
@@ -1772,12 +1847,10 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 ...rssB,
             });
             activeRssSampler = null;
-            const policyHeartbeatStages = new Set(['save-before-fresh-renderer-reopen']);
             for (const heartbeat of telemetry.heartbeats) {
                 expect(heartbeat.sampleCount).toBeGreaterThan(0);
-                if (policyHeartbeatStages.has(heartbeat.stage)) {
-                    expect(heartbeat.maxGapMs).toBeLessThan(XLARGE_HEARTBEAT_MAX_GAP_MS);
-                }
+                expect(heartbeat.maxGapMs).toBeLessThan(XLARGE_HEARTBEAT_MAX_GAP_MS);
+                expect(heartbeat.messageChannelMaxGapMs).toBeLessThan(XLARGE_HEARTBEAT_MAX_GAP_MS);
             }
             for (const rss of telemetry.rss) {
                 expect(rss.rendererJsHeapDeltaBytes).not.toBeNull();
