@@ -956,6 +956,23 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.clearPendingImagePlacement).toHaveBeenCalledOnce();
     });
 
+    it('restores the image draft when native placement fails before reload', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        deps.workingCopyPath.value = '/tmp/work.pdf';
+        deps.embedPlacedImageToPage.mockRejectedValueOnce(new Error('native placement failed'));
+
+        await expect(actions.handleFinalizePlacedImage(placedImagePayload(90))).resolves.toBe(false);
+
+        expect(viewer.restorePendingImagePlacement).toHaveBeenCalledOnce();
+        expect(viewer.clearPendingImagePlacement).not.toHaveBeenCalled();
+        expect(deps.loadPdfFromPath).not.toHaveBeenCalled();
+        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
+    });
+
     it.each([
         {
             label: 'clean',

@@ -94,6 +94,7 @@ const mocks = vi.hoisted(() => {
         runNativeToolCommand: vi.fn<(command: string, args: string[]) => Promise<{stdout?: string}>>(
             async (_command: string, _args: string[]) => ({}),
         ),
+        cancelNativeCommandGroup: vi.fn(),
         randomUUID: vi.fn(() => 'print-job-id'),
         ensuredReadablePaths: new Set<string>(),
         ownedReadablePathsBySender: new Map<number, Set<string>>(),
@@ -101,7 +102,7 @@ const mocks = vi.hoisted(() => {
         ensureWorkingCopyDirectory: vi.fn<(path: string, senderId?: number) => Promise<boolean>>(),
         ensureWorkingCopyMaterialized: vi.fn(),
         resolveAllowedReadPath: vi.fn<(path: string) => Promise<string | null>>(async (path: string) => path),
-        extractPages: vi.fn(async () => {}),
+        extractPages: vi.fn(async (..._args: unknown[]) => {}),
         stat: vi.fn<(path: string) => Promise<{
             ctimeMs: number;
             isFile: () => boolean;
@@ -171,7 +172,11 @@ vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
     pdftoppm: '/mock/pdftoppm',
 })}));
 vi.mock('@electron/native-tools/buildPopplerEnv', () => ({buildPopplerEnv: () => undefined}));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({
+    cancelNativeCommandGroup: mocks.cancelNativeCommandGroup,
+    runNativeToolCommand: mocks.runNativeToolCommand,
+}));
+vi.mock('@electron/native-tools/runNativeCommand', () => ({cancelNativeCommandGroup: mocks.cancelNativeCommandGroup}));
 
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     debug: vi.fn(),
@@ -678,6 +683,37 @@ describe('documents print', () => {
         await expect(printPromise).rejects.toMatchObject({message: 'Renderer lifecycle ended'});
         expect(mocks.extractPages).not.toHaveBeenCalled();
         expect(mocks.browserWindowInstances).toHaveLength(0);
+    });
+
+    it('cancels selected-page extraction when the renderer ends during qpdf work', async () => {
+        const extraction = Promise.withResolvers<undefined>();
+        let extractionCancelGroup: string | null = null;
+        mocks.extractPages.mockImplementationOnce(async (...args: unknown[]) => {
+            const options = args[3] as {
+                cancelGroup: string;
+                signal: AbortSignal;
+            };
+            extractionCancelGroup = options.cancelGroup;
+            options.signal.addEventListener('abort', () => extraction.reject(options.signal.reason), {once: true});
+            await extraction.promise;
+        });
+
+        const printPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+            [4],
+        );
+        await vi.waitFor(() => expect(mocks.extractPages).toHaveBeenCalledOnce());
+
+        cancelMainOperationsForOwner(senderId, 'Renderer lifecycle ended');
+
+        await expect(printPromise).rejects.toMatchObject({message: 'Renderer lifecycle ended'});
+        await vi.waitFor(() => expect(mocks.cancelNativeCommandGroup).toHaveBeenCalledOnce());
+        expect(extractionCancelGroup).toEqual(expect.any(String));
+        expect(mocks.cancelNativeCommandGroup).toHaveBeenCalledWith(extractionCancelGroup);
+        expect(mocks.browserWindowInstances).toHaveLength(0);
+        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-pages-print-job-id-source.pdf`);
     });
 
     it('cleans up print resources immediately when native printing fails', async () => {

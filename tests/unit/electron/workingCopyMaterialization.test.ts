@@ -292,6 +292,47 @@ describe('workingCopyMaterialization', () => {
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
     }, MATERIALIZATION_TEST_TIMEOUT_MS);
 
+    it('cancels lazy materialization when its renderer owner disappears', async () => {
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 33));
+        const {cancelMainOperationsForOwner} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        const {
+            ensureWorkingCopyMaterialized,
+            getWorkingCopyMaterializationFlightCountForTests,
+            onWorkingCopyMaterializationProgress,
+        } = await import('@electron/file-access/workingCopyMaterialization');
+        let ownerCancellationRequested = false;
+        const removeProgressListener = onWorkingCopyMaterializationProgress(event => {
+            if (event.phase === 'copying' && event.bytesCopied > 0 && !ownerCancellationRequested) {
+                ownerCancellationRequested = true;
+                cancelMainOperationsForOwner(7, 'Renderer lifecycle ended');
+            }
+        });
+
+        const materialization = ensureWorkingCopyMaterialized(fixture.workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'save',
+        });
+        try {
+            await expect(materialization).rejects.toMatchObject({
+                code: 'WORKING_COPY_MATERIALIZATION_CANCELLED',
+                retryable: true,
+            });
+        } finally {
+            removeProgressListener();
+        }
+
+        await vi.waitFor(() => expect(getWorkingCopyMaterializationFlightCountForTests()).toBe(0));
+        expect(ownerCancellationRequested).toBe(true);
+        expect(existsSync(fixture.workingPath)).toBe(false);
+        expect(materializingArtifacts(fixture.workingPath)).toEqual([]);
+
+        await expect(ensureWorkingCopyMaterialized(fixture.workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'save',
+        })).resolves.toMatchObject({physicalWorkingCopyPath: fixture.workingPath});
+        expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
+    }, MATERIALIZATION_TEST_TIMEOUT_MS);
+
     it('recovers a registration left materializing and a flight already tearing down', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 25));
         const {
