@@ -43,7 +43,10 @@ Three roles, one owner each (terms in `CONTEXT.md`):
   `app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/` are deleted.
   Every annotation of an editable type (text box, highlight, note, stamp,
   shape) is drawn by the editor layer from the store at all times, whatever
-  authored it; the renderer is told to skip them (`noView`). An annotation of
+  authored it; the renderer skips them through the existing render
+  `operationsFilter` and a filtered `AnnotationLayer` list (issue #153 found
+  `noView` only works under `ENABLE_STORAGE`, with side effects). An
+  annotation of
   an editable type the store cannot represent stays renderer-drawn and
   read-only.
 
