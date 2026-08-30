@@ -200,6 +200,9 @@ function createLazyPageSizeStore(pageCount: number, chunkPages = 1_024) {
                 throw new RangeError('invalid synthetic page range');
             }
             const length = lastPageNumberExclusive - firstPageNumber;
+            if (length > chunkPages) {
+                throw new RangeError(`synthetic page range exceeds ${String(chunkPages)} pages`);
+            }
             largestReadRange = Math.max(largestReadRange, length);
             const pages = [] as Array<ReturnType<typeof makePage>>;
             for (let pageNumber = firstPageNumber; pageNumber < lastPageNumberExclusive; pageNumber += 1) {
@@ -502,12 +505,12 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
 
         await expect(result).rejects.toThrow('Canceled');
         expect(manifests).toEqual([
-            SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES,
-            1,
+            1_024,
+            1_024,
         ]);
-        expect(renderPage).toHaveBeenCalledTimes(5);
+        expect(renderPage).toHaveBeenCalledTimes(8);
         expect(pageSizeSource.largestChunk()).toBeLessThanOrEqual(1_024);
-        expect(pageSizeSource.largestReadRange()).toBeLessThanOrEqual(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES);
+        expect(pageSizeSource.largestReadRange()).toBeLessThanOrEqual(1_024);
         expect(pageSizeSource.store.close).toHaveBeenCalledOnce();
     }, 15_000);
 
@@ -598,11 +601,11 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
 
         await expect(result).rejects.toThrow('Canceled');
         expect(manifests).toEqual([
-            SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES,
-            SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES,
+            1_024,
+            1_024,
         ]);
         expect(pageSizeSource.largestChunk()).toBeLessThanOrEqual(1_024);
-        expect(pageSizeSource.largestReadRange()).toBeLessThanOrEqual(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES);
+        expect(pageSizeSource.largestReadRange()).toBeLessThanOrEqual(1_024);
         expect(pageSizeSource.store.close).toHaveBeenCalledOnce();
     }, 30_000);
 

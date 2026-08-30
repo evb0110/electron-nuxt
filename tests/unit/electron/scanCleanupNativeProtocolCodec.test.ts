@@ -213,6 +213,23 @@ describe('scan-cleanup native protocol codec', () => {
         }
     });
 
+    it('accepts global source page numbers in bounded batch progress', () => {
+        expect(decodeNativeScanCleanupEnvelope(JSON.stringify({
+            version: 3,
+            type: 'progress',
+            progress: {
+                stage: 'page-input-required',
+                completedPages: 0,
+                totalPages: 1_024,
+                pageNumber: 1_025,
+            },
+        }))).toMatchObject({progress: {
+            stage: 'page-input-required',
+            pageNumber: 1_025,
+            totalPages: 1_024,
+        }});
+    });
+
     it('rejects an invalid spread prior without a cutter median', () => {
         expect(() => decodeNativeScanCleanupEnvelope(JSON.stringify({
             version: 3,

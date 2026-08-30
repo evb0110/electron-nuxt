@@ -763,7 +763,10 @@ async function runBatchedScanCleanupDetection<TDocument>(
     }, documentCanvasSignature());
     publishRasterizing();
 
-    for (const batch of iterateScanCleanupPageBatches(pageScope.length)) {
+    for (const batch of iterateScanCleanupPageBatches(
+        pageScope.length,
+        SCAN_CLEANUP_STREAMING_BATCH_PAGES,
+    )) {
         signal.throwIfAborted();
         const batchPageNumbers = collectScanCleanupPageScopeBatch(pageScope, batch);
         const batchPageSet = new Set(batchPageNumbers);

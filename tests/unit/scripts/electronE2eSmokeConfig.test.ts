@@ -133,7 +133,10 @@ const electronE2ENativeSaveReopenTestFiles = [
     'tests/e2e/electron/nativeSaveReopen.e2e.test.ts',
     'tests/e2e/electron/compactPageLabelsStructuralOperations.e2e.test.ts',
 ];
-const electronE2EXlargePdfTestFiles = ['tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts'];
+const electronE2EXlargePdfTestFiles = [
+    'tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts',
+    'tests/e2e/electron/scanCleanupXlargeAcceptance.e2e.test.ts',
+];
 
 let importNonce = 0;
 
