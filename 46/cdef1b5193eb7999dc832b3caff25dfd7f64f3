@@ -1,0 +1,21 @@
+electron/utils/printHandoff.ts
+  s_b2ece6dfe48478::t_a862eb764c4ff4 515-517,547,712-713,716-717
+tests/unit/electron/documentsPrint.test.ts
+  s_b2ece6dfe48478::t_c5ac643a0708b2 52,365-366,368-371,373-374
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "46cdef1b5193eb7999dc832b3caff25dfd7f64f3",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
