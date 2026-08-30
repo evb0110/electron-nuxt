@@ -72,11 +72,12 @@ function isCurrentMarkupHint(hint: IMarkupSubtypeHint, keys: Set<string>) {
         || hasCurrentMarkupTargetKey(keys, hint.id);
 }
 
-function isRetiredPdfRefForEditorMarkup(
-    hint: IMarkupSubtypeHint,
+function isRetiredPdfRefForEditorMarkupAlias(
+    annotationId: string | null | undefined,
     currentMarkupHints: IMarkupSubtypeHint[],
+    aliases: Array<string | null | undefined> = [],
 ) {
-    if (!parsePdfJsAnnotationRef(hint.annotationId)) {
+    if (!parsePdfJsAnnotationRef(annotationId)) {
         return false;
     }
     return currentMarkupHints.some(current => {
@@ -84,14 +85,27 @@ function isRetiredPdfRefForEditorMarkup(
             return false;
         }
         return [
-            hint.appAnnotationId,
-            hint.id,
-            hint.annotationId,
+            annotationId,
+            ...aliases,
         ].some(candidate => (
             areMarkupTargetIdentitiesEqual(candidate, current.appAnnotationId)
             || areMarkupTargetIdentitiesEqual(candidate, current.id)
         ));
     });
+}
+
+function isRetiredPdfRefForEditorMarkup(
+    hint: IMarkupSubtypeHint,
+    currentMarkupHints: IMarkupSubtypeHint[],
+) {
+    return isRetiredPdfRefForEditorMarkupAlias(
+        hint.annotationId,
+        currentMarkupHints,
+        [
+            hint.appAnnotationId,
+            hint.id,
+        ],
+    );
 }
 
 function isNativeMarkupHintEligible(hint: IMarkupSubtypeHint) {
@@ -165,6 +179,7 @@ export function buildNativeMarkupMutationForSave(opts: {
             id.trim().length > 0
             && isNativeMarkupSubtype(subtype)
             && hasCurrentMarkupTargetKey(currentMarkupTargetKeys, id)
+            && !isRetiredPdfRefForEditorMarkupAlias(id, currentMarkupHints)
         ) {
             overrides.push([
                 id.trim(),

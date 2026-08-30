@@ -440,6 +440,51 @@ describe('native markup builders', () => {
         }));
     });
 
+    it('drops a retired PDF override when an undone markup is editor-owned', () => {
+        const markerRect = {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.4,
+        };
+        const mutation = buildNativeMarkupMutationForSave({
+            canonicalComments: [createComment({
+                appAnnotationId: 'app-markup-1',
+                id: '9R',
+                stableKey: 'src:editor:0:9R',
+                subtype: 'Highlight',
+                source: 'editor',
+                annotationId: null,
+                markerRect,
+            })],
+            annotationWorkDirty: true,
+            markupSubtypeOverrides: new Map<string, TMarkupSubtype>([[
+                '9R0',
+                'Underline',
+            ]]),
+            markupSubtypeHints: [{
+                appAnnotationId: 'app-markup-1',
+                subtype: 'Highlight',
+                pageIndex: 0,
+                markerRect,
+                annotationId: '9R0',
+                color: '#ffee00',
+                id: 'pdfjs_saved_highlight_undo',
+                pageMarkupIndex: 0,
+                source: 'editor-live',
+                consumed: false,
+            }],
+        });
+
+        expect(mutation?.overrides).toEqual([]);
+        expect(mutation?.hints).toContainEqual(expect.objectContaining({
+            appAnnotationId: 'app-markup-1',
+            id: '9R',
+            annotationId: null,
+            source: 'editor',
+        }));
+    });
+
     it('drops stale markup hints and overrides that no longer match current markup comments', () => {
         const markerRect = {
             left: 0.1,
